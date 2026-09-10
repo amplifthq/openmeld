@@ -256,6 +256,23 @@ model forces `owner: User | Org` unions through every permission check and
 makes personal→org growth a painful resource migration. Rejected in
 discussion; do not reintroduce it.
 
+Center Agent ownership follows this tenant model in both collaborative
+Organizations and Personal Workspaces. The managed Profile and hosted Binding
+belong to the Organization; `ownerUserId` is null. `createdByUserId`,
+`designatedBy`, and `pausedByUserId` are nullable audit attribution, not ownership
+or authority. Deleting or removing a creating member must preserve the Profile,
+designation, Binding, configuration, and history. Personal Agents remain owned
+by their users within one Organization.
+
+Management permission does not grant access to private Spaces, other members'
+Center Agent DMs, private memory, tasks, or App credentials. Center Agent Space
+membership cannot confer personal access on an administrator or creator. Native
+tool calls identify the Center Agent itself; actions on behalf of a person must
+carry separately verified member attribution.
+
+Migration, persisted Space access, and cross-client release constraints are
+owned by [Organization Agent ownership](../architecture/organization-agent-ownership.md).
+
 ### Naming: `organization` is the tenant — never "team"
 
 The tenant is named **organization** (informally "org") across code, DB, API,
@@ -559,10 +576,9 @@ The Center Agent has one Web product home with complementary destinations:
   settings, while Slack management lives in Channels.
 - **Center Agent → Center Agent settings** is the only Center Agent management
   page. It contains model information, usage, the Audit Log, and the reversible
-  **Pause Center Agent** control in Danger Zone. Only the immutable Organization
-  creator may pause or resume it; Web and Core both enforce that exact creator
-  identity. Owners/admins may retain their separately authorized configuration
-  actions, but role alone never grants operating-state authority.
+  **Pause Center Agent** control in Danger Zone. Current Organization owners and
+  admins may pause or resume it. Web and Core enforce the same current membership
+  permission. Creation history grants no additional authority.
 
 ### Center Agent sessions
 
@@ -1002,7 +1018,7 @@ center_agent_designations(
   designatedBy,       -- member who designated
   operatingState,     -- active | paused
   pausedAt,           -- NULL while active
-  pausedByUserId,     -- immutable Organization creator while paused
+  pausedByUserId,     -- audit actor; may become NULL after account deletion
   createdAt
 )
 UNIQUE (organizationId)   -- MVP: exactly one Center Agent per org
@@ -1033,11 +1049,9 @@ UNIQUE (organizationId)   -- MVP: exactly one Center Agent per org
 - `active` and `paused` are the only Center Agent operating states. Operating
   state belongs to the designation; it is not profile status, Binding health,
   Channel connection state, or Routine status.
-- Only the immutable Organization creator recorded as
-  `organizations.createdByUserId` may pause or resume the Center Agent. Current
-  `owner` or `admin` role is not equivalent to creator authority. Existing
-  Organizations are backfilled from their earliest owner membership; missing
-  creator evidence fails closed and exposes no mutation authority.
+- Current Organization owners and admins may pause or resume the Center Agent
+  using their Human Profile and the `centerAgent.update` permission. Creation
+  history does not grant lasting management authority.
 - Pause is an Organization-wide emergency control. It requests cancellation
   of every current Center Agent native delivery across OpenMeld, Slack, and
   connected Message Channels, including Routine work, and rejects every new
@@ -1068,8 +1082,7 @@ UNIQUE (organizationId)   -- MVP: exactly one Center Agent per org
 Every Organization member may read the Center Agent's effective model and ask
 the Center Agent which primary model it is using. Only a current owner or admin
 may update the model through the shared Better Auth `centerAgent:update`
-permission. This mutation authority is intentionally different from the
-immutable Organization creator's exclusive Pause/Resume authority.
+permission. Pause/Resume uses the same current-role authority.
 
 The hosted Binding is the single configuration owner. Its nullable `modelId`
 has two meanings:

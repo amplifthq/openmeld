@@ -13,6 +13,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { cn } from "@openmeld/ui/lib/utils";
 import { StopIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
@@ -125,8 +126,10 @@ export function SpaceWakeStopControl(input: {
 			<Button
 				aria-label={controlLabel}
 				className={cn(
-					"text-muted-foreground hover:text-foreground",
-					variant === "timeline" ? "gap-1 px-1.5" : null
+					variant === "timeline" && surfaceClasses(2),
+					variant === "timeline"
+						? "rounded-full px-1.5 py-0 text-foreground max-lg:min-h-0 max-lg:min-w-0"
+						: "text-muted-foreground hover:text-foreground"
 				)}
 				disabled={disabled}
 				onClick={() => {

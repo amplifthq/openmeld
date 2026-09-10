@@ -296,6 +296,7 @@ async function readSpaceContinuityEntryDrafts(input: {
         text: entry.content.text,
         truncated: entry.content.truncated,
       },
+      ...(entry.reactions ? { reactions: entry.reactions } : {}),
       occurredAt: entry.occurredAt,
       source: {
         kind: "space_signal" as const,
@@ -319,7 +320,9 @@ function buildContinuityRequestContext(
         request.conversationIdentity?.kind === "personal_agent"
           ? HOSTED_REMOTE_AGENT_CONTROLLER_REF
           : HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      ownerUserId: request.agentProfileOwnerUserId,
+      ...(request.agentProfileOwnerUserId
+        ? { ownerUserId: request.agentProfileOwnerUserId }
+        : {}),
       profileKind: "agent",
       profileName: request.turnEnvelope.centerAgent.profileName,
       requestId: `remote-agent-continuity-${request.dispatchId}`,
@@ -388,7 +391,14 @@ async function boundContinuityEntries(
       ...draft,
       content: {
         ...draft.content,
-        materializedContentHash: await sha256(draft.content.text),
+        materializedContentHash: await sha256(
+          draft.reactions
+            ? JSON.stringify({
+                text: draft.content.text,
+                reactions: draft.reactions,
+              })
+            : draft.content.text
+        ),
       },
     }))
   );

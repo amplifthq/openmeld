@@ -396,9 +396,9 @@ describe("Agent Profile creation request RPC", () => {
         context: {
           activeOrganizationId: fixture.organizationId,
           actorContext: {
-            callerPrincipalId: fixture.requesterUserId,
+            agentControllerRef: "hosted:center-agent",
+            callerPrincipalId: fixture.centerAgentProfileId,
             openMeldProfileId: fixture.centerAgentProfileId,
-            ownerUserId: fixture.requesterUserId,
             profileKind: "agent",
             profileName: "Center Agent",
             requestId: `center-request-${fixture.suffix}`,
@@ -815,14 +815,13 @@ async function seedFixture() {
           profile_id, profile_name, profile_handle, profile_kind, is_default,
           status, organization_id, owner_user_id, created_by_user_id, source,
           managed_role, created_at, updated_at
-        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?,
+        ) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?,
           'auth_bootstrap', 'center_agent', ?, ?)
       `
     ).bind(
       centerAgentProfileId,
       `center-agent-${suffix}`,
       organizationId,
-      requesterUserId,
       requesterUserId,
       nowMs,
       nowMs

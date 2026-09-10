@@ -17,6 +17,10 @@ export function useSpaceComposerFiles(input: {
 	spaceId: string;
 }) {
 	const [files, setFiles] = useState<SpaceComposerFile[]>([]);
+	const [submittingIds, setSubmittingIds] = useState<ReadonlySet<string>>(
+		new Set()
+	);
+	const submittingFilesRef = useRef<SpaceComposerFile[]>([]);
 	const filesRef = useRef<SpaceComposerFile[]>([]);
 	const activeFileIdsRef = useRef(new Set<string>());
 	const previewUrlsByLocalIdRef = useRef(new Map<string, string>());
@@ -188,8 +192,21 @@ export function useSpaceComposerFiles(input: {
 		[input.organizationSlug, input.profileId, input.spaceId, updateFiles]
 	);
 
+	const beginSubmission = useCallback(() => {
+		const submitted = filesRef.current.filter(
+			(file) => file.status === "ready"
+		);
+		submittingFilesRef.current = submitted;
+		setSubmittingIds(new Set(submitted.map((file) => file.localId)));
+		return submitted;
+	}, []);
+	const finishSubmission = useCallback(() => {
+		submittingFilesRef.current = [];
+		setSubmittingIds(new Set());
+	}, []);
+
 	const publishReadyFiles = useCallback(async () => {
-		const readyFiles = filesRef.current.filter(
+		const readyFiles = submittingFilesRef.current.filter(
 			(file) => file.status === "ready" && file.upload !== null
 		);
 		const published = await Promise.all(
@@ -222,9 +239,11 @@ export function useSpaceComposerFiles(input: {
 
 	return {
 		addFiles,
+		beginSubmission,
+		finishSubmission,
 		clearFiles,
 		consumePublishedFiles,
-		files,
+		files: files.filter((file) => !submittingIds.has(file.localId)),
 		isAtLimit: files.length >= SPACE_MESSAGE_FILE_MAX_COUNT,
 		publishReadyFiles,
 		removeFile,

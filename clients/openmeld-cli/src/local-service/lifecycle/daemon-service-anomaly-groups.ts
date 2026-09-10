@@ -23,6 +23,7 @@ export const DAEMON_SERVICE_FULL_ALIGNMENT_ANOMALIES =
     "bundle_path_invalid",
     "duplicate_owned_processes",
     "service_manager_environment_drift",
+    "service_manager_startup_policy_drift",
   ]);
 
 export const DAEMON_SERVICE_AUTO_HEAL_ANOMALIES =
@@ -52,6 +53,7 @@ export const DAEMON_SERVICE_REPAIR_ANOMALIES =
     "bundle_path_invalid",
     "service_manager_path_drift",
     "service_manager_environment_drift",
+    "service_manager_startup_policy_drift",
     "duplicate_owned_processes",
   ]);
 
@@ -113,6 +115,7 @@ export const DAEMON_SERVICE_WAKEABILITY_ADVISORY_ANOMALIES =
     "runtime_contract_unavailable",
     "service_manager_path_drift",
     "version_outdated",
+    "service_manager_startup_policy_drift",
   ]);
 
 export type DaemonServiceWakeabilityClassification = {

@@ -18,9 +18,12 @@ import {
   readRemoteAgentLarkPlatformChannelCredentials,
 } from "../infrastructure/d1/lark-platform-channel-connection-repo";
 import {
+  completeLarkPlatformPersistentRegistration,
+  prepareLarkPlatformPersistentConnection,
+} from "../infrastructure/d1/lark-platform-persistent-registration-repo";
+import {
   advanceRemoteAgentLarkPlatformRegistrationAttempt,
   claimRemoteAgentLarkPlatformRegistrationAttempt,
-  completeRemoteAgentLarkPlatformRegistration,
   createRemoteAgentLarkPlatformRegistrationAttempt,
   expireRemoteAgentLarkPlatformRegistrationAttempt,
   failRemoteAgentLarkPlatformRegistrationAttempt,
@@ -30,10 +33,9 @@ import {
   readRemoteAgentLarkPlatformRegistrationAttempt,
   recordClaimedLarkPlatformApplicationVersion,
   repairRemoteAgentLarkPlatformRegistrationAttempt,
-  replaceClaimedLarkPlatformCallbackCredentials,
   replacePendingRemoteAgentLarkPlatformRegistrationAttempt,
 } from "../infrastructure/d1/lark-platform-registration-attempt-repo";
-import { configureAndVerifyLarkPlatformWebhookApp } from "./lark-platform-app-configuration";
+import { configureAndVerifyLarkPlatformPersistentApp } from "./lark-platform-app-configuration";
 import {
   decryptLarkPlatformCredential,
   encryptLarkPlatformCredential,
@@ -54,7 +56,6 @@ const REGISTRATION_RETRY_DELAY_MS = 5000;
 const REGISTRATION_MAX_RETRY_DELAY_MS = 5 * 60 * 1000;
 const LARK_PLATFORM_CONFIGURATION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
 const REGISTRATION_RETURN_PATH = "/center-agent/channels";
-const BASE64_PADDING_PATTERN = /=+$/u;
 
 type RegistrationActor = {
   organizationId: string;
@@ -66,7 +67,7 @@ export type RegistrationEnvironment = Pick<
   CoreBindings,
   | "OPENMELD_FEISHU_CHANNEL_ENABLED"
   | "OPENMELD_FEISHU_CHANNEL_ORGANIZATION_IDS"
-  | "OPENMELD_GATEWAY_URL"
+  | "OPENMELD_LARK_CHANNEL_CONNECTOR"
   | "OPENMELD_LARK_CHANNEL_ENABLED"
   | "OPENMELD_LARK_CHANNEL_ORGANIZATION_IDS"
   | "LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY"
@@ -448,7 +449,6 @@ export async function pollRemoteAgentLarkPlatformRegistration(input: {
   attemptId: string;
   clock?: () => number;
   createId?: () => string;
-  createSecret?: () => string;
   db: D1Database;
   env: RegistrationEnvironment;
   fetchImpl?: typeof fetch;
@@ -483,7 +483,6 @@ export async function pollRemoteAgentLarkPlatformRegistration(input: {
     clock,
     configuration,
     createId: input.createId,
-    createSecret: input.createSecret,
     db: input.db,
     fetchImpl: input.fetchImpl,
     nowMs,
@@ -495,7 +494,6 @@ export async function continueRemoteAgentLarkPlatformRegistration(input: {
   attemptId: string;
   clock?: () => number;
   createId?: () => string;
-  createSecret?: () => string;
   db: D1Database;
   env: RegistrationEnvironment;
   fetchImpl?: typeof fetch;
@@ -523,7 +521,6 @@ export async function continueRemoteAgentLarkPlatformRegistration(input: {
     clock,
     configuration,
     createId: input.createId,
-    createSecret: input.createSecret,
     db: input.db,
     fetchImpl: input.fetchImpl,
     nowMs,
@@ -534,9 +531,11 @@ export async function continueRemoteAgentLarkPlatformRegistration(input: {
 async function continueRegistrationAttempt(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   clock: () => number;
-  configuration: { cryptoKey: string; gatewayOrigin: string };
+  configuration: {
+    cryptoKey: string;
+    connector: CoreBindings["OPENMELD_LARK_CHANNEL_CONNECTOR"];
+  };
   createId?: () => string;
-  createSecret?: () => string;
   db: D1Database;
   fetchImpl?: typeof fetch;
   nowMs: number;
@@ -604,7 +603,6 @@ async function continueRegistrationAttempt(input: {
     clock: input.clock,
     configuration: input.configuration,
     createId,
-    createSecret: input.createSecret ?? createOpaqueSecret,
     db: input.db,
     fetchImpl,
     nowMs,
@@ -645,9 +643,11 @@ async function pollPendingRegistration(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   claimId: string;
   clock: () => number;
-  configuration: { cryptoKey: string; gatewayOrigin: string };
+  configuration: {
+    cryptoKey: string;
+    connector: CoreBindings["OPENMELD_LARK_CHANNEL_CONNECTOR"];
+  };
   createId: () => string;
-  createSecret: () => string;
   db: D1Database;
   fetchImpl?: typeof fetch;
   nowMs: number;
@@ -700,29 +700,11 @@ async function pollPendingRegistration(input: {
   }
 
   const connectionId = input.createId();
-  const verificationToken = input.createSecret();
-  const eventEncryptKey = input.createSecret();
-  const [
-    encryptedAppSecret,
-    encryptedVerificationToken,
-    encryptedEventEncryptKey,
-  ] = await Promise.all([
-    encryptLarkPlatformCredential({
-      credential: result.credential.appSecret,
-      credentialName: "app secret",
-      cryptoKey: input.configuration.cryptoKey,
-    }),
-    encryptLarkPlatformCredential({
-      credential: verificationToken,
-      credentialName: "verification token",
-      cryptoKey: input.configuration.cryptoKey,
-    }),
-    encryptLarkPlatformCredential({
-      credential: eventEncryptKey,
-      credentialName: "event encrypt key",
-      cryptoKey: input.configuration.cryptoKey,
-    }),
-  ]);
+  const encryptedAppSecret = await encryptLarkPlatformCredential({
+    credential: result.credential.appSecret,
+    credentialName: "app secret",
+    cryptoKey: input.configuration.cryptoKey,
+  });
   const credentialsPersistedAtMs = input.clock();
   const persisted = await persistRemoteAgentLarkPlatformRegistrationCredentials(
     {
@@ -736,12 +718,12 @@ async function pollPendingRegistration(input: {
       credentialFormatVersion: LARK_PLATFORM_CREDENTIAL_FORMAT_VERSION,
       db: input.db,
       encryptedAppSecret,
-      encryptedEventEncryptKey,
-      encryptedVerificationToken,
+      encryptedEventEncryptKey: null,
+      encryptedVerificationToken: null,
       nowMs: credentialsPersistedAtMs,
       operatorOpenId: result.credential.operatorOpenId,
       tenantKey: null,
-      transport: "webhook",
+      transport: "websocket",
     }
   );
   return await projectRegistrationResponse({
@@ -761,7 +743,10 @@ async function configurePersistedRegistration(input: {
   attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
   claimId: string;
   clock: () => number;
-  configuration: { cryptoKey: string; gatewayOrigin: string };
+  configuration: {
+    cryptoKey: string;
+    connector: CoreBindings["OPENMELD_LARK_CHANNEL_CONNECTOR"];
+  };
   db: D1Database;
   fetchImpl?: typeof fetch;
   nowMs: number;
@@ -801,93 +786,25 @@ async function configurePersistedRegistration(input: {
       nowMs: input.clock(),
     });
   }
-  if (connection.botOpenId && input.attempt.applicationVersionId) {
-    return await settleConfiguredRegistration({
-      attempt: input.attempt,
-      botName: connection.botName,
-      botOpenId: connection.botOpenId,
-      claimId: input.claimId,
-      connectionId,
-      cryptoKey: input.configuration.cryptoKey,
-      db: input.db,
-      grantedCapabilityGroups: connection.grantedCapabilityGroups,
-      nowMs: input.clock(),
-    });
-  }
-
   try {
-    const [appSecret, savedVerificationToken, savedEventEncryptKey] =
-      await Promise.all([
-        decryptLarkPlatformCredential({
-          credentialName: "app secret",
-          cryptoKey: input.configuration.cryptoKey,
-          encryptedCredential: credentials.encryptedAppSecret,
-        }),
-        credentials.encryptedVerificationToken
-          ? decryptLarkPlatformCredential({
-              credentialName: "verification token",
-              cryptoKey: input.configuration.cryptoKey,
-              encryptedCredential: credentials.encryptedVerificationToken,
-            })
-          : Promise.reject(new Error("verification token is unavailable")),
-        credentials.encryptedEventEncryptKey
-          ? decryptLarkPlatformCredential({
-              credentialName: "event encrypt key",
-              cryptoKey: input.configuration.cryptoKey,
-              encryptedCredential: credentials.encryptedEventEncryptKey,
-            })
-          : Promise.reject(new Error("event encrypt key is unavailable")),
-      ]);
-    const verificationToken =
-      savedVerificationToken.length > 32
-        ? createOpaqueSecret()
-        : savedVerificationToken;
-    const eventEncryptKey =
-      savedEventEncryptKey.length > 32
-        ? createOpaqueSecret()
-        : savedEventEncryptKey;
-    if (
-      verificationToken !== savedVerificationToken ||
-      eventEncryptKey !== savedEventEncryptKey
-    ) {
-      const [encryptedVerificationToken, encryptedEventEncryptKey] =
-        await Promise.all([
-          encryptLarkPlatformCredential({
-            credential: verificationToken,
-            credentialName: "verification token",
-            cryptoKey: input.configuration.cryptoKey,
-          }),
-          encryptLarkPlatformCredential({
-            credential: eventEncryptKey,
-            credentialName: "event encrypt key",
-            cryptoKey: input.configuration.cryptoKey,
-          }),
-        ]);
-      const replaced = await replaceClaimedLarkPlatformCallbackCredentials({
-        attemptId: input.attempt.attemptId,
-        claimId: input.claimId,
-        connectionId,
-        db: input.db,
-        encryptedEventEncryptKey,
-        encryptedVerificationToken,
-        previousEncryptedEventEncryptKey: credentials.encryptedEventEncryptKey,
-        previousEncryptedVerificationToken:
-          credentials.encryptedVerificationToken,
-        nowMs: input.clock(),
-      });
-      if (!replaced) {
-        const current = await readRemoteAgentLarkPlatformRegistrationAttempt({
-          attemptId: input.attempt.attemptId,
-          db: input.db,
-        });
-        return await projectRegistrationResponse({
-          attempt: current ?? input.attempt,
-          cryptoKey: input.configuration.cryptoKey,
-          db: input.db,
-        });
-      }
+    const connector = input.configuration.connector;
+    if (!connector) {
+      throw serviceError(
+        input.attempt.provider,
+        "persistent_connector_unavailable",
+        503
+      );
     }
-    const configured = await configureAndVerifyLarkPlatformWebhookApp({
+    const appSecret = await decryptLarkPlatformCredential({
+      credentialName: "app secret",
+      cryptoKey: input.configuration.cryptoKey,
+      encryptedCredential: credentials.encryptedAppSecret,
+    });
+    const configured = await configureAndVerifyLarkPlatformPersistentApp({
+      appId: connection.appId,
+      appSecret,
+      provider: connection.provider,
+      migrateWebhook: connection.transport === "webhook",
       applicationVersionId: input.attempt.applicationVersionId,
       onPublicationSubmitted: async (versionId) => {
         await recordClaimedLarkPlatformApplicationVersion({
@@ -898,25 +815,54 @@ async function configurePersistedRegistration(input: {
           versionId,
         });
       },
-      appId: connection.appId,
-      appSecret,
-      connectionId,
-      eventEncryptKey,
       fetchImpl: input.fetchImpl,
-      gatewayOrigin: input.configuration.gatewayOrigin,
-      provider: connection.provider,
-      verificationToken,
     });
-    return await settleConfiguredRegistration({
-      attempt: input.attempt,
-      botName: configured.botName,
-      botOpenId: configured.botOpenId,
-      claimId: input.claimId,
+    const prepared = await prepareLarkPlatformPersistentConnection({
+      db: input.db,
       connectionId,
+      attemptId: input.attempt.attemptId,
+      claimId: input.claimId,
+      nowMs: input.clock(),
+      botOpenId: configured.botOpenId,
+      botName: configured.botName,
+    });
+    if (prepared) {
+      let connected: boolean;
+      try {
+        connected = await connector
+          .getByName(connectionId)
+          .ensureConnected(connectionId);
+      } catch {
+        throw serviceError(
+          input.attempt.provider,
+          "persistent_connection_failed",
+          503
+        );
+      }
+      if (!connected) {
+        throw serviceError(
+          input.attempt.provider,
+          "persistent_connection_failed",
+          503
+        );
+      }
+      await completeLarkPlatformPersistentRegistration({
+        db: input.db,
+        connectionId,
+        attemptId: input.attempt.attemptId,
+        claimId: input.claimId,
+        nowMs: input.clock(),
+      });
+      await connector.getByName(connectionId).ensureConnected(connectionId);
+    }
+    const attempt = await readRemoteAgentLarkPlatformRegistrationAttempt({
+      attemptId: input.attempt.attemptId,
+      db: input.db,
+    });
+    return await projectRegistrationResponse({
+      attempt: attempt ?? input.attempt,
       cryptoKey: input.configuration.cryptoKey,
       db: input.db,
-      grantedCapabilityGroups: configured.grantedCapabilityGroups,
-      nowMs: input.clock(),
     });
   } catch (error) {
     const failedAtMs = input.clock();
@@ -953,49 +899,6 @@ async function configurePersistedRegistration(input: {
       db: input.db,
     });
   }
-}
-
-async function settleConfiguredRegistration(input: {
-  attempt: RemoteAgentLarkPlatformRegistrationAttemptRecord;
-  botName: string | null;
-  botOpenId: string;
-  claimId: string;
-  connectionId: string;
-  cryptoKey: string;
-  db: D1Database;
-  grantedCapabilityGroups: readonly string[];
-  nowMs: number;
-}): Promise<LarkPlatformRegistrationResponse> {
-  const retryDelayMs = resolveConfigurationRetryDelayMs(
-    input.attempt.pollIntervalMs
-  );
-  const completed = await completeRemoteAgentLarkPlatformRegistration({
-    attemptId: input.attempt.attemptId,
-    botName: input.botName,
-    botOpenId: input.botOpenId,
-    claimId: input.claimId,
-    connectionId: input.connectionId,
-    db: input.db,
-    grantedCapabilityGroups: input.grantedCapabilityGroups,
-    nextPollAtMs: Math.min(
-      input.attempt.expiresAtMs,
-      input.nowMs + retryDelayMs
-    ),
-    nowMs: input.nowMs,
-    pollIntervalMs: retryDelayMs,
-  });
-  const completedAttempt =
-    completed.status === "completed"
-      ? await readRemoteAgentLarkPlatformRegistrationAttempt({
-          attemptId: input.attempt.attemptId,
-          db: input.db,
-        })
-      : completed.attempt;
-  return await projectRegistrationResponse({
-    attempt: completedAttempt ?? input.attempt,
-    cryptoKey: input.cryptoKey,
-    db: input.db,
-  });
 }
 
 async function handleRegistrationPollFailure(input: {
@@ -1119,7 +1022,10 @@ function requireRegistrationConfiguration(input: {
   env: RegistrationEnvironment;
   organizationId: string;
   provider: RemoteAgentLarkPlatformProvider;
-}): { cryptoKey: string; gatewayOrigin: string } {
+}): {
+  cryptoKey: string;
+  connector: CoreBindings["OPENMELD_LARK_CHANNEL_CONNECTOR"];
+} {
   if (
     !isLarkPlatformProviderEnabledForOrganization({
       env: input.env,
@@ -1131,15 +1037,17 @@ function requireRegistrationConfiguration(input: {
   }
   const cryptoKey =
     input.env.LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY?.trim();
-  const gatewayOrigin = input.env.OPENMELD_GATEWAY_URL?.trim();
-  if (!(cryptoKey && gatewayOrigin)) {
+  if (!cryptoKey) {
     throw serviceError(
       input.provider,
       "registration_configuration_unavailable",
       503
     );
   }
-  return { cryptoKey, gatewayOrigin };
+  return {
+    cryptoKey,
+    connector: input.env.OPENMELD_LARK_CHANNEL_CONNECTOR,
+  };
 }
 
 function assertRegistrationActor(
@@ -1203,19 +1111,6 @@ function normalizeFailureReasonCode(
     return error.reasonCode;
   }
   return `${provider}.${fallback}`;
-}
-
-function createOpaqueSecret(): string {
-  // 24 random bytes encode to 32 base64url characters, the provider's limit.
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(BASE64_PADDING_PATTERN, "");
 }
 
 function resolveConfigurationRetryDelayMs(currentDelayMs: number): number {

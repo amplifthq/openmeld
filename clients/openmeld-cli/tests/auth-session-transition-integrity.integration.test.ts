@@ -1357,26 +1357,27 @@ function spawnPausedCandidateServiceAuthSessionRead(input: {
     import { setTimeout as sleep } from "node:timers/promises";
 
     const originalReadFile = fs.promises.readFile.bind(fs.promises);
-    let transitionJournalReadCount = 0;
-    fs.promises.readFile = async (...args) => {
+    const originalRmdir = fs.promises.rmdir.bind(fs.promises);
+    let paused = false;
+    fs.promises.rmdir = async (...args) => {
+      const result = await originalRmdir(...args);
       const target = String(args[0]);
-      if (target.endsWith("/auth/session-transition.json")) {
-        transitionJournalReadCount += 1;
-        if (transitionJournalReadCount === 4) {
-          await fs.promises.writeFile(${JSON.stringify(readyPath)}, "ready\\n", "utf8");
-          while (true) {
-            const released = await originalReadFile(${JSON.stringify(releasePath)}, "utf8").then(
-              () => true,
-              (error) => error?.code === "ENOENT" ? false : Promise.reject(error)
-            );
-            if (released) {
-              break;
-            }
-            await sleep(10);
+      if (!paused && target.endsWith("/auth-session/session-transition-mutation.lock")) {
+        // Pause after registration releases ownership, not at a numbered read.
+        paused = true;
+        await fs.promises.writeFile(${JSON.stringify(readyPath)}, "ready\\n", "utf8");
+        while (true) {
+          const released = await originalReadFile(${JSON.stringify(releasePath)}, "utf8").then(
+            () => true,
+            (error) => error?.code === "ENOENT" ? false : Promise.reject(error)
+          );
+          if (released) {
+            break;
           }
+          await sleep(10);
         }
       }
-      return await originalReadFile(...args);
+      return result;
     };
     syncBuiltinESMExports();
 

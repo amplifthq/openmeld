@@ -71,7 +71,7 @@ type RequiredRemoteAgentWorkerSubmitter = {
 
 const CENTER_AGENT_PAUSED_ADMISSION_RESPONSE = {
   message:
-    "Center Agent is paused. Ask the Organization creator to resume it before trying again.",
+    "Center Agent is paused. Ask the Organization owner or admin to resume it before trying again.",
   reasonCode: "remote_agent.center_agent_paused",
 } as const;
 const REMOTE_AGENT_ADMISSION_FALLBACK_PUBLIC_COPY =
@@ -421,8 +421,7 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
   ) {
     return null;
   }
-  const cancelExecution = input.worker.cancelExecution?.bind(input.worker);
-  if (!cancelExecution) {
+  if (!input.worker.cancelExecution) {
     return {
       error: new Error(
         "remote_agent.center_agent_pause_cancellation_receiver_unavailable"
@@ -432,7 +431,7 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
   }
   try {
     const cancellation = remoteAgentWorkerCancellationResponseSchema.parse(
-      await cancelExecution({
+      await input.worker.cancelExecution({
         ...(resolveRemoteAgentRuntimeConversationId(input.request)
           ? {
               conversationId: resolveRemoteAgentRuntimeConversationId(
@@ -442,7 +441,7 @@ async function requestCancellationWhenPausedAfterAdmission(input: {
           : {}),
         idempotencyKey: input.request.idempotencyKey,
         organizationId: input.organizationId,
-        reason: "Center Agent was paused by the Organization creator.",
+        reason: "Center Agent was paused by the Organization owner or admin.",
         spaceId: input.request.spaceId,
         submissionId: input.ack.submissionId,
         v: 1,

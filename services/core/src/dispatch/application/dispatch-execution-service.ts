@@ -3206,6 +3206,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
     };
   }
   const targetBindingSnapshot = targetBindingResolution.snapshot;
+  const targetOwnerUserId = targetBindingSnapshot.ownerUserId ?? undefined;
 
   if (targetBindingSnapshot.bindingState === "missing") {
     return {
@@ -3214,7 +3215,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: `target profile has no Core primary binding (bindingSource=${targetBindingResolution.source})`,
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+      targetOwnerUserId,
     };
   }
 
@@ -3225,11 +3226,14 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: `target profile Core primary binding is not enabled (bindingSource=${targetBindingResolution.source})`,
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId ?? undefined,
+      targetOwnerUserId,
     };
   }
 
-  if (!targetBindingSnapshot.ownerUserId) {
+  if (
+    !targetBindingSnapshot.ownerUserId &&
+    targetBindingSnapshot.runtimeKind !== "hosted_center_agent"
+  ) {
     return {
       ok: false,
       errorCode: "agent_profile_binding.lookup_failed",
@@ -3273,7 +3277,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: organizationScope.errorMessage,
       finalStatus: organizationScope.finalStatus,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId,
+      targetOwnerUserId,
     };
   }
   if (canonicalReadinessResult && !canonicalReadinessResult.ok) {
@@ -3283,7 +3287,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
       errorMessage: `The Agent Profile's current Wake availability could not be checked: ${toErrorMessage(canonicalReadinessResult.error)}`,
       finalStatus: OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable,
       bindingSource: targetBindingResolution.source,
-      targetOwnerUserId: targetBindingSnapshot.ownerUserId,
+      targetOwnerUserId,
     };
   }
   if (canonicalReadinessResult) {
@@ -3305,7 +3309,7 @@ export const runDispatchExecutionPreflightGate = async (input: {
           ? OPENMELD_DAEMON_DISPATCH_STATE.failedRetryable
           : OPENMELD_DAEMON_DISPATCH_STATE.failedTerminal,
         bindingSource: targetBindingResolution.source,
-        targetOwnerUserId: targetBindingSnapshot.ownerUserId,
+        targetOwnerUserId,
       };
     }
   }
@@ -5441,6 +5445,7 @@ const resolveEffectiveTargetBindingSnapshot = async (input: {
             db: localStateDbHandle,
             message: input.message,
             ownerUserId: dispatchOwnerUserId,
+            owner: { id: dispatchOwnerUserId, kind: "owner_account" },
           }),
         timing: input.timing,
       }).then(
@@ -5484,6 +5489,7 @@ const resolveEffectiveTargetBindingSnapshot = async (input: {
             db: localStateDbHandle,
             message: input.message,
             ownerUserId: ownerResolution.ownerUserId,
+            owner: ownerResolution.owner,
           }),
         timing: input.timing,
       });
@@ -5536,7 +5542,8 @@ const resolveHostedStoredAgentControllerRefStatus = (
 const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   db?: D1Database;
   message: OpenMeldDaemonDispatchQueueMessage;
-  ownerUserId: string;
+  ownerUserId: string | null;
+  owner: AgentProfileBindingRecord["owner"];
 }): Promise<EffectiveTargetBindingSnapshot | undefined> => {
   if (!input.db) {
     return undefined;
@@ -5545,10 +5552,7 @@ const readTargetBindingSnapshotFromCorePrimaryBinding = async (input: {
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.message.targetProfileId,
     db: input.db,
-    owner: {
-      id: input.ownerUserId,
-      kind: "owner_account",
-    },
+    owner: input.owner,
   });
   if (!binding) {
     return {
@@ -5905,7 +5909,8 @@ const resolveTargetProfileIsCurrentCenterAgent = async (input: {
 type TargetProfileOwnerResolution =
   | {
       ok: true;
-      ownerUserId: string;
+      ownerUserId: string | null;
+      owner: AgentProfileBindingRecord["owner"];
     }
   | {
       ok: false;
@@ -5983,6 +5988,17 @@ const resolveCurrentTargetProfileOwner = async (input: {
   }
 
   const ownerUserId = normalizeOptionalText(result.profile.ownerUserId);
+  if (
+    result.profile.managedRole === "center_agent" &&
+    result.profile.organizationId &&
+    !ownerUserId
+  ) {
+    return {
+      ok: true,
+      ownerUserId: null,
+      owner: { id: result.profile.organizationId, kind: "organization" },
+    };
+  }
   if (!ownerUserId) {
     return {
       ok: false,
@@ -6009,6 +6025,7 @@ const resolveCurrentTargetProfileOwner = async (input: {
   return {
     ok: true,
     ownerUserId,
+    owner: { id: ownerUserId, kind: "owner_account" },
   };
 };
 

@@ -226,6 +226,13 @@ a small outer shadow, and `rounded-2xl` corners. Shared card token changes must
 not change this finish. Its content retains level-two context so Wake/Reference
 tokens use level three. These changes do not alter access policy or send behavior.
 
+Space and Thread pending actions mount inside the shared composer width. Their
+inset, collapsible strip overlaps behind the composer edge. Plan, question, and
+permission forms reuse the AICSS-adapted `ApprovalCard` anatomy; its shared Fluid
+ScrollArea bounds request details and provides edge fades, while response actions
+remain outside the scrolling body. The primitive never approves or advances a
+request; the existing interaction owner retains all response and access policy.
+
 `TabsSubtle` also exposes an `underline` variant for flat navigation embedded
 against a structural divider. It keeps selection rectangular, uses the owning
 surface edge as the indicator baseline, and does not introduce a second rounded

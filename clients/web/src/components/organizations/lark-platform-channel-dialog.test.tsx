@@ -273,7 +273,7 @@ describe("LarkPlatformChannelDialog", () => {
 		expect(screen.getByRole("heading", { name: "Repair Lark" })).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Setup expired before OpenMeld could verify this app’s permissions and Webhook delivery. Repair retries the existing app; it does not create another one."
+				"Setup expired before OpenMeld could verify this app’s permissions and establish a connection. Repair retries the existing app; it does not create another one."
 			)
 		).toBeTruthy();
 		const badge = screen.getByText("Needs Attention");

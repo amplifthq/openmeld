@@ -9,6 +9,7 @@ import type {
 	SignalEnvelope,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -59,8 +60,19 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: (options: { enabled?: boolean }) => {
+		useQuery: (options: {
+			enabled?: boolean;
+			queryKey: readonly unknown[];
+		}) => {
+			const isMessageDetails = options.queryKey.includes("message-details");
+			const query = actual.useQuery({
+				...options,
+				enabled: !isMessageDetails && options.enabled,
+			});
 			const result = useQueryMock(options);
+			if (!isMessageDetails) {
+				return query;
+			}
 			return options.enabled === false ? { data: undefined } : result;
 		},
 	};
@@ -173,7 +185,7 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		const pendingActions = screen.getByTestId("pending-agent-actions");
-		const composer = document.querySelector('[data-slot="thread-composer"]');
+		const composer = screen.getByRole("textbox");
 
 		expect(composer).toBeInstanceOf(HTMLElement);
 		if (!composer) {
@@ -881,7 +893,7 @@ describe("SpaceThreadPanel", () => {
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
 			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("justify-end");
+		).toContain("self-end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1295,8 +1307,18 @@ function renderThreadPanel(
 		textareaRef: { current: null },
 		wakeFailureTargetContextsByProfileId: new Map(),
 	} satisfies ComponentProps<typeof SpaceThreadPanel>;
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
 	const renderResult = render(
-		<SpaceThreadPanel {...defaultProps} {...overrides} />
+		<SpaceThreadPanel {...defaultProps} {...overrides} />,
+		{
+			wrapper: ({ children }) => (
+				<QueryClientProvider client={queryClient}>
+					{children}
+				</QueryClientProvider>
+			),
+		}
 	);
 	return {
 		...renderResult,

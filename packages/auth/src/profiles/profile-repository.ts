@@ -38,7 +38,7 @@ type AgentProfileInsertInput = {
   profileName: string;
   profileHandle: string;
   organizationId: string;
-  ownerUserId: string;
+  ownerUserId: string | null;
   createdByUserId?: string | null;
   creationActorProfileId?: string | null;
   creatorProfileId?: string | null;
@@ -88,6 +88,11 @@ export type OpenMeldProfileRepository = {
   activateProfile: (profileId: string) => Promise<boolean>;
   insertAgentProfile: (input: AgentProfileInsertInput) => Promise<void>;
   insertHumanProfile: (input: HumanProfileInsertInput) => Promise<void>;
+  updateManagedProfileIdentityForOrganization: (
+    organizationId: string,
+    profileId: string,
+    input: { profileName: string; profileHandle: string }
+  ) => Promise<void>;
   updateProfileIdentityForOwner: (
     ownerUserId: string,
     profileId: string,
@@ -336,6 +341,26 @@ export function createDrizzleOpenMeldProfileRepository(
       };
 
       await db.insert(openMeldProfiles).values(value).onConflictDoNothing();
+    },
+    async updateManagedProfileIdentityForOrganization(
+      organizationId,
+      profileId,
+      input
+    ) {
+      await db
+        .update(openMeldProfiles)
+        .set({
+          profileName: input.profileName,
+          profileHandle: input.profileHandle,
+          updatedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(openMeldProfiles.organizationId, organizationId),
+            eq(openMeldProfiles.profileId, profileId),
+            eq(openMeldProfiles.managedRole, "center_agent")
+          )
+        );
     },
     async updateProfileIdentityForOwner(ownerUserId, profileId, input) {
       await db

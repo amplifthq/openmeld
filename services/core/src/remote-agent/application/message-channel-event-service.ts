@@ -388,6 +388,15 @@ async function processClaimedMessageChannelEvent(input: {
     };
   }
   const { centerAgent, connection, participant } = targetResolution.target;
+  if (
+    input.envelope.connectionGeneration !== undefined &&
+    input.envelope.connectionGeneration !== connection.connectionGeneration
+  ) {
+    return {
+      status: "rejected",
+      reasonCode: "message_channel.connection_generation_changed",
+    };
+  }
   const admittedEvent = admission.event;
   if (
     admittedEvent.locator.provider !== "lark" &&

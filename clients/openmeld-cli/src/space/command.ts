@@ -5989,7 +5989,7 @@ type OrganizationDirectoryCandidateProfile = {
   profileKind: SpaceMembershipProfileKind;
   profileName: string;
   status: "active" | "disabled";
-  ownerUserId: string;
+  ownerUserId: string | null;
   ownerName?: string;
   isOrganizationCenterAgent: boolean;
 };
@@ -6104,7 +6104,7 @@ function resolveExplicitOrganizationDirectoryCandidates(input: {
       profileHandle: directoryProfile.profileHandle,
       profileName: directoryProfile.profileName,
       profileKind: directoryProfile.profileKind,
-      ownerUserId: directoryProfile.ownerUserId,
+      ownerUserId: directoryProfile.ownerUserId ?? undefined,
       ownerName: directoryProfile.ownerName,
       alreadyJoined: input.memberProfileIds.has(directoryProfile.profileId),
       needsActivation: false,

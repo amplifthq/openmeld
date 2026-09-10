@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-09T08:17:55.555Z",
+  "updatedAt": "2026-09-10T01:34:21.873Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-explicit-space-recipients-v1",
-      "packageVersion": "0.3.186",
-      "updatePolicy": "available",
-      "reason": "CLI commands and shared wire contracts remain compatible; this release preserves original Agent error details and corrects the macOS Service job classification."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
+      "packageVersion": "0.3.193",
+      "updatePolicy": "required",
+      "reason": "Organization-owned Center Agents require nullable-owner command readers."
     },
     "service": {
-      "bundleHash": "4193e5d636f08c84c01df7292758a6afa2cf819c2950b78ca602b3e078e58772",
-      "bundleVersion": "0.3.186",
+      "bundleHash": "3ded972a8f37fdd5321b4032ef1c2388725c53702c95dc1833e4de4994f848b0",
+      "bundleVersion": "0.3.193",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
       "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
       "updatePolicy": "available",
-      "reason": "Existing cloud clients accept the same lifecycle and bounded originalError fields; older Services remain compatible and retain explicit failure outcomes. No runtime contract or minimum version changes."
+      "reason": "Existing Service execution, Prepare, Wake, Space action, and diagnostic contracts remain compatible in both cloud directions."
     },
     "skills": {
       "bundleHash": "6d7c060728bfabb81f33924338848945599c04963e679a8d16bd6011e99457e6",

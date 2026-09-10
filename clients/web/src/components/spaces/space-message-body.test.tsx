@@ -12,11 +12,11 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
-	SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS,
 	SPACE_RESPONSE_TRUNCATED_MARKER,
 	SPACE_RESPONSE_TRUNCATED_SUFFIX,
 	SpaceMessageBody,
 } from "./space-message-body";
+import { SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS } from "./space-message-collapse";
 
 const SHOW_FULL_MESSAGE_PATTERN = /show full message/i;
 const INTERNAL_ACTION_CATALOG_PATTERN = /action catalog/i;
@@ -1134,7 +1134,7 @@ describe("SpaceMessageBody", () => {
 			<SpaceMessageBody
 				item={{
 					isAgentFinalReply: false,
-					text: `${"x".repeat(SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS)} ${hiddenTail}`,
+					text: `${"x".repeat(SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS)}\n\n${hiddenTail}`,
 				}}
 			/>
 		);

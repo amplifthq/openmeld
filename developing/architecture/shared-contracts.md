@@ -25,6 +25,22 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Space pin contracts
+
+`@openmeld/schemas` owns the strict message/file pin mutations and read models;
+`@openmeld/api-client` owns their GET/PATCH transport. Gateway authenticates
+`/v1/spaces/:spaceId/message-pins` and `/v1/spaces/:spaceId/file-pins`, then Core
+RPC delegates to the owning Space Durable Object. Mutations require an active
+human member whose owner matches the authenticated actor, and only the original
+pinner can unpin. Public and password-protected Space access still uses the
+existing Space authorization boundary.
+
+These are additive endpoints; existing message, file, and metadata wire models
+are unchanged. Web consumes both APIs and refreshes after existing
+`space.meta.changed` notifications, file changes, and stream reconnects. CLI,
+local Service, Desktop, and Agent execution contracts do not change. Delivery
+requires Core and Gateway before Web; no local component upgrade is required.
+
 ## Boundary
 
 ### Personal Agent owner Inbox activity
@@ -676,6 +692,42 @@ current account email privately and returns a schema-validated sent or failed
 result containing no address. Core never copies Auth's user table or logs email
 content. The receiver must be deployed before Core begins calling the additive
 method; during rollback, stop the Core caller before removing the Auth method.
+
+## Space Message Mutation Contract
+
+`POST /v1/spaces/:spaceId/messages/:signalId` and `SpaceApi.mutateMessage` share
+`spaceMessageMutationBodySchema` / `spaceMessageMutationResponseSchema`.
+The body discriminates `edit`, `recall`, and `restore_draft`. Edit and recall
+require the caller's `expectedRevision` (zero for old messages). Core checks
+writable Space access, active Human membership, and exact sender identity.
+Clients cannot author `messageRevision`, `editedAt`, `recalledAt`, or
+`changedMessageId` through normal message posting.
+
+The Space owner changes the existing signal and version atomically. Recall
+keeps only a safe tombstone in its public payload, and stores the last published
+content in `space_recalled_message_drafts`, accessible only through the
+sender-authorized recovery action. Message retention cleans up this private
+snapshot. Legacy quote previews are updated in the same transaction.
+
+Restored composer drafts persist `restoredFromSignalId` and include it in the
+normal message metadata or thread reply body. Both publication paths validate
+the recalled source's sender and consume recovery in the publication transaction:
+mark the source with server-owned `repostedAt`, increment its revision, and delete
+the private draft. The new persisted message also lets live/catch-up clients hide
+the recovery action before the source's refreshed history arrives. Pending or
+failed outgoing messages never consume recovery.
+
+A durable system `signal.text` with purpose `space_message_changed` records only
+the affected message ID, never a content revision. It advances incremental
+readers and Agent observation guards without adding a conversation row, thread
+reply count, Inbox notification, or sidebar message preview. Incremental Space
+updates return the current affected message alongside this cursor event.
+Visible history pages exclude cursor events. Web merges message versions
+monotonically so stale history responses cannot resurrect recalled content.
+
+Mutation broadcasts preserve original thread placement. Existing dispatch
+records remain execution history; edits do not rewrite or restart executed
+work. This contract covers native Space messages, not Slack/Lark message sync.
 
 ## Web Organization Request Context
 
@@ -4991,6 +5043,39 @@ CLI presenters must validate emitted `setup.plan` payloads through this schema.
 They must not hand-write a parallel setup-plan shape, mint client-only action
 ids, or reinterpret `readOnly` as permission to mutate local state.
 
+## Space Message Reaction Contracts
+
+The Space owns persisted message reactions. `GET` and `PUT` on
+`/v1/spaces/:spaceId/message-reactions` use the shared reaction schemas. Writes
+take `signalId`, a supported Unicode `emoji`, and the desired `active` boolean;
+the authenticated request context supplies the actor. A write requires an active
+Human member with writable Space access and a persisted non-system text message.
+Reads preserve the existing Space access boundary.
+
+The unique identity is `(signalId, emoji, profileId)`. Retrying the same desired
+state is idempotent. Mutation and per-message revision increment are atomic.
+Supported aliases resolve to one canonical Unicode sequence; skin tones and
+joined emoji remain distinct. At most 30 distinct emoji groups may be active on
+one message.
+
+Text-envelope `reactions` is additive and optional for existing clients. Its
+`version` and `groups` describe current state. Each group includes the emoji,
+label, count, `reactedByMe`, an actor preview, and `actorsHasMore`. Actor records
+include profile identity, display name, and kind. The focused GET accepts `emoji`
+and `afterProfileId` to read actors in pages of 50, returning `nextCursor`.
+An actor preview must never be represented as the complete list when truncated.
+
+Only a changed mutation emits `space.reactions.changed` with affected
+`signalIds`. Clients invalidate reaction reads without creating a timeline
+signal or refreshing unread/Wake status; reconnect also refreshes mounted
+reaction reads. Revision checks prevent older responses replacing newer state.
+
+Shared message projections, CLI history, Center context manifests, and Remote
+Agent continuity preserve reaction metadata. Materialized-context hashes include
+the reaction state. Personal Remote Agent reads use the existing execution and
+Space-scoped tool authorization, without granting Center administration access.
+New-message delta cursors remain message cursors, not reaction-change cursors.
+
 ## Space Member Contracts
 
 Auth's internal `resolveProfilesByIds` RPC reads at most 64 requested Profile
@@ -5019,11 +5104,14 @@ Agent through Auth, without making the cross-Space index a membership writer.
 Space-wide name refresh uses bounded Auth fact batches instead of one RPC per
 member. It stops launching batches after the existing display-read deadline.
 Status and member snapshots reuse a successful refresh's validated Auth facts
-for Core readiness within that same request. Missing Profiles remain explicit
-nulls; a failed or timed-out display refresh provides no identity evidence and
-readiness performs its normal authoritative lookup. Nothing is cached across
-requests, and Wake admission still reads its own current facts. Reuse does not
-skip Core's identity, ownership, Organization, Binding or execution checks.
+for Core readiness within that same request. Explicitly absent Profiles remain
+null entries. A failed or timed-out batch is unavailable identity evidence, not
+permission to launch one scalar Auth query per Agent. An absent batch capability
+means no batch was attempted and preserves scalar receiver compatibility. Both
+facts and failures expire with the request; a later request can read again
+without marking members deleted or changing their stored identity. Wake
+admission still reads its own current facts. Reuse does not skip Core's identity,
+ownership, Organization, Binding or execution checks.
 Refresh preserves membership, ownership, removal and aliases. It re-reads the
 member after the Auth call so a concurrent removal or changed name wins. Failed
 or mismatched identity reads do not write names: the last known snapshot remains
