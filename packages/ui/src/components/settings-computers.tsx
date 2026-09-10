@@ -521,17 +521,25 @@ export type LocalAgentUsageSource = {
   limits: AgentControllerUsageLimits;
 };
 
+export function hasLocalAgentUsage(sources: readonly LocalAgentUsageSource[]) {
+  return sources.some(
+    (source) => resolveUsageLimitSummary(source.limits) !== null
+  );
+}
+
 /** A single controller logo with separate, source-labelled quota previews. */
 export function SettingsLocalAgentUsageDockItem({
   agentName,
   children,
   sources,
   nowMs,
+  stackOrder = 0,
 }: {
   agentName: string;
   children: ReactNode;
   sources: readonly LocalAgentUsageSource[];
   nowMs: number;
+  stackOrder?: number;
 }) {
   const groups = sources.flatMap((source) =>
     (
@@ -552,10 +560,8 @@ export function SettingsLocalAgentUsageDockItem({
       <TooltipTrigger
         render={
           <span
-            className={cn(
-              "relative inline-flex size-6 shrink-0 items-end hover:z-10",
-              visible.length > 0 && "order-first"
-            )}
+            className="relative inline-flex size-6 shrink-0 items-end hover:z-50!"
+            style={{ zIndex: stackOrder }}
             title={agentName}
           />
         }

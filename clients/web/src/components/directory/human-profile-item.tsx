@@ -4,6 +4,7 @@ import { parseAgentControllerRef } from "@openmeld/agent-runtime";
 import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
 import { hasLocalAgentLogo } from "@openmeld/ui/components/local-agent-logo-utils";
 import {
+	hasLocalAgentUsage,
 	type LocalAgentUsageSource,
 	SettingsLocalAgentUsageDockItem,
 } from "@openmeld/ui/components/settings-computers";
@@ -210,22 +211,29 @@ function HumanLocalAgentDock({
 	);
 	const hiddenLocalAgentCount = localAgents.length - visibleLocalAgents.length;
 	if (card) {
+		const orderedAgents = localAgents.toSorted(
+			(left, right) =>
+				Number(hasLocalAgentUsage(right.usageSources)) -
+				Number(hasLocalAgentUsage(left.usageSources))
+		);
 		return (
 			<span
-				className="ml-auto flex max-w-full items-end justify-end -space-x-2"
+				className="isolate ml-auto flex max-w-full items-end justify-end -space-x-2"
 				data-slot="human-profile-local-agent-dock"
 			>
-				{localAgents.map((agent) => (
+				{orderedAgents.map((agent, index) => (
 					<SettingsLocalAgentUsageDockItem
 						agentName={agent.displayName}
 						key={agent.agentId}
 						nowMs={nowMs}
 						sources={agent.usageSources}
+						stackOrder={localAgents.length - index}
 					>
 						<LocalAgentLogo
 							agentId={agent.agentId}
-							className="size-5"
+							className="size-5 rounded-sm"
 							size="sm"
+							variant="tile"
 						/>
 					</SettingsLocalAgentUsageDockItem>
 				))}
