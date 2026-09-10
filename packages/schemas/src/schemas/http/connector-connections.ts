@@ -2,6 +2,7 @@ import * as z from "../../lazy-zod";
 
 export const CENTER_AGENT_APP_CONNECTOR_SERVICES = [
   "feishu",
+  "lark",
   "gmail",
   "googlecalendar",
   "googledrive",

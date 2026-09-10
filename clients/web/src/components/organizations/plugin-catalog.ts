@@ -80,6 +80,17 @@ export const PLUGINS = [
 		category: "Productivity",
 		connection: { auth: { kind: "oauth" } },
 		description:
+			"Work with documents, wikis, tables, and calendars using your authorized Lark account.",
+		homepage: "https://www.larksuite.com",
+		logoPath: "/app-logos/lark.svg",
+		name: "Lark",
+		service: "lark",
+	},
+	{
+		availability: "available",
+		category: "Productivity",
+		connection: { auth: { kind: "oauth" } },
+		description:
 			"Work with documents, wikis, tables, and calendars using your authorized Feishu account.",
 		homepage: "https://www.feishu.cn",
 		logoPath: FEISHU_CHANNEL_LOGO_PATH,
