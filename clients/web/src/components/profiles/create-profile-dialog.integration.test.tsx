@@ -940,9 +940,7 @@ describe("CreateProfileDialog", () => {
 		expect(
 			screen.queryByRole("button", { name: "Back to Agent setup" })
 		).toBeNull();
-		expect(
-			screen.getByText("Office Mac isn’t connected right now")
-		).toBeTruthy();
+		expect(screen.getByText("Reconnect Office Mac")).toBeTruthy();
 		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
@@ -1083,7 +1081,7 @@ describe("CreateProfileDialog", () => {
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
 		expect(
-			screen.getByRole("heading", { name: "Create a new Agent" })
+			screen.getByRole("heading", { name: "Create an Agent" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })

@@ -77,12 +77,10 @@ export function AgentCreationComputerRecoveryPanel(input: {
 			{recovery.computerChoices}
 			{recovery.setup ? (
 				<div className="grid gap-3">
-					<p className="text-muted-foreground text-sm">
-						{recovery.computerName
-							? `Run the command on ${recovery.computerName}. Keep this dialog open to continue with your Agent settings.`
-							: "Run the command on the computer you want to use. Keep this dialog open to continue with your Agent settings."}
-					</p>
 					{recovery.setup}
+					<p className="text-muted-foreground text-xs">
+						Your Agent settings will appear here when connected.
+					</p>
 					{recovery.onBack ? (
 						<Button
 							className="justify-self-start"
@@ -115,9 +113,9 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 			};
 		case "reconnect":
 			return {
-				title: `${recovery.computerName ?? "This computer"} isn’t connected right now`,
+				title: `Reconnect ${recovery.computerName ?? "your computer"}`,
 				description:
-					"This computer is already added to OpenMeld. Reconnect it to continue creating your Agent.",
+					"This computer is already added. Run the command below on it to reconnect.",
 			};
 		case "local_agents":
 			return {
@@ -127,9 +125,8 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 			};
 		default:
 			return {
-				title: "Connect a computer to continue",
-				description:
-					"Connect a computer to use its local agents, such as Codex or Claude Code. Then you can finish creating your Agent here.",
+				title: "Connect your computer",
+				description: "Run the command below on the computer you want to use.",
 			};
 	}
 }

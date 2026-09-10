@@ -475,9 +475,6 @@ export function CreateProfileDialogStep(
 			</Button>
 			<DialogHeader>
 				<DialogTitle>{view.title}</DialogTitle>
-				<DialogDescription>
-					Create an Agent, then return to select who to add to this Space.
-				</DialogDescription>
 			</DialogHeader>
 			<AgentProfileGenerator form={view.formProps} surface="dialog" />
 		</>
@@ -3227,7 +3224,7 @@ function resolveCreateProfileDialogTitle(input: {
 }): string {
 	return input.additionalHumanProfileCreationEnabled
 		? "Create a new profile"
-		: "Create a new Agent";
+		: "Create an Agent";
 }
 
 function resolveCreateProfileDialogDescription(input: {

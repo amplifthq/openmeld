@@ -25,6 +25,7 @@ export const OPENMELD_SETUP_TERMINAL_CONFIRMATION_STEP =
 	"If Terminal asks you to accept the OpenMeld disclaimer or install missing OpenMeld skills, choose the recommended options.";
 
 type StartSetupCommandCardProps = {
+	compact?: boolean;
 	command: string | null;
 	commandPlaceholder: string;
 	commandPlatform?: WebSetupCommandPlatform;
@@ -59,6 +60,66 @@ type StartSetupCommandExpiryProps = {
 	isRefreshingExpiredCommand?: boolean;
 	onRefreshExpiredCommand?: () => Promise<void>;
 };
+
+function SetupCommandInstructions(
+	input: Pick<StartSetupCommandCardProps, "compact" | "commandPlatform">
+) {
+	return input.compact ? (
+		<p className="text-muted-foreground text-sm">
+			Open {input.commandPlatform === "windows" ? "PowerShell" : "Terminal"},
+			paste the command, and follow the prompts.
+		</p>
+	) : (
+		<ol className="grid gap-2 text-xs sm:grid-cols-3">
+			<li
+				className={cn(
+					"rounded-md border border-transparent p-3",
+					surfaceClasses(1)
+				)}
+			>
+				<CopyIcon
+					aria-hidden="true"
+					className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
+				/>
+				<span className="font-medium">1. Copy the command</span>
+				<p className="mt-1 text-muted-foreground">Use the copy button above.</p>
+			</li>
+			<li
+				className={cn(
+					"rounded-md border border-transparent p-3",
+					surfaceClasses(1)
+				)}
+			>
+				<TerminalIcon
+					aria-hidden="true"
+					className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
+				/>
+				<span className="font-medium">
+					2. Open{" "}
+					{input.commandPlatform === "windows" ? "PowerShell" : "Terminal"}
+				</span>
+				<p className="mt-1 text-muted-foreground">
+					Paste the command and press Return.
+				</p>
+			</li>
+			<li
+				className={cn(
+					"rounded-md border border-transparent p-3",
+					surfaceClasses(1)
+				)}
+			>
+				<ListChecksIcon
+					aria-hidden="true"
+					className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
+				/>
+				<span className="font-medium">3. Follow the prompts</span>
+				<p className="mt-1 text-muted-foreground">
+					Keep it open. This page updates as you connect.
+				</p>
+			</li>
+		</ol>
+	);
+}
 
 export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 	const platform = input.commandPlatform ?? "posix";
@@ -132,56 +193,10 @@ export function StartSetupCommandCard(input: StartSetupCommandCardProps) {
 						</Button>
 					</div>
 				</TabPanel>
-				<ol className="grid gap-2 text-xs sm:grid-cols-3">
-					<li
-						className={cn(
-							"rounded-md border border-transparent p-3",
-							surfaceClasses(1)
-						)}
-					>
-						<CopyIcon
-							aria-hidden="true"
-							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
-						/>
-						<span className="font-medium">1. Copy the command</span>
-						<p className="mt-1 text-muted-foreground">
-							Use the copy button above.
-						</p>
-					</li>
-					<li
-						className={cn(
-							"rounded-md border border-transparent p-3",
-							surfaceClasses(1)
-						)}
-					>
-						<TerminalIcon
-							aria-hidden="true"
-							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
-						/>
-						<span className="font-medium">
-							2. Open{" "}
-							{input.commandPlatform === "windows" ? "PowerShell" : "Terminal"}
-						</span>
-						<p className="mt-1 text-muted-foreground">
-							Paste the command and press Return.
-						</p>
-					</li>
-					<li
-						className={cn(
-							"rounded-md border border-transparent p-3",
-							surfaceClasses(1)
-						)}
-					>
-						<ListChecksIcon
-							aria-hidden="true"
-							className="setup-instruction-icon mb-2 size-5 text-muted-foreground"
-						/>
-						<span className="font-medium">3. Follow the prompts</span>
-						<p className="mt-1 text-muted-foreground">
-							Keep it open. This page updates as you connect.
-						</p>
-					</li>
-				</ol>
+				<SetupCommandInstructions
+					commandPlatform={input.commandPlatform}
+					compact={input.compact}
+				/>
 				<StartSetupCommandExpiry
 					expiresInLabel={input.expiresInLabel}
 					expiresInState={input.expiresInState}

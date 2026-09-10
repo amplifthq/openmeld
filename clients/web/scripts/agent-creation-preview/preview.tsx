@@ -3,7 +3,6 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
-	DialogDescription,
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
@@ -150,10 +149,7 @@ function Preview() {
 							Back to people and agents
 						</Button>
 						<DialogHeader>
-							<DialogTitle>Create a new Agent</DialogTitle>
-							<DialogDescription>
-								Create an Agent, then return to select who to add to this Space.
-							</DialogDescription>
+							<DialogTitle>Create an Agent</DialogTitle>
 						</DialogHeader>
 						<CreationPreview
 							onCreated={() => {

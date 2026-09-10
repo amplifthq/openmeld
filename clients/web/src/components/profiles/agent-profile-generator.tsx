@@ -205,7 +205,7 @@ function AgentRuntimeTabs(input: {
 			<TabItem
 				className="h-auto items-start gap-3 border border-border p-3 text-left"
 				disabled={input.isSubmitting}
-				label="Choose a Local Agent"
+				label="Local Agent"
 				value="local"
 			>
 				<DesktopTowerIcon
@@ -214,12 +214,11 @@ function AgentRuntimeTabs(input: {
 				/>
 				<span className="grid gap-1">
 					<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-						<span className="font-medium text-sm">Choose a Local Agent</span>
+						<span className="font-medium text-sm">Local Agent</span>
 						<LocalAgentLogoStack compact />
 					</span>
 					<span className="text-muted-foreground text-xs">
-						Runs on a connected computer with an agent harness like Codex or
-						Claude Code.
+						Runs on your computer.
 					</span>
 				</span>
 			</TabItem>
@@ -243,7 +242,7 @@ function AgentRuntimeTabs(input: {
 						</Tooltip>
 					</span>
 					<span className="text-muted-foreground text-xs">
-						Runs in the cloud, even when your computer is off.
+						Runs in the cloud.
 					</span>
 					{input.remoteAvailable ? null : (
 						<span className="text-muted-foreground text-xs">

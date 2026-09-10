@@ -48,6 +48,7 @@ export function ComputerSetupFlow(input: {
 		<StartSetupCommandCard
 			command="# Preview only — use the simulation controls above"
 			commandPlaceholder="Preparing command…"
+			compact
 			copyLabel="Copy command"
 			copyStatus={copied ? "copied" : "idle"}
 			expiresInLabel={null}
@@ -59,9 +60,8 @@ export function ComputerSetupFlow(input: {
 			statusText={
 				stage === "connecting"
 					? "Connecting computer…"
-					: "Waiting for you to run the command"
+					: "Waiting for connection…"
 			}
-			title="Run one command on your computer"
 		/>
 	);
 }
