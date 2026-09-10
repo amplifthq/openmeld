@@ -281,6 +281,9 @@ async function createContinuedCard(input: {
   }).head;
   const creation = await input.target.adapter.createWorkingCard({
     connection: input.target.connection,
+    stopDeliveryId: input.delivery.onBehalfOfUserId
+      ? input.delivery.deliveryId
+      : undefined,
     initialText,
     locator: input.target.locator,
   });

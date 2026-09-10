@@ -25,7 +25,7 @@ export function CenterAgentRoutinesPage() {
 			{designationQuery.isSuccess &&
 			designationQuery.data.designation !== null ? null : (
 				<AppPageHeader
-					description="Schedule your Center Agent to work in a target Space."
+					description="Schedule work in a Space or a connected conversation."
 					eyebrow={
 						currentOrganization.isPersonal === true
 							? "Personal workspace"
