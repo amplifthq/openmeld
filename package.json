@@ -149,6 +149,7 @@
     "test:lark-platform-provider": "node --test scripts/lark-platform/provider-gate.test.mjs",
     "ops:trace": "node scripts/ops/trace.mjs",
     "ops:diagnostic-report": "node scripts/ops/diagnostic-report.mjs",
+    "ops:wake-failures": "node scripts/ops/wake-failures.mjs",
     "ops:feedback-inbox": "node scripts/ops/feedback-inbox.mjs",
     "ops:agent-activity-duration-backfill": "node scripts/ops/agent-activity-duration-backfill.mjs",
     "ops:remote-agent": "node scripts/ops/remote-agent-guardrails.mjs",

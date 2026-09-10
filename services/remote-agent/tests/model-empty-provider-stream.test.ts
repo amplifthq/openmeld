@@ -5,6 +5,10 @@ import {
   createAssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
+import {
+  projectProviderCompletion,
+  providerCompletionOperation,
+} from "../flue-adapter/provider-completion";
 import { retryCompletedEmptyAssistantStreamOnce } from "../flue-adapter/provider-stream-retry";
 
 const EMPTY_USAGE = {
@@ -75,6 +79,82 @@ async function collectEvents(
 }
 
 describe("Remote Agent completed-empty provider retry", () => {
+  it("observes both source completions before empty suppression and usage merging", async () => {
+    const observations: ReturnType<typeof projectProviderCompletion>[] = [];
+    let attempt = 0;
+    const stream = retryCompletedEmptyAssistantStreamOnce({
+      createAttempt: () =>
+        completedStream({
+          content:
+            ++attempt === 1 ? [] : [{ type: "text", text: "private answer" }],
+          usage: { ...EMPTY_USAGE, input: 10, output: 3, totalTokens: 13 },
+        }),
+      onCompletion: (completion) =>
+        observations.push(
+          projectProviderCompletion({
+            ...completion,
+            callId: "11111111-1111-4111-8111-111111111111",
+            submissionId: "submission",
+          })
+        ),
+    });
+    await collectEvents(stream);
+    expect(
+      observations.map((value) => [
+        value.attemptNo,
+        value.inputTokens,
+        value.textChars,
+      ])
+    ).toEqual([
+      [1, 10, 0],
+      [2, 10, 14],
+    ]);
+    expect(observations.map(providerCompletionOperation)).toEqual([
+      "completed_empty_stop",
+      "completed_text_stop",
+    ]);
+    expect(JSON.stringify(observations)).not.toContain("private answer");
+    expect((await stream.result()).usage.input).toBe(20);
+  });
+
+  it("does not let reporting errors interrupt a successful answer", async () => {
+    const stream = retryCompletedEmptyAssistantStreamOnce({
+      createAttempt: () =>
+        completedStream({ content: [{ type: "text", text: "answer" }] }),
+      onCompletion: () => {
+        throw new Error("reporting unavailable");
+      },
+    });
+    await collectEvents(stream);
+    expect((await stream.result()).content).toEqual([
+      { type: "text", text: "answer" },
+    ]);
+  });
+
+  it("keeps abort, provider response id, usage, and content-filter evidence without raw error text", () => {
+    const message = {
+      ...assistantMessage([], "aborted"),
+      responseId: "gen-123",
+      rawStopReason: "content_filter",
+      errorMessage: "private provider payload",
+    };
+    const observation = projectProviderCompletion({
+      attemptNo: 1,
+      durationMs: 25,
+      event: { type: "error", reason: "aborted", error: message },
+      callId: "11111111-1111-4111-8111-111111111111",
+      submissionId: "submission",
+    });
+    expect(observation).toMatchObject({
+      terminalEvent: "error",
+      stopReason: "aborted",
+      responseId: "gen-123",
+      rawStopReason: "content_filter",
+    });
+    expect(JSON.stringify(observation)).not.toContain(
+      "private provider payload"
+    );
+  });
   it("retries one provider stream that completed without any content", async () => {
     let attempts = 0;
     const output = retryCompletedEmptyAssistantStreamOnce({
