@@ -8,6 +8,10 @@
 - Do not use this for: Release authorization or additional business permissions.
 - Source of truth: Runtime and Routine owner documents define permanent contracts.
 
+Status: Implemented; production release and remaining provider acceptance pending.
+Remove this document after rollout and provider acceptance evidence are retained
+in the PR and permanent contracts are covered by the owner documents.
+
 ## Implemented boundaries
 
 Streaming publishes answer deltas through the existing delivery owner. Final
