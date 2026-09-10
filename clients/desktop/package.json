@@ -8,7 +8,7 @@
   "main": "out/main/index.js",
   "description": "OpenMeld Desktop GUI (Electron) — thin local control surface for the OpenMeld Service. See developing/clients/desktop.md.",
   "scripts": {
-    "build:contract-deps": "pnpm -C ../.. --filter @openmeld/agent-runtime... build",
+    "build:contract-deps": "pnpm -C ../.. exec turbo run build --filter=@openmeld/agent-runtime --concurrency=1",
     "dev": "electron-vite dev",
     "build": "pnpm run build:contract-deps && electron-vite build",
     "icons:generate": "node scripts/generate-icons.mjs",
