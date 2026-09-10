@@ -530,6 +530,38 @@ describe("Remote Agent Code Mode", () => {
     ).rejects.toBeInstanceOf(RemoteAgentToolResultTooLargeError);
   });
 
+  it("gives the exact callable name when a discovered capability is used as a global", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const execute = vi.fn();
+    const runtime = createRuntime({
+      executorOptions: [],
+      execute: () => {
+        throw new ReferenceError("openmeld_create_routine is not defined");
+      },
+    });
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [
+        {
+          name: "openmeld_create_routine",
+          description: "Create a Routine",
+          input: strictObject({}),
+          execute,
+        },
+      ],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime,
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+    await expect(
+      runCodeModeTool(tool, {
+        input: { code: "async () => openmeld_create_routine({})" },
+      })
+    ).rejects.toThrow("codemode.openmeld_create_routine(input)");
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("records failures without exposing generated code or tool arguments", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
