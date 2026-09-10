@@ -112,6 +112,13 @@ credentials, wire discriminants, or authorization policy.
 
 ### Collaboration presentation
 
+Sending from a conversation or thread Composer returns focus during the send
+gesture, before clearing the submitted draft. Draft replacement preserves the
+caret at the end only while that editor owns focus. Network completion and
+incoming messages do not refocus the Composer, and deferred editor focus is
+canceled when another surface takes focus. Existing mention clearing and
+message-history navigation rules remain unchanged.
+
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
 ```text
