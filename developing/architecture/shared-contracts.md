@@ -2530,6 +2530,24 @@ Rules:
 
 ### Message Channel Contracts
 
+The optional Message Channel turn-trigger `resources` field contains Core-frozen
+descriptors for the admitted message, never bytes or credentials. The shared
+`centerAgentReadChannelFileBodySchema` and response schema own current-message
+file RPC payloads. Core checks the durable request and current connection before
+downloading; the model never supplies a new resource authorization. Remote Agent
+must read the new optional field before Core produces it. Rollbacks must retain
+read compatibility for durable resource-bearing requests.
+
+The optional `trigger.filePublicationSupported` capability is issued only by
+Core with the file-publication RPC. Remote Agent hides and rejects the send tool
+without it, so a compatible reader can deploy before the producer. The shared
+`centerAgentPostChannelFileBodySchema` contains bounded bytes, digest and verified
+speaker; the conversation must match the active Core-frozen delivery. Publication
+uses `center_agent_publication_operations` with `message_channel_file`, preserving
+the existing claim, completed replay, and unknown-outcome contract. Apply the
+additive destination-kind migration before enabling the Core producer. Audit
+actions `read_channel_file` and `post_channel_file` require action set v22.
+
 `packages/schemas/src/schemas/http/message-channels.ts` owns the canonical
 Organization Channels projection.
 `packages/schemas/src/schemas/runtime/message-channel.ts` owns provider

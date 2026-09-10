@@ -108,6 +108,7 @@ export async function beginRemoteAgentLarkPlatformRegistration(input: {
   if (input.reauthorize) {
     return await reauthorizeExistingRegistration({
       ...input,
+      createId,
       cryptoKey: configuration.cryptoKey,
       nowMs,
     });
@@ -244,13 +245,14 @@ function assertRepairableAttempt(
 
 async function reauthorizeExistingRegistration(input: {
   actor: RegistrationActor;
+  createId: () => string;
   cryptoKey: string;
   db: D1Database;
   fetchImpl?: typeof fetch;
   nowMs: number;
   provider: RemoteAgentLarkPlatformProvider;
 }): Promise<LarkPlatformRegistrationResponse> {
-  const attempt = await readActiveRemoteAgentLarkPlatformRegistrationAttempt({
+  let attempt = await readActiveRemoteAgentLarkPlatformRegistrationAttempt({
     db: input.db,
     organizationId: input.actor.organizationId,
     provider: input.provider,
@@ -260,11 +262,46 @@ async function reauthorizeExistingRegistration(input: {
     attempt,
     provider: input.provider,
   });
+  if (!attempt) {
+    const connected =
+      await readRemoteAgentLarkPlatformChannelConnectionForOrganization({
+        db: input.db,
+        organizationId: input.actor.organizationId,
+        provider: input.provider,
+      });
+    if (
+      connected?.status !== "connected" ||
+      connected.permissionBundleVersion ===
+        LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version
+    ) {
+      throw serviceError(input.provider, "repair_unavailable", 409);
+    }
+    attempt = await repairRemoteAgentLarkPlatformRegistrationAttempt({
+      attemptId: input.createId(),
+      configurationExpiresAtMs:
+        input.nowMs + LARK_PLATFORM_CONFIGURATION_WINDOW_MS,
+      connectionId: connected.connectionId,
+      db: input.db,
+      initiatedByProfileId: input.actor.profileId,
+      initiatedByUserId: input.actor.userId,
+      nowMs: input.nowMs,
+      organizationId: input.actor.organizationId,
+      pollIntervalMs: REGISTRATION_RETRY_DELAY_MS,
+      provider: input.provider,
+      updatePermissionBundleVersion:
+        LARK_PLATFORM_CHANNEL_ONLY_PERMISSION_BUNDLE.version,
+    });
+  }
   if (
     !attempt?.connectionId ||
     attempt.status !== "configuring" ||
-    attempt.failureReasonCode !==
-      `${input.provider}.application_config_permission_required`
+    (attempt.failureReasonCode !== null &&
+      attempt.failureReasonCode !==
+        `${input.provider}.application_config_permission_required` &&
+      attempt.failureReasonCode !==
+        `${input.provider}.authorization_update_required` &&
+      attempt.failureReasonCode !==
+        `${input.provider}.permission_bundle_mismatch`)
   ) {
     throw serviceError(input.provider, "repair_unavailable", 409);
   }

@@ -9,6 +9,53 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("rechecks current owner/admin access for authorization updates", async () => {
+    const harness = createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const created = await ensureInboxItem({
+        db: harness.db,
+        nowMs: 2000,
+        candidate: {
+          ...identity,
+          attention: "action_required",
+          importance: "urgent",
+          kind: "system_issue",
+          contextLabel: "Authorization update",
+          occurredAtMs: 1000,
+          preview: "Reconnect Slack to update permissions.",
+          title: "Update Slack permissions",
+          sourceKind: "system_attention_event",
+          sourceKey: "authorization-update:channel.slack.T1:v2",
+          sourceTarget: { kind: "settings", section: "channels" },
+        },
+      });
+      await expect(
+        createInboxService({ db: harness.db }).get({
+          ...identity,
+          itemId: created.itemId,
+        })
+      ).rejects.toMatchObject({ status: 404 });
+      await expect(
+        createInboxService({
+          db: harness.db,
+          canManageAuthorizationUpdates: true,
+        }).get({ ...identity, itemId: created.itemId })
+      ).resolves.toMatchObject({ item: { id: created.itemId } });
+      await expect(
+        createInboxService({ db: harness.db }).markRead({
+          ...identity,
+          itemId: created.itemId,
+          read: true,
+        })
+      ).rejects.toMatchObject({ status: 404 });
+    } finally {
+      harness.close();
+    }
+  });
   it("keeps absent personal Agent owners urgent in Inbox, blue in navigation, and revokes stale ownership", async () => {
     const harness = createInboxHarness();
     try {

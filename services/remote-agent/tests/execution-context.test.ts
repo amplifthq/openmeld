@@ -196,7 +196,9 @@ describe("Remote Agent submission execution context", () => {
       ])
     );
     expect(toolNames).toEqual([
-      ...CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
+      ...CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES.filter(
+        (name) => name !== "openmeld_read_channel_file"
+      ),
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
     ]);

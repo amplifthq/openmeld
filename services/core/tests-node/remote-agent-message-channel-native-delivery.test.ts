@@ -36,6 +36,96 @@ const RFC_4122_VERSION_5_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 describe("Remote Agent Message Channel native delivery", () => {
+  it("publishes one durable receipt before slow input preparation and skips preparation on accepted replay", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelNativeDeliveryMigrations(harness);
+    const order: string[] = [];
+    const request = createMessageChannelDeliveryInput();
+    const workerSubmit = vi.fn(() => {
+      order.push("worker");
+      return Promise.resolve({
+        accepted: true,
+        createdAt: 1001,
+        requestId: "request_lark_1",
+        status: "pending" as const,
+        submissionId: "submission_lark_1",
+      });
+    });
+    const registry = createWorkingCardRegistry({
+      publishWorkingCard: vi.fn(() => {
+        order.push("receipt");
+        return Promise.resolve({
+          resultId: "message_working_1",
+          status: "published" as const,
+        });
+      }),
+    });
+    const prepareInput = vi.fn(() => {
+      expect(order).toEqual(["receipt"]);
+      order.push("context_and_files");
+      return Promise.resolve({ turnEnvelope: request.turnEnvelope });
+    });
+    try {
+      const input = {
+        db: harness.db,
+        env: buildEnv({
+          remoteAgentWorker: { submitConversationTurn: workerSubmit },
+        }),
+        memoryService: null,
+        nowMs: 1000,
+        registry,
+        request,
+        prepareInput,
+      };
+      await submitRemoteAgentMessageChannelNativeDelivery(input);
+      expect(order).toEqual(["receipt", "context_and_files", "worker"]);
+      await submitRemoteAgentMessageChannelNativeDelivery({
+        ...input,
+        nowMs: 2000,
+      });
+      expect(prepareInput).toHaveBeenCalledOnce();
+      expect(workerSubmit).toHaveBeenCalledOnce();
+    } finally {
+      harness.close();
+    }
+  });
+  it("keeps a receipt recoverable when input preparation fails before worker submission", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelNativeDeliveryMigrations(harness);
+    const queueSend = vi.fn(() => Promise.resolve());
+    const workerSubmit = vi.fn();
+    const registry = createWorkingCardRegistry();
+    try {
+      await expect(
+        submitRemoteAgentMessageChannelNativeDelivery({
+          db: harness.db,
+          env: buildEnv({
+            queueSend,
+            remoteAgentWorker: { submitConversationTurn: workerSubmit },
+          }),
+          memoryService: null,
+          nowMs: 1000,
+          registry,
+          request: createMessageChannelDeliveryInput(),
+          prepareInput: () => {
+            expect(queueSend).toHaveBeenCalledWith(
+              expect.objectContaining({
+                kind: "remote_agent_native_delivery_deadline_probe",
+              }),
+              expect.anything()
+            );
+            return Promise.reject(
+              new Error("Attachment temporarily unavailable")
+            );
+          },
+        })
+      ).rejects.toThrow("Attachment temporarily unavailable");
+      expect(workerSubmit).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("uses the shared worker, ledger, quota, and admission watchdog", async () => {
     const harness = createSqliteD1Harness();
     applyMessageChannelNativeDeliveryMigrations(harness);
@@ -1160,6 +1250,7 @@ function createWorkingCardRegistry(
   overrides: Partial<MessageChannelProviderAdapter> = {}
 ) {
   const adapter: MessageChannelProviderAdapter = {
+    publishFile: vi.fn(),
     createWorkingCard: vi.fn(async () => ({
       cardId: "card_working_1",
       status: "created" as const,

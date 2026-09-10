@@ -261,7 +261,7 @@ describe("CenterAgentMessageChannelsSection", () => {
 		expect(screen.getByText("Reconnect required")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Reconnect Slack once so people can message the Center Agent directly."
+				"Reconnect Slack to approve updated permissions for the Center Agent."
 			)
 		).toBeTruthy();
 	});

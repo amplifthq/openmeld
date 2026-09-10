@@ -1095,6 +1095,74 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("reads a current %s file into Computer and keeps encoded bytes out of the model result", async (provider) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider,
+          connectionId: "connection",
+          conversationId: "conversation",
+          resources: [
+            {
+              fileKey: "file_1",
+              fileName: "report.csv",
+              mimeType: null,
+              sizeBytes: null,
+              type: "file",
+            },
+          ],
+        },
+      },
+    });
+    const centerAgentReadChannelFile = vi.fn(async () => ({
+      contentBase64: "YSxiCjEsMg==",
+      fileKey: "file_1",
+      fileName: "report.csv",
+      mimeType: "text/csv",
+      sizeBytes: 7,
+      provider,
+    }));
+    const writeChannelFile = vi.fn(async () => ({
+      path: `${provider}-files/report.csv`,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentReadChannelFile },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+      computerFileHandoff: {
+        readBinaryFile: vi.fn(),
+        readTextFiles: vi.fn(),
+        writeChannelFile,
+      },
+    });
+    const result = await executeTool(tools, "openmeld_read_channel_file", {
+      fileKey: "file_1",
+    });
+    expect(result).toMatchObject({
+      text: "a,b\n1,2",
+      savedPath: `${provider}-files/report.csv`,
+    });
+    expect(result).not.toHaveProperty("contentBase64");
+    expect(writeChannelFile).toHaveBeenCalledWith({
+      bytes: new TextEncoder().encode("a,b\n1,2"),
+      fileId: "file_1",
+      fileName: "report.csv",
+      provider,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_channel_file", {
+        fileKey: "other_file",
+      })
+    ).rejects.toThrow("Choose a fileKey");
+    expect(centerAgentReadChannelFile).toHaveBeenCalledOnce();
+  });
+
   it("reads only a Slack file ID observed in channel history and keeps private bytes out of the model result", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");
@@ -1126,14 +1194,14 @@ describe("remote agent OpenMeld tool catalog", () => {
       file: observedFile,
       organizationId: "org_123",
     }));
-    const writeSlackFile = vi.fn(async () => ({
+    const writeChannelFile = vi.fn(async () => ({
       path: "slack-files/F_RELEASE_NOTES-release-notes.md",
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles: vi.fn(),
-        writeSlackFile,
+        writeChannelFile,
       },
       coreWorker: {
         centerAgentReadSlackChannelHistory,
@@ -1167,7 +1235,8 @@ describe("remote agent OpenMeld tool catalog", () => {
       ),
       fileId: "F_RELEASE_NOTES",
     });
-    expect(writeSlackFile).toHaveBeenCalledWith({
+    expect(writeChannelFile).toHaveBeenCalledWith({
+      provider: "slack",
       bytes,
       fileId: "F_RELEASE_NOTES",
       fileName: "release-notes.md",
@@ -1248,7 +1317,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       file: imageFile,
       organizationId: "org_123",
     }));
-    const writeSlackFile = vi.fn(async () => ({
+    const writeChannelFile = vi.fn(async () => ({
       path: "slack-files/F_SCREENSHOT-status.png",
     }));
     const imageFetch = vi.fn(async () =>
@@ -1273,7 +1342,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles: vi.fn(),
-        writeSlackFile,
+        writeChannelFile,
       },
       coreWorker: {
         centerAgentReadSlackChannelHistory,
@@ -1643,6 +1712,94 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("sends a Computer file only to the current %s conversation", async (provider) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider,
+          connectionId: "connection",
+          conversationId: "frozen-conversation",
+          filePublicationSupported: true,
+        },
+      },
+    });
+    const centerAgentPostChannelFile = vi.fn(async () => ({
+      fileName: "report.txt",
+      messageId: "om_sent",
+      provider,
+      sizeBytes: 5,
+    }));
+    const readBinaryFile = vi.fn(async () => ({
+      bytes: new TextEncoder().encode("hello"),
+      fileName: "report.txt",
+      path: "report.txt",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostChannelFile },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+      computerFileHandoff: {
+        readBinaryFile,
+        readTextFiles: vi.fn(),
+        writeChannelFile: vi.fn(),
+      },
+    });
+    expect(
+      await executeTool(tools, "openmeld_send_channel_file", {
+        path: "report.txt",
+      })
+    ).toMatchObject({ messageId: "om_sent" });
+    expect(centerAgentPostChannelFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "frozen-conversation",
+        contentBase64: "aGVsbG8=",
+        contentSha256:
+          "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      })
+    );
+    await expect(
+      executeTool(tools, "openmeld_send_channel_file", {
+        path: "report.txt",
+        conversationId: "other-chat",
+      })
+    ).rejects.toThrow();
+    expect(centerAgentPostChannelFile).toHaveBeenCalledOnce();
+  });
+
+  it("hides channel file tools until Core supplies their request evidence", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider: "feishu",
+          connectionId: "connection",
+          conversationId: "conversation",
+        },
+      },
+    });
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      turnEnvelope: request.turnEnvelope,
+      storage: await createStorageWithPendingContext(request),
+    });
+    expect(
+      tools.some(
+        (tool) =>
+          tool.name === "openmeld_send_channel_file" ||
+          tool.name === "openmeld_read_channel_file"
+      )
+    ).toBe(false);
+  });
+
   it("sends one selected Computer file to the originating Slack thread", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");
@@ -1672,7 +1829,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile,
         readTextFiles: vi.fn(),
-        writeSlackFile: vi.fn(),
+        writeChannelFile: vi.fn(),
       },
       coreWorker: { centerAgentPostSlackFile },
       storage: await createStorageWithPendingContext(request),
@@ -3102,7 +3259,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles,
-        writeSlackFile: vi.fn(),
+        writeChannelFile: vi.fn(),
       },
       coreWorker: { centerAgentWakeAgentProfilesInSpace },
       storage: await createStorageWithPendingContext(request),

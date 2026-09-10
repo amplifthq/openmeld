@@ -610,6 +610,27 @@ the connected provider API.
    generated-image delivery notice, removes the unsupported attachment
    references from provider publication, and terminates the durable callback
    successfully instead of retrying forever or silently discarding the fact.
+   Current-message files are read on demand through Core-frozen resource
+   descriptors in the admitted turn. Core rechecks the current designation,
+   Organization, profile, dispatch, conversation and connected provider before
+   downloading the exact original-message resource, bounded to 5 MiB. Text has a
+   bounded preview; binary files require Computer inspection. Channel credentials
+   are never exposed to the model or used as business-App consent. This read does
+   not authorize arbitrary provider files or other conversations.
+   Verified members can explicitly request a Computer file to be sent back to
+   the admitted conversation using `openmeld_send_channel_file`. Core checks the
+   active represented delivery and digest, then uses the existing Center Agent
+   publication operation ledger. Completed attempts replay their receipt; unknown
+   outcomes cannot automatically republish. Upload credentials stay in Core.
+   This does not authorize other chats, Routine output, or business-App writes.
+   After identity/admission validation, Core prepares the durable receipt card
+   before fetching channel history or input attachments. This receipt means
+   the request was received, not that execution has started. The existing
+   admission watchdog covers this preparation window and leaves accepted
+   executions to their existing lifecycle owner. Accepted replays skip input
+   preparation. Final card presentation distinguishes completed responses,
+   failures, confirmed stops, and rollover segments; closing a segment does
+   not imply that the response or delegated work has completed.
    Core converts a Lark-platform `429` `Retry-After` header into a bounded
    provider retry delay for both stream updates and terminal publication.
    Remote Agent waits for at least that delay, while durable callback retry

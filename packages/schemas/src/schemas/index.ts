@@ -1486,6 +1486,13 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  centerAgentPostChannelFileBodySchema,
+  centerAgentPostChannelFileResponseSchema,
+  centerAgentReadChannelFileBodySchema,
+  centerAgentReadChannelFileResponseSchema,
+  MESSAGE_CHANNEL_FILE_MAX_SIZE_BYTES,
+} from "./http/message-channel-files";
+export {
   LARK_PLATFORM_REGISTRATION_DOMAINS,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_BYTES,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_CHARS,
@@ -1916,6 +1923,7 @@ export {
   slackFileReadResponseSchema,
 } from "./http/slack-channel-reads";
 export {
+  SLACK_BOT_SCOPES,
   SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES,
   slackOAuthErrorCodeSchema,
   slackOAuthIdentityLinkInputSchema,
