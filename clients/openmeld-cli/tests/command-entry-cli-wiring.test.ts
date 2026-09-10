@@ -484,6 +484,9 @@ describe("command entry CLI wiring", () => {
       stdin: false,
       text: "hello agents",
       view: "agent",
+      wakeTargets: [],
+      referenceTargets: [],
+      mentionTargets: [],
     });
   });
 

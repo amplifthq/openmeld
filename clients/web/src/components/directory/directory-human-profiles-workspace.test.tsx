@@ -294,7 +294,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Computer online"
+				"Center Agent and people with online computers"
 			)
 		).toBeTruthy();
 		expect(
@@ -311,7 +311,12 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Center Agent", "Online", "Offline"]);
+		).toEqual(["Online", "Offline"]);
+		expect(
+			within(screen.getByRole("region", { name: "Online" })).getByText(
+				"Workspace assistant"
+			)
+		).toBeTruthy();
 	});
 
 	it("keeps unknown and attention states in Offline with their explanation", () => {
@@ -352,7 +357,11 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			screen.queryByRole("region", { name: "Status needs checking" })
 		).toBeNull();
-		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
+		expect(
+			within(screen.getByRole("region", { name: "Online" })).getByText(
+				"Workspace assistant"
+			)
+		).toBeTruthy();
 	});
 
 	it("keeps pending checks out of Offline until loading finishes", () => {
@@ -428,7 +437,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			within(sidebar)
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
-		).toEqual(["Center Agent", "Online", "Offline"]);
+		).toEqual(["Online", "Offline"]);
 	});
 
 	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
