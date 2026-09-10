@@ -3073,6 +3073,7 @@ function useConvertDirectMessageToSpaceHandler(input: {
 					openMeldProfileId: controller.profileId,
 				})
 			).convertToSpace({
+				includeMemberSnapshots: true,
 				name: conversion.name,
 				profileIds,
 				spaceId: controller.spaceId,
@@ -3085,17 +3086,68 @@ function useConvertDirectMessageToSpaceHandler(input: {
 				joiningHumanProfile &&
 					result.addedMemberIds.includes(joiningHumanProfile.openMeldProfileId)
 			);
+			const addedMemberIds = new Set(result.addedMemberIds);
+			const addedItems = result.items?.filter((member) =>
+				addedMemberIds.has(member.profileId)
+			);
+			const confirmedAddedCounts = {
+				humanCount:
+					addedItems?.filter((member) => member.profileKind === "human")
+						.length ?? Number(confirmedJoiningHuman),
+				agentCount:
+					addedItems?.filter((member) => member.profileKind === "agent")
+						.length ?? 0,
+			};
 			const statusQueryKey = spaceQueryKeys.status(
 				controller.spaceId,
 				controller.profileId
 			);
+			// Pre-conversion reads must not replace the confirmed membership on navigation.
+			await Promise.all([
+				input.queryClient.cancelQueries({
+					queryKey: accountSpaceQueryKeys.all,
+				}),
+				input.queryClient.cancelQueries({ queryKey: statusQueryKey }),
+				input.queryClient.cancelQueries({
+					queryKey: spaceQueryKeys.members(
+						controller.spaceId,
+						controller.profileId
+					),
+				}),
+				input.queryClient.cancelQueries({
+					queryKey: spaceQueryKeys.bootstrap(
+						controller.spaceId,
+						controller.profileId
+					),
+				}),
+			]);
+			if (result.items) {
+				applySpaceMembersResponseToCache({
+					generatedAt: result.convertedAt,
+					queryClient: input.queryClient,
+					response: { ...result, items: result.items },
+					spaceId: controller.spaceId,
+					viewerProfileId: controller.profileId,
+				});
+			} else if (joiningHumanProfile && confirmedJoiningHuman) {
+				// Older Core responses omit items during a receiver-first rollout.
+				applyConfirmedHumanSpaceMemberToCache({
+					addedAt: result.convertedAt,
+					profile: joiningHumanProfile,
+					queryClient: input.queryClient,
+					spaceId: controller.spaceId,
+					viewerProfileId: controller.profileId,
+				});
+			}
 			input.queryClient.setQueryData<GetSpaceStatusResponse>(
 				statusQueryKey,
 				(status) =>
 					status
-						? applyDirectMessageConversionToSpaceStatus(status, result, {
-								confirmedAddedHumanCount: confirmedJoiningHuman ? 1 : 0,
-							})
+						? applyDirectMessageConversionToSpaceStatus(
+								status,
+								result,
+								confirmedAddedCounts
+							)
 						: status
 			);
 			input.queryClient.setQueryData<SpaceBootstrapSnapshot>(
@@ -3107,9 +3159,7 @@ function useConvertDirectMessageToSpaceHandler(input: {
 								status: applyDirectMessageConversionToSpaceStatus(
 									bootstrap.status,
 									result,
-									{
-										confirmedAddedHumanCount: confirmedJoiningHuman ? 1 : 0,
-									}
+									confirmedAddedCounts
 								),
 							}
 						: bootstrap
@@ -3117,17 +3167,12 @@ function useConvertDirectMessageToSpaceHandler(input: {
 			input.queryClient.setQueriesData<AccountSpaceSections>(
 				{ queryKey: accountSpaceQueryKeys.all },
 				(sections) =>
-					applyDirectMessageConversionToAccountSpaceSections(sections, result)
+					applyDirectMessageConversionToAccountSpaceSections(
+						sections,
+						result,
+						confirmedAddedCounts
+					)
 			);
-			if (joiningHumanProfile && confirmedJoiningHuman) {
-				applyConfirmedHumanSpaceMemberToCache({
-					addedAt: result.convertedAt,
-					profile: joiningHumanProfile,
-					queryClient: input.queryClient,
-					spaceId: controller.spaceId,
-					viewerProfileId: controller.profileId,
-				});
-			}
 
 			const navigation = input.navigate({
 				replace: true,
@@ -3175,31 +3220,31 @@ function useConvertDirectMessageToSpaceHandler(input: {
 function applyDirectMessageConversionToSpaceStatus(
 	status: GetSpaceStatusResponse,
 	result: ConvertDirectMessageToSpaceResponse,
-	input: { confirmedAddedHumanCount: number }
+	addedCounts: { humanCount: number; agentCount: number }
 ): GetSpaceStatusResponse {
-	const confirmedAddedHumanCount = status.directMessageConvertedAt
-		? 0
-		: input.confirmedAddedHumanCount;
+	const counts = status.directMessageConvertedAt
+		? { humanCount: 0, agentCount: 0 }
+		: addedCounts;
 	return {
 		...status,
 		accessMode: result.accessMode,
 		directMessageConvertedAt: result.convertedAt,
 		generatedAt: result.convertedAt,
-		members:
-			confirmedAddedHumanCount > 0
-				? {
-						...status.members,
-						humanCount: status.members.humanCount + confirmedAddedHumanCount,
-						totalCount: status.members.totalCount + confirmedAddedHumanCount,
-					}
-				: status.members,
+		members: {
+			...status.members,
+			humanCount: status.members.humanCount + counts.humanCount,
+			agentCount: status.members.agentCount + counts.agentCount,
+			totalCount:
+				status.members.totalCount + counts.humanCount + counts.agentCount,
+		},
 		name: result.name,
 	};
 }
 
 function applyDirectMessageConversionToAccountSpaceSections(
 	sections: AccountSpaceSections | undefined,
-	result: ConvertDirectMessageToSpaceResponse
+	result: ConvertDirectMessageToSpaceResponse,
+	addedCounts: { humanCount: number; agentCount: number }
 ): AccountSpaceSections | undefined {
 	if (!sections) {
 		return sections;
@@ -3207,14 +3252,31 @@ function applyDirectMessageConversionToAccountSpaceSections(
 
 	const updateItem = (
 		item: AccountSpaceSections["spaceItems"][number]
-	): AccountSpaceSections["spaceItems"][number] =>
-		item.spaceId === result.spaceId
-			? {
-					...item,
-					directMessageConvertedAt: result.convertedAt,
-					spaceName: result.name,
-				}
-			: item;
+	): AccountSpaceSections["spaceItems"][number] => {
+		if (item.spaceId !== result.spaceId) {
+			return item;
+		}
+		const counts = item.directMessageConvertedAt
+			? { humanCount: 0, agentCount: 0 }
+			: addedCounts;
+		return {
+			...item,
+			activeHumanCount:
+				item.activeHumanCount === null
+					? null
+					: item.activeHumanCount + counts.humanCount,
+			activeAgentCount:
+				item.activeAgentCount === null
+					? null
+					: item.activeAgentCount + counts.agentCount,
+			activeMemberCount:
+				item.activeMemberCount === null
+					? null
+					: item.activeMemberCount + counts.humanCount + counts.agentCount,
+			directMessageConvertedAt: result.convertedAt,
+			spaceName: result.name,
+		};
+	};
 
 	return {
 		...sections,

@@ -1934,6 +1934,7 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   }): Promise<{ created: boolean; meta: SpaceMeta }>;
   rpcConvertDirectMessageToSpace(input: {
     context?: CoreRpcContextInput;
+    includeMemberSnapshots?: ConvertDirectMessageToSpaceBody["includeMemberSnapshots"];
     members: ResolvedSpaceMemberProfile[];
     name: string;
     spaceId: string;
@@ -16764,6 +16765,7 @@ export async function rpcConvertDirectMessageToSpace(
   input: ConvertDirectMessageToSpaceInput
 ): Promise<ConvertDirectMessageToSpaceResponse> {
   const parsed = convertDirectMessageToSpaceBodySchema.safeParse({
+    includeMemberSnapshots: input.includeMemberSnapshots,
     name: input.name,
     profileIds: input.profileIds,
   });
@@ -16850,6 +16852,9 @@ export async function rpcConvertDirectMessageToSpace(
   });
   const response = await stub.rpcConvertDirectMessageToSpace({
     context,
+    ...(parsed.data.includeMemberSnapshots
+      ? { includeMemberSnapshots: true }
+      : {}),
     members: membersWithAgentOwners.filter(
       (member) => !currentMemberProfileIds.has(member.profileId)
     ),

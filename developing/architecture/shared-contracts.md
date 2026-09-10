@@ -43,6 +43,23 @@ requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Boundary
 
+### Direct Message conversion member snapshots
+
+The conversion request may opt into `includeMemberSnapshots`. The Space-owned
+transaction returns its existing add-members `items` in that case; the response
+field is optional so readers can still accept older Core responses. Calls that
+omit the option retain the original strict response shape. These snapshots
+confirm membership, not Wakeability; Web does not invent Agent availability.
+
+Web applies the confirmed members, counts, and conversion metadata before
+navigating, then reconciles through the normal authoritative reads. Deploy Core
+and Gateway before the Web caller. An older Gateway rejects the new request
+field before mutation; an older Core behind the new Gateway returns the legacy
+success response, retaining the previous refresh behavior. Roll back the Web
+caller before its receivers. CLI, Service, Skills, setup, Wake, Space actions,
+and diagnostics keep their existing contracts; no migration or local component
+release is required.
+
 ### Personal Agent owner Inbox activity
 
 Inbox source-target version 6 adds optional `agentOwnerActivity` to Space targets.

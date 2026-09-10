@@ -2836,8 +2836,9 @@ Directory Profiles remains available, but submission first opens the explicit
 new participants, explains existing-message and file visibility, requires a
 valid Space name, and warns that conversion is irreversible. Cancel performs no
 mutation. Confirm calls the dedicated atomic conversion contract and
-applies the successful response to the current status, bootstrap, and Account
-Space Index caches before replace-navigating immediately to the ordinary Spaces
+requests member snapshots and applies the successful response to the current
+members, status, bootstrap, and Account Space Index caches before
+replace-navigating immediately to the ordinary Spaces
 route. Members, status, and Account Space Index refetches reconcile in the
 background and must not hold the user on the Direct Messages route or relabel a
 completed conversion as failed. The converted Space remains member-only; Web
