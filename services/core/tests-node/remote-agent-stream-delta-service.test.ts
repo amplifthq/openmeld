@@ -17,6 +17,7 @@ import {
   markRemoteAgentMessageChannelProviderCardSent,
 } from "../src/remote-agent/infrastructure/d1/message-channel-provider-progress-repo";
 import {
+  claimRemoteAgentMessageChannelFinalPublication,
   markRemoteAgentNativeDeliveryAck,
   markRemoteAgentNativeDeliveryCompleted,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
@@ -311,6 +312,73 @@ describe("Remote Agent stream delta service", () => {
       ).resolves.toEqual({ status: "accepted", lastSequence: 1 });
       expect(rpcApplyAgentStreamDelta).not.toHaveBeenCalled();
     } finally {
+      harness.close();
+    }
+  });
+
+  it("accepts an in-flight card delta superseded by the canonical final publication", async () => {
+    const harness = createSqliteD1Harness();
+    applyMessageChannelStreamMigrations(harness);
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({
+          code: 0,
+          expire: 7200,
+          tenant_access_token: "tenant-token",
+        })
+      )
+      .mockImplementationOnce(async () => {
+        const claimed = await claimRemoteAgentMessageChannelFinalPublication({
+          claimExpiresAtMs: Date.now() + 30_000,
+          claimId: "final-claim",
+          db: harness.db,
+          idempotencyKey: "message_channel_idem_1",
+          nowMs: Date.now(),
+          payload: {
+            storageVersion: 1,
+            text: "Complete answer",
+            failureCode: null,
+            failureDetail: null,
+            resumeStatus: "accepted",
+          },
+          providerPublicationIdempotencyKey:
+            "e86df165-338e-562b-8e35-b9b29b1c239b",
+          submissionId: "sub_1",
+        });
+        expect(claimed?.finalPublicationState).toBe("claimed");
+        return Response.json({ code: 0, data: {} });
+      });
+    vi.stubGlobal("fetch", fetchImpl);
+    try {
+      await seedLarkConnection(harness);
+      await createAcceptedMessageChannelDelivery(harness.db);
+      await expect(
+        submitRemoteAgentStreamDelta(
+          {
+            ...buildEnv(harness.db, vi.fn()),
+            OPENMELD_LARK_CHANNEL_ENABLED: "true",
+            LARK_OPENMELD_PLATFORM_CREDENTIAL_CRYPTO_KEY: CRYPTO_KEY,
+          } as CoreBindings,
+          createDelta({
+            idempotencyKey: "message_channel_idem_1",
+            spaceId: "lark:connection_lark_test:oc_chat_test:om_root_test",
+            triggerMessageId: "om_trigger_test",
+          })
+        )
+      ).resolves.toEqual({ lastSequence: 1, status: "duplicate_accepted" });
+      const delivery = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+        db: harness.db,
+        idempotencyKey: "message_channel_idem_1",
+      });
+      expect(delivery).toMatchObject({
+        finalPublicationState: "claimed",
+        finalPublicationClaimId: "final-claim",
+        finalPublicationPayload: { text: "Complete answer" },
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.unstubAllGlobals();
       harness.close();
     }
   });
