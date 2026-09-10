@@ -3071,7 +3071,10 @@ describe("openmeld service commands", () => {
         .spyOn(globalThis, "fetch")
         .mockImplementation((input: string | URL | Request) => {
           const url = String(input);
-          if (url.includes("/v1/local-runtimes/current/reply-readiness")) {
+          if (
+            url.includes("/v1/people-computers/") &&
+            url.endsWith("/reply-readiness")
+          ) {
             return Promise.resolve(
               new Response(JSON.stringify(replyReadinessBody), {
                 headers: { "content-type": "application/json" },

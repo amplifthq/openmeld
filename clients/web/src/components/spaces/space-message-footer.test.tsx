@@ -1,19 +1,20 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
-	render as renderView,
+	render as renderComponent,
 	screen,
 	within,
 } from "@testing-library/react";
-import type { ReactElement } from "react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TestQueryClientProvider } from "#/test-support/query-client";
 import {
 	SpaceMessageFooter,
 	type SpaceMessageFooterAddressingTarget,
 } from "./space-message-footer";
 
-vi.mock("@phosphor-icons/react", () => ({
+vi.mock("@phosphor-icons/react", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@phosphor-icons/react")>()),
 	ArrowBendUpLeftIcon: () => <span />,
 	CaretRightIcon: () => <span />,
 	ChatCircleIcon: () => <span />,
@@ -26,6 +27,15 @@ vi.mock("@phosphor-icons/react", () => ({
 	),
 }));
 
+function render(children: ReactNode) {
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	return renderComponent(
+		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+	);
+}
+
 const WAKE_TARGET: SpaceMessageFooterAddressingTarget = {
 	agentControllerRef: "codex",
 	avatarImageUrl: null,
@@ -35,16 +45,12 @@ const WAKE_TARGET: SpaceMessageFooterAddressingTarget = {
 	profileName: "Review Codex",
 };
 
-function render(ui: ReactElement) {
-	return renderView(ui, { wrapper: TestQueryClientProvider });
-}
-
 describe("SpaceMessageFooter", () => {
 	afterEach(() => {
 		cleanup();
 	});
 
-	it("keeps ordinary actions inline without an empty overflow menu", () => {
+	it("keeps the normal action order without an empty overflow menu", () => {
 		const view = render(
 			<SpaceMessageFooter
 				addressingTargets={[WAKE_TARGET]}

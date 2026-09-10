@@ -68,8 +68,7 @@ describe("Remote Agent Slack search tool", () => {
         activeOrganizationId: request.organizationId,
         actorContext: {
           agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-          callerPrincipalId: request.agentProfileOwnerUserId,
-          ownerUserId: request.agentProfileOwnerUserId,
+          callerPrincipalId: request.agentProfileId,
           profileKind: "agent",
           requestId:
             "remote-agent-tool:openmeld_search_slack_messages:flue_submission_123",

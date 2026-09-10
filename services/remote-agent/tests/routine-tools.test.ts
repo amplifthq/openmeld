@@ -898,8 +898,7 @@ function expectedToolContext(
     activeOrganizationId: request.organizationId,
     actorContext: {
       agentControllerRef: "hosted:center-agent",
-      callerPrincipalId: request.agentProfileOwnerUserId,
-      ownerUserId: request.agentProfileOwnerUserId,
+      callerPrincipalId: request.agentProfileId,
       profileKind: "agent",
       requestId: `remote-agent-tool:${toolName}:${ACK.submissionId}`,
       openMeldProfileId: request.agentProfileId,

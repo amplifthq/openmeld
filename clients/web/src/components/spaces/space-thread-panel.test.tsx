@@ -9,6 +9,7 @@ import type {
 	SignalEnvelope,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
@@ -21,7 +22,6 @@ import {
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
-import { TestQueryClientProvider } from "#/test-support/query-client";
 import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-actions";
 import { SpaceThreadPanel } from "./space-thread-panel";
 
@@ -60,15 +60,18 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: (options: Parameters<typeof actual.useQuery>[0]) => {
-			const isReaction = options.queryKey[0] === "space-message-reactions";
-			const reactionQuery = actual.useQuery({
+		useQuery: (options: {
+			enabled?: boolean;
+			queryKey: readonly unknown[];
+		}) => {
+			const isMessageDetails = options.queryKey.includes("message-details");
+			const query = actual.useQuery({
 				...options,
-				enabled: isReaction && options.enabled !== false,
+				enabled: !isMessageDetails && options.enabled,
 			});
 			const result = useQueryMock(options);
-			if (isReaction) {
-				return reactionQuery;
+			if (!isMessageDetails) {
+				return query;
 			}
 			return options.enabled === false ? { data: undefined } : result;
 		},
@@ -174,7 +177,7 @@ describe("SpaceThreadPanel", () => {
 		).toBeNull();
 	});
 
-	it("places the current Space pending actions inside the composer above its editor", () => {
+	it("places the current Space pending actions above the visible thread composer", () => {
 		renderThreadPanel({
 			pendingActionSurface: (
 				<section data-testid="pending-agent-actions">Pending actions</section>
@@ -182,18 +185,13 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		const pendingActions = screen.getByTestId("pending-agent-actions");
-		const composer = document.querySelector('[data-slot="thread-composer"]');
+		const composer = screen.getByRole("textbox");
 
 		expect(composer).toBeInstanceOf(HTMLElement);
 		if (!composer) {
 			throw new Error("Expected the visible thread composer.");
 		}
-		expect(composer.contains(pendingActions)).toBe(true);
-		const editor = composer.querySelector('[role="textbox"]');
-		if (!editor) {
-			throw new Error("Expected the thread editor.");
-		}
-		expect(pendingActions.compareDocumentPosition(editor)).toBe(
+		expect(pendingActions.compareDocumentPosition(composer)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		);
 	});
@@ -1309,9 +1307,18 @@ function renderThreadPanel(
 		textareaRef: { current: null },
 		wakeFailureTargetContextsByProfileId: new Map(),
 	} satisfies ComponentProps<typeof SpaceThreadPanel>;
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
 	const renderResult = render(
 		<SpaceThreadPanel {...defaultProps} {...overrides} />,
-		{ wrapper: TestQueryClientProvider }
+		{
+			wrapper: ({ children }) => (
+				<QueryClientProvider client={queryClient}>
+					{children}
+				</QueryClientProvider>
+			),
+		}
 	);
 	return {
 		...renderResult,
