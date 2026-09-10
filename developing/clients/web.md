@@ -1757,12 +1757,12 @@ activity advances only on actual interaction, with its existing five-minute
 throttle; presence renewals do not advance it. Space-local Here … ago remains a
 separate historical fact. No system-wide activity or interaction contents are collected.
 
-Human cards combine enabled Local Agent logos and provider Usage in one enlarged
+Human cards combine enabled Local Agent logos and provider Usage in one compact, overlapping
 dock. Each controller appears once. A small ring overlays the logo's upper-right
 corner when the existing authorized Computer projection has quantified evidence;
 otherwise only the logo appears. The ring previews the first reported Computer/provider
-source, using the existing most-constrained-window summary. Additional quantified
-sources appear as `+N`, never as an averaged or pooled quota. Hover previews every
+source, using the existing most-constrained-window summary. Additional sources
+appear only in the tooltip, never as an averaged or pooled quota. Hover previews every
 Computer, provider and window with remaining capacity, status, reset and observation
 times through the shared Computer Usage components. The compact sidebar logo strip
 keeps its existing sizing. This preview does not add permissions, collection or Wake policy.

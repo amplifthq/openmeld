@@ -212,7 +212,7 @@ function HumanLocalAgentDock({
 	if (card) {
 		return (
 			<span
-				className="ml-auto flex max-w-full flex-wrap items-end justify-end gap-1.5"
+				className="ml-auto flex max-w-full items-end justify-end -space-x-2"
 				data-slot="human-profile-local-agent-dock"
 			>
 				{localAgents.map((agent) => (
@@ -224,7 +224,7 @@ function HumanLocalAgentDock({
 					>
 						<LocalAgentLogo
 							agentId={agent.agentId}
-							className="size-7"
+							className="size-6"
 							size="sm"
 						/>
 					</SettingsLocalAgentUsageDockItem>

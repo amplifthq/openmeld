@@ -76,7 +76,7 @@ describe("Settings Local Agent usage limits", () => {
         .getAllByRole("progressbar")
         .map((ring) => ring.getAttribute("aria-label"))
     ).toEqual(["Laptop · Go usage, 12% left, Low"]);
-    expect(screen.getByText("+2")).toBeTruthy();
+    expect(screen.queryByText("+2")).toBeNull();
     const trigger = screen.getByTitle("OpenCode");
     fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
     fireEvent.mouseEnter(trigger);

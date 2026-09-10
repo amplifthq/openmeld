@@ -552,7 +552,7 @@ export function SettingsLocalAgentUsageDockItem({
       <TooltipTrigger
         render={
           <span
-            className="relative inline-flex size-8 shrink-0 items-end"
+            className="relative inline-flex size-7 shrink-0 items-end hover:z-10"
             title={agentName}
           />
         }
@@ -568,24 +568,20 @@ export function SettingsLocalAgentUsageDockItem({
                 aria-valuemin={0}
                 aria-valuenow={summary.remainingPercent}
                 aria-valuetext={`${formatRemainingPercent(summary.remainingPercent)} left`}
-                className="relative rounded-full bg-card ring-1 ring-card"
+                className="relative"
                 key={id}
                 role="progressbar"
               >
                 <UsageLimitRing
-                  className="size-4.5"
+                  className="size-4 [&>circle:first-child]:fill-card"
                   remainingPercent={summary.remainingPercent}
+                  strokeWidth={3}
                   tone={summary.presentation.tone}
                 />
               </span>
             ) : null
           )}
         </span>
-        {summaries.length > visible.length ? (
-          <span className="absolute right-0 bottom-0 rounded bg-card px-0.5 text-[9px] text-muted-foreground">
-            +{summaries.length - visible.length}
-          </span>
-        ) : null}
       </TooltipTrigger>
       <TooltipContent
         className="max-h-80 min-w-48 max-w-sm flex-col items-stretch gap-2.5 overflow-y-auto whitespace-normal text-left"
