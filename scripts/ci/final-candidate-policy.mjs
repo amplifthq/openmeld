@@ -23,8 +23,6 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/check-candidate-code-quality.test.mjs",
   "scripts/ci/final-candidate-bootstrap.mjs",
   "scripts/ci/final-candidate-bootstrap.test.mjs",
-  "scripts/ci/fast-pr-test-plan.mjs",
-  "scripts/ci/fast-pr-test-plan.test.mjs",
   "scripts/ci/final-candidate-output.mjs",
   "scripts/ci/final-candidate-control-paths.mjs",
   "scripts/ci/final-candidate-policy.mjs",
@@ -124,13 +122,6 @@ export function createFinalCandidatePlan(input) {
     deliveryInfrastructureChange: changedPaths.some(
       isDeliveryInfrastructurePath
     ),
-    deliveryInfrastructureOnly:
-      changedPaths.length > 0 &&
-      changedPaths.some(isDeliveryInfrastructurePath) &&
-      changedPaths.every(
-        (path) =>
-          isDeliveryInfrastructurePath(path) || isDocumentationPath(path)
-      ),
     docsOnly:
       changedPaths.length > 0 && changedPaths.every(isDocumentationPath),
     headSha: input.headSha,
@@ -168,7 +159,7 @@ export function createFinalCandidatePlan(input) {
   }
 
   selectPrimaryChecks(context, selectedChecks, skippedChecks);
-  selectIntegrationCheck(context, selectedChecks, skippedChecks);
+  selectIntegrationCheck(context, skippedChecks);
   selectDatabaseCheck(context, selectedChecks, skippedChecks);
   selectReleaseReadyCheck(context, selectedChecks, skippedChecks);
   skippedChecks.push(
@@ -261,37 +252,15 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
     );
     return;
   }
-  if (context.deliveryInfrastructureOnly) {
-    skippedChecks.push(
-      skipped(
-        "affected-checks-and-unit-tests",
-        "Repository contracts run the delivery control behavior tests; no product workspace changed."
-      )
-    );
-    return;
-  }
-  for (const [id, task] of [
-    ["affected-code-checks", "check"],
-    ["affected-unit-tests", "test"],
-  ]) {
-    selectedChecks.push(
-      check(
-        id,
-        [
-          "node",
-          "scripts/dev/turbo-affected.mjs",
-          task,
-          "--",
-          "--concurrency=2",
-          "--log-order=stream",
-        ],
-        "The ready candidate must pass affected workspaces and their dependents before merge."
-      )
-    );
-  }
+  skippedChecks.push(
+    skipped(
+      "affected-checks-and-unit-tests",
+      "Focused checks run before push. The owner validates affected behavior before marking ready; standard Final Candidate does not repeat broad workspace tests. Use full confidence for remaining broad risk."
+    )
+  );
 }
 
-function selectIntegrationCheck(context, selectedChecks, skippedChecks) {
+function selectIntegrationCheck(context, skippedChecks) {
   if (context.confidence === "full") {
     skippedChecks.push(
       skipped(
@@ -301,31 +270,10 @@ function selectIntegrationCheck(context, selectedChecks, skippedChecks) {
     );
     return;
   }
-  if (
-    context.boundaryChange &&
-    !context.docsOnly &&
-    !context.deliveryInfrastructureOnly
-  ) {
-    selectedChecks.push(
-      check(
-        "affected-integration-tests",
-        [
-          "node",
-          "scripts/dev/turbo-affected.mjs",
-          "test:integration",
-          "--",
-          "--concurrency=1",
-          "--log-order=stream",
-        ],
-        "Shared contracts, dependencies, services, or runtime boundaries require affected integration coverage."
-      )
-    );
-    return;
-  }
   skippedChecks.push(
     skipped(
       "affected-integration-tests",
-      "No executable shared, service, runtime, dependency, or persistence boundary changed."
+      "The owner runs integration checks for changed boundaries before marking ready; standard Final Candidate does not repeat them."
     )
   );
 }

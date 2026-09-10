@@ -77,24 +77,14 @@ test("treats the complete generated Changelog projection as documentation only",
   );
 });
 
-test("a ready executable candidate requires affected code checks and unit tests", () => {
+test("standard final certification does not repeat workspace checks and unit tests", () => {
   const plan = createPlan(["clients/web/src/app.tsx"]);
 
-  assert.deepEqual(checkIds(plan), [
-    "diff-integrity",
-    "repository-contracts",
-    "affected-code-checks",
-    "affected-unit-tests",
-  ]);
+  assert.deepEqual(checkIds(plan), ["diff-integrity", "repository-contracts"]);
   assert.ok(!checkIds(plan).includes("affected-integration-tests"));
-  for (const selected of plan.selectedChecks.filter((check) =>
-    check.id.startsWith("affected-")
-  )) {
-    assert.ok(!selected.command.includes("--changed-only"));
-  }
 });
 
-test("shared schema changes require downstream unit and integration validation", () => {
+test("shared schema changes retain database and release guards without broad reruns", () => {
   const plan = createPlan([
     "packages/db/drizzle/0129_example.sql",
     "packages/schemas/src/http/example.ts",
@@ -103,9 +93,6 @@ test("shared schema changes require downstream unit and integration validation",
   assert.deepEqual(checkIds(plan), [
     "diff-integrity",
     "repository-contracts",
-    "affected-code-checks",
-    "affected-unit-tests",
-    "affected-integration-tests",
     "database-contract",
     "local-components-release-ready",
   ]);
@@ -141,20 +128,18 @@ test("keeps engineering-only schemas out of product integration and release gate
     "diff-integrity",
     "trusted-control-entrypoints",
     "repository-contracts",
-    "affected-code-checks",
-    "affected-unit-tests",
   ]);
   assert.ok(!plan.riskTags.includes("cross-boundary"));
   assert.ok(!plan.riskTags.includes("local-components"));
 });
 
-test("a mixed engineering and runtime schema diff retains integration and release gates", () => {
+test("a mixed engineering and runtime schema diff retains release guards", () => {
   const plan = createPlan([
     "packages/schemas/src/schemas/ci/final-candidate.ts",
     "packages/schemas/src/schemas/runtime/agent-task-coordination.ts",
   ]);
 
-  assert.ok(checkIds(plan).includes("affected-integration-tests"));
+  assert.ok(!checkIds(plan).includes("affected-integration-tests"));
   assert.ok(checkIds(plan).includes("local-components-release-ready"));
   assert.ok(plan.riskTags.includes("cross-boundary"));
   assert.ok(plan.riskTags.includes("local-components"));
@@ -200,16 +185,14 @@ test("a scripts and Web mixed diff retains control and affected workspace checks
     "trusted-control-entrypoints",
     "repository-code-quality",
     "repository-contracts",
-    "affected-code-checks",
-    "affected-unit-tests",
   ]);
 });
 
-test("dependency controls conservatively select downstream and integration checks", () => {
+test("dependency controls retain static contracts without blanket tests", () => {
   const plan = createPlan(["package.json", "services/core/src/index.ts"]);
 
-  assert.ok(checkIds(plan).includes("affected-unit-tests"));
-  assert.ok(checkIds(plan).includes("affected-integration-tests"));
+  assert.ok(!checkIds(plan).includes("affected-unit-tests"));
+  assert.ok(!checkIds(plan).includes("affected-integration-tests"));
 });
 
 test("a pure delivery infrastructure diff skips only the empty affected lane", () => {
@@ -243,23 +226,23 @@ test("delivery infrastructure with its owner docs and Changelog skips the empty 
   assert.deepEqual(plan.riskTags, ["executable", "delivery-infrastructure"]);
 });
 
-test("an unclassified operations script cannot use the delivery-only exemption", () => {
+test("an unclassified operations script retains repository contracts", () => {
   const plan = createPlan(["scripts/ops/rebuild-search-index.mjs"]);
 
-  assert.ok(checkIds(plan).includes("affected-unit-tests"));
+  assert.ok(!checkIds(plan).includes("affected-unit-tests"));
   assert.ok(!plan.riskTags.includes("delivery-infrastructure"));
 });
 
-test("a mixed CI and product script diff retains affected checks", () => {
+test("a mixed CI and product script diff avoids blanket workspace reruns", () => {
   const plan = createPlan([
     ".github/workflows/final-candidate.yml",
     "scripts/ops/rebuild-search-index.mjs",
   ]);
 
-  assert.ok(checkIds(plan).includes("affected-unit-tests"));
+  assert.ok(!checkIds(plan).includes("affected-unit-tests"));
 });
 
-test("all supported final validation lanes require the same affected coverage", () => {
+test("all standard final validation lanes keep the same lightweight boundary", () => {
   for (const overrides of [
     { mode: "remote" },
     { mode: "local" },
@@ -274,9 +257,9 @@ test("all supported final validation lanes require the same affected coverage", 
     const ids = checkIds(
       createPlan(["packages/api-client/src/index.ts"], overrides)
     );
-    assert.ok(ids.includes("affected-code-checks"));
-    assert.ok(ids.includes("affected-unit-tests"));
-    assert.ok(ids.includes("affected-integration-tests"));
+    assert.ok(!ids.includes("affected-code-checks"));
+    assert.ok(!ids.includes("affected-unit-tests"));
+    assert.ok(!ids.includes("affected-integration-tests"));
   }
 });
 

@@ -218,11 +218,13 @@ change must leave those signals cleaner and less ambiguous.
   in `developing/engineering/agent-native-delivery.md`: fix a high-value,
   coherent finding when practical, and preserve separable follow-ups without
   reopening the candidate.
-- Draft PR Feedback runs focused checks. Standard Final Candidate owns affected
-  code checks and unit tests before merge, plus integration checks for shared,
-  dependency, service, runtime, or persistence boundaries. Reuse only matching
-  trusted task-input evidence; missing or failed checks cannot publish green.
-  Use explicit full confidence only when repository-wide validation is needed.
+- Commit hooks check staged files; development push hooks must pass focused
+  checks on the exact clean commit. Do not bypass failures. Keep PRs draft while
+  developing; mark ready only after risk-appropriate behavior validation.
+- Standard Final Candidate certifies identity, trusted control, repository
+  contracts, and path-owned database/release readiness; it does not repeat broad
+  workspace tests. The commands, rationale, and batch flow live only in
+  [Agent-Native Delivery](developing/engineering/agent-native-delivery.md#daily-workflow).
 - Before declaring a user-, operator-, integrator-, or contributor-visible
   change done, decide whether it needs an OpenMeld Changelog entry and, when it
   does, follow `.agents/skills/openmeld-changelog/SKILL.md`.
