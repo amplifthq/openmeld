@@ -1,18 +1,10 @@
-import type {
-  SpaceMemberAgentSnapshot,
-  SpaceMemberHumanSnapshot,
-  SpaceMembersSnapshot,
-} from "@openmeld/schemas/types";
-
-type SpaceMemberSnapshot = SpaceMemberHumanSnapshot | SpaceMemberAgentSnapshot;
+import type { SpaceMembersSnapshot } from "@openmeld/schemas/types";
+import { isSpaceOwner } from "../access/space-ownership";
 
 export type SpaceDeleteActionVisibilityReason =
-  | "agent_creator_owner_human_profile"
-  | "creator_missing"
-  | "current_profile_missing"
-  | "human_creator_profile"
+  | "space_owner"
   | "members_unavailable"
-  | "not_creator_or_owner";
+  | "not_space_owner";
 
 export type SpaceDeleteActionVisibility = {
   reason: SpaceDeleteActionVisibilityReason;
@@ -22,57 +14,19 @@ export type SpaceDeleteActionVisibility = {
 export function resolveSpaceDeleteActionVisibility(input: {
   currentProfileId: string;
   membersSnapshot: SpaceMembersSnapshot | null | undefined;
+  ownerUserIds?: readonly string[];
 }): SpaceDeleteActionVisibility {
-  const currentProfileId = normalizeOptionalText(input.currentProfileId);
-  if (!(currentProfileId && input.membersSnapshot)) {
+  if (!input.membersSnapshot) {
     return { reason: "members_unavailable", visible: false };
   }
-
-  const members = listActiveMembers(input.membersSnapshot);
-  const creatorMember = members.find(
-    (member) => member.memberSource === "space_creator"
+  const member = input.membersSnapshot.humans.find(
+    (person) =>
+      person.profileId === input.currentProfileId && person.status === "active"
   );
-  if (!creatorMember) {
-    return { reason: "creator_missing", visible: false };
-  }
-
-  const currentMember = members.find(
-    (member) => member.profileId === currentProfileId
-  );
-  if (!currentMember) {
-    return { reason: "current_profile_missing", visible: false };
-  }
-
-  if (creatorMember.profileKind === "human") {
-    return creatorMember.profileId === currentProfileId
-      ? { reason: "human_creator_profile", visible: true }
-      : { reason: "not_creator_or_owner", visible: false };
-  }
-
-  const creatorOwnerUserId = normalizeOptionalText(creatorMember.ownerUserId);
-  const currentOwnerUserId =
-    currentMember.profileKind === "human"
-      ? normalizeOptionalText(currentMember.ownerUserId)
-      : null;
-
-  if (creatorOwnerUserId && currentOwnerUserId === creatorOwnerUserId) {
-    return { reason: "agent_creator_owner_human_profile", visible: true };
-  }
-
-  return { reason: "not_creator_or_owner", visible: false };
-}
-
-function listActiveMembers(
-  snapshot: SpaceMembersSnapshot
-): SpaceMemberSnapshot[] {
-  return [...snapshot.humans, ...snapshot.agents].filter(
-    (member) => member.status === "active"
-  );
-}
-
-function normalizeOptionalText(
-  value: string | null | undefined
-): string | null {
-  const normalized = String(value ?? "").trim();
-  return normalized.length > 0 ? normalized : null;
+  const visible = isSpaceOwner({
+    ownerUserIds: input.ownerUserIds ?? [],
+    actorOwnerUserId: member?.ownerUserId,
+    actorKind: member?.profileKind,
+  });
+  return { reason: visible ? "space_owner" : "not_space_owner", visible };
 }

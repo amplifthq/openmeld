@@ -112,6 +112,10 @@ class FakeWebSocket {
 		await this.emit("open");
 	}
 
+	async emitAccessRevoked() {
+		await this.emit("close", { code: 1008, reason: "space_access_changed" });
+	}
+
 	async emitMessage(data: unknown) {
 		await this.emit("message", { data });
 	}
@@ -319,6 +323,13 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		vi.restoreAllMocks();
+	});
+
+	it("refreshes authority when Core closes a session after access changes", async () => {
+		const { statusRefetch } = renderFeed();
+		await openLatestSocket();
+		await act(async () => FakeWebSocket.latest.emitAccessRevoked());
+		expect(statusRefetch).toHaveBeenCalledTimes(1);
 	});
 
 	it("does not report the Space live before Core accepts the subscription", async () => {

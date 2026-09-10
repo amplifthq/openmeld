@@ -362,8 +362,9 @@ docs directly readable against our schema.
   urgent Inbox action and transactional review email through the existing delivery
   ledger. Any one may approve; another may retry incomplete fulfillment. Approval
   remains actionable until delivery or joining succeeds, then all reviewer items
-  resolve. No configurable policy,
-  multi-stage approval, or guest role is part of this batch.
+  resolve. There is no configurable policy or multi-stage approval. Targeted
+  Space guest invitations are separate: acceptance grants only Space membership,
+  never Organization membership or Organization reviewer authority.
 - Links are scoped to the Organization or one Space, with one active link per
   scope and mode. New links expire after 30 days and can be revoked. Existing
   links retain request mode. Direct links require their creator to remain an owner
@@ -451,8 +452,12 @@ Joining an org grants, by role:
   or `private` (invite-only). Creation defaults to `private`; going public is
   an explicit choice (settled 2026-07-05 at Web implementation review). The
   wire contract still requires visibility explicitly — the default lives in
-  the client UI, never in the server. Cross-org guests are out of scope for
-  MVP; a Space belongs to exactly one org.
+  the client UI, never in the server. A Space belongs to exactly one org.
+  An Owner may explicitly enable targeted external guest invitations; guests must
+  sign in and receive only that Space's access. This does not publish the Space
+  on the internet or grant access to the Organization Directory. Guest access is
+  independent of internal discovery and may be disabled without removing internal
+  members. Anonymous participation is deferred.
 - CLI discovery uses `openmeld space list --organization`. CLI self-service
   membership uses `openmeld space join --self-serve <space-id>` and adds the
   selected Human Profile without opening an interactive session. The ordinary

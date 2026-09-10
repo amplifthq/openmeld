@@ -2399,9 +2399,12 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 	});
 
-	it("hides cached private history when the current Space status denies access", async () => {
+	it.each([
+		"space.forbidden",
+		"space.membership_required",
+	])("hides cached private history when the current Space status denies access with %s", async (code) => {
 		const accessDeniedFailure = {
-			code: "space.forbidden",
+			code,
 			message: "You no longer have access to this space.",
 			requestId: "req-status-refresh-403",
 			status: 403,

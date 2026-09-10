@@ -243,19 +243,27 @@ truth because cross-origin isolation may detach the opener relationship;
 explicit Cancel and timeout remain the non-success exits. Back changes only the
 visible step and does not undo saved facts.
 
-## Space Visibility Presentation (two orthogonal axes)
+## Space Access Presentation
 
-- **Personal context**: Space creation shows **Link access only** (open /
-  view with password / password). Organization directory listing is silently
-  `private` — a solo directory listing has no meaning. The two-axis conflict
-  cannot appear.
-- **Org contexts**: both axes show, re-worded to state their scopes —
-  "**Organization directory listing**" (listed and joinable in this org's
-  Space directory / unlisted) and "**Link access**" (what the link does for
-  someone who has it). Org-unlisted + link-open is valid and useful (the
-  Google Docs "unlisted" model).
-- The wire contract keeps visibility explicit and required; defaults live in
-  the client only (existing decision, restated for scope).
+- New Web Spaces use `members_only`. Personal Spaces are private without an
+  access selector. Organization Spaces offer one **General access** choice:
+  **Only invited people** (default) or **Everyone at [Organization]**.
+- Share and Settings > Access render the same access panel with the same
+  permissions and mutations. Use the shared Fluid Dialog and Select. Show an
+  inline **Invite teammates** email form, **Who can join this Space**, and
+  **Copy Space link**. Keep invite links and pending invitations collapsed;
+  member lists belong in Members, not the sharing panel. Copying a Space link
+  preserves the destination; it neither grants membership nor changes access.
+- Everyone at the Organization can join a listed Space, even with
+  `members_only` link access. They join before its private content is loaded.
+- Existing external link policies remain effective. Show their actual audience
+  prominently, label the directory selector **Organization access**, and put
+  the existing link controls under **Manage link access**. Owners can close
+  external access. Do not silently migrate policies or expose new anonymous
+  modes in the common creation/settings path.
+- The wire contract retains independent visibility and access-mode facts.
+  Guest roles, anonymous participation, and ownership transfer are separate
+  capabilities, not new combinations of these presentation options.
 
 ## Context-Switching Behavior
 

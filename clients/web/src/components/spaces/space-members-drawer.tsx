@@ -68,6 +68,7 @@ import {
 	organizationProfileDirectoryQueryOptions,
 	organizationSpaceProfileCandidatesQueryOptions,
 } from "#/query/organizations/organization-directory";
+import { spaceStatusQueryOptions } from "#/query/spaces/status";
 import { buildDirectMessageConversionDefaultName } from "./direct-message-conversion";
 import { DirectMessageConversionDialog } from "./direct-message-conversion-dialog";
 import { SpacePersonAgentGroup } from "./people-agent-picker-candidates";
@@ -1462,6 +1463,19 @@ function resolveAddProfilesEmptyMessage(plan: SpaceProfileAddPlan): string {
 	return "No profiles are available to add.";
 }
 
+function useSpaceMemberAccessStatus(
+	snapshot: SpaceMembersSnapshot | null,
+	profileId: string
+) {
+	return useQuery(
+		spaceStatusQueryOptions({
+			spaceId: snapshot?.spaceId ?? "",
+			openMeldProfileId: profileId,
+			enabled: Boolean(snapshot),
+		})
+	);
+}
+
 function SpaceMembersList(input: {
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
@@ -1545,7 +1559,14 @@ function SpaceMembersList(input: {
 			isAgentRecoveryPending: input.isAgentRecoveryPending,
 			snapshot: input.snapshot,
 		});
-	const creatorProfileIds = buildSpaceCreatorProfileIds(input.snapshot);
+	const accessStatus = useSpaceMemberAccessStatus(
+		input.snapshot,
+		input.currentProfileId
+	);
+	const ownerProfileIds = buildSpaceOwnerProfileIds(
+		input.snapshot,
+		accessStatus.data?.ownerUserIds
+	);
 	const requiredAgentOwnerHumanProfileIds =
 		buildRequiredAgentOwnerHumanProfileIds({
 			centerAgentProfileId: input.centerAgentProfileId,
@@ -1564,9 +1585,10 @@ function SpaceMembersList(input: {
 			? applyWakeAvailabilityDisplayOverride(entry, wakeDisplayOverride)
 			: undefined;
 		const removeMemberAction =
+			accessStatus.data?.ownerUserIds &&
 			input.onRemoveMember &&
 			canShowRemoveMemberAction({
-				creatorProfileIds,
+				ownerProfileIds,
 				currentProfileId: input.currentProfileId,
 				profileId: entry.profileId,
 				requiredAgentOwnerHumanProfileIds,
@@ -1775,15 +1797,27 @@ function SpaceMembersList(input: {
 	);
 }
 
+function buildSpaceOwnerProfileIds(
+	snapshot: SpaceMembersSnapshot | null | undefined,
+	ownerUserIds: readonly string[] | undefined
+): Set<string> {
+	const owners = new Set(ownerUserIds);
+	return new Set(
+		(snapshot?.humans ?? [])
+			.filter((person) => person.ownerUserId && owners.has(person.ownerUserId))
+			.map((person) => person.profileId)
+	);
+}
+
 function canShowRemoveMemberAction(input: {
-	creatorProfileIds: ReadonlySet<string>;
+	ownerProfileIds: ReadonlySet<string>;
 	currentProfileId: string;
 	profileId: string;
 	requiredAgentOwnerHumanProfileIds: ReadonlySet<string>;
 }): boolean {
 	return (
 		input.profileId !== input.currentProfileId &&
-		!input.creatorProfileIds.has(input.profileId) &&
+		!input.ownerProfileIds.has(input.profileId) &&
 		!input.requiredAgentOwnerHumanProfileIds.has(input.profileId)
 	);
 }
@@ -1945,21 +1979,6 @@ function buildRequiredAgentOwnerHumanProfileIds(input: {
 		}
 	}
 	return requiredHumanProfileIds;
-}
-
-function buildSpaceCreatorProfileIds(
-	snapshot: SpaceMembersSnapshot | null
-): ReadonlySet<string> {
-	const creatorProfileIds = new Set<string>();
-	for (const member of [
-		...(snapshot?.humans ?? []),
-		...(snapshot?.agents ?? []),
-	]) {
-		if (member.status === "active" && member.memberSource === "space_creator") {
-			creatorProfileIds.add(member.profileId);
-		}
-	}
-	return creatorProfileIds;
 }
 
 function resolveEntryMemberTransientState(input: {

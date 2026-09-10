@@ -21,7 +21,7 @@ export type OrganizationInvitationEmailProps = {
 export type SpaceInvitationEmailProps = Omit<
   OrganizationInvitationEmailProps,
   "role"
-> & { spaceName: string };
+> & { spaceName: string; audience?: "organization" | "guest" };
 export type InboxEmailProps = {
   inboxUrl: string;
   preview: string;
@@ -101,7 +101,10 @@ export function spaceInvitationContent(
     body: `${input.inviterName} invited you to this Space in ${input.organizationName}.`,
     actionLabel: "Review invitation",
     actionUrl: input.invitationUrl,
-    note: `Accepting joins ${input.organizationName} as a member and adds you to this Space.`,
+    note:
+      input.audience === "guest"
+        ? `Sign in to join this Space as a guest. This does not make you a member of ${input.organizationName} or give you access to its other Spaces.`
+        : `Accepting joins ${input.organizationName} as a member and adds you to this Space.`,
     footer: `Expires ${expiry(input.expiresAt)}.`,
   };
 }

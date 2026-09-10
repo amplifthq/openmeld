@@ -355,12 +355,9 @@ describe("SpaceHeader", () => {
 			screen.queryByRole("button", { name: "Copy Space ID" })
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Manage link access" }));
 		expect(screen.getByRole("heading", { name: "Access" })).toBeTruthy();
-		expect(
-			screen.getByText(
-				"Manage how people can view or join this Space from shared links."
-			)
-		).toBeTruthy();
+		expect(screen.getByText("Link access is enabled")).toBeTruthy();
 		expect(
 			screen.getAllByText(PUBLIC_SPACE_ACCESS_DESCRIPTION).length
 		).toBeGreaterThan(0);
@@ -460,12 +457,15 @@ describe("SpaceHeader", () => {
 		expect(within(dialog).queryByLabelText("Space name")).toBeNull();
 	});
 
-	it("opens the public read-only share link dialog", async () => {
+	it("copies a destination link without changing the existing access policy", async () => {
 		render(createSpaceHeader());
 
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 		const expectedShareUrl = buildPublicSpaceEntryUrl({
 			origin: window.location.origin,
 			target: { spaceId: "space-123" },
@@ -477,22 +477,21 @@ describe("SpaceHeader", () => {
 				.getByTestId("space-share-dialog-scroll-area")
 				.querySelector('[data-slot="scroll-area-viewport"]')
 		).toBeTruthy();
-		expect(within(dialog).getByText("Share Space")).toBeTruthy();
+		expect(within(dialog).getByText("Share Design Room")).toBeTruthy();
 		expect(
 			within(dialog).getByRole("radio", { name: SHARE_PUBLIC_MODE_LABEL_TEXT })
 		).toBeTruthy();
 		expect(
 			within(dialog).getAllByText(PUBLIC_SPACE_ACCESS_DESCRIPTION).length
 		).toBeGreaterThan(0);
-		expect(within(dialog).getByText(expectedShareUrl)).toBeTruthy();
 
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Copy share link" })
+			within(dialog).getByRole("button", { name: "Copy Space link" })
 		);
 
 		await waitFor(() => {
 			expect(clipboardWriteTextMock).toHaveBeenCalledWith(expectedShareUrl);
-			expect(toastMock.success).toHaveBeenCalledWith("Share link copied.");
+			expect(toastMock.success).toHaveBeenCalledWith("Space link copied.");
 		});
 	});
 
@@ -502,6 +501,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 		expect(
 			within(dialog).getByRole("radio", { name: "Password protected" })
 		).toBeTruthy();
@@ -517,6 +519,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 		expect(
 			within(dialog).getByRole("radio", {
 				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
@@ -533,6 +538,9 @@ describe("SpaceHeader", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -564,6 +572,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -603,6 +614,11 @@ describe("SpaceHeader", () => {
 			name: "Space settings",
 		});
 
+		fireEvent.click(
+			within(spaceInfoDialog).getByRole("button", {
+				name: "Manage link access",
+			})
+		);
 		fireEvent.click(
 			within(spaceInfoDialog).getByRole("radio", {
 				name: SHARE_PUBLIC_MODE_LABEL_TEXT,
@@ -656,6 +672,9 @@ describe("SpaceHeader", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -691,6 +710,9 @@ describe("SpaceHeader", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -724,6 +746,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		expect(
 			within(dialog).getByRole("heading", { name: "Access" })
@@ -791,6 +816,9 @@ describe("SpaceHeader", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
 				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,

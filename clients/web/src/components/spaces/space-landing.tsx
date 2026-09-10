@@ -235,6 +235,7 @@ function useSpaceSetupRecallWiring(input: {
 }
 
 function resolveCurrentSpaceControls(input: {
+	isGuest?: boolean;
 	isCurrentAccessConfirmed: boolean;
 	currentSpaceIsCenterAgentDirectMessage: boolean;
 	currentSpaceIsDirectMessage: boolean;
@@ -265,7 +266,7 @@ function resolveCurrentSpaceControls(input: {
 		input: SpaceConvertDirectMessageInput
 	) => Promise<SpaceAddProfilesResult>;
 } {
-	if (!input.isCurrentAccessConfirmed) {
+	if (!input.isCurrentAccessConfirmed || input.isGuest) {
 		return {
 			canManageSpaceAccess: false,
 			canManageSpaceName: false,
@@ -377,6 +378,7 @@ function useActiveWakeTargetProfileIds(
 }
 
 type SpaceLandingInput = {
+	isGuest?: boolean;
 	conversationTitle?: string;
 	conversationTitleAction?: (title: string) => ReactNode;
 	conversationControl?: ReactNode;
@@ -395,7 +397,7 @@ type SpaceLandingInput = {
 	loadingFallback?: ReactNode;
 	onInitialPendingMessageConsumed?: () => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
-	orgSlug: string;
+	orgSlug?: string;
 	presentation?: "compact" | "full";
 	spaceId: string;
 	profileId: string;
@@ -628,15 +630,8 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			null,
 		[currentAccountProfile?.ownerUserId, input.profileId, membersSnapshot]
 	);
-	const canCurrentProfileRemoveSpaceMembers = useMemo(
-		() =>
-			resolveCanCurrentProfileRemoveSpaceMembers({
-				currentOwnerUserId,
-				currentProfile: currentAccountProfile,
-				snapshot: membersSnapshot,
-			}),
-		[currentAccountProfile, currentOwnerUserId, membersSnapshot]
-	);
+	const canCurrentProfileRemoveSpaceMembers =
+		controller.mode === "ready" && controller.showDeleteSpaceAction;
 	// Normalize the optional Space name (string | undefined) to string | null for
 	// the onboarding banner's create-first-agent launcher. Memoized so the guard
 	// and nullish coalescing live in this nested scope rather than SpaceLanding's
@@ -665,7 +660,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		currentSpace: spaceReferenceInputs.currentSpace,
 		messageTexts: spaceReferenceMessageTexts,
 		organizationId,
-		organizationSlug: input.orgSlug,
+		organizationSlug: input.orgSlug ?? null,
 	});
 	const localAgentRecoveryAutoRefreshActive =
 		localAgentRecoveryRefreshWindowActive ||
@@ -1504,6 +1499,7 @@ function SpaceLandingReady({
 		spaceViewIdPrefix,
 	} = state;
 	const currentSpaceControls = resolveCurrentSpaceControls({
+		isGuest: input.isGuest,
 		isCurrentAccessConfirmed: controller.isCurrentAccessConfirmed,
 		currentSpaceIsDirectMessage: isDirectMessage,
 		currentSpaceIsCenterAgentDirectMessage,
@@ -1580,12 +1576,14 @@ function SpaceLandingReady({
 	// Space's last-used human profile) and forces a fresh setup session.
 	// Consumed by the prepare_agent_profile recovery action and the Wake-failure
 	// "prepare_setup" link. review_computer uses the Get-set-up banner instead.
-	const prepareSetupHref = buildConnectComputerPath({
-		orgSlug: input.orgSlug,
-		returnTo: "space",
-		session: "fresh",
-		spaceId: controller.spaceId,
-	});
+	const prepareSetupHref = input.orgSlug
+		? buildConnectComputerPath({
+				orgSlug: input.orgSlug,
+				returnTo: "space",
+				session: "fresh",
+				spaceId: controller.spaceId,
+			})
+		: undefined;
 	const isCompactPresentation = input.presentation === "compact";
 	const { agentProfileEditContext, pendingAgentActions } =
 		useSpaceLandingPendingAgentActions({
@@ -1666,6 +1664,7 @@ function SpaceLandingReady({
 							canManageSpaceName={currentSpaceControls.canManageSpaceName}
 							conversationTitle={input.conversationTitle}
 							conversationTitleAction={input.conversationTitleAction}
+							currentProfileId={input.profileId}
 							currentProfileName={currentProfileName}
 							deleteSpaceErrorMessage={controller.deleteSpaceErrorMessage}
 							directMessageOwnerVisibilityLabel={agentOwnerVisibilityLabel}
@@ -1686,9 +1685,9 @@ function SpaceLandingReady({
 									{managementControl}
 								</>
 							}
-							membersControl={membersControl}
+							membersControl={input.isGuest ? undefined : membersControl}
 							menuItems={
-								currentSpaceIsCenterAgentDirectMessage
+								currentSpaceIsCenterAgentDirectMessage && input.orgSlug
 									? buildCenterAgentHeaderMenuItems(input.orgSlug)
 									: undefined
 							}
@@ -1708,7 +1707,7 @@ function SpaceLandingReady({
 							spaceNameErrorMessage={controller.spaceNameErrorMessage}
 							status={controller.status}
 							viewControl={
-								currentSpaceIsCenterAgentDirectMessage ? (
+								currentSpaceIsCenterAgentDirectMessage && input.orgSlug ? (
 									<CenterAgentHeaderTabs
 										activeSectionId="chat"
 										activeSpaceView={spaceView}
@@ -1978,7 +1977,7 @@ function SpaceLandingConversation({
 	historyErrorMessage: string | null;
 	input: SpaceLandingInput;
 	pendingActionSurface?: ReactNode;
-	prepareSetupHref: string;
+	prepareSetupHref?: string;
 	state: SpaceLandingState;
 }) {
 	const {
@@ -2089,25 +2088,29 @@ function SpaceLandingConversation({
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
-			pinnedMessageProvider={(children) => (
-				<SpaceMessagePinsProvider
-					canPin={
-						currentProfileIsActiveSpaceMember &&
-						!controller.profileId.startsWith("agt_")
-					}
-					organizationSlug={input.orgSlug}
-					profileId={controller.profileId}
-					spaceId={controller.spaceId}
-				>
-					{children}
-				</SpaceMessagePinsProvider>
-			)}
+			pinnedMessageProvider={(children) =>
+				input.orgSlug ? (
+					<SpaceMessagePinsProvider
+						canPin={
+							currentProfileIsActiveSpaceMember &&
+							!controller.profileId.startsWith("agt_")
+						}
+						organizationSlug={input.orgSlug}
+						profileId={controller.profileId}
+						spaceId={controller.spaceId}
+					>
+						{children}
+					</SpaceMessagePinsProvider>
+				) : (
+					children
+				)
+			}
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
 			renderSetupGuidance={(presentation) =>
-				controller.isCurrentAccessConfirmed ? (
+				controller.isCurrentAccessConfirmed && input.orgSlug ? (
 					<SpaceConversationRecoveryBanner
 						accountProfiles={accountProfiles}
 						actingProfileId={input.profileId}
@@ -2505,7 +2508,7 @@ function SpaceLandingSecondaryPanels({
 	currentSpaceControls: ReturnType<typeof resolveCurrentSpaceControls>;
 	input: SpaceLandingInput;
 	pendingActionSurface?: ReactNode;
-	prepareSetupHref: string;
+	prepareSetupHref?: string;
 	state: SpaceLandingState;
 }) {
 	const {
@@ -2660,20 +2663,24 @@ function SpaceLandingSecondaryPanels({
 					controller.wakeStopRequestStatusBySelectorKey
 				}
 			/>
-			<SpaceLandingMembersChrome
-				drawerProps={{
-					...sharedMembersProps,
-					onOpenChange: handleMembersOpenChange,
-					open: !isDesktopMembersPanel && membersOpen,
-				}}
-				sidePanelProps={{
-					...sharedMembersProps,
-					onOpenChange: handleMembersOpenChange,
-					onPanelWidthChange: membersPanelWidth.onWidthChange,
-					open: isDesktopMembersPanel && membersOpen,
-					panelWidth: membersPanelWidth.width,
-				}}
-			/>
+			{input.orgSlug ? (
+				<SpaceLandingMembersChrome
+					drawerProps={{
+						...sharedMembersProps,
+						orgSlug: input.orgSlug,
+						onOpenChange: handleMembersOpenChange,
+						open: !isDesktopMembersPanel && membersOpen,
+					}}
+					sidePanelProps={{
+						...sharedMembersProps,
+						orgSlug: input.orgSlug,
+						onOpenChange: handleMembersOpenChange,
+						onPanelWidthChange: membersPanelWidth.onWidthChange,
+						open: isDesktopMembersPanel && membersOpen,
+						panelWidth: membersPanelWidth.width,
+					}}
+				/>
+			) : null}
 		</>
 	);
 }
@@ -2809,7 +2816,7 @@ function resolveAgentDirectConversationKind(
 
 function useRedirectAwayFromDeletedSpace(input: {
 	controllerMode: string;
-	orgSlug: string;
+	orgSlug?: string;
 	profileId: string;
 	spaceId: string;
 }): { currentSpaceWasDeleted: boolean; isCheckingForDeletion: boolean } {
@@ -2835,7 +2842,9 @@ function useRedirectAwayFromDeletedSpace(input: {
 		if (isFailureMode && currentSpaceWasDeleted) {
 			navigate({
 				replace: true,
-				to: buildOrganizationSpacesPath(input.orgSlug),
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
 			}).catch((error: unknown) => {
 				console.error(
 					"Failed to redirect away from a deleted Space's URL.",
@@ -2854,12 +2863,15 @@ function useSpaceAddProfilesHandler(input: {
 	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
 	organizationId: string | null;
-	organizationSlug: string;
+	organizationSlug?: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	storageScope: string;
 }): (profileIds: readonly string[]) => Promise<SpaceAddProfilesResult> {
 	return useCallback(
 		async (profileIds: readonly string[]) => {
+			if (!input.organizationSlug) {
+				throw new Error("Join the organization to add people or Agents.");
+			}
 			const memberProfileIds = normalizeSpaceMemberProfileIds(profileIds);
 			if (memberProfileIds.length === 0) {
 				return { addedCount: 0, alreadyMemberCount: 0 };
@@ -2978,13 +2990,16 @@ function useSpaceAddProfilesHandler(input: {
 function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 	controller: ReturnType<typeof useSpaceLandingController>;
 	organizationId: string | null;
-	organizationSlug: string;
+	organizationSlug?: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 }): (
 	input: SpaceAddOrganizationDirectoryProfilesInput
 ) => Promise<SpaceAddProfilesResult> {
 	return useCallback(
 		async (selection: SpaceAddOrganizationDirectoryProfilesInput) => {
+			if (!input.organizationSlug) {
+				throw new Error("Join the organization to use its directory.");
+			}
 			const directoryProfileIds = normalizeSpaceMemberProfileIds(
 				selection.directoryProfileIds
 			);
@@ -3065,11 +3080,14 @@ function useConvertDirectMessageToSpaceHandler(input: {
 	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
 	navigate: ReturnType<typeof useNavigate>;
-	orgSlug: string;
+	orgSlug?: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 }): (input: SpaceConvertDirectMessageInput) => Promise<SpaceAddProfilesResult> {
 	return useCallback(
 		async (conversion: SpaceConvertDirectMessageInput) => {
+			if (!input.orgSlug) {
+				throw new Error("Join the organization to manage its Direct Messages.");
+			}
 			const profileIds = normalizeSpaceMemberProfileIds(conversion.profileIds);
 			const controller = input.controller;
 			if (controller.mode !== "ready") {
@@ -3299,11 +3317,14 @@ function useSpaceRemoveMemberHandler(input: {
 	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
 	organizationId: string | null;
-	organizationSlug: string;
+	organizationSlug?: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 }): (profileId: string) => Promise<SpaceRemoveMemberResult> {
 	return useCallback(
 		async (profileId: string) => {
+			if (!input.organizationSlug) {
+				throw new Error("Join the organization to manage Space members.");
+			}
 			const memberProfileIds = normalizeSpaceMemberProfileIds([profileId]);
 			if (memberProfileIds.length === 0) {
 				return { removedCount: 0, alreadyAbsentCount: 0 };
@@ -3430,34 +3451,6 @@ function isCurrentOwnerSpaceAgentMember(input: {
 		currentOwnerUserId: input.currentOwnerUserId,
 		ownerUserId: input.agent.ownerUserId,
 	});
-}
-
-function resolveCanCurrentProfileRemoveSpaceMembers(input: {
-	currentOwnerUserId: string | null;
-	currentProfile: AuthProfileView | null;
-	snapshot: SpaceMembersSnapshot | null;
-}): boolean {
-	if (input.currentProfile?.profileKind !== "human") {
-		return false;
-	}
-	return isSameOwnerUserId({
-		currentOwnerUserId: input.currentOwnerUserId,
-		ownerUserId: resolveActiveSpaceCreatorOwnerUserId(input.snapshot),
-	});
-}
-
-function resolveActiveSpaceCreatorOwnerUserId(
-	snapshot: SpaceMembersSnapshot | null
-): string | null {
-	for (const member of [
-		...(snapshot?.humans ?? []),
-		...(snapshot?.agents ?? []),
-	]) {
-		if (member.status === "active" && member.memberSource === "space_creator") {
-			return member.ownerUserId;
-		}
-	}
-	return null;
 }
 
 type LocalRuntimeReadinessEventState = {
@@ -3953,10 +3946,11 @@ function buildSpaceProfileControl(input: {
 	currentProfileName: string | null;
 	humanProfiles: readonly AuthProfileView[];
 	navigate: ReturnType<typeof useNavigate>;
-	orgSlug: string;
+	orgSlug?: string;
 	spaceId: string;
 }): ReactNode {
-	if (input.humanProfiles.length < 2) {
+	const orgSlug = input.orgSlug;
+	if (!orgSlug || input.humanProfiles.length < 2) {
 		return;
 	}
 	return (
@@ -3970,7 +3964,7 @@ function buildSpaceProfileControl(input: {
 						replace: true,
 						search: { profileId: nextProfileId },
 						to: buildOrganizationSpacePath({
-							orgSlug: input.orgSlug,
+							orgSlug,
 							spaceId: input.spaceId,
 						}),
 					})

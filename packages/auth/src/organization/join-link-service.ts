@@ -84,6 +84,7 @@ export function createOrganizationJoinLinkService(input: {
     },
 
     async ensure(ensureInput: {
+      initialOnly?: boolean;
       actorUserId: string;
       organizationId: string;
       spaceId?: string;
@@ -124,8 +125,9 @@ export function createOrganizationJoinLinkService(input: {
       }
       const record = await insertOrReadConcurrentActiveLink({
         mode,
-        insert: () =>
-          repository.ensureActive({
+        insert: async () => {
+          const record = await repository.ensureActive({
+            initialOnly: ensureInput.initialOnly,
             mode,
             expiresAt: new Date(Date.now() + JOIN_LINK_LIFETIME_MS),
             createdBy: ensureInput.actorUserId,
@@ -133,7 +135,15 @@ export function createOrganizationJoinLinkService(input: {
             organizationId: ensureInput.organizationId,
             spaceId: ensureInput.spaceId,
             token: generateOrganizationJoinLinkToken(),
-          }),
+          });
+          if (!record || (ensureInput.initialOnly && isExpired(record))) {
+            throw new OrganizationJoinLinkServiceError(
+              "organization.join_link.inactive",
+              "This link is expired or revoked. Renew it to invite people."
+            );
+          }
+          return record;
+        },
         organizationId: ensureInput.organizationId,
         spaceId: ensureInput.spaceId,
         repository,

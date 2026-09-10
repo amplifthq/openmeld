@@ -48,6 +48,9 @@ surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS
 motion. It does not add a second state or animation engine. Reduced motion
 removes panel animation. Product settings compose the existing `SettingsNav`
 and `ScrollArea`; product sections and mutation rules remain Web-owned.
+Dialogs use the fixed level-2 surface (`#1e1e1e` in dark mode) with level-4
+shadow depth. Nested dialogs keep this same background rather than progressively
+brightening with their parent's surface. Child controls inherit level 2.
 
 ### Scroll ownership
 

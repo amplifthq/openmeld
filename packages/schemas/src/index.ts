@@ -166,6 +166,11 @@ export {
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
+  projectLegacySpaceAccessView,
+  SPACE_ACCESS_VERSION,
+  SPACE_ACCESS_VERSION_HEADER,
+} from "./space-access-version";
+export {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
   type SpaceInvitation,
   type SpaceInvitationAccessInput,
@@ -185,6 +190,15 @@ export {
   spaceInvitationRpcResultSchema,
   spaceInvitationSchema,
 } from "./space-invitation";
+export {
+  type SpaceOwnerDepartureInput,
+  type SpaceOwnerDepartureResult,
+  type SpaceOwnerDepartureSpaceInput,
+  type SpaceOwnerDepartureWorker,
+  spaceOwnerDepartureInputSchema,
+  spaceOwnerDepartureResultSchema,
+  spaceOwnerDepartureSpaceInputSchema,
+} from "./space-owner-departure";
 export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,

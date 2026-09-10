@@ -50,10 +50,7 @@ import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
-import {
-	createOrganizationScopedWebSpaceApi,
-	createUnscopedWebSpaceApi,
-} from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
@@ -978,7 +975,7 @@ function useSpaceLandingBootstrapState(input: {
 function useClearRejectedSpaceConversationCache(input: {
 	currentAccessRejection: StructuredApiClientFailure | null;
 	organizationId?: string | null;
-	organizationSlug: string;
+	organizationSlug?: string;
 	ownerAccountId: string;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -989,7 +986,13 @@ function useClearRejectedSpaceConversationCache(input: {
 		[]
 	);
 	useEffect(() => {
-		if (!(input.currentAccessRejection && input.organizationId)) {
+		if (
+			!(
+				input.currentAccessRejection &&
+				input.organizationId &&
+				input.organizationSlug
+			)
+		) {
 			return;
 		}
 		queryPersistence
@@ -1337,7 +1340,7 @@ export function useSpaceLandingController(input: {
 	unreadStateReady?: boolean;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	organizationId?: string | null;
-	orgSlug: string;
+	orgSlug?: string;
 	ownerAccountId: string;
 	profileId: string;
 	spaceId: string;
@@ -2280,6 +2283,7 @@ export function useSpaceLandingController(input: {
 	const deleteActionVisibility = resolveSpaceDeleteActionVisibility({
 		currentProfileId: input.profileId,
 		membersSnapshot,
+		ownerUserIds: statusSnapshot.ownerUserIds,
 	});
 
 	return {
@@ -2825,8 +2829,7 @@ export function useSpaceLandingController(input: {
 				pendingMessageEnvelope,
 				wakeProgressTargetProfileIds,
 			} = stagePreparedSpaceMessage(sendInput);
-			const spaceApi = createOrganizationScopedWebSpaceApi({
-				organizationSlug: input.orgSlug,
+			const spaceApi = createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
@@ -3068,7 +3071,9 @@ export function useSpaceLandingController(input: {
 			]);
 			toast.success("You left this Space.");
 			await navigate({
-				to: buildOrganizationSpacesPath(input.orgSlug),
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
 				replace: true,
 			});
 		} catch (error) {
@@ -3198,7 +3203,9 @@ export function useSpaceLandingController(input: {
 			]);
 			toast.success("Space deleted.");
 			await navigate({
-				to: buildOrganizationSpacesPath(input.orgSlug),
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
 				replace: true,
 			});
 		} catch (error) {
@@ -3286,7 +3293,7 @@ function useSpaceThreadController(input: {
 	onWakeProgressItems: (items: readonly WakeProgressItem[]) => void;
 	onWakeProgressRemoveClientMessageId: (clientMessageId: string) => void;
 	readCurrentMembers: () => Promise<SpaceMembersSnapshot | null>;
-	organizationSlug: string;
+	organizationSlug?: string;
 	ownerAccountId: string;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;

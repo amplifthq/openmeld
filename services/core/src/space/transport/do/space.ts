@@ -58,6 +58,7 @@ import {
   openMeldDaemonTaskResultEnvelopeSchema,
   parseOptionalClientMessageId,
   patchSpaceContractBodySchema,
+  patchSpaceMetaBodySchema,
   postResolvedSpaceMembersBodySchema,
   postSpaceDispatchOutboxRedriveBodySchema,
   postSpaceDispatchOutboxRedriveResponseSchema,
@@ -93,6 +94,7 @@ import {
   type SpaceInvitationAccessInput,
   type SpaceInvitationGrantInput,
   type SpaceInvitationRevokeInput,
+  type SpaceOwnerDepartureSpaceInput,
   sanitizeSignalTextPreview,
   signalStatusDataSchema,
   signalSystemNoticeDataSchema,
@@ -115,6 +117,7 @@ import {
   spaceMessageMutationBodySchema,
   spaceMessagePinMutationSchema,
   spaceMessagePinsResponseSchema,
+  spaceOwnerDepartureSpaceInputSchema,
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
@@ -219,6 +222,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   buildWakeProgressMessage,
+  changeSpaceOwners,
   clearWakeProgressItemsForSignal,
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,
@@ -312,7 +316,10 @@ import {
   wakeEvidenceDb,
 } from "../../../lib/bindings";
 import { verifySpacePasswordProof } from "../../../lib/space-password-proof";
-import { readOrganizationAccountIdentityProjection } from "../../../organizations/organization-context";
+import {
+  readOrganizationAccountIdentityProjection,
+  resolveOrganizationMembershipById,
+} from "../../../organizations/organization-context";
 import { recordOrganizationMemberActivity } from "../../../organizations/organization-member-activity-repository";
 import {
   buildRemoteAgentExecutionRecoveryIdentity,
@@ -431,6 +438,7 @@ import {
   DISPATCH_OUTBOX_REDRIVE_BATCH_SIZE,
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
+import { resolveOrganizationSpaceSelfJoinUserId } from "../../application/organization-space-self-join";
 import {
   assertSpaceAccessMatchesSpace,
   authorizeProtectedSpaceAccess,
@@ -683,10 +691,6 @@ import {
   toSpaceThreadContext,
   updateSpaceThreadActivity,
 } from "../../infrastructure/sql/space-thread-repo";
-import {
-  normalizeSpaceCreatorOwnerUserId,
-  normalizeSpaceCreatorProfileId,
-} from "../../rules/access/space-creator-identity";
 import { authorizeSpaceDeletion } from "../../rules/access/space-deletion-policy";
 import { authorizeSpaceMemberRemoval } from "../../rules/access/space-member-management-policy";
 import {
@@ -1076,6 +1080,9 @@ function mergePublishedOriginFactsIntoAuthorProfile(
 }
 
 function createPreparedDispatchOutboxRecordForDecision(input: {
+  callerContext: NonNullable<
+    OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+  >["callerContext"];
   spaceId: string;
   organizationId: string;
   ownerCreatorProfileIdsByOwnerUserId: Map<
@@ -1149,6 +1156,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     targetProfileId: input.decision.targetProfileId,
     senderProfileId: input.senderProfileId,
     sourceSignalSnapshot: buildDispatchSourceSignalSnapshot({
+      callerContext: input.callerContext,
       signal: input.signal,
       sourceText: directMessageSourceText,
       normalizedSourceText,
@@ -1263,6 +1271,9 @@ function resolveDispatchReplyStalenessMeta(input: {
 }
 
 function buildDispatchSourceSignalSnapshot(input: {
+  callerContext: NonNullable<
+    OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+  >["callerContext"];
   signal: SignalEnvelope;
   sourceText: string;
   normalizedSourceText: string;
@@ -1285,6 +1296,7 @@ function buildDispatchSourceSignalSnapshot(input: {
         ? input.normalizedSourceText
         : input.sourceText,
     profileId: input.senderProfileId,
+    callerContext: input.callerContext,
     profileKind: input.signal.profile.kind,
     ...(centerAgentInteractionSource ? { centerAgentInteractionSource } : {}),
     profileMentionLabel:
@@ -2191,6 +2203,8 @@ export const handleWebSocketTextSignal = async (input: {
 };
 
 type PatchSpaceMetaInput = {
+  ownership?: { userId: string; role: "owner" | "member" };
+  allowGuests?: boolean;
   spaceId: string;
   name?: string;
   purpose?: string;
@@ -2291,6 +2305,10 @@ const APPROVED_FINAL_OUTCOME_AUTHORITIES = new Set<
 const LIVE_INVALIDATION_VERSION_STORAGE_KEY =
   "space.live_invalidation.version.v1";
 
+function isImmutableSpaceMetaPatch(body: unknown): boolean {
+  return isSpacePurposePatchBody(body) || Object.hasOwn(body ?? {}, "creator");
+}
+
 function isSpacePurposePatchBody(body: unknown): boolean {
   return (
     body !== null &&
@@ -2339,6 +2357,7 @@ export class Space extends DurableObject<CoreBindings> {
   private lastTimestamp = 0;
   private lastLiveInvalidationVersion = 0;
   private liveInvalidationVersionUpdate: Promise<void> = Promise.resolve();
+  private liveBroadcastDelivery: Promise<void> = Promise.resolve();
   private lastPostCleanupAtMs = 0;
   private lastRetentionWarningAtMs = 0;
   private dispatchOutboxContinuationDueAtMs: number | null = null;
@@ -7710,6 +7729,38 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  rpcCheckSpaceOwnerDeparture(
+    raw: SpaceOwnerDepartureSpaceInput
+  ): Promise<{ spaceId: string; name: string } | null> {
+    const input = spaceOwnerDepartureSpaceInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const meta = this.readSpaceMetaRecord();
+      if (meta && meta.organizationId !== input.organizationId) {
+        throw new Error("Space organization mismatch.");
+      }
+      if (
+        meta?.ownerUserIds?.includes(input.userId) &&
+        !(meta.directMessage && !meta.directMessage.convertedAt)
+      ) {
+        return { spaceId: input.spaceId, name: meta.name ?? "Untitled Space" };
+      }
+      const db = identityDb(this.bindings);
+      if (!db) {
+        throw new Error("Space ownership storage is unavailable.");
+      }
+      // Repair an incomplete demotion's restrictive reference under the same
+      // serialization boundary as promotions. This never grants membership.
+      await db
+        .prepare(
+          "DELETE FROM space_owner_member_references WHERE space_id = ? AND member_id IN (SELECT id FROM members WHERE organization_id = ? AND user_id = ?)"
+        )
+        .bind(input.spaceId, input.organizationId, input.userId)
+        .run();
+      return null;
+    });
+  }
+
   rpcAuthorizeSpaceInvitation(
     raw: SpaceInvitationAccessInput
   ): { name: string } | null {
@@ -7732,7 +7783,38 @@ export class Space extends DurableObject<CoreBindings> {
     ) {
       return null;
     }
+    if (
+      input.audience === "guest" &&
+      !(
+        (meta.allowGuests || input.intent === "manage") &&
+        actor.ownerUserId &&
+        meta.ownerUserIds?.includes(actor.ownerUserId)
+      )
+    ) {
+      return null;
+    }
     return { name: meta.name ?? "Untitled Space" };
+  }
+
+  rpcHasSpaceGuestAccess(raw: SpaceInvitationAccessInput): boolean {
+    const input = spaceInvitationAccessInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const actor = input.context.actorContext;
+    return Boolean(
+      actor.profileKind === "human" &&
+        actor.ownerUserId &&
+        this.readSpaceMetaRecord()?.allowGuests &&
+        [
+          ...this.ctx.storage.sql.exec(
+            "SELECT user_id FROM space_guest_users WHERE user_id = ?",
+            actor.ownerUserId
+          ),
+        ].length &&
+        hasActiveSpaceMemberRecordForOwnerUserId(
+          this.ctx.storage.sql,
+          actor.ownerUserId
+        )
+    );
   }
 
   rpcRevokeSpaceInvitation(
@@ -7743,6 +7825,8 @@ export class Space extends DurableObject<CoreBindings> {
       !this.rpcAuthorizeSpaceInvitation({
         spaceId: input.spaceId,
         context: input.context,
+        audience: input.audience,
+        intent: "manage",
       })
     ) {
       throw createCoreRpcHttpError({
@@ -7778,6 +7862,7 @@ export class Space extends DurableObject<CoreBindings> {
       !this.rpcAuthorizeSpaceInvitation({
         spaceId: input.spaceId,
         context: input.context,
+        audience: input.audience,
       })
     ) {
       throw createCoreRpcHttpError({
@@ -7786,7 +7871,7 @@ export class Space extends DurableObject<CoreBindings> {
         status: 403,
       });
     }
-    if (input.member.profileKind !== "human") {
+    if (input.member.profileKind !== "human" || !input.member.ownerUserId) {
       throw createCoreRpcHttpError({
         code: "space.invitation.forbidden",
         reason: "An invitation must be accepted by a person.",
@@ -7831,6 +7916,14 @@ export class Space extends DurableObject<CoreBindings> {
         input.invitationId,
         input.member.profileId
       );
+      if (input.audience === "guest") {
+        sql.exec(
+          "INSERT INTO space_guest_users (user_id, invitation_id, joined_at) VALUES (?, ?, ?) ON CONFLICT (user_id) DO UPDATE SET invitation_id = excluded.invitation_id, joined_at = excluded.joined_at",
+          input.member.ownerUserId,
+          input.invitationId,
+          Date.now()
+        );
+      }
       return result.addedMemberIds;
     });
     if (added === null) {
@@ -7847,6 +7940,29 @@ export class Space extends DurableObject<CoreBindings> {
   }
 
   async rpcConvertDirectMessageToSpace(
+    input: ConvertDirectMessageToSpaceInput
+  ): Promise<ConvertDirectMessageToSpaceResponse> {
+    const result = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return {
+          ok: true as const,
+          value: await this.convertDirectMessageToSpace(input),
+        };
+      } catch (error) {
+        // Expected admission failures must not break the Durable Object input gate.
+        if (!this.coreRpcErrorResponse(error)) {
+          throw error;
+        }
+        return { ok: false as const, error };
+      }
+    });
+    if (!result.ok) {
+      throw result.error;
+    }
+    return result.value;
+  }
+
+  private async convertDirectMessageToSpace(
     input: ConvertDirectMessageToSpaceInput
   ): Promise<ConvertDirectMessageToSpaceResponse> {
     this.applySpaceRef(input.spaceId);
@@ -7930,6 +8046,17 @@ export class Space extends DurableObject<CoreBindings> {
       });
     }
 
+    for (const ownerUserId of currentMeta.ownerUserIds ?? []) {
+      await this.protectSpaceOwnerMembership(
+        currentMeta.organizationId,
+        ownerUserId
+      );
+    }
+    if (!currentMeta.ownerUserIds?.length) {
+      throw new Error(
+        "The conversation needs an owner before it can become a Space."
+      );
+    }
     const convertedAt = new Date().toISOString();
     const memberResponse = this.ctx.storage.transactionSync(() => {
       const meta = this.requireConvertibleDirectMessageMeta();
@@ -8432,6 +8559,10 @@ export class Space extends DurableObject<CoreBindings> {
         ? {}
         : { spacePassword: input.password }),
       body: {
+        ...(input.ownership ? { ownership: input.ownership } : {}),
+        ...(input.allowGuests === undefined
+          ? {}
+          : { allowGuests: input.allowGuests }),
         ...(typeof input.name === "string" ? { name: input.name } : {}),
         ...(typeof input.purpose === "string"
           ? { purpose: input.purpose }
@@ -10056,6 +10187,17 @@ export class Space extends DurableObject<CoreBindings> {
       return this.unauthenticatedResponse(resolved.requestId);
     }
 
+    // Joining has its own authorization. Requiring read access first prevents
+    // Organization members from joining a members-only, listed Space.
+    if (request.method === "POST") {
+      return this.handlePostMembers(
+        request,
+        requireWritableSpaceActor(resolved.spaceAccess),
+        getSpaceAccessPassword(resolved.spaceAccess),
+        options.requireActiveActorMembership === true
+      );
+    }
+
     const accessResult = await this.authorizeSpaceAccess(resolved.spaceAccess);
     if (!accessResult.ok) {
       return accessResult.response;
@@ -10066,15 +10208,6 @@ export class Space extends DurableObject<CoreBindings> {
         requireAuthenticatedSpaceActor(resolved.spaceAccess),
         options.bootstrapTiming,
         options.lineageLoader
-      );
-    }
-
-    if (request.method === "POST") {
-      return this.handlePostMembers(
-        request,
-        requireWritableSpaceActor(resolved.spaceAccess),
-        getSpaceAccessPassword(resolved.spaceAccess),
-        options.requireActiveActorMembership === true
       );
     }
 
@@ -11288,10 +11421,12 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     if (request.method === "PATCH") {
-      return this.handlePatchMeta(request, {
-        context: resolved.context,
-        initializeIfAbsent: true,
-      });
+      return this.ctx.blockConcurrencyWhile(() =>
+        this.handlePatchMeta(request, {
+          context: resolved.context,
+          initializeIfAbsent: true,
+        })
+      );
     }
 
     return this.methodNotAllowed();
@@ -11306,7 +11441,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     if (request.method === "PATCH") {
-      return this.handlePatchMetaWithPasswordAtomic(request, resolved.context);
+      return this.ctx.blockConcurrencyWhile(() =>
+        this.handlePatchMetaWithPasswordAtomic(request, resolved.context)
+      );
     }
 
     return this.methodNotAllowed();
@@ -11391,6 +11528,17 @@ export class Space extends DurableObject<CoreBindings> {
     try {
       const session = resolveActiveWebSocketSession(this.sessions, webSocket);
       if (!session) {
+        return;
+      }
+
+      if (!(await this.authorizeLiveSession(session))) {
+        removeFailedSpaceWebSocketSession({
+          closeCode: 1008,
+          closeReason: "space_access_changed",
+          session,
+          sessions: this.sessions,
+          webSocket,
+        });
         return;
       }
 
@@ -12932,9 +13080,30 @@ export class Space extends DurableObject<CoreBindings> {
     spacePassword?: string,
     requireActiveActorMembership = false
   ): Promise<Response> {
-    const metaRecord = await this.readSpaceMetaRecord();
+    const body = await request.json().catch(() => null);
+    const parsed = postResolvedSpaceMembersBodySchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        {
+          ok: false,
+          code: "invalid_payload",
+          message: parsed.error.issues[0]?.message ?? "Invalid members payload",
+          requestId: context.actorContext.requestId,
+        },
+        { status: 400 }
+      );
+    }
+    let metaRecord = this.readSpaceMetaRecord();
     if (!metaRecord) {
       return this.spaceNotFoundResponse();
+    }
+
+    const currentMembership = await this.authorizeCurrentSpaceMembership({
+      context,
+      requestId: context.actorContext.requestId,
+    });
+    if (!currentMembership.ok) {
+      return currentMembership.response;
     }
 
     const joinAuthorization = await authorizeSpaceJoinAccess({
@@ -12950,25 +13119,49 @@ export class Space extends DurableObject<CoreBindings> {
       spacePassword,
       verifySpacePasswordProof,
     });
-    if (!joinAuthorization.ok) {
+    const selfJoinUserId = resolveOrganizationSpaceSelfJoinUserId({
+      context,
+      members: parsed.data.members,
+      meta: metaRecord,
+    });
+    const organizationMembership =
+      !joinAuthorization.ok && selfJoinUserId
+        ? await resolveOrganizationMembershipById({
+            env: this.bindings,
+            organizationId: metaRecord.organizationId,
+            userId: selfJoinUserId,
+            requestId: context.actorContext.requestId,
+          })
+        : null;
+    if (
+      organizationMembership &&
+      !organizationMembership.ok &&
+      organizationMembership.status === 503
+    ) {
+      throw createCoreRpcHttpError({
+        status: 503,
+        code: organizationMembership.code,
+        reason: organizationMembership.message,
+      });
+    }
+    // An Organization read may yield. Recheck Space policy before granting.
+    metaRecord = this.readSpaceMetaRecord();
+    if (!metaRecord) {
+      return this.spaceNotFoundResponse();
+    }
+    const organizationSelfJoin =
+      organizationMembership?.ok === true &&
+      organizationMembership.organizationId === metaRecord.organizationId &&
+      resolveOrganizationSpaceSelfJoinUserId({
+        context,
+        members: parsed.data.members,
+        meta: metaRecord,
+      }) !== null;
+    if (!(organizationSelfJoin || joinAuthorization.ok)) {
       return this.spaceAccessAuthorizationFailureResponse({
         code: joinAuthorization.code,
         requestId: context.actorContext.requestId,
       });
-    }
-
-    const body = await request.json().catch(() => null);
-    const parsed = postResolvedSpaceMembersBodySchema.safeParse(body);
-    if (!parsed.success) {
-      return Response.json(
-        {
-          ok: false,
-          code: "invalid_payload",
-          message: parsed.error.issues[0]?.message ?? "Invalid members payload",
-          requestId: context.actorContext.requestId,
-        },
-        { status: 400 }
-      );
     }
 
     const centerAgentDirectMessageBlock =
@@ -13232,13 +13425,17 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     try {
+      const current = this.authorizeSpaceManagement(context);
+      if (!current.ok) {
+        return current.response;
+      }
       const response = removeSpaceMembersUseCase({
         sql: this.ctx.storage.sql,
         spaceId: this.spaceId,
         memberProfileIds: parsed.data.memberProfileIds,
         actorProfileId: context.actorContext.openMeldProfileId,
         actorOwnerUserId: context.actorContext.ownerUserId,
-        metaRecord,
+        metaRecord: current.meta,
       });
       await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
       if (response.removedMemberIds.length > 0) {
@@ -13296,7 +13493,7 @@ export class Space extends DurableObject<CoreBindings> {
         spaceId: this.spaceId,
         actorProfileId: context.actorContext.openMeldProfileId,
         actorOwnerUserId: context.actorContext.ownerUserId,
-        metaRecord,
+        metaRecord: this.readSpaceMetaRecord(),
       });
       await this.projectCurrentSpaceIndexSnapshot("space.members_updated");
       await this.broadcastSpaceMembersChanged({
@@ -13442,21 +13639,26 @@ export class Space extends DurableObject<CoreBindings> {
         return centerAgentDirectMessageBlock;
       }
     }
-    if (existingMetaRecord && isSpacePurposePatchBody(body)) {
+    if (existingMetaRecord && isImmutableSpaceMetaPatch(body)) {
       return this.forbiddenResponse(
         context.actorContext.requestId,
         "space.forbidden",
-        "Space purpose is system-managed and cannot be changed through metadata updates."
+        "Space purpose and creator attribution cannot be changed through metadata updates."
       );
     }
-    if (
-      existingMetaRecord &&
-      (isSpaceNamePatchBody(body) || Object.hasOwn(body ?? {}, "visibility"))
-    ) {
+    if (existingMetaRecord) {
       const authorization = this.authorizeSpaceManagement(context);
       if (!authorization.ok) {
         return authorization.response;
       }
+    }
+    if (Object.hasOwn(body ?? {}, "ownership")) {
+      return this.ctx.blockConcurrencyWhile(() =>
+        this.handleChangeSpaceOwner(body, context)
+      );
+    }
+    if (Object.hasOwn(body ?? {}, "allowGuests")) {
+      return this.handleChangeSpaceGuestAccess(body, context);
     }
     const response = await handlePatchMetaUseCase({
       body,
@@ -13466,7 +13668,7 @@ export class Space extends DurableObject<CoreBindings> {
         toPublicSpaceMeta(meta, this.ctx.storage.sql.databaseSize),
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
-          initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record),
+          this.initializeOwnedSpace(record),
         readSpaceMetaRecord: () => this.readSpaceMetaRecord(),
         upsertSpaceMetaRecord: (record) =>
           upsertSpaceMetaRecord(this.ctx.storage.sql, record),
@@ -13492,6 +13694,184 @@ export class Space extends DurableObject<CoreBindings> {
     return response;
   }
 
+  private async handleChangeSpaceGuestAccess(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = patchSpaceMetaBodySchema.safeParse(body);
+    if (
+      !parsed.success ||
+      typeof parsed.data.allowGuests !== "boolean" ||
+      Object.keys(parsed.data).length !== 1
+    ) {
+      return Response.json(
+        { code: "invalid_payload", message: "Change guest access separately." },
+        { status: 400 }
+      );
+    }
+    const authorization = this.authorizeSpaceManagement(context);
+    if (!authorization.ok) {
+      return authorization.response;
+    }
+    this.ctx.storage.sql.exec(
+      "UPDATE space_meta SET allow_guests = ?, updated_at = ? WHERE space_id = ?",
+      Number(parsed.data.allowGuests),
+      Date.now(),
+      this.spaceId
+    );
+    const updated = this.readSpaceMetaRecord();
+    if (!updated) {
+      return this.spaceNotFoundResponse();
+    }
+    if (!parsed.data.allowGuests) {
+      this.closeAllSessions("space_access_changed");
+    }
+    await this.broadcastSpaceMetaChanged({ reason: "space.meta.updated" });
+    return Response.json(
+      toPublicSpaceMeta(updated, this.ctx.storage.sql.databaseSize)
+    );
+  }
+
+  private async handleChangeSpaceOwner(
+    body: unknown,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    const parsed = patchSpaceMetaBodySchema.safeParse(body);
+    if (
+      !(parsed.success && parsed.data.ownership) ||
+      Object.keys(parsed.data).length !== 1
+    ) {
+      return Response.json(
+        {
+          code: "invalid_payload",
+          message: "Change one Space owner's role at a time.",
+        },
+        { status: 400 }
+      );
+    }
+    const initial = this.authorizeSpaceManagement(context);
+    if (!initial.ok) {
+      return initial.response;
+    }
+    const db = identityDb(this.bindings);
+    if (!db) {
+      return Response.json(
+        {
+          code: "space.identity_unavailable",
+          message: "Couldn't verify organization membership. Try again.",
+        },
+        { status: 503 }
+      );
+    }
+    const target = await readResolvedOrganizationOwnerHumanSpaceMember({
+      db,
+      organizationId: initial.meta.organizationId,
+      ownerUserId: parsed.data.ownership.userId,
+    });
+    const targetUserId = target?.ownerUserId;
+    const actorUserId = context.actorContext.ownerUserId;
+    if (!(target && targetUserId && actorUserId)) {
+      return Response.json(
+        {
+          code: "space.owner_membership_required",
+          message:
+            "Choose a current organization member who has joined this Space.",
+        },
+        { status: 409 }
+      );
+    }
+    // The enclosing DO serialization boundary also covers identity I/O and
+    // restrictive references, so concurrent demotions cannot remove all owners.
+    const current = this.authorizeSpaceManagement(context);
+    if (!current.ok) {
+      return current.response;
+    }
+    const member = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      target.profileId
+    );
+    if (member?.status !== "active") {
+      return Response.json(
+        {
+          code: "space.owner_membership_required",
+          message: "This person must join the Space before becoming an owner.",
+        },
+        { status: 409 }
+      );
+    }
+    const next = changeSpaceOwners({
+      ownerUserIds: current.meta.ownerUserIds ?? [],
+      ...parsed.data.ownership,
+    });
+    if (!next.ok) {
+      return Response.json(
+        {
+          code: next.code,
+          message: "Add another owner before removing the last owner.",
+        },
+        { status: 409 }
+      );
+    }
+    const ownership = parsed.data.ownership;
+    const memberReference = await db
+      .prepare(
+        "SELECT id FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
+      )
+      .bind(current.meta.organizationId, targetUserId)
+      .first<{ id: string }>();
+    if (!memberReference) {
+      return Response.json(
+        {
+          code: "space.owner_membership_required",
+          message: "This person no longer belongs to the organization.",
+        },
+        { status: 409 }
+      );
+    }
+    if (ownership.role === "owner") {
+      // Protect the organization membership before committing Space ownership.
+      await db
+        .prepare(
+          "INSERT OR IGNORE INTO space_owner_member_references (space_id, member_id) VALUES (?, ?)"
+        )
+        .bind(this.spaceId, memberReference.id)
+        .run();
+    }
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec(
+        "UPDATE space_meta SET owner_user_ids_json = ?, updated_at = ? WHERE space_id = ?",
+        JSON.stringify(next.ownerUserIds),
+        Date.now(),
+        this.spaceId
+      );
+      this.ctx.storage.sql.exec(
+        "INSERT INTO space_ownership_audit (id, actor_user_id, target_user_id, role, created_at) VALUES (?, ?, ?, ?, ?)",
+        crypto.randomUUID(),
+        actorUserId,
+        targetUserId,
+        ownership.role,
+        Date.now()
+      );
+    });
+    const updated = this.readSpaceMetaRecord();
+    if (!updated) {
+      return this.spaceNotFoundResponse();
+    }
+    if (ownership.role === "member") {
+      await db
+        .prepare(
+          "DELETE FROM space_owner_member_references WHERE space_id = ? AND member_id = ?"
+        )
+        .bind(this.spaceId, memberReference.id)
+        .run();
+    }
+    await this.projectCurrentSpaceIndexSnapshot("space.meta_updated");
+    await this.broadcastSpaceMetaChanged({ reason: "space.meta.updated" });
+    return Response.json(
+      toPublicSpaceMeta(updated, this.ctx.storage.sql.databaseSize)
+    );
+  }
+
   private async handlePutContract(
     request: Request,
     context: CoreRpcContextInput,
@@ -13499,6 +13879,10 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<Response> {
     if (!(await this.readSpaceMetaRecord())) {
       return this.spaceNotFoundResponse();
+    }
+    const management = this.authorizeSpaceManagement(context);
+    if (!management.ok) {
+      return management.response;
     }
 
     const body = await request.json().catch(() => null);
@@ -13534,6 +13918,10 @@ export class Space extends DurableObject<CoreBindings> {
   ): Promise<Response> {
     if (!(await this.readSpaceMetaRecord())) {
       return this.spaceNotFoundResponse();
+    }
+    const management = this.authorizeSpaceManagement(context);
+    if (!management.ok) {
+      return management.response;
     }
 
     const body = await request.json().catch(() => null);
@@ -13575,7 +13963,7 @@ export class Space extends DurableObject<CoreBindings> {
         toPublicSpaceMeta(meta, this.ctx.storage.sql.databaseSize),
       writer: {
         initializeSpaceMetaRecordIfAbsent: (record) =>
-          initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record),
+          this.initializeOwnedSpace(record),
       },
       passwordTooShortResponse: (requestId) =>
         this.passwordTooShortResponse(requestId),
@@ -13688,7 +14076,16 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
-  private async handleDeleteSpace(
+  private handleDeleteSpace(
+    request: Request,
+    context: CoreRpcContextInput
+  ): Promise<Response> {
+    return this.ctx.blockConcurrencyWhile(() =>
+      this.deleteSpace(request, context)
+    );
+  }
+
+  private async deleteSpace(
     request: Request,
     context: CoreRpcContextInput
   ): Promise<Response> {
@@ -13738,6 +14135,14 @@ export class Space extends DurableObject<CoreBindings> {
     });
 
     this.closeAllSessions("space_deleted");
+    const ownershipDb = identityDb(this.bindings);
+    if (!ownershipDb) {
+      throw new Error("Space ownership storage is unavailable.");
+    }
+    await ownershipDb
+      .prepare("DELETE FROM space_owner_member_references WHERE space_id = ?")
+      .bind(this.spaceId)
+      .run();
     deleteAllSqlSpaceData(this.ctx.storage.sql);
     await this.ctx.storage.deleteAll();
     ensureSpaceSqlSchema(this.ctx.storage.sql);
@@ -13749,6 +14154,48 @@ export class Space extends DurableObject<CoreBindings> {
       spaceId: this.spaceId,
       deleted: true as const,
     });
+  }
+
+  private async initializeOwnedSpace(
+    record: SpaceMetaRecord
+  ): Promise<SpaceMetaRecord> {
+    const existing = this.readSpaceMetaRecord();
+    if (existing) {
+      return existing;
+    }
+    const userId = record.creator?.ownerUserId;
+    if (!userId) {
+      throw new Error("A Space must have an organization member as its owner.");
+    }
+    await this.protectSpaceOwnerMembership(record.organizationId, userId);
+    return initializeSpaceMetaRecordIfAbsent(this.ctx.storage.sql, record);
+  }
+
+  private async protectSpaceOwnerMembership(
+    organizationId: string,
+    userId: string
+  ): Promise<void> {
+    const db = identityDb(this.bindings);
+    if (!db) {
+      throw new Error("Space ownership storage is unavailable.");
+    }
+    const member = await db
+      .prepare(
+        "SELECT id FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
+      )
+      .bind(organizationId, userId)
+      .first<{ id: string }>();
+    if (!member) {
+      throw new Error("The Space owner must belong to the organization.");
+    }
+    // The restrictive reference is installed before Space truth is committed.
+    // Auth cannot delete this membership between verification and creation.
+    await db
+      .prepare(
+        "INSERT OR IGNORE INTO space_owner_member_references (space_id, member_id) VALUES (?, ?)"
+      )
+      .bind(this.spaceId, member.id)
+      .run();
   }
 
   private async projectCurrentSpaceIndexSnapshot(
@@ -14046,16 +14493,84 @@ export class Space extends DurableObject<CoreBindings> {
     });
   }
 
+  private async authorizeCurrentSpaceMembership(input: {
+    context?: CoreRpcContextInput;
+    requestId: string;
+    spacePassword?: string;
+  }): Promise<PasswordAuthorizationResult> {
+    let meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      return { ok: false, response: this.spaceNotFoundResponse() };
+    }
+    const userId = input.context?.actorContext.ownerUserId;
+    if (
+      userId &&
+      hasActiveSpaceMemberRecordForOwnerUserId(this.ctx.storage.sql, userId)
+    ) {
+      const membership = await resolveOrganizationMembershipById({
+        env: this.bindings,
+        organizationId: meta.organizationId,
+        userId,
+      });
+      // Membership lookup yields; do not authorize against an old guest policy.
+      meta = this.readSpaceMetaRecord();
+      if (!meta) {
+        return { ok: false, response: this.spaceNotFoundResponse() };
+      }
+      if (!membership.ok) {
+        if (membership.status === 503) {
+          throw createCoreRpcHttpError({
+            status: 503,
+            code: membership.code,
+            reason: membership.message,
+          });
+        }
+        const guest =
+          meta.allowGuests &&
+          [
+            ...this.ctx.storage.sql.exec(
+              "SELECT user_id FROM space_guest_users WHERE user_id = ?",
+              userId
+            ),
+          ].length > 0;
+        const profileId = input.context?.actorContext.openMeldProfileId;
+        const db = identityDb(this.bindings);
+        const agent =
+          input.context?.actorContext.profileKind === "agent" && profileId && db
+            ? await readAgentProfileOrganizationContext({
+                agentProfileId: profileId,
+                db,
+              })
+            : null;
+        const managedAgent =
+          agent?.profileKind === "agent" &&
+          agent.managedRole !== null &&
+          agent.organizationId === meta.organizationId;
+        if (!(guest || managedAgent)) {
+          return {
+            ok: false,
+            response: this.spaceAccessAuthorizationFailureResponse({
+              code: "space.membership_required",
+              requestId: input.requestId,
+            }),
+          };
+        }
+      }
+    }
+
+    return { ok: true, meta };
+  }
+
   private async authorizeSpacePasswordAccess(input: {
     context?: CoreRpcContextInput;
     requestId: string;
     spacePassword?: string;
   }): Promise<PasswordAuthorizationResult> {
-    const meta = this.readSpaceMetaRecord();
-    if (!meta) {
-      return { ok: false, response: this.spaceNotFoundResponse() };
+    const membership = await this.authorizeCurrentSpaceMembership(input);
+    if (!membership.ok) {
+      return membership;
     }
-
+    const meta = membership.meta;
     const authorization = await authorizeProtectedSpaceAccess({
       context: input.context,
       hasActiveMemberForOwnerUserId: (ownerUserId) =>
@@ -14090,53 +14605,14 @@ export class Space extends DurableObject<CoreBindings> {
       return { ok: false, response: this.spaceNotFoundResponse() };
     }
 
-    const creatorProfileId = normalizeSpaceCreatorProfileId(meta.creator);
-    if (!creatorProfileId) {
+    const authorization = authorizeSpaceMemberRemoval({ meta, context });
+    if (!authorization.ok) {
       return {
         ok: false,
         response: this.forbiddenResponse(
           context.actorContext.requestId,
-          "space.forbidden",
-          "space creator is missing; Space management is not authorized"
-        ),
-      };
-    }
-
-    if (meta.creator?.kind === "agent") {
-      const creatorOwnerUserId = normalizeSpaceCreatorOwnerUserId(meta.creator);
-      if (context.actorContext.profileKind !== "human") {
-        return {
-          ok: false,
-          response: this.forbiddenResponse(
-            context.actorContext.requestId,
-            "space.forbidden",
-            "agent-created spaces require owner human confirmation"
-          ),
-        };
-      }
-      if (
-        !creatorOwnerUserId ||
-        context.actorContext.ownerUserId !== creatorOwnerUserId
-      ) {
-        return {
-          ok: false,
-          response: this.forbiddenResponse(
-            context.actorContext.requestId,
-            "space.forbidden",
-            "Space management is only allowed for the owner human"
-          ),
-        };
-      }
-      return { ok: true, meta };
-    }
-
-    if (context.actorContext.openMeldProfileId !== creatorProfileId) {
-      return {
-        ok: false,
-        response: this.forbiddenResponse(
-          context.actorContext.requestId,
-          "space.forbidden",
-          "Space management is only allowed for the creator profile"
+          authorization.code,
+          authorization.message
         ),
       };
     }
@@ -14558,31 +15034,85 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceAgentStreamPartFrame
       | SpaceAgentStreamTerminalFrame
   ) {
-    const quitters: Session[] = [];
+    if (this.sessions.size === 0) {
+      return;
+    }
+    this.liveBroadcastDelivery = this.liveBroadcastDelivery
+      .then(() => this.deliverAuthorizedLiveMessage(message))
+      .catch((error) => {
+        console.error("[core.space.live_access_check_failed]", {
+          spaceId: this.spaceId,
+          error: formatUnknownErrorMessage(error),
+        });
+        this.closeAllSessions("space_access_changed");
+      });
+    this.ctx.waitUntil(this.liveBroadcastDelivery);
+  }
 
-    this.sessions.forEach((session, ws) => {
-      if (session.profile) {
-        const encoded = this.encodeLiveMessageForSession(message, session);
-        try {
-          ws.send(encoded);
-        } catch {
+  private async authorizeLiveSession(session: Session): Promise<boolean> {
+    const profile = session.enforcedProfile ?? session.profile;
+    const userId = session.viewerOwnerUserId;
+    if (!profile) {
+      return false;
+    }
+    const access = await this.authorizeSpacePasswordAccess({
+      requestId: crypto.randomUUID(),
+      spacePassword: session.spacePassword,
+      context: {
+        actorContext: {
+          requestId: crypto.randomUUID(),
+          callerPrincipalId: userId ?? profile.profileId,
+          ownerUserId: userId,
+          openMeldProfileId: session.viewerProfileId ?? profile.profileId,
+          profileKind: profile.kind,
+        },
+      },
+    });
+    return access.ok;
+  }
+
+  private async deliverAuthorizedLiveMessage(
+    message: Parameters<Space["encodeLiveMessageForSession"]>[0]
+  ): Promise<void> {
+    const quitters: Session[] = [];
+    await Promise.all(
+      [...this.sessions].map(async ([ws, session]) => {
+        if (!(await this.authorizeLiveSession(session))) {
           removeFailedSpaceWebSocketSession({
-            closeCode: 1011,
-            closeReason: "broadcast_send_failed",
+            closeCode: 1008,
+            closeReason: "space_access_changed",
             session,
             sessions: this.sessions,
             webSocket: ws,
           });
-          quitters.push(session);
+          return;
         }
-        return;
-      }
+        if (this.sessions.get(ws) !== session || session.quit) {
+          return;
+        }
+        if (session.profile) {
+          const encoded = this.encodeLiveMessageForSession(message, session);
+          try {
+            ws.send(encoded);
+          } catch {
+            removeFailedSpaceWebSocketSession({
+              closeCode: 1011,
+              closeReason: "broadcast_send_failed",
+              session,
+              sessions: this.sessions,
+              webSocket: ws,
+            });
+            quitters.push(session);
+          }
+          return;
+        }
 
-      if (!session.blocked) {
-        session.blocked = [];
-      }
-      session.blocked.push(message);
-    });
+        if (!session.blocked) {
+          session.blocked = [];
+        }
+        session.blocked.push(message);
+      })
+    );
 
     // If any sockets broke while sending, notify remaining members once.
     for (const quitter of quitters) {
@@ -14930,7 +15460,7 @@ export class Space extends DurableObject<CoreBindings> {
     }
   }
 
-  private persistTextSignalWithOptionalOutbox(
+  private async persistTextSignalWithOptionalOutbox(
     signal: SignalEnvelope,
     createOutboxRecord: boolean,
     signalContext?: SignalPublishContext
@@ -14960,9 +15490,18 @@ export class Space extends DurableObject<CoreBindings> {
         sql: this.ctx.storage.sql,
       });
     }
+    const meta = this.readSpaceMetaRecord();
+    const callerContext = meta
+      ? await this.readSpaceCallerContext(
+          meta,
+          signal.profile.profileId,
+          signal.profile.kind
+        )
+      : undefined;
     const preparedDispatchOutboxPlan = this.prepareDispatchOutboxPlanForSignal(
       signal,
-      signalContext
+      signalContext,
+      callerContext
     );
     const retentionResult = persistSignalWithRetention({
       insertSignal: () => {
@@ -15269,7 +15808,10 @@ export class Space extends DurableObject<CoreBindings> {
 
   private prepareDispatchOutboxPlanForSignal(
     signal: SignalEnvelope,
-    signalContext?: SignalPublishContext
+    signalContext?: SignalPublishContext,
+    callerContext?: NonNullable<
+      OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+    >["callerContext"]
   ): PreparedDispatchOutboxPlan {
     const plannerContext = readDispatchPlannerContextForSignal({
       readSpaceContractRecord:
@@ -15383,6 +15925,7 @@ export class Space extends DurableObject<CoreBindings> {
     for (const decision of mergedReadyDecisions) {
       outboxRecords.push(
         createPreparedDispatchOutboxRecordForDecision({
+          callerContext,
           spaceId: this.spaceId,
           organizationId: spaceMeta.organizationId,
           ownerCreatorProfileIdsByOwnerUserId:
@@ -15419,6 +15962,47 @@ export class Space extends DurableObject<CoreBindings> {
       nonReadyDecisions,
       outboxRecords,
       plannerContext,
+    };
+  }
+
+  private async readSpaceCallerContext(
+    meta: SpaceMetaRecord,
+    profileId: string,
+    profileKind: "human" | "agent" | "system"
+  ): Promise<
+    NonNullable<
+      NonNullable<
+        OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+      >["callerContext"]
+    >
+  > {
+    const member = readSpaceMemberRecord(this.ctx.storage.sql, profileId);
+    const userId = member?.ownerUserIdSnapshot;
+    const db = identityDb(this.bindings);
+    if (!db) {
+      throw new Error("Caller identity storage is unavailable.");
+    }
+    const organizationMember = userId
+      ? await db
+          .prepare(
+            "SELECT id FROM members WHERE organization_id = ? AND user_id = ? LIMIT 1"
+          )
+          .bind(meta.organizationId, userId)
+          .first<{ id: string }>()
+      : null;
+    const humanRelationship = organizationMember ? "internal" : "external";
+    const relationship =
+      profileKind === "human" ? humanRelationship : profileKind;
+    const owner =
+      profileKind === "human" && userId && meta.ownerUserIds?.includes(userId);
+    const membershipRole = member?.status === "active" ? "member" : "visitor";
+    return {
+      relationship,
+      spaceRole: owner ? "owner" : membershipRole,
+      audience:
+        meta.allowGuests || meta.accessMode !== "members_only"
+          ? "external"
+          : "organization",
     };
   }
 
@@ -21452,6 +22036,8 @@ function toPublicSpaceMeta(
     spaceId: meta.spaceId,
     organizationId: meta.organizationId,
     visibility: meta.visibility,
+    ownerUserIds: meta.ownerUserIds ?? [],
+    allowGuests: meta.allowGuests === true,
     ...(meta.name ? { name: meta.name } : {}),
     ...(meta.purpose ? { purpose: meta.purpose } : {}),
     ...(meta.creator ? { creator: meta.creator } : {}),

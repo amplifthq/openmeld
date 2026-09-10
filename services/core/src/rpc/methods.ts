@@ -2360,6 +2360,8 @@ export type GetSpaceMetaInput = {
 };
 
 export type UpdateSpaceMetaInput = {
+  ownership?: import("@openmeld/schemas/types").PatchSpaceMetaBody["ownership"];
+  allowGuests?: boolean;
   spaceId: string;
   visibility?: SpaceMeta["visibility"];
   name?: string;
@@ -18368,10 +18370,19 @@ export async function rpcGetSpaceEntryResolution(
     spaceId: target.spaceId,
   });
 
+  const guest =
+    !organizationMember && context
+      ? (await resolveSpaceStub(
+          env.OPENMELD_SPACES,
+          target.spaceId
+        )?.rpcHasSpaceGuestAccess({ spaceId: target.spaceId, context })) ===
+        true
+      : false;
   if (
     access.kind === "allowed" &&
     access.status.accessMode === "members_only" &&
-    !organizationMember
+    !organizationMember &&
+    !guest
   ) {
     throw createCoreRpcHttpError({
       code: "organization.context_unavailable",
@@ -18403,6 +18414,9 @@ export async function rpcGetSpaceEntryResolution(
     organizationMember,
     target,
   });
+  if (guest && response.view.state === "allowed") {
+    response.view.experience = "guest";
+  }
   return getSpaceEntryResolutionResponseSchema.parse(response);
 }
 
@@ -18612,6 +18626,10 @@ export async function rpcUpdateSpaceMeta(
 ): Promise<SpaceMeta> {
   const context = requireRpcContext(input.context);
   const parsedBody = patchSpaceMetaBodySchema.safeParse({
+    ...(input.ownership === undefined ? {} : { ownership: input.ownership }),
+    ...(input.allowGuests === undefined
+      ? {}
+      : { allowGuests: input.allowGuests }),
     ...(input.visibility === undefined ? {} : { visibility: input.visibility }),
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.purpose === undefined ? {} : { purpose: input.purpose }),

@@ -2865,9 +2865,30 @@ Web presents a Space as a collaboration room and visible outcome surface.
 
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Access, and Advanced sections. General contains the canonical name and
-the existing global browser-notification control. Access separates organization
-directory listing from link access; changing either never implicitly changes the
-other. Advanced contains Space ID, CLI join command, joined profile, and existing
+the existing global browser-notification control. Access owns the Fluid Select
+for who can join, guest-access enablement, and member ownership management.
+Share groups invitations as "Invite people by email" and "Invite people by link", with
+guest invitations through one Teammate/Guest selector. Choosing Guest prompts
+Owners for confirmation when guest access is off; it does not require a trip to
+Settings. Share shows the current audience without membership or role editors.
+Copy Space link does not grant access; teammate invitation links
+explicitly describe Organization admission. Both surfaces reuse the same access
+facts and invitation components rather than defining separate permission rules.
+Pending invitations use progressive disclosure.
+Opening Share prepares the first invitation link through Auth's idempotent POST
+endpoint. A single conditional insert checks link history: reopening reuses an
+active link and never recreates an expired or revoked one. Renew explicitly
+replaces a link; Revoke, Renew, and Copy stay right-aligned. Access settings keeps
+Copy Space link beside the audience heading, above the member list, and presents
+guest access as a Switch with confirmation before enabling it.
+Invitation links are read from Auth when the panel opens, scoped to the account,
+Organization, optional Space, and direct/request mode. A mutation response is
+not the only way to display an existing link. Failed reads offer retry rather
+than presenting the absence of a link.
+New Web Spaces use members-only access; General access selects only invited
+people or everyone at the Organization. Existing external link modes remain
+visible and editable under a separate disclosure, without changing either
+policy implicitly. Advanced contains Space ID, CLI join command, joined profile, and existing
 confirmed leave/delete actions. **Chat settings** shares the same composition but
 omits Access, CLI join, and lifecycle mutations while the conversation is a DM.
 The creator profile,
@@ -2908,11 +2929,18 @@ that saved pair keep the ordinary entry gate. Explicit rejection removes the
 saved view; transient failures retain it with retry. The Web entry gate consumes that
 resolution as the only routing decision: it opens the member experience, opens
 the public read-only experience, asks for sign-in or a protected-Space password,
-shows the same-Organization membership block with the safe Space name and owner,
+offers Join for an Organization-public Space before loading its private content,
+shows the private Space membership block with the safe Space name and owner,
 or shows a non-disclosing unavailable state. Web does not reconstruct access
 from status, the Account Space Index, or a failed conversation request. A
 transient resolver failure keeps the target and offers retry; it is not treated
 as denied access.
+
+Organization-scoped routes retain the App shell for permitted public reads and
+membership gates. Tenant-neutral links resolve to the Organization App route
+before mounting a public viewer when Core supplies the caller's Organization
+slug. A stale or foreign Profile selector is replaced with the current account's
+Human Profile inside the App; it is never used to authorize another account.
 
 The entry target may include one Signal and one Thread root Signal. Web carries
 both selectors through sign-in, member/public route reconciliation, and

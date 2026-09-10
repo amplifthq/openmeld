@@ -852,10 +852,6 @@ export function comparePlacementOrder(
 export function resolveLeaveSpaceErrorMessage(
 	failure: StructuredApiClientFailure
 ): string {
-	if (failure.code === "space.leave_space.creator_forbidden") {
-		return "The space creator cannot leave this space. Delete the space instead when only you remain.";
-	}
-
 	return failure.message;
 }
 

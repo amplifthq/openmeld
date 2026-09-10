@@ -7,7 +7,7 @@ import {
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import {
 	readComposerFileDrafts,
@@ -18,7 +18,7 @@ import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors"
 import { formatSpaceFileSizeLimitError } from "./space-file-utils";
 
 export function useSpaceComposerFiles(input: {
-	organizationSlug: string;
+	organizationSlug?: string;
 	profileId: string;
 	spaceId: string;
 }) {
@@ -362,7 +362,7 @@ async function uploadPendingFile(input: {
 	activeFileIds: Set<string>;
 	file: File;
 	item: SpaceComposerFile;
-	organizationSlug: string;
+	organizationSlug?: string;
 	profileId: string;
 	setFiles: Dispatch<SetStateAction<SpaceComposerFile[]>>;
 	spaceId: string;
@@ -379,8 +379,7 @@ async function uploadPendingFile(input: {
 			file: input.file,
 			publishMutationId: input.item.publishMutationId,
 		});
-		const api = createOrganizationScopedWebSpaceApi({
-			organizationSlug: input.organizationSlug,
+		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.profileId,
 		});
 		const stageInput = {
@@ -465,7 +464,7 @@ function toMessageFileReference(descriptor: {
 
 async function publishPendingFile(input: {
 	file: SpaceComposerFile;
-	organizationSlug: string;
+	organizationSlug?: string;
 	profileId: string;
 	setFiles: Dispatch<SetStateAction<SpaceComposerFile[]>>;
 	spaceId: string;
@@ -479,8 +478,7 @@ async function publishPendingFile(input: {
 		return null;
 	}
 	try {
-		const api = createOrganizationScopedWebSpaceApi({
-			organizationSlug: input.organizationSlug,
+		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.profileId,
 		});
 		const descriptor = await runSpaceComposerIdempotentRequestWithRetry(
@@ -517,7 +515,7 @@ async function publishPendingFile(input: {
 
 function discardStagedFiles(input: {
 	files: readonly SpaceComposerFile[];
-	organizationSlug: string;
+	organizationSlug?: string;
 	profileId: string;
 	spaceId: string;
 }): void {
@@ -532,7 +530,7 @@ function discardStagedFiles(input: {
 }
 
 function discardComposerUploadIds(input: {
-	organizationSlug: string;
+	organizationSlug?: string;
 	profileId: string;
 	spaceId: string;
 	uploadIds: readonly string[];
@@ -540,8 +538,7 @@ function discardComposerUploadIds(input: {
 	if (input.uploadIds.length === 0) {
 		return;
 	}
-	const api = createOrganizationScopedWebSpaceApi({
-		organizationSlug: input.organizationSlug,
+	const api = createUnscopedWebSpaceApi({
 		openMeldProfileId: input.profileId,
 	});
 	Promise.allSettled(

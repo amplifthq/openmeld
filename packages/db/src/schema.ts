@@ -163,6 +163,7 @@ export const {
   openMeldDaemonCurrentDeviceTargets,
   spaceAttachments,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
 } = coreSchema;

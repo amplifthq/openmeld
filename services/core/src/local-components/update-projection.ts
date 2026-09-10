@@ -39,7 +39,7 @@ const NUMERIC_SEMVER_IDENTIFIER_RE = /^\d+$/u;
 // Core owns this monotonic compatibility floor separately from the latest
 // release's advisory policy, so a later optional release can never make an
 // older unsafe Service eligible for new Wake work again.
-const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.197";
+const MINIMUM_SUPPORTED_OPENMELD_SERVICE_VERSION = "0.3.198";
 
 type ServiceUpdateDecision = {
   reasonCodes: string[];
