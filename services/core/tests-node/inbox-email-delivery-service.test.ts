@@ -54,6 +54,35 @@ describe("Inbox urgent email delivery", () => {
     }
   });
 
+  it("suppresses queued Agent creation approval email during the launch hold", async () => {
+    const harness = createInboxHarness();
+    try {
+      const seeded = await seedUrgentItem(harness.db, "held-request");
+      await harness.db
+        .prepare("UPDATE inbox_items SET source_target_json = ? WHERE id = ?")
+        .bind(
+          JSON.stringify({
+            kind: "agent_profile_creation_request",
+            requestId: "held-request",
+          }),
+          seeded.itemId
+        )
+        .run();
+      const send = vi.fn<SendInboxUrgentEmail>();
+      await expect(
+        retryInboxUrgentEmailDeliveries({
+          db: harness.db,
+          nowMs: 2000,
+          resolveOrganizationAccess: allowOrganizationAccess,
+          send,
+        })
+      ).resolves.toEqual({ attempted: 1, failed: 0, sent: 0, suppressed: 1 });
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("sends transactional invitation review email even when urgent email preferences are off", async () => {
     const harness = createInboxHarness();
     try {

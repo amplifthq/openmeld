@@ -130,6 +130,7 @@ import {
 	type SpaceAgentDirectConversationComposerHintKind,
 	type SpaceComposerConversationKind,
 } from "./space-composer-copy";
+import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -141,6 +142,10 @@ import { SpaceConversationSendScrollController } from "./space-conversation-scro
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
+import {
+	type ComposeExpiredDeviceWait,
+	SpaceDeviceWaitOutcomeScope,
+} from "./space-device-wait-outcome";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
@@ -300,12 +305,13 @@ type SpaceConversationPanelResolvedProps = {
 	}) => boolean | Promise<boolean>;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
+	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onRemoveComposerFile: (localId: string) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onMentionButtonClick: () => void;
-	onSend: () => Promise<void>;
+	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onSpaceViewChange: (view: SpaceView) => void;
 	orgSlug?: string;
@@ -482,7 +488,15 @@ export function SpaceConversationPanel(
 				readOnly={publicInput.viewState.readOnly}
 				selfProfileId={publicInput.selfProfileId}
 			>
-				<SpaceConversationPanelContent {...publicInput} />
+				<SpaceDeviceWaitOutcomeScope
+					onComposeAgain={
+						publicInput.viewState.readOnly
+							? undefined
+							: publicInput.onComposeExpiredDeviceWait
+					}
+				>
+					<SpaceConversationPanelContent {...publicInput} />
+				</SpaceDeviceWaitOutcomeScope>
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
@@ -589,11 +603,11 @@ function SpaceConversationPanelContent(
 		navigation,
 		presentation,
 	});
-	const submitComposer = () => {
+	const submitComposer = (options?: SpaceComposerSendOptions) => {
 		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
 			return;
 		}
-		input.onSend().catch((error) => {
+		input.onSend(options).catch((error) => {
 			console.error("Failed to send a space message from composer.", error);
 		});
 	};
@@ -2059,7 +2073,7 @@ function SpaceComposerSection(input: {
 		string,
 		SpaceCollaborationProfilePresentation
 	>;
-	submitComposer: () => void;
+	submitComposer: (options?: SpaceComposerSendOptions) => void;
 }) {
 	const panel = input.input;
 
@@ -3358,6 +3372,10 @@ function renderConversationMessageFooter(input: {
 						}
 					: undefined
 			}
+			deviceWaitOutcome={{
+				notices: input.anchoredOutcomeNotices,
+				sourceItem: input.item,
+			}}
 			failureSummary={failureSummary}
 			item={input.item}
 			onCopy={() =>

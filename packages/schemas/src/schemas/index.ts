@@ -917,6 +917,7 @@ export {
   listAgentProfileCreationRequestsResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "./http/agent-profile-creation-request";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
@@ -2603,6 +2604,15 @@ export {
   TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION,
   targetWakeLifecycleIdentitySchema,
 } from "./protocol/target-wake-lifecycle";
+export {
+  DEFAULT_WAKE_DEVICE_WAIT_MS,
+  MAX_WAKE_DEVICE_WAIT_MS,
+  RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
+  wakeDeviceWaitAccessRequestSchema,
+  wakeDeviceWaitAccessResponseSchema,
+  wakeDeviceWaitSchema,
+  wakeDeviceWaitTargetSchema,
+} from "./protocol/wake-device-wait";
 export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,

@@ -157,6 +157,7 @@ import {
   setOrganizationWorkingLanguagePreferenceBodySchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
   updateCenterAgentRoutineResponseSchema,
   updateFeedbackIssueStatusForOrganizationRequestSchema,
   WORKING_LANGUAGE_TAG_MAX_CHARS,
@@ -400,7 +401,11 @@ const agentProfileRequestSessionSelectionInputSchema = strictObject({
   projectId: trimmedNonEmptyStringSchema,
 });
 const manageAgentProfileRequestToolInputSchema = strictObject({
-  action: picklist(["approve", "decline", "cancel", "retry"]),
+  action: picklist(
+    TEAMMATE_AGENT_REQUESTS_ENABLED
+      ? (["approve", "decline", "cancel", "retry"] as const)
+      : (["cancel", "retry"] as const)
+  ),
   requestId: trimmedNonEmptyStringSchema,
 });
 const agentProfileRequestApprovalPreferencesToolInputSchema = strictObject({
@@ -4369,8 +4374,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_create_agent_profile_request",
-      description:
-        'The single creation entry point for a new working Agent Profile, whether it is owned by the represented member or a teammate. Use openmeld_read_organization_directory first and pass the exact target member user ID. For a new local Agent, read saved creation defaults, list Projects and local agent connection candidates, put the concrete Project, model, reasoning, permission, collaboration, and OpenCode choices in configuration, and copy one exact candidateId into connectionSelection. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. Omit requestedSpaceId when no Space is needed; when present, successful setup adds the Agent to that Space through the normal membership mutation. Do not assemble a new Agent Profile through the primitive create, enable, connect, workspace, or Project tools.',
+      description: TEAMMATE_AGENT_REQUESTS_ENABLED
+        ? 'The single creation entry point for a new working Agent Profile, whether it is owned by the represented member or a teammate. Use openmeld_read_organization_directory first and pass the exact target member user ID. For a new local Agent, read saved creation defaults, list Projects and local agent connection candidates, put the concrete Project, model, reasoning, permission, collaboration, and OpenCode choices in configuration, and copy one exact candidateId into connectionSelection. New-session requests may complete immediately or follow the target owner\'s approval preference. For Resume or Fork, first call openmeld_list_agent_activity_sessions and copy nativeSessionId, projectId, computerId, and agentControllerRef from the same current Session row into sessionSelection. Preserve every value unchanged. A Session with bindingState "unbound" is valid and expected for Fork; Fork requires canFork, while Resume requires canResume and an unbound Session. Omit requestedSpaceId when no Space is needed; when present, successful setup adds the Agent to that Space through the normal membership mutation. Do not assemble a new Agent Profile through the primitive create, enable, connect, workspace, or Project tools.'
+        : "Create a working Agent owned by the verified represented member only. Creating for another member is not available. Read saved creation defaults and current local agent connection candidates; preserve exact candidate and native Session identifiers. Resume and Fork require the member's own eligible Session. Optional requestedSpaceId uses normal Space membership authority. Creation runs in the background; use the creation progress tools to check completion or retry setup. Do not bypass this flow with primitive identity or Binding tools.",
       input: createAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -4396,7 +4402,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_agent_profile_creation_requests",
       description:
-        "List Agent Profile creation requests where the represented member is the requester or target owner. Use this to report approval progress, created Agent Profile IDs, failures, and whether the represented member can approve, decline, cancel, or retry a request.",
+        "Read the represented member's own Agent creation progress, created Agent IDs, and setup failures. Teammate requests are not available.",
       input: strictObject({}),
       execute: async () => {
         const toolContext = await buildRepresentedMemberAttributionToolContext({
@@ -4415,8 +4421,9 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     }),
     toolDefinition({
       name: "openmeld_manage_agent_profile_creation_request",
-      description:
-        "Approve, decline, cancel, or retry one Agent Profile creation request under Core-owned authority. Approve and decline are available only to the target owner. Cancel is available only to the requester. Retry is available only for a failed request involving the represented member. Read the request list first and follow its current status.",
+      description: TEAMMATE_AGENT_REQUESTS_ENABLED
+        ? "Approve, decline, cancel, or retry one Agent Profile creation request under Core-owned authority. Approve and decline are available only to the target owner. Cancel is available only to the requester. Retry is available only for a failed request involving the represented member. Read the request list first and follow its current status."
+        : "Cancel or retry setup of the represented member's own Agent. Read the request list first and follow its current status. Creating Agents for teammates and approving their requests are not available.",
       input: manageAgentProfileRequestToolInputSchema,
       execute: async (payload) => {
         const requestInput = parseValibot(
@@ -4484,7 +4491,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_create_agent_profile",
       description:
-        "Create only an unconfigured OpenMeld Agent Profile identity owned by the represented member. This is a compatibility and recovery primitive for an existing advanced flow. For every new working Agent Profile, use openmeld_create_agent_profile_request so creation, connection, settings, Project, optional Space membership, approval, attribution, and remembered defaults stay in one Core-owned flow.",
+        "Create only an unconfigured OpenMeld Agent Profile identity owned by the represented member. This is a compatibility and recovery primitive for an existing advanced flow. For every new working Agent Profile, use openmeld_create_agent_profile_request so creation, connection, settings, Project, optional Space membership, attribution, and remembered defaults stay in one Core-owned flow.",
       input: object({
         profileName: nonEmptyStringSchema,
       }),
@@ -4696,7 +4703,7 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     toolDefinition({
       name: "openmeld_list_local_agent_connection_candidates",
       description:
-        "List local agent connection candidates for the requesting member, or an explicitly selected Organization memberUserId from the directory. Includes current connection evidence and candidateId. Listing another member's candidates does not authorize connecting or creating their Agent; use the creation request and approval flow.",
+        "List local agent connection candidates for the requesting member, or an explicitly selected Organization memberUserId from the directory. Includes current connection evidence and candidateId. Listing another member's candidates does not authorize connecting or creating their Agent. Only create Agents for the verified represented member.",
       input: object({ memberUserId: optionalNonEmptyStringSchema }),
       execute: async (payload) => {
         const toolContext = await buildOpenMeldToolContext({
@@ -4964,6 +4971,13 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     ) && hasFrozenOrganizationSharedInteractionEnvironment(input.turnEnvelope);
   const exposedDefinitions = definitions.filter(
     (definition) =>
+      // Launch hold, not retired tools. Keep approval implementations for the
+      // isolated Request an Agent follow-up; Core remains the mutation guard.
+      (TEAMMATE_AGENT_REQUESTS_ENABLED ||
+        (definition.name !==
+          "openmeld_get_agent_profile_creation_approval_preferences" &&
+          definition.name !==
+            "openmeld_set_agent_profile_creation_approval_preferences")) &&
       (input.agentActivityReadEnabled ||
         (definition.name !== "openmeld_read_agent_activity" &&
           definition.name !== "openmeld_list_agent_activity_sessions")) &&

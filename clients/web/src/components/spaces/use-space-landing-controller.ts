@@ -127,6 +127,10 @@ import {
 	invalidateSpaceWakeStopQueries,
 	postWebSpaceWakeStop,
 } from "#/query/spaces/wake-stop";
+import {
+	applyDeviceWaitToSubmission,
+	type SpaceComposerSendOptions,
+} from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -169,6 +173,7 @@ import {
 	removeSetValue,
 	removeWakeProgressItemsForClientMessageId,
 	resolveBlockedWakeProfileIdFromSubmissionError,
+	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
 	resolveDeleteSpaceErrorMessage,
 	resolveDiagnosticReportProblemType,
@@ -207,7 +212,8 @@ type PendingComposerSubmission = ReturnType<
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
 	"messageEnvelope" | "text" | "restoredFromSignalId"
->;
+> &
+	SpaceComposerSendOptions;
 
 type SpaceComposerSendBoundary =
 	| { state: "access_rejected" }
@@ -421,6 +427,7 @@ function resolveCenterAgentExecutionInput(input: {
 }
 
 function buildNormalMessagePostInput(input: {
+	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	restoredFromSignalId?: string;
 	centerAgentExecutionInput?: NonNullable<
 		TextSignalEnvelope["data"]["meta"]
@@ -448,6 +455,7 @@ function buildNormalMessagePostInput(input: {
 		},
 		spaceId: input.spaceId,
 		text: input.text,
+		...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
 		timeoutMs: SPACE_MESSAGE_SEND_TIMEOUT_MS,
 	};
 }
@@ -1173,8 +1181,16 @@ export type SpaceLandingController =
 			onSetVisibility: (visibility: "public" | "private") => Promise<void>;
 			onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onThreadMentionButtonClick: () => void;
-			onThreadSend: () => Promise<void>;
+			onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 			onThreadSendText: (text: string) => Promise<void>;
+			onComposeExpiredDeviceWait: (request: {
+				sourceSignalId: string;
+				targetProfileId: string;
+			}) => void;
+			onThreadComposeExpiredDeviceWait: (request: {
+				sourceSignalId: string;
+				targetProfileId: string;
+			}) => void;
 			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveThreadComposerFile: (localId: string) => void;
 			onReplyToMessage: (item: SpaceTimelineItem) => void;
@@ -1196,7 +1212,7 @@ export type SpaceLandingController =
 				profileName: string;
 				runtimeLane: DaemonServiceLane | null;
 			}) => Promise<void>;
-			onSend: () => Promise<void>;
+			onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 			onSendText: (text: string) => Promise<void>;
 			profileId: string;
 			spaceId: string;
@@ -1907,6 +1923,7 @@ export function useSpaceLandingController(input: {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: input.spaceId,
 				timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
@@ -2300,7 +2317,12 @@ export function useSpaceLandingController(input: {
 	return {
 		activeThread: threadController.activeThread,
 		agentStreams: agentStreamProjections,
-		composerAddressingTargets: mentionAuthoring.addressingTargets,
+		composerAddressingTargets: resolveComposerAddressingTargets({
+			addressingTargets: mentionAuthoring.addressingTargets,
+			membersSnapshot,
+			senderProfileId: input.profileId,
+			status: statusSnapshot,
+		}),
 		composerAuthoredMentions: mentionAuthoring.authoredMentions,
 		composerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 		composerFiles: composerFilesController.files,
@@ -2405,6 +2427,24 @@ export function useSpaceLandingController(input: {
 		onThreadMentionButtonClick: threadController.onThreadMentionButtonClick,
 		onThreadSend: threadController.onThreadSend,
 		onThreadSendText: threadController.onThreadSendText,
+		onThreadComposeExpiredDeviceWait:
+			threadController.onComposeExpiredDeviceWait,
+		onComposeExpiredDeviceWait: (request) => {
+			try {
+				if (composerFilesController.files.length > 0 || isSendingMessage) {
+					throw new Error(
+						"Send or clear your current draft before starting this task again."
+					);
+				}
+				mentionAuthoring.composeExpiredDeviceWait(request);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Could not prepare a new task."
+				);
+			}
+		},
 		onAddThreadComposerFiles: threadController.onAddThreadComposerFiles,
 		onRemoveThreadComposerFile: threadController.onRemoveThreadComposerFile,
 		onReplyToMessage: (item: SpaceTimelineItem) => {
@@ -2467,6 +2507,7 @@ export function useSpaceLandingController(input: {
 	};
 
 	async function sendMessage(options?: {
+		deviceWait?: SpaceComposerSendOptions["deviceWait"];
 		pendingMessage?: PendingSpaceMessage;
 		throwOnFailure?: boolean;
 	}) {
@@ -2504,12 +2545,15 @@ export function useSpaceLandingController(input: {
 		try {
 			const missingMembersMessage =
 				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
-			const preparedSubmission = prepareMainComposerSubmission({
-				mentionAuthoring,
-				messageSeed,
-				missingMembersMessage,
-				pendingMessage: options?.pendingMessage,
-			});
+			const preparedSubmission = applyDeviceWaitToSubmission(
+				prepareMainComposerSubmission({
+					mentionAuthoring,
+					messageSeed,
+					missingMembersMessage,
+					pendingMessage: options?.pendingMessage,
+				}),
+				options?.deviceWait
+			);
 			pendingSubmission = preparedSubmission;
 			composerSession.recordPendingSubmission(!isTextOnlyPendingMessage);
 			// Local feedback precedes every network admission or publication step.
@@ -2531,6 +2575,7 @@ export function useSpaceLandingController(input: {
 			}
 			const currentStatus = sendBoundary.status;
 			await requireCurrentSpaceComposerWakeAdmission({
+				deviceWait: preparedSubmission.deviceWait,
 				agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 					explicitActivationTargets:
 						preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -2777,6 +2822,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				deviceWait: sendInput.preparedSubmission.deviceWait,
 				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
 				centerAgentExecutionInput,
 				files: sendInput.files,
@@ -3376,10 +3422,34 @@ function useSpaceThreadController(input: {
 		onThreadMentionButtonClick: mentionAuthoring.onMentionButtonClick,
 		onThreadSend: sendMessage,
 		onThreadSendText: sendTextMessage,
+		onComposeExpiredDeviceWait: (request: {
+			sourceSignalId: string;
+			targetProfileId: string;
+		}) => {
+			try {
+				if (composerFilesController.files.length > 0 || isSendingMessage) {
+					throw new Error(
+						"Send or clear your current draft before starting this task again."
+					);
+				}
+				mentionAuthoring.composeExpiredDeviceWait(request);
+			} catch (error) {
+				toast.error(
+					error instanceof Error
+						? error.message
+						: "Could not prepare a new task."
+				);
+			}
+		},
 		onAddThreadComposerFiles: composerFilesController.addFiles,
 		onRemoveThreadComposerFile: composerFilesController.removeFile,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
-		threadComposerAddressingTargets: mentionAuthoring.addressingTargets,
+		threadComposerAddressingTargets: resolveComposerAddressingTargets({
+			addressingTargets: mentionAuthoring.addressingTargets,
+			membersSnapshot: input.membersSnapshot,
+			senderProfileId: input.profileId,
+			status: input.status,
+		}),
 		threadComposerAuthoredMentions: mentionAuthoring.authoredMentions,
 		threadComposerMentionPickerItems: mentionAuthoring.mentionPickerItems,
 		threadComposerErrorMessage: composerErrorMessage,
@@ -3477,7 +3547,7 @@ function useSpaceThreadController(input: {
 		}
 	}
 
-	async function sendMessage() {
+	async function sendMessage(options?: SpaceComposerSendOptions) {
 		if (threadComposerSendInFlightRef.current || !input.statusReady) {
 			return;
 		}
@@ -3506,12 +3576,14 @@ function useSpaceThreadController(input: {
 		let pendingSubmission: PendingComposerSubmission | null = null;
 		let publishedLocalIds: readonly string[] = [];
 		try {
-			const preparedSubmission =
+			const preparedSubmission = applyDeviceWaitToSubmission(
 				trimmedText.length > 0
 					? mentionAuthoring.prepareSubmission(
 							"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
 						)
-					: mentionAuthoring.prepareFileOnlySubmission();
+					: mentionAuthoring.prepareFileOnlySubmission(),
+				options?.deviceWait
+			);
 			pendingSubmission = preparedSubmission;
 			composerSession.recordPendingSubmission();
 			await sendPreparedThreadMessage({
@@ -3553,6 +3625,7 @@ function useSpaceThreadController(input: {
 		preparedSubmission: PreparedSpaceMessageSubmission
 	) {
 		await requireCurrentSpaceComposerWakeAdmission({
+			deviceWait: preparedSubmission.deviceWait,
 			agentProfileIds: resolveComposerWakeProgressTargetProfileIds({
 				explicitActivationTargets:
 					preparedSubmission.messageEnvelope?.activationTargets ?? [],
@@ -3734,6 +3807,9 @@ function useSpaceThreadController(input: {
 			}
 			const postInput = {
 				body: {
+					...(sendInput.preparedSubmission.deviceWait
+						? { deviceWait: sendInput.preparedSubmission.deviceWait }
+						: {}),
 					clientMessageId,
 					restoredFromSignalId:
 						sendInput.preparedSubmission.restoredFromSignalId,
@@ -3984,6 +4060,7 @@ async function refreshWakeStopAfterResponse(input: {
 					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
+					includeDeviceWait: true,
 					includeWakeStopEligibility: true,
 					spaceId: input.spaceId,
 					targetProfileId: input.targetProfileId,

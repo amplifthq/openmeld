@@ -894,6 +894,71 @@ execution or token authority. Both incompatible directions return the existing
 strict `retry_later` response shape, without the additive field, so an older
 caller can parse and retry safely.
 
+### Device-waiting Wake contract impact
+
+`protocol/wake-device-wait` owns the selected Binding/Runtime, target Profile,
+absolute deadline, and bounded Space access-check RPC. Normal message and thread
+write schemas accept an optional top-level `deviceWait` field. Space persists
+`signal.data.deviceWait` as the sole signal authority and copies the selected
+target's intent into its outbox; RuntimeCoordinator freezes it in
+the accepted dispatch snapshot. It is not forwarded as a new local Service
+delivery field or execution token claim.
+
+Client-authored `meta.deviceWait` is rejected, including when a top-level field
+is also present. Normal and thread authoring populate the same canonical field.
+Admission, outbox construction, and internal progress reads never fall back to
+metadata. Only the public read encoder creates a read-only `meta.deviceWait`
+mirror and removes the top-level field from serialized history, replies, message
+edit/recall/restore responses, and live
+frames so existing strict history clients remain readable. This wire projection
+must not be reused for persistence, authoring, or dispatch. Retained outbox and
+accepted snapshots from earlier feature builds keep their exact intent; a
+metadata-only signal does not authorize a new wait.
+
+Normal message callers use `postDeviceWaitingSignal`, an explicit Core RPC
+receiver, so a mixed-version Core missing this method rejects the feature.
+Plain `postSignal` rejects top-level waiting requests as well; both entrypoints
+delegate internally without exposing an unguarded alternate RPC method.
+Older strict HTTP/thread write receivers reject the new request field. New Web
+offers the option only when the current member snapshot exposes a
+`deviceWaitTarget`. Those opaque target selectors grant no access and disclose
+no local path or controller conversation. Computer names keep their existing
+owner-only disclosure policy.
+
+Wake progress adds optional `deviceWait` reason/deadline data only for callers
+that request `includeDeviceWait`. Existing phase enums and legacy readers remain
+compatible. Old CLI, Service, and Skills continue setup, ordinary Wake, Space
+actions, status, trace, and recovery unchanged; they cannot author the new Web
+option. Existing Service permission and working-folder checks still run before
+provider work. No local contract epoch or required local update is needed.
+
+Trace response version 5 adds post-reconnect readiness, observed
+`daemon.service.draining`, and `wake.device_wait.access_check_unavailable`
+boundaries. Access checks use `space_access_unavailable`, not device readiness.
+Versions 1–4 retain the truthful
+`waiting` lifecycle and omit that unsupported boundary, rather than inventing an
+offline route or exposing an enum an older reader cannot parse. Current Web
+receives reason/deadline details through opted-in Wake progress; updated CLI
+Trace can also explain those boundaries. The older root-cause projection may
+therefore report the generic `runtime_coordinator.head_waiting`; this is a
+deliberate compatibility tradeoff. Expiry uses `send_new_wake` in current
+no-execution decisions and publication intent. Trace v3/v4 map this unsupported
+action to `check_status` while preserving the expiry reason; earlier frozen
+contracts omit no-execution details they cannot represent. These read projections
+never schedule a retry. Public recovery classifies expired/revoked requests as
+`request_ended`, not automatic system retry.
+
+Deploy Core receivers and owner storage logic before Gateway and Web enable
+device-wait producers; this feature overrides the usual generic cloud order.
+Rollback removes the producers first. Already accepted waits must continue to
+be handled by a compatible Core. Older Core builds cannot parse canonical
+device-wait signal data: retain the compatible reader while those records remain
+in history, even after all waits settle. Rolling producers back is supported;
+rolling Core back past that reader requires a separately validated data
+compatibility plan. No database migration or new Cloudflare resource is
+introduced. Local component packaging verification, if selected by the path
+gate, uses deferred release mode and leaves the published manifest unchanged.
+
 ### Delivery Evidence And Production Lease Contracts
 
 `packages/schemas/src/schemas/ci/final-candidate.ts` owns the strict versioned
@@ -5419,6 +5484,12 @@ OpenMeld Service, daemon, setup, Wake, Space action, or diagnostic contract is
 changed.
 
 ## Agent Profile Creation Request Contract
+
+The [teammate request launch hold](../product/agent-profiles.md#teammate-request-launch-hold)
+temporarily disables cross-user request behavior, not the shared self-creation
+protocol. Existing payloads, status enums, and identity checkpoints remain
+unchanged. Core enforces the hold for every caller and background execution;
+clients do not authorize the feature by rendering its retained UI.
 
 `packages/schemas/src/schemas/http/agent-profile-creation-request.ts` owns the
 strict cross-client request, list, decision, mutation, and approval-preference

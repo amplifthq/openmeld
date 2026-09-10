@@ -714,7 +714,9 @@ function AgentsWorkspaceHome(input: {
 	);
 	const pendingRequestCount =
 		requestsQuery.data?.requests?.filter(
-			(request) => request.status === "pending"
+			(request) =>
+				request.requesterUserId === request.targetOwnerUserId &&
+				request.status === "approved"
 		).length ?? 0;
 	const profilesStatus = resolveAgentProfilesStatus({
 		isError: input.profileDirectoryQuery.isError,
@@ -740,13 +742,13 @@ function AgentsWorkspaceHome(input: {
 		requestPanel = (
 			<p className="rounded-md border border-destructive/30 px-4 py-4 text-destructive text-sm">
 				{input.profileDirectoryQuery.error?.message ??
-					"Couldn’t load Agent requests."}
+					"Couldn’t load Agent setup."}
 			</p>
 		);
 	} else if (input.isOrganizationContext) {
 		requestPanel = (
 			<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-				Loading Agent requests…
+				Loading Agent setup…
 			</p>
 		);
 	}

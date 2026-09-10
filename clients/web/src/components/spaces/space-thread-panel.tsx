@@ -100,11 +100,16 @@ import {
 	resolveSpaceComposerConversationKind,
 	type SpaceAgentDirectConversationComposerHintKind,
 } from "./space-composer-copy";
+import type { SpaceComposerSendOptions } from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
+import {
+	type ComposeExpiredDeviceWait,
+	SpaceDeviceWaitOutcomeScope,
+} from "./space-device-wait-outcome";
 import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
@@ -269,6 +274,7 @@ type SpaceThreadPanelProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onClose: () => void;
+	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onAgentRecoveryAction: (
 		plan: SpaceAgentProfileBindingRecoveryPlan
 	) => Promise<void>;
@@ -282,7 +288,7 @@ type SpaceThreadPanelProps = {
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onSendText?: (text: string) => Promise<void>;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
-	onSend: () => Promise<void>;
+	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
 	orgSlug?: string;
@@ -321,7 +327,13 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 				selfProfileId={input.selfProfileId}
 				threadRootSignalId={input.activeThread?.rootSignalId}
 			>
-				<SpaceThreadPanelContent {...input} />
+				<SpaceDeviceWaitOutcomeScope
+					onComposeAgain={
+						input.readOnly ? undefined : input.onComposeExpiredDeviceWait
+					}
+				>
+					<SpaceThreadPanelContent {...input} />
+				</SpaceDeviceWaitOutcomeScope>
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
@@ -1595,6 +1607,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 					<ThreadTimelineMessageFooter
 						addressingTargets={addressingTargets}
 						align={messageAlign}
+						anchoredOutcomeNotices={anchoredOutcomeNotices}
 						failureSummary={failureSummary}
 						hasWakeProblem={hasWakeProblem}
 						item={input.item}
@@ -1611,6 +1624,7 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 });
 
 function ThreadTimelineMessageFooter(input: {
+	anchoredOutcomeNotices: readonly SpaceTimelineItem[];
 	readOnly?: boolean;
 	addressingTargets: ReturnType<
 		typeof resolveSpaceMessageFooterAddressingTargets
@@ -1645,6 +1659,10 @@ function ThreadTimelineMessageFooter(input: {
 			align={input.align}
 			copyDisabled={isSpaceMessageCopyPending(input.item)}
 			details={details}
+			deviceWaitOutcome={{
+				notices: input.anchoredOutcomeNotices,
+				sourceItem: input.item,
+			}}
 			failureSummary={input.failureSummary}
 			item={input.item}
 			onCopy={() =>
@@ -1784,7 +1802,7 @@ function ThreadComposer(input: {
 	onAddPeopleOrAgents?: () => void;
 	onRemoveComposerFile: (localId: string) => void;
 	onMentionButtonClick: () => void;
-	onSend: () => Promise<void>;
+	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	orgSlug?: string;
 	prepareSetupHref?: string;
 	textareaRef: SpaceComposerInputRef;
@@ -1793,11 +1811,11 @@ function ThreadComposer(input: {
 		files: input.composerFiles,
 		text: input.composerText,
 	});
-	const submitComposer = () => {
+	const submitComposer = (options?: SpaceComposerSendOptions) => {
 		if (input.isSendingMessage || sendBlocked) {
 			return;
 		}
-		input.onSend().catch((error) => {
+		input.onSend(options).catch((error) => {
 			console.error("Failed to send a thread message.", error);
 		});
 	};

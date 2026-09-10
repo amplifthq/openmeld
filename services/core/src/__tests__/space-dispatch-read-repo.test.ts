@@ -1092,6 +1092,153 @@ describe("space dispatch read repo", () => {
     });
   });
 
+  it.each([
+    {
+      reasonCode: "wake.device_wait.readiness_checking",
+      trigger: "agent_readiness_reported",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_agent_readiness",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+    },
+    {
+      reasonCode: "daemon.service.draining",
+      trigger: "agent_readiness_reported",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_agent_readiness",
+      waitingCategory: "local_agent_unavailable",
+      waitingFor: "agent_readiness_report",
+    },
+    {
+      reasonCode: "wake.device_wait.access_check_unavailable",
+      trigger: "space_access_rechecked",
+      userRecoveryAction: "check_status",
+      userVisibleState: "waiting_for_space_access",
+      waitingCategory: "space_access_unavailable",
+      waitingFor: "space_access_check",
+    },
+  ])("exposes $reasonCode only in trace version 5", async (waiting) => {
+    vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi
+      .fn()
+      .mockImplementation(({ request }) =>
+        Promise.resolve({
+          ok: true,
+          readStatus: "found",
+          lifecycle: {
+            createdAtMs: 1_700_000_001_100,
+            duplicateDispatchCount: 0,
+            executionLinkedAtMs: null,
+            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+            noExecutionDecision: null,
+            ownerUserId: "owner-1",
+            primaryDispatchId: "dispatch-1",
+            publicationIntent: null,
+            runtimeCoordinatorExecutionId: null,
+            status: "waiting",
+            targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+            targetWakeLifecycleId:
+              request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+            updatedAtMs: 1_700_000_001_300,
+            waitingBoundary: {
+              deadlineAtMs: 1_700_000_300_000,
+              deadlineOutcome: "publication_intent_ready",
+              observedAtMs: 1_700_000_001_200,
+              softDeadlineAtMs: 1_700_000_030_000,
+              waitingSinceMs: 1_700_000_001_100,
+              triggerOwner: "runtime_coordinator",
+              ...waiting,
+            },
+          },
+        })
+      );
+    for (const version of [undefined, 2, 3, 4, 5] as const) {
+      const result = await readSpaceDispatchTrace({
+        db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
+        dispatchId: "dispatch-1",
+        readReplySignalTrace: vi.fn().mockReturnValue(null),
+        readRuntimeCoordinatorHeadLifecycleTrace,
+        responseContractVersion: version,
+        spaceId: "space-1",
+      });
+      expect(result.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+        status: "waiting",
+        runtimeCoordinatorExecutionId: null,
+        waitingBoundary:
+          version === 5
+            ? {
+                reasonCode: waiting.reasonCode,
+                waitingFor: waiting.waitingFor,
+                deadlineAt: "2023-11-14T22:18:20.000Z",
+              }
+            : null,
+      });
+    }
+  });
+
+  it.each([
+    3, 4, 5,
+  ] as const)("projects expiry recovery for Trace v%s without reusing an offline repair action", async (version) => {
+    const decision = {
+      reasonCode: "wake.device_wait.expired",
+      publicationCategory: "local_agent_unavailable",
+      userRecoveryAction: "send_new_wake",
+    };
+    const readRuntimeCoordinatorHeadLifecycleTrace = vi
+      .fn()
+      .mockImplementation(({ request }) =>
+        Promise.resolve({
+          ok: true,
+          readStatus: "found",
+          lifecycle: {
+            createdAtMs: 1_700_000_001_100,
+            updatedAtMs: 1_700_000_001_300,
+            duplicateDispatchCount: 0,
+            executionLinkedAtMs: null,
+            modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+            ownerUserId: "owner-1",
+            primaryDispatchId: "dispatch-1",
+            runtimeCoordinatorExecutionId: null,
+            status: "publication_intent_ready",
+            waitingBoundary: null,
+            targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+            targetWakeLifecycleId:
+              request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+            noExecutionDecision: {
+              ...decision,
+              decidedAtMs: 1_700_000_001_300,
+              source: "runtime_coordinator_head_waiting_deadline",
+            },
+            publicationIntent: {
+              ...decision,
+              intentId: "expiry-intent",
+              kind: "no_execution_failure",
+              readyAtMs: 1_700_000_001_300,
+              status: "ready_for_phase_6",
+            },
+          },
+        })
+      );
+    const result = await readSpaceDispatchTrace({
+      db: createTraceDb({ runtimeCoordinatorExecutionRow: undefined }),
+      dispatchId: "dispatch-1",
+      readReplySignalTrace: vi.fn().mockReturnValue(null),
+      readRuntimeCoordinatorHeadLifecycleTrace,
+      responseContractVersion: version,
+      spaceId: "space-1",
+    });
+    expect(result.trace?.runtimeCoordinatorHeadLifecycle).toMatchObject({
+      noExecutionDecision: {
+        reasonCode: "wake.device_wait.expired",
+        userRecoveryAction: version === 5 ? "send_new_wake" : "check_status",
+      },
+      publicationIntent: {
+        reasonCode: "wake.device_wait.expired",
+        userRecoveryAction: version === 5 ? "send_new_wake" : "check_status",
+      },
+    });
+  });
+
   it("keeps pending route registration compatible while exposing it to the current trace contract", async () => {
     vi.mocked(listRecentOpenMeldDaemonOpsDecisions).mockResolvedValue([]);
     const readRuntimeCoordinatorHeadLifecycleTrace = vi

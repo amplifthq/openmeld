@@ -37,6 +37,60 @@ describe("current Space Composer Wake admission", () => {
 		).resolves.toBeUndefined();
 		expect(member.agentWakeAvailability.status).toBe("checking_connection");
 	});
+	it("admits an explicit offline device wait without changing Wakeability", async () => {
+		const snapshot = createMembersSnapshot("offline_for_wake", false);
+		const agent = snapshot.agents[0];
+		if (!agent) {
+			throw new Error("Expected an agent fixture.");
+		}
+		agent.deviceWaitTarget = {
+			bindingId: "binding-1",
+			openMeldServiceRuntimeId: "runtime-1",
+		};
+		const deviceWait = {
+			...agent.deviceWaitTarget,
+			targetProfileId: AGENT_PROFILE_ID,
+			deadlineAtMs: Date.now() + 60_000,
+		};
+		await expect(
+			requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				deviceWait,
+				readCurrentMembers: async () => snapshot,
+			})
+		).resolves.toBeUndefined();
+		expect(agent.agentWakeAvailability?.status).toBe("offline_for_wake");
+		if (agent.agentWakeAvailability) {
+			agent.agentWakeAvailability = {
+				...agent.agentWakeAvailability,
+				category: "checking",
+				isRefreshing: true,
+				reasonCode: "local_service.reconnecting",
+				status: "checking_connection",
+			};
+		}
+		await expect(
+			requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				deviceWait,
+				readCurrentMembers: async () => snapshot,
+			})
+		).resolves.toBeUndefined();
+		await expect(
+			requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				deviceWait: { ...deviceWait, bindingId: "another-binding" },
+				readCurrentMembers: async () => snapshot,
+			})
+		).rejects.toMatchObject({ code: "addressing.wake_blocked" });
+		await expect(
+			requireCurrentSpaceComposerWakeAdmission({
+				agentProfileIds: [AGENT_PROFILE_ID],
+				deviceWait: { ...deviceWait, deadlineAtMs: Date.now() - 1 },
+				readCurrentMembers: async () => snapshot,
+			})
+		).rejects.toMatchObject({ code: "addressing.wake_blocked" });
+	});
 	it("does not read Wakeability for a message containing only References", async () => {
 		const readCurrentMembers = vi.fn();
 

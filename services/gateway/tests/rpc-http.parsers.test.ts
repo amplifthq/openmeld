@@ -468,6 +468,31 @@ describe("rpc-http parsers", () => {
   });
 
   it("parses post-signal body via shared normal message schema", () => {
+    const deviceWait = {
+      bindingId: "binding-wait",
+      openMeldServiceRuntimeId: "runtime-wait",
+      targetProfileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      deadlineAtMs: Date.now() + 60_000,
+    };
+    expect(
+      parsePostSignalBody({
+        text: "Check the report",
+        deviceWait,
+        meta: { clientMessageId: "device-wait-message" },
+      })
+    ).toMatchObject({ ok: true, value: { deviceWait } });
+    for (const topLevel of [undefined, deviceWait]) {
+      expect(
+        parsePostSignalBody({
+          text: "Check the report",
+          ...(topLevel ? { deviceWait: topLevel } : {}),
+          meta: { clientMessageId: "device-wait-message", deviceWait },
+        })
+      ).toMatchObject({
+        ok: false,
+        message: "Set deviceWait only at the top level of the message request.",
+      });
+    }
     const parsed = parsePostSignalBody({
       text: "hello",
       messageEnvelope: {

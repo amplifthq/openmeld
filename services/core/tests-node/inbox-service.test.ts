@@ -314,7 +314,22 @@ describe("Inbox service", () => {
       harness.close();
     }
   });
-  it("excludes retired Task rows from reads and counts without deleting other Inbox items", async () => {
+  it.each([
+    {
+      itemKind: "center_agent_task",
+      sourceKind: "center_agent_task_event",
+      target: { kind: "center_agent_task", taskId: "retired" },
+    },
+    {
+      itemKind: "agent_interaction",
+      sourceKind: "system_attention_event",
+      target: { kind: "agent_profile_creation_request", requestId: "held" },
+    },
+  ])("excludes unavailable $target.kind rows from reads and counts without deleting other Inbox items", async ({
+    itemKind,
+    sourceKind,
+    target,
+  }) => {
     const harness = createInboxHarness();
     try {
       const retired = await seedItem(harness.db, {
@@ -329,12 +344,9 @@ describe("Inbox service", () => {
       });
       await harness.db
         .prepare(
-          "UPDATE inbox_items SET kind = 'center_agent_task', source_kind = 'center_agent_task_event', source_target_json = ? WHERE id = ?"
+          "UPDATE inbox_items SET kind = ?, source_kind = ?, source_target_json = ? WHERE id = ?"
         )
-        .bind(
-          JSON.stringify({ kind: "center_agent_task", taskId: "retired" }),
-          retired.itemId
-        )
+        .bind(itemKind, sourceKind, JSON.stringify(target), retired.itemId)
         .run();
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
       const identity = {

@@ -14,6 +14,61 @@ import {
 } from "./use-space-mention-authoring";
 
 describe("useSpaceMentionAuthoring composer drafts", () => {
+	it.each([
+		"available_for_wake",
+		"offline_for_wake",
+	] as const)("prepares a fresh, target-specific request after expiry while %s", (status) => {
+		const profileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const { result } = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: null,
+				isMembersLoading: false,
+				membersErrorMessage: null,
+				spaceId: "space-1",
+				openMeldProfileId: "human-1",
+				snapshot: createSpaceMembersSnapshot({
+					agents: [
+						createSpaceMemberAgentSnapshot({
+							profileId,
+							profileName: "Runner",
+							agentWakeAvailability: { status },
+						}),
+					],
+				}),
+			})
+		);
+		act(() =>
+			result.current.composeExpiredDeviceWait({
+				sourceSignalId: "expired-source",
+				targetProfileId: profileId,
+			})
+		);
+		expect(result.current.composerText).toBe(
+			"@Runner Please carry out the request in the referenced message."
+		);
+		expect(result.current.replyTo).toEqual({ signalId: "expired-source" });
+		expect(result.current.authoredMentions).toEqual([
+			expect.objectContaining({
+				profileId,
+				relation: status === "available_for_wake" ? "wake" : "reference",
+			}),
+		]);
+		const submission = result.current.prepareSubmission("Members unavailable");
+		expect(submission.messageEnvelope?.activationTargets).toEqual(
+			status === "available_for_wake" ? [profileId] : []
+		);
+		expect(submission.messageEnvelope?.referenceTargets).toEqual(
+			status === "offline_for_wake" ? [profileId] : []
+		);
+		expect(() =>
+			result.current.composeExpiredDeviceWait({
+				sourceSignalId: "other-source",
+				targetProfileId: profileId,
+			})
+		).toThrow("current draft");
+		expect(result.current.replyTo).toEqual({ signalId: "expired-source" });
+	});
+
 	beforeEach(() => {
 		window.localStorage.clear();
 	});
