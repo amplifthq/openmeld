@@ -90,6 +90,7 @@ import {
   rpcReadCenterAgentOrganizationMemoryPolicy,
   rpcReadOrganizationInformationProtectionPolicy,
   rpcRecordCenterAgentAudit,
+  rpcRecordCurrentOrganizationMemberPresence,
   rpcRecordCurrentOrganizationWebActivity,
   rpcRemoveSpaceMembers,
   rpcSetCenterAgentOrganizationMemoryPolicy,
@@ -1158,7 +1159,10 @@ describe("organization Core RPC", () => {
     ]);
   });
 
-  it("rejects Web activity from an Agent Profile without writing member activity", async () => {
+  it.each([
+    "activity",
+    "presence",
+  ])("rejects Web %s from an Agent Profile without writing member activity", async (kind) => {
     const memberActivities: Array<{
       humanProfileId: string;
       lastActiveAtMs: number;
@@ -1174,7 +1178,15 @@ describe("organization Core RPC", () => {
     });
 
     await expect(
-      rpcRecordCurrentOrganizationWebActivity(env, {
+      (kind === "activity"
+        ? rpcRecordCurrentOrganizationWebActivity
+        : rpcRecordCurrentOrganizationMemberPresence)(env, {
+        report: {
+          sessionId: "b6334814-cf7b-4aa3-8b60-5c2100b336db",
+          sequence: 1,
+          foreground: true,
+          interaction: true,
+        },
         context: buildContext({
           activeOrganizationId: "org-a",
           profileKind: "agent",
@@ -1188,7 +1200,10 @@ describe("organization Core RPC", () => {
     expect(memberActivities).toEqual([]);
   });
 
-  it("rejects Web activity when the selected Human Profile is not the member's current profile", async () => {
+  it.each([
+    "activity",
+    "presence",
+  ])("rejects Web %s when the selected Human Profile is not the member's current profile", async (kind) => {
     const memberActivities: Array<{
       humanProfileId: string;
       lastActiveAtMs: number;
@@ -1204,7 +1219,15 @@ describe("organization Core RPC", () => {
     });
 
     await expect(
-      rpcRecordCurrentOrganizationWebActivity(env, {
+      (kind === "activity"
+        ? rpcRecordCurrentOrganizationWebActivity
+        : rpcRecordCurrentOrganizationMemberPresence)(env, {
+        report: {
+          sessionId: "b6334814-cf7b-4aa3-8b60-5c2100b336db",
+          sequence: 1,
+          foreground: true,
+          interaction: true,
+        },
         context: buildContext({
           activeOrganizationId: "org-a",
           profileId: SECOND_HUMAN_PROFILE_ID,

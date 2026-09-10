@@ -19,6 +19,9 @@ import {
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
+  organizationMemberPresenceBodySchema,
+  organizationMemberPresenceResponseSchema,
+  organizationMemberPresenceWriteResponseSchema,
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
@@ -396,6 +399,45 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       responseSchema: organizationAgentRuntimeOverviewResponseSchema,
       route: CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE,
+    });
+  });
+
+  app.get("/v1/organizations/current/member-presence", (c) =>
+    executeRpcRoute({
+      c,
+      route: "/v1/organizations/current/member-presence",
+      method: "GET",
+      responseSchema: organizationMemberPresenceResponseSchema,
+      execute: () =>
+        c.var.coreRpc.getCurrentOrganizationMemberPresence({
+          context: buildCoreRpcContext(c),
+        }),
+    })
+  );
+  app.post("/v1/organizations/current/member-presence", async (c) => {
+    const body = await readJsonRequestBody(c.req.raw);
+    const report = organizationMemberPresenceBodySchema.safeParse(
+      body.ok ? body.value : undefined
+    );
+    if (!report.success) {
+      return respondBadRequest({
+        c,
+        code: body.ok ? "invalid_payload" : "invalid_json",
+        message: "Invalid member presence report.",
+        method: "POST",
+        route: "/v1/organizations/current/member-presence",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: "/v1/organizations/current/member-presence",
+      method: "POST",
+      responseSchema: organizationMemberPresenceWriteResponseSchema,
+      execute: () =>
+        c.var.coreRpc.recordCurrentOrganizationMemberPresence({
+          context: buildCoreRpcContext(c),
+          report: report.data,
+        }),
     });
   });
 

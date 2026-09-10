@@ -1,12 +1,41 @@
 import { sql } from "drizzle-orm";
 import {
   check,
+  index,
   integer,
   primaryKey,
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
 import { organizations, users } from "../auth/auth.schema.ts";
+
+export const organizationMemberPresenceSessions = sqliteTable(
+  "organization_member_presence_sessions",
+  {
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sessionId: text("session_id").notNull(),
+    humanProfileId: text("human_profile_id").notNull(),
+    sequence: integer("sequence").notNull(),
+    lastInteractionAtMs: integer("last_interaction_at_ms").notNull(),
+    expiresAtMs: integer("expires_at_ms").notNull(),
+    updatedAtMs: integer("updated_at_ms").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.organizationId, table.userId, table.sessionId],
+    }),
+    index("organization_member_presence_expiry_idx").on(
+      table.organizationId,
+      table.expiresAtMs
+    ),
+    check("organization_member_presence_sequence_check", sql`"sequence" > 0`),
+  ]
+);
 
 export const organizationMemberActivity = sqliteTable(
   "organization_member_activity",

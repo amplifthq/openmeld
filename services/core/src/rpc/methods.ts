@@ -243,6 +243,8 @@ import {
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
+  organizationMemberPresenceBodySchema,
+  organizationMemberPresenceResponseSchema,
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
@@ -992,6 +994,10 @@ import {
   recordOrganizationMemberActivity,
 } from "../organizations/organization-member-activity-repository";
 import { listOrganizationMemberOpenMeldServiceStatuses } from "../organizations/organization-member-openmeld-service-status-service";
+import {
+  listOnlineOrganizationMembers,
+  recordOrganizationMemberPresence,
+} from "../organizations/organization-member-presence-repository";
 import { projectPeopleComputerControls } from "../people-computers/control-policy";
 import { requirePeopleComputerControlSession } from "../people-computers/control-target";
 import {
@@ -3043,6 +3049,11 @@ export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
 export type RecordCurrentOrganizationWebActivityInput = {
   context?: CoreRpcContextInput;
   spaceId?: string;
+};
+
+export type RecordCurrentOrganizationMemberPresenceInput = {
+  context?: CoreRpcContextInput;
+  report: import("@openmeld/schemas/types").OrganizationMemberPresenceBody;
 };
 
 export type GetCurrentOrganizationComputersInput = {
@@ -6651,10 +6662,81 @@ async function readOrganizationDirectoryAgentProfileOperationalContexts(input: {
   return resolved;
 }
 
-export async function rpcRecordCurrentOrganizationWebActivity(
+export async function rpcGetCurrentOrganizationMemberPresence(
+  env: CoreBindings,
+  input: { context?: CoreRpcContextInput }
+): Promise<
+  import("@openmeld/schemas/types").OrganizationMemberPresenceResponse
+> {
+  const context = requireRpcContext(input.context);
+  const active = await requireActiveOrganizationMembershipOrThrow({
+    context,
+    env,
+  });
+  const nowMs = Date.now();
+  const [members, online] = await Promise.all([
+    resolveOrganizationDirectoryMembers({
+      authWorker: env.OPENMELD_AUTH_WORKER,
+      organizationId: active.organizationId,
+      requestId: context.actorContext.requestId,
+    }),
+    listOnlineOrganizationMembers({
+      db: requireIdentityDb(env),
+      organizationId: active.organizationId,
+      nowMs,
+    }),
+  ]);
+  return organizationMemberPresenceResponseSchema.parse({
+    organizationId: active.organizationId,
+    generatedAt: new Date(nowMs).toISOString(),
+    members: members.map((member) => ({
+      userId: member.userId,
+      profileId: member.humanProfile?.profileId ?? null,
+      status:
+        member.humanProfile?.status === "active" &&
+        online.some(
+          (row) =>
+            row.user_id === member.userId &&
+            row.human_profile_id === member.humanProfile?.profileId
+        )
+          ? "online"
+          : "offline",
+    })),
+  });
+}
+
+export async function rpcRecordCurrentOrganizationMemberPresence(
+  env: CoreBindings,
+  input: RecordCurrentOrganizationMemberPresenceInput
+) {
+  const report = organizationMemberPresenceBodySchema.safeParse(input.report);
+  if (!report.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_input",
+      reason: "Invalid member presence report.",
+      status: 400,
+    });
+  }
+  const { activeOrganization, humanProfileId } =
+    await requireCurrentHumanActivityContext(env, input);
+  await recordOrganizationMemberPresence({
+    db: requireIdentityDb(env),
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+    humanProfileId,
+    nowMs: Date.now(),
+    report: report.data,
+  });
+  return {
+    organizationId: activeOrganization.organizationId,
+    userId: activeOrganization.userId,
+  };
+}
+
+async function requireCurrentHumanActivityContext(
   env: CoreBindings,
   input: RecordCurrentOrganizationWebActivityInput
-): Promise<OrganizationMemberWebActivityResponse> {
+) {
   const context = requireRpcContext(input.context);
   const activeOrganization = await requireActiveOrganizationMembershipOrThrow({
     context,
@@ -6689,6 +6771,15 @@ export async function rpcRecordCurrentOrganizationWebActivity(
     });
   }
 
+  return { context, activeOrganization, humanProfileId };
+}
+
+export async function rpcRecordCurrentOrganizationWebActivity(
+  env: CoreBindings,
+  input: RecordCurrentOrganizationWebActivityInput
+): Promise<OrganizationMemberWebActivityResponse> {
+  const { context, activeOrganization, humanProfileId } =
+    await requireCurrentHumanActivityContext(env, input);
   const nowMs = Date.now();
   try {
     await recordOrganizationMemberActivity({

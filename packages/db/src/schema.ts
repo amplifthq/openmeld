@@ -97,6 +97,7 @@ export const {
   centerAgentOrganizationSkillOperations,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
+  organizationMemberPresenceSessions,
   organizationOpportunities,
   organizationWorkingLanguagePreferences,
   organizationBindingAuthorizations,

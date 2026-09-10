@@ -1,5 +1,37 @@
 # Data And Observability
 
+## Human Presence
+
+Core owns Organization-scoped Human presence independently of Computer connection,
+Agent Activity, Wakeability, and historical member activity. Authenticated Web
+pages report their own random session ID and increasing sequence through
+`/v1/organizations/current/member-presence`; Core re-verifies the current member
+and active Human Profile and assigns all timestamps. One active session makes
+the member Online. A departing page affects only itself. Older or duplicate
+reports cannot renew a lease or overwrite a newer departure.
+
+Active foreground pages renew every 30 seconds. A lease expires after 90 seconds,
+and five minutes without a Human interaction independently ends online presence.
+Heartbeat-only sessions cannot establish presence. Page departure ends its lease;
+missing departure delivery relies on expiry. Expired records retain ordering and
+are pruned on the member's next write after 24 hours; they are not an activity log.
+Reads re-check current Organization membership and current active profile identity.
+Clients consume one authorized batch projection, never Computer state or
+`lastActiveAt` to determine Online. Errors or missing evidence remain unknown.
+
+Historical activity stays in `organization_member_activity`. Web entry, foreground
+return, and actual interaction may advance it through its existing bounded writer;
+presence renewals alone do not. Accepted Human messages retain their historical
+activity semantics and do not claim sustained online presence. Space visit time
+keeps its own scope. No system-wide input or interaction contents are collected.
+
+The new endpoint and table are additive. Existing directory and activity payloads
+are unchanged for older CLI, Service, Skills, and cloud clients. Deployment order
+is additive database migration, Core, Gateway, then Web. New Web against an older
+receiver displays unknown presence; it never falls back to Computer connection.
+Setup, Wake, Space actions, and diagnostics remain interoperable without a local
+component contract bump. Rollback may retain the additive table.
+
 ## Agent Context
 
 - Purpose: Define durable data ownership, projections, correlation keys, trace

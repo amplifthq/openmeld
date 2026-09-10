@@ -1,5 +1,14 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 export {
+  HUMAN_PRESENCE_HEARTBEAT_MS,
+  HUMAN_PRESENCE_IDLE_MS,
+  HUMAN_PRESENCE_LEASE_MS,
+  organizationMemberPresenceBodySchema,
+  organizationMemberPresenceResponseSchema,
+  organizationMemberPresenceSchema,
+  organizationMemberPresenceWriteResponseSchema,
+} from "./http/organization-member-presence";
+export {
   SPACE_FILE_UPLOAD_PART_BYTES,
   SPACE_FILE_UPLOAD_TTL_MS,
   spaceFileUploadCommandSchema,
