@@ -49,6 +49,7 @@ import {
 	DirectoryAgentProfilesSummary,
 	DirectoryHumanProfileComputerSummary,
 } from "#/components/directory/directory-human-profile-presentation";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { ProfileDetailsCurrentSession } from "#/components/profiles/profile-details-current-session";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
@@ -196,6 +197,9 @@ function AgentProfileDetailsHeader(input: {
 					{modelSummary}
 				</p>
 				{!input.isCenterAgent && <AgentProfileOwner entry={input.entry} />}
+				{!input.isCenterAgent && (
+					<AgentProfileUsage profileId={input.entry.profileId} />
+				)}
 				{showAvailabilitySummary ? (
 					<p className="mt-1 text-muted-foreground text-xs">
 						{input.entry.availabilitySummary}

@@ -136,15 +136,25 @@ export function HumanProfileItem(input: {
 						data-slot="human-profile-activity-and-local-agents"
 					>
 						{presentation.activity}
-						<HumanLocalAgentDock
-							card={card}
-							className={presentation.agentClassName}
-							localAgents={localAgents}
-							nowMs={input.activityNowMs}
-						/>
+						{!card && (
+							<HumanLocalAgentDock
+								card={false}
+								className={presentation.agentClassName}
+								localAgents={localAgents}
+								nowMs={input.activityNowMs}
+							/>
+						)}
 					</span>
 				) : null}
 			</span>
+			{card && (
+				<HumanLocalAgentDock
+					card
+					className={presentation.agentClassName}
+					localAgents={localAgents}
+					nowMs={input.activityNowMs}
+				/>
+			)}
 		</SidebarMenuButton>
 	);
 	if (card) {
