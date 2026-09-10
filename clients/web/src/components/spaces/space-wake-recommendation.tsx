@@ -106,8 +106,10 @@ export function SpaceWakeRecommendationScope(input: {
 
 export function SpaceMessageWakeRecommendation({
 	item,
+	align,
 }: {
 	item: SpaceTimelineItem;
+	align?: "start" | "end";
 }) {
 	const recommendation = useSpaceWakeRecommendation();
 	const editing = useSpaceMessageEditing();
@@ -127,7 +129,7 @@ export function SpaceMessageWakeRecommendation({
 	}
 	return (
 		<div
-			className="flex items-center gap-1 text-muted-foreground text-xs"
+			className={`mt-1 flex w-full min-w-0 items-center gap-1 text-muted-foreground text-xs ${align === "end" ? "justify-end" : "justify-start"}`}
 			data-slot="message-wake-recommendation"
 		>
 			<Button

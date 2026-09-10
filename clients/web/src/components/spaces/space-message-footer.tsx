@@ -150,7 +150,10 @@ export function SpaceMessageFooter(
 	return (
 		<>
 			{editableItem ? (
-				<SpaceMessageWakeRecommendation item={editableItem} />
+				<SpaceMessageWakeRecommendation
+					align={input.align}
+					item={editableItem}
+				/>
 			) : null}
 			<SpaceMessageFooterContent
 				{...input}
