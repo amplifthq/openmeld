@@ -424,6 +424,28 @@ bytes remain unchanged and downloadable, including when preview is unavailable.
 CLI and Agent tools expose the same ids, paths, revisions, MIME inference, and
 error codes instead of maintaining a terminal-only filesystem model.
 
+Pinned files remain ordinary Space Files. Wake context includes a bounded
+directory of their current metadata, not another copy of their content. Agents
+must read relevant current content before relying on it or proposing a write.
+
+File update notifications are off by default. An active human member may choose
+current human and Agent members through **Notify on updates**. A committed
+content revision atomically records that configuration's notification intent.
+The Space publishes one deduplicated message referencing the exact revision;
+human recipients use ordinary mentions and Inbox delivery, and selected Agents
+use the normal authorized Wake path. Renames and moves do not notify. Retries
+recheck the configuring human's access and recipient membership. Replacing or
+disabling the configuration cancels its outstanding intent. Notification
+delivery is not evidence that an Agent read or understood the file.
+
+For supported text files, **Maintain with a Routine** opens the existing Routine
+form with the Space and file instructions prefilled. Scheduling, Agent choice,
+permissions, run history, and pause retain the existing Routine owners. The
+instructions require confirmed human decisions, preserved source references,
+current-revision writes, and no save when nothing substantive changed. Ambiguity
+must not be silently converted into an approved decision. This is an ordinary
+Routine, not a separate file synchronization or approval system.
+
 Every Space-shaped conversation uses this same owner, including ordinary
 Spaces, Human Direct Messages, Agent Direct Messages, the Center Agent Direct
 Message, and threads. The shared Composer accepts up to ten files of any
@@ -957,6 +979,24 @@ Space conversation.
 
 Thread messages reuse the normal Space publication model. There is no second
 message system for threads.
+
+Thread composers continue the last Agent explicitly Woken by a human in that
+thread, including its root. If no human has selected an Agent, an Agent-authored
+root supplies the initial suggestion. Human-only threads have no implicit Agent.
+The existing removable Wake mention shows the actual recipient before sending;
+there is no editable thread-default setting. A new explicit Wake replaces the
+suggestion. The latest explicit multi-Agent Wake clears the suggestion rather
+than choosing one Agent. Agent messages and automatically continued human
+messages do not change the suggestion. Once a person has started writing, an
+incoming message never changes that draft's recipient. Removing the suggestion
+sends only this message without Wake. Existing clients keep explicit addressing.
+
+The suggestion is a read projection of retained messages, not work ownership or
+execution authority. Each accepted message freezes its own addressing and uses
+normal Wake authorization. Quote context is read from the referenced retained
+Space message, including outside the visible history page, and passed to both
+hosted and workstation Agents. Recalled or unavailable messages expose no old
+quote content. This context never changes where the answer is published.
 
 If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,

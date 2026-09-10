@@ -2102,6 +2102,10 @@ export {
   spaceEntryViewSchema,
 } from "./http/space-entry";
 export {
+  spaceFileUpdateSettingsCommandSchema,
+  spaceFileUpdateSettingsSchema,
+} from "./http/space-file-update-settings";
+export {
   buildSpaceComposerPublishedFileId,
   buildSpaceComposerUploadObjectKey,
   buildSpaceFileEntryIdForMutation,

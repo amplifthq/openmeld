@@ -102,6 +102,21 @@ describe("RuntimeTransport dispatch delivery request", () => {
         idempotencyKey: "signal-1::agent-profile-1",
         enqueuedAtMs: 1_700_000_000_000,
         sourceSignalSnapshot: {
+          quotedMessage: {
+            signalId: "old-source",
+            author: "Avery",
+            text: "The agreed launch date is October 12.",
+            status: "available" as const,
+          },
+          pinnedFiles: [
+            {
+              fileId: "launch-file",
+              name: "Launch.md",
+              revision: 3,
+              mimeType: "text/markdown",
+              sizeBytes: 42,
+            },
+          ],
           attachments: [
             {
               id: "attachment-1",
@@ -155,5 +170,20 @@ describe("RuntimeTransport dispatch delivery request", () => {
     expect(
       legacyRequest.payload.sourceSignalSnapshot?.attachments
     ).toBeUndefined();
+    expect(legacyRequest.payload.sourceSignalSnapshot).not.toHaveProperty(
+      "quotedMessage"
+    );
+    expect(legacyRequest.payload.sourceSignalSnapshot).not.toHaveProperty(
+      "pinnedFiles"
+    );
+    expect(legacyRequest.payload.sourceSignalSnapshot?.text).toContain(
+      "October 12"
+    );
+    expect(legacyRequest.payload.sourceSignalSnapshot?.text).toContain(
+      "launch-file"
+    );
+    expect(legacyRequest.payload.sourceSignalSnapshot?.text).toContain(
+      "Please handle this."
+    );
   });
 });

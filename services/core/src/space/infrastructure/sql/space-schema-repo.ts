@@ -1,8 +1,9 @@
 import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
+import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 38;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v38";
+export const SPACE_SQL_SCHEMA_VERSION = 39;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v39";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -24,6 +25,7 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
     return;
   }
   ensureSpaceExecutionInputOutbox(sql);
+  new SpaceFileUpdateRepository(sql).initialize();
   ensureSpaceReactionTables(sql);
   sql.exec(`CREATE TABLE IF NOT EXISTS space_file_pins (
     signal_id TEXT PRIMARY KEY,

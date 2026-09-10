@@ -191,6 +191,12 @@ export type SpaceApi = {
       revision: number;
     }
   ) => Promise<SpaceFileDescriptor>;
+  fileUpdateSettings: (
+    input: SpaceRequestInput & {
+      fileId: string;
+      command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
+    }
+  ) => Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings>;
   uploadFile: (
     input: SpaceRequestInput & {
       bytes: SpaceFileContentBytes;
@@ -376,6 +382,7 @@ export type SpaceApi = {
   ) => Promise<ListSpaceThreadEventsResponse>;
   listThreadSignals: (
     input: SpaceRequestInput & {
+      includeWakeContinuation?: true;
       afterSignalId?: string;
       limit?: number;
       threadId: string;

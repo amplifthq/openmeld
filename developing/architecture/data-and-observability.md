@@ -980,6 +980,14 @@ attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
 
+The same Space owns `space_file_update_settings` and
+`space_file_update_outbox`. The file revision transaction enqueues notification
+intent only when a human has configured recipients; the deterministic identity
+is the file id plus revision. Alarm recovery publishes through the ordinary
+Space message, Inbox projection, and dispatch outbox paths, rechecking current
+consent and access. Retry state stores its last error and next attempt locally.
+These rows do not own Wake execution or claim that recipients read the file.
+
 Private immutable revision bytes live in the Space file R2 binding under the
 shared key constructor:
 
