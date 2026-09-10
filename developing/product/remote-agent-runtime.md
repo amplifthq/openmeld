@@ -605,6 +605,15 @@ the connected provider API.
    may be visible. The worker places an explicit shortening notice inside the
    product-wide text ceiling if a model result is larger; CardKit itself never
    silently truncates the accepted callback.
+   Signed native controls bind the current card message to the same Native
+   Delivery, connection, app, tenant, chat, and verified requester. Stop requests
+   go to the existing Remote Agent execution owner; a click never marks the
+   ledger completed or stopped. The worker's terminal callback finalizes the
+   card. Completed cards offer a collapsed follow-up form. A submission becomes
+   ordinary user input at the original frozen destination, not a business
+   approval or an authorization grant. Identical submissions on one card reuse
+   one operation identity; controls expire after 24 hours and are checked against
+   the current connection and membership. Stale or mismatched controls fail closed.
    Generated callback attachments are not delivered into Lark/Feishu in the
    first release. Core finalizes the same card or reply with an explicit
    generated-image delivery notice, removes the unsupported attachment
