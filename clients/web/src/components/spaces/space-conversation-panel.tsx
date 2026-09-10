@@ -124,7 +124,6 @@ import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
 } from "./space-composer";
-import { SpaceComposerBlockedWakeRecoveryAction } from "./space-composer-blocked-wake-recovery-action";
 import {
 	resolveSpaceComposerConversationKind,
 	type SpaceAgentDirectConversationComposerHintKind,
@@ -2125,6 +2124,7 @@ function SpaceComposerSection(input: {
 					}}
 					presentation={{ errorClassName: "mt-3" }}
 					recovery={{
+						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
 						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
 						isAgentRecoveryPending: panel.isAgentRecoveryPending,
 						onAgentRecoveryAction: panel.onAgentRecoveryAction,
@@ -2213,14 +2213,6 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 	return (
 		<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
 			<p>{panel.composerErrorMessage}</p>
-			<SpaceComposerBlockedWakeRecoveryAction
-				agentRecoveryPlansByProfileId={panel.agentRecoveryPlansByProfileId}
-				blockedWakeProfileId={panel.composerBlockedWakeProfileId}
-				isAgentRecoveryPending={panel.isAgentRecoveryPending}
-				onAgentRecoveryAction={panel.onAgentRecoveryAction}
-				orgSlug={panel.orgSlug}
-				prepareSetupHref={panel.prepareSetupHref}
-			/>
 		</div>
 	);
 }

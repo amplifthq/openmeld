@@ -3291,6 +3291,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3400,6 +3401,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3680,6 +3682,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3800,6 +3803,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -3892,6 +3896,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -4003,6 +4008,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -4328,6 +4334,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -4439,6 +4446,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -8159,6 +8167,7 @@ describe("SpaceLanding", () => {
 				includeSourceContext: true,
 				includeTiming: true,
 				includeWaitReason: true,
+				includeDeviceWait: true,
 				includeWakeStopEligibility: true,
 				spaceId: "space-123",
 				timeoutMs: 15_000,
@@ -14380,6 +14389,61 @@ describe("SpaceLanding", () => {
 		expect(readComposerValue(composer)).toBe("");
 		expect(screen.getByText("Keep this Direct Message draft")).toBeTruthy();
 		expect(composer.getAttribute("contenteditable")).toBe("true");
+	});
+
+	it("retries an explicit offline wait with the original deadline and identity while preserving the next draft", async () => {
+		const members = createMembersSnapshot({
+			defaultAgentExecutionReadiness:
+				createServiceNotConnectedAgentExecutionReadiness(
+					DEFAULT_AGENT_PROFILE_ID
+				),
+		}) as SpaceMembersSnapshot;
+		const agent = members.agents[0];
+		if (!agent) {
+			throw new Error("Expected Agent fixture");
+		}
+		agent.deviceWaitTarget = {
+			bindingId: "binding-wait-test",
+			openMeldServiceRuntimeId: "runtime-wait-test",
+		};
+		readSpaceMembersMock.mockResolvedValue(members);
+		const post = vi.fn().mockRejectedValue(new Error("Network unavailable"));
+		createWebSpaceApiMock.mockReturnValue({ postNormalMessage: post });
+		mockSpaceQueries({
+			status: createQueryResult({
+				isSuccess: true,
+				data: {
+					...createSpaceStatus(),
+					spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+				},
+			}),
+			members: createQueryResult({ isSuccess: true, data: members }),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		renderSpaceLanding();
+		const composer = screen.getByRole("textbox", { name: "Message Runner" });
+		await setComposerValue(composer, "Run when my computer reconnects");
+		fireEvent.click(screen.getByRole("button", { name: "Send and wait" }));
+		await screen.findByRole("button", { name: "Retry" });
+		expect(post).toHaveBeenCalledTimes(1);
+		const first = post.mock.calls[0]?.[0];
+		expect(first.deviceWait).toMatchObject({
+			...agent.deviceWaitTarget,
+			targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			deadlineAtMs: expect.any(Number),
+		});
+		expect(readComposerValue(composer)).toBe("");
+		expect(composer.getAttribute("contenteditable")).toBe("true");
+		await setComposerValue(composer, "My next draft");
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+		const second = post.mock.calls[1]?.[0];
+		expect(second.deviceWait).toEqual(first.deviceWait);
+		expect(second.meta.clientMessageId).toBe(first.meta.clientMessageId);
+		expect(readComposerValue(composer)).toBe("My next draft");
 	});
 
 	it("retains a failed outgoing message with retry without restoring the composer", async () => {

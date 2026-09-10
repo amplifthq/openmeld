@@ -46,7 +46,7 @@ export type SpaceComposerProps = {
 	recovery?: Omit<
 		ComponentProps<typeof SpaceComposerBlockedWakeRecoveryAction>,
 		"blockedWakeProfileId"
-	>;
+	> & { blockedWakeProfileId?: string | null };
 	actions: {
 		onAddPeopleOrAgents?: () => void;
 		onAddFiles?: (files: readonly File[]) => Promise<void>;
@@ -283,13 +283,15 @@ function ComposerRecovery(input: {
 	recovery: SpaceComposerProps["recovery"];
 	target: SpaceComposerAddressingTarget | undefined;
 }) {
-	if (!(input.target && input.recovery)) {
+	const profileId =
+		input.recovery?.blockedWakeProfileId ?? input.target?.profileId;
+	if (!(profileId && input.recovery)) {
 		return null;
 	}
 	return (
 		<SpaceComposerBlockedWakeRecoveryAction
 			{...input.recovery}
-			blockedWakeProfileId={input.target.profileId}
+			blockedWakeProfileId={profileId}
 		/>
 	);
 }

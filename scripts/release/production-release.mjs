@@ -149,6 +149,7 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     "web",
     "cli",
   ],
+  "device-wait-receivers-first": CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "people-computers-receivers-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "space-invitation-receivers-first": [
@@ -462,6 +463,7 @@ export function buildProductionVerifyStepSpecs(input) {
       scope === "core" &&
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
+      !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
@@ -497,6 +499,7 @@ export function buildProductionPreflightStepSpecs(input) {
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
+    !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -686,6 +689,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "inbox-task-retirement-producer-first" ||
       input.deployOrderProfile ===
         "remote-agent-and-inbox-task-retirement-first" ||
+      input.deployOrderProfile === "device-wait-receivers-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
@@ -837,6 +841,10 @@ function resolveProductionDeployOrderProfile(
     );
   }
   const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  if (isDeviceWaitReceiverFirstDiff(changedPaths)) {
+    assertComposableDeviceWaitReleaseProfile(changedPaths, profile);
+    return "device-wait-receivers-first";
+  }
   if (isPeopleComputersReceiverFirstDiff(changedPaths)) {
     if (
       profile !== "default-auth-receiver-first" &&
@@ -865,6 +873,30 @@ function resolveProductionDeployOrderProfile(
     );
   }
   return "space-invitation-receivers-first";
+}
+
+function assertComposableDeviceWaitReleaseProfile(changedPaths, profile) {
+  if (
+    ![
+      "default-auth-receiver-first",
+      "local-service-runtime-receiver-first",
+      "core-worker-response-reader-first",
+    ].includes(profile) ||
+    isPeopleComputersReceiverFirstDiff(changedPaths) ||
+    isSpaceInvitationReceiverFirstDiff(changedPaths)
+  ) {
+    throw new Error(
+      `Device wait requires Core before Gateway and Web; review conflicting receiver orders (${profile}) in a separate release.`
+    );
+  }
+}
+
+function isDeviceWaitReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/protocol/wake-device-wait.ts",
+    "services/core/src/space/transport/do/space.ts",
+    "services/gateway/src/routes/rpc-http.signals.ts",
+  ].every((file) => changedPaths.includes(file));
 }
 
 function isSpaceInvitationReceiverFirstDiff(changedPaths) {

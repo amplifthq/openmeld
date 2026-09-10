@@ -209,7 +209,8 @@ type SpaceMentionAuthoringController = ReturnType<
 
 type PendingComposerSubmission = ReturnType<
 	SpaceMentionAuthoringController["prepareSubmission"]
->;
+> &
+	SpaceComposerSendOptions;
 
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
@@ -2521,14 +2522,14 @@ export function useSpaceLandingController(input: {
 			const preparedSubmission =
 				options?.retrySubmission ??
 				applyDeviceWaitToSubmission(
-				prepareMainComposerSubmission({
-					mentionAuthoring,
-					messageSeed,
-					missingMembersMessage,
-					pendingMessage: options?.pendingMessage,
-				}),
-				options?.deviceWait
-			);
+					prepareMainComposerSubmission({
+						mentionAuthoring,
+						messageSeed,
+						missingMembersMessage,
+						pendingMessage: options?.pendingMessage,
+					}),
+					options?.deviceWait
+				);
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				options?.retryFiles ??
@@ -3557,12 +3558,15 @@ function useSpaceThreadController(input: {
 		}
 	}
 
-	async function sendMessage(options?: SpaceComposerSendOptions, retry?: {
-		submission: PendingComposerSubmission;
-		files: readonly SpaceComposerFile[];
-		thread: SpaceThread;
-		clientMessageId: string;
-	}) {
+	async function sendMessage(
+		options?: SpaceComposerSendOptions,
+		retry?: {
+			submission: PendingComposerSubmission;
+			files: readonly SpaceComposerFile[];
+			thread: SpaceThread;
+			clientMessageId: string;
+		}
+	) {
 		if (threadComposerSendInFlightRef.current || !input.statusReady) {
 			return;
 		}
@@ -3592,14 +3596,16 @@ function useSpaceThreadController(input: {
 		let publishedLocalIds: readonly string[] = [];
 		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
-			const preparedSubmission = retry?.submission ?? applyDeviceWaitToSubmission(
-				trimmedText.length > 0
-					? mentionAuthoring.prepareSubmission(
-							"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
-						)
-					: mentionAuthoring.prepareFileOnlySubmission(),
-				options?.deviceWait
-			);
+			const preparedSubmission =
+				retry?.submission ??
+				applyDeviceWaitToSubmission(
+					trimmedText.length > 0
+						? mentionAuthoring.prepareSubmission(
+								"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+							)
+						: mentionAuthoring.prepareFileOnlySubmission(),
+					options?.deviceWait
+				);
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				retry?.files ?? composerSession.recordPendingSubmission();

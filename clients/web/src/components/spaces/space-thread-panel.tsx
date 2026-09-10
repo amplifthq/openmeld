@@ -95,7 +95,6 @@ import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
 } from "./space-composer";
-import { SpaceComposerBlockedWakeRecoveryAction } from "./space-composer-blocked-wake-recovery-action";
 import {
 	resolveSpaceComposerConversationKind,
 	type SpaceAgentDirectConversationComposerHintKind,
@@ -1871,6 +1870,7 @@ function ThreadComposer(input: {
 				maxHeight: 180,
 			}}
 			recovery={{
+				blockedWakeProfileId: input.blockedWakeProfileId,
 				agentRecoveryPlansByProfileId: input.agentRecoveryPlansByProfileId,
 				isAgentRecoveryPending: input.isAgentRecoveryPending,
 				onAgentRecoveryAction: input.onAgentRecoveryAction,
@@ -1883,16 +1883,6 @@ function ThreadComposer(input: {
 				error: input.composerErrorMessage ? (
 					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
 						<p>{input.composerErrorMessage}</p>
-						<SpaceComposerBlockedWakeRecoveryAction
-							agentRecoveryPlansByProfileId={
-								input.agentRecoveryPlansByProfileId
-							}
-							blockedWakeProfileId={input.blockedWakeProfileId}
-							isAgentRecoveryPending={input.isAgentRecoveryPending}
-							onAgentRecoveryAction={input.onAgentRecoveryAction}
-							orgSlug={input.orgSlug}
-							prepareSetupHref={input.prepareSetupHref}
-						/>
 					</div>
 				) : null,
 				profileControl: input.profileControl,
