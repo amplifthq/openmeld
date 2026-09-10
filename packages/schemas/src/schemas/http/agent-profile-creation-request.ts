@@ -6,6 +6,11 @@ import {
 import { agentProfileCreationPreferenceSelectionSchema } from "./agent-profile-binding";
 
 const identifierSchema = z.string().trim().min(1).max(256);
+// Launch hold, not legacy: retain teammate requests for isolated development
+// of Request an Agent. Self-owned creation still uses this request contract.
+// Reopening checklist: developing/product/agent-profiles.md#teammate-request-launch-hold
+export const TEAMMATE_AGENT_REQUESTS_ENABLED: boolean = false;
+
 const profileNameSchema = z.string().trim().min(1).max(80);
 const isoDateTimeSchema = z.iso.datetime({ offset: true });
 

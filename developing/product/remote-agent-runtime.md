@@ -246,8 +246,15 @@ Live View, and human takeover are outside this increment. Existing browser
 Quick Actions remain available. The browser facet does not own Agent scheduling.
 
 Completion must not write personal conversation content into Center Agent
-memory. Organization administration, personal Channels, Routines, and Center
-memory remain excluded. Shared infrastructure does not confer Center duties.
+memory. Organization administration, personal Channels, and Center memory
+remain excluded. Shared infrastructure does not confer Center duties.
+
+Personal Agents expose the six shared Routine management tools, scoped to their
+verified owner and exact Agent identity. The shared Core scheduler runs them
+through personal v4 conversations and returns results to the owner's DM or an
+eligible Space. Routine admission verifies the frozen delegated owner rather
+than requiring the Center Agent as the request author. See
+`center-agent-routines.md` for authority, lifecycle, and rollout requirements.
 
 Rollout is Core first, then Remote Agent: the latter now uses the additive
 `authorize` personal-tool operation before invoking shared capabilities. Old
@@ -610,6 +617,27 @@ the connected provider API.
    generated-image delivery notice, removes the unsupported attachment
    references from provider publication, and terminates the durable callback
    successfully instead of retrying forever or silently discarding the fact.
+   Current-message files are read on demand through Core-frozen resource
+   descriptors in the admitted turn. Core rechecks the current designation,
+   Organization, profile, dispatch, conversation and connected provider before
+   downloading the exact original-message resource, bounded to 5 MiB. Text has a
+   bounded preview; binary files require Computer inspection. Channel credentials
+   are never exposed to the model or used as business-App consent. This read does
+   not authorize arbitrary provider files or other conversations.
+   Verified members can explicitly request a Computer file to be sent back to
+   the admitted conversation using `openmeld_send_channel_file`. Core checks the
+   active represented delivery and digest, then uses the existing Center Agent
+   publication operation ledger. Completed attempts replay their receipt; unknown
+   outcomes cannot automatically republish. Upload credentials stay in Core.
+   This does not authorize other chats, Routine output, or business-App writes.
+   After identity/admission validation, Core prepares the durable receipt card
+   before fetching channel history or input attachments. This receipt means
+   the request was received, not that execution has started. The existing
+   admission watchdog covers this preparation window and leaves accepted
+   executions to their existing lifecycle owner. Accepted replays skip input
+   preparation. Final card presentation distinguishes completed responses,
+   failures, confirmed stops, and rollover segments; closing a segment does
+   not imply that the response or delegated work has completed.
    Core converts a Lark-platform `429` `Retry-After` header into a bounded
    provider retry delay for both stream updates and terminal publication.
    Remote Agent waits for at least that delay, while durable callback retry
@@ -1853,8 +1881,9 @@ surface adopts official features where they are free**:
   member from the durable turn, call private Core RPC, and use the same
   represented-member authority as Web and CLI. Explicit create, update, pause,
   and resume requests execute without another confirmation. Interactive delete
-  requires one separate confirmation backed by a one-time Remote Agent token;
-  the first call ends the turn and the exact confirmed second call executes.
+  uses a one-time Remote Agent token bound to the exact action. An already
+  authorized request may consume it in the same turn; otherwise the Agent asks
+  before execution. The preview itself does not force the turn to end.
   Core remains the represented-member authorization layer.
 
   A Routine turn inherits the executable interactive catalog by default. This
@@ -1941,8 +1970,8 @@ surface adopts official features where they are free**:
   fingerprint, local connection state, or absolute paths. Mutations carry
   durable operation IDs; Core replays matching retries and rejects an operation
   ID reused with different input. Remove requires a short-lived Core token
-  prepared for the exact Project and consumed after explicit confirmation in a
-  later interactive member turn. Routine turns may list, create, update, and
+  prepared for the exact Project and consumed in the same interactive turn
+  when the verified request already authorizes removal. Routine turns may list, create, update, and
   select Default Project under the same represented-member and idempotency
   contracts without free-text permission evidence. Project removal during a
   Routine is unsupported in both Remote Agent and Core and returns

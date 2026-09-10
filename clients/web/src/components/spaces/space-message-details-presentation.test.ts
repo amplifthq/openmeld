@@ -1,6 +1,8 @@
 import type { GetSpaceMessageDetailsResponse } from "@openmeld/schemas/types";
+import { createWakeProgressItem } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { resolveWakeProgressThinkingEntry } from "#/lib/spaces/wake-progress-presentation";
 import {
 	buildSpaceMessageDetailsPresentation,
 	resolveMessageDetailsDiagnosticReportStatus,
@@ -20,6 +22,41 @@ describe("resolveMessageDetailsDiagnosticReportStatus", () => {
 });
 
 describe("buildSpaceMessageDetailsPresentation", () => {
+	it("keeps waiting concise in the timeline and puts the exact expiry and reason in details", () => {
+		const deadlineAtMs = 1_900_000_000_000;
+		const entries = resolveWakeProgressThinkingEntry({
+			item: {
+				...createWakeProgressItem({
+					clientMessageId: "client-1",
+					dispatchId: "dispatch-1",
+					phase: "queued",
+					sourceSignalId: "message-1",
+					targetProfileId: "profile-codex",
+					targetLabel: "Codex",
+					updatedAtMs: 1,
+				}),
+				deviceWait: { deadlineAtMs, reason: "device_offline" },
+			},
+			showElapsedTime: false,
+		});
+		expect(entries[0]?.text).toBe(
+			"Waiting for Codex’s computer to come online"
+		);
+		expect(entries[0]?.text).not.toContain("expires");
+		const presentation = buildSpaceMessageDetailsPresentation({
+			data: createMessageDetailsResponse("signal.text"),
+			item: createTimelineItem({ wakeTargetProfileIds: ["profile-codex"] }),
+			wakeProgressEntries: entries,
+			replyItems: [],
+			wakeIssueEntries: [],
+		});
+		const description = presentation.activityItems.find(
+			(item) => item.kind === "target"
+		)?.description;
+		expect(description).toContain("The computer is offline.");
+		expect(description).toContain(new Date(deadlineAtMs).toLocaleString());
+	});
+
 	it("presents a selected Agent reply as one replied Activity instead of repeating its inherited Wake target", () => {
 		const source = createTimelineItem({
 			actorName: "Felix",

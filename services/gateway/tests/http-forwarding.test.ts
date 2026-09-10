@@ -2434,6 +2434,7 @@ describe("gateway http forwarding", () => {
     "2",
     "3",
     "4",
+    "5",
   ])("negotiates dispatch trace response version %s without changing the public route", async (version) => {
     const { env, rpc } = makeEnv();
     const response = await app.fetch(
@@ -2486,7 +2487,7 @@ describe("gateway http forwarding", () => {
     const response = await app.fetch(
       new Request("http://local/v1/spaces/demo/dispatches/dispatch-1/trace", {
         headers: {
-          "x-openmeld-space-dispatch-trace-response-version": "5",
+          "x-openmeld-space-dispatch-trace-response-version": "6",
         },
       }),
       env,

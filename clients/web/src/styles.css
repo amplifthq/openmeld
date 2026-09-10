@@ -645,12 +645,6 @@ html[data-space-conversation-layout="centered"] [data-space-history-rail="true"]
 .space-history-ticks > button[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
 .space-history-ticks > button:focus-visible .space-history-dash { opacity: 1; }
 .space-history-preview { max-width: calc(100vw - 5rem); position: relative; }
-.space-history-preview-skeleton { display: none; position: absolute; inset: 1rem; flex-direction: column; gap: .75rem; padding-top: .25rem; }
-.space-history-preview-skeleton span { height: .65rem; width: 90%; border-radius: 3px; background: var(--muted-foreground); opacity: .15; }
-.space-history-preview-skeleton span:first-child { width: 55%; }
-.space-history-preview-skeleton span:last-child { width: 72%; }
-.space-history-preview[data-moving] .space-history-preview-skeleton { display: flex; }
-.space-history-preview[data-moving] .space-history-preview-content { visibility: hidden; }
 .space-history-touch-trigger { display: none; }
 @media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
   .space-history-dash { transition: transform 125ms cubic-bezier(.23,1,.32,1), opacity 125ms ease; }

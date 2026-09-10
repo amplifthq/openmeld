@@ -6,7 +6,6 @@ const MAX_HANDOFF_FILE_BYTES = 32_000;
 const MAX_HANDOFF_TOTAL_BYTES = 64_000;
 const WORKING_COPY_METADATA_SUFFIX = ".openmeld.json";
 const TRAILING_SLASHES_PATTERN = /\/+$/u;
-const SLACK_FILES_DIRECTORY = "slack-files";
 
 /**
  * Read an explicitly selected, bounded text snapshot for one Local Agent Wake.
@@ -97,13 +96,13 @@ export function createAgentComputerFileHandoff(input: {
       }
       return files;
     },
-    async writeSlackFile({ bytes, fileId, fileName }) {
+    async writeChannelFile({ bytes, fileId, fileName, provider }) {
       if (
         bytes.byteLength < 1 ||
         bytes.byteLength > CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES
       ) {
         throw new Error(
-          `Slack files must be between 1 and ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES} bytes.`
+          `Channel files must be between 1 and ${CENTER_AGENT_SLACK_FILE_MAX_SIZE_BYTES} bytes.`
         );
       }
       const safeFileId = fileId.replace(/[^A-Za-z0-9_-]/gu, "_").slice(0, 128);
@@ -112,17 +111,20 @@ export function createAgentComputerFileHandoff(input: {
         .trim()
         .slice(0, 255);
       if (!(safeFileId && safeFileName)) {
-        throw new Error("Slack file identity and name must be non-empty text.");
+        throw new Error(
+          "Channel file identity and name must be non-empty text."
+        );
       }
-      const directory = `${workingDirectory}/${SLACK_FILES_DIRECTORY}`;
+      const filesDirectory = `${provider}-files`;
+      const directory = `${workingDirectory}/${filesDirectory}`;
       await input.workspace.fs.mkdir(directory, { recursive: true });
       const directoryStat = await input.workspace.fs.lstat(directory);
       if (directoryStat.isSymbolicLink || !directoryStat.isDirectory) {
         throw new Error(
-          "The Slack files directory is not a safe Computer directory."
+          "The channel files directory is not a safe Computer directory."
         );
       }
-      const relativePath = `${SLACK_FILES_DIRECTORY}/${safeFileId}-${crypto.randomUUID()}-${safeFileName}`;
+      const relativePath = `${filesDirectory}/${safeFileId}-${crypto.randomUUID()}-${safeFileName}`;
       await input.workspace.fs.writeFile(
         `${workingDirectory}/${relativePath}`,
         bytes,

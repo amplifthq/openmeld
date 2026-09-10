@@ -235,7 +235,7 @@ describe("Remote Agent Routine management tools", () => {
       "is authorization"
     );
     expect(descriptions.get("openmeld_delete_routine")).toContain(
-      "obtain one separate confirmation, even when the initial request was explicit"
+      "Do not request the same authorization twice"
     );
     expect(descriptions.get("openmeld_create_routine")).toContain(
       "Use current_conversation to deliver back to the Slack thread"
@@ -248,7 +248,7 @@ describe("Remote Agent Routine management tools", () => {
     );
   });
 
-  it("requires one separate interactive confirmation before deleting a Routine", async () => {
+  it("previews the exact Routine without ending the interactive turn", async () => {
     const request = createSubmitTurnRequest({
       messages: [
         {
@@ -284,9 +284,9 @@ describe("Remote Agent Routine management tools", () => {
 
     expect(result).toMatchObject({
       sideEffects: 0,
-      status: "destructive_confirmation_required",
+      status: "destructive_action_preview",
     });
-    expect(definition?.endsTurnAfter?.(result)).toBe(true);
+    expect(definition?.endsTurnAfter?.(result)).not.toBe(true);
     expect(centerAgentDeleteRoutine).not.toHaveBeenCalled();
 
     const destructiveConfirmationToken = (
@@ -294,25 +294,6 @@ describe("Remote Agent Routine management tools", () => {
         confirmation: { destructiveConfirmationToken: string };
       }
     ).confirmation.destructiveConfirmationToken;
-    const confirmedSubmissionId = "submission_routine_delete_confirmed";
-    const confirmedRequest = createSubmitTurnRequest({
-      dispatchId: "dispatch_routine_delete_confirmed",
-      idempotencyKey: "remote-agent:dispatch_routine_delete_confirmed",
-      messages: [{ content: "Yes, delete it.", role: "user" }],
-      triggerMessageId: "signal_routine_delete_confirmed",
-    });
-    await putRemoteAgentCallbackContext(
-      storage,
-      createRemoteAgentCallbackContext({
-        ack: {
-          ...ACK,
-          requestId: confirmedSubmissionId,
-          submissionId: confirmedSubmissionId,
-        },
-        nowMs: TEST_NOW_MS + 1000,
-        request: confirmedRequest,
-      })
-    );
     centerAgentDeleteRoutine.mockResolvedValue({
       deleted: true,
       organizationId: "org_123",
@@ -321,7 +302,7 @@ describe("Remote Agent Routine management tools", () => {
     const confirmedTools = getRemoteAgentOpenMeldToolDefinitions({
       coreWorker: { centerAgentDeleteRoutine, centerAgentListRoutines },
       storage,
-      submissionId: confirmedSubmissionId,
+      submissionId: ACK.submissionId,
     });
 
     await expect(

@@ -29,7 +29,11 @@ export async function prepareRemoteAgentMemberRequest(
     throw new Error("Expected an admitted personal Remote Agent execution.");
   }
   const { request, delivery } = authorization.personalExecution;
-  const sender = request.turnEnvelope.sender;
+  const envelopeSender = request.turnEnvelope.sender;
+  const sender =
+    envelopeSender.kind === "routine"
+      ? { ...envelopeSender.delegatedBy, kind: "member" as const }
+      : envelopeSender;
   if (
     "kind" in speakerMember ||
     sender.kind !== "member" ||

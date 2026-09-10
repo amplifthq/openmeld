@@ -917,6 +917,7 @@ export {
   listAgentProfileCreationRequestsResponseSchema,
   setAgentProfileCreationApprovalPreferenceBodySchema,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "./http/agent-profile-creation-request";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
@@ -1486,6 +1487,13 @@ export {
   setLocalRuntimeDisplayNameBodySchema,
 } from "./http/local-runtimes";
 export {
+  centerAgentPostChannelFileBodySchema,
+  centerAgentPostChannelFileResponseSchema,
+  centerAgentReadChannelFileBodySchema,
+  centerAgentReadChannelFileResponseSchema,
+  MESSAGE_CHANNEL_FILE_MAX_SIZE_BYTES,
+} from "./http/message-channel-files";
+export {
   LARK_PLATFORM_REGISTRATION_DOMAINS,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_BYTES,
   LARK_PLATFORM_WEBHOOK_RAW_BODY_MAX_CHARS,
@@ -1916,6 +1924,7 @@ export {
   slackFileReadResponseSchema,
 } from "./http/slack-channel-reads";
 export {
+  SLACK_BOT_SCOPES,
   SLACK_DIRECT_MESSAGE_REQUIRED_BOT_SCOPES,
   slackOAuthErrorCodeSchema,
   slackOAuthIdentityLinkInputSchema,
@@ -2595,6 +2604,15 @@ export {
   TARGET_WAKE_LIFECYCLE_IDENTITY_MODEL_VERSION,
   targetWakeLifecycleIdentitySchema,
 } from "./protocol/target-wake-lifecycle";
+export {
+  DEFAULT_WAKE_DEVICE_WAIT_MS,
+  MAX_WAKE_DEVICE_WAIT_MS,
+  RUNTIME_COORDINATOR_DEVICE_WAITING_REASON_CODE,
+  wakeDeviceWaitAccessRequestSchema,
+  wakeDeviceWaitAccessResponseSchema,
+  wakeDeviceWaitSchema,
+  wakeDeviceWaitTargetSchema,
+} from "./protocol/wake-device-wait";
 export { agentComputerBrowserRequestSchema } from "./runtime/agent-computer-browser";
 export {
   AGENT_CONTROLLER_USAGE_LIMIT_STALE_AFTER_MS,

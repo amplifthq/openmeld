@@ -199,6 +199,7 @@ async function finalizeCurrentCard(input: {
     locator: input.target.locator,
     providerPublicationIdempotencyKey: input.providerPublicationIdempotencyKey,
     sequence: input.evidence.sequence,
+    outcome: "continued",
     text: input.evidence.head,
   });
   const transitionInput = {

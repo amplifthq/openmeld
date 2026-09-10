@@ -27,6 +27,8 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const DEVICE_WAIT_ORDER_ERROR =
+  /Device wait requires Core before Gateway and Web/u;
 const PERSONAL_CORE_RECEIVER_ERROR = /require the Core receiver/u;
 const PERSONAL_RECEIVER_CONFLICT_ERROR = /conflict with/u;
 const PERSONAL_TOOLS_PATHS = [
@@ -1990,5 +1992,57 @@ test("keeps Core before a response producer while retaining Inbox receiver-first
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
     ]
+  );
+});
+
+test("installs device-wait receivers before browser callers and Service publication", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/protocol/wake-device-wait.ts",
+    "services/core/src/space/transport/do/space.ts",
+    "services/gateway/src/routes/rpc-http.signals.ts",
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "services/core/src/runtime-transport/transport/do/runtime-coordinator.ts",
+    "clients/openmeld-cli/src/local-service/service-daemon.ts",
+  ];
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    changedPaths,
+  };
+  const plan = buildProductionReleasePlan({
+    ...input,
+    scope: "db,auth,core,gateway,web,remote-agent,cli",
+  });
+  assert.equal(plan.deployOrderProfile, "device-wait-receivers-first");
+  assert.deepEqual(plan.deployScopeOrder, [
+    "db",
+    "auth",
+    "core",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ]);
+  const staged = buildProductionReleasePlan({ ...input, scope: "core" });
+  assert.equal(
+    staged.deploySteps[0].args[0],
+    "scripts/release/deploy-core-current-cli-projection.mjs"
+  );
+  assert.deepEqual(
+    buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
+    buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        ...input,
+        scope: "cloud",
+        changedPaths: [
+          ...changedPaths,
+          "services/remote-agent/.flue/cloudflare.ts",
+        ],
+      }),
+    DEVICE_WAIT_ORDER_ERROR
   );
 });
