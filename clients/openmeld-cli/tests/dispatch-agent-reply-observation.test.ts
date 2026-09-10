@@ -154,6 +154,11 @@ describe("dispatch Agent reply observation", () => {
     expect(prompt).toContain("does not mean the Space published it");
     expect(prompt).toContain("You still have one public reply available");
     expect(prompt).toContain("Keep the user's full request as the goal");
+    expect(prompt).toContain("Reconsider only the final Space action");
+    expect(prompt).toContain("say what remains undone");
+    expect(prompt).toContain(
+      "do not imply that acknowledging it starts or queues that work"
+    );
     expect(prompt).toContain("not a new assignment");
     expect(prompt).toContain(JSON.stringify(originalWake()));
     expect(prompt).toContain(

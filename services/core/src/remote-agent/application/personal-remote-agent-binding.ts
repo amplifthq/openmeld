@@ -15,6 +15,7 @@ export function isPersonalRemoteAgentBinding(
   binding: AgentProfileBindingRecord
 ): boolean {
   if (
+    binding.owner.kind !== "owner_account" ||
     binding.runtimeKind !== "hosted_remote_agent" ||
     binding.agentControllerRef !== HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
     binding.openMeldServiceRuntimeId !== HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
@@ -37,13 +38,17 @@ export async function requirePersonalRemoteAgentBinding(input: {
   bindingId?: string;
   db: D1Database;
   organizationId: string;
-  ownerUserId: string;
+  ownerUserId: string | null;
 }): Promise<AgentProfileBindingRecord> {
-  await requirePersonalRemoteAgentOwner(input);
+  const ownerUserId = input.ownerUserId;
+  if (!ownerUserId) {
+    throw new Error("remote_agent.personal_owner_unavailable");
+  }
+  await requirePersonalRemoteAgentOwner({ ...input, ownerUserId });
   const binding = await readPrimaryAgentProfileBindingRecord({
     agentProfileId: input.agentProfileId,
     db: input.db,
-    owner: { id: input.ownerUserId, kind: "owner_account" },
+    owner: { id: ownerUserId, kind: "owner_account" },
   });
   if (
     !binding ||

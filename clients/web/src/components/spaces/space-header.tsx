@@ -152,9 +152,6 @@ export function SpaceHeader(input: {
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
 	renderFrame?: boolean;
-	// Count of unread messages from others (newer than the read watermark).
-	// Rendered as a trailing "N new" subtitle token when greater than zero.
-	unreadCount?: number;
 	membersControl?: ReactNode;
 	notificationControl?: ReactNode;
 	// "Get set up" recall action shown before Members when the in-Space setup
@@ -183,18 +180,6 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
-	const subtitleItems: SpaceWindowHeaderSubtitleItem[] = [];
-	const unreadCount = input.unreadCount ?? 0;
-	if (unreadCount > 0) {
-		subtitleItems.push({
-			key: "unread",
-			node: (
-				<span className="font-medium text-amber-600 dark:text-amber-400">
-					{`${unreadCount} new`}
-				</span>
-			),
-		});
-	}
 
 	return (
 		<SpaceWindowHeader
@@ -289,7 +274,6 @@ export function SpaceHeader(input: {
 				input.isCenterAgentDirectMessage && "overflow-x-auto",
 				input.setupRecallAction && "max-lg:pr-12"
 			)}
-			subtitleItems={subtitleItems}
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">

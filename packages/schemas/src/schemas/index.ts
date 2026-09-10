@@ -1,4 +1,8 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+export {
+  spaceHistoryNavigationQuerySchema,
+  spaceHistoryNavigationSchema,
+} from "./http/space-history-navigation";
 
 export const OPENMELD_SCHEMA_VERSION = 1 as const;
 
@@ -2218,6 +2222,12 @@ export {
   spaceMessageDetailsWorkingDetailsSchema,
 } from "./http/space-message-details";
 export {
+  spaceFilePinMutationSchema,
+  spaceFilePinsResponseSchema,
+  spaceMessagePinMutationSchema,
+  spaceMessagePinsResponseSchema,
+} from "./http/space-message-pins";
+export {
   getSpaceMetaResponseSchema,
   MAX_SPACE_GUIDE_LENGTH,
   patchSpaceMetaBodySchema,
@@ -2796,6 +2806,14 @@ export {
   dispatchResultSchema,
 } from "./space-mesh/dispatch-result";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
+export {
+  getSpaceMessageReactionsInputSchema,
+  getSpaceMessageReactionsResponseSchema,
+  setSpaceMessageReactionInputSchema,
+  spaceMessageReactionsSchema,
+  spaceReactionActorSchema,
+  spaceReactionGroupSchema,
+} from "./space-mesh/message-reaction";
 export {
   openMeldSpaceActionReadResultBySchema,
   openMeldSpaceActionReadUpdatesFromSchema,

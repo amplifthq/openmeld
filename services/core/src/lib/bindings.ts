@@ -111,7 +111,7 @@ type CoreAuthDispatchBindingRpc = {
   }): Promise<AuthAgentProfileRpcResult>;
   ensureCenterAgentProfileInOrganization?(input: {
     organizationId?: string | null;
-    ownerUserId?: string | null;
+    createdByUserId?: string | null;
   }): Promise<AuthAgentProfileRpcResult>;
   updateCenterAgentProfileInOrganization?(input: {
     organizationId?: string | null;

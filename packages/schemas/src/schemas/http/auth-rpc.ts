@@ -61,8 +61,9 @@ export const authRpcProfileFactSchema = z.strictObject({
   profileHandle: z.string(),
   profileKind: profileKindSchema,
   status: z.enum(["active", "disabled"]),
-  ownerUserId: z.string(),
+  ownerUserId: z.string().nullable(),
   organizationId: z.string().nullable().optional(),
+  managedRole: z.string().nullable().optional(),
   defaultProjectId: z.string().nullable().optional(),
 });
 

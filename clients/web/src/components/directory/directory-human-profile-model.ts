@@ -372,7 +372,7 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 	);
 	const sourcesByOwner = new Map<string, DirectoryAgentProfileSource[]>();
 	for (const profile of input.agentProfiles) {
-		if (profile.isCenterAgent === true) {
+		if (profile.isCenterAgent === true || !profile.ownerUserId) {
 			continue;
 		}
 		const profiles = sourcesByOwner.get(profile.ownerUserId) ?? [];

@@ -1123,6 +1123,12 @@ export type {
   SpaceMessageDetailsWorkingDetails,
 } from "./space-message-details";
 export type {
+  SpaceFilePinMutation,
+  SpaceFilePinsResponse,
+  SpaceMessagePinMutation,
+  SpaceMessagePinsResponse,
+} from "./space-message-pins";
+export type {
   PatchSpaceMetaBody,
   SpaceCreator,
   SpaceMeta,

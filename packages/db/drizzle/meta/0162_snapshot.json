@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0f0b56c4-44e5-413f-93d0-fed5351fa7be",
+  "id": "caa44086-f49d-411c-968c-60bcdbf9996b",
   "prevId": "e82efb6e-0ba2-4ca2-9e74-7932daff0d9b",
   "tables": {
     "account_sidebar_preferences": {
@@ -5913,7 +5913,7 @@
         },
         "center_agent_publication_operations_destination_kind_check": {
           "name": "center_agent_publication_operations_destination_kind_check",
-          "value": "\"destination_kind\" in ('slack_channel', 'slack_file', 'message_channel_file')"
+          "value": "\"destination_kind\" in ('slack_channel', 'slack_file')"
         },
         "center_agent_publication_operations_destination_id_non_empty_check": {
           "name": "center_agent_publication_operations_destination_id_non_empty_check",
@@ -8760,7 +8760,7 @@
         },
         "openMeldDaemon_agent_profile_bindings_owner_kind_check": {
           "name": "openMeldDaemon_agent_profile_bindings_owner_kind_check",
-          "value": "\"owner_kind\" in ('owner_account')"
+          "value": "(\"owner_kind\" = 'owner_account' and (\"runtime_kind\" != 'hosted_center_agent' or (\"binding_state\" = 'disabled_historical' and coalesce(\"reason_code\", '') = 'agent_profile_binding.profile_deleted'))) or (\"owner_kind\" = 'organization' and \"runtime_kind\" = 'hosted_center_agent')"
         },
         "openMeldDaemon_agent_profile_bindings_owner_id_non_empty_check": {
           "name": "openMeldDaemon_agent_profile_bindings_owner_id_non_empty_check",
@@ -11984,7 +11984,7 @@
           "name": "owner_user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true,
+          "notNull": false,
           "autoincrement": false
         },
         "created_by_user_id": {
@@ -12159,6 +12159,10 @@
         "openmeld_profiles_source_check": {
           "name": "openmeld_profiles_source_check",
           "value": "\"source\" in ('auth_bootstrap', 'web_create', 'cli_create', 'local_agent_create', 'center_agent_create', 'migration')"
+        },
+        "openmeld_profiles_ownership_check": {
+          "name": "openmeld_profiles_ownership_check",
+          "value": "(\"managed_role\" = 'center_agent' and \"organization_id\" is not null and \"owner_user_id\" is null) or (coalesce(\"managed_role\", '') != 'center_agent' and \"owner_user_id\" is not null)"
         },
         "openmeld_profiles_managed_role_check": {
           "name": "openmeld_profiles_managed_role_check",

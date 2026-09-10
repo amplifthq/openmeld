@@ -53,7 +53,7 @@ describe("channel file publication migration", () => {
         )
         .all();
       db.exec("BEGIN");
-      for (const sql of read("0162_aberrant_brother_voodoo.sql")) {
+      for (const sql of read("0165_pretty_solo.sql")) {
         db.exec(sql);
       }
       db.exec("COMMIT");

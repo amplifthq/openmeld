@@ -1139,8 +1139,29 @@
     {
       "idx": 162,
       "version": "6",
-      "when": 1788979241625,
-      "tag": "0162_aberrant_brother_voodoo",
+      "when": 1788965423922,
+      "tag": "0162_outstanding_demogoblin",
+      "breakpoints": true
+    },
+    {
+      "idx": 163,
+      "version": "6",
+      "when": 1788965853898,
+      "tag": "0163_tricky_magus",
+      "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "6",
+      "when": 1788966324070,
+      "tag": "0164_lumpy_hellion",
+      "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "6",
+      "when": 1789007310437,
+      "tag": "0165_pretty_solo",
       "breakpoints": true
     }
   ]

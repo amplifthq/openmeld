@@ -71,7 +71,7 @@ The optional `trigger.resources` and `trigger.filePublicationSupported` fields
 and file RPCs are shared cloud contracts.
 New readers accept old envelopes without resources. Old strict envelope readers
 do not accept the new field. Deploy the compatible Remote Agent reader first,
-then apply migration 0162 and deploy Core's RPCs and producing ingress together.
+then apply migration 0165 and deploy Core's RPCs and producing ingress together.
 Before new Core writes resource/capability evidence, new Remote Agent cannot call
 the file RPCs. Keep compatible readers when rolling back behavior; do not roll Core
 back to a parser that rejects resource-bearing durable requests. Drain affected
@@ -81,7 +81,7 @@ CLI, Service, managed Skills, Prepare, workstation Wake and diagnostic payloads
 keep their existing execution contracts, so their contract versions and published
 local artifacts need no bump. Audit action set v22 adds `read_channel_file` and
 `post_channel_file`; older action sets exclude both before querying. Migration
-0162 preserves existing publication rows and widens the destination check; its
+0165 preserves existing publication rows and widens the destination check; its
 table rebuild uses D1-compatible deferred foreign keys. No binding changes.
 Normal frozen result placement,
 RuntimeCoordinator ownership and separate business-App consent remain unchanged;
@@ -120,6 +120,12 @@ creation/resolution, all-recipient read/resolution, both provider variants and
 updating the original bot with another manager. Browser evidence remains separate.
 
 ## Remaining native product capabilities
+
+The current-main integration assigns native attachment tools their own shared
+work-activity keys and Web presentation. Deploy the compatible Core and Web
+readers before Remote Agent emits `message_channel.file.read` or
+`message_channel.file.send`; older strict activity readers reject these keys.
+This remains a cloud-native tool path, with no new CLI or Service producer.
 
 1. Broader authorized chat read/write tools and inline output images.
 2. Typed actions and current-chat Routine destinations through canonical owners.

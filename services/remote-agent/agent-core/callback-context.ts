@@ -191,7 +191,7 @@ export type RemoteAgentCallbackContext = {
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   anonymousIdentityBoundary?: RemoteAgentAnonymousIdentityBoundary;
   bindingId: string;
   callbackAttempts: number;

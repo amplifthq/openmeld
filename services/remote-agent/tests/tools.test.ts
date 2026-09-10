@@ -28,6 +28,7 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   getRemoteAgentOpenMeldToolDefinitions as buildRemoteAgentOpenMeldToolDefinitions,
@@ -3561,6 +3562,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         "openmeld_list_agent_tasks"
       ),
       limit: 5,
+      speakerMember: { memberId: "member_123", userId: "user_1" },
     });
   });
 
@@ -5252,32 +5254,28 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
-  it("refuses product tools without submission owner context", async () => {
+  it("uses the Organization Agent principal without borrowing its creator's identity", () => {
     const request = createSubmitTurnRequest();
-    const storage = new InMemoryDurableObjectStorage();
     const context: RemoteAgentCallbackContext = {
       ...createRemoteAgentCallbackContext({
         ack: ACK,
         nowMs: TEST_NOW_MS,
         request,
       }),
-      agentProfileOwnerUserId: "",
+      agentProfileOwnerUserId: null,
     };
-    await putRemoteAgentCallbackContext(storage, context);
-    const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: {
-        centerAgentCreateAgentProfile: vi.fn(),
-      },
-      storage,
-    });
-
-    await expect(
-      executeTool(tools, "openmeld_create_agent_profile", {
-        profileName: "Release Agent",
-      })
-    ).rejects.toThrow(
-      "OpenMeld product tools require the Remote Agent submission owner context."
-    );
+    const actor = buildRemoteAgentCoreContext(
+      context,
+      "ownership-test"
+    ).actorContext;
+    expect(actor.callerPrincipalId).toBe(request.agentProfileId);
+    expect(actor).not.toHaveProperty("ownerUserId");
+    expect(
+      buildRemoteAgentCoreContext(
+        { ...context, agentProfileOwnerUserId: "legacy-creator" },
+        "ownership-test"
+      ).actorContext
+    ).toEqual(actor);
   });
 
   it("does not send a request when Organization feedback reporting is disabled", async () => {
@@ -6525,8 +6523,7 @@ function expectedHostedCenterAgentContext(
     activeOrganizationId: request.organizationId,
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: request.agentProfileOwnerUserId,
-      ownerUserId: request.agentProfileOwnerUserId,
+      callerPrincipalId: request.agentProfileId,
       profileKind: "agent",
       requestId: `remote-agent-tool:${toolName}:flue_submission_123`,
       openMeldProfileId: request.agentProfileId,

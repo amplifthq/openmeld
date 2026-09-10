@@ -332,7 +332,7 @@ export const centerAgentDesignationSchema = z.strictObject({
   organizationId: trimmedNonEmptyStringSchema,
   agentProfileId: agentProfileIdSchema,
   duty: z.null(),
-  designatedBy: trimmedNonEmptyStringSchema,
+  designatedBy: trimmedNonEmptyStringSchema.nullable(),
   createdAt: ISO_DATE_TIME_SCHEMA,
 });
 
@@ -996,12 +996,14 @@ export const centerAgentWakePublicationCommandSchema = z
   });
 
 export const centerAgentWatchAgentTaskBodySchema = z.strictObject({
+  speakerMember: centerAgentToolSpeakerSchema.optional(),
   completionCondition: agentTaskCompletionConditionSchema,
   instruction: z.string().trim().min(1).max(4000),
   task: agentTaskHandleSchema,
 });
 
 export const centerAgentListAgentTasksBodySchema = z.strictObject({
+  speakerMember: centerAgentToolSpeakerSchema.optional(),
   agentControllerRef: agentControllerRefSchema.optional(),
   limit: z.int().min(1).max(20).optional(),
 });

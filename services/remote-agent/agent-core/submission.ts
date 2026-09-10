@@ -56,7 +56,7 @@ export type RemoteAgentAdmissionImage =
 
 export type RemoteAgentSubmissionMetadata = {
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   authorDisplayName: string | null;
   bindingId: string;
   dispatchId: string;
@@ -478,6 +478,7 @@ function renderRemoteAgentConversationContinuityContext(
       occurredAt: entry.occurredAt,
       source: entry.source,
       text: entry.content.text,
+      ...(entry.reactions ? { reactions: entry.reactions } : {}),
       truncated: entry.content.truncated,
     })
   );
