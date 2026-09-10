@@ -16,7 +16,7 @@ import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentProfileSidebarItem } from "./agent-profile-sidebar-item";
 
 const AGENT_REQUESTS_DESCRIPTION =
-	"Approve requests for Agents you’re being asked to own, and track requests you sent.";
+	"Track Agent creation and finish any remaining setup.";
 
 export type AgentProfilesWorkspaceProps = {
 	canCreateAgent?: boolean;
@@ -192,7 +192,7 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 			<header className="space-y-1">
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<div className="min-w-0">
-						<h1 className="font-semibold text-xl">Agent requests</h1>
+						<h1 className="font-semibold text-xl">Agent setup</h1>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
 							{AGENT_REQUESTS_DESCRIPTION}
 						</p>
@@ -305,7 +305,7 @@ function AgentWorkspaceHeader(input: AgentProfilesWorkspaceProps) {
 										onClick={() => input.onViewChange("requests")}
 										variant="ghost"
 									>
-										Agent requests
+										Agent setup
 										{input.pendingRequestCount > 0
 											? ` (${input.pendingRequestCount})`
 											: ""}

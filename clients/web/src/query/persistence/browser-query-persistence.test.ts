@@ -295,6 +295,32 @@ describe("BrowserQueryPersistenceController", () => {
 			spaceStorage,
 			spaceQueryKeys.history("space-a", "profile-a")
 		);
+		const directory = {
+			version: 1,
+			members: [
+				{
+					profileId: "agent-a",
+					profileName: "Runner",
+					profileKind: "agent",
+					primaryMentionLabel: "runner",
+					avatarUrl: null,
+					agentControllerRef: null,
+				},
+			],
+		};
+		sourceQueryClient.setQueryData(
+			spaceQueryKeys.memberDirectoryDisplay("space-a", "profile-a"),
+			directory
+		);
+		sourceQueryClient.setQueryData(
+			spaceQueryKeys.members("space-a", "profile-a"),
+			{ wakeAvailability: "ready" }
+		);
+		await waitForStoredQuery(
+			spaceStorage,
+			spaceQueryKeys.memberDirectoryDisplay("space-a", "profile-a")
+		);
+
 		await sourceController.activateSpaceConversation({
 			organizationId: "organization-a",
 			organizationSlug: "organization-a",
@@ -361,6 +387,22 @@ describe("BrowserQueryPersistenceController", () => {
 				"profile-a",
 			])
 		).toEqual(displaySnapshot);
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceQueryKeys.memberDirectoryDisplay("space-a", "profile-a")
+			)
+		).toEqual(directory);
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceQueryKeys.members("space-a", "profile-a")
+			)
+		).toBeUndefined();
+		expect(
+			restoredQueryClient.getQueryData(
+				spaceQueryKeys.memberDirectoryDisplay("space-a", "profile-b")
+			)
+		).toBeUndefined();
+
 		expect(
 			restoredQueryClient.getQueryState(
 				spaceQueryKeys.history("space-a", "profile-a")

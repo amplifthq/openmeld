@@ -38,6 +38,8 @@ import {
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchResultService from "../dispatch/application/dispatch-result-service";
 import { writeDispatchResult } from "../dispatch/application/dispatch-result-service";
+// biome-ignore lint/performance/noNamespaceImport: The Space authority RPC is independently covered with real SQL storage.
+import * as deviceWaitAccess from "../dispatch/application/wake-device-wait";
 // biome-ignore lint/performance/noNamespaceImport: Needed for per-test spy of module exports.
 import * as dispatchLedgerD1 from "../dispatch/infrastructure/d1/dispatch-ledger-d1";
 import {
@@ -685,6 +687,7 @@ describe("handleDispatchQueueBatch", () => {
       | "service.update_required"
       | "usage_checking"
       | "usage_exhausted"
+      | "working_folder.report_stale"
       | "working_folder.observation_coverage_invalid";
     targetProfileId: string;
   }): CoreAgentExecutionReadiness => {
@@ -9937,6 +9940,374 @@ describe("handleDispatchQueueBatch", () => {
       },
     });
     await expect(preflight).resolves.toMatchObject({ ok: true });
+  });
+
+  it.each([
+    false,
+    true,
+  ])("admits only the explicitly pinned device while offline (reconnecting: %s) and rechecks its current readiness", async (reconnecting) => {
+    const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const deviceWait = {
+      targetProfileId,
+      bindingId: `binding-${targetProfileId}`,
+      openMeldServiceRuntimeId: `runtime-${targetProfileId}`,
+      deadlineAtMs: Date.now() + 60_000,
+    };
+    const message = {
+      ...createDispatchBody({
+        targetProfileId,
+        dispatchId: "device-wait",
+        sourceEventId: "device-wait-source",
+        visitedProfileIdsHash: "stable32:device-wait",
+      }),
+      deviceWait,
+    };
+    const ready = createCanonicalWorkstationReadiness({ targetProfileId });
+    const offline = {
+      ...ready,
+      agentExecutionReadiness: resolveAgentExecutionStatus({
+        agentProfileId: targetProfileId,
+        binding: ready.primaryBinding,
+        route: {
+          status: "offline",
+          reasonCodes: ["daemon.profile.offline"],
+          observedAt: new Date().toISOString(),
+        },
+        localService: {
+          reachable: false,
+          reasonCodes: [
+            reconnecting
+              ? "local_service.reconnecting"
+              : "local_service.not_connected_for_account",
+          ],
+          refreshable: reconnecting,
+          source: "runtime_transport",
+        },
+        runtimeReadiness: {
+          displayState: "ready",
+          ready: true,
+          reasonCodes: ["runtime.ready"],
+        },
+      }),
+      wakeRouteStatus: { status: "offline" as const },
+    };
+    const read = vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    );
+    read.mockResolvedValueOnce(offline);
+    await expect(
+      runDispatchExecutionPreflightGate({ env: makeEnvWithBindings(), message })
+    ).resolves.toMatchObject({
+      ok: true,
+      deviceWaitReason: "daemon.profile.offline",
+    });
+    read.mockResolvedValueOnce(offline);
+    vi.spyOn(
+      deviceWaitAccess,
+      "checkDeviceWaitingWakeAccess"
+    ).mockResolvedValue(true);
+    const offlineDelivery = createQueueMessage(message, 1);
+    await handleDispatchQueueBatch({
+      batch: {
+        messages: [offlineDelivery],
+      } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+    expect(offlineDelivery.ack).toHaveBeenCalledOnce();
+    expect(offlineDelivery.retry).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadWaiting
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        waiting: expect.objectContaining({
+          reasonCode: "daemon.profile.offline",
+        }),
+      })
+    );
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "runtime_coordinator.device_waiting",
+      })
+    );
+    for (const runtimeReasonCode of [
+      "usage_checking",
+      "working_folder.observation_coverage_invalid",
+      "working_folder.report_stale",
+    ] as const) {
+      read.mockResolvedValueOnce(
+        createCanonicalWorkstationReadiness({
+          targetProfileId,
+          runtimeReasonCode,
+        })
+      );
+      await expect(
+        runDispatchExecutionPreflightGate({
+          env: makeEnvWithBindings(),
+          message,
+        })
+      ).resolves.toMatchObject({
+        ok: true,
+        deviceWaitReason: "wake.device_wait.readiness_checking",
+      });
+    }
+    read.mockResolvedValueOnce(ready);
+    const online = await runDispatchExecutionPreflightGate({
+      env: makeEnvWithBindings(),
+      message,
+    });
+    expect(online.ok).toBe(true);
+    expect(online).not.toHaveProperty("deviceWaitReason");
+    await expect(
+      runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message: {
+          ...message,
+          deviceWait: { ...deviceWait, bindingId: "different-binding" },
+        },
+      })
+    ).resolves.toMatchObject({
+      ok: false,
+      errorCode: "local_service.identity_mismatch",
+    });
+    read.mockResolvedValueOnce(
+      createCanonicalWorkstationReadiness({
+        targetProfileId,
+        runtimeReasonCode: "controller.registry.disabled",
+      })
+    );
+    await expect(
+      runDispatchExecutionPreflightGate({ env: makeEnvWithBindings(), message })
+    ).resolves.toMatchObject({
+      ok: false,
+      errorCode: "controller.registry.disabled",
+    });
+  });
+
+  it("does not admit execution when an offline refreshing projection falls through device waiting", async () => {
+    const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const readiness = createCanonicalWorkstationReadiness({
+      targetProfileId,
+      runtimeReasonCode: "controller.registry.disabled",
+    });
+    const runtime = await import("@openmeld/agent-runtime");
+    const availability = runtime.resolveAgentWakeAvailability({
+      agentControllerRef: readiness.agentControllerRef,
+      agentWakeRouteRegistration: readiness.agentWakeRouteRegistration,
+      readiness: readiness.agentExecutionReadiness,
+      wakeRouteStatus: readiness.wakeRouteStatus,
+    });
+    const projection = vi
+      .spyOn(runtime, "resolveAgentWakeAvailability")
+      .mockReturnValueOnce({
+        ...availability,
+        category: "offline",
+        isRefreshing: true,
+      });
+    vi.mocked(
+      agentExecutionReadinessService.resolveCoreAgentExecutionReadinessForProfile
+    ).mockResolvedValueOnce(readiness);
+    try {
+      const message = createDispatchBody({
+        dispatchId: "refreshing-offline",
+        sourceEventId: "refreshing-offline-source",
+        targetProfileId,
+        visitedProfileIdsHash: "stable32:refreshing-offline",
+      });
+      const result = await runDispatchExecutionPreflightGate({
+        env: makeEnvWithBindings(),
+        message: {
+          ...message,
+          deviceWait: {
+            bindingId: `binding-${targetProfileId}`,
+            openMeldServiceRuntimeId: `runtime-${targetProfileId}`,
+            targetProfileId,
+            deadlineAtMs: Date.now() + 60_000,
+          },
+        },
+      });
+      expect(projection).toHaveBeenCalledOnce();
+      expect(result).toMatchObject({
+        ok: false,
+        canonicalAdmissionBlock: true,
+        errorCode: "controller.registry.disabled",
+      });
+      expect(result).not.toHaveProperty("deviceWaitReason");
+    } finally {
+      projection.mockRestore();
+    }
+  });
+
+  it.each([
+    true,
+    false,
+  ])("retains access-check outages in the Coordinator wait and rechecks access on redrive (allowed: %s)", async (allowed) => {
+    const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const body = {
+      ...createDispatchBody({
+        dispatchId: "device-wait-access-outage",
+        sourceEventId: "device-wait-access-source",
+        targetProfileId,
+        visitedProfileIdsHash: "stable32:device-wait-access",
+      }),
+      deviceWait: {
+        bindingId: `binding-${targetProfileId}`,
+        openMeldServiceRuntimeId: `runtime-${targetProfileId}`,
+        targetProfileId,
+        deadlineAtMs: Date.now() + 60_000,
+      },
+    };
+    const access = vi
+      .spyOn(deviceWaitAccess, "checkDeviceWaitingWakeAccess")
+      .mockRejectedValueOnce(new Error("Space access temporarily unavailable"))
+      .mockResolvedValueOnce(allowed);
+    const first = createQueueMessage(body, 1);
+    const env = makeEnvWithBindings();
+    await handleDispatchQueueBatch({
+      batch: { messages: [first] } as unknown as MessageBatch<unknown>,
+      env,
+    });
+    expect(first.ack).toHaveBeenCalledOnce();
+    expect(first.retry).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadWaiting
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        waiting: expect.objectContaining({
+          dispatchId: body.dispatchId,
+          reasonCode: "wake.device_wait.access_check_unavailable",
+        }),
+      })
+    );
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "runtime_coordinator.device_waiting",
+      })
+    );
+    vi.spyOn(
+      runtimeCoordinatorClient,
+      "readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace"
+    ).mockImplementation(async ({ request }) => ({
+      ok: true,
+      readStatus: "found",
+      lifecycle: {
+        createdAtMs: Date.now(),
+        duplicateDispatchCount: 0,
+        executionLinkedAtMs: null,
+        modelVersion: "openmeld.runtime_coordinator.head_lifecycle.v1",
+        noExecutionDecision: null,
+        ownerUserId: "owner-default",
+        primaryDispatchId: body.dispatchId,
+        publicationIntent: null,
+        runtimeCoordinatorExecutionId: null,
+        status: "waiting",
+        targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
+        targetWakeLifecycleId:
+          request.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+        updatedAtMs: Date.now(),
+        waitingBoundary: {
+          reasonCode: "wake.device_wait.access_check_unavailable",
+          trigger: "space_access_rechecked",
+          userRecoveryAction: "check_status",
+          userVisibleState: "waiting_for_space_access",
+          waitingCategory: "space_access_unavailable",
+          waitingFor: "space_access_check",
+          deadlineAtMs: body.deviceWait.deadlineAtMs,
+          deadlineOutcome: "publication_intent_ready",
+          observedAtMs: Date.now(),
+          softDeadlineAtMs: Date.now() + 30_000,
+          triggerOwner: "runtime_coordinator",
+          waitingSinceMs: Date.now(),
+        },
+      },
+    }));
+    const redrive = createQueueMessage(
+      { ...body, deliveryRecoveryReason: "route_lost" },
+      2
+    );
+    await handleDispatchQueueBatch({
+      batch: { messages: [redrive] } as unknown as MessageBatch<unknown>,
+      env,
+    });
+    expect(access).toHaveBeenCalledTimes(2);
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    expect(redrive.ack).toHaveBeenCalledOnce();
+    if (!allowed) {
+      expect(
+        runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadNoExecution
+      ).toHaveBeenCalledWith(
+        expect.objectContaining({
+          noExecution: expect.objectContaining({
+            reasonCode: "wake.device_wait.access_revoked",
+          }),
+        })
+      );
+    }
+  });
+
+  it("keeps an explicit wait parked when a connected Service has not opened dispatch admission", async () => {
+    const targetProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const route = vi.mocked(daemonTransportClient.lookupRuntimeTransportRoute);
+    const original = route.getMockImplementation();
+    if (!original) {
+      throw new Error("Expected captured route fixture");
+    }
+    route.mockImplementation(async (...args) => ({
+      ...(await original(...args)),
+      acceptingDispatches: false,
+    }));
+    vi.spyOn(
+      deviceWaitAccess,
+      "checkDeviceWaitingWakeAccess"
+    ).mockResolvedValue(true);
+    const body = createDispatchBody({
+      dispatchId: "wait-draining",
+      sourceEventId: "wait-draining-source",
+      targetProfileId,
+      visitedProfileIdsHash: "stable32:wait-draining",
+    });
+    const message = createQueueMessage(
+      {
+        ...body,
+        deviceWait: {
+          targetProfileId,
+          bindingId: `binding-${targetProfileId}`,
+          openMeldServiceRuntimeId: `runtime-${targetProfileId}`,
+          deadlineAtMs: Date.now() + 60_000,
+        },
+      },
+      1
+    );
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(),
+    });
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(message.retry).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(
+      runtimeCoordinatorClient.recordRuntimeTransportRuntimeCoordinatorHeadWaiting
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        waiting: expect.objectContaining({
+          reasonCode: "daemon.service.draining",
+        }),
+      })
+    );
+    expect(markDispatchStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        errorCode: "runtime_coordinator.device_waiting",
+      })
+    );
   });
 
   it("blocks workstation Wake when reliable fresh Usage is exhausted", async () => {

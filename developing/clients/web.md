@@ -3324,9 +3324,12 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
-Wake outcomes are message-scoped results, not standalone system announcements.
-Their rows and failure footers do not use system-event divider lines. Message
-details labels the persisted notice text as **Recorded outcome** and preserves
+Wake outcomes retain their message-scoped placement. Stopped outcomes reuse the
+shared Marker separator presentation: centered muted text between divider lines,
+without an Agent avatar or stop icon. The text still opens Message details when
+available. Failures and failure footers keep their compact non-divider treatment.
+This presentation does not create another system notice or change cancellation.
+Message details labels the persisted notice text as **Recorded outcome** and preserves
 its full public explanation, including unfamiliar failure codes. Current
 recovery eligibility supplies actions separately; it must not replace the
 recorded explanation with a generic failure summary or imply that an old
@@ -3685,6 +3688,19 @@ truth.
 Wake details and waterfalls help the user understand what happened to one Wake.
 They must show evidence as evidence: queued, routed, delivered, running,
 replied, failed, missing, pending, or degraded.
+
+Offline computer waiting uses progressive disclosure in both composers:
+**Send and wait** appears only for one current offline/reconnecting target, with
+a fixed 24-hour explanation. The current Agent Binding supplies the computer;
+there is no device or deadline form. The deadline starts when the action is
+clicked. Current admission still rechecks the frozen selector before publication.
+Ordinary online Send and Reference-only authoring retain their existing meaning.
+The timeline keeps waiting copy short, while Message details show its reason and
+exact local expiry. **Cancel waiting** uses the existing projected Stop authority
+and confirmation. Expired waits expose **Send again**, which prepares a draft
+referencing the original message for only the expired Agent, without overwriting
+another draft. A later send uses ordinary new-message admission and identity;
+this UI does not redrive an expired or partly executed Wake.
 
 Active Wake progress must survive browser refreshes by reading the Core/Space
 Wake progress read model. Browser-local progress state may provide immediate

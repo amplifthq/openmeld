@@ -2065,6 +2065,11 @@ function SpaceLandingConversation({
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
 			onAgentRecoveryAction={handleAgentRecoveryAction}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
+			onComposeExpiredDeviceWait={
+				controller.status.allowedActions.includes("post_message")
+					? controller.onComposeExpiredDeviceWait
+					: undefined
+			}
 			onComposerEditorChange={controller.onComposerEditorChange}
 			onCreateThread={controller.onCreateThread}
 			onJumpToDate={controller.onJumpToDate}
@@ -2608,6 +2613,11 @@ function SpaceLandingSecondaryPanels({
 				onAgentInteractionResponse={controller.onAgentInteractionResponse}
 				onAgentRecoveryAction={handleAgentRecoveryAction}
 				onClose={controller.onCloseThread}
+				onComposeExpiredDeviceWait={
+					controller.status.allowedActions.includes("post_message")
+						? controller.onThreadComposeExpiredDeviceWait
+						: undefined
+				}
 				onComposerEditorChange={controller.onThreadComposerEditorChange}
 				onMentionButtonClick={controller.onThreadMentionButtonClick}
 				onOpenSpaceFile={(fileId, revision) => {

@@ -76,6 +76,7 @@ const buildPostSignalCoreRpcInput = (input: {
   spaceId: input.spaceId,
   profile: input.profile,
   text: input.parsed.text,
+  ...(input.parsed.deviceWait ? { deviceWait: input.parsed.deviceWait } : {}),
   authoringPolicy: "user_authored" as const,
   ...(input.parsed.attachments
     ? { attachments: input.parsed.attachments }
@@ -411,18 +412,24 @@ export function registerSignalsRoutes(app: Hono<HonoBindings>): void {
         const profile = buildProfileDisplay(c.var.resolvedProfile);
         let signal: Awaited<ReturnType<typeof c.var.coreRpc.postSignal>>;
         try {
-          signal = await c.var.coreRpc.postSignal(
-            buildPostSignalCoreRpcInput({
-              context: buildCoreRpcContext(c),
-              parsed: parsed.value,
-              password,
-              profile,
-              spaceId,
-            }),
-            supportsCurrentSpaceAddressing(c.req.raw.headers)
-              ? OPENMELD_SPACE_ADDRESSING_VERSION
-              : undefined
-          );
+          const postInput = buildPostSignalCoreRpcInput({
+            context: buildCoreRpcContext(c),
+            parsed: parsed.value,
+            password,
+            profile,
+            spaceId,
+          });
+          const addressingVersion = supportsCurrentSpaceAddressing(
+            c.req.raw.headers
+          )
+            ? OPENMELD_SPACE_ADDRESSING_VERSION
+            : undefined;
+          signal = parsed.value.deviceWait
+            ? await c.var.coreRpc.postDeviceWaitingSignal(
+                postInput,
+                addressingVersion
+              )
+            : await c.var.coreRpc.postSignal(postInput, addressingVersion);
         } catch (error) {
           emitGatewaySignalPostRuntimeEvidence({
             env: c.env,

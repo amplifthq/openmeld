@@ -46,10 +46,10 @@ export type RemoteAgentRoutineExternalWriteUnsupportedResult = {
   unsupported: { requiredMessage: string };
 };
 
-type DestructiveConfirmationRequiredResult = {
+type DestructiveActionPreviewResult = {
   confirmation: Record<string, string> & { requiredMessage: string };
   sideEffects: 0;
-  status: "destructive_confirmation_required";
+  status: "destructive_action_preview";
 };
 
 export async function resolveRemoteAgentDestructiveAuthorization(input: {
@@ -70,7 +70,7 @@ export async function resolveRemoteAgentDestructiveAuthorization(input: {
   | {
       authorized: false;
       result:
-        | DestructiveConfirmationRequiredResult
+        | DestructiveActionPreviewResult
         | RemoteAgentRoutineDestructiveActionUnsupportedResult;
     }
 > {
@@ -112,11 +112,11 @@ export async function resolveRemoteAgentDestructiveAuthorization(input: {
     authorized: false,
     result: {
       confirmation: {
-        requiredMessage: `This action will ${input.actionDescription}. Because deleting or merging can be difficult to undo, reply to confirm this exact action.`,
+        requiredMessage: `This action will ${input.actionDescription}. If the verified user already authorized this exact action and target, use the token with unchanged input now. Otherwise ask for that authorization before using it. The token binds the action; it does not grant user permission.`,
         [input.tokenFieldName]: token,
       },
       sideEffects: 0,
-      status: "destructive_confirmation_required",
+      status: "destructive_action_preview",
     },
   };
 }
@@ -227,10 +227,7 @@ async function consumeDestructiveConfirmation(input: {
 }): Promise<boolean> {
   const key = `${DESTRUCTIVE_CONFIRMATION_KEY_PREFIX}${input.token}`;
   const preview = await input.storage.get<DestructiveConfirmationRecord>(key);
-  if (
-    !destructiveConfirmationRecordsMatch(preview, input.expected) ||
-    preview.issuedBySubmissionId === input.expected.issuedBySubmissionId
-  ) {
+  if (!destructiveConfirmationRecordsMatch(preview, input.expected)) {
     return false;
   }
   const stored =

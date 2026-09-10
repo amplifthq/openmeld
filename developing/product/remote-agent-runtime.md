@@ -246,8 +246,15 @@ Live View, and human takeover are outside this increment. Existing browser
 Quick Actions remain available. The browser facet does not own Agent scheduling.
 
 Completion must not write personal conversation content into Center Agent
-memory. Organization administration, personal Channels, Routines, and Center
-memory remain excluded. Shared infrastructure does not confer Center duties.
+memory. Organization administration, personal Channels, and Center memory
+remain excluded. Shared infrastructure does not confer Center duties.
+
+Personal Agents expose the six shared Routine management tools, scoped to their
+verified owner and exact Agent identity. The shared Core scheduler runs them
+through personal v4 conversations and returns results to the owner's DM or an
+eligible Space. Routine admission verifies the frozen delegated owner rather
+than requiring the Center Agent as the request author. See
+`center-agent-routines.md` for authority, lifecycle, and rollout requirements.
 
 Rollout is Core first, then Remote Agent: the latter now uses the additive
 `authorize` personal-tool operation before invoking shared capabilities. Old
@@ -1874,8 +1881,9 @@ surface adopts official features where they are free**:
   member from the durable turn, call private Core RPC, and use the same
   represented-member authority as Web and CLI. Explicit create, update, pause,
   and resume requests execute without another confirmation. Interactive delete
-  requires one separate confirmation backed by a one-time Remote Agent token;
-  the first call ends the turn and the exact confirmed second call executes.
+  uses a one-time Remote Agent token bound to the exact action. An already
+  authorized request may consume it in the same turn; otherwise the Agent asks
+  before execution. The preview itself does not force the turn to end.
   Core remains the represented-member authorization layer.
 
   A Routine turn inherits the executable interactive catalog by default. This
@@ -1962,8 +1970,8 @@ surface adopts official features where they are free**:
   fingerprint, local connection state, or absolute paths. Mutations carry
   durable operation IDs; Core replays matching retries and rejects an operation
   ID reused with different input. Remove requires a short-lived Core token
-  prepared for the exact Project and consumed after explicit confirmation in a
-  later interactive member turn. Routine turns may list, create, update, and
+  prepared for the exact Project and consumed in the same interactive turn
+  when the verified request already authorizes removal. Routine turns may list, create, update, and
   select Default Project under the same represented-member and idempotency
   contracts without free-text permission evidence. Project removal during a
   Routine is unsupported in both Remote Agent and Core and returns

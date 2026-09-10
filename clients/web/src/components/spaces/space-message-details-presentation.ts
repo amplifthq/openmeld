@@ -269,6 +269,12 @@ function applyWakeProgressEntries(input: {
 			continue;
 		}
 		target.description = entry.text.trim() || entry.step.label;
+		if (
+			entry.step.kind === "waiting_for_device" ||
+			(entry.step.kind === "queued" && entry.step.status === "pending")
+		) {
+			target.description += `. ${entry.step.description}`;
+		}
 		target.occurredAtMs = entry.elapsedStartedAtMs;
 		target.status = entry.step.status === "failed" ? "failed" : "running";
 	}

@@ -82,6 +82,7 @@ import {
   runtimeCoordinatorFinalizationCommandSchema,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_AGENT_REPLY_CONTEXT_CHANGED_ERROR_CODE,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
   SPACE_MESSAGE_CHANGED_PURPOSE,
   SPACE_PASSWORD_MIN_LENGTH,
   SPACE_WAKE_CLIENT_MESSAGE_ID_REQUIRED_MESSAGE,
@@ -113,8 +114,10 @@ import {
   spaceThreadContextSchema,
   spaceViewerMembershipResponseSchema,
   toLegacySpaceAddressingWireValue,
+  toSpaceSignalReadWireValue,
   updateSpaceFileEntryBodySchema,
   validateSpaceSignalClientMessageIdPolicy,
+  wakeDeviceWaitAccessRequestSchema,
 } from "@openmeld/schemas";
 import type {
   ConvertDirectMessageToSpaceResponse,
@@ -487,6 +490,7 @@ import { authorizeSpacePublicationModeChange } from "../../application/space-pub
 import { measureSpaceSchemaInitialization } from "../../application/space-schema-observability";
 import {
   assertSpaceSignalNavigationActionPolicy,
+  assertWakeDeviceWaitAuthoring,
   buildSignalTextOptions,
   handlePostSignalUseCase,
   publishPresenceSignalUseCase,
@@ -1116,6 +1120,11 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
 
   return createDispatchOutboxRecord({
     bindingEnabled: true,
+    ...(input.signal.type === "signal.text" &&
+    input.signal.data.deviceWait?.targetProfileId ===
+      input.decision.targetProfileId
+      ? { deviceWait: input.signal.data.deviceWait }
+      : {}),
     bindingState: "bound",
     continuitySnapshot,
     ...(dispatchOwner ? { dispatchOwner } : {}),
@@ -4252,6 +4261,7 @@ export class Space extends DurableObject<CoreBindings> {
         type: "signal.text",
         data: {
           text: normalizedText,
+          ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
           ...(input.attachments ? { attachments: input.attachments } : {}),
           ...(input.files ? { files: input.files } : {}),
           ...(input.messageEnvelope
@@ -4358,6 +4368,7 @@ export class Space extends DurableObject<CoreBindings> {
     input: PostSignalOnceByClientMessageIdInput;
   }): PostSignalInput {
     return {
+      ...(input.input.deviceWait ? { deviceWait: input.input.deviceWait } : {}),
       ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
       authoringPolicy: input.input.authoringPolicy,
       ...(input.input.attachments
@@ -6997,6 +7008,67 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonResult(response);
   }
 
+  async rpcCheckDeviceWaitingWakeAccess(
+    request: import("@openmeld/schemas/types").WakeDeviceWaitAccessRequest
+  ): Promise<import("@openmeld/schemas/types").WakeDeviceWaitAccessResponse> {
+    const parsed = wakeDeviceWaitAccessRequestSchema.safeParse(request);
+    if (!parsed.success) {
+      throw new Error("Invalid device waiting Wake access request.");
+    }
+    const input = parsed.data;
+    this.applySpaceRef(input.spaceId);
+    const record = readDispatchOutboxRecordByDispatchId(
+      this.ctx.storage.sql,
+      input.dispatchId
+    );
+    if (
+      !record?.deviceWait ||
+      record.sourceEventId !== input.sourceSignalId ||
+      record.targetProfileId !== input.targetProfileId ||
+      record.organizationId !== this.readSpaceMetaRecord()?.organizationId
+    ) {
+      return { allowed: false };
+    }
+    const source = record.sourceSignalSnapshot;
+    // The outbox fixes the source Profile, not a send-time owner permission.
+    // Re-read its current Space membership projection on every attempt; the
+    // owner snapshot only reconstructs the actor for the live access gate below.
+    const sourceMember = source?.profileId
+      ? readSpaceMemberRecord(this.ctx.storage.sql, source.profileId)
+      : null;
+    const targetMember = readSpaceMemberRecord(
+      this.ctx.storage.sql,
+      input.targetProfileId
+    );
+    if (
+      sourceMember?.status !== "active" ||
+      targetMember?.status !== "active" ||
+      !sourceMember.ownerUserIdSnapshot ||
+      (source?.profileKind !== "human" && source?.profileKind !== "agent")
+    ) {
+      return { allowed: false };
+    }
+    const access = await this.authorizeWritableSpaceAccess(
+      createAuthenticatedSpaceAccessContext({
+        spaceId: this.spaceId,
+        // Both Profiles must still be members. Recheck that live authority
+        // without replaying a send-time password as an alternative credential.
+        requestContext: {
+          actorContext: {
+            requestId: `device-wait-access:${input.dispatchId}`,
+            openMeldProfileId: sourceMember.profileId,
+            ownerUserId: sourceMember.ownerUserIdSnapshot,
+            profileKind: source.profileKind,
+          },
+        },
+      })
+    );
+    if (!access.ok && access.response.status >= 500) {
+      throw new Error("Device waiting Wake access is unavailable.");
+    }
+    return { allowed: access.ok };
+  }
+
   async rpcGetClaimTimeLiveness(
     input: SpaceClaimTimeLivenessInput
   ): Promise<SpaceClaimTimeLivenessResult> {
@@ -7129,6 +7201,9 @@ export class Space extends DurableObject<CoreBindings> {
     if (input.includeWaitReason === true) {
       url.searchParams.set("includeWaitReason", "true");
     }
+    if (input.includeDeviceWait === true) {
+      url.searchParams.set("includeDeviceWait", "true");
+    }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
     }
@@ -7170,6 +7245,9 @@ export class Space extends DurableObject<CoreBindings> {
     }
     if (input.includeWaitReason === true) {
       url.searchParams.set("includeWaitReason", "true");
+    }
+    if (input.includeDeviceWait === true) {
+      url.searchParams.set("includeDeviceWait", "true");
     }
     if (typeof input.targetProfileId === "string") {
       url.searchParams.set("targetProfileId", input.targetProfileId);
@@ -9389,6 +9467,7 @@ export class Space extends DurableObject<CoreBindings> {
         toProtocolProfile(input.context),
         parsed.data.text,
         {
+          deviceWait: parsed.data.deviceWait,
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
@@ -10048,6 +10127,7 @@ export class Space extends DurableObject<CoreBindings> {
           includeTiming: url.searchParams.get("includeTiming"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
+          includeDeviceWait: url.searchParams.get("includeDeviceWait"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
@@ -10082,6 +10162,7 @@ export class Space extends DurableObject<CoreBindings> {
                 includePreviewText: parsed.data.includePreviewText === true,
                 includeSourceContext: parsed.data.includeSourceContext === true,
                 includeWaitReason: parsed.data.includeWaitReason === true,
+                includeDeviceWait: parsed.data.includeDeviceWait === true,
                 includeWakeStopEligibility:
                   parsed.data.includeWakeStopEligibility === true,
                 ...(parsed.data.targetProfileId
@@ -10763,6 +10844,7 @@ export class Space extends DurableObject<CoreBindings> {
           includePreviewText: url.searchParams.get("includePreviewText"),
           includeSourceContext: url.searchParams.get("includeSourceContext"),
           includeWaitReason: url.searchParams.get("includeWaitReason"),
+          includeDeviceWait: url.searchParams.get("includeDeviceWait"),
           includeWakeStopEligibility: url.searchParams.get(
             "includeWakeStopEligibility"
           ),
@@ -10787,6 +10869,7 @@ export class Space extends DurableObject<CoreBindings> {
               includePreviewText: parsed.data.includePreviewText === true,
               includeSourceContext: parsed.data.includeSourceContext === true,
               includeWaitReason: parsed.data.includeWaitReason === true,
+              includeDeviceWait: parsed.data.includeDeviceWait === true,
               includeWakeStopEligibility:
                 parsed.data.includeWakeStopEligibility === true,
               ...(parsed.data.targetProfileId
@@ -14206,6 +14289,7 @@ export class Space extends DurableObject<CoreBindings> {
       type: "signal.text",
       data: {
         text,
+        ...(options?.deviceWait ? { deviceWait: options.deviceWait } : {}),
         ...(options?.attachments ? { attachments: options.attachments } : {}),
         ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
@@ -15020,6 +15104,11 @@ export class Space extends DurableObject<CoreBindings> {
       sql: this.ctx.storage.sql,
     });
     if (!plannerContext) {
+      assertWakeDeviceWaitAuthoring({
+        signal,
+        targetProfileIds: [],
+        nowMs: Date.now(),
+      });
       assertVisibleWakeHasPlannerContext(signal, signalContext);
       return {
         nonReadyDecisions: [],
@@ -15043,6 +15132,13 @@ export class Space extends DurableObject<CoreBindings> {
       nonReadyDecisions,
       signal,
       signalContext,
+    });
+    assertWakeDeviceWaitAuthoring({
+      signal,
+      targetProfileIds: mergedReadyDecisions.map(
+        (decision) => decision.targetProfileId
+      ),
+      nowMs: Date.now(),
     });
     const activeMemberRecords = listSpaceMemberRecords(this.ctx.storage.sql, {
       status: "active",
@@ -16632,6 +16728,7 @@ export class Space extends DurableObject<CoreBindings> {
     includePreviewText?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceSignalId?: string | null;
     targetProfileId?: string;
@@ -16725,6 +16822,7 @@ export class Space extends DurableObject<CoreBindings> {
             clientMessageId,
             includeTiming: input.includeTiming === true,
             includeWaitReason: input.includeWaitReason === true,
+            includeDeviceWait: input.includeDeviceWait === true,
             includeWakeStopEligibility:
               input.includeWakeStopEligibility === true,
             lookupMatch,
@@ -16778,6 +16876,7 @@ export class Space extends DurableObject<CoreBindings> {
         ? this.attachWakeProgressSourceContexts(items)
         : items;
     const responseItems = projectWakeProgressItemsForClient({
+      includeDeviceWait: input.includeDeviceWait === true,
       includePreviewText: input.includePreviewText === true,
       items: contextualItems,
     });
@@ -16910,6 +17009,7 @@ export class Space extends DurableObject<CoreBindings> {
     includePageInfo?: boolean;
     includeSourceContext?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     sourceProfileId?: string;
     targetProfileId?: string;
@@ -17088,6 +17188,7 @@ export class Space extends DurableObject<CoreBindings> {
         },
         ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
         items: projectWakeProgressItemsForClient({
+          includeDeviceWait: input.includeDeviceWait === true,
           includePreviewText: input.includePreviewText === true,
           items:
             input.includeSourceContext === true
@@ -17144,6 +17245,7 @@ export class Space extends DurableObject<CoreBindings> {
           includePreviewText: input.includePreviewText === true,
           includeSourceContext: false,
           includeWaitReason: input.includeWaitReason === true,
+          includeDeviceWait: input.includeDeviceWait === true,
           includeWakeStopEligibility: input.includeWakeStopEligibility === true,
         });
       }
@@ -17171,6 +17273,7 @@ export class Space extends DurableObject<CoreBindings> {
       },
       ...(page.pageInfo ? { pageInfo: page.pageInfo } : {}),
       items: projectWakeProgressItemsForClient({
+        includeDeviceWait: input.includeDeviceWait === true,
         includePreviewText: input.includePreviewText === true,
         items:
           input.includeSourceContext === true
@@ -17185,6 +17288,7 @@ export class Space extends DurableObject<CoreBindings> {
     clientMessageId: string | null;
     includeTiming?: boolean;
     includeWaitReason?: boolean;
+    includeDeviceWait?: boolean;
     includeWakeStopEligibility?: boolean;
     lookupMatch: SpaceDispatchLookupMatch;
     nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
@@ -17194,7 +17298,10 @@ export class Space extends DurableObject<CoreBindings> {
     terminalFailureNotices: readonly WakeProgressTerminalFailureNotice[];
   }): Promise<WakeProgressItem> {
     const traceResponse = await this.readSpaceDispatchTrace(
-      input.lookupMatch.dispatchId
+      input.lookupMatch.dispatchId,
+      {
+        responseContractVersion: SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+      }
     ).catch(() => null);
     const trace = traceResponse?.trace ?? null;
     const terminalFailureNotice = findWakeProgressTerminalFailureNotice({
@@ -17238,6 +17345,7 @@ export class Space extends DurableObject<CoreBindings> {
       clientMessageId: input.clientMessageId,
       includeTiming: input.includeTiming === true,
       includeWaitReason: input.includeWaitReason === true,
+      includeDeviceWait: input.includeDeviceWait === true,
       lookupMatch: input.lookupMatch,
       nativeDeliveryEvidence: input.nativeDeliveryEvidence,
       outboxRecord: input.outboxRecord,
@@ -17499,6 +17607,9 @@ export class Space extends DurableObject<CoreBindings> {
         clientMessageId: input.clientMessageId,
         dispatchId: input.outboxRecord.dispatchId,
         failureReasonCode: headLifecycleProgress.errorCode,
+        ...(headLifecycleProgress.deviceWait
+          ? { deviceWait: headLifecycleProgress.deviceWait }
+          : {}),
         message: headLifecycleProgress.message,
         phase: headLifecycleProgress.phase,
         sourceSignalId:
@@ -17524,6 +17635,7 @@ export class Space extends DurableObject<CoreBindings> {
     outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate;
     targetLabel: string;
   }): Promise<{
+    deviceWait?: WakeProgressItem["deviceWait"];
     errorCode: string | null;
     message: string;
     phase: WakeProgressPhase;
@@ -17586,6 +17698,14 @@ export class Space extends DurableObject<CoreBindings> {
         phase: "queued",
         terminal: false,
         updatedAtMs: lifecycle.updatedAtMs,
+        ...(input.outboxRecord.deviceWait
+          ? {
+              deviceWait: {
+                deadlineAtMs: input.outboxRecord.deviceWait.deadlineAtMs,
+                reason: "earlier_work" as const,
+              },
+            }
+          : {}),
       };
     }
     const waitingBoundary = lifecycle.waitingBoundary;
@@ -17593,6 +17713,22 @@ export class Space extends DurableObject<CoreBindings> {
       return null;
     }
     const isPastSoftWait = Date.now() >= waitingBoundary.softDeadlineAtMs;
+    if (input.outboxRecord.deviceWait) {
+      return {
+        errorCode: null,
+        message: buildDeviceWaitProgressMessage(
+          targetLabel,
+          waitingBoundary.reasonCode
+        ),
+        deviceWait: {
+          deadlineAtMs: waitingBoundary.deadlineAtMs,
+          reason: resolveDeviceWaitProgressReason(waitingBoundary.reasonCode),
+        },
+        phase: "request_sent",
+        terminal: false,
+        updatedAtMs: lifecycle.updatedAtMs,
+      };
+    }
     return {
       errorCode: waitingBoundary.reasonCode,
       message: isPastSoftWait
@@ -17835,7 +17971,10 @@ export class Space extends DurableObject<CoreBindings> {
       try {
         tracesByDispatchId.set(
           match.dispatchId,
-          await this.readSpaceDispatchTrace(match.dispatchId)
+          await this.readSpaceDispatchTrace(match.dispatchId, {
+            responseContractVersion:
+              SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+          })
         );
       } catch {
         tracesByDispatchId.set(match.dispatchId, null);
@@ -18503,9 +18642,10 @@ function spaceAddressingJsonResponse(
   value: unknown,
   init?: ResponseInit
 ): Response {
+  const readValue = toSpaceSignalReadWireValue(value);
   const responseValue = requestSupportsCurrentSpaceAddressing(request)
-    ? value
-    : toLegacySpaceAddressingWireValue(value);
+    ? readValue
+    : toLegacySpaceAddressingWireValue(readValue);
   return Response.json(responseValue, init);
 }
 
@@ -18520,9 +18660,10 @@ function spaceAddressingWireValueForSession(
   value: unknown,
   session: Session
 ): unknown {
+  const readValue = toSpaceSignalReadWireValue(value);
   return session.supportsSpaceMessageAddressing
-    ? value
-    : toLegacySpaceAddressingWireValue(value);
+    ? readValue
+    : toLegacySpaceAddressingWireValue(readValue);
 }
 
 function decodeMessage(msg: string | ArrayBuffer): string {
@@ -19171,6 +19312,7 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
   clientMessageId: string | null;
   includeTiming: boolean;
   includeWaitReason: boolean;
+  includeDeviceWait?: boolean;
   lookupMatch: SpaceDispatchLookupMatch;
   nativeDeliveryEvidence?: ActiveRemoteAgentNativeDeliveryWakeProgressEvidence;
   outboxRecord: OpenMeldDaemonDispatchOutboxRecoveryCandidate | null;
@@ -19185,6 +19327,12 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
   const headLifecycleProgress = resolveWakeProgressHeadLifecycleProgress({
     targetLabel: input.targetLabel,
     trace: input.trace,
+    deviceWait:
+      input.outboxRecord?.deviceWait ??
+      (input.sourceSignal?.data.deviceWait?.targetProfileId ===
+      input.lookupMatch.targetProfileId
+        ? input.sourceSignal.data.deviceWait
+        : undefined),
   });
   const finalVisibleProgress =
     headLifecycleProgress && !input.trace?.finalVisibleMessage
@@ -19213,6 +19361,10 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
   return createWakeProgressItem({
     clientMessageId: input.clientMessageId,
     dispatchId: input.lookupMatch.dispatchId,
+    ...(authorityProgress === headLifecycleProgress &&
+    headLifecycleProgress?.deviceWait
+      ? { deviceWait: headLifecycleProgress.deviceWait }
+      : {}),
     failureReasonCode:
       phase === "failed" ||
       phase === "publication_unknown" ||
@@ -19350,7 +19502,9 @@ function resolveWakeProgressFinalVisibleOutcomeProgress(input: {
 function resolveWakeProgressHeadLifecycleProgress(input: {
   targetLabel: string;
   trace: SpaceDispatchTraceSnapshot | null;
+  deviceWait?: OpenMeldDaemonDispatchQueueMessage["deviceWait"];
 }): {
+  deviceWait?: WakeProgressItem["deviceWait"];
   errorCode: string | null;
   message: string;
   phase: WakeProgressPhase;
@@ -19384,6 +19538,14 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
       }),
       phase: "queued",
       terminal: false,
+      ...(input.deviceWait
+        ? {
+            deviceWait: {
+              deadlineAtMs: input.deviceWait.deadlineAtMs,
+              reason: "earlier_work" as const,
+            },
+          }
+        : {}),
     };
   }
   if (
@@ -19403,20 +19565,17 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
     };
   }
   if (headLifecycle.waitingBoundary) {
-    const softDeadlineMs = Date.parse(
-      headLifecycle.waitingBoundary.softDeadlineAt
-    );
-    const isPastSoftWait =
-      Number.isFinite(softDeadlineMs) && Date.now() >= softDeadlineMs;
-    return {
-      errorCode: headLifecycle.waitingBoundary.reasonCode,
-      message: isPastSoftWait
-        ? `Still waiting for OpenMeld Service to connect for ${targetLabel}. Start or restart OpenMeld Service on the target computer.`
-        : `Waiting for OpenMeld Service to connect for ${targetLabel}.`,
-      phase: "retrying",
-      terminal: false,
-    };
+    return buildWaitingHeadProgress({
+      deadlineAtMs: Date.parse(headLifecycle.waitingBoundary.deadlineAt),
+      softDeadlineAtMs: Date.parse(
+        headLifecycle.waitingBoundary.softDeadlineAt
+      ),
+      reasonCode: headLifecycle.waitingBoundary.reasonCode,
+      deviceWait: Boolean(input.deviceWait),
+      targetLabel,
+    });
   }
+
   const noExecutionReason =
     headLifecycle.noExecutionDecision?.reasonCode ??
     headLifecycle.publicationIntent?.reasonCode ??
@@ -19430,6 +19589,79 @@ function resolveWakeProgressHeadLifecycleProgress(input: {
     phase: "failed",
     terminal: false,
   };
+}
+
+function buildWaitingHeadProgress(input: {
+  deadlineAtMs: number;
+  softDeadlineAtMs: number;
+  reasonCode: string;
+  deviceWait: boolean;
+  targetLabel: string;
+}): NonNullable<ReturnType<typeof resolveWakeProgressHeadLifecycleProgress>> {
+  if (input.deviceWait) {
+    return {
+      errorCode: null,
+      message: buildDeviceWaitProgressMessage(
+        input.targetLabel,
+        input.reasonCode
+      ),
+      deviceWait: {
+        deadlineAtMs: input.deadlineAtMs,
+        reason: resolveDeviceWaitProgressReason(input.reasonCode),
+      },
+      phase: "request_sent",
+      terminal: false,
+    };
+  }
+  const isPastSoftWait =
+    Number.isFinite(input.softDeadlineAtMs) &&
+    Date.now() >= input.softDeadlineAtMs;
+  return {
+    errorCode: input.reasonCode,
+    message: isPastSoftWait
+      ? `Still waiting for OpenMeld Service to connect for ${input.targetLabel}. Start or restart OpenMeld Service on the target computer.`
+      : `Waiting for OpenMeld Service to connect for ${input.targetLabel}.`,
+    phase: "retrying",
+    terminal: false,
+  };
+}
+
+function buildDeviceWaitProgressMessage(
+  targetLabel: string,
+  reasonCode: string
+): string {
+  let reason =
+    reasonCode === "daemon.profile.offline"
+      ? "The specified computer is offline"
+      : "The computer is connected, but the Agent has not reported its Wake route yet";
+  if (reasonCode === "wake.device_wait.readiness_checking") {
+    reason =
+      "The computer is connected; the Agent's current readiness checks are still running";
+  }
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    reason =
+      "OpenMeld could not verify current Space access and will check again";
+  }
+  if (reasonCode === "daemon.service.draining") {
+    reason =
+      "OpenMeld on this computer is finishing existing work and is not accepting new tasks yet";
+  }
+  return `Waiting to start ${targetLabel}. ${reason}; no work has started.`;
+}
+
+function resolveDeviceWaitProgressReason(
+  reasonCode: string
+): NonNullable<WakeProgressItem["deviceWait"]>["reason"] {
+  if (reasonCode === "daemon.profile.offline") {
+    return "device_offline";
+  }
+  if (reasonCode === "wake.device_wait.access_check_unavailable") {
+    return "access_check_unavailable";
+  }
+  if (reasonCode === "daemon.service.draining") {
+    return "service_draining";
+  }
+  return "agent_not_ready";
 }
 
 function findWakeProgressTerminalFailureNotice(input: {
@@ -19980,6 +20212,7 @@ function buildDispatchQueueMessageFromOutboxRecord(
     transportMode: outboxRecord.transportMode,
     spacePassword: outboxRecord.spacePassword,
     controllerSnapshot: outboxRecord.controllerSnapshot,
+    ...(outboxRecord.deviceWait ? { deviceWait: outboxRecord.deviceWait } : {}),
     contextIdMappingSpec: outboxRecord.contextIdMappingSpec,
     dispatchRulesSnapshot: outboxRecord.dispatchRulesSnapshot,
     ...(outboxRecord.spaceContractSnapshot

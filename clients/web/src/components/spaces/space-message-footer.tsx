@@ -27,9 +27,10 @@ import {
 	TargetIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
+import { SpaceDeviceWaitOutcome } from "./space-device-wait-outcome";
 import {
 	MessageActionTooltip,
 	MessageDetailsActionButton,
@@ -38,11 +39,12 @@ import { useSpaceMessageEditing } from "./space-message-editing";
 import { useSpaceMessagePinAction } from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
+	MessageReactionIcon,
 	type MessageReactionInput,
 	MessageReactionPicker,
-	MessageReactionRow,
 	MessageReactionViewer,
-	useMessageReactions,
+	type useMessageReactions,
+	useMessageReactionsContext,
 } from "./space-message-reactions";
 
 export type SpaceMessageFooterAddressingTarget = {
@@ -81,6 +83,9 @@ export function resolveSpaceMessageFooterFailureSummary(input: {
 		return `${String(failures.length)} agents couldn’t reply`;
 	}
 	const targetProfileId = failures[0]?.systemNoticeTargetProfileId;
+	if (failures[0]?.systemNoticeReasonCode === "wake.device_wait.expired") {
+		return "Wait expired. Task did not run.";
+	}
 	const targetLabel = targetProfileId
 		? input.resolveTargetLabel(targetProfileId)
 		: null;
@@ -105,6 +110,10 @@ type SpaceMessageFooterProps = {
 	item?: SpaceTimelineItem;
 	reaction?: MessageReactionInput;
 	signalId?: string;
+	deviceWaitOutcome?: {
+		notices: readonly SpaceTimelineItem[];
+		sourceItem: SpaceTimelineItem;
+	};
 	addressingTargets: readonly SpaceMessageFooterAddressingTarget[];
 	align?: "end" | "start";
 	details?: SpaceMessageFooterDetailsAction;
@@ -116,7 +125,10 @@ type SpaceMessageFooterProps = {
 	timestamp: string;
 };
 
-export function SpaceMessageFooter(input: SpaceMessageFooterProps) {
+export function SpaceMessageFooter(
+	input: Omit<SpaceMessageFooterProps, "reaction">
+) {
+	const { input: reaction } = useMessageReactionsContext();
 	const editing = useSpaceMessageEditing();
 	const editableItem =
 		input.item &&
@@ -136,6 +148,7 @@ export function SpaceMessageFooter(input: SpaceMessageFooterProps) {
 			{...input}
 			onEdit={editableItem ? () => editing?.beginEdit(editableItem) : undefined}
 			onRecall={editableItem ? () => editing?.recall(editableItem) : undefined}
+			reaction={reaction}
 		/>
 	);
 }
@@ -146,7 +159,7 @@ function SpaceMessageFooterContent(
 		onRecall?: () => void;
 	}
 ) {
-	const reactions = useMessageReactions(input.reaction);
+	const { state: reactions } = useMessageReactionsContext();
 	const hasReactions = Boolean(input.reaction && reactions.groups.length);
 	const persistent = Boolean(input.failureSummary);
 	const detailsButton = (
@@ -196,27 +209,18 @@ function MessageFooterActions({
 	hasReactions: boolean;
 	detailsButton: ReactNode;
 }) {
-	const { footerRef, bubbleWidth } = useMessageBubbleWidth(input.align);
 	const showPicker = input.reaction && !input.reaction.readOnly;
+	const pending = input.item?.deliveryState === "pending";
 	return (
 		<div
 			className={cn(
 				"@container mt-0.5 flex min-h-7 w-full min-w-0 max-w-full items-center gap-x-1",
-				input.align === "end" ? "self-end" : "justify-start",
+				input.align === "end" ? "justify-end" : "justify-start",
 				persistent && "gap-2"
 			)}
 			data-persistent={persistent ? "true" : undefined}
 			data-slot="message-footer"
-			ref={footerRef}
-			style={bubbleWidth ? { width: bubbleWidth } : undefined}
 		>
-			{input.reaction ? (
-				<MessageReactionRow
-					profileId={input.reaction.profileId}
-					readOnly={input.reaction.readOnly}
-					state={reactions}
-				/>
-			) : null}
 			<div
 				className={cn(
 					"flex min-w-0 max-w-full shrink-0 items-center gap-0.5 text-muted-foreground text-xs opacity-0 transition-opacity duration-100 ease-out group-focus-within/message-row:pointer-events-auto group-focus-within/message-row:opacity-100 group-hover/message-row:pointer-events-auto group-hover/message-row:opacity-100 motion-reduce:transition-none [@media(pointer:coarse)]:pointer-events-auto [@media(pointer:coarse)]:opacity-100",
@@ -224,9 +228,19 @@ function MessageFooterActions({
 					persistent && "pointer-events-auto opacity-100"
 				)}
 				data-slot="message-footer-primary-actions"
-				style={hasReactions ? { maxWidth: "calc(100% - 40px)" } : undefined}
 			>
-				{showPicker ? (
+				{input.deviceWaitOutcome ? (
+					<SpaceDeviceWaitOutcome {...input.deviceWaitOutcome} />
+				) : null}
+				{pending ? (
+					<MessageFooterIconAction
+						disabled
+						icon={<MessageReactionIcon />}
+						label="Add reaction after sending"
+						onSelect={() => undefined}
+					/>
+				) : null}
+				{showPicker && !pending ? (
 					<MessageReactionPicker
 						buttonClassName={FOOTER_BUTTON_CLASS_NAME}
 						state={reactions}
@@ -286,28 +300,6 @@ function MessageFooterOverflowActions({
 			thread={persistent ? input.thread : undefined}
 		/>
 	) : null;
-}
-
-function useMessageBubbleWidth(align: SpaceMessageFooterProps["align"]) {
-	const footerRef = useRef<HTMLDivElement>(null);
-	const [bubbleWidth, setBubbleWidth] = useState<number>();
-	useLayoutEffect(() => {
-		if (align !== "end") {
-			return;
-		}
-		const bubble = footerRef.current
-			?.closest("[data-message-row-id]")
-			?.querySelector('[data-slot="bubble-content"]');
-		if (!bubble) {
-			return;
-		}
-		const update = () => setBubbleWidth(bubble.getBoundingClientRect().width);
-		update();
-		const observer = new ResizeObserver(update);
-		observer.observe(bubble);
-		return () => observer.disconnect();
-	}, [align]);
-	return { footerRef, bubbleWidth };
 }
 
 function MessageFooterStandardActions({

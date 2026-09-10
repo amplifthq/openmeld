@@ -2241,6 +2241,7 @@ export async function rpcMutateSpaceMessage(
 }
 
 export type PostSignalInput = {
+  deviceWait?: SignalText["data"]["deviceWait"];
   agentStreamId?: string;
   spaceId: string;
   profile: Profile;
@@ -2592,6 +2593,7 @@ export type GetSpaceDispatchLookupInput = {
 };
 
 export type GetSpaceWakeProgressInput = {
+  includeDeviceWait?: boolean;
   spaceId: string;
   clientMessageId: string;
   includePreviewText?: boolean;
@@ -2606,6 +2608,7 @@ export type GetSpaceWakeProgressInput = {
 };
 
 export type GetActiveSpaceWakeProgressInput = {
+  includeDeviceWait?: boolean;
   spaceId: string;
   includePageInfo?: boolean;
   includePreviewText?: boolean;
@@ -17958,6 +17961,7 @@ export async function rpcPostSignal(
     spaceId,
     profile: input.profile,
     text: normalizedText,
+    ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
@@ -20159,6 +20163,7 @@ export async function rpcGetSpaceWakeProgress(
   const parsed = getSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
     clientMessageId: input.clientMessageId,
+    includeDeviceWait: input.includeDeviceWait,
     ...(input.includeTiming === undefined
       ? {}
       : { includeTiming: input.includeTiming }),
@@ -20196,6 +20201,7 @@ export async function rpcGetSpaceWakeProgress(
   return await stub.rpcGetWakeProgress({
     spaceId,
     clientMessageId: parsed.data.clientMessageId,
+    includeDeviceWait: parsed.data.includeDeviceWait,
     ...(parsed.data.includeTiming === undefined
       ? {}
       : { includeTiming: parsed.data.includeTiming }),
@@ -20224,6 +20230,7 @@ export async function rpcGetActiveSpaceWakeProgress(
 ): Promise<GetActiveSpaceWakeProgressResponse> {
   const parsed = getActiveSpaceWakeProgressInputSchema.safeParse({
     spaceId: input.spaceId,
+    includeDeviceWait: input.includeDeviceWait,
     ...(input.includePageInfo === undefined
       ? {}
       : { includePageInfo: input.includePageInfo }),
@@ -20266,6 +20273,7 @@ export async function rpcGetActiveSpaceWakeProgress(
   );
   return await stub.rpcGetActiveWakeProgress({
     spaceId,
+    includeDeviceWait: parsed.data.includeDeviceWait,
     ...(parsed.data.includePageInfo === undefined
       ? {}
       : { includePageInfo: parsed.data.includePageInfo }),
