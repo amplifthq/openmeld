@@ -4,6 +4,9 @@ title: Coordinate local development across worktrees
 kind: improved
 areas: ["developer-workflow"]
 audiences: ["contributors"]
+publishedAt: 2026-09-10
+release: v0.3.198
+evidence: ["pr:935", "workflow:34519171122"]
 ---
 
 Isolated development servers and broad validation commands now coordinate local

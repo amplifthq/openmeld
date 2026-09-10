@@ -4,6 +4,9 @@ title: Keep required-update releases reproducible
 kind: fixed
 areas: ["developer-workflow"]
 audiences: ["contributors"]
+publishedAt: 2026-09-10
+release: v0.3.198
+evidence: ["pr:936", "workflow:34521120546"]
 ---
 
 Release stamping now writes the required CLI version before building the package.
