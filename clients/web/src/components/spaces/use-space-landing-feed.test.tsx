@@ -564,8 +564,8 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		let release!: () => void;
 		membersRefetch.mockImplementationOnce(
 			() =>
-				new Promise<void>((resolve) => {
-					release = resolve;
+				new Promise<undefined>((resolve) => {
+					release = () => resolve(undefined);
 				})
 		);
 		const emit = async (version: number) =>

@@ -31,10 +31,13 @@ import {
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceHistory,
-	readSpaceUpdates,
 	SPACE_UPDATES_LIMIT,
 	writeSpaceHistoryEnvelopesToCache,
 } from "#/query/spaces/history";
+import {
+	fetchSpaceUpdatesAfterSubscription,
+	spaceUpdatesQueryOptions,
+} from "#/query/spaces/history-sync";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { messageReactionsKey } from "./space-message-reactions";
@@ -84,6 +87,8 @@ type MountHistoryAnchor = {
 };
 
 type ReconcileFreshnessControls = {
+	afterSubscription: boolean;
+	queryClient: ReturnType<typeof useQueryClient>;
 	applyReconciledSignals: ReconcileSignals;
 	openMeldProfileId: string;
 	isCurrentReconcile: () => boolean;
@@ -128,11 +133,14 @@ async function drainSpaceUpdatesFromAnchor(
 		pageCount < MAX_RECONCILE_UPDATE_PAGES;
 		pageCount += 1
 	) {
-		const updates = await readSpaceUpdates({
+		const page = {
 			spaceId: input.spaceId,
 			afterSignalId: cursor,
 			openMeldProfileId: input.openMeldProfileId,
-		});
+		};
+		const updates = input.afterSubscription
+			? await fetchSpaceUpdatesAfterSubscription(input.queryClient, page)
+			: await input.queryClient.fetchQuery(spaceUpdatesQueryOptions(page));
 		if (!input.isCurrentReconcile()) {
 			return;
 		}
@@ -361,121 +369,126 @@ export function useSpaceLandingFeed(input: {
 	// reconnect → catch-up-fails → reconnect loop. A stale anchor is recovered by
 	// falling back to a recent-window reload rather than re-presenting the dead
 	// anchor.
-	const reconcileConversationOnce = useCallback(async (): Promise<void> => {
-		const startIdentity = feedIdentityRef.current;
-		const startReconnectKey = reconnectKeyRef.current;
-		const isCurrentReconcile = (): boolean =>
-			mountedRef.current &&
-			feedIdentityRef.current === startIdentity &&
-			reconnectKeyRef.current === startReconnectKey;
-		const markReconcileHealthy = (): void => {
-			if (!isCurrentReconcile()) {
-				return;
-			}
-			if (liveStateRef.current === "stale") {
-				setLiveState("connected");
-				setLiveErrorMessage(null);
-			}
-		};
-		const markReconcileStale = (): void => {
-			if (!isCurrentReconcile()) {
-				return;
-			}
-			setLiveState("stale");
-			setLiveErrorMessage(LIVE_RECONCILE_STALE_STATUS);
-		};
-		const applyReconciledSignals = (
-			incoming: readonly SignalEnvelope[]
-		): boolean => {
-			if (!isCurrentReconcile()) {
-				// The feed switched Spaces/profiles while this reconcile was in
-				// flight, was unmounted, or a newer socket attempt superseded this
-				// request. Dropping the result avoids stale refetch timers and
-				// cross-conversation contamination.
-				return false;
-			}
+	const reconcileConversationOnce = useCallback(
+		async (afterSubscription = false): Promise<void> => {
+			const startIdentity = feedIdentityRef.current;
+			const startReconnectKey = reconnectKeyRef.current;
+			const isCurrentReconcile = (): boolean =>
+				mountedRef.current &&
+				feedIdentityRef.current === startIdentity &&
+				reconnectKeyRef.current === startReconnectKey;
+			const markReconcileHealthy = (): void => {
+				if (!isCurrentReconcile()) {
+					return;
+				}
+				if (liveStateRef.current === "stale") {
+					setLiveState("connected");
+					setLiveErrorMessage(null);
+				}
+			};
+			const markReconcileStale = (): void => {
+				if (!isCurrentReconcile()) {
+					return;
+				}
+				setLiveState("stale");
+				setLiveErrorMessage(LIVE_RECONCILE_STALE_STATUS);
+			};
+			const applyReconciledSignals = (
+				incoming: readonly SignalEnvelope[]
+			): boolean => {
+				if (!isCurrentReconcile()) {
+					// The feed switched Spaces/profiles while this reconcile was in
+					// flight, was unmounted, or a newer socket attempt superseded this
+					// request. Dropping the result avoids stale refetch timers and
+					// cross-conversation contamination.
+					return false;
+				}
 
-			const newSignals = listNewSignals({
-				current: timelineEnvelopesRef.current,
-				incoming,
-			});
-			recordPersistedTimelineSignals({
-				currentRef: persistedTimelineEnvelopesRef,
-				incoming,
+				const newSignals = listNewSignals({
+					current: timelineEnvelopesRef.current,
+					incoming,
+				});
+				recordPersistedTimelineSignals({
+					currentRef: persistedTimelineEnvelopesRef,
+					incoming,
+					queryClient,
+					spaceId: input.spaceId,
+					openMeldProfileId: input.openMeldProfileId,
+				});
+				mergeIncomingSignals({
+					currentRef: timelineEnvelopesRef,
+					incoming,
+					setState: setTimelineEnvelopes,
+				});
+				scheduleRefetchesForSignals({
+					wakeFinalOutcomeHandledByCallback: Boolean(
+						onWakeFinalOutcomeFactsRefreshRef.current
+					),
+					membersRefetch: membersRefetchRef.current,
+					membersRefetchTimerRef,
+					signals: newSignals,
+					statusRefetch: statusRefetchRef.current,
+					statusRefetchTimerRef,
+				});
+				scheduleWakeFinalOutcomeFactsRefresh({
+					onRefreshRef: onWakeFinalOutcomeFactsRefreshRef,
+					observedSignalIdsRef: observedWakeFinalOutcomeSignalIdsRef,
+					pendingRef: pendingWakeFinalOutcomeRefreshRef,
+					signals: newSignals,
+					spaceId: input.spaceId,
+					timerRef: wakeFinalOutcomeRefreshTimerRef,
+				});
+				return true;
+			};
+
+			const reconcileControls: ReconcileFreshnessControls = {
+				afterSubscription,
 				queryClient,
-				spaceId: input.spaceId,
+				applyReconciledSignals,
 				openMeldProfileId: input.openMeldProfileId,
-			});
-			mergeIncomingSignals({
-				currentRef: timelineEnvelopesRef,
-				incoming,
-				setState: setTimelineEnvelopes,
-			});
-			scheduleRefetchesForSignals({
-				wakeFinalOutcomeHandledByCallback: Boolean(
-					onWakeFinalOutcomeFactsRefreshRef.current
-				),
-				membersRefetch: membersRefetchRef.current,
-				membersRefetchTimerRef,
-				signals: newSignals,
-				statusRefetch: statusRefetchRef.current,
-				statusRefetchTimerRef,
-			});
-			scheduleWakeFinalOutcomeFactsRefresh({
-				onRefreshRef: onWakeFinalOutcomeFactsRefreshRef,
-				observedSignalIdsRef: observedWakeFinalOutcomeSignalIdsRef,
-				pendingRef: pendingWakeFinalOutcomeRefreshRef,
-				signals: newSignals,
+				isCurrentReconcile,
+				markReconcileHealthy,
+				markReconcileStale,
+				pendingCatchUpCursorRef,
 				spaceId: input.spaceId,
-				timerRef: wakeFinalOutcomeRefreshTimerRef,
-			});
-			return true;
-		};
+			};
 
-		const reconcileControls: ReconcileFreshnessControls = {
-			applyReconciledSignals,
-			openMeldProfileId: input.openMeldProfileId,
-			isCurrentReconcile,
-			markReconcileHealthy,
-			markReconcileStale,
-			pendingCatchUpCursorRef,
-			spaceId: input.spaceId,
-		};
-
-		const latestAnchorSignalId = getLatestSignalEnvelopeId(
-			persistedTimelineEnvelopesRef.current
-		);
-		const anchorSignalId =
-			pendingCatchUpCursorRef.current ?? latestAnchorSignalId;
-		if (!anchorSignalId) {
-			await reconcileFromRecentWindow(reconcileControls);
-			return;
-		}
-
-		try {
-			pendingCatchUpCursorRef.current = anchorSignalId;
-			await drainSpaceUpdatesFromAnchor({
-				...reconcileControls,
-				anchorSignalId,
-			});
-		} catch (error) {
-			if (!isCurrentReconcile()) {
-				return;
-			}
-			const failure = toStructuredApiClientFailure(error);
-			console.warn("[openmeld.web.space.live_tail_catchup_failed]", {
-				anchorReaped: isAnchorNotFoundFailure(failure),
-				error: failure.message,
-				spaceId: input.spaceId,
-			});
-			if (isAnchorNotFoundFailure(failure)) {
-				pendingCatchUpCursorRef.current = null;
+			const latestAnchorSignalId = getLatestSignalEnvelopeId(
+				persistedTimelineEnvelopesRef.current
+			);
+			const anchorSignalId =
+				pendingCatchUpCursorRef.current ?? latestAnchorSignalId;
+			if (!anchorSignalId) {
 				await reconcileFromRecentWindow(reconcileControls);
 				return;
 			}
-			markReconcileStale();
-		}
-	}, [input.openMeldProfileId, input.spaceId, queryClient]);
+
+			try {
+				pendingCatchUpCursorRef.current = anchorSignalId;
+				await drainSpaceUpdatesFromAnchor({
+					...reconcileControls,
+					anchorSignalId,
+				});
+			} catch (error) {
+				if (!isCurrentReconcile()) {
+					return;
+				}
+				const failure = toStructuredApiClientFailure(error);
+				console.warn("[openmeld.web.space.live_tail_catchup_failed]", {
+					anchorReaped: isAnchorNotFoundFailure(failure),
+					error: failure.message,
+					spaceId: input.spaceId,
+				});
+				if (isAnchorNotFoundFailure(failure)) {
+					pendingCatchUpCursorRef.current = null;
+					await reconcileFromRecentWindow(reconcileControls);
+					return;
+				}
+				markReconcileStale();
+			}
+		},
+		[input.openMeldProfileId, input.spaceId, queryClient]
+	);
 
 	// Serialize every reconcile trigger. Repeated triggers for the same socket
 	// attempt share the active request; a newer attempt waits for that request to
@@ -512,7 +525,9 @@ export function useSpaceLandingFeed(input: {
 
 				const flight = {
 					feedIdentity: requestedFeedIdentity,
-					promise: reconcileConversationOnce(),
+					promise: reconcileConversationOnce(
+						options?.afterActiveFlight === true
+					),
 					reconnectKey: requestedReconnectKey,
 				};
 				reconcileFlightRef.current = flight;

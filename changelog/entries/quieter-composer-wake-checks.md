@@ -24,3 +24,7 @@ Drafts with mentions show a quiet loading hint while members load and offer Retr
 if loading fails. Feedback stays inside the Composer without a separate warning
 box. Availability updates no longer let older responses replace newer state or
 repeat the same refresh from multiple page listeners.
+
+Recently viewed conversations with unread messages can load new messages before
+you open them. Returning to a conversation also prepares new messages on hover,
+while keeping your reading position and unread status intact.

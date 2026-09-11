@@ -157,6 +157,31 @@ This resolves the previous four design gaps by reducing the work:
 
 ## 8. Evidence status
 
+### Approved unread-history follow-up
+
+Warm conversation preload previously returned without reading updates, leaving
+the mounted reader to catch up after navigation. The approved follow-up reuses
+the existing history cache and authorized updates endpoint. Router intent warms
+one contiguous page; the Messenger sidebar prioritizes up to five warm unread
+conversations with two concurrent jobs. Unchanged unread revisions do not repeat
+work, and a changed revision during a read schedules a trailing read. Cold bulk
+hydration, new polling, backend changes and a second message store are excluded.
+
+The shared updates Query deduplicates in-flight page reads. The subscription
+acknowledgement waits for any earlier read and issues a fresh one, preserving
+the existing read/live barrier. Preload never advances a read cursor, changes
+scroll position or enables a mutation. Late responses cannot recreate removed
+history. A one-page prefetch does not claim a large gap is fully synchronized;
+normal mounted catch-up continues from the contiguous cached tail.
+
+Seven new deterministic cases cover the query/scheduler boundary and sidebar
+visibility/online wiring. Together with existing history, feed, route preload
+and sidebar regressions, 110 focused tests passed. The fresh local stack was
+attempted again and remained blocked by startup memory/headroom; only this
+task's queued launcher was cancelled. No new real-browser timing or screenshot
+evidence is claimed. This Web-only extension does not weaken the architecture
+rules or change server, Service, CLI, read-cursor or execution contracts.
+
 Implementation recheck against origin/main `7cf0b014d` corrected F5: the mounted
 Space members observer already uses `enabled: false`, so its interval does not
 generate duplicate polling. No polling deletion is needed there. The existing

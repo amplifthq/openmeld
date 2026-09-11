@@ -18,6 +18,7 @@ import {
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
+import { spaceHistoryPrefetchQueryOptions } from "#/query/spaces/history-sync";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import type {
 	OrganizationScopeAuthorized,
@@ -237,8 +238,8 @@ export async function prefetchKnownSpaceConversationData(input: {
 		spaceId: input.spaceId,
 		openMeldProfileId: input.openMeldProfileId,
 	});
-	// A returning conversation captures the saved tail on mount and reconciles
-	// from it. Do not replace that anchor with a newer bootstrap before mount.
+	// Advance a saved tail only through contiguous updates, never by replacing
+	// it with a recent bootstrap window that could skip intervening messages.
 	if (
 		input.queryClient.getQueryData(
 			spaceQueryKeys.history(input.spaceId, input.openMeldProfileId)
@@ -247,6 +248,9 @@ export async function prefetchKnownSpaceConversationData(input: {
 			spaceQueryKeys.displaySnapshot(input.spaceId, input.openMeldProfileId)
 		)
 	) {
+		await input.queryClient.prefetchQuery(
+			spaceHistoryPrefetchQueryOptions(input.queryClient, input)
+		);
 		return;
 	}
 	const bootstrap = await input.queryClient.fetchQuery(

@@ -2491,6 +2491,24 @@ the exact Query key and lets that query's `staleTime`, in-flight deduplication,
 and invalidation state decide whether a server read is needed. The Router must
 not add a second freshness clock over Query-backed loaders.
 
+Returning-conversation intent preload reads one contiguous updates page into the
+existing history Query instead of skipping warm history or replacing its tail
+with a recent bootstrap window. The mounted feed shares in-flight updates reads
+by Space, acting Profile, and anchor; completed updates reads remain stale so
+the subscription acknowledgement still closes the read/live gap. Successful
+intent preloads are reusable for five seconds through Query freshness alone.
+
+The Messenger sidebar also warms up to five cached unread conversations, newest
+unread activity first, with at most two background jobs. It uses the existing
+Organization unread summary and confirmed conversation Profile choices, excludes
+the selected conversation, and does not hydrate cold saved Spaces in bulk.
+An unchanged unread revision does not start another background read. Changes
+during a read receive a trailing read. Hidden/offline pages stop queued work;
+scope changes and unmount dispose the owner. Removed history queries cannot be
+resurrected by late reads. Speculation never writes read cursors, scrolling,
+Composer drafts, permissions, or Wake state. Failed prefetch keeps saved content
+and leaves normal entry/reconnect recovery intact; it adds no polling or retries.
+
 The Center Agent conversation is the deliberate exception to route-loader
 intent preload. Opening or ensuring its DM is activation-only, and a read-only
 preload must not return a different loader result that navigation could render.

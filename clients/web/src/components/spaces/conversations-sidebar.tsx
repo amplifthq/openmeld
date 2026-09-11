@@ -63,6 +63,7 @@ import { useConversationDisclosure } from "./use-conversation-disclosure";
 import { useConversationView } from "./use-conversation-view";
 import { useConversations } from "./use-conversations";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
+import { useUnreadHistoryPrefetch } from "./use-unread-history-prefetch";
 
 export function ConversationsSidebar(
 	input: { currentProfileId?: string; currentSpaceId?: string } = {}
@@ -80,6 +81,13 @@ export function ConversationsSidebar(
 		[dm.directory.data]
 	);
 	const { currentUserId } = useAppOrganization();
+	useUnreadHistoryPrefetch({
+		accountId: currentUserId,
+		organizationId: dm.org.id,
+		activeSpaceId: model.selected,
+		conversations: model.conversations,
+		unread: dm.indicators.unreadBySpaceId,
+	});
 	const { view, setView } = useConversationView(currentUserId, dm.org.id);
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
