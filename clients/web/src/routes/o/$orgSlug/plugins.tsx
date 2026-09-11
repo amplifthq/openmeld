@@ -11,7 +11,7 @@ export const Route = createFileRoute("/o/$orgSlug/plugins")({
 	validateSearch: (
 		search: Record<string, unknown>
 	): { scope: "personal" | "organization" } => ({
-		scope: search.scope === "organization" ? "organization" : "personal",
+		scope: search.scope === "personal" ? "personal" : "organization",
 	}),
 	staticData: appShellStaticData.plugins,
 	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),

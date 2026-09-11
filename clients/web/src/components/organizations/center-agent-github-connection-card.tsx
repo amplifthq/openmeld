@@ -488,8 +488,8 @@ function GitHubConnectionError(input: {
 		<div
 			className={
 				input.errorState.isOnboardingUnavailable
-					? "px-5 py-3 text-muted-foreground text-xs leading-5"
-					: "flex flex-wrap items-center justify-between gap-2 px-5 py-3"
+					? "py-3 text-muted-foreground text-xs leading-5"
+					: "flex flex-wrap items-center justify-between gap-2 py-3"
 			}
 			role={input.errorState.isOnboardingUnavailable ? "status" : "alert"}
 		>
@@ -828,7 +828,7 @@ function GitHubConnectionSection(input: {
 	title: string;
 }) {
 	return (
-		<section aria-label={input.title} className="px-5 py-4">
+		<section aria-label={input.title} className="py-4">
 			<div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
 				<div className="min-w-0">
 					<h3 className="font-medium text-foreground text-sm">{input.title}</h3>

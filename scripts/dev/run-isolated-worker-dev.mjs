@@ -104,6 +104,7 @@ export function resolveIsolatedWorkerDevPlan(input) {
           `OPENMELD_GATEWAY_URL:${requireEnvironmentValue(env, "OPENMELD_GATEWAY_URL")}`,
           "--var",
           `WEB_APP_URL:${requireEnvironmentValue(env, "WEB_APP_URL")}`,
+          ...localPluginFixtureArgs(env.OPENMELD_DEV_PLUGIN_FIXTURE_URL),
           ...(env.OPENMELD_SLACK_OAUTH_REDIRECT_URL
             ? [
                 "--var",
@@ -143,6 +144,32 @@ export function resolveIsolatedWorkerDevPlan(input) {
     default:
       throw new Error(`Unsupported isolated Worker service: ${input.service}`);
   }
+}
+
+function localPluginFixtureArgs(value) {
+  if (!value) {
+    return [];
+  }
+  const url = new URL(value);
+  if (
+    url.protocol !== "http:" ||
+    url.hostname !== "127.0.0.1" ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      "Plugin fixtures must use an http://127.0.0.1 loopback origin."
+    );
+  }
+  return [
+    "--var",
+    `OPENMELD_CONNECTORS_BASE_URL:${url.origin}`,
+    "--var",
+    "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN:local-plugin-fixture",
+  ];
 }
 
 export function resolveIsolatedWorkerDopplerCommand(

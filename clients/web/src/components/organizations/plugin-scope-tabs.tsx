@@ -25,19 +25,19 @@ export function PluginScopeTabs(input: {
 			onSelect={(index) =>
 				navigate({
 					to: pathname,
-					search: { scope: index === 0 ? "personal" : "organization" },
+					search: { scope: index === 0 ? "organization" : "personal" },
 					replace: true,
 				})
 			}
-			selectedIndex={scope === "organization" ? 1 : 0}
+			selectedIndex={scope === "organization" ? 0 : 1}
 			variant="underline"
 		>
-			<TabsSubtleItem icon={UserIcon} index={0} label="Personal" />
 			<TabsSubtleItem
 				icon={BuildingsIcon}
-				index={1}
+				index={0}
 				label={input.organizationName}
 			/>
+			<TabsSubtleItem icon={UserIcon} index={1} label="Personal" />
 		</TabsSubtle>
 	);
 }

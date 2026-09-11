@@ -865,7 +865,7 @@ function PluginConnectionError(input: {
 	}
 	return (
 		<div
-			className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5"
+			className="flex flex-wrap items-center justify-between gap-2 py-3"
 			role="alert"
 		>
 			<p className="text-destructive text-xs">{input.errorMessage}</p>
@@ -905,7 +905,7 @@ type ConnectionSectionInput = {
 
 function ConnectionSection(input: ConnectionSectionInput) {
 	return (
-		<section aria-label={input.title} className="px-4 py-4 sm:px-5">
+		<section aria-label={input.title} className="py-4">
 			<div className="flex flex-wrap items-start justify-between gap-3">
 				<div>
 					<h3 className="font-medium text-foreground text-sm">{input.title}</h3>
@@ -1081,7 +1081,7 @@ function MemberConnectionsSection(input: {
 	statusChecking: boolean;
 }) {
 	return (
-		<section aria-label="Member connections" className="px-4 py-4 sm:px-5">
+		<section aria-label="Member connections" className="py-4">
 			<h3 className="font-medium text-foreground text-sm">
 				Member connections
 			</h3>

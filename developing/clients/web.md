@@ -115,8 +115,9 @@ Center, Local, and personal Remote Agent permissions. Permission saves use a
 server revision check; a conflicting edit must be reloaded, never silently
 overwritten. The server owns management eligibility and execution permission.
 
-The catalog and detail pages separate **Personal** from the current
-organization's actual name with the same scope tabs. Scope stays in the URL
+The catalog and detail pages show the current organization's actual name first,
+then **Personal**, using the same scope tabs. Organization is the default;
+personal workspaces expose only personal connections. Scope stays in the URL
 when opening a Plugin and returning to the catalog. Personal status includes
 only the signed-in member's connection; organization status includes only the
 shared connection. All members can inspect shared status and permissions;

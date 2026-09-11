@@ -29,12 +29,40 @@ const ISOLATED_ENV = {
     "/repo/.wrangler-dev-state/isolated/wt-example/registry",
 };
 const MISSING_ISOLATED_ENV_RE = /OPENMELD_DEV_ISOLATED=1/u;
+const FIXTURE_LOOPBACK_ORIGIN_RE = /loopback origin/u;
 const ISOLATED_WORKER_SCRIPT = fileURLToPath(
   new URL("./run-isolated-worker-dev.mjs", import.meta.url)
 );
 const DOPPLER_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./doppler-environment.mjs", import.meta.url)
 );
+
+test("isolated Plugin fixtures override only Gateway and never use real credentials", () => {
+  const env = {
+    ...ISOLATED_ENV,
+    OPENMELD_DEV_PLUGIN_FIXTURE_URL: "http://127.0.0.1:31999",
+  };
+  const plan = resolveIsolatedWorkerDevPlan({ service: "gateway", env });
+  assert.ok(
+    plan.args.includes("OPENMELD_CONNECTORS_BASE_URL:http://127.0.0.1:31999")
+  );
+  assert.ok(
+    plan.args.includes(
+      "OPEN_CONNECTOR_OPENMELD_ADMIN_TOKEN:local-plugin-fixture"
+    )
+  );
+  assert.throws(
+    () =>
+      resolveIsolatedWorkerDevPlan({
+        service: "gateway",
+        env: {
+          ...env,
+          OPENMELD_DEV_PLUGIN_FIXTURE_URL: "https://connectors.openmeld.ai",
+        },
+      }),
+    FIXTURE_LOOPBACK_ORIGIN_RE
+  );
+});
 
 test("enters Doppler at the individual Worker process boundary", () => {
   const command = resolveIsolatedWorkerDopplerCommand("gateway", {

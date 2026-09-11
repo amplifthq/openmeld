@@ -54,14 +54,14 @@ export function PluginAgentAccess(input: {
 	});
 	if (access.isPending) {
 		return (
-			<output className="block px-5 py-4 text-muted-foreground text-sm">
+			<output className="block py-4 text-muted-foreground text-sm">
 				Loading Agent access…
 			</output>
 		);
 	}
 	if (access.isError) {
 		return (
-			<div className="px-5 py-4">
+			<div className="py-4">
 				<p role="alert">Agent access could not be loaded.</p>
 				<Button onClick={() => access.refetch()} size="sm" variant="outline">
 					Try again
@@ -78,7 +78,7 @@ export function PluginAgentAccess(input: {
 	return (
 		<section
 			aria-label="Agent access"
-			className="border-border/70 border-t px-4 py-4 sm:px-5"
+			className="border-border/70 border-t py-4"
 		>
 			<h3 className="font-medium text-sm">Agent access</h3>
 			{active.map((item) => {
