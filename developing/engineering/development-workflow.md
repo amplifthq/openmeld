@@ -365,6 +365,13 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | `pnpm dev:isolated --test-scheduled` | Legacy isolated stack that also prints its loopback-only Routine scheduler trigger. |
 | `pnpm dev:web:isolated` | Legacy low-level Web attachment for checkouts that still use local environment files. |
 
+For isolated Plugin UI acceptance, `OPENMELD_DEV_PLUGIN_FIXTURE_URL` can point
+Gateway at a compatible local provider simulator. It accepts only an
+`http://127.0.0.1` origin and uses the fixed non-secret `local-plugin-fixture`
+token, never the real OpenConnector administration credential. Keep simulator
+state disposable and make simulated authorization explicit. This option does
+not simulate Remote Agent tool execution or establish a real provider connection.
+
 For normal localhost development, use two terminals in the same worktree:
 
 ```bash

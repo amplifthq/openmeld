@@ -914,8 +914,6 @@ import {
   readConnectorConnectionForUser,
   readSharedConnectorConnection,
   reconcileConnectorConnections,
-  requireConnectorConnectionForExecution,
-  selectActiveConnectorConnection,
   upsertPendingConnectorConnection,
   upsertPendingSharedConnectorConnection,
 } from "../connectors/connector-connection-repository";
@@ -925,6 +923,10 @@ import {
   createGitHubAppInstallationState,
   readPendingGitHubAppInstallation,
 } from "../connectors/github-app-installation-state";
+import {
+  requireRemotePluginConnection,
+  selectPluginConnection,
+} from "../connectors/plugin-access";
 import {
   type DispatchHistoryEntry,
   listRecentDispatchLedgerEntriesForSpace,
@@ -3166,12 +3168,10 @@ export type CompleteConnectorDisconnectInput =
     connectionName: ConnectorConnectionName;
   };
 
-export type CenterAgentResolveConnectorConnectionInput = {
-  connectionPreference?: ConnectorConnectionPreference;
-  context?: CoreRpcContextInput;
-  requesterUserId: string | null;
-  service: ConnectorService;
-};
+export type CenterAgentResolveConnectorConnectionInput =
+  import("@openmeld/schemas/types").CenterAgentResolveConnectorConnectionBody & {
+    context?: CoreRpcContextInput;
+  };
 
 export type GetCenterAgentDesignationInput = {
   context?: CoreRpcContextInput;
@@ -7833,7 +7833,21 @@ export async function rpcCenterAgentResolveConnectorConnection(
     input.connectionPreference
   );
   const personal = "personalExecution" in authorization;
-  const connectionPreference = personal ? "shared" : requestedPreference;
+  const personalRequest = personal
+    ? authorization.personalExecution.request
+    : null;
+  const sender = personalRequest?.turnEnvelope.sender;
+  let representedUserId: string | null = null;
+  if (sender?.kind === "routine") {
+    representedUserId = sender.delegatedBy.ownerUserId;
+  } else if (sender?.kind === "member" && sender.verified) {
+    representedUserId = sender.ownerUserId ?? null;
+  }
+  const personalOwnerRequest =
+    personalRequest &&
+    representedUserId === personalRequest.agentProfileOwnerUserId;
+  const connectionPreference =
+    personal && !personalOwnerRequest ? "shared" : requestedPreference;
   if (service === "github" && connectionPreference === "automatic") {
     throw createCoreRpcHttpError({
       code: "connector.github_identity_required",
@@ -7842,9 +7856,10 @@ export async function rpcCenterAgentResolveConnectorConnection(
       status: 400,
     });
   }
-  const requesterUserId = personal
-    ? null
-    : normalizeOptionalText(input.requesterUserId);
+  let requesterUserId = normalizeOptionalText(input.requesterUserId);
+  if (personal) {
+    requesterUserId = personalOwnerRequest ? representedUserId : null;
+  }
   if (requesterUserId) {
     await requireConnectorRequesterMembership({
       env,
@@ -7853,23 +7868,19 @@ export async function rpcCenterAgentResolveConnectorConnection(
       userId: requesterUserId,
     });
   }
-  const selected = await selectActiveConnectorConnection({
+  const selected = await selectPluginConnection({
     db: requireConnectorConnectionDb(env),
     organizationId: authorization.activeOrganization.organizationId,
     preference: connectionPreference,
+    consumer: personal ? "remote_agent" : "center_agent",
     requesterUserId,
     service,
   });
-  const response: CenterAgentConnectorConnectionSelection = selected
-    ? {
-        connection: await toConnectorConnectionDto({
-          canDisconnect: false,
-          connection: selected.connection,
-          env,
-        }),
-        selection: selected.selection,
-      }
-    : { connection: null, selection: null };
+  const response = await presentPluginSelection(
+    env,
+    selected,
+    input.includeAccessPolicy
+  );
   const unavailableReason = selected
     ? null
     : await resolveConnectorConnectionUnavailableReason({
@@ -7891,6 +7902,25 @@ export async function rpcCenterAgentResolveConnectorConnection(
     unavailableReason,
   });
   return response;
+}
+
+async function presentPluginSelection(
+  env: CoreBindings,
+  selected: Awaited<ReturnType<typeof selectPluginConnection>>,
+  includeAccessPolicy?: true
+): Promise<CenterAgentConnectorConnectionSelection> {
+  if (!selected) {
+    return { connection: null, selection: null };
+  }
+  return {
+    connection: await toConnectorConnectionDto({
+      canDisconnect: false,
+      connection: selected.connection,
+      env,
+    }),
+    selection: selected.selection,
+    ...(includeAccessPolicy ? { permission: selected.permission } : {}),
+  };
 }
 
 function requireExpectedConnectorOrganization(input: {
@@ -15092,6 +15122,7 @@ export async function rpcCenterAgentRecordConnectorActionAudit(
   input: CenterAgentRecordConnectorActionAuditInput
 ): Promise<CenterAgentRecordConnectorActionAuditResponse> {
   const parsed = centerAgentRecordConnectorActionAuditBodySchema.safeParse({
+    connectionName: input.connectionName,
     actionId: input.actionId,
     operationId: input.operationId,
     outcome: input.outcome,
@@ -15119,6 +15150,29 @@ export async function rpcCenterAgentRecordConnectorActionAudit(
       reason:
         "Connector actions require a verified active human Organization member.",
       status: 403,
+    });
+  }
+  if (parsed.data.outcome === "attempted") {
+    if (!parsed.data.connectionName) {
+      throw createCoreRpcHttpError({
+        code: "plugin.connection_required",
+        reason:
+          "Update the Agent runtime to verify the selected plugin account before writing.",
+        status: 409,
+      });
+    }
+    await requireRemotePluginConnection({
+      db: authorization.db,
+      organizationId: authorization.activeOrganization.organizationId,
+      connectionName: parsed.data.connectionName,
+      service: parsed.data.service,
+      requesterUserId: member.userId,
+      remoteOwnerUserId:
+        "personalExecution" in authorization
+          ? (authorization.personalExecution.request.agentProfileOwnerUserId ??
+            null)
+          : undefined,
+      effect: "write",
     });
   }
   const action = resolveCenterAgentConnectorAuditAction(parsed.data.outcome);
@@ -15195,6 +15249,7 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
 ): Promise<CenterAgentRecordConnectorActionOperationResponse> {
   const parsed = centerAgentRecordConnectorActionOperationBodySchema.safeParse({
     actionId: input.actionId,
+    effect: input.effect,
     connectionName: input.connectionName,
     operationId: input.operationId,
     outcome: input.outcome,
@@ -15238,24 +15293,19 @@ export async function rpcCenterAgentRecordConnectorActionOperation(
   let executionConnection =
     existing?.operation.executionConnection ?? undefined;
   if (!existing && parsed.data.outcome === "attempted") {
-    const connection = await requireConnectorConnectionForExecution({
+    const connection = await requireRemotePluginConnection({
       connectionName: parsed.data.connectionName,
       db: authorization.db,
       organizationId: authorization.activeOrganization.organizationId,
+      service: parsed.data.service,
+      requesterUserId: member.userId,
+      remoteOwnerUserId:
+        "personalExecution" in authorization
+          ? (authorization.personalExecution.request.agentProfileOwnerUserId ??
+            null)
+          : undefined,
+      effect: parsed.data.effect ?? "unspecified",
     });
-    if (
-      connection.status !== "active" ||
-      connection.service !== parsed.data.service ||
-      ("personalExecution" in authorization && connection.scope !== "shared") ||
-      (connection.scope === "member" && connection.userId !== member.userId)
-    ) {
-      throw createCoreRpcHttpError({
-        code: "center_agent.connector_action_connection_invalid",
-        reason:
-          "This connector connection is not available to the current Organization member.",
-        status: 409,
-      });
-    }
     attribution = {
       actorProfileId: authorization.actorProfileId,
       onBehalfOf:

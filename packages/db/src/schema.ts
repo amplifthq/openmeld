@@ -77,6 +77,8 @@ export const {
   projects,
   routines,
   routineRuns,
+  connectorAccessEvents,
+  pluginActionConfirmations,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,

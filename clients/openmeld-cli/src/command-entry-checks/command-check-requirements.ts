@@ -54,6 +54,9 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
   Record<CommandEntryName, CommandCheckRequirements>
 > = Object.freeze({
   root: buildCommandChecks(OPTIONAL_CLI_UPDATE),
+  "plugins.list": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
+  "plugins.actions": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
+  "plugins.call": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   view: buildCommandChecks(OPTIONAL_CLI_UPDATE),
   start: buildCommandChecks(
     REQUIRED_DISCLAIMER,

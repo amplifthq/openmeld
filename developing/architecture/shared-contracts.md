@@ -25,6 +25,55 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Shared Agent Plugins
+
+`packages/schemas` owns `plugin-access`, `plugin-actions`, and `plugin-runtime`.
+The Gateway exposes connection access reads/updates and the Local Agent plugin
+action endpoint. Core authenticates organization membership, the acting Profile,
+requester identity, connection ownership, permissions, and durable operation
+admission. The Remote Worker executes provider actions through its service
+binding; it receives a named connection and Core-authorized effect, never a
+client-selected provider URL or credential. Center Agent tools and personal
+Remote Agent tools share this provider runtime.
+
+Access responses include the canonical connection scope and policy revision.
+The access list contains active Core connection records and does not require a
+successful provider inventory request. A provider outage must not prevent an
+owner from revoking Agent access. Updates compare revisions and atomically append
+an access event. Each new invocation rechecks current access and active status.
+
+Local requests choose an explicit account and identify a logical operation.
+Confirmation binds the exact operation signature and access revision for fifteen
+minutes. Retries return the original ledger status without resubmitting; unknown
+provider outcomes remain unknown. Wake provenance is read through the Dispatch
+application boundary. It does not establish execution liveness or replace
+RuntimeCoordinator authority. The local account and Service remain the local
+trust boundary; a dispatch identifier is not a secret execution capability.
+
+### Contract impact and rollout
+
+- Migrations 0171 and 0172 add nullable policy/revision, access events, and
+  confirmation records. Apply them before the corresponding Core code. Existing
+  rows preserve previously shipped Center/Remote access and grant no Local access.
+- Existing setup, Prepare, Wake, Service transport, and Space action contracts
+  are unchanged. No epoch increase or required CLI upgrade is introduced by this
+  additive feature. Old CLI/Service pairs continue their existing workflows;
+  the new CLI commands require the new Gateway/Core/Remote implementation.
+- Deploy the Remote provider runtime before enabling Local Agent invocation.
+  Deploy the cloud producer/consumer changes as one coordinated release. Old
+  Remote clients that omit `includeAccessPolicy` receive the original strict
+  connection-selection shape. New clients opt in to the permission projection.
+- Legacy batch-write audit admission now requires the selected connection name.
+  Updated Remote producers supply it. During a mixed-version window an old
+  producer is rejected before the write, rather than bypassing policy.
+- Build and verify CLI/managed skills in deferred release mode on feature
+  branches. Stamp and publish their final artifacts from the clean-main release
+  lane. Publish the matching public CLI guide in that lane; do not rewrite the
+  signed public skill channel from a feature branch.
+- Rollback the Web/CLI entry points before cloud handlers. Additive database
+  columns may remain, but rolling back Core enforcement also removes the new
+  policy guarantee: revoke affected provider connections before such a rollback.
+
 ## Space message link previews
 
 `@openmeld/schemas` owns the additive GET

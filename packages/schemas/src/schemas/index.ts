@@ -1349,6 +1349,7 @@ export {
   CONNECTOR_CONNECTION_STATUSES,
   CONNECTOR_SERVICES,
   centerAgentConnectorConnectionSelectionSchema,
+  centerAgentResolveConnectorConnectionBodySchema,
   connectorAppCatalogProviderSchema,
   connectorAppCatalogResponseSchema,
   connectorAppRequestListResponseSchema,
@@ -1817,6 +1818,27 @@ export {
   peopleComputersResponseSchema,
   peopleComputerTargetSchema,
 } from "./http/people-computers";
+export {
+  PLUGIN_ERROR_CODES,
+  pluginAccessListResponseSchema,
+  pluginAccessListRpcInputSchema,
+  pluginAccessPolicySchema,
+  pluginAccessSchema,
+  pluginAccessUpdateBodySchema,
+  pluginAccessUpdateRpcInputSchema,
+  pluginConsumerSchema,
+  pluginPermissionSchema,
+} from "./http/plugin-access";
+export {
+  pluginActionRequestSchema,
+  pluginActionResponseSchema,
+  pluginActionRpcInputSchema,
+} from "./http/plugin-actions";
+export {
+  pluginActionEffectSchema,
+  pluginRuntimeRequestSchema,
+  pluginRuntimeResponseSchema,
+} from "./http/plugin-runtime";
 export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
