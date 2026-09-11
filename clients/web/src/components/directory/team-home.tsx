@@ -2,6 +2,7 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
@@ -27,7 +28,7 @@ import { DirectorySearch } from "./directory-search";
 import { HumanProfileItem } from "./human-profile-item";
 import {
 	EMPTY_PEOPLE_SIDEBAR,
-	type PeopleFilter,
+	PEOPLE_COMPUTER_FILTER_LABELS,
 	peopleConnectionFilter,
 	resolvePeopleSections,
 } from "./people-sidebar-order";
@@ -44,6 +45,7 @@ export function TeamHome(input: {
 	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
 	const [search, setSearch] = useState("");
 	const [groupIds, setGroupIds] = useState<string[]>([]);
+	const [computerFilters, setComputerFilters] = useState<string[]>([]);
 	const [sectionFilters, setSectionFilters] = useState<
 		Record<string, string[]>
 	>({});
@@ -56,6 +58,7 @@ export function TeamHome(input: {
 	const filtering =
 		Boolean(query) ||
 		groupIds.length > 0 ||
+		computerFilters.length > 0 ||
 		Object.values(sectionFilters).some((values) => values.length > 0);
 	const sections = allSections
 		.filter((section) => groupIds.length === 0 || groupIds.includes(section.id))
@@ -64,6 +67,8 @@ export function TeamHome(input: {
 			members: section.members.filter(
 				(member) =>
 					member.name.toLocaleLowerCase().includes(query) &&
+					(!computerFilters.length ||
+						computerFilters.includes(peopleConnectionFilter(member))) &&
 					(!sectionFilters[section.id]?.length ||
 						sectionFilters[section.id].includes(peopleConnectionFilter(member)))
 			),
@@ -105,7 +110,7 @@ export function TeamHome(input: {
 						<DropdownMenuTrigger
 							render={
 								<Button
-									aria-label="Filter team groups"
+									aria-label="Filter team"
 									size="icon-sm"
 									variant="ghost"
 								/>
@@ -135,14 +140,41 @@ export function TeamHome(input: {
 									<span className="truncate">{section.label}</span>
 								</DropdownMenuCheckboxItem>
 							))}
+							<DropdownMenuSeparator />
+							<TeamComputerFilterItems
+								onChange={setComputerFilters}
+								values={computerFilters}
+							/>
 						</FluidDropdownMenuContent>
 					</DropdownMenu>
 				</div>
 			</div>
-			{groupIds.length > 0 ? (
-				<div className="px-[var(--app-page-inline-padding)] pb-3">
-					<Button onClick={() => setGroupIds([])} size="sm" variant="ghost">
-						Clear group filters
+			{groupIds.length > 0 || computerFilters.length > 0 ? (
+				<div className="flex flex-wrap items-center gap-2 px-[var(--app-page-inline-padding)] pb-3">
+					{computerFilters.map((value) => (
+						<SidebarFilterBadge
+							key={value}
+							label={
+								PEOPLE_COMPUTER_FILTER_LABELS[
+									value as keyof typeof PEOPLE_COMPUTER_FILTER_LABELS
+								]
+							}
+							onRemove={() =>
+								setComputerFilters((current) =>
+									current.filter((item) => item !== value)
+								)
+							}
+						/>
+					))}
+					<Button
+						onClick={() => {
+							setGroupIds([]);
+							setComputerFilters([]);
+						}}
+						size="sm"
+						variant="ghost"
+					>
+						Clear filters
 						<XIcon />
 					</Button>
 				</div>
@@ -207,8 +239,8 @@ export function TeamHome(input: {
 									<SidebarFilterBadge
 										key={value}
 										label={
-											PEOPLE_FILTER_LABELS[
-												value as Exclude<PeopleFilter, "all">
+											PEOPLE_COMPUTER_FILTER_LABELS[
+												value as keyof typeof PEOPLE_COMPUTER_FILTER_LABELS
 											]
 										}
 										onRemove={() =>
@@ -281,13 +313,6 @@ function TeamGroupIcon({ id }: { id: string }) {
 	return null;
 }
 
-const PEOPLE_FILTER_LABELS = {
-	connected: "Computer online",
-	offline: "Computer offline",
-	unconnected: "No computer connected",
-	unknown: "Status unavailable",
-} as const;
-
 function TeamSectionFilter(input: {
 	label: string;
 	values: string[];
@@ -308,29 +333,43 @@ function TeamSectionFilter(input: {
 				<SlidersHorizontalIcon />
 			</DropdownMenuTrigger>
 			<FluidDropdownMenuContent align="end" className="w-56">
-				{Object.entries(PEOPLE_FILTER_LABELS).map(([value, label]) => (
-					<DropdownMenuCheckboxItem
-						checked={input.values.includes(value)}
-						closeOnClick={false}
-						key={value}
-						onCheckedChange={(checked) =>
-							input.onChange(
-								checked
-									? [...input.values, value]
-									: input.values.filter((item) => item !== value)
-							)
-						}
-					>
-						{label}
-					</DropdownMenuCheckboxItem>
-				))}
-				<DropdownMenuCheckboxItem
-					checked={input.values.length === 0}
-					onCheckedChange={() => input.onChange([])}
-				>
-					All members
-				</DropdownMenuCheckboxItem>
+				<TeamComputerFilterItems
+					onChange={input.onChange}
+					values={input.values}
+				/>
 			</FluidDropdownMenuContent>
 		</DropdownMenu>
+	);
+}
+
+function TeamComputerFilterItems(input: {
+	values: string[];
+	onChange: (values: string[]) => void;
+}) {
+	return (
+		<>
+			{Object.entries(PEOPLE_COMPUTER_FILTER_LABELS).map(([value, label]) => (
+				<DropdownMenuCheckboxItem
+					checked={input.values.includes(value)}
+					closeOnClick={false}
+					key={value}
+					onCheckedChange={(checked) =>
+						input.onChange(
+							checked
+								? [...input.values, value]
+								: input.values.filter((item) => item !== value)
+						)
+					}
+				>
+					{label}
+				</DropdownMenuCheckboxItem>
+			))}
+			<DropdownMenuCheckboxItem
+				checked={input.values.length === 0}
+				onCheckedChange={() => input.onChange([])}
+			>
+				All computer states
+			</DropdownMenuCheckboxItem>
+		</>
 	);
 }

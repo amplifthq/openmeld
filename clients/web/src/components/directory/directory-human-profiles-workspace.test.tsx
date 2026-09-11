@@ -329,6 +329,51 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(screen.queryByText("Workspace assistant")).toBeNull();
 	});
 
+	it("offers Computer filters at the Team level independently of Human online groups", () => {
+		const self = buildMember({ current: true });
+		const other = {
+			...buildMember({ current: false }),
+			computer: { ...self.computer },
+		};
+		renderWorkspace({ members: [self, other], selectedProfileId: null });
+		const team = within(screen.getByRole("tabpanel"));
+		fireEvent.click(team.getByLabelText("Filter team"));
+		fireEvent.click(
+			screen.getByRole("menuitemcheckbox", {
+				name: "Computer connected",
+			})
+		);
+		expect(
+			team.getByRole("button", { name: "Open Felix's profile" })
+		).toBeTruthy();
+		expect(
+			team.getByRole("button", { name: "Open Grace Hopper's profile" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Online" }));
+		expect(
+			team.queryByRole("button", { name: "Open Grace Hopper's profile" })
+		).toBeNull();
+		expect(
+			team.getByRole("button", { name: "Open Felix's profile" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("menuitemcheckbox", {
+				name: "Computer connected",
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("menuitemcheckbox", {
+				name: "Computer disconnected",
+			})
+		);
+		expect(
+			team.queryByRole("button", { name: "Open Felix's profile" })
+		).toBeNull();
+		expect(
+			team.getByText("No members match your search or filters.")
+		).toBeTruthy();
+	});
+
 	it("does not infer Human presence from Computer status when presence is unavailable", () => {
 		const teammate = buildMember({ current: false });
 		renderWorkspace({
@@ -810,7 +855,7 @@ function renderWorkspace(
 		onRetryProfileReports?: () => void;
 		onSelectProfile?: (profileId: string) => void;
 		profileReportsErrorMessage?: string | null;
-		selectedProfileId?: string;
+		selectedProfileId?: string | null;
 	} = {}
 ) {
 	const members = input.members ?? [
@@ -844,7 +889,11 @@ function renderWorkspace(
 			profileReportsErrorMessage={input.profileReportsErrorMessage ?? null}
 			recovery={buildRecovery()}
 			researchErrorMessage={null}
-			selectedProfileId={input.selectedProfileId ?? "profile-current"}
+			selectedProfileId={
+				input.selectedProfileId === undefined
+					? "profile-current"
+					: input.selectedProfileId
+			}
 			state={{
 				context: "organization",
 				directMessage: "idle",

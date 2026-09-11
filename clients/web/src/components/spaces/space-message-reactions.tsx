@@ -37,6 +37,7 @@ import {
 } from "react";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import { writeSpaceHistoryReactionsToCache } from "#/query/spaces/history";
 import { MessageActionTooltip } from "./space-message-actions";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 
@@ -139,7 +140,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		queryKey: key,
 		enabled: Boolean(input),
 		staleTime: Number.POSITIVE_INFINITY,
-		initialData: input?.snapshot ?? EMPTY,
+		initialData: input?.snapshot,
 		queryFn: async () => {
 			if (!input) {
 				return EMPTY;
@@ -157,6 +158,12 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			return old && old.version > next.version ? old : next;
 		},
 	});
+	// Restoring history may happen after this query mounted. Use its newer
+	// snapshot immediately, rather than rendering an empty row until an effect.
+	const reactions =
+		input?.snapshot && input.snapshot.version > (query.data?.version ?? -1)
+			? input.snapshot
+			: (query.data ?? EMPTY);
 	useEffect(() => {
 		const snapshot = input?.snapshot;
 		if (snapshot) {
@@ -165,13 +172,25 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			);
 		}
 	}, [input?.snapshot, key, queryClient]);
+	const { spaceId, profileId, signalId } = input ?? {};
+	useEffect(() => {
+		if (spaceId && profileId && signalId && reactions !== EMPTY) {
+			writeSpaceHistoryReactionsToCache({
+				queryClient,
+				spaceId,
+				openMeldProfileId: profileId,
+				signalId,
+				reactions,
+			});
+		}
+	}, [spaceId, profileId, signalId, reactions, queryClient]);
 	const [pending, setPending] = useState<
 		Record<string, { active: boolean; label: string }>
 	>({});
 	const inFlight = useRef(new Set<string>());
 	const [error, setError] = useState<string | null>(null);
 	const [viewerOpen, setViewerOpen] = useState(false);
-	const groups = query.data.groups
+	const groups = reactions.groups
 		.map((group) => {
 			const change = pending[group.emoji];
 			if (!change || change.active === group.reactedByMe) {
@@ -201,7 +220,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			return;
 		}
 		inFlight.current.add(emoji.emoji);
-		const active = !query.data.groups.find(
+		const active = !reactions.groups.find(
 			(group) => group.emoji === emoji.emoji
 		)?.reactedByMe;
 		setPending((previous) => ({
@@ -244,7 +263,7 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		},
 		viewerOpen,
 		setViewerOpen,
-		snapshot: query.data,
+		snapshot: reactions,
 	};
 }
 export type MessageReactionsState = ReturnType<typeof useMessageReactions>;

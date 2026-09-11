@@ -32,7 +32,11 @@ reports cannot renew a lease or overwrite a newer departure.
 
 Active foreground pages renew every 30 seconds. A lease expires after 90 seconds,
 and five minutes without a Human interaction independently ends online presence.
-Heartbeat-only sessions cannot establish presence. Page departure ends its lease;
+Heartbeat-only sessions cannot establish presence. A temporary loss of focus or
+hidden tab stops renewals without sending a departure; the existing 90-second
+server lease bounds this grace period. Returning to the foreground resumes the
+same session. Space navigation within one Organization does not recreate it.
+Page departure or account/Organization exit ends its lease;
 missing departure delivery relies on expiry. Expired records retain ordering and
 are pruned on the member's next write after 24 hours; they are not an activity log.
 Reads re-check current Organization membership and current active profile identity.

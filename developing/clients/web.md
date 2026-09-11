@@ -1750,14 +1750,17 @@ formatted from `lastSeenAt` against the current clock, never a cached label.
 The People sidebar contains Human Profiles. Starred and user-defined groups
 precede **Online** and **Offline**, based only on Core's Human presence projection.
 Unknown presence stays in an unclassified **People** group. Computer connection
-remains an independent filter. The designated Center Agent lives in the Agents
+remains an independent filter in both the Team toolbar and each section. Both
+surfaces use **Computer connected** and **Computer disconnected**; Online and
+Offline refer only to Humans. Toolbar filters apply across sections and combine
+with the selected Human groups and per-section filters. The designated Center Agent lives in the Agents
 directory, outside Human presence counts. The signed-in member follows
 ordinary placement unless a saved star or custom group applies. The signed-in
 member always appears first within that group, regardless of sort or manual order;
 the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
-ordinary placement. Online requires a live foreground page with Human interaction
-within five minutes. Any active page keeps the Human Online. Computer connections,
+ordinary placement. Online requires an unexpired Core presence lease with Human
+interaction within five minutes. Any active page keeps the Human Online. Computer connections,
 Agent work, and historical activity never establish Human presence.
 Rows show the avatar, name, Computer status icon, Human last-seen
 time when known, and enabled local-agent icons. Computer explanations remain in
@@ -1770,8 +1773,11 @@ the Human is Online. Offline and unknown states have no visible marker; accessib
 Online, Offline, or Online status unavailable labels remain available. One app-shell
 reader refreshes the authorized batch every 30 visible seconds and on foreground
 return. Failed or stale reads remain unknown. Active pages renew a 90-second lease
-every 30 seconds; trusted pointer, keyboard, wheel and touch input reset the
-five-minute idle limit. Departure ends only that page's lease. Historical Web
+every 30 seconds; trusted pointer movement, clicks, keyboard, wheel and touch input
+reset the five-minute idle limit. Brief focus or visibility loss pauses renewals
+and lets the existing server lease expire naturally, instead of immediately
+declaring the Human offline. Space navigation preserves the Organization session;
+page departure and account/Organization exit end only that page's lease. Historical Web
 activity advances only on actual interaction, with its existing five-minute
 throttle; presence renewals do not advance it. Space-local Here … ago remains a
 separate historical fact. No system-wide activity or interaction contents are collected.
@@ -2522,6 +2528,16 @@ belong in the IndexedDB Query cache and is never message, read-cursor, or access
 authority.
 
 ### Browser read-cache persistence
+
+Confirmed reaction updates also replace the reaction snapshot on the matching
+cached main-timeline message, within its existing Space and acting-Profile scope.
+This includes mutation responses and refreshes after live reaction invalidation.
+The bounded history persists and restores message text and reactions together;
+the standalone reaction query is not a separate persistence family. Reaction
+versions prevent older responses from undoing newer additions or removals. A
+late response cannot recreate an evicted history or add a Thread reply to the
+main timeline. A missing reaction snapshot is unknown and may fetch; a confirmed
+empty snapshot is not mistaken for missing data.
 
 OpenMeld Web may retain a narrowly approved subset of bounded display queries
 in IndexedDB so a confirmed returning account can see useful route content
