@@ -1,4 +1,5 @@
-import { Button } from "@openmeld/ui/components/button";
+import type { SpaceInboxSummaryResponse } from "@openmeld/schemas/types";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -9,19 +10,39 @@ import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
-import { FunnelSimpleIcon, ListIcon, PlusIcon } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
-import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
+import {
+	CompassIcon,
+	FunnelSimpleIcon,
+	ListIcon,
+	PlusIcon,
+} from "@phosphor-icons/react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { type MouseEvent, useMemo, useState } from "react";
+import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
+import {
+	resolveInboxAttentionLabel,
+	resolveInboxAttentionTone,
+	resolveInboxIndicatorClassName,
+} from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationNewSpacePath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationDirectMessagesPath,
+	buildOrganizationNewSpacePath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
@@ -47,6 +68,12 @@ export function ConversationsSidebar(
 	input: { currentProfileId?: string; currentSpaceId?: string } = {}
 ) {
 	const model = useConversations(input);
+	const { dismiss } = useAppNavigationPresentation();
+	const onNavigate = (event: MouseEvent<HTMLAnchorElement>) => {
+		if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) {
+			dismiss();
+		}
+	};
 	const { directMessages: dm } = model;
 	const memberAppearances = useMemo(
 		() => resolveSpaceMemberAppearances(dm.directory.data),
@@ -57,6 +84,7 @@ export function ConversationsSidebar(
 	const [search, setSearch] = useState("");
 	const [archived, setArchived] = useState(false);
 	const [creating, setCreating] = useState(false);
+	const [newMessageQuery, setNewMessageQuery] = useState("");
 	const [creatingGroup, setCreatingGroup] = useState<string>();
 	const [renaming, setRenaming] = useState<Conversation | null>(null);
 	const [name, setName] = useState("");
@@ -172,7 +200,8 @@ export function ConversationsSidebar(
 			beforeId
 		);
 	};
-	const newMessage = (groupId?: string) => {
+	const newMessage = (groupId?: string, query = "") => {
+		setNewMessageQuery(query);
 		setCreatingGroup(groupId);
 		setCreating(true);
 	};
@@ -187,76 +216,118 @@ export function ConversationsSidebar(
 	};
 	return (
 		<>
-			<div className="mb-2 flex min-w-0 items-center gap-1 px-1">
-				<span className="min-w-0 flex-1 truncate font-medium text-sm">
-					Conversations
-				</span>
-				<Button
-					aria-label="New conversation"
-					onClick={() => newMessage()}
-					size="icon-sm"
-					variant="ghost"
-				>
-					<PlusIcon />
-				</Button>
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<Button
-								aria-label="Conversation view"
-								size="icon-sm"
-								variant="ghost"
-							/>
-						}
-					>
-						<ListIcon />
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuRadioGroup
-							onValueChange={(value) => {
-								if (value === "grouped" || value === "recent") {
-									setView(value);
+			<div className="mb-2 flex min-w-0 flex-wrap items-center gap-1 px-1">
+				<MessengerDirectoryLink
+					inbox={dm.inbox.data}
+					onNavigate={onNavigate}
+					orgSlug={dm.org.slug}
+				/>
+				<div className="ml-auto flex shrink-0 items-center gap-1">
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Link
+									aria-label="Browse spaces"
+									className={buttonVariants({
+										size: "icon-sm",
+										variant: "ghost",
+									})}
+									onClick={onNavigate}
+									to={buildOrganizationSpacesPath(dm.org.slug)}
+								/>
+							}
+						>
+							<CompassIcon aria-hidden="true" />
+						</TooltipTrigger>
+						<TooltipContent>Browse spaces</TooltipContent>
+					</Tooltip>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label="New conversation"
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
+						>
+							<PlusIcon />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							<DropdownMenuItem onClick={() => newMessage()}>
+								New message
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								render={
+									<Link
+										onClick={onNavigate}
+										to={buildOrganizationNewSpacePath(dm.org.slug)}
+									/>
 								}
-							}}
-							value={view}
+							>
+								New Space
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label="Conversation view"
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
 						>
-							<DropdownMenuRadioItem closeOnClick value="grouped">
-								Grouped
-							</DropdownMenuRadioItem>
-							<DropdownMenuRadioItem closeOnClick value="recent">
-								Recent
-							</DropdownMenuRadioItem>
-						</DropdownMenuRadioGroup>
-					</DropdownMenuContent>
-				</DropdownMenu>
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<Button
-								aria-label="Filter conversations"
-								size="icon-sm"
-								variant="ghost"
-							/>
-						}
-					>
-						<FunnelSimpleIcon />
-					</DropdownMenuTrigger>
-					<DropdownMenuContent
-						align="end"
-						className="w-60 max-w-[calc(100vw-2rem)]"
-					>
-						{kinds.menu}
-						<DropdownMenuSeparator />
-						{filter.menu}
-						<DropdownMenuSeparator />
-						<DropdownMenuCheckboxItem
-							checked={archived}
-							onCheckedChange={setArchived}
+							<ListIcon />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end">
+							<DropdownMenuRadioGroup
+								onValueChange={(value) => {
+									if (value === "grouped" || value === "recent") {
+										setView(value);
+									}
+								}}
+								value={view}
+							>
+								<DropdownMenuRadioItem closeOnClick value="grouped">
+									Grouped
+								</DropdownMenuRadioItem>
+								<DropdownMenuRadioItem closeOnClick value="recent">
+									Recent
+								</DropdownMenuRadioItem>
+							</DropdownMenuRadioGroup>
+						</DropdownMenuContent>
+					</DropdownMenu>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label="Filter conversations"
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
 						>
-							Archived direct messages
-						</DropdownMenuCheckboxItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+							<FunnelSimpleIcon />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent
+							align="end"
+							className="w-60 max-w-[calc(100vw-2rem)]"
+						>
+							{kinds.menu}
+							<DropdownMenuSeparator />
+							{filter.menu}
+							<DropdownMenuSeparator />
+							<DropdownMenuCheckboxItem
+								checked={archived}
+								onCheckedChange={setArchived}
+							>
+								Archived direct messages
+							</DropdownMenuCheckboxItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
 			</div>
 			<div className="mb-2 px-1">
 				<SidebarSearchInput
@@ -293,11 +364,21 @@ export function ConversationsSidebar(
 				/>
 			)}
 			{!(pending || failed) && filtered.length === 0 && (
-				<p className="p-2 text-muted-foreground text-xs">
-					{search.trim() || filter.active || archived
-						? "No conversations match your search or filters."
-						: "No conversations yet."}
-				</p>
+				<div className="p-2 text-muted-foreground text-xs">
+					<p>
+						{search.trim() || filter.active || archived
+							? "No conversations match your search or filters."
+							: "No conversations yet."}
+					</p>
+					<Button
+						className="mt-2"
+						onClick={() => newMessage(undefined, search.trim())}
+						size="sm"
+						variant="outline"
+					>
+						Find someone
+					</Button>
+				</div>
 			)}
 			{dm.sessions.hasNextPage && (
 				<p aria-live="polite" className="px-2 text-muted-foreground text-xs">
@@ -480,37 +561,42 @@ export function ConversationsSidebar(
 					/>
 				</ControlledSidebarGroupStateProvider>
 			</SidebarDrag>
-			<NewChatDialog
-				groupId={creatingGroup?.slice(5)}
-				onCreated={
-					creatingGroup
-						? (id) => {
-								if (!dm.store.preferences) {
-									return;
+			{creating && (
+				<NewChatDialog
+					groupId={creatingGroup?.slice(5)}
+					initialQuery={newMessageQuery}
+					onCreated={
+						creatingGroup
+							? (id) => {
+									if (!dm.store.preferences) {
+										return;
+									}
+									return dm.store.saveAsync({
+										...dm.store.preferences,
+										messages: undefined,
+										chats: {
+											...dm.preferences,
+											groups: dm.preferences.groups.map((group) => ({
+												...group,
+												spaceIds:
+													group.id === creatingGroup.slice(5)
+														? [
+																...group.spaceIds.filter(
+																	(value) => value !== id
+																),
+																id,
+															]
+														: group.spaceIds.filter((value) => value !== id),
+											})),
+										},
+									});
 								}
-								return dm.store.saveAsync({
-									...dm.store.preferences,
-									messages: undefined,
-									chats: {
-										...dm.preferences,
-										groups: dm.preferences.groups.map((group) => ({
-											...group,
-											spaceIds:
-												group.id === creatingGroup.slice(5)
-													? [
-															...group.spaceIds.filter((value) => value !== id),
-															id,
-														]
-													: group.spaceIds.filter((value) => value !== id),
-										})),
-									},
-								});
-							}
-						: undefined
-				}
-				onOpenChange={setCreating}
-				open={creating}
-			/>
+							: undefined
+					}
+					onOpenChange={setCreating}
+					open={creating}
+				/>
+			)}
 			<Dialog
 				onOpenChange={(open) => {
 					if (!open) {
@@ -554,5 +640,49 @@ export function ConversationsSidebar(
 				</DialogContent>
 			</Dialog>
 		</>
+	);
+}
+
+function MessengerDirectoryLink({
+	inbox,
+	onNavigate,
+	orgSlug,
+}: {
+	inbox: SpaceInboxSummaryResponse | undefined;
+	onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
+	orgSlug: string;
+}) {
+	const unreadCount =
+		Math.max(0, inbox?.ordinarySpaceUnreadCount ?? 0) +
+		Math.max(0, inbox?.chatUnreadCount ?? 0);
+	const tone = resolveInboxAttentionTone({
+		unresolvedActionCount: inbox?.chatUnresolvedActionCount,
+		unreadUrgentUpdateCount: inbox?.chatUnreadUrgentUpdateCount,
+	});
+	const label = [
+		"Messenger",
+		resolveInboxAttentionLabel(tone),
+		unreadCount > 0
+			? `${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`
+			: null,
+	]
+		.filter(Boolean)
+		.join(", ");
+	return (
+		<Link
+			aria-label={label}
+			className="flex min-w-20 flex-1 items-center gap-2 rounded-sm font-medium text-sm focus-visible:outline-2"
+			onClick={onNavigate}
+			to={buildOrganizationDirectMessagesPath(orgSlug)}
+		>
+			<span className="truncate">Messenger</span>
+			{unreadCount > 0 || tone ? (
+				<span
+					aria-hidden="true"
+					className={`size-2 shrink-0 rounded-full ${resolveInboxIndicatorClassName(tone)}`}
+					data-app-rail-status-indicator="chats-unread"
+				/>
+			) : null}
+		</Link>
 	);
 }
