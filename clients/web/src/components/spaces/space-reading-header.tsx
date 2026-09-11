@@ -17,6 +17,18 @@ export function useSpaceReadingHeader() {
 	return useContext(SpaceReadingHeaderContext);
 }
 
+export function resolveSpaceReadingHeaderProgress(
+	distanceFromBottom: number,
+	isUserScrolling: boolean
+) {
+	if (distanceFromBottom <= 24) {
+		return 0;
+	}
+	const progress = Math.min(1, (distanceFromBottom - 24) / 120);
+	// Restoring a reading position is not a partially completed gesture.
+	return isUserScrolling ? progress : Math.round(progress);
+}
+
 export function SpaceReadingHeaderProvider(input: {
 	children: ReactNode;
 	isEmbedded: boolean;
@@ -28,8 +40,8 @@ export function SpaceReadingHeaderProvider(input: {
 		null
 	);
 	const value = useMemo(() => ({ setHeader, setScrollElement }), []);
-	const enabled =
-		!(input.isEmbedded || input.isDirectMessage) && input.view === "messages";
+	const isSpace = !(input.isEmbedded || input.isDirectMessage);
+	const enabled = isSpace && input.view === "messages";
 
 	useLayoutEffect(() => {
 		if (!(enabled && header && scrollElement)) {
@@ -39,7 +51,7 @@ export function SpaceReadingHeaderProvider(input: {
 	}, [header, enabled, scrollElement]);
 
 	return (
-		<SpaceReadingHeaderContext value={value}>
+		<SpaceReadingHeaderContext value={isSpace ? value : null}>
 			{input.children}
 		</SpaceReadingHeaderContext>
 	);
@@ -77,6 +89,7 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 	let offsetY = 0;
 	let titleHeight = 0;
 	let navigationHeight = 0;
+	let isUserScrolling = false;
 
 	const setCompact = (next: boolean) => {
 		if (compact === next) {
@@ -102,7 +115,7 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 			scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
 		);
 		const progress = canCompact
-			? Math.min(1, Math.max(0, (distance - 24) / 120))
+			? resolveSpaceReadingHeaderProgress(distance, isUserScrolling)
 			: 0;
 		setCompact(progress === 1);
 		if (reducedMotion.matches) {
@@ -122,6 +135,38 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 			animationFrame = requestAnimationFrame(render);
 		}
 	};
+	const startUserScroll = () => {
+		isUserScrolling = true;
+	};
+	const onKeyDown = (event: KeyboardEvent) => {
+		if (
+			[
+				"ArrowUp",
+				"ArrowDown",
+				"PageUp",
+				"PageDown",
+				"Home",
+				"End",
+				" ",
+			].includes(event.key)
+		) {
+			startUserScroll();
+		}
+	};
+	const onPointerDown = (event: PointerEvent) => {
+		// Include dragging the native scrollbar, without treating message clicks
+		// or text selection as scroll gestures.
+		if (
+			event.clientX >=
+			scroller.getBoundingClientRect().left + scroller.clientWidth
+		) {
+			startUserScroll();
+		}
+	};
+	const settle = () => {
+		isUserScrolling = false;
+		schedule();
+	};
 
 	const measure = () => {
 		// Measure only on geometry changes, never in the scroll callback.
@@ -130,7 +175,9 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 		const tabWidth = navigation.offsetWidth;
 		const adornment = title.lastElementChild;
 		const adornmentWidth = adornment?.getBoundingClientRect().width ?? 0;
-		const titleWidth = availableWidth - tabWidth - 24;
+		// Reserve room for another ordinary tab even before one is present.
+		const reservedNavigationWidth = Math.max(tabWidth, 240);
+		const titleWidth = availableWidth - reservedNavigationWidth - 24;
 		titleHeight = title.offsetHeight;
 		navigationHeight = secondary.offsetHeight;
 		// Narrow windows and the mobile setup recall keep their existing two rows.
@@ -170,6 +217,11 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 		subtree: true,
 	});
 	scroller.addEventListener("scroll", schedule, { passive: true });
+	scroller.addEventListener("scrollend", settle);
+	scroller.addEventListener("wheel", startUserScroll, { passive: true });
+	scroller.addEventListener("touchmove", startUserScroll, { passive: true });
+	scroller.addEventListener("keydown", onKeyDown);
+	scroller.addEventListener("pointerdown", onPointerDown);
 	const viewportObserver = new ResizeObserver(schedule);
 	viewportObserver.observe(scroller);
 	reducedMotion.addEventListener("change", schedule);
@@ -181,6 +233,11 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 		viewportObserver.disconnect();
 		mutationObserver.disconnect();
 		scroller.removeEventListener("scroll", schedule);
+		scroller.removeEventListener("scrollend", settle);
+		scroller.removeEventListener("wheel", startUserScroll);
+		scroller.removeEventListener("touchmove", startUserScroll);
+		scroller.removeEventListener("keydown", onKeyDown);
+		scroller.removeEventListener("pointerdown", onPointerDown);
 		reducedMotion.removeEventListener("change", schedule);
 		setCompact(false);
 		header.style.gridTemplateRows = "";

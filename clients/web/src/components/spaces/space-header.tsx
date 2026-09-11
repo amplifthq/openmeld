@@ -66,7 +66,15 @@ export function SpaceWindowHeader(input: {
 				className="col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden"
 				data-slot="space-window-header-title"
 			>
-				<h1 className="truncate font-medium text-lg">{input.title}</h1>
+				<h1
+					className={cn(
+						"truncate font-medium text-lg",
+						readingHeader && "max-w-[28rem]"
+					)}
+					title={readingHeader ? input.title : undefined}
+				>
+					{input.title}
+				</h1>
 				{input.titleAdornment ?? null}
 			</div>
 

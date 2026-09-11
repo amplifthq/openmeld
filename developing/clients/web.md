@@ -3789,12 +3789,17 @@ returns to the primary action group at wider breakpoints.
 While reading earlier messages in an ordinary Space, the tabs move beside the
 title and live-status adornments along a straight diagonal path driven by the
 same scroll progress on both axes. The anchor is measured from the rendered content;
-long titles truncate and insufficient width retains the two-row layout.
+Space title text is capped at 28rem in both Messages and Files. The compact
+layout reserves at least 240px for navigation, increasing that reservation when
+the rendered tabs require more. Long titles truncate and insufficient width
+retains the two-row layout.
 Direct messages and compact embedded conversations retain their existing headers.
 Returning to the latest messages or opening Files restores the expanded header.
 Scroll frames update only the navigation transform outside React. Header height
 changes at the collapse/expansion boundary, with a matching scroll offset to
-preserve the reading anchor. Reduced motion switches positions without travel.
+preserve the reading anchor. Only an active scroll gesture uses intermediate
+positions; restored positions and completed gestures settle at the nearest
+expanded or compact endpoint. Reduced motion switches positions without travel.
 
 Messages and files share one pinned-item preview with previous/next navigation.
 The preview's X dismisses all pins for the reader; the original pinner gets a
