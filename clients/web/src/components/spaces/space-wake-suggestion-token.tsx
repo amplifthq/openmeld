@@ -30,13 +30,13 @@ export function SpaceWakeSuggestionToken({
 			)}
 			contentEditable={false}
 		>
-			<span className="relative inline-flex min-w-0 max-w-full">
+			<span className="group/wake-suggestion relative inline-flex min-w-0 max-w-full">
 				<button
 					aria-label={`Accept Wake suggestion for ${target.suggestion.profileName}`}
 					className={cn(
 						"relative isolate inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 						ghost
-							? "bg-muted/40 opacity-50 hover:opacity-75"
+							? "bg-muted/40 opacity-40 hover:opacity-60"
 							: surfaceClasses(surface)
 					)}
 					data-slot={
@@ -72,12 +72,17 @@ export function SpaceWakeSuggestionToken({
 				{onDismiss ? (
 					<button
 						aria-label="Dismiss Wake suggestion"
-						className="absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground shadow-sm ring-1 ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+						className={cn(
+							"absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground shadow-sm ring-1 ring-border hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+							ghost &&
+								"pointer-events-none opacity-0 transition-opacity duration-100 ease-out focus-visible:pointer-events-auto focus-visible:opacity-100 group-focus-within/wake-suggestion:pointer-events-auto group-focus-within/wake-suggestion:opacity-100 group-hover/wake-suggestion:pointer-events-auto group-hover/wake-suggestion:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+						)}
 						disabled={disabled}
 						onClick={(event) => {
 							event.stopPropagation();
 							onDismiss();
 						}}
+						onMouseDown={(event) => event.preventDefault()}
 						type="button"
 					>
 						<XIcon aria-hidden="true" className="size-3" />

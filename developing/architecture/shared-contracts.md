@@ -114,12 +114,20 @@ requires Core and Gateway before Web; no local component upgrade is required.
 
 Space owns retained quoted-message lookup and the last explicit human thread
 Wake. Thread readers opt into `includeWakeContinuation=true`; only these readers
-receive the optional `wakeContinuation` projection. Web displays a removable
-concrete recipient and sends ordinary explicit activation targets. The optional
-`threadWakeContinuation` marker prevents automatic follow-ups from changing the
-last human selection. A server must not add recipients to legacy plain-text
-messages. Older receivers that omit the projection leave automatic composition
-disabled.
+receive the optional `wakeContinuation` projection. Its optional
+`automaticTargetProfileId`, requested with `includeWakeContinuation=conversation`,
+reflects the complete retained Thread authors plus the current viewer. Legacy
+`includeWakeContinuation=true` readers retain their original response shape.
+Space applies one-human/one-Agent automatic addressing when
+accepting a plain human Thread reply, through ordinary Wake authorization and
+publication. Group replies require explicit addressing. Web does not insert an
+automatic Composer token; it shows recommendations only for group conversations.
+The `threadWakeContinuation` marker prevents automatic follow-ups from changing
+the last explicit human selection. This intentionally changes plain Thread reply
+behavior for older clients too, matching Direct Messages. Explicit targets remain
+authoritative. Core and Gateway must ship before Web to accept the new projection
+request. No Service, CLI, or runtime payload
+changes are needed: the resulting Wake uses the existing explicit envelope.
 
 Internal dispatch snapshots may carry quoted-message context and pinned-file
 metadata. `@openmeld/space` renders these consistently for native and workstation

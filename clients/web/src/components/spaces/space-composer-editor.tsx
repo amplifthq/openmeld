@@ -445,6 +445,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 							if (
 								suggestion &&
 								!choosingMention &&
+								!(event.target instanceof HTMLButtonElement) &&
 								!event.nativeEvent.isComposing &&
 								!event.altKey &&
 								!event.ctrlKey &&
@@ -457,7 +458,12 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 									suggestion.onAccept();
 									return;
 								}
-								if (event.key === "Escape") {
+								if (
+									event.key === "Escape" ||
+									(event.key === "Backspace" &&
+										editor.api.isCollapsed() &&
+										editor.api.isStart(editor.selection?.anchor, []))
+								) {
 									event.preventDefault();
 									event.stopPropagation();
 									suggestion.onDismiss();
@@ -539,6 +545,7 @@ function SpaceComposerParagraphElement(props: PlateElementProps) {
 						candidate.suggestion.profileId === context.centerAgentProfileId
 					}
 					onAccept={recommendation.onAccept}
+					onDismiss={recommendation.onDismiss}
 					target={candidate}
 				/>
 			) : null}

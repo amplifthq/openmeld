@@ -2659,6 +2659,7 @@ function SpaceLandingSecondaryPanels({
 				wakeFailureTargetContextsByProfileId={
 					wakeFailureTargetContextsByProfileId
 				}
+				wakeRecommendationsEnabled={controller.threadWakeRecommendationsEnabled}
 				wakeStopRequestStatusBySelectorKey={
 					controller.wakeStopRequestStatusBySelectorKey
 				}

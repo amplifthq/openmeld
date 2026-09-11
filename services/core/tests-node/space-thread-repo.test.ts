@@ -5,6 +5,7 @@ import {
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
   readLatestExplicitThreadWake,
+  readThreadParticipants,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 
 const JOIN_SPACE_SIGNALS_SQL_REGEX = /JOIN\s+space_signals/i;
@@ -28,7 +29,7 @@ describe("space-thread-repo", () => {
           JSON.stringify({
             id,
             type: "signal.text",
-            profile: { kind },
+            profile: { kind, profileId: kind === "agent" ? "A" : "H" },
             data: {
               messageEnvelope: { activationTargets: targets },
               meta: { threadWakeContinuation: automatic },
@@ -45,6 +46,10 @@ describe("space-thread-repo", () => {
       add("automatic", "human", ["A"], true);
       add("other", "human", ["C"], false, "other-thread");
       const sql = new SqliteSqlStorage(db) as unknown as SqlStorage;
+      expect(readThreadParticipants(sql, "thread")).toEqual([
+        { profileId: "H", kind: "human" },
+        { profileId: "A", kind: "agent" },
+      ]);
       expect(
         JSON.parse(readLatestExplicitThreadWake(sql, "thread") ?? "null").id
       ).toBe("switch");

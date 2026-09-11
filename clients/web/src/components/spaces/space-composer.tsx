@@ -109,8 +109,8 @@ const ignoreFileRemoval = (_localId: string): void => undefined;
 function useComposerWakeSuggestion(input: SpaceComposerProps) {
 	const recommendations = useSpaceWakeRecommendation();
 	const candidate =
-		input.context.placement === "conversation" &&
-		input.context.conversationKind === "space" &&
+		(input.context.placement === "thread" ||
+			input.context.conversationKind === "space") &&
 		input.availability.canSendMessage &&
 		input.content.authoredMentions.length === 0
 			? recommendations?.candidate
@@ -145,11 +145,24 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				options?.deviceWait
 			)
 		) {
-			recommendations?.recordSend(recommended?.suggestion.profileId ?? null);
 			// Return from the send button within this user gesture, before the draft
 			// resets. Network completion must never take focus back from other work.
 			input.composerRef.current?.focus();
-			if (options) {
+			if (
+				recommendations &&
+				(recommendations.candidate || recommendations.nudge)
+			) {
+				input.actions.onSubmit({
+					...options,
+					onMessageStaged: (clientMessageId) => {
+						recommendations.recordSend(
+							recommended?.suggestion.profileId ?? null,
+							clientMessageId
+						);
+						options?.onMessageStaged?.(clientMessageId);
+					},
+				});
+			} else if (options) {
 				input.actions.onSubmit(options);
 			} else {
 				input.actions.onSubmit();

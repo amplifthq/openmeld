@@ -498,7 +498,9 @@ export function SpaceConversationPanel(
 			>
 				<SpaceWakeRecommendationScope
 					items={publicInput.timelineItems}
+					orgSlug={publicInput.orgSlug}
 					selfProfileId={publicInput.selfProfileId}
+					spaceId={publicInput.spaceId}
 				>
 					<SpaceDeviceWaitOutcomeScope
 						onComposeAgain={

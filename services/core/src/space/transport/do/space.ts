@@ -223,6 +223,7 @@ import type {
   WakeTraceWaterfallItem,
 } from "@openmeld/schemas/types";
 import {
+  applyAutomaticThreadWake,
   buildDispatchQuotedMessage,
   buildWakeProgressMessage,
   changeSpaceOwners,
@@ -233,6 +234,7 @@ import {
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
   isDirectMessageSpace,
+  resolveThreadAutomaticWakeTarget,
   resolveThreadWakeContinuation,
   type SpaceAccessContext,
 } from "@openmeld/space";
@@ -694,6 +696,7 @@ import {
   readSpaceThread,
   readSpaceThreadByRootSignalId,
   readSpaceThreadSignalPlacementBySignalId,
+  readThreadParticipants,
   toSpaceThreadContext,
   updateSpaceThreadActivity,
 } from "../../infrastructure/sql/space-thread-repo";
@@ -838,7 +841,7 @@ const buildRpcListSignalsFilterQuery = (
 };
 
 const buildThreadSignalsReadPath = (input: {
-  includeWakeContinuation?: true;
+  includeWakeContinuation?: true | "conversation";
   afterSignalId?: string;
   limit?: number;
   threadId: string;
@@ -851,7 +854,10 @@ const buildThreadSignalsReadPath = (input: {
     searchParams.set("limit", String(input.limit));
   }
   if (input.includeWakeContinuation) {
-    searchParams.set("includeWakeContinuation", "true");
+    searchParams.set(
+      "includeWakeContinuation",
+      String(input.includeWakeContinuation)
+    );
   }
   return searchParams.size ? `${path}?${searchParams.toString()}` : path;
 };
@@ -10054,13 +10060,24 @@ export class Space extends DurableObject<CoreBindings> {
       signals: this.redactSignalsForReadViewer(signals, input.viewer),
       placements,
       ...(parsedQuery.data.includeWakeContinuation
-        ? { wakeContinuation: this.readThreadWakeContinuation(thread) }
+        ? {
+            wakeContinuation: this.readThreadWakeContinuation(
+              thread,
+              parsedQuery.data.includeWakeContinuation === "conversation"
+                ? input.viewer.viewerProfileId
+                : undefined
+            ),
+          }
         : {}),
     });
   }
 
-  private readThreadWakeContinuation(thread: SpaceThread): {
+  private readThreadWakeContinuation(
+    thread: SpaceThread,
+    senderProfileId?: string
+  ): {
     targetProfileId: string | null;
+    automaticTargetProfileId?: string | null;
   } {
     const latest = readLatestExplicitThreadWake(
       this.ctx.storage.sql,
@@ -10075,7 +10092,34 @@ export class Space extends DurableObject<CoreBindings> {
       : null;
     return {
       targetProfileId: member?.status === "active" ? targetProfileId : null,
+      ...(senderProfileId
+        ? {
+            automaticTargetProfileId: this.readThreadAutomaticWakeTarget(
+              thread,
+              senderProfileId
+            ),
+          }
+        : {}),
     };
+  }
+
+  private readThreadAutomaticWakeTarget(
+    thread: SpaceThread,
+    senderProfileId: string
+  ): string | null {
+    const target = resolveThreadAutomaticWakeTarget({
+      participants: readThreadParticipants(
+        this.ctx.storage.sql,
+        thread.threadId
+      ),
+      senderProfileId,
+    });
+    const member = target
+      ? readSpaceMemberRecord(this.ctx.storage.sql, target)
+      : null;
+    return member?.status === "active" && member.profileKindSnapshot === "agent"
+      ? target
+      : null;
   }
 
   private async handlePostThreadSignal(input: {
@@ -10160,6 +10204,21 @@ export class Space extends DurableObject<CoreBindings> {
           },
         }
       );
+      // Resolve once, after the retry check and before ordinary authorized publication.
+      applyAutomaticThreadWake(signal, () => {
+        const target = this.readThreadAutomaticWakeTarget(
+          thread,
+          signal.profile.profileId
+        );
+        return target
+          ? {
+              profileId: target,
+              label:
+                this.resolveWakeStopTargetDisplay(target)
+                  .targetProfileMentionLabel ?? target,
+            }
+          : null;
+      });
       const threadContext = toSpaceThreadContext(thread);
       const signalCreatedAt = new Date(signal.ts).toISOString();
       try {
