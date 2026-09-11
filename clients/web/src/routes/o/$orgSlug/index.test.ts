@@ -4,11 +4,14 @@ import { Route as LegacyCenterAgentChatRoute } from "./_center-agent/center-agen
 import { Route } from "./_center-agent/index";
 
 describe("organization index route", () => {
-	it("renders the Center Agent conversation as Home without redirecting", () => {
-		expect(Route.options.beforeLoad).toBeUndefined();
+	it("opens Desk without redirecting when no conversation is requested", () => {
+		expect(
+			Route.options.beforeLoad?.({
+				params: { orgSlug: "acme" },
+				search: {},
+			} as never)
+		).toBeUndefined();
 		expect(Route.options.component).toBeTypeOf("function");
-		expect(Route.options.loader).toBeTypeOf("function");
-		expect(Route.options.preload).toBe(false);
 		expect(Route.options.staticData).toEqual({ appShellSection: "home" });
 	});
 
