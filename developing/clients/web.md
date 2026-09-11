@@ -3787,8 +3787,8 @@ it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
 
 While reading earlier messages in an ordinary Space, the tabs move beside the
-title and live-status adornments. Their horizontal path finishes before they
-rise into the title row. The anchor is measured from the rendered content;
+title and live-status adornments along a straight diagonal path driven by the
+same scroll progress on both axes. The anchor is measured from the rendered content;
 long titles truncate and insufficient width retains the two-row layout.
 Direct messages and compact embedded conversations retain their existing headers.
 Returning to the latest messages or opening Files restores the expanded header.

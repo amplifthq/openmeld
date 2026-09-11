@@ -111,11 +111,9 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 				: "";
 			return;
 		}
-		// Finish travelling beside the title before rising into its row.
-		const horizontalProgress = Math.min(1, progress / 0.6);
-		const verticalProgress = Math.max(0, (progress - 0.6) / 0.4);
+		// Both axes share the scroll progress for a straight path to the anchor.
 		navigation.style.transform = progress
-			? `translate(${offsetX * horizontalProgress}px, ${offsetY * verticalProgress}px)`
+			? `translate(${offsetX * progress}px, ${offsetY * progress}px)`
 			: "";
 	};
 
