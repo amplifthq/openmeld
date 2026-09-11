@@ -159,7 +159,7 @@ describe("buildInboxItemSourceNavigation", () => {
 		],
 		[
 			{ kind: "settings", section: "notifications" } as const,
-			"/o/amplift/settings/notifications",
+			"/o/amplift/inbox?appSettings=notifications",
 		],
 	])("routes %j to %s", (sourceTarget, expectedPath) => {
 		expect(

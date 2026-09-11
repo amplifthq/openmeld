@@ -39,7 +39,7 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { OrganizationInformationProtectionSection } from "#/components/organizations/organization-information-protection-section";
 import { OrganizationLogoSection } from "#/components/organizations/organization-logo-section";
@@ -455,6 +455,7 @@ function OrganizationIdentitySection(input: {
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const location = useLocation();
 	const [name, setName] = useState(input.organization.name);
 	const [slug, setSlug] = useState(input.organization.slug);
 	const [savedMessage, setSavedMessage] = useState<string | null>(null);
@@ -496,7 +497,13 @@ function OrganizationIdentitySection(input: {
 			setSavedMessage("Workspace updated.");
 			if (normalizedSlug !== input.organization.slug) {
 				await navigate({
-					to: buildOrganizationOrgSettingsPath(normalizedSlug),
+					to: location.search.appSettings
+						? location.pathname.replace(
+								`/o/${input.organization.slug}`,
+								`/o/${normalizedSlug}`
+							)
+						: buildOrganizationOrgSettingsPath(normalizedSlug),
+					search: true,
 				});
 			}
 		},

@@ -719,6 +719,22 @@ CLI controls.
 
 ### Settings structure
 
+Normal Settings entry points open the global **App settings** dialog over the
+current organization page. The `appSettings` search parameter owns the selected
+section; opening preserves the background path and search, section switches
+replace that parameter, and closing removes only that parameter. The existing
+standalone `/o/{orgSlug}/settings/*` routes remain available for direct links,
+but normal utility, account-menu, command-menu, and review-history entries use
+the dialog. Notification-settings Inbox sources open it over Inbox.
+
+Both presentations use `SettingsPage`, the same section registry, grouped
+navigation, capability checks, and section components. The dialog reuses the
+existing contextual sidebar item primitives, including icons and selected
+states. `SettingsDialogContent` supplies the shared Space/App dialog shell;
+App settings uses its larger 1024px by 42rem variant, constrained to the viewport.
+Navigation and content scroll independently. Section components and their
+mutations do not fork by presentation.
+
 The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
@@ -741,7 +757,8 @@ The Settings secondary sidebar always shows these two groups:
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
-  label also displays the current `member`, `admin`, or `owner` role badge.
+  label shows only its name and collapse control, without organization or role
+  badges. Roles remain visible in Members.
 
 Invitation review lives at `/o/{orgSlug}/inbox?requestId={id}`. Open invitation
 items expose source-owned approval controls directly in the full Inbox list.

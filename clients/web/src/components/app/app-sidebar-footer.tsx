@@ -18,14 +18,13 @@ import {
 	SignOutIcon,
 	SunIcon,
 } from "@phosphor-icons/react";
-import { Link, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { useAppSettings } from "#/components/settings/use-app-settings";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
-import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organization-routes";
 import {
 	AccountsSwitcherView,
 	useAccountSwitcher,
@@ -41,7 +40,6 @@ export function AppSidebarFooter({
 	account,
 	humanProfileAvatar,
 	mode,
-	orgSlug,
 	isSettingsActive,
 }: {
 	account: AppOuterRailAccount;
@@ -63,9 +61,8 @@ export function AppSidebarFooter({
 		return () => cancelAnimationFrame(frame);
 	}, []);
 	const name = account.name?.trim() || account.email || "Account";
-	const settingsPath = buildOrganizationAccountSettingsPath(orgSlug);
 	const settingsLabel = "Settings";
-	const navigate = useNavigate();
+	const openSettings = useAppSettings();
 	const { dismiss, presentation } = useAppNavigationPresentation();
 	const logout = useLogoutAction();
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -76,9 +73,8 @@ export function AppSidebarFooter({
 	const dark = resolvedTheme === "dark";
 	const openAccount = () => {
 		dismiss();
-		navigate({ to: settingsPath }).catch((error: Error) =>
-			toast.error(error.message)
-		);
+		setMenuOpen(false);
+		openSettings().catch((error: Error) => toast.error(error.message));
 	};
 	const avatar = humanProfileAvatar ? (
 		<DitherProfileAvatar
@@ -194,15 +190,15 @@ export function AppSidebarFooter({
 					label={settingsLabel}
 					side={iconOnly ? "right" : "top"}
 				>
-					<Link
+					<button
 						aria-current={isSettingsActive ? "page" : undefined}
 						aria-label={settingsLabel}
 						className={cn(actionClass, "relative")}
-						onClick={dismiss}
-						to={settingsPath}
+						onClick={openAccount}
+						type="button"
 					>
 						<GearSixIcon className="size-4" />
-					</Link>
+					</button>
 				</CollapsedRailTooltip>
 				<CollapsedRailTooltip
 					label={dark ? "Switch to light mode" : "Switch to dark mode"}

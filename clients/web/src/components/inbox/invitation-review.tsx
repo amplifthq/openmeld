@@ -1,7 +1,6 @@
 import { Button } from "@openmeld/ui/components/button";
-import { Link } from "@tanstack/react-router";
 import { RequestDetails } from "#/components/organizations/invitation-request-details";
-import { useAppOrganization } from "#/lib/organizations/organization-context";
+import { useAppSettings } from "#/components/settings/use-app-settings";
 import { useInvitationRequest } from "#/query/organizations/invitation-requests";
 
 export function InvitationReview({
@@ -14,7 +13,7 @@ export function InvitationReview({
 	onInteract?: () => void;
 }) {
 	const { query, mutation } = useInvitationRequest(requestId);
-	const { currentOrganization } = useAppOrganization();
+	const openSettings = useAppSettings();
 	if (query.isPending) {
 		return (
 			<p aria-busy="true" className="text-muted-foreground text-sm">
@@ -68,14 +67,13 @@ export function InvitationReview({
 				</p>
 			) : null}
 			{inline ? null : (
-				<Link
+				<button
 					className="inline-block text-muted-foreground text-xs underline-offset-4 hover:underline"
-					params={{ orgSlug: currentOrganization.slug }}
-					search={{ requestId: undefined }}
-					to="/o/$orgSlug/settings/invitations"
+					onClick={() => openSettings("invitations")}
+					type="button"
 				>
 					View approval history
-				</Link>
+				</button>
 			)}
 		</div>
 	);

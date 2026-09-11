@@ -6,7 +6,7 @@ import {
 	buildOrganizationComputersPath,
 	buildOrganizationDirectMessagePath,
 	buildOrganizationDocumentPath,
-	buildOrganizationNotificationsSettingsPath,
+	buildOrganizationInboxPath,
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
@@ -123,7 +123,7 @@ function resolveSettingsTargetPath(input: {
 		case "computers":
 			return buildOrganizationComputersPath(input.orgSlug);
 		case "notifications":
-			return buildOrganizationNotificationsSettingsPath(input.orgSlug);
+			return `${buildOrganizationInboxPath(input.orgSlug)}?appSettings=notifications`;
 		default:
 			return assertNever(input.section);
 	}

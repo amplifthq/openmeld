@@ -182,6 +182,12 @@ or "Machines" entity.
 
 ## 4. Information architecture
 
+Web's normal Settings utility now opens a global sidebar dialog over the current
+page, as specified in `web.md`. The standalone Settings routes below remain
+supported without normal navigation entry points. Both use the same registry,
+grouped navigation, and section renderers; the presentation does not own another
+copy of settings data or mutation logic.
+
 The routes and destination list in this section are not the current Web target.
 Use `developing/clients/web.md` for current routes and placement. The durable
 guidance retained here is that entity destinations use real routes, Binding is

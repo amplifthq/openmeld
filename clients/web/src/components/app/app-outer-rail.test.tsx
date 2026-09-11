@@ -95,6 +95,11 @@ vi.mock("@tanstack/react-router", () => ({
 		</a>
 	),
 	useCanGoBack: () => false,
+	useLocation: ({
+		select,
+	}: {
+		select: (location: typeof routerLocation) => unknown;
+	}) => select(routerLocation),
 	useNavigate: () => navigateMock,
 	useRouter: () => ({ invalidate: routerInvalidateMock }),
 	useMatches: (input: {
@@ -314,7 +319,7 @@ describe("AppOuterRail", () => {
 
 	it("places account, Settings, and theme controls in the footer", () => {
 		renderRail();
-		const settings = screen.getByRole("link", { name: "Settings" });
+		const settings = screen.getByRole("button", { name: "Settings" });
 		const footer = settings.closest("[data-sidebar=footer]") as HTMLElement;
 		expect(
 			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
@@ -467,7 +472,9 @@ describe("AppOuterRail", () => {
 			"Team",
 			"Settings",
 		]) {
-			const link = screen.getByRole("link", { name: label });
+			const link = screen.getByRole(label === "Settings" ? "button" : "link", {
+				name: label,
+			});
 			expect(link.getAttribute("data-slot")).toBe("tooltip-trigger");
 			expect(link.getAttribute("title")).toBeNull();
 		}
@@ -1059,7 +1066,7 @@ describe("AppOuterRail", () => {
 	it("opens Settings from the footer menu and keeps its shortcut", async () => {
 		renderRail();
 
-		const railSettingsLink = screen.getByRole("link", { name: "Settings" });
+		const railSettingsButton = screen.getByRole("button", { name: "Settings" });
 		fireEvent.click(
 			screen.getByRole("button", { name: "Open user menu for Felix" })
 		);
@@ -1071,10 +1078,18 @@ describe("AppOuterRail", () => {
 
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme/settings/account",
+				to: "/o/acme/spaces",
+				search: expect.any(Function),
+				replace: false,
+				resetScroll: false,
 			});
 		});
-		expect(railSettingsLink).toBeTruthy();
+		expect(railSettingsButton).toBeTruthy();
+		const navigation = navigateMock.mock.calls.at(-1)?.[0];
+		expect(navigation.search({ view: "needs-review" })).toEqual({
+			view: "needs-review",
+			appSettings: "account",
+		});
 	});
 
 	it("keeps the organization menu in its own layer above adjacent sidebars", () => {
@@ -1590,21 +1605,21 @@ describe("AppOuterRail", () => {
 		const rendered = renderRail();
 
 		const spacesLink = screen.getByRole("link", { name: "Spaces" });
-		const settingsLink = screen.getByRole("link", { name: "Settings" });
+		const settingsButton = screen.getByRole("button", { name: "Settings" });
 
 		expect(spacesLink.getAttribute("aria-current")).toBe("page");
-		expect(settingsLink.getAttribute("aria-current")).toBeNull();
+		expect(settingsButton.getAttribute("aria-current")).toBeNull();
 
-		fireEvent.pointerDown(settingsLink, { button: 0 });
+		fireEvent.pointerDown(settingsButton, { button: 0 });
 
 		expect(spacesLink.getAttribute("aria-current")).toBe("page");
-		expect(settingsLink.getAttribute("aria-current")).toBeNull();
+		expect(settingsButton.getAttribute("aria-current")).toBeNull();
 
 		appShellSection = "settings";
 		rendered.rerender(buildRailElement());
 
 		expect(spacesLink.getAttribute("aria-current")).toBeNull();
-		expect(settingsLink.getAttribute("aria-current")).toBe("page");
+		expect(settingsButton.getAttribute("aria-current")).toBe("page");
 	});
 
 	it("derives direct, back, and forward selection from route matches", () => {
