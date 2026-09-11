@@ -114,7 +114,7 @@ export function getRemoteAgentConnectorToolDefinitions(
     {
       name: "openmeld_list_connected_apps",
       description:
-        "List the non-GitHub Plugins currently available to this Center Agent. Linked member requests use that member's connection first and fall back to Organization access. Connected Message Channel members use Organization access only. Routines use Organization access when no delegated member connection is available.",
+        "List the non-GitHub Plugins available to this Agent for the current requester, subject to each account's Agent access settings. Verified member requests can use their own connection; personal Remote Agents can use a personal connection only for their owner's request. Shared connections follow Organization access. Connected Message Channel members use shared access only. Routines use their verified delegated member identity.",
       input: object({}),
       execute: async () => {
         const toolContext = await buildRemoteAgentToolContext({

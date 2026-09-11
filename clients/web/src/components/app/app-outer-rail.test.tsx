@@ -221,6 +221,7 @@ const PRIMARY_RAIL_LABELS = [
 	"Spaces",
 	"Direct messages",
 	"Team",
+	"Plugins",
 ] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
