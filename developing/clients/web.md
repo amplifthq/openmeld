@@ -3037,6 +3037,14 @@ Auth, or hide the unfinished choice behind a completed badge.
 
 Web presents a Space as a collaboration room and visible outcome surface.
 
+The Space and DM title never shows a green live-connection dot: a healthy
+message stream says nothing about Human presence or Agent Wakeability. Initial
+connection and healthy live updates have no visible status indicator. Only
+interrupted updates show an amber `Reconnecting…` indicator with manual retry;
+catching up on missed messages shows amber `Syncing…`. The accessible live
+region continues to announce connection changes. These states do not derive
+Computer connectivity or override Core-owned Agent readiness.
+
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Access, and Advanced sections. General contains the canonical name and
 the existing global browser-notification control. Access owns the Fluid Select
