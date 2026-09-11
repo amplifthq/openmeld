@@ -18,7 +18,6 @@ export type AppShellSection =
 	| "space"
 	| "start";
 export type AppOuterRailDestination =
-	| "plugins"
 	| "newAgent"
 	| "agentActivity"
 	| "agents"
@@ -105,6 +104,7 @@ export function resolveAppOuterRailDestinationFromMatches(
 
 	switch (section) {
 		case "plugins":
+			return "people";
 		case "newAgent":
 		case "agentActivity":
 		case "agents":

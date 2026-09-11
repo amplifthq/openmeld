@@ -33,7 +33,7 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-76px **Center Agent / Spaces / Team / Plugins** application rail, with a separate
+76px **Center Agent / Spaces / Team** application rail, with a separate
 **New Agent** creation action and contextual lists in a collapsible middle column.
 **Settings** remains a separated utility. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
@@ -55,13 +55,15 @@ ownership remain in the existing Web hooks and router.
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Center Agent / Spaces / Team / Plugins** as the fixed
+- keeps **Center Agent / Spaces / Team** as the fixed
   visible product destinations, temporarily omits **Projects / Documents /
   Agent Activity** without relocating them, separates Settings as a utility,
   and opens the current Computer, Center Agent, and Inbox from the app canvas's
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
+- places **Plugins** after **People** and **Agents** in Team, with separate
+  personal and named Organization configuration;
 - makes Team the people directory, with each person's Computers and Agent list
   reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service

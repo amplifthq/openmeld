@@ -6,7 +6,7 @@ areas: ["plugins", "agents", "cli"]
 audiences: ["members", "admins"]
 ---
 
-Plugins has its own place in the main navigation. Manage personal and shared
+Find Plugins under Team, alongside People and Agents. Manage personal and shared
 accounts there, with separate no-access, read-only, or read-and-write settings
 for the Center Agent, Local Agents, and personal Remote Agents.
 

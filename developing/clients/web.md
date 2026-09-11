@@ -142,8 +142,9 @@ No local-component floor or runtime contract bump is required.
 ### Plugins
 
 The external-capability catalog is named **Plugins**. Product routes use
-`/o/<slug>/plugins`, with one service detail route below it. Plugins appears in
-the primary sidebar and does not mount the Center Agent section or route state.
+`/o/<slug>/plugins`, with one service detail route below it. Plugins is the third
+Team tab after People and Agents. Both catalog and detail pages retain the Team
+header and active Team rail destination, without mounting Center Agent state.
 Old `/center-agent/plugins` and `/center-agent/apps` links redirect there,
 including service detail links. Web components and navigation helpers use Plugin names.
 Vendor terms such as GitHub App and existing connector RPC/tool field names

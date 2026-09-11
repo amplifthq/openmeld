@@ -20,7 +20,6 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	HouseIcon,
-	PlugsIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -41,7 +40,6 @@ import {
 import {
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
-	buildOrganizationPluginsPath,
 	buildOrganizationRootPath,
 } from "#/lib/organizations/organization-routes";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
@@ -102,12 +100,6 @@ export function buildAppRailGroups(input: {
 					label: "Team",
 					to: buildOrganizationPeoplePath(input.orgSlug),
 					icon: <UsersThreeIcon aria-hidden="true" className="size-5" />,
-				},
-				{
-					id: "plugins",
-					label: "Plugins",
-					to: buildOrganizationPluginsPath(input.orgSlug),
-					icon: <PlugsIcon aria-hidden="true" className="size-5" />,
 				},
 			],
 		},

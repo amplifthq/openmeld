@@ -1,10 +1,7 @@
-import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
-import { AppGlobalControls } from "#/components/app/app-global-controls";
-import { AppOuterRail } from "#/components/app/app-outer-rail";
-import { useAppShellAccount } from "#/components/app/app-shell-account";
-import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
+import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
+import { TeamHeader } from "#/components/directory/team-header";
 
 export const Route = createFileRoute("/o/$orgSlug/plugins")({
 	validateSearch: (
@@ -17,17 +14,15 @@ export const Route = createFileRoute("/o/$orgSlug/plugins")({
 });
 
 function PluginsLayout() {
-	const account = useAppShellAccount();
 	return (
-		<AppSurfaceLayout
-			globalControls={<AppGlobalControls />}
-			outerRail={<AppOuterRail account={account} />}
+		<AppFullWidthLayout
+			contentLayout="flush"
+			mainHeader={<TeamHeader active="plugins" />}
+			showMainHeader
 		>
-			<ScrollArea className="min-h-0 flex-1">
-				<div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
-					<Outlet />
-				</div>
-			</ScrollArea>
-		</AppSurfaceLayout>
+			<div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
+				<Outlet />
+			</div>
+		</AppFullWidthLayout>
 	);
 }
