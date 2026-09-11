@@ -900,6 +900,10 @@ remaining in the Composer or repeating on subsequent ordinary messages. A new
 explicit Wake must receive a reply before another recommendation is eligible.
 This presentation-only record never clears, replaces, or shares storage with
 text, mention, or attachment drafts, and never authorizes an Agent execution.
+The Composer suggestion exposes its dismiss control on hover or keyboard focus
+(always on touch). Backspace dismisses it at a collapsed caret at the start of
+the editor; text deletion, selected text, IME composition, and member picking
+retain their normal keyboard behavior. Dismissal does not accept a Wake token.
 
 When that suggestion was ignored at send, only the sender sees a dismissible
 ordinary Agent token labeled `Click to wake` below their latest sent message.

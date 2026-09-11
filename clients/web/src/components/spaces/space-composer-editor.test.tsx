@@ -81,6 +81,85 @@ describe("SpaceComposerEditor", () => {
 		);
 	});
 
+	it.each([
+		"close",
+		"Backspace",
+		"empty Backspace",
+	])("dismisses the ghost with %s without accepting it or changing text", (method) => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onDismiss = vi.fn();
+		const onAccept = vi.fn();
+		const onSend = vi.fn();
+		const text = method === "empty Backspace" ? "" : "Keep this draft";
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={vi.fn()}
+				onSend={onSend}
+				placeholder="Message"
+				text={text}
+				wakeRecommendation={{
+					profileId: AGENT_PROFILE_ID,
+					onAccept,
+					onDismiss,
+				}}
+			/>
+		);
+		act(() => composerRef.current?.selectTextRange({ start: 0, end: 0 }));
+		if (method === "close") {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Dismiss Wake suggestion" })
+			);
+		} else {
+			fireEvent.keyDown(screen.getByRole("textbox"), { key: "Backspace" });
+		}
+		expect(onDismiss).toHaveBeenCalledTimes(1);
+		expect(onAccept).not.toHaveBeenCalled();
+		expect(onSend).not.toHaveBeenCalled();
+		expect(screen.getByRole("textbox").textContent).toContain(text);
+	});
+
+	it.each([
+		{ start: 4, end: 4, isComposing: false },
+		{ start: 0, end: 4, isComposing: false },
+		{ start: 0, end: 0, isComposing: true },
+	])("preserves normal Backspace behavior for selection $start-$end (IME: $isComposing)", ({
+		start,
+		end,
+		isComposing,
+	}) => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onDismiss = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={vi.fn()}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text="Keep this draft"
+				wakeRecommendation={{
+					profileId: AGENT_PROFILE_ID,
+					onAccept: vi.fn(),
+					onDismiss,
+				}}
+			/>
+		);
+		act(() => composerRef.current?.selectTextRange({ start, end }));
+		fireEvent.keyDown(screen.getByRole("textbox"), {
+			key: "Backspace",
+			isComposing,
+		});
+		expect(onDismiss).not.toHaveBeenCalled();
+	});
+
 	it("accepts a Wake suggestion as an ordinary token without sending", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
