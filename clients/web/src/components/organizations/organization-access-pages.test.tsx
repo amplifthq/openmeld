@@ -242,7 +242,7 @@ describe("organization access management pages", () => {
 			screen.getByRole("heading", { level: 1, name: "Channels" })
 		).toBeTruthy();
 		const description = screen.getByText(
-			"Connect Slack, Lark, or Feishu so people in Acme can message the same Center Agent and receive replies in the same conversation."
+			"Channels let you choose where to talk to your Agent."
 		);
 		expect(description).toBeTruthy();
 		expect(description.classList.contains("max-w-none")).toBe(true);
@@ -356,9 +356,7 @@ describe("organization access management pages", () => {
 		).not.toHaveBeenCalled();
 		expect(screen.getByText("Personal workspace")).toBeTruthy();
 		expect(
-			screen.getByText(
-				"Your Personal Workspace is only for you. Create an organization to connect Slack, Lark, or Feishu for your teammates."
-			)
+			screen.getByText("Channels let you choose where to talk to your Agent.")
 		).toBeTruthy();
 		expect(
 			screen.getByRole("heading", {

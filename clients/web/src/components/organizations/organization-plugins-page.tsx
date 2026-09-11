@@ -58,11 +58,7 @@ export function OrganizationPluginsPage({
 	return (
 		<>
 			<AppPageHeader
-				description={
-					currentOrganization.isPersonal === true
-						? "Connect your apps to your Agents."
-						: "Connect apps for yourself or your team."
-				}
+				description="Plugins let you choose what your Agent can access and do for you."
 				eyebrow={
 					currentOrganization.isPersonal === true
 						? "Personal workspace"
