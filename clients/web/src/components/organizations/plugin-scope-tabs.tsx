@@ -33,11 +33,17 @@ export function PluginScopeTabs(input: {
 			variant="underline"
 		>
 			<TabsSubtleItem
+				className="h-9 py-2"
 				icon={BuildingsIcon}
 				index={0}
 				label={input.organizationName}
 			/>
-			<TabsSubtleItem icon={UserIcon} index={1} label="Personal" />
+			<TabsSubtleItem
+				className="h-9 py-2"
+				icon={UserIcon}
+				index={1}
+				label="Personal"
+			/>
 		</TabsSubtle>
 	);
 }
