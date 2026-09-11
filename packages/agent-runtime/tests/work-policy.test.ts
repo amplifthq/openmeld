@@ -21,7 +21,9 @@ describe("work-policy", () => {
       true
     );
     expect(
-      isAgentProfileWorkCapacityPolicy(DEFAULT_AGENT_PROFILE_WORK_CAPACITY_POLICY)
+      isAgentProfileWorkCapacityPolicy(
+        DEFAULT_AGENT_PROFILE_WORK_CAPACITY_POLICY
+      )
     ).toBe(true);
   });
 
@@ -34,7 +36,10 @@ describe("work-policy", () => {
       isAgentProfileWorkCapacityPolicy({ concurrencyLimit: 3, maxWaiting: -1 })
     ).toBe(false);
     expect(
-      isAgentProfileWorkCapacityPolicy({ concurrencyLimit: 1.5, maxWaiting: 50 })
+      isAgentProfileWorkCapacityPolicy({
+        concurrencyLimit: 1.5,
+        maxWaiting: 50,
+      })
     ).toBe(false);
   });
 });

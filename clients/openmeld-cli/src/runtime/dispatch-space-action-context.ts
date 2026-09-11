@@ -57,7 +57,10 @@ export type DispatchSpaceActionClosedReasonCode = z.infer<
 export class DispatchSpaceActionClosedError extends Error {
   readonly receipt = "rejected_closed" as const;
   readonly reasonCode: DispatchSpaceActionClosedReasonCode;
-  constructor(reasonCode: DispatchSpaceActionClosedReasonCode, message: string) {
+  constructor(
+    reasonCode: DispatchSpaceActionClosedReasonCode,
+    message: string
+  ) {
     super(message);
     this.name = "DispatchSpaceActionClosedError";
     this.reasonCode = reasonCode;

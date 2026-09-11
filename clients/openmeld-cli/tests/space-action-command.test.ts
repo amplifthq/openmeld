@@ -640,7 +640,7 @@ describe("OpenMeld Space Action MCP server", () => {
 
       expect(result.isError).not.toBe(true);
       expect(JSON.stringify(result.content)).toContain(
-        "unpublished Space action proposal"
+        "receipt: proposal_saved_locally"
       );
       expect(JSON.stringify(result.content)).not.toContain(
         "will publish the accepted action"
