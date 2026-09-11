@@ -1,5 +1,30 @@
 # Shared Contracts
 
+## Agent Context
+
+- Purpose: Define cross-client and cross-service shared contract ownership for
+  schemas, runtime policy, API clients, Gateway contracts, shared database
+  contracts, Space Board and reply context, Space reply streaming, Center Agent
+  Opportunities, Routines and memory, weekly evaluation reports,
+  reusable Space policy, and reusable Agent Profile semantics.
+- Read this when: You are changing cross-boundary payloads, shared schemas,
+  `packages/agent-runtime`, `packages/agent-profile`, `packages/space`, API
+  client contracts, Gateway contracts, Space Board or reply metadata, Space
+  streaming, Opportunity RPC contracts, Routine HTTP/RPC/turn envelopes,
+  Organization Skill registry and exact-release delivery, Center Agent memory, evaluation report payloads, Space password
+  handling, or logic that might otherwise be
+  duplicated in Web, CLI, Core, daemon, or adapters.
+- Update this when: A shared package changes ownership, a cross-boundary
+  contract moves, a schema source of truth changes, streaming or memory payloads
+  change, reusable policy changes, or duplicated cross-client logic is
+  consolidated.
+- Do not use this for: Single-client UI behavior, local daemon lifecycle,
+  RuntimeCoordinator state-machine details, Space product semantics, database
+  operation runbooks, TypeScript style guidance, package directory indexes, or
+  one-off implementation notes.
+- Source of truth: This file owns the durable boundary for shared OpenMeld contracts
+  and reusable policy.
+
 ## Shared Agent Plugins
 
 `packages/schemas` owns `plugin-access`, `plugin-actions`, and `plugin-runtime`.
@@ -48,31 +73,6 @@ trust boundary; a dispatch identifier is not a secret execution capability.
 - Rollback the Web/CLI entry points before cloud handlers. Additive database
   columns may remain, but rolling back Core enforcement also removes the new
   policy guarantee: revoke affected provider connections before such a rollback.
-
-## Agent Context
-
-- Purpose: Define cross-client and cross-service shared contract ownership for
-  schemas, runtime policy, API clients, Gateway contracts, shared database
-  contracts, Space Board and reply context, Space reply streaming, Center Agent
-  Opportunities, Routines and memory, weekly evaluation reports,
-  reusable Space policy, and reusable Agent Profile semantics.
-- Read this when: You are changing cross-boundary payloads, shared schemas,
-  `packages/agent-runtime`, `packages/agent-profile`, `packages/space`, API
-  client contracts, Gateway contracts, Space Board or reply metadata, Space
-  streaming, Opportunity RPC contracts, Routine HTTP/RPC/turn envelopes,
-  Organization Skill registry and exact-release delivery, Center Agent memory, evaluation report payloads, Space password
-  handling, or logic that might otherwise be
-  duplicated in Web, CLI, Core, daemon, or adapters.
-- Update this when: A shared package changes ownership, a cross-boundary
-  contract moves, a schema source of truth changes, streaming or memory payloads
-  change, reusable policy changes, or duplicated cross-client logic is
-  consolidated.
-- Do not use this for: Single-client UI behavior, local daemon lifecycle,
-  RuntimeCoordinator state-machine details, Space product semantics, database
-  operation runbooks, TypeScript style guidance, package directory indexes, or
-  one-off implementation notes.
-- Source of truth: This file owns the durable boundary for shared OpenMeld contracts
-  and reusable policy.
 
 ## Space message link previews
 
