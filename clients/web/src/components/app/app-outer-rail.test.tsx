@@ -17,13 +17,16 @@ import {
 	type SidebarTier,
 } from "#/lib/sidebar-width-cookie";
 import { TestQueryClientProvider } from "#/test-support/query-client";
+import { AppModuleSidebarToggle } from "./app-module-sidebar";
 import { AppOuterRail } from "./app-outer-rail";
+import { AppSurfaceLayout } from "./app-surface-layout";
 import type { AppShellSection } from "./shell-layout";
 
 vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
-const CHAT_ATTENTION_LABEL = /Direct messages, Needs action, 106/;
+const ACME_ORGANIZATION_NAME_PATTERN = /Acme/;
+const CHAT_ATTENTION_LABEL = /Messenger, Needs action, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -41,6 +44,7 @@ let routerLocation = {
 	searchStr: "",
 };
 let appShellSection: AppShellSection = "space";
+let viewer = 0;
 let centerAgentUnreadCount = 0;
 let ordinarySpaceUnreadCount: number | undefined = 0;
 let chatCounts = {
@@ -130,7 +134,10 @@ vi.mock("#/query/organizations/invitation-requests", () => ({
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
-	useAppOrganization: () => appOrganization,
+	useAppOrganization: () => ({
+		...appOrganization,
+		currentUserId: `viewer-${viewer}`,
+	}),
 	useOptionalAppOrganization: () => appOrganization,
 	useCurrentOrganizationSlug: () => appOrganization.currentOrganization.slug,
 }));
@@ -221,17 +228,17 @@ const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
 const PRIMARY_RAIL_LABELS = [
-	"New Agent",
 	"Center Agent",
-	"Spaces",
-	"Direct messages",
+	"Messenger",
 	"Team",
+	"New Agent",
 ] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
 describe("AppOuterRail", () => {
 	beforeEach(() => {
+		viewer += 1;
 		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
 			fillRect: vi.fn(),
 			fillStyle: "",
@@ -367,39 +374,26 @@ describe("AppOuterRail", () => {
 
 	it("renders the organization selector as a shape-aware row even with one organization", () => {
 		renderRail();
-
 		const selector = screen.getByRole("button", {
 			name: "Switch organization",
 		});
-		const avatar = selector.querySelector('[aria-hidden="true"]');
-		expect(selector.textContent).toContain("Acme");
-		expect(selector.textContent).not.toContain("Organization");
-		expect(selector.className).toContain("bg-transparent");
-		expect(selector.className).toContain("h-7");
-		expect(selector.className).toContain("rounded-md");
-		expect(selector.className).not.toContain("bg-muted/20");
-		expect(avatar?.className).toContain("size-5");
-		expect(avatar?.className).not.toContain("size-7");
+		expect(selector.textContent).toContain("A");
+		fireEvent.click(selector);
+		expect(
+			screen.getByRole("menuitemradio", {
+				name: ACME_ORGANIZATION_NAME_PATTERN,
+			})
+		).toBeTruthy();
 	});
 
 	it("uses a compact type scale and grouped spacing in the full rail", () => {
-		renderRail({ tier: "expanded", width: "13.75rem" });
-
-		const homeLink = screen.getByRole("link", {
-			name: "Center Agent",
-		});
-		expect(homeLink.className).toContain("h-7");
-		expect(homeLink.className).toContain("text-[13px]");
-
-		const groups = screen
-			.getByTestId("app-outer-rail")
-			.querySelectorAll('[data-sidebar="group"]');
-		expect(groups).toHaveLength(1);
-		expect(
-			screen
-				.getByTestId("app-outer-rail")
-				.querySelector('[data-sidebar="menu-sub"]')
-		).toBeNull();
+		renderRail();
+		for (const label of PRIMARY_RAIL_LABELS) {
+			const link = screen.getByRole("link", { name: label });
+			expect(link.className).toContain("h-14");
+			expect(link.textContent).toContain(label);
+		}
+		expect(screen.getByRole("navigation", { name: "Create" })).toBeTruthy();
 	});
 
 	it("warms the Center Agent conversation from primary navigation intent", () => {
@@ -410,28 +404,11 @@ describe("AppOuterRail", () => {
 		expect(prefetchCenterAgentConversationMock).toHaveBeenCalledOnce();
 	});
 
-	it("center-truncates destination labels when the full rail is narrow", () => {
+	it("keeps readable wrapped labels in the fixed application rail", () => {
 		renderRail({ tier: "expanded", width: "9rem" });
-
-		const directMessagesLink = screen.getByRole("link", {
-			name: "Direct messages",
-		});
-		const centerTruncatedLabel = directMessagesLink.querySelector<HTMLElement>(
-			'[data-slot="center-truncated-text"]'
-		);
-
-		expect(centerTruncatedLabel).toBeTruthy();
-		expect(
-			centerTruncatedLabel?.querySelector(
-				'[data-slot="center-truncated-text-start"]'
-			)?.textContent
-		).toBe("Direct m");
-		expect(
-			centerTruncatedLabel?.querySelector(
-				'[data-slot="center-truncated-text-end"]'
-			)?.textContent
-		).toBe("essages");
-		expect(directMessagesLink.querySelector("span.truncate")).toBeNull();
+		const link = screen.getByRole("link", { name: "Center Agent" });
+		expect(link.textContent).toBe("Center Agent");
+		expect(link.querySelector("span.whitespace-normal")).toBeTruthy();
 	});
 
 	it("renders the collapsed organization selector without selector or avatar borders", () => {
@@ -446,18 +423,16 @@ describe("AppOuterRail", () => {
 		expect(avatar?.className).not.toContain("border-border");
 	});
 
-	it("centers collapsed navigation items on the same rail axis as the header and footer", () => {
-		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
-		renderRail({ tier: "expanded", width: "9rem" });
-
-		const content = screen
-			.getByTestId("app-outer-rail")
-			.querySelector(
-				'[data-sidebar="content"] [data-slot="scroll-area-viewport"] > div'
-			);
-
-		expect(content?.className).toContain("px-2");
-		expect(content?.className).not.toContain("px-3");
+	it("keeps fixed navigation visible when the middle list is collapsed", () => {
+		rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
+		renderRail();
+		expect(screen.getByTestId("app-outer-rail").className).toContain(
+			"w-[4.75rem]"
+		);
+		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
+		expect(
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe("hidden");
 	});
 
 	it("uses app tooltips instead of native titles for collapsed rail controls", () => {
@@ -467,8 +442,7 @@ describe("AppOuterRail", () => {
 		for (const label of [
 			"New Agent",
 			"Center Agent",
-			"Spaces",
-			"Direct messages",
+			"Messenger",
 			"Team",
 			"Settings",
 		]) {
@@ -511,14 +485,38 @@ describe("AppOuterRail", () => {
 	});
 
 	it("opens the canonical Direct Messages home", () => {
+		appShellSection = "settings";
+		routerLocation = { pathname: "/o/acme/settings", searchStr: "" };
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Direct messages",
+			name: "Messenger",
 		});
 		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/chats");
 	});
 
+	it("returns from Team to the exact Messenger location and keeps Organizations isolated", () => {
+		routerLocation = {
+			pathname: "/o/acme/spaces/launch",
+			searchStr: "?profileId=human-two&thread=review",
+		};
+		const rendered = renderRail();
+		appShellSection = "people";
+		routerLocation = { pathname: "/o/acme/people", searchStr: "" };
+		rendered.rerender(buildRailElement());
+		expect(
+			screen.getByRole("link", { name: "Messenger" }).getAttribute("href")
+		).toBe("/o/acme/spaces/launch?profileId=human-two&thread=review");
+		appOrganization = {
+			...appOrganization,
+			currentOrganization: { id: "org-beta", name: "Beta", slug: "beta" },
+		};
+		routerLocation = { pathname: "/o/beta/people", searchStr: "" };
+		rendered.rerender(buildRailElement());
+		expect(
+			screen.getByRole("link", { name: "Messenger" }).getAttribute("href")
+		).toBe("/o/beta/chats");
+	});
 	it("keeps Team flat even with a saved collapsed Team preference", () => {
 		rememberClientSidebarState("outer", {
 			collapsedGroupIds: ["team"],
@@ -558,8 +556,7 @@ describe("AppOuterRail", () => {
 		expect(screen.getByRole("link", { name: "New Agent" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
-		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Direct messages" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 
@@ -601,13 +598,64 @@ describe("AppOuterRail", () => {
 		).toBe(false);
 	});
 
-	it("uses the channel hash icon for Spaces", () => {
+	it("separates fixed application navigation from the contextual list", () => {
 		renderRail();
-
-		const spacesLink = screen.getByRole("link", { name: "Spaces" });
-
+		const rail = screen.getByTestId("app-outer-rail");
+		const middle = screen.getByTestId("app-module-sidebar");
+		expect(rail.contains(middle)).toBe(false);
 		expect(
-			spacesLink.querySelector('[data-space-icon="channel"]')
+			document.querySelector('[data-slot="app-surface"]')?.contains(middle)
+		).toBe(true);
+		expect(
+			within(rail).getByRole("link", { name: "Messenger" }).getAttribute("href")
+		).toBe("/o/acme/spaces");
+		expect(within(rail).queryByRole("link", { name: "Spaces" })).toBeNull();
+	});
+	it.each([
+		"people",
+		"settings",
+		"home",
+	] as const)("keeps Messenger accessible on %s pages", (section) => {
+		appShellSection = section;
+		renderRail();
+		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Team" })).toBeTruthy();
+	});
+	it("shows discovery in the mobile drawer despite a collapsed desktop preference and dismisses after navigation", async () => {
+		rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
+		renderRail();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open app navigation" })
+		);
+		const drawer = screen.getByRole("dialog", { name: "Plugin navigation" });
+		fireEvent.click(within(drawer).getByRole("link", { name: "Messenger" }));
+		await waitFor(() =>
+			expect(drawer.getAttribute("data-state")).toBe("closed")
+		);
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Open Messenger navigation",
+				hidden: true,
+			})
+		);
+		expect(
+			within(
+				screen.getByRole("dialog", { name: "Messenger navigation" })
+			).getByRole("link", { name: "Existing conversation" })
+		).toBeTruthy();
+	});
+	it("combines complete Space and chat unread aggregates without losing action priority", async () => {
+		ordinarySpaceUnreadCount = 3;
+		chatCounts = {
+			chatUnreadCount: 2,
+			chatUnresolvedActionCount: 1,
+			chatUnreadUrgentUpdateCount: 1,
+		};
+		renderRail();
+		expect(
+			await screen.findByRole("link", {
+				name: "Messenger, Needs action, 5 unread messages",
+			})
 		).toBeTruthy();
 	});
 
@@ -637,9 +685,9 @@ describe("AppOuterRail", () => {
 		ordinarySpaceUnreadCount = undefined;
 		renderRail();
 
-		const link = await screen.findByRole("link", { name: "Spaces" });
+		const link = await screen.findByRole("link", { name: "Messenger" });
 		expect(
-			link.querySelector('[data-app-rail-status-indicator="spaces-unread"]')
+			link.querySelector('[data-app-rail-status-indicator="chats-unread"]')
 		).toBeNull();
 	});
 
@@ -670,10 +718,10 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Spaces, 3 unread messages",
+			name: "Messenger, 3 unread messages",
 		});
 		const indicator = link.querySelector(
-			'[data-app-rail-status-indicator="spaces-unread"]'
+			'[data-app-rail-status-indicator="chats-unread"]'
 		);
 		expect(indicator).toBeTruthy();
 		expect(indicator?.className).toContain("bg-unread");
@@ -1470,9 +1518,10 @@ describe("AppOuterRail", () => {
 		);
 
 		await screen.findByText("Sign in again to continue.");
-		const status = screen.getByRole("status");
-		expect(status.textContent).toBe("Sign in again to continue.");
-		expect(status.getAttribute("aria-live")).toBe("polite");
+		const status = screen.getByText("Sign in again to continue.");
+		expect(screen.getAllByRole("status")).toContain(status);
+		expect(status?.textContent).toBe("Sign in again to continue.");
+		expect(status?.getAttribute("aria-live")).toBe("polite");
 		expect(selector.getAttribute("aria-expanded")).toBe("true");
 		expect(screen.getByRole("menu").contains(status)).toBe(true);
 		expect(screen.queryByText(JSON.stringify(errorEnvelope))).toBeNull();
@@ -1575,10 +1624,25 @@ describe("AppOuterRail", () => {
 	});
 
 	it("toggles the sidebar hidden and expanded with Command+B and Control+B", () => {
-		vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: true }));
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn(
+				(media: string) =>
+					({
+						media,
+						matches: true,
+						onchange: null,
+						addEventListener: vi.fn(),
+						removeEventListener: vi.fn(),
+						addListener: vi.fn(),
+						removeListener: vi.fn(),
+						dispatchEvent: () => true,
+					}) satisfies MediaQueryList
+			)
+		);
 		renderRail();
 
-		const rail = screen.getByTestId("app-outer-rail");
+		const rail = screen.getByTestId("app-module-sidebar");
 		expect(rail.getAttribute("data-state")).toBe("expanded");
 
 		fireEvent.keyDown(window, { key: "b", metaKey: true });
@@ -1592,33 +1656,49 @@ describe("AppOuterRail", () => {
 	});
 
 	it("does not let the hidden desktop rail handle its shortcut below the desktop breakpoint", () => {
-		vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({ matches: false }));
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn(
+				(media: string) =>
+					({
+						media,
+						matches: false,
+						onchange: null,
+						addEventListener: vi.fn(),
+						removeEventListener: vi.fn(),
+						addListener: vi.fn(),
+						removeListener: vi.fn(),
+						dispatchEvent: () => true,
+					}) satisfies MediaQueryList
+			)
+		);
 		renderRail();
 
-		const rail = screen.getByTestId("app-outer-rail");
+		const rail = screen.getByTestId("app-module-sidebar");
 		fireEvent.keyDown(window, { key: "b", metaKey: true });
 
 		expect(rail.getAttribute("data-state")).toBe("expanded");
 	});
 
 	it("keeps the app section active state on route matches during navigation intent", () => {
+		appShellSection = "people";
 		const rendered = renderRail();
 
-		const spacesLink = screen.getByRole("link", { name: "Spaces" });
+		const teamLink = screen.getByRole("link", { name: "Team" });
 		const settingsButton = screen.getByRole("button", { name: "Settings" });
 
-		expect(spacesLink.getAttribute("aria-current")).toBe("page");
+		expect(teamLink.getAttribute("aria-current")).toBe("page");
 		expect(settingsButton.getAttribute("aria-current")).toBeNull();
 
 		fireEvent.pointerDown(settingsButton, { button: 0 });
 
-		expect(spacesLink.getAttribute("aria-current")).toBe("page");
+		expect(teamLink.getAttribute("aria-current")).toBe("page");
 		expect(settingsButton.getAttribute("aria-current")).toBeNull();
 
 		appShellSection = "settings";
 		rendered.rerender(buildRailElement());
 
-		expect(spacesLink.getAttribute("aria-current")).toBeNull();
+		expect(teamLink.getAttribute("aria-current")).toBeNull();
 		expect(settingsButton.getAttribute("aria-current")).toBe("page");
 	});
 
@@ -1632,23 +1712,23 @@ describe("AppOuterRail", () => {
 		const rendered = renderRail();
 
 		const homeLink = screen.getByRole("link", { name: "Center Agent" });
-		const spacesLink = screen.getByRole("link", { name: "Spaces" });
+		const teamLink = screen.getByRole("link", { name: "Team" });
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");
-		expect(spacesLink.getAttribute("aria-current")).toBeNull();
+		expect(teamLink.getAttribute("aria-current")).toBeNull();
 		expect(
-			spacesLink.className.split(CLASS_NAME_SEGMENT_SEPARATOR_PATTERN)
+			teamLink.className.split(CLASS_NAME_SEGMENT_SEPARATOR_PATTERN)
 		).not.toContain("active");
 
 		routerLocation = {
-			pathname: "/o/acme/spaces",
+			pathname: "/o/acme/people",
 			searchStr: "",
 		};
-		appShellSection = "space";
+		appShellSection = "people";
 		rendered.rerender(buildRailElement());
 
 		expect(homeLink.getAttribute("aria-current")).toBeNull();
-		expect(spacesLink.getAttribute("aria-current")).toBe("page");
+		expect(teamLink.getAttribute("aria-current")).toBe("page");
 
 		routerLocation = {
 			pathname: "/o/acme",
@@ -1658,9 +1738,16 @@ describe("AppOuterRail", () => {
 		rendered.rerender(buildRailElement());
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");
-		expect(spacesLink.getAttribute("aria-current")).toBeNull();
+		expect(teamLink.getAttribute("aria-current")).toBeNull();
 	});
 
+	it("keeps Team selected while browsing its Agent routes", () => {
+		appShellSection = "agents";
+		renderRail();
+		expect(
+			screen.getByRole("link", { name: "Team" }).getAttribute("aria-current")
+		).toBe("page");
+	});
 	it("keeps Computers out of the main app rail", () => {
 		renderRail();
 
@@ -1672,28 +1759,26 @@ describe("AppOuterRail", () => {
 		renderRail({ tier: "expanded", width: "9rem" });
 
 		expect(
-			screen.getByTestId("app-outer-rail").getAttribute("data-state")
-		).toBe("icon");
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe("hidden");
 	});
 
 	it("keeps collapsed header controls and the account footer reachable", () => {
-		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
+		rememberClientSidebarState("outer", { tier: "hidden", width: "308px" });
 		renderRail();
 		const rail = screen.getByTestId("app-outer-rail");
-		const header = rail.querySelector("[data-sidebar=header]") as HTMLElement;
-		const footer = rail.querySelector("[data-sidebar=footer]") as HTMLElement;
 		expect(
-			within(header).getByRole("button", { name: "Switch organization" })
+			within(rail).getByRole("button", { name: "Switch organization" })
 		).toBeTruthy();
 		expect(
-			within(header).getByRole("button", { name: TOGGLE_TRIGGER_NAME_PATTERN })
+			within(rail).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
 		).toBeTruthy();
 		expect(
-			within(header).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+			within(rail).getByRole("button", { name: USER_MENU_PATTERN })
 		).toBeTruthy();
 		expect(
-			within(footer).getByRole("button", { name: USER_MENU_PATTERN })
-		).toBeTruthy();
+			screen.getAllByRole("button", { name: "Show sidebar" }).length
+		).toBeGreaterThan(0);
 	});
 });
 
@@ -1724,10 +1809,21 @@ function buildRailElement(
 	return (
 		<TestQueryClientProvider>
 			<TooltipProvider>
-				<AppOuterRail
-					account={input.account ?? TEST_ACCOUNT}
-					initialState={initialState}
-				/>
+				<AppSurfaceLayout
+					globalControls={null}
+					initialModuleSidebarState={initialState}
+					moduleNavigation={
+						<nav aria-label="Conversation list">
+							<a href="/o/acme/spaces/sample">Existing conversation</a>
+						</nav>
+					}
+					outerRail={<AppOuterRail account={input.account ?? TEST_ACCOUNT} />}
+				>
+					<main>
+						<AppModuleSidebarToggle />
+						<textarea aria-label="Draft" defaultValue="Unsent work" />
+					</main>
+				</AppSurfaceLayout>
 			</TooltipProvider>
 		</TestQueryClientProvider>
 	);

@@ -195,15 +195,7 @@ function SettingsPageShell(input: {
 			<AppSurfaceLayout
 				globalControls={<AppGlobalControls />}
 				mobileSidebarTitle="Settings"
-				outerRail={
-					<AppOuterRail
-						account={account}
-						initialState={
-							input.initialSidebarStates?.outer ??
-							APP_SIDEBAR_DEFAULT_STATES.outer
-						}
-					/>
-				}
+				outerRail={<AppOuterRail account={account} />}
 				sidebar={
 					<AppInnerSidebar
 						initialState={

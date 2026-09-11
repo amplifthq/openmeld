@@ -58,6 +58,10 @@ vi.mock("#/query/organizations/invitation-requests", () => ({
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization,
+		currentUserId: "user-123",
+	}),
 	useAppOrganization: () => ({
 		currentOrganization,
 		currentUserId: "user-123",
