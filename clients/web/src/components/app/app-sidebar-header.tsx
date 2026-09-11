@@ -3,13 +3,8 @@
 import { SidebarHeader } from "@openmeld/ui/fluid/sidebar";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ArrowLeftIcon,
-	ArrowRightIcon,
-	MagnifyingGlassIcon,
-	TrayIcon,
-} from "@phosphor-icons/react";
-import { Link, useCanGoBack, useRouter } from "@tanstack/react-router";
+import { MagnifyingGlassIcon, TrayIcon } from "@phosphor-icons/react";
+import { Link } from "@tanstack/react-router";
 import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
@@ -36,8 +31,6 @@ export function AppSidebarHeader({
 	const { dismiss, presentation } = useAppNavigationPresentation();
 	const { currentOrganization } = useAppOrganization();
 	const attention = useInboxAttention(currentOrganization.id);
-	const router = useRouter();
-	const canGoBack = useCanGoBack();
 	const iconOnly = mode === "icon";
 	const actionClass =
 		"flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 outline-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
@@ -55,31 +48,6 @@ export function AppSidebarHeader({
 					iconOnly ? "grid grid-cols-2 justify-items-center" : "flex"
 				)}
 			>
-				{
-					<>
-						<CollapsedRailTooltip label="Back" side="top">
-							<button
-								aria-label="Back"
-								className={actionClass}
-								disabled={!canGoBack}
-								onClick={() => router.history.back()}
-								type="button"
-							>
-								<ArrowLeftIcon className="size-4" />
-							</button>
-						</CollapsedRailTooltip>
-						<CollapsedRailTooltip label="Forward" side="top">
-							<button
-								aria-label="Forward"
-								className={actionClass}
-								onClick={() => router.history.forward()}
-								type="button"
-							>
-								<ArrowRightIcon className="size-4" />
-							</button>
-						</CollapsedRailTooltip>
-					</>
-				}
 				{!iconOnly && <span className="flex-1" />}
 				<button
 					aria-label="Search or run a command"
