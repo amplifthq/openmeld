@@ -13,6 +13,10 @@ import {
 	WarningIcon,
 } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
+import {
+	AppModuleSidebarToggle,
+	useHasModuleSidebar,
+} from "#/components/app/app-module-sidebar";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
@@ -40,6 +44,7 @@ export function SpaceWindowHeader(input: {
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
 }) {
+	const hasModuleSidebar = useHasModuleSidebar();
 	const subtitleItems = input.subtitleItems ?? [];
 	const hasSecondaryRow =
 		input.navigation !== undefined || subtitleItems.length > 0;
@@ -53,8 +58,9 @@ export function SpaceWindowHeader(input: {
 				input.contentClassName
 			)}
 		>
-			{input.leadingControl ? (
+			{input.leadingControl || hasModuleSidebar ? (
 				<div className="col-start-1 row-start-1 flex shrink-0 items-center gap-3">
+					<AppModuleSidebarToggle />
 					{input.leadingControl}
 				</div>
 			) : null}

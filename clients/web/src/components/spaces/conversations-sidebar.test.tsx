@@ -40,7 +40,25 @@ vi.mock("@tanstack/react-router", () => ({
 		</a>
 	),
 }));
-vi.mock("./new-chat-dialog", () => ({ NewChatDialog: () => null }));
+vi.mock("./new-chat-dialog", () => ({
+	NewChatDialog: ({
+		initialQuery,
+		onOpenChange,
+	}: {
+		initialQuery: string;
+		onOpenChange: (open: boolean) => void;
+	}) => (
+		<div aria-label="New message" role="dialog">
+			<input
+				aria-label="Search people and agents"
+				defaultValue={initialQuery}
+			/>
+			<button onClick={() => onOpenChange(false)} type="button">
+				Close picker
+			</button>
+		</div>
+	),
+}));
 vi.mock("../organizations/center-agent-chat-avatar", () => ({
 	CenterAgentChatAvatar: () => <span>Agent</span>,
 }));
@@ -123,6 +141,37 @@ it("searches both types and retains canonical session destinations", () => {
 	expect(
 		screen.getByText("No conversations match your search or filters.")
 	).toBeTruthy();
+});
+it("keeps discovery visible in both views and carries an unmatched search into the organization picker", async () => {
+	mount();
+	expect(
+		screen.getByRole("link", { name: "Messenger" }).getAttribute("href")
+	).toBe("/o/test/chats");
+	for (const view of ["Grouped", "Recent"] as const) {
+		await selectView(view);
+		expect(
+			screen.getByRole("link", { name: "Browse spaces" }).getAttribute("href")
+		).toBe("/o/test/spaces");
+	}
+	fireEvent.change(
+		screen.getByRole("searchbox", { name: "Search conversations" }),
+		{ target: { value: "Unfamiliar teammate" } }
+	);
+	fireEvent.click(screen.getByRole("button", { name: "Find someone" }));
+	expect(
+		screen.getByRole("textbox", { name: "Search people and agents" })
+	).toHaveProperty("value", "Unfamiliar teammate");
+	fireEvent.click(screen.getByRole("button", { name: "Close picker" }));
+	fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+	expect(
+		(await screen.findByRole("menuitem", { name: "New Space" })).getAttribute(
+			"href"
+		)
+	).toBe("/o/test/new-space");
+	fireEvent.click(screen.getByRole("menuitem", { name: "New message" }));
+	expect(
+		screen.getByRole("textbox", { name: "Search people and agents" })
+	).toHaveProperty("value", "");
 });
 it("pins a Space in Recent and retains its position after switching", async () => {
 	mount();
