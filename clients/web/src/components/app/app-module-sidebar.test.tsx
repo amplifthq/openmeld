@@ -38,8 +38,8 @@ function mount(scope = "org:profile:conversations", onMount = vi.fn()) {
 	return render(
 		<TooltipProvider>
 			<AppModuleSidebarProvider available preferenceKey="conversations">
-				<aside aria-label="Applications">Messenger · Team</aside>
-				<AppModuleSidebar label="Messenger" scrollKey={scope}>
+				<aside aria-label="Applications">Spaces · Team</aside>
+				<AppModuleSidebar label="Spaces" scrollKey={scope}>
 					<a href="/conversation">Existing conversation</a>
 				</AppModuleSidebar>
 				<main>
@@ -137,7 +137,7 @@ it("renders the mobile list despite a saved collapsed desktop preference", () =>
 		<TooltipProvider>
 			<AppModuleSidebarProvider available preferenceKey="conversations">
 				<AppNavigationPresentationProvider presentation="drawer">
-					<AppModuleSidebar label="Messenger" scrollKey="mobile">
+					<AppModuleSidebar label="Spaces" scrollKey="mobile">
 						<a href="/conversation">Existing conversation</a>
 					</AppModuleSidebar>
 				</AppNavigationPresentationProvider>

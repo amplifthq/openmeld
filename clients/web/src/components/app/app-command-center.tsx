@@ -19,7 +19,6 @@ import {
 	ArrowRightIcon,
 	ChatCircleTextIcon,
 	DesktopIcon,
-	HashIcon,
 	MoonIcon,
 	PlusIcon,
 	SunIcon,
@@ -435,7 +434,7 @@ function spaceCommandEntry(
 				members={item.memberPreviews}
 			/>
 		) : (
-			<HashIcon className="size-4" />
+			<ChatCircleTextIcon className="size-4" />
 		),
 		trailing: <CommandSpaceStatus status={status} unread={unread} />,
 		accessibleLabel: [

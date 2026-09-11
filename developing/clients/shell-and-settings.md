@@ -33,7 +33,7 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-76px **Center Agent / Messenger / Team** application rail, with a separate
+76px **Center Agent / Spaces / Team** application rail, with a separate
 **New Agent** creation action and contextual lists in a collapsible middle column.
 **Settings** remains a separated utility. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
@@ -42,7 +42,7 @@ the signed-in member's current **Computer** at the far-left edge of the inset
 content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
-`developing/clients/web.md`. Center Agent uses the shared Messenger list; **Messages /
+`developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
 Graph / Files / Tasks / Routines / Skills / Plugins** live in its header, while
 **Channels / Memory / Center Agent settings** live in its compact header menu.
 
@@ -55,7 +55,7 @@ ownership remain in the existing Web hooks and router.
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **Center Agent / Messenger / Team** as the fixed
+- keeps **Center Agent / Spaces / Team** as the fixed
   visible product destinations, temporarily omits **Projects / Documents /
   Agent Activity** without relocating them, separates Settings as a utility,
   and opens the current Computer, Center Agent, and Inbox from the app canvas's
@@ -241,7 +241,7 @@ The Web shell is a stable two-layer composition built from the shared
 - **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
-  contains **Center Agent**, **Messenger**, and **Team**, followed by a separate
+  contains **Center Agent**, **Spaces**, and **Team**, followed by a separate
   **New Agent** action. Team opens People;
   Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
@@ -270,13 +270,13 @@ The Web shell is a stable two-layer composition built from the shared
   placeholder or dead action.
 - **Inner contextual sidebar** — optional, rendered inside the inset app
   surface, and owned only by route families that need contextual navigation.
-  Spaces, Direct Messages, and Center Agent conversations share the Messenger
+  Spaces, Direct Messages, and Center Agent conversations share the Spaces
   list in the middle column, with Spaces and Direct messages as groups. Team
   uses its member list instead, and Settings retains its own contextual navigation.
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal
-  behavior. The Messenger heading opens the existing chat directory. Its plus
+  behavior. The Spaces heading opens the existing chat directory. Its plus
   menu offers New message and New Space. Browse spaces is visible in both views,
   and empty search results offer Find someone with the query prefilled in the
   organization picker. Team remains the member directory, without a separate

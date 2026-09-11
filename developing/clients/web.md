@@ -50,22 +50,25 @@ session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
 list inside the inset surface, and the current work area. Center Agent,
-Messenger, and Team are the rail's destinations. Four circular controls at the
+Spaces, and Team are the rail's destinations. Four circular controls at the
 top stack Organization switching, search, Inbox, and Create. The Organization
 avatar fills its circular trigger. Create opens New Agent and New Space to the
 right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
 motion opens the choices without travel. Account, theme, and Settings
-remain reachable from the rail. Messenger opens `/o/{orgSlug}/chats`, whose
-directory content remains the member's direct messages. After visiting Messenger,
+remain reachable from the rail. Spaces opens `/o/{orgSlug}/chats`, whose
+directory content remains the member's direct messages. After visiting Spaces,
 the application-rail entry returns to its last location in this tab, preserving
 profile, thread, and session selectors. This navigation memory is scoped to the
 account, Organization, and default Human Profile; it never opens a location from
-another Organization. The Messenger heading still opens the directory explicitly.
+another Organization. The Spaces heading still opens the directory explicitly.
+Header actions move into one labeled overflow menu when the contextual list is
+narrow, keeping the title and controls on one row. Both layouts share the same
+creation, view, and filter menu contents.
 
-Spaces, direct messages, and Center Agent conversations share the Messenger
+Spaces, direct messages, and Center Agent conversations share the Spaces
 list in the middle column. Team places its member list in that column instead;
 Settings retains its own settings navigation. A page without contextual
-navigation does not create an empty middle column or load the Messenger list.
+navigation does not create an empty middle column or load the Spaces list.
 The work-area header toggles the middle list without hiding the application
 rail or remounting the conversation. The existing Fluid sidebar engine owns
 resizing and keyboard shortcuts. Dragging the middle column can collapse it,
@@ -92,11 +95,11 @@ Spaces, People, and Agents are optional filters. The plus menu offers New messag
 and New Space. Search conversations filters existing conversations only. When no
 conversations match, Find someone opens the existing organization-wide people
 and Agents picker with the search text prefilled. Browse spaces is a compass icon
-in the Messenger header, before the plus menu, with a tooltip and accessible
+in the Spaces header, before the plus menu, with a tooltip and accessible
 label. It remains visible in both Grouped and Recent, including with collapsed groups,
 filters, or empty results, and opens the existing Your Spaces / Discover page.
 Team remains the member directory; there is no separate Contacts destination.
-Messenger combines the canonical ordinary Space and chat unread aggregates
+Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.
 
 Selecting only Center Agent in New message opens a local `?draft=new` composer without creating a session or
@@ -393,12 +396,12 @@ primary actions and destinations in a flat list:
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
 - **Center Agent** — directly opens the current Organization's default Center Agent chat.
-- **Messenger** — opens the existing chat directory, with Spaces and private
+- **Spaces** — opens the existing chat directory, with Spaces and private
   conversations available in its contextual list.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
 
 The middle column contains the active module's list. Spaces and Direct messages
-are groups within Messenger, rather than duplicate application-rail links.
+are groups within Spaces, rather than duplicate application-rail links.
 
 **Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
 pages, and contextual entry points but are temporarily absent from the primary
@@ -408,7 +411,7 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Center Agent**, **Messenger**,
+The visible destinations resolve in this order: **Center Agent**, **Spaces**,
 and **Team**, followed by the separate **New Agent** action. The underlying product destinations are:
 
 1. **Home** — directly renders the existing default Center Agent conversation,
@@ -424,7 +427,7 @@ and **Team**, followed by the separate **New Agent** action. The underlying prod
    region; a person's Agent list and detail use full-width content. These pages do not
    mount an additional contextual column or simultaneous mobile drawers.
    Existing list grouping, pinning, unread indicators, identities, and status
-   projections are preserved. Messenger owns the shared creation menu and
+   projections are preserved. Spaces owns the shared creation menu and
    discovery links described above.
    Agent list search and filtering remain available. Settings retains its
    secondary navigation panel.
@@ -433,7 +436,7 @@ and **Team**, followed by the separate **New Agent** action. The underlying prod
    `/o/{orgSlug}/direct-messages/{spaceId}`. The Main Sidebar's contextual
    list shows current DM Spaces by the other participant's profile identity;
    selecting one opens the existing Space conversation surface in the content
-   region. Direct Messages remain a distinct conversation kind within Messenger;
+   region. Direct Messages remain a distinct conversation kind within Spaces;
    this presentation does not create a separate DM data or messaging subsystem.
    People and Agents entry points navigate
    straight to this route family after opening or reusing the DM. Its pending
@@ -610,7 +613,7 @@ expanded unless the viewer has saved a manual choice. Custom groups start
 collapsed. Entering a conversation reveals its group; switching views preserves
 both families' existing disclosure choices. Search temporarily reveals matching
 groups without writing disclosure preferences. Creation, view selection,
-filters, and search live in the Messenger header.
+filters, and search live in the Spaces header.
 Ordinary private conversations use `/chats/{spaceId}`. The old
 `/direct-messages` routes only redirect and preserve supported search fields.
 Team's Center Agent entry opens the canonical Center Agent chat.

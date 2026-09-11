@@ -26,7 +26,7 @@ vi.mock("./app-command-center", () => ({ AppCommandCenter: () => null }));
 
 const BETA_ORGANIZATION_NAME_PATTERN = /Beta/;
 const ACME_ORGANIZATION_NAME_PATTERN = /Acme/;
-const CHAT_ATTENTION_LABEL = /Messenger, Needs action, 106/;
+const CHAT_ATTENTION_LABEL = /Spaces, Needs action, 106/;
 const navigateMock = vi.fn();
 const routerInvalidateMock = vi.fn();
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
@@ -227,7 +227,7 @@ const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = ["Center Agent", "Messenger", "Team"] as const;
+const PRIMARY_RAIL_LABELS = ["Center Agent", "Spaces", "Team"] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
@@ -437,7 +437,7 @@ describe("AppOuterRail", () => {
 		expect(screen.getByTestId("app-outer-rail").className).toContain(
 			"w-[4.75rem]"
 		);
-		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(
 			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
 		).toBe("hidden");
@@ -447,7 +447,7 @@ describe("AppOuterRail", () => {
 		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
 		renderRail({ tier: "expanded", width: "9rem" });
 
-		for (const label of ["Center Agent", "Messenger", "Team", "Settings"]) {
+		for (const label of ["Center Agent", "Spaces", "Team", "Settings"]) {
 			const link = screen.getByRole(label === "Settings" ? "button" : "link", {
 				name: label,
 			});
@@ -497,12 +497,12 @@ describe("AppOuterRail", () => {
 		renderRail();
 
 		const directMessagesLink = screen.getByRole("link", {
-			name: "Messenger",
+			name: "Spaces",
 		});
 		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/chats");
 	});
 
-	it("returns from Team to the exact Messenger location and keeps Organizations isolated", () => {
+	it("returns from Team to the exact Spaces location and keeps Organizations isolated", () => {
 		routerLocation = {
 			pathname: "/o/acme/spaces/launch",
 			searchStr: "?profileId=human-two&thread=review",
@@ -512,7 +512,7 @@ describe("AppOuterRail", () => {
 		routerLocation = { pathname: "/o/acme/people", searchStr: "" };
 		rendered.rerender(buildRailElement());
 		expect(
-			screen.getByRole("link", { name: "Messenger" }).getAttribute("href")
+			screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
 		).toBe("/o/acme/spaces/launch?profileId=human-two&thread=review");
 		appOrganization = {
 			...appOrganization,
@@ -521,7 +521,7 @@ describe("AppOuterRail", () => {
 		routerLocation = { pathname: "/o/beta/people", searchStr: "" };
 		rendered.rerender(buildRailElement());
 		expect(
-			screen.getByRole("link", { name: "Messenger" }).getAttribute("href")
+			screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
 		).toBe("/o/beta/chats");
 	});
 	it("keeps Team flat even with a saved collapsed Team preference", () => {
@@ -563,7 +563,7 @@ describe("AppOuterRail", () => {
 		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
-		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
 	});
 
@@ -614,18 +614,20 @@ describe("AppOuterRail", () => {
 			document.querySelector('[data-slot="app-surface"]')?.contains(middle)
 		).toBe(true);
 		expect(
-			within(rail).getByRole("link", { name: "Messenger" }).getAttribute("href")
+			within(rail).getByRole("link", { name: "Spaces" }).getAttribute("href")
 		).toBe("/o/acme/spaces");
-		expect(within(rail).queryByRole("link", { name: "Spaces" })).toBeNull();
+		expect(within(rail).getAllByRole("link", { name: "Spaces" })).toHaveLength(
+			1
+		);
 	});
 	it.each([
 		"people",
 		"settings",
 		"home",
-	] as const)("keeps Messenger accessible on %s pages", (section) => {
+	] as const)("keeps Spaces accessible on %s pages", (section) => {
 		appShellSection = section;
 		renderRail();
-		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Team" })).toBeTruthy();
 	});
 	it("shows discovery in the mobile drawer despite a collapsed desktop preference and dismisses after navigation", async () => {
@@ -635,19 +637,19 @@ describe("AppOuterRail", () => {
 			screen.getByRole("button", { name: "Open app navigation" })
 		);
 		const drawer = screen.getByRole("dialog", { name: "Plugin navigation" });
-		fireEvent.click(within(drawer).getByRole("link", { name: "Messenger" }));
+		fireEvent.click(within(drawer).getByRole("link", { name: "Spaces" }));
 		await waitFor(() =>
 			expect(drawer.getAttribute("data-state")).toBe("closed")
 		);
 		fireEvent.click(
 			screen.getByRole("button", {
-				name: "Open Messenger navigation",
+				name: "Open Spaces navigation",
 				hidden: true,
 			})
 		);
 		expect(
 			within(
-				screen.getByRole("dialog", { name: "Messenger navigation" })
+				screen.getByRole("dialog", { name: "Spaces navigation" })
 			).getByRole("link", { name: "Existing conversation" })
 		).toBeTruthy();
 	});
@@ -661,7 +663,7 @@ describe("AppOuterRail", () => {
 		renderRail();
 		expect(
 			await screen.findByRole("link", {
-				name: "Messenger, Needs action, 5 unread messages",
+				name: "Spaces, Needs action, 5 unread messages",
 			})
 		).toBeTruthy();
 	});
@@ -692,7 +694,7 @@ describe("AppOuterRail", () => {
 		ordinarySpaceUnreadCount = undefined;
 		renderRail();
 
-		const link = await screen.findByRole("link", { name: "Messenger" });
+		const link = await screen.findByRole("link", { name: "Spaces" });
 		expect(
 			link.querySelector('[data-app-rail-status-indicator="chats-unread"]')
 		).toBeNull();
@@ -725,7 +727,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Messenger, 3 unread messages",
+			name: "Spaces, 3 unread messages",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="chats-unread"]'

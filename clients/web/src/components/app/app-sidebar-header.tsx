@@ -38,7 +38,7 @@ export function AppSidebarHeader({
 	return (
 		<SidebarHeader
 			className={cn(
-				"gap-2 p-2 pt-3",
+				"gap-2 p-2 pt-3 pb-4",
 				presentation === "drawer" &&
 					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
 			)}

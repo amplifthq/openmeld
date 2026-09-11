@@ -163,7 +163,7 @@ export function ChatsDirectory() {
 						</TabsSubtle>
 					}
 					renderFrame={false}
-					title="Messenger"
+					title="Spaces"
 				/>
 			}
 			scroll
