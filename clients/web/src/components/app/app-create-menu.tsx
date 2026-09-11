@@ -83,7 +83,7 @@ function CreateOptions({
 			contrast={18}
 			fill="var(--accent)"
 			shadow="0 2px 8px rgba(0,0,0,.14)"
-			style={{ height: options.length * 64 - 24 }}
+			style={{ height: options.length * 56 - 16 }}
 		>
 			{options.map((option, index) => (
 				<Liquid.Item
@@ -93,7 +93,7 @@ function CreateOptions({
 					radius={20}
 					transition={motion ? "snappy" : { duration: 0 }}
 					x={expanded || !motion ? 0 : -52}
-					y={expanded || !motion ? index * 64 : (options.length - 1) * 32}
+					y={expanded || !motion ? index * 56 : (options.length - 1) * 28}
 				>
 					<Menu.Item
 						className="flex h-10 w-32 items-center justify-center gap-2 whitespace-nowrap rounded-full px-3 text-sm outline-none data-highlighted:bg-popover data-highlighted:ring-1 data-highlighted:ring-ring"
