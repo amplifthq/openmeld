@@ -14,3 +14,5 @@ menu item and your avatar. Display preferences are remembered in this browser.
 
 Space tabs move beside the title while you read earlier messages, leaving more
 room for the conversation. The header expands again at the latest messages.
+Its position stays the same when you switch to Files, and this browser remembers
+each Space's position when you leave and return.

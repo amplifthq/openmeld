@@ -3794,13 +3794,20 @@ layout reserves at least 240px for navigation, increasing that reservation when
 the rendered tabs require more. Long titles truncate and insufficient width
 retains the two-row layout.
 Direct messages and compact embedded conversations retain their existing headers.
-Returning to the latest messages or opening Files restores the expanded header.
+Returning to the latest messages restores the expanded header. Messages and
+Files share the same header position: changing tabs does not move navigation.
+The browser remembers the normalized header position per Organization, Profile,
+and Space across navigation and reloads. Narrow layouts temporarily use two
+rows without overwriting that saved position. Scrolling Messages resumes the
+motion; Files itself does not drive header compaction.
 Scroll frames update only the navigation transform outside React. Header height
 changes at the collapse/expansion boundary, with a matching scroll offset to
 preserve the reading anchor. Collapse and expansion use separate boundaries
 (144px and 72px from the bottom), so small reversals do not repeatedly resize
-the conversation. Restored views choose an endpoint once; pausing a scroll
-preserves its progress without snapping. The tabs return fully to their lower
+the conversation. Restored views use the saved position before paint; a Space
+without a saved position starts expanded. Pausing a scroll preserves its
+progress without snapping. Preferences are written on scroll end, page exit,
+or unmount, never on each animation frame. The tabs return fully to their lower
 row within 24px of the latest messages. Reduced motion switches positions
 without travel.
 

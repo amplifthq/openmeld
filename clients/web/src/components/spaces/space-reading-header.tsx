@@ -6,6 +6,12 @@ import {
 	useMemo,
 	useState,
 } from "react";
+import { z } from "zod/v4";
+import {
+	readBrowserPreference,
+	removeBrowserPreference,
+	writeBrowserPreference,
+} from "../../lib/spaces/browser-preference-storage";
 import type { SpaceView } from "./space-view";
 
 const SpaceReadingHeaderContext = createContext<{
@@ -17,31 +23,63 @@ export function useSpaceReadingHeader() {
 	return useContext(SpaceReadingHeaderContext);
 }
 
-type SpaceReadingHeaderPosition = {
-	compact: boolean;
-	progress: number;
-	anchor: { distance: number; progress: number };
-};
+const positionSchema = z
+	.object({
+		compact: z.boolean(),
+		progress: z.number().min(0).max(1),
+		anchor: z.object({
+			distance: z.number().min(24).max(143),
+			progress: z.number().min(0).max(1),
+		}),
+	})
+	.refine((position) => !position.compact || position.progress === 1);
+type SpaceReadingHeaderPosition = z.infer<typeof positionSchema>;
+
+export function readSpaceReadingHeaderPosition(storageKey: string) {
+	const raw = readBrowserPreference(storageKey);
+	if (raw === null) {
+		return undefined;
+	}
+	try {
+		const result = positionSchema.safeParse(JSON.parse(raw));
+		if (result.success) {
+			return result.data;
+		}
+	} catch {
+		// A malformed preference is not a usable reading position.
+	}
+	console.warn("Ignoring invalid Space reading header preference.", {
+		storageKey,
+	});
+	removeBrowserPreference(storageKey);
+	return undefined;
+}
+
+export function spaceReadingHeaderStorageKey(input: {
+	organizationSlug: string;
+	profileId: string;
+	spaceId: string;
+}) {
+	return `openmeld.space.reading-header.v1:${JSON.stringify([
+		input.organizationSlug,
+		input.profileId,
+		input.spaceId,
+	])}`;
+}
 
 export function resolveSpaceReadingHeaderPosition(
 	distance: number,
-	previous?: SpaceReadingHeaderPosition
+	previous: SpaceReadingHeaderPosition = {
+		compact: false,
+		progress: 0,
+		anchor: { distance: 24, progress: 0 },
+	}
 ): SpaceReadingHeaderPosition {
 	if (distance <= 24) {
 		return {
 			compact: false,
 			progress: 0,
 			anchor: { distance: 24, progress: 0 },
-		};
-	}
-	if (!previous) {
-		// Restoring a view chooses an endpoint once. A pause in an actual scroll
-		// must not round its progress or restart the animation.
-		const compact = distance >= 84;
-		return {
-			compact,
-			progress: compact ? 1 : 0,
-			anchor: { distance: compact ? 72 : distance, progress: compact ? 1 : 0 },
 		};
 	}
 	if (distance >= 144 || (previous.compact && distance >= 72)) {
@@ -69,6 +107,9 @@ export function SpaceReadingHeaderProvider(input: {
 	isEmbedded: boolean;
 	isDirectMessage: boolean;
 	view: SpaceView;
+	organizationSlug: string | undefined;
+	profileId: string;
+	spaceId: string;
 }) {
 	const [header, setHeader] = useState<HTMLDivElement | null>(null);
 	const [scrollElement, setScrollElement] = useState<HTMLDivElement | null>(
@@ -76,14 +117,30 @@ export function SpaceReadingHeaderProvider(input: {
 	);
 	const value = useMemo(() => ({ setHeader, setScrollElement }), []);
 	const isSpace = !(input.isEmbedded || input.isDirectMessage);
-	const enabled = isSpace && input.view === "messages";
+	const storageKey = input.organizationSlug
+		? spaceReadingHeaderStorageKey({
+				...input,
+				organizationSlug: input.organizationSlug,
+			})
+		: undefined;
+	const state = useMemo<{
+		storageKey: string | undefined;
+		position?: SpaceReadingHeaderPosition;
+	}>(() => ({ storageKey }), [storageKey]);
 
 	useLayoutEffect(() => {
-		if (!(enabled && header && scrollElement)) {
+		if (!(isSpace && header)) {
 			return;
 		}
-		return attachSpaceReadingHeader(header, scrollElement);
-	}, [header, enabled, scrollElement]);
+		state.position ??=
+			(storageKey ? readSpaceReadingHeaderPosition(storageKey) : undefined) ??
+			resolveSpaceReadingHeaderPosition(0);
+		return attachSpaceReadingHeader(
+			header,
+			input.view === "messages" ? scrollElement : null,
+			state
+		);
+	}, [header, isSpace, input.view, scrollElement, state, storageKey]);
 
 	return (
 		<SpaceReadingHeaderContext value={isSpace ? value : null}>
@@ -96,7 +153,15 @@ export function SpaceReadingHeaderProvider(input: {
 // Only the tab transform runs per frame. Changing the frame height
 // once at each endpoint preserves the reading anchor without continuously
 // resizing the message scroller, its virtual content, and the composer.
-function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
+function attachSpaceReadingHeader(
+	header: HTMLElement,
+	scroller: HTMLElement | null,
+	state: {
+		position?: SpaceReadingHeaderPosition;
+		storageKey: string | undefined;
+	}
+) {
+	const { storageKey } = state;
 	const frame = header.closest("header");
 	const title = header.querySelector<HTMLElement>(
 		'[data-slot="space-window-header-title"]'
@@ -124,42 +189,55 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 	let offsetY = 0;
 	let titleHeight = 0;
 	let navigationHeight = 0;
-	let position: SpaceReadingHeaderPosition | undefined;
 	let hasUserScrolled = false;
+	let lastSaved: string | undefined;
 	const readDistance = () =>
-		Math.max(
-			0,
-			scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
-		);
+		scroller
+			? Math.max(
+					0,
+					scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop
+				)
+			: 0;
+	const save = () => {
+		if (!(storageKey && state.position)) {
+			return;
+		}
+		const serialized = JSON.stringify(state.position);
+		if (serialized !== lastSaved) {
+			writeBrowserPreference(storageKey, serialized);
+			lastSaved = serialized;
+		}
+	};
 
 	const setCompact = (next: boolean) => {
 		if (compact === next) {
 			return;
 		}
-		const previousTop = scroller.scrollTop;
+		const previousTop = scroller?.scrollTop ?? 0;
 		compact = next;
 		const compactHeight = titleHeight + frameBorderHeight;
 		const heightDifference = expandedHeight - compactHeight;
 		frame.style.height = next ? `${compactHeight}px` : "";
 		// The top edge moves while the composer remains at the bottom. Offset
 		// scrollTop by that same distance so the message under the eye stays put.
-		scroller.scrollTop = Math.max(
-			0,
-			previousTop + (next ? -heightDifference : heightDifference)
-		);
+		if (scroller) {
+			scroller.scrollTop = Math.max(
+				0,
+				previousTop + (next ? -heightDifference : heightDifference)
+			);
+		}
 	};
 
 	const render = () => {
 		animationFrame = 0;
-		const distance = readDistance();
-		position = canCompact
-			? resolveSpaceReadingHeaderPosition(
-					distance,
-					hasUserScrolled ? position : undefined
-				)
-			: undefined;
-		const progress = position?.progress ?? 0;
-		setCompact(position?.compact ?? false);
+		if (canCompact && scroller && hasUserScrolled) {
+			state.position = resolveSpaceReadingHeaderPosition(
+				readDistance(),
+				state.position
+			);
+		}
+		const progress = canCompact ? (state.position?.progress ?? 0) : 0;
+		setCompact(canCompact && (state.position?.compact ?? false));
 		if (reducedMotion.matches) {
 			navigation.style.transform = compact
 				? `translate(${offsetX}px, ${offsetY}px)`
@@ -177,14 +255,27 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 			animationFrame = requestAnimationFrame(render);
 		}
 	};
-	// Mounting the message scroller can restore its position over several frames.
-	// Choose a resting endpoint until the reader actually starts scrolling, then
-	// keep one continuous scroll mapping across pauses and subsequent gestures.
+	const finishScroll = () => {
+		if (animationFrame) {
+			cancelAnimationFrame(animationFrame);
+			render();
+		}
+		save();
+	};
+	// View changes and scroll restoration do not move the navigation. Resume
+	// from the saved visual position when the reader next scrolls Messages.
 	const startUserScroll = () => {
+		if (!hasUserScrolled && state.position) {
+			state.position.anchor = {
+				distance: Math.min(143, Math.max(24, readDistance())),
+				progress: state.position.progress,
+			};
+		}
 		hasUserScrolled = true;
 	};
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (
+			scroller &&
 			[
 				"ArrowUp",
 				"ArrowDown",
@@ -200,8 +291,9 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 	};
 	const onPointerDown = (event: PointerEvent) => {
 		if (
+			scroller &&
 			event.clientX >=
-			scroller.getBoundingClientRect().left + scroller.clientWidth
+				scroller.getBoundingClientRect().left + scroller.clientWidth
 		) {
 			startUserScroll();
 		}
@@ -255,26 +347,36 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 		characterData: true,
 		subtree: true,
 	});
-	scroller.addEventListener("scroll", schedule, { passive: true });
-	scroller.addEventListener("wheel", startUserScroll, { passive: true });
-	scroller.addEventListener("touchmove", startUserScroll, { passive: true });
-	scroller.addEventListener("keydown", onKeyDown);
-	scroller.addEventListener("pointerdown", onPointerDown);
+	scroller?.addEventListener("scroll", schedule, { passive: true });
+	scroller?.addEventListener("scrollend", finishScroll);
+	scroller?.addEventListener("wheel", startUserScroll, { passive: true });
+	scroller?.addEventListener("touchmove", startUserScroll, { passive: true });
+	scroller?.addEventListener("keydown", onKeyDown);
+	scroller?.addEventListener("pointerdown", onPointerDown);
+	window.addEventListener("pagehide", finishScroll);
 	const viewportObserver = new ResizeObserver(schedule);
-	viewportObserver.observe(scroller);
+	if (scroller) {
+		viewportObserver.observe(scroller);
+	}
 	reducedMotion.addEventListener("change", schedule);
 	measure();
+	// Restore geometry before paint, including Files where no scroller exists.
+	cancelAnimationFrame(animationFrame);
+	render();
 
 	return () => {
+		save();
 		cancelAnimationFrame(animationFrame);
 		resizeObserver.disconnect();
 		viewportObserver.disconnect();
 		mutationObserver.disconnect();
-		scroller.removeEventListener("scroll", schedule);
-		scroller.removeEventListener("wheel", startUserScroll);
-		scroller.removeEventListener("touchmove", startUserScroll);
-		scroller.removeEventListener("keydown", onKeyDown);
-		scroller.removeEventListener("pointerdown", onPointerDown);
+		scroller?.removeEventListener("scroll", schedule);
+		scroller?.removeEventListener("scrollend", finishScroll);
+		scroller?.removeEventListener("wheel", startUserScroll);
+		scroller?.removeEventListener("touchmove", startUserScroll);
+		scroller?.removeEventListener("keydown", onKeyDown);
+		scroller?.removeEventListener("pointerdown", onPointerDown);
+		window.removeEventListener("pagehide", finishScroll);
 		reducedMotion.removeEventListener("change", schedule);
 		setCompact(false);
 		header.style.gridTemplateRows = "";
