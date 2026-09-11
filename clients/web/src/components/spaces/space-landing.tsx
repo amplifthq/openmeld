@@ -96,7 +96,6 @@ import {
 import {
 	refreshWebAgentReadinessAfterCoreFactsChanged,
 	refreshWebAgentReadinessFacts,
-	refreshWebAgentReadinessSharedCaches,
 	type WebAgentReadinessRefreshFailure,
 } from "#/query/agents/execution-readiness";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
@@ -137,7 +136,6 @@ import {
 	type SpaceRemoveMemberResult,
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
-import { SpaceMessagePinsProvider } from "./space-message-pins";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -148,7 +146,9 @@ import {
 	resolveSpacePendingAgentActionIdentity,
 } from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
+import { SpacePinsProvider } from "./space-pins";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
+import { SpaceReadingHeaderProvider } from "./space-reading-header";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
 import {
 	SpaceLandingFailureSurface,
@@ -464,8 +464,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		| ((refreshInput?: CurrentSpaceMemberFactsRefreshInput) => Promise<void>)
 		| null
 	>(null);
-	const readinessInvalidationProfileIdsRef = useRef(new Set<string>());
-	const readinessInvalidationRefreshTimerRef = useRef<number | null>(null);
 	const routeCatalogRefreshProfileIdsRef = useRef(new Set<string>());
 	const refreshWakeFinalOutcomeFacts = useCallback(
 		async (refreshInput: WakeFinalOutcomeFactsRefreshInput) => {
@@ -479,53 +477,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		},
 		[]
 	);
-	const flushAgentReadinessInvalidated = useCallback(async () => {
-		const agentProfileIds = [...readinessInvalidationProfileIdsRef.current];
-		readinessInvalidationProfileIdsRef.current.clear();
-		readinessInvalidationRefreshTimerRef.current = null;
-		if (!organizationId) {
-			return;
-		}
-		await refreshWebAgentReadinessSharedCaches({
-			agentProfileIds,
-			includeLocalRuntimeCaches: false,
-			organizationId,
-			queryClient,
-			storageScope: recovery.storageScope,
-		});
-	}, [organizationId, queryClient, recovery.storageScope]);
-	const refreshAgentReadinessInvalidated = useCallback(
-		(input: { agentProfileIds: readonly string[] }) => {
-			for (const agentProfileId of input.agentProfileIds) {
-				const normalizedProfileId = agentProfileId.trim();
-				if (normalizedProfileId.length > 0) {
-					readinessInvalidationProfileIdsRef.current.add(normalizedProfileId);
-				}
-			}
-			if (readinessInvalidationRefreshTimerRef.current !== null) {
-				return;
-			}
-			readinessInvalidationRefreshTimerRef.current = window.setTimeout(() => {
-				flushAgentReadinessInvalidated().catch((error: unknown) => {
-					console.warn(
-						"Failed to refresh Agent readiness after live invalidation.",
-						error
-					);
-				});
-			}, 500);
-		},
-		[flushAgentReadinessInvalidated]
-	);
-	useEffect(
-		() => () => {
-			if (readinessInvalidationRefreshTimerRef.current !== null) {
-				window.clearTimeout(readinessInvalidationRefreshTimerRef.current);
-				readinessInvalidationRefreshTimerRef.current = null;
-			}
-			readinessInvalidationProfileIdsRef.current.clear();
-		},
-		[]
-	);
 	const controller = useSpaceLandingController({
 		...input,
 		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
@@ -535,7 +486,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
 		unreadTargets: spaceInboxReadPosition.targets,
-		onAgentReadinessInvalidated: refreshAgentReadinessInvalidated,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
 		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
 		ownerAccountId: recovery.storageScope,
@@ -1632,7 +1582,7 @@ function SpaceLandingReady({
 		/>
 	);
 
-	return (
+	const content = (
 		<SpaceAgentProfileEditProvider
 			accountProfiles={accountProfiles}
 			context={agentProfileEditContext ?? null}
@@ -1694,6 +1644,9 @@ function SpaceLandingReady({
 							menuLabel="Center Agent menu"
 							onDeleteSpace={controller.onDeleteSpace}
 							onLeaveSpace={currentProfileLeaveAction}
+							onRecallPinnedItems={() =>
+								spaceFileNavigation.changeSpaceView("messages")
+							}
 							onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 							onSetAccessMode={controller.onSetAccessMode}
 							onSetVisibility={controller.onSetVisibility}
@@ -1790,6 +1743,26 @@ function SpaceLandingReady({
 				{pendingAgentActions.profileEditDialog}
 			</SpaceWakeBookmarksProvider>
 		</SpaceAgentProfileEditProvider>
+	);
+	return (
+		<SpacePinsProvider
+			canPin={currentProfileIsActiveSpaceMember}
+			organizationSlug={input.orgSlug}
+			profileId={controller.profileId}
+			spaceId={controller.spaceId}
+		>
+			<SpaceReadingHeaderProvider
+				isDirectMessage={isDirectMessage}
+				isEmbedded={isCompactPresentation}
+				key={`${controller.spaceId}:${controller.profileId}`}
+				organizationSlug={input.orgSlug}
+				profileId={controller.profileId}
+				spaceId={controller.spaceId}
+				view={spaceView}
+			>
+				{content}
+			</SpaceReadingHeaderProvider>
+		</SpacePinsProvider>
 	);
 }
 
@@ -2025,6 +1998,14 @@ function SpaceLandingConversation({
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
 			composerFiles={controller.composerFiles}
+			composerMembers={
+				controller.membersSnapshot
+					? undefined
+					: {
+							state: controller.membersError ? "error" : "loading",
+							onRetry: controller.onRefreshMembers,
+						}
+			}
 			composerMentionPickerItems={controller.composerMentionPickerItems}
 			composerPrimaryAction={composerPrimaryAction}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
@@ -2088,23 +2069,6 @@ function SpaceLandingConversation({
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
-			pinnedMessageProvider={(children) =>
-				input.orgSlug ? (
-					<SpaceMessagePinsProvider
-						canPin={
-							currentProfileIsActiveSpaceMember &&
-							!controller.profileId.startsWith("agt_")
-						}
-						organizationSlug={input.orgSlug}
-						profileId={controller.profileId}
-						spaceId={controller.spaceId}
-					>
-						{children}
-					</SpaceMessagePinsProvider>
-				) : (
-					children
-				)
-			}
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
@@ -2590,6 +2554,14 @@ function SpaceLandingSecondaryPanels({
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
 				}
+				composerMembers={
+					controller.membersSnapshot
+						? undefined
+						: {
+								state: controller.membersError ? "error" : "loading",
+								onRetry: controller.onRefreshMembers,
+							}
+				}
 				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
 				composerText={controller.threadComposerText}
 				currentOwnerUserId={currentOwnerUserId}
@@ -2659,6 +2631,7 @@ function SpaceLandingSecondaryPanels({
 				wakeFailureTargetContextsByProfileId={
 					wakeFailureTargetContextsByProfileId
 				}
+				wakeRecommendationsEnabled={controller.threadWakeRecommendationsEnabled}
 				wakeStopRequestStatusBySelectorKey={
 					controller.wakeStopRequestStatusBySelectorKey
 				}

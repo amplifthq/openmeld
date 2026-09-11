@@ -21,6 +21,7 @@ import {
 	AppShellAccountContext,
 } from "./app-shell-account";
 import { CrossPageHeader } from "./cross-page-header";
+import { CurrentComputerProvider } from "./current-computer";
 import {
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 	type AppShellSection,
@@ -140,15 +141,18 @@ function AppReadinessInvalidationListener(input: {
 				});
 			});
 		};
-		const unsubscribe = subscribeAgentReadinessInvalidations((message) => {
-			for (const agentProfileId of message.agentProfileIds) {
-				pendingProfileIdsRef.current.add(agentProfileId);
-			}
-			if (refreshTimerRef.current !== null) {
-				return;
-			}
-			refreshTimerRef.current = window.setTimeout(flush, 500);
-		});
+		const unsubscribe = subscribeAgentReadinessInvalidations(
+			(message) => {
+				for (const agentProfileId of message.agentProfileIds) {
+					pendingProfileIdsRef.current.add(agentProfileId);
+				}
+				if (refreshTimerRef.current !== null) {
+					return;
+				}
+				refreshTimerRef.current = window.setTimeout(flush, 500);
+			},
+			{ organizationId: input.organizationId, storageScope: input.storageScope }
+		);
 		return () => {
 			unsubscribe();
 			if (refreshTimerRef.current !== null) {
@@ -166,7 +170,9 @@ function AppShellScaffold(input: { currentSection: AppShellSection }) {
 	if (input.currentSection !== "start") {
 		return (
 			<main className="h-dvh overflow-hidden bg-background">
-				<Outlet />
+				<CurrentComputerProvider>
+					<Outlet />
+				</CurrentComputerProvider>
 			</main>
 		);
 	}

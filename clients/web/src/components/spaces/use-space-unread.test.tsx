@@ -19,7 +19,7 @@ describe("useSpaceUnread", () => {
 			useSpaceUnread({
 				envelopes: [textSignal(40), textSignal(50, "thread-reply")],
 				isReady: true,
-				isViewingLatest: false,
+				profileId: "profile-1",
 				spaceId: "space-1",
 				targets: [
 					{
@@ -45,22 +45,20 @@ describe("useSpaceUnread", () => {
 
 	it("marks the main scope read only after latest stays visible for the debounce", async () => {
 		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
-		const { rerender } = renderHook(
-			({ isViewingLatest }) =>
-				useSpaceUnread({
-					envelopes: [textSignal(40)],
-					isReady: true,
-					isViewingLatest,
-					onViewedThroughTs,
-					spaceId: "space-1",
-					targets: [],
-				}),
-			{ initialProps: { isViewingLatest: false } }
+		const { result } = renderHook(() =>
+			useSpaceUnread({
+				envelopes: [textSignal(40)],
+				isReady: true,
+				profileId: "profile-1",
+				onViewedThroughTs,
+				spaceId: "space-1",
+				targets: [],
+			})
 		);
 
 		await act(async () => vi.advanceTimersByTime(800));
 		expect(onViewedThroughTs).not.toHaveBeenCalled();
-		rerender({ isViewingLatest: true });
+		act(() => result.current.onViewingLatestChange(true));
 		await act(async () => {
 			vi.advanceTimersByTime(800);
 			await Promise.resolve();
@@ -70,16 +68,17 @@ describe("useSpaceUnread", () => {
 
 	it("does not postpone a visible read when the parent rerenders with a new callback", async () => {
 		const persist = vi.fn().mockResolvedValue(undefined);
-		const { rerender } = renderHook(() =>
+		const { result, rerender } = renderHook(() =>
 			useSpaceUnread({
 				envelopes: [textSignal(40)],
 				isReady: true,
-				isViewingLatest: true,
+				profileId: "profile-1",
 				onViewedThroughTs: (throughTs) => persist(throughTs),
 				spaceId: "space-1",
 				targets: [],
 			})
 		);
+		act(() => result.current.onViewingLatestChange(true));
 		for (let iteration = 0; iteration < 4; iteration += 1) {
 			await act(async () => vi.advanceTimersByTime(200));
 			rerender();
@@ -89,18 +88,19 @@ describe("useSpaceUnread", () => {
 
 	it("waits for access confirmation and cancels a pending read if confirmation is withdrawn", async () => {
 		const persist = vi.fn().mockResolvedValue(undefined);
-		const { rerender } = renderHook(
+		const { result, rerender } = renderHook(
 			({ confirmed }) =>
 				useSpaceUnread({
 					envelopes: [textSignal(40)],
 					isReady: true,
-					isViewingLatest: true,
+					profileId: "profile-1",
 					onViewedThroughTs: confirmed ? persist : undefined,
 					spaceId: "space-1",
 					targets: [],
 				}),
 			{ initialProps: { confirmed: true } }
 		);
+		act(() => result.current.onViewingLatestChange(true));
 		await act(async () => vi.advanceTimersByTime(400));
 		rerender({ confirmed: false });
 		await act(async () => vi.advanceTimersByTime(1000));
@@ -112,17 +112,18 @@ describe("useSpaceUnread", () => {
 
 	it("cancels read-through when the page becomes hidden", () => {
 		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
-		renderHook(() =>
+		const { result } = renderHook(() =>
 			useSpaceUnread({
 				envelopes: [textSignal(40)],
 				isReady: true,
-				isViewingLatest: true,
+				profileId: "profile-1",
 				onViewedThroughTs,
 				spaceId: "space-1",
 				targets: [],
 			})
 		);
 		act(() => {
+			result.current.onViewingLatestChange(true);
 			vi.advanceTimersByTime(400);
 			Object.defineProperty(document, "visibilityState", {
 				configurable: true,
@@ -136,6 +137,59 @@ describe("useSpaceUnread", () => {
 		expect(onViewedThroughTs).not.toHaveBeenCalled();
 	});
 
+	it("cancels immediately on scroll away without rerendering the Space", async () => {
+		const persist = vi.fn();
+		const render = vi.fn();
+		const { result } = renderHook(() => {
+			render();
+			return useSpaceUnread({
+				envelopes: [textSignal(40)],
+				isReady: true,
+				profileId: "profile-1",
+				spaceId: "space-1",
+				targets: [],
+				onViewedThroughTs: persist,
+			});
+		});
+		const initialRenders = render.mock.calls.length;
+		act(() => result.current.onViewingLatestChange(true));
+		await act(async () => vi.advanceTimersByTime(799));
+		act(() => result.current.onViewingLatestChange(false));
+		await act(async () => vi.advanceTimersByTime(1000));
+		expect(persist).not.toHaveBeenCalled();
+		expect(render).toHaveBeenCalledTimes(initialRenders);
+	});
+
+	it.each([
+		"spaceId",
+		"profileId",
+	] as const)("requires a new measurement after changing %s", async (field) => {
+		const persist = vi.fn();
+		const { result, rerender } = renderHook(
+			(identity) =>
+				useSpaceUnread({
+					...identity,
+					envelopes: [textSignal(40)],
+					isReady: true,
+					targets: [],
+					onViewedThroughTs: persist,
+				}),
+			{ initialProps: { spaceId: "space-1", profileId: "profile-1" } }
+		);
+		act(() => result.current.onViewingLatestChange(true));
+		await act(async () => vi.advanceTimersByTime(400));
+		rerender({
+			spaceId: "space-1",
+			profileId: "profile-1",
+			[field]: "different",
+		});
+		await act(async () => vi.advanceTimersByTime(1000));
+		expect(persist).not.toHaveBeenCalled();
+		act(() => result.current.onViewingLatestChange(true));
+		await act(async () => vi.advanceTimersByTime(800));
+		expect(persist).toHaveBeenCalledExactlyOnceWith(40);
+	});
+
 	it("returns to the normal debounce after a retry succeeds", async () => {
 		const warning = vi
 			.spyOn(console, "warn")
@@ -144,12 +198,12 @@ describe("useSpaceUnread", () => {
 			.fn()
 			.mockRejectedValueOnce(new Error("offline"))
 			.mockResolvedValue(undefined);
-		const { rerender } = renderHook(
+		const { result, rerender } = renderHook(
 			({ envelopes }) =>
 				useSpaceUnread({
 					envelopes,
 					isReady: true,
-					isViewingLatest: true,
+					profileId: "profile-1",
 					onViewedThroughTs,
 					spaceId: "space-1",
 					targets: [],
@@ -157,6 +211,7 @@ describe("useSpaceUnread", () => {
 			{ initialProps: { envelopes: [textSignal(40)] } }
 		);
 
+		act(() => result.current.onViewingLatestChange(true));
 		await act(async () => {
 			vi.advanceTimersByTime(800);
 			await Promise.resolve();

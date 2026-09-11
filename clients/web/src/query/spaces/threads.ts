@@ -38,7 +38,7 @@ export async function readSpaceThreadSignals(input: {
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),
 		}).listThreadSignals({
-			includeWakeContinuation: true,
+			includeWakeContinuation: "conversation",
 			spaceId: input.spaceId,
 			threadId: input.threadId,
 		});

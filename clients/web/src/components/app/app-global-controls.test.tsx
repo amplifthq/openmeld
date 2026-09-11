@@ -8,7 +8,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppGlobalControls } from "./app-global-controls";
 
-vi.mock("./current-computer-toolbar-launcher", () => ({
+vi.mock("./current-computer", () => ({
 	CurrentComputerToolbarLauncher: () => <a href="/computer">Computer</a>,
 }));
 
@@ -35,7 +35,11 @@ vi.mock("#/components/organizations/global-center-agent-launcher", () => ({
 }));
 
 describe("AppGlobalControls", () => {
-	afterEach(cleanup);
+	afterEach(() => {
+		cleanup();
+		localStorage.clear();
+		document.documentElement.removeAttribute("data-hidden-toolbar-shortcuts");
+	});
 
 	it("keeps the Inbox and Center Agent panels mutually exclusive", () => {
 		render(<AppGlobalControls />);
@@ -75,10 +79,34 @@ describe("AppGlobalControls", () => {
 		expect(
 			within(end)
 				.getAllByRole("button")
+				.filter(
+					(button) => !button.getAttribute("aria-label")?.startsWith("Hide ")
+				)
 				.map((button) => button.textContent)
 		).toEqual(["Open Center Agent panel", "Open Inbox panel"]);
 		expect(toolbar.classList.contains("lg:ps-0")).toBe(true);
 		expect(toolbar.classList.contains("lg:pe-2")).toBe(true);
+	});
+
+	it("hides a shortcut without opening its panel and remembers the choice", () => {
+		const onOpenPanelChange = vi.fn();
+		const view = render(
+			<AppGlobalControls
+				onOpenPanelChange={onOpenPanelChange}
+				openPanel={null}
+			/>
+		);
+		fireEvent.click(screen.getByLabelText("Hide Inbox from toolbar"));
+		expect(onOpenPanelChange).not.toHaveBeenCalled();
+		expect(
+			screen.queryByRole("button", { name: "Open Inbox panel" })
+		).toBeNull();
+		view.unmount();
+		render(<AppGlobalControls />);
+		expect(
+			screen.queryByRole("button", { name: "Open Inbox panel" })
+		).toBeNull();
+		expect(screen.getByRole("link", { name: "Computer" })).toBeTruthy();
 	});
 
 	it("allows Home to open the canonical Center Agent panel", () => {

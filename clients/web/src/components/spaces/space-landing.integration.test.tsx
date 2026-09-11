@@ -9743,9 +9743,13 @@ describe("SpaceLanding", () => {
 			name: "Change relation for Runner",
 		});
 		fireEvent.click(relationControl);
-		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			})
+		);
 		await waitFor(() => {
-			expect(relationControl.textContent).toBe("Reference");
+			expect(relationControl.textContent).toBe("Mention only");
 		});
 		await appendComposerText(textarea, "for context", "@Runner for context");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -9804,7 +9808,11 @@ describe("SpaceLanding", () => {
 				name: "Change relation for Runner",
 			})
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			})
+		);
 		await appendComposerText(
 			textarea,
 			"for context, then ",
@@ -9818,7 +9826,7 @@ describe("SpaceLanding", () => {
 			const tokens = screen.getAllByTestId("space-composer-profile-token");
 			expect(tokens).toHaveLength(2);
 			expect(
-				within(tokens[1] as HTMLElement).getByText("Reference")
+				within(tokens[1] as HTMLElement).getByText("Mention only")
 			).toBeTruthy();
 		});
 		await appendComposerText(

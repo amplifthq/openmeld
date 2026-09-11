@@ -239,7 +239,30 @@ describe("BrowserQueryPersistenceController", () => {
 			openMeldProfileId: "profile-a",
 		});
 		const history = {
-			envelopes: [createTextSignal("signal-a", "space-a", "profile-a")],
+			envelopes: [
+				{
+					...createTextSignal("signal-a", "space-a", "profile-a"),
+					reactions: {
+						version: 2,
+						groups: [
+							{
+								emoji: "👍",
+								label: "thumbs up",
+								count: 1,
+								reactedByMe: true,
+								actors: [
+									{
+										profileId: "profile-a",
+										displayName: "Alex",
+										profileKind: "human" as const,
+									},
+								],
+								actorsHasMore: false,
+							},
+						],
+					},
+				},
+			],
 			nextCursor: "before-signal-a",
 		};
 		const displaySnapshot = {

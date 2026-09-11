@@ -37,8 +37,9 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/current-computer-toolbar-launcher", () => ({
+vi.mock("#/components/app/current-computer", () => ({
 	CurrentComputerToolbarLauncher: () => null,
+	useCurrentComputer: () => null,
 }));
 
 vi.mock("#/components/spaces/conversations-sidebar", () => ({

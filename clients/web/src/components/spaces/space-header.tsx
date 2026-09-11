@@ -19,6 +19,8 @@ import {
 	SpaceHeaderNavigationMenu,
 	type SpaceHeaderNavigationMenuItem,
 } from "./space-header-navigation-menu";
+import { SpacePinsRecallAction } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
 
@@ -40,6 +42,7 @@ export function SpaceWindowHeader(input: {
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
 }) {
+	const readingHeader = useSpaceReadingHeader();
 	const hasModuleSidebar = useHasModuleSidebar();
 	const subtitleItems = input.subtitleItems ?? [];
 	const hasSecondaryRow =
@@ -53,6 +56,7 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (
 				<div className="col-start-1 row-start-1 flex shrink-0 items-center gap-3">
@@ -64,7 +68,15 @@ export function SpaceWindowHeader(input: {
 				className="col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden"
 				data-slot="space-window-header-title"
 			>
-				<h1 className="truncate font-medium text-lg">{input.title}</h1>
+				<h1
+					className={cn(
+						"truncate font-medium text-lg",
+						readingHeader && "max-w-[28rem]"
+					)}
+					title={readingHeader ? input.title : undefined}
+				>
+					{input.title}
+				</h1>
 				{input.titleAdornment ?? null}
 			</div>
 
@@ -160,6 +172,7 @@ export function SpaceHeader(input: {
 	// "Get set up" recall action shown before Members when the in-Space setup
 	// panel is dismissed but still has actions.
 	setupRecallAction?: ReactNode;
+	onRecallPinnedItems?: () => void;
 	viewControl?: ReactNode;
 	onDeleteSpace: () => Promise<void> | void;
 	onLeaveSpace?: () => Promise<void> | void;
@@ -202,6 +215,7 @@ export function SpaceHeader(input: {
 								{input.setupRecallAction}
 							</div>
 						) : null}
+						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
@@ -398,10 +412,7 @@ function SpaceLiveStatusIndicator(input: {
 	const needsAttention = isDegraded || isStale;
 	const dotClassName = cn(
 		"status-dot",
-		resolveStatusToneIndicatorClassName(
-			needsAttention ? "warning" : "ready",
-			"solid"
-		)
+		resolveStatusToneIndicatorClassName("warning", "solid")
 	);
 	const srLabel = resolveLiveStatusSrLabel(input.liveState);
 	// When degraded we expose a manual retry: don't make the user wait out the
@@ -413,21 +424,16 @@ function SpaceLiveStatusIndicator(input: {
 	const attentionTooltip = isDegraded
 		? degradedTooltip
 		: (input.liveErrorMessage ?? srLabel);
-	// Every state gets a hover tooltip — the green/connecting dots carry no
-	// visible text, so without it a sighted user has no way to read the status.
-	const tooltipLabel = needsAttention ? attentionTooltip : srLabel;
 
 	const indicatorBody = (
 		<>
 			<span aria-hidden="true" className={dotClassName} />
-			{needsAttention ? (
-				<span
-					aria-hidden="true"
-					className="font-normal text-amber-600 text-xs dark:text-amber-400"
-				>
-					{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
-				</span>
-			) : null}
+			<span
+				aria-hidden="true"
+				className="font-normal text-amber-600 text-xs dark:text-amber-400"
+			>
+				{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
+			</span>
 		</>
 	);
 
@@ -438,31 +444,34 @@ function SpaceLiveStatusIndicator(input: {
 			<output aria-live="polite" className="sr-only">
 				{srLabel}
 			</output>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						canRetry ? (
-							<button
-								aria-label="Reconnect live updates now"
-								className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
-								data-testid="space-live-status"
-								onClick={input.onReconnectNow}
-								type="button"
-							>
-								{indicatorBody}
-							</button>
-						) : (
-							<span
-								className="flex shrink-0 items-center gap-1.5"
-								data-testid="space-live-status"
-							>
-								{indicatorBody}
-							</span>
-						)
-					}
-				/>
-				<TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
-			</Tooltip>
+			{/* A healthy message stream is not Human presence or Agent readiness. */}
+			{needsAttention ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							canRetry ? (
+								<button
+									aria-label="Reconnect live updates now"
+									className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
+									data-testid="space-live-status"
+									onClick={input.onReconnectNow}
+									type="button"
+								>
+									{indicatorBody}
+								</button>
+							) : (
+								<span
+									className="flex shrink-0 items-center gap-1.5"
+									data-testid="space-live-status"
+								>
+									{indicatorBody}
+								</span>
+							)
+						}
+					/>
+					<TooltipContent side="bottom">{attentionTooltip}</TooltipContent>
+				</Tooltip>
+			) : null}
 		</>
 	);
 }

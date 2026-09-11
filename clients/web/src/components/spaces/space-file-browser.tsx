@@ -47,7 +47,7 @@ import {
 	formatShortDate,
 	resolveSpaceFileErrorMessage,
 } from "./space-file-utils";
-import { useSpaceFilePinAction } from "./space-message-pins";
+import { useSpaceFilePinAction } from "./space-pins";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
 export function SpaceFileBrowser(input: {

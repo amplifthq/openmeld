@@ -20,24 +20,8 @@ import {
 } from "./use-space-mention-authoring";
 
 describe("useSpaceMentionAuthoring composer drafts", () => {
-	it("continues a thread visibly, freezes an active draft, and respects removing its recipient", () => {
-		const agentA = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-		const agentB = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-		let target: string | null = agentA;
-		const snapshot = createSpaceMembersSnapshot({
-			agents: [
-				createSpaceMemberAgentSnapshot({
-					profileId: agentA,
-					profileName: "Alpha",
-					agentWakeAvailability: { status: "available_for_wake" },
-				}),
-				createSpaceMemberAgentSnapshot({
-					profileId: agentB,
-					profileName: "Beta",
-					agentWakeAvailability: { status: "available_for_wake" },
-				}),
-			],
-		});
+	it("keeps typed Thread text unchanged when member loading completes", () => {
+		let loading = true;
 		const composer = renderHook(() =>
 			useSpaceMentionAuthoring({
 				composerDraftScope: {
@@ -47,52 +31,25 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 					spaceId: "space-1",
 					threadId: "thread-continuation",
 				},
-				threadWakeContinuationProfileId: target,
-				isMembersLoading: false,
+				isMembersLoading: loading,
 				membersErrorMessage: null,
-				snapshot,
+				snapshot: null,
 				spaceId: "space-1",
 				openMeldProfileId: "human-1",
 			})
 		);
-		expect(composer.result.current.composerText).toBe("@Alpha ");
-		target = null;
-		composer.rerender();
 		expect(composer.result.current.composerText).toBe("");
-		target = agentA;
-		composer.rerender();
-		expect(composer.result.current.composerText).toBe("@Alpha ");
 		act(() =>
 			composer.result.current.onComposerEditorChange({
-				text: "@Alpha Please explain",
-				authoredMentions: [...composer.result.current.authoredMentions],
-				selection: { start: 21, end: 21 },
-			})
-		);
-		target = agentB;
-		composer.rerender();
-		expect(
-			composer.result.current.prepareSubmission("missing").messageEnvelope
-				?.activationTargets
-		).toEqual([agentA]);
-		expect(
-			composer.result.current.prepareSubmission("missing")
-				.threadWakeContinuation
-		).toBe(true);
-		act(() =>
-			composer.result.current.onComposerEditorChange({
-				text: "For the team only",
+				text: "Please continue",
 				authoredMentions: [],
-				selection: { start: 17, end: 17 },
+				selection: { start: 15, end: 15 },
 			})
 		);
-		expect(
-			composer.result.current.prepareSubmission("missing").messageEnvelope
-		).toBeNull();
-		expect(
-			composer.result.current.prepareSubmission("missing")
-				.threadWakeContinuation
-		).toBeUndefined();
+		loading = false;
+		composer.rerender();
+		expect(composer.result.current.composerText).toBe("Please continue");
+		expect(composer.result.current.authoredMentions).toEqual([]);
 	});
 	it.each([
 		"available_for_wake",
@@ -130,16 +87,12 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		expect(result.current.authoredMentions).toEqual([
 			expect.objectContaining({
 				profileId,
-				relation: status === "available_for_wake" ? "wake" : "reference",
+				relation: "wake",
 			}),
 		]);
 		const submission = result.current.prepareSubmission("Members unavailable");
-		expect(submission.messageEnvelope?.activationTargets).toEqual(
-			status === "available_for_wake" ? [profileId] : []
-		);
-		expect(submission.messageEnvelope?.referenceTargets).toEqual(
-			status === "offline_for_wake" ? [profileId] : []
-		);
+		expect(submission.messageEnvelope?.activationTargets).toEqual([profileId]);
+		expect(submission.messageEnvelope?.referenceTargets).toEqual([]);
 		expect(() =>
 			result.current.composeExpiredDeviceWait({
 				sourceSignalId: "other-source",
@@ -434,35 +387,51 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 });
 
 describe("buildSpaceMentionTargetItems", () => {
-	it("defaults a blocked Agent to Reference while keeping it in the picker", () => {
+	it.each([
+		false,
+		true,
+	])("defaults an offline Agent to Wake only when waiting is supported: %s", (canWait) => {
 		const [item] = buildSpaceMentionTargetItems({
 			query: "@runner",
 			snapshot: createSpaceMembersSnapshot({
 				agents: [
-					createSpaceMemberAgentSnapshot({
-						agentWakeAvailability: {
-							action: "connect_service",
-							badgeLabel: "Offline",
-							category: "offline",
-							isRefreshing: false,
-							label: "Offline for Wake",
-							phase: "service_not_connected",
-							reasonCode: "service.not_running",
-							status: "offline_for_wake",
-							summary: "Connect your computer before this agent can reply.",
-							tooltip: "Computer not connected",
-						},
-						profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-						profileName: "Runner",
-					}),
+					{
+						...createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: {
+								action: "connect_service",
+								badgeLabel: "Offline",
+								category: "offline",
+								isRefreshing: false,
+								label: "Offline for Wake",
+								phase: "service_not_connected",
+								reasonCode: "service.not_running",
+								status: "offline_for_wake",
+								summary: "Connect your computer before this agent can reply.",
+								tooltip: "Computer not connected",
+							},
+							profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							profileName: "Runner",
+						}),
+						deviceWaitTarget: canWait
+							? {
+									bindingId: "binding-1",
+									openMeldServiceRuntimeId: "runtime-1",
+								}
+							: undefined,
+					},
 				],
 			}),
 		});
 
 		expect(item).toBeDefined();
 		expect(
-			item ? resolveDefaultSpaceComposerMentionRelation(item.suggestion) : null
-		).toBe("reference");
+			item
+				? resolveDefaultSpaceComposerMentionRelation(
+						item.suggestion,
+						item.agentMember
+					)
+				: null
+		).toBe(canWait ? "wake" : "reference");
 	});
 
 	it("orders non-recent mention targets by the same visible status order as the members panel", () => {

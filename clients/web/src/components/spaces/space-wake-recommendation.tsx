@@ -1,5 +1,17 @@
-import { createContext, type ReactNode, useContext, useState } from "react";
+import {
+	createContext,
+	type ReactNode,
+	useContext,
+	useMemo,
+	useState,
+} from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
+import {
+	readWakeRecommendationRecord,
+	type WakeRecommendationRecord,
+	wakeRecommendationSessionKey,
+	writeWakeRecommendationRecord,
+} from "#/lib/spaces/wake-recommendation-session";
 import { useSpaceMessageEditing } from "./space-message-editing";
 import { SpaceWakeSuggestionToken } from "./space-wake-suggestion-token";
 
@@ -33,13 +45,13 @@ export function findRecentWakeExchange(
 				(item.wakeSourceSignalId === source.id ||
 					item.replyToSignalId === source.id)
 		);
-	return reply ? { profileId, exchangeId: reply.id } : null;
+	return reply ? { profileId, exchangeId: source.id } : null;
 }
 
 type RecommendationContext = {
 	candidate: ReturnType<typeof findRecentWakeExchange>;
 	dismiss: () => void;
-	recordSend: (profileId: string | null) => void;
+	recordSend: (profileId: string | null, clientMessageId: string) => void;
 	nudge: { messageId: string; profileId: string } | null;
 	dismissNudge: () => void;
 };
@@ -49,18 +61,28 @@ export const useSpaceWakeRecommendation = () => useContext(Context);
 export function SpaceWakeRecommendationScope(input: {
 	items: readonly SpaceTimelineItem[];
 	selfProfileId: string;
+	orgSlug?: string;
+	spaceId?: string;
+	threadId?: string;
+	disabled?: boolean;
 	children: ReactNode;
 }) {
-	const exchange = findRecentWakeExchange(input.items, input.selfProfileId);
-	const [dismissedExchange, setDismissedExchange] = useState<string | null>(
-		null
+	const exchange = input.disabled
+		? null
+		: findRecentWakeExchange(input.items, input.selfProfileId);
+	const storageKey = wakeRecommendationSessionKey(input);
+	const restored = useMemo(
+		() => readWakeRecommendationRecord(storageKey),
+		[storageKey]
 	);
-	const [sent, setSent] = useState<{
-		profileId: string;
-		previousIds: ReadonlySet<string>;
-	} | null>(null);
+	const [session, setSession] = useState({ key: storageKey, record: restored });
+	const record = session.key === storageKey ? session.record : restored;
+	const remember = (next: WakeRecommendationRecord) => {
+		writeWakeRecommendationRecord(storageKey, next);
+		setSession({ key: storageKey, record: next });
+	};
 	const candidate =
-		exchange?.exchangeId === dismissedExchange ? null : exchange;
+		exchange?.exchangeId === record?.exchangeId ? null : exchange;
 	const latestOwn = [...input.items]
 		.reverse()
 		.find(
@@ -69,33 +91,40 @@ export function SpaceWakeRecommendationScope(input: {
 				item.actorProfileKind === "human"
 		);
 	const nudge =
-		sent &&
+		!input.disabled &&
+		record?.status === "message" &&
 		latestOwn &&
-		!sent.previousIds.has(latestOwn.id) &&
+		latestOwn.clientMessageId === record.clientMessageId &&
 		latestOwn.deliveryState === "sent" &&
 		!latestOwn.recalledAt &&
 		latestOwn.wakeTargetProfileIds.length === 0
-			? { messageId: latestOwn.id, profileId: sent.profileId }
+			? { messageId: latestOwn.id, profileId: record.profileId }
 			: null;
+	const dismiss = () => {
+		const exchangeId = exchange?.exchangeId ?? record?.exchangeId;
+		if (exchangeId) {
+			remember({ exchangeId, status: "dismissed" });
+		}
+	};
 	return (
 		<Context.Provider
 			value={{
 				candidate,
-				dismiss: () => {
-					setDismissedExchange(exchange?.exchangeId ?? null);
-					setSent(null);
+				dismiss,
+				recordSend: (profileId, clientMessageId) => {
+					if (profileId && exchange) {
+						remember({
+							exchangeId: exchange.exchangeId,
+							status: "message",
+							profileId,
+							clientMessageId,
+						});
+					} else {
+						dismiss();
+					}
 				},
-				recordSend: (profileId) =>
-					setSent(
-						profileId
-							? {
-									profileId,
-									previousIds: new Set(input.items.map((item) => item.id)),
-								}
-							: null
-					),
 				nudge,
-				dismissNudge: () => setSent(null),
+				dismissNudge: dismiss,
 			}}
 		>
 			{input.children}

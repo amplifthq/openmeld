@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceCursorLastSeenTs,
@@ -155,9 +156,6 @@ function renderFeed(
 	options: {
 		history?: FeedHistoryState;
 		initialAgentStreams?: readonly SpaceAgentStreamSnapshot[];
-		onAgentReadinessInvalidated?: (input: {
-			agentProfileIds: readonly string[];
-		}) => Promise<void> | void;
 		participationEnabled?: boolean;
 		seededEnvelopes?: readonly SignalEnvelope[];
 	} = {}
@@ -200,7 +198,7 @@ function renderFeed(
 				statusRefetch,
 				membersRefetch,
 				initialAgentStreams: options.initialAgentStreams ?? [],
-				onAgentReadinessInvalidated: options.onAgentReadinessInvalidated,
+				readinessScope: { organizationId: "org-1", storageScope: "account-1" },
 				history: props.history,
 			}),
 		{
@@ -525,10 +523,13 @@ describe("useSpaceLandingFeed transport freshness", () => {
 	});
 
 	it("refreshes readiness caches from live agent readiness invalidations", async () => {
-		const onAgentReadinessInvalidated = vi.fn(async () => undefined);
-		const { membersRefetch, statusRefetch } = renderFeed({
+		vi.stubGlobal("BroadcastChannel", undefined);
+		const onAgentReadinessInvalidated = vi.fn();
+		const unsubscribe = subscribeAgentReadinessInvalidations(
 			onAgentReadinessInvalidated,
-		});
+			{ organizationId: "org-1", storageScope: "account-1" }
+		);
+		const { membersRefetch, statusRefetch } = renderFeed();
 		await openLatestSocket();
 
 		await act(async () => {
@@ -544,14 +545,56 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		await flushMicrotasks();
 
-		expect(onAgentReadinessInvalidated).toHaveBeenCalledWith({
-			agentProfileIds: ["agt-1"],
-		});
+		expect(onAgentReadinessInvalidated).toHaveBeenCalledWith(
+			expect.objectContaining({
+				agentProfileIds: ["agt-1"],
+			})
+		);
+		unsubscribe();
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(301);
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("bounds member event bursts and follows a slow read with one fresh read", async () => {
+		const { membersRefetch } = renderFeed();
+		await openLatestSocket();
+		let release!: () => void;
+		membersRefetch.mockImplementationOnce(
+			() =>
+				new Promise<undefined>((resolve) => {
+					release = () => resolve(undefined);
+				})
+		);
+		const emit = async (version: number) =>
+			FakeWebSocket.latest.emitMessage(
+				JSON.stringify({
+					type: "space.members.changed",
+					spaceId: "space-123",
+					version,
+				})
+			);
+		await act(async () => {
+			await emit(1);
+			await vi.advanceTimersByTimeAsync(200);
+			await emit(2);
+			await vi.advanceTimersByTimeAsync(100);
+		});
+		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			await emit(3);
+			await emit(4);
+			await vi.advanceTimersByTimeAsync(500);
+		});
+		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			release();
+			await flushMicrotasks();
+			await vi.advanceTimersByTimeAsync(300);
+		});
+		expect(membersRefetch).toHaveBeenCalledTimes(2);
 	});
 
 	it("refetches members from a space.members.changed frame regardless of query staleness", async () => {

@@ -17,7 +17,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { DesktopTowerIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { createContext, type ReactNode, useContext, useEffect } from "react";
 import { resolveCurrentExecutionTarget } from "#/components/agents/agents-page-computer";
 import { useLocalRuntimeQueries } from "#/components/agents/use-local-runtime-queries";
 import { useStartFlowState } from "#/components/app/start-flow-state";
@@ -40,19 +40,56 @@ import {
 } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { startQueryKeys } from "#/query/query-keys";
 
-export function CurrentComputerToolbarLauncher() {
-	const organizationContext = useOptionalAppOrganization();
-	if (!organizationContext) {
-		return null;
+type CurrentComputerPresentation = {
+	attentionLabel?: string;
+	status: ComputerSummaryStatus | null;
+	destination?: string;
+	deviceLabel: string;
+	statusLabel: string;
+	accessibleLabel: string;
+};
+const CurrentComputerContext =
+	createContext<CurrentComputerPresentation | null>(null);
+
+export function CurrentComputerProvider(input: { children: ReactNode }) {
+	const organization = useOptionalAppOrganization();
+	if (!organization) {
+		return input.children;
 	}
 	return (
-		<CurrentComputerToolbarLauncherContent
-			orgSlug={organizationContext.currentOrganization.slug}
-		/>
+		<CurrentComputerProviderContent
+			orgSlug={organization.currentOrganization.slug}
+		>
+			{input.children}
+		</CurrentComputerProviderContent>
 	);
 }
+function CurrentComputerProviderContent(input: {
+	orgSlug: string;
+	children: ReactNode;
+}) {
+	const presentation = useCurrentComputerPresentation(input.orgSlug);
+	const value = {
+		...presentation,
+		attentionLabel:
+			presentation.status?.tone === "warning" ||
+			presentation.status?.tone === "danger"
+				? presentation.accessibleLabel
+				: undefined,
+	};
+	return (
+		<CurrentComputerContext.Provider value={value}>
+			{input.children}
+		</CurrentComputerContext.Provider>
+	);
+}
+export function useCurrentComputer() {
+	return useContext(CurrentComputerContext);
+}
 
-function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
+function useCurrentComputerPresentation(
+	orgSlug: string
+): CurrentComputerPresentation {
 	const { state, storageScope } = useStartFlowState();
 	const displaySnapshotQuery = useQuery(
 		currentComputerToolbarDisplaySnapshotQueryOptions({ storageScope })
@@ -102,23 +139,20 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 	});
 
 	if (!inventory) {
-		return (
-			<UnresolvedCurrentComputerToolbarStatus
-				attention={
-					runtimeQueries.localRuntimesQuery.isError ? null : restoredStatus
-				}
-				inventoryFailed={runtimeQueries.localRuntimesQuery.isError}
-				orgSlug={input.orgSlug}
-			/>
+		return unresolvedComputerPresentation(
+			runtimeQueries.localRuntimesQuery.isError,
+			restoredStatus,
+			orgSlug
 		);
 	}
+
 	const destination = deviceId
 		? buildOrganizationComputerPath({
 				deviceId,
-				orgSlug: input.orgSlug,
+				orgSlug,
 			})
 		: buildConnectComputerPath({
-				orgSlug: input.orgSlug,
+				orgSlug,
 				session: "fresh",
 			});
 	const deviceLabel = computer?.deviceDisplayName ?? "Computer";
@@ -127,6 +161,25 @@ function CurrentComputerToolbarLauncherContent(input: { orgSlug: string }) {
 	const accessibleLabel = deviceId
 		? `Open ${deviceLabel} details, ${statusLabel}`
 		: "Connect this Computer";
+
+	return { status, destination, deviceLabel, statusLabel, accessibleLabel };
+}
+export function CurrentComputerToolbarLauncher() {
+	const computer = useCurrentComputer();
+	if (!computer) {
+		return null;
+	}
+	const { status, destination, deviceLabel, statusLabel, accessibleLabel } =
+		computer;
+	if (!destination) {
+		return (
+			<CurrentComputerToolbarStatus
+				accessibleLabel={accessibleLabel}
+				attention={status}
+				statusLabel={statusLabel}
+			/>
+		);
+	}
 
 	return (
 		<Tooltip>
@@ -207,32 +260,6 @@ function resolveComputerExecutionTarget(
 	return computer ? resolveCurrentExecutionTarget(computer) : null;
 }
 
-function UnresolvedCurrentComputerToolbarStatus(input: {
-	attention: ComputerSummaryStatus | null;
-	inventoryFailed: boolean;
-	orgSlug: string;
-}) {
-	const accessibleLabel =
-		resolveUnresolvedCurrentComputerAccessibleLabel(input);
-	const statusLabel =
-		input.attention?.label ??
-		(input.inventoryFailed
-			? "Couldn’t load Computer status"
-			: "Checking status");
-	return (
-		<CurrentComputerToolbarStatus
-			accessibleLabel={accessibleLabel}
-			attention={input.attention}
-			destination={
-				input.inventoryFailed
-					? buildOrganizationComputersPath(input.orgSlug)
-					: undefined
-			}
-			statusLabel={statusLabel}
-		/>
-	);
-}
-
 function resolveUnresolvedCurrentComputerAccessibleLabel(input: {
 	attention: ComputerSummaryStatus | null;
 	inventoryFailed: boolean;
@@ -286,7 +313,7 @@ function CurrentComputerToolbarStatus(input: {
 	);
 }
 
-function CurrentComputerAttentionIndicator(input: {
+export function CurrentComputerAttentionIndicator(input: {
 	status: ComputerSummaryStatus | null;
 }) {
 	if (
@@ -375,4 +402,26 @@ function shouldUseRestoredCurrentComputerStatus(input: {
 			!input.isReadinessError &&
 			input.isReadinessLoading
 	);
+}
+
+function unresolvedComputerPresentation(
+	inventoryFailed: boolean,
+	restoredStatus: ComputerSummaryStatus | null,
+	orgSlug: string
+): CurrentComputerPresentation {
+	const attention = inventoryFailed ? null : restoredStatus;
+	return {
+		status: attention,
+		destination: inventoryFailed
+			? buildOrganizationComputersPath(orgSlug)
+			: undefined,
+		deviceLabel: "Computer",
+		statusLabel:
+			attention?.label ??
+			(inventoryFailed ? "Couldn’t load Computer status" : "Checking status"),
+		accessibleLabel: resolveUnresolvedCurrentComputerAccessibleLabel({
+			attention,
+			inventoryFailed,
+		}),
+	};
 }

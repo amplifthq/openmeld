@@ -1,7 +1,19 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+	cleanup,
+	render as renderView,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { cloneElement, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CurrentComputerToolbarLauncher } from "./current-computer-toolbar-launcher";
+import {
+	CurrentComputerProvider,
+	CurrentComputerToolbarLauncher,
+} from "./current-computer";
+
+function render(ui: ReactElement) {
+	return renderView(ui, { wrapper: CurrentComputerProvider });
+}
 
 const useLocalRuntimeQueriesMock = vi.hoisted(() => vi.fn());
 const useOptionalAppOrganizationMock = vi.hoisted(() => vi.fn());

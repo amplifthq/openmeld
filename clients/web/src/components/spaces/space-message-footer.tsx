@@ -39,7 +39,6 @@ import {
 	MessageDetailsActionButton,
 } from "./space-message-actions";
 import { useSpaceMessageEditing } from "./space-message-editing";
-import { useSpaceMessagePinAction } from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
 	MessageReactionIcon,
@@ -49,6 +48,7 @@ import {
 	type useMessageReactions,
 	useMessageReactionsContext,
 } from "./space-message-reactions";
+import { useSpaceMessagePinAction } from "./space-pins";
 import { SpaceMessageWakeRecommendation } from "./space-wake-recommendation";
 
 export type SpaceMessageFooterAddressingTarget = {
@@ -456,8 +456,8 @@ function MessageFooterMoreMenu(input: {
 	thread?: SpaceMessageFooterAction;
 }) {
 	const actionIds = [
-		input.pin && "pin",
 		input.edit && "edit",
+		input.pin && "pin",
 		input.onViewReactions && "reactions",
 		input.onCopy && "copy",
 		input.reply && "reply",
@@ -480,16 +480,6 @@ function MessageFooterMoreMenu(input: {
 			</MessageActionTooltip>
 			<FluidDropdownMenuContent align="start" className="w-52" sideOffset={6}>
 				<DropdownMenuGroup className="flex w-full flex-col">
-					{input.pin ? (
-						<FluidDropdownMenuItem
-							disabled={input.pin.disabled}
-							index={actionIds.indexOf("pin")}
-							onClick={input.pin.onSelect}
-						>
-							<PushPinIcon aria-hidden="true" />
-							{input.pin.label}
-						</FluidDropdownMenuItem>
-					) : null}
 					{input.edit ? (
 						<FluidDropdownMenuItem
 							className="w-full"
@@ -498,6 +488,16 @@ function MessageFooterMoreMenu(input: {
 						>
 							<PencilSimpleIcon aria-hidden="true" />
 							Edit message
+						</FluidDropdownMenuItem>
+					) : null}
+					{input.pin ? (
+						<FluidDropdownMenuItem
+							disabled={input.pin.disabled}
+							index={actionIds.indexOf("pin")}
+							onClick={input.pin.onSelect}
+						>
+							<PushPinIcon aria-hidden="true" />
+							{input.pin.label}
 						</FluidDropdownMenuItem>
 					) : null}
 					{input.onViewReactions ? (

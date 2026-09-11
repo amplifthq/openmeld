@@ -29,9 +29,13 @@ the person who pinned it, and a jump to the original message. The preview stays
 on one line and truncates. Multiple pins use previous/next navigation without
 stacking cards above the conversation.
 
-Files have a separate pin action in the Files browser. Pinned files appear at
-the top of the Messages conversation, above pinned messages. Each kind has its
-own compact preview and navigation; file and message pins never share a carousel.
+Edit precedes Pin in the message menu. Successful message pinning offers an
+Undo toast that removes that same pin. Already pinned messages have no pin
+action in the menu; the pinned preview still supports removal.
+
+Files have a separate pin action in the Files browser. Pinned files and messages
+share one compact preview and previous/next navigation above the conversation.
+Files appear first, followed by messages; selection follows the source identity.
 Opening a pinned file uses the existing Files viewer. The pin follows the file's
 identity and latest revision, including renames, rather than copying its content.
 Trashed files are omitted. Pinning a message with attachments does not pin those
@@ -45,7 +49,12 @@ between devices. Opening older history never moves the read revision backwards.
 Failed content loads do not acknowledge a previewable file as read.
 
 Only the original pinner can remove a pin, including through the API. The close
-button means shared unpin, not personal dismissal, and requires no confirmation.
+button dismisses the entire pin preview for the current reader. For the original
+pinner it opens a Fluid menu with Dismiss and Unpin file/message; unpin affects
+only the selected item and requires no confirmation. Dismissal is saved per
+Organization, Human Profile, and Space in this browser. A Pinned action immediately
+before Members restores the preview. New pins do not reopen a dismissed preview;
+when no pins remain, both preview and recall action disappear.
 Pinning an already pinned message does not transfer ownership. Pins whose source
 message is no longer retained are omitted from the display. This is separate
 from the broader shared-document and knowledge synchronization work in #851.
@@ -779,6 +788,9 @@ It has three relations:
 Wake asks an Agent Profile to do work.
 
 Reference includes an Agent Profile as message context without assigning work.
+Web labels this relation `Mention only`. The Composer relation menu explains it
+as `Mention only — Won’t wake the agent`; compact tokens use `Mention only`.
+The serialized relation remains `reference`, with no change to execution semantics.
 Human Mention directs a person's attention to the message without creating
 Agent work or requiring a reply.
 
@@ -889,6 +901,21 @@ addressing target. Click or Tab accepts it as an ordinary Wake token; ignoring
 it sends an ordinary message. Explicit dismissal suppresses the corresponding
 post-send suggestion. Other members' Wakes and ambiguous multi-target turns do
 not select the target.
+
+Each completed Wake request grants one recommendation opportunity. The original
+request ID identifies the exchange; supplementary replies do not grant another.
+Accepting or dismissing the recommendation remembers that choice in browser
+session storage, isolated by Organization, Human Profile, and Space. Dismissing
+either entry point suppresses both through navigation and refresh. An ignored
+recommendation moves to the exact staged message's client message ID, without
+remaining in the Composer or repeating on subsequent ordinary messages. A new
+explicit Wake must receive a reply before another recommendation is eligible.
+This presentation-only record never clears, replaces, or shares storage with
+text, mention, or attachment drafts, and never authorizes an Agent execution.
+The Composer suggestion exposes its dismiss control on hover or keyboard focus
+(always on touch). Backspace dismisses it at a collapsed caret at the start of
+the editor; text deletion, selected text, IME composition, and member picking
+retain their normal keyboard behavior. Dismissal does not accept a Wake token.
 
 When that suggestion was ignored at send, only the sender sees a dismissible
 ordinary Agent token labeled `Click to wake` below their latest sent message.
@@ -1020,23 +1047,30 @@ Space conversation.
 Thread messages reuse the normal Space publication model. There is no second
 message system for threads.
 
-Thread composers continue the last Agent explicitly Woken by a human in that
-thread, including its root. If no human has selected an Agent, an Agent-authored
-root supplies the initial suggestion. Human-only threads have no implicit Agent.
-The existing removable Wake mention shows the actual recipient before sending;
-there is no editable thread-default setting. A new explicit Wake replaces the
-suggestion. The latest explicit multi-Agent Wake clears the suggestion rather
-than choosing one Agent. Agent messages and automatically continued human
-messages do not change the suggestion. Once a person has started writing, an
-incoming message never changes that draft's recipient. Removing the suggestion
-sends only this message without Wake. Existing clients keep explicit addressing.
+Thread replies use the same one-to-one rule as human-to-Agent Direct Messages:
+when the retained thread authors consist of one human and one Agent, sending a
+plain message Wakes that Agent without a Composer token or confirmation. Include
+the current sender before deciding: a second human's first reply is already a
+group conversation. Count the root and retained replies across all history pages,
+not Space membership or the visible page. Only an active Agent member is eligible.
+Human-only threads never invent an Agent recipient.
 
-The suggestion is a read projection of retained messages, not work ownership or
-execution authority. Each accepted message freezes its own addressing and uses
-normal Wake authorization. Quote context is read from the referenced retained
-Space message, including outside the visible history page, and passed to both
-hosted and workstation Agents. Recalled or unavailable messages expose no old
-quote content. This context never changes where the answer is published.
+For multiple humans or Agents, use the normal Space Wake recommendation and
+explicit mention interaction. Ignoring or dismissing a recommendation sends an
+ordinary message. Direct conversations do not show Wake recommendations.
+Explicit addressing takes precedence over automatic Thread addressing.
+
+Space resolves automatic addressing at acceptance, adds the ordinary visible
+Wake token to the sent message, and freezes its recipient through the existing
+publication and authorization path. It does not edit or resend the message or
+create a second execution. Duplicate client-message identities replay the original
+accepted message. Composer text and attachment drafts are never rewritten to
+establish a recipient. `threadWakeContinuation` records automatic addressing;
+these messages do not change the last explicit human selection used for suggestions.
+
+Thread placement and RuntimeCoordinator execution ownership remain unchanged.
+Quoted context comes from the retained referenced message, including outside the
+visible history page. Recalled or unavailable quotes expose no old content.
 
 If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,

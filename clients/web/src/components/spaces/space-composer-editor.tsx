@@ -11,7 +11,7 @@ import {
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
-import { XIcon } from "@phosphor-icons/react";
+import { SpinnerGapIcon, XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
 import { MotionConfig } from "framer-motion";
 import { PathApi, type TElement, TextApi } from "platejs";
@@ -34,6 +34,7 @@ import {
 	type MutableRefObject,
 	type ReactNode,
 	useContext,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -54,6 +55,7 @@ import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage"
 import "./space-wake-recommendation.css";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
 import { SpaceComposerAllMentionOptions } from "./space-composer-all-mention-options";
+import { createSpaceComposerDeviceWait } from "./space-composer-device-wait";
 import {
 	createSpaceComposerEditorValue,
 	createSpaceComposerPastedValue,
@@ -445,6 +447,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 							if (
 								suggestion &&
 								!choosingMention &&
+								!(event.target instanceof HTMLButtonElement) &&
 								!event.nativeEvent.isComposing &&
 								!event.altKey &&
 								!event.ctrlKey &&
@@ -457,7 +460,12 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 									suggestion.onAccept();
 									return;
 								}
-								if (event.key === "Escape") {
+								if (
+									event.key === "Escape" ||
+									(event.key === "Backspace" &&
+										editor.api.isCollapsed() &&
+										editor.api.isStart(editor.selection?.anchor, []))
+								) {
 									event.preventDefault();
 									event.stopPropagation();
 									suggestion.onDismiss();
@@ -539,12 +547,35 @@ function SpaceComposerParagraphElement(props: PlateElementProps) {
 						candidate.suggestion.profileId === context.centerAgentProfileId
 					}
 					onAccept={recommendation.onAccept}
+					onDismiss={recommendation.onDismiss}
 					target={candidate}
 				/>
 			) : null}
 			{props.children}
 		</PlateElement>
 	);
+}
+
+function composerRelationLabel(
+	label: string,
+	relation: string,
+	target: SpaceComposerAddressingTarget | undefined,
+	unavailableLabel?: string
+) {
+	if (relation === "reference") {
+		return "Mention only";
+	}
+	if (relation === "wake" && target && createSpaceComposerDeviceWait(target)) {
+		return "Wake when online";
+	}
+	if (
+		relation === "wake" &&
+		target?.agentWakeAvailability?.category === "offline" &&
+		!target.agentWakeAvailability.isRefreshing
+	) {
+		return "Wake — Offline";
+	}
+	return unavailableLabel ? `${label} — ${unavailableLabel}` : label;
 }
 
 function resolveProfileTokenPresentation(
@@ -567,7 +598,11 @@ function resolveProfileTokenPresentation(
 				allowedRelations: target.allowedRelations,
 				primaryMentionLabel: target.primaryMentionLabel,
 				wakeAvailability: target.wakeAvailability,
-			})
+			}).map((choice) =>
+				choice.relation === "wake" && createSpaceComposerDeviceWait(target)
+					? { ...choice, disabled: false }
+					: choice
+			)
 		: [];
 	const locked =
 		element.relation === "wake" &&
@@ -625,7 +660,7 @@ function SpaceComposerProfileToken(
 	) {
 		const selectedRelationLabel =
 			choices.find((choice) => choice.relation === element.relation)?.label ??
-			(element.relation === "wake" ? "Wake" : "Reference");
+			(element.relation === "wake" ? "Wake" : "Mention only");
 		relationControl = (
 			<MotionConfig reducedMotion="user">
 				<Select
@@ -670,9 +705,19 @@ function SpaceComposerProfileToken(
 						aria-label={`Change relation for ${profileName}`}
 						className="h-6 min-w-0 gap-1 rounded-none border-0 border-border border-l px-1.5 py-0 font-medium text-muted-foreground text-xs max-lg:h-6 max-lg:min-w-0 [&>svg]:size-3"
 						displayValue={
-							isBlockedWake && !target?.wakeAvailability.reasonCodes.length
-								? "Wake · Checking…"
-								: selectedRelationLabel
+							<span className="inline-flex items-center gap-1">
+								{composerRelationLabel(
+									selectedRelationLabel,
+									element.relation,
+									target
+								)}
+								{element.relation === "wake" &&
+								(target?.wakeAvailability.status === "preparing" ||
+									(isBlockedWake &&
+										!target?.wakeAvailability.reasonCodes.length)) ? (
+									<ComposerWakeChecking key={element.profileId} />
+								) : null}
+							</span>
 						}
 						onClickCapture={() => {
 							relationSelection.current = editor.selection;
@@ -688,14 +733,29 @@ function SpaceComposerProfileToken(
 					<SelectContent align="end" className="min-w-40" side="top">
 						{choices.map((choice, index) => (
 							<SelectItem
+								aria-label={
+									choice.relation === "reference"
+										? "Mention only — Won’t wake the agent"
+										: undefined
+								}
 								disabled={choice.disabled}
 								index={index}
 								key={choice.relation}
 								value={choice.relation}
 							>
-								{choice.disabled
-									? `${choice.label} — ${resolveComposerUnavailableLabel(pickerItem)}`
-									: choice.label}
+								{composerRelationLabel(
+									choice.label,
+									choice.relation,
+									target,
+									choice.disabled
+										? resolveComposerUnavailableLabel(pickerItem)
+										: undefined
+								)}
+								{choice.relation === "reference" ? (
+									<span className="text-muted-foreground">
+										{" — Won’t wake the agent"}
+									</span>
+								) : null}
 							</SelectItem>
 						))}
 					</SelectContent>
@@ -705,7 +765,7 @@ function SpaceComposerProfileToken(
 	} else if (isRepeatedAgent) {
 		relationControl = (
 			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
-				Reference
+				Mention only
 			</span>
 		);
 	}
@@ -803,6 +863,25 @@ function SpaceComposerProfileToken(
 	);
 }
 
+function ComposerWakeChecking() {
+	const [visible, setVisible] = useState(false);
+	useEffect(() => {
+		const timer = window.setTimeout(() => setVisible(true), 1000);
+		return () => window.clearTimeout(timer);
+	}, []);
+	if (!visible) {
+		return null;
+	}
+	return (
+		<output aria-label="Checking availability">
+			<SpinnerGapIcon
+				aria-hidden="true"
+				className="size-3 motion-safe:animate-spin motion-reduce:animate-none"
+			/>
+		</output>
+	);
+}
+
 function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 	const { element } = props;
 	const context = useSpaceComposerEditorContext();
@@ -880,7 +959,7 @@ function SpaceComposerMentionGroup(input: {
 						) : null}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">
-						{resolveMentionPickerRelationLabel(item.suggestion)}
+						{resolveMentionPickerRelationLabel(item)}
 					</span>
 				</InlineComboboxItem>
 			))}
@@ -928,11 +1007,22 @@ function ComposerAgentAvailability({ item }: { item: SpaceMentionPickerItem }) {
 }
 
 function resolveMentionPickerRelationLabel(
-	suggestion: SpaceMentionPickerItem["suggestion"]
-): "Mention" | "Reference" | "Wake" {
-	const relation = resolveDefaultSpaceComposerMentionRelation(suggestion);
+	item: SpaceMentionPickerItem
+): string {
+	const { suggestion, agentMember } = item;
+	const relation = resolveDefaultSpaceComposerMentionRelation(
+		suggestion,
+		agentMember
+	);
 	if (relation === "reference") {
-		return "Reference";
+		return "Mention only";
+	}
+	if (
+		relation === "wake" &&
+		agentMember &&
+		createSpaceComposerDeviceWait(agentMember)
+	) {
+		return "Wake when online";
 	}
 	return suggestion.profileKind === "human" ? "Mention" : "Wake";
 }
@@ -942,7 +1032,10 @@ function insertProfile(
 	item: SpaceMentionPickerItem,
 	wakeRecommendationAccepted = false
 ): void {
-	const relation = resolveDefaultSpaceComposerMentionRelation(item.suggestion);
+	const relation = resolveDefaultSpaceComposerMentionRelation(
+		item.suggestion,
+		item.agentMember
+	);
 	if (!relation) {
 		return;
 	}
@@ -1076,7 +1169,8 @@ function buildSpaceComposerPasteTargets(
 ): SpaceComposerPasteTarget[] {
 	return items.flatMap((item) => {
 		const defaultRelation = resolveDefaultSpaceComposerMentionRelation(
-			item.suggestion
+			item.suggestion,
+			item.agentMember
 		);
 		if (!defaultRelation) {
 			return [];

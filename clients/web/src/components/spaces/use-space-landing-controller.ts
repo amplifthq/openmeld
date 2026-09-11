@@ -136,6 +136,7 @@ import type {
 	SpaceExecutionRecoveryAttempt,
 	SpaceExecutionRecoveryResolution,
 } from "./space-execution-recovery-actions";
+import { resolveMissingSpaceMembersMessage } from "./space-members-error-copy";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import {
 	completeSpaceSend,
@@ -163,6 +164,7 @@ import {
 	mergeWakeProgressItemState,
 	normalizeOptionalText,
 	pollWakeProgress,
+	readPublishedWakeTargetProfileIds,
 	readSpaceStatusName,
 	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
@@ -1196,6 +1198,7 @@ export type SpaceLandingController =
 			threads: readonly SpaceThread[];
 			threadPreviews: readonly SpaceThreadPreview[];
 			threadSignals: readonly SignalEnvelope[];
+			threadWakeRecommendationsEnabled: boolean;
 			threadsErrorMessage: string | null;
 			threadSignalsErrorMessage: string | null;
 			threadsIsLoading: boolean;
@@ -1328,9 +1331,6 @@ export function useSpaceLandingController(input: {
 	initialComposerDraft?: ComposerDraftRecord | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	initialPendingMessage?: PendingSpaceMessage | null;
-	onAgentReadinessInvalidated?: (input: {
-		agentProfileIds: readonly string[];
-	}) => Promise<void> | void;
 	onWakeFinalOutcomeFactsRefresh?: (input: {
 		agentProfileIds: readonly string[];
 		signalIds: readonly string[];
@@ -1544,7 +1544,10 @@ export function useSpaceLandingController(input: {
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
 		participationEnabled: currentProfileIsActiveSpaceMember,
-		onAgentReadinessInvalidated: input.onAgentReadinessInvalidated,
+		readinessScope: {
+			organizationId: input.organizationId,
+			storageScope: input.ownerAccountId,
+		},
 		onWakeFinalOutcomeFactsRefresh: input.onWakeFinalOutcomeFactsRefresh,
 		onThreadSignal: handleLiveThreadSignal,
 		spaceId: input.spaceId,
@@ -1568,31 +1571,10 @@ export function useSpaceLandingController(input: {
 		enabled: statusReady,
 		accessRejected: Boolean(currentAccessRejection),
 	});
-	// Starts false: the unread watermark must not advance until the conversation
-	// panel reports a real "scrolled to latest" measurement (a fresh open scrolls
-	// to the bottom and emits true; a deep link to an old message stays false).
-	const [isConversationViewingLatest, setIsConversationViewingLatest] =
-		useState(false);
-	// Reset that measurement synchronously (during render) whenever the
-	// conversation identity changes, so a stale "viewing latest" from a previous
-	// Space can never mark the next Space's messages read before its panel has
-	// measured. The derived value also forces false until the reset lands, so the
-	// in-flight render that triggered the reset never reports a stale measurement.
-	const conversationViewingIdentity = `${input.spaceId}::${input.profileId}`;
-	const [measuredViewingIdentity, setMeasuredViewingIdentity] = useState(
-		conversationViewingIdentity
-	);
-	if (measuredViewingIdentity !== conversationViewingIdentity) {
-		setMeasuredViewingIdentity(conversationViewingIdentity);
-		setIsConversationViewingLatest(false);
-	}
-	const isViewingLatestForCurrentConversation =
-		measuredViewingIdentity === conversationViewingIdentity &&
-		isConversationViewingLatest;
 	const unreadState = useSpaceUnread({
 		envelopes: timelineEnvelopes,
 		isReady: input.unreadStateReady === true,
-		isViewingLatest: isViewingLatestForCurrentConversation,
+		profileId: input.profileId,
 		onViewedThroughTs: resolveConfirmedViewedThroughHandler({
 			isCurrentAccessConfirmed: statusReady,
 			onViewedThroughTs: input.onViewedThroughTs,
@@ -2345,7 +2327,7 @@ export function useSpaceLandingController(input: {
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
-		onConversationViewingLatestChange: setIsConversationViewingLatest,
+		onConversationViewingLatestChange: unreadState.onViewingLatestChange,
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
 		onDeleteSpace: handleDeleteSpace,
@@ -2457,6 +2439,8 @@ export function useSpaceLandingController(input: {
 		threads: threadController.threads,
 		threadPreviews: threadController.threadPreviews,
 		threadSignals: threadController.threadSignals,
+		threadWakeRecommendationsEnabled:
+			threadController.threadWakeRecommendationsEnabled,
 		threadsErrorMessage: threadController.threadsErrorMessage,
 		threadSignalsErrorMessage: threadController.threadSignalsErrorMessage,
 		threadsIsLoading: threadController.threadsIsLoading,
@@ -2481,6 +2465,7 @@ export function useSpaceLandingController(input: {
 
 	async function sendMessage(options?: {
 		deviceWait?: SpaceComposerSendOptions["deviceWait"];
+		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		pendingMessage?: PendingSpaceMessage;
 		retrySubmission?: PendingComposerSubmission;
 		retryFiles?: readonly SpaceComposerFile[];
@@ -2524,7 +2509,7 @@ export function useSpaceLandingController(input: {
 		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
 			const missingMembersMessage =
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
+				resolveMissingSpaceMembersMessage(membersErrorMessage);
 			const preparedSubmission =
 				options?.retrySubmission ??
 				applyDeviceWaitToSubmission(
@@ -2554,6 +2539,7 @@ export function useSpaceLandingController(input: {
 				preparedSubmission,
 				status: statusSnapshot,
 			});
+			options?.onMessageStaged?.(messageSeed.clientMessageId);
 			composerSession.send.finish();
 			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
@@ -2712,10 +2698,6 @@ export function useSpaceLandingController(input: {
 			openMeldProfileId: input.profileId,
 			spaceId: input.spaceId,
 		});
-		queryClient.setQueryData(
-			spaceQueryKeys.members(input.spaceId, input.profileId),
-			currentMembersSnapshot
-		);
 		return currentMembersSnapshot;
 	}
 
@@ -3355,8 +3337,6 @@ function useSpaceThreadController(input: {
 							threadId: activeThreadId,
 						}
 					: null,
-			threadWakeContinuationProfileId:
-				threadSignalsQuery.data?.wakeContinuation?.targetProfileId,
 			openMeldProfileId: input.profileId,
 			isMembersLoading: input.isMembersLoading,
 			membersErrorMessage: input.membersErrorMessage,
@@ -3487,6 +3467,9 @@ function useSpaceThreadController(input: {
 		threadPreviews,
 		threadSignals,
 		threadSignalsError: threadSignalsQuery.error,
+		threadWakeRecommendationsEnabled:
+			threadSignalsQuery.data?.wakeContinuation?.automaticTargetProfileId ===
+			null,
 		threadSignalsErrorMessage: threadSignalsQuery.isError
 			? threadSignalsQuery.error.message
 			: null,
@@ -3548,6 +3531,18 @@ function useSpaceThreadController(input: {
 				rootSignalId: threadInput.rootSignalId,
 				clientMutationId: createClientMessageId(),
 			});
+			input.queryClient.setQueryData<ListSpaceThreadsResponse>(
+				spaceQueryKeys.threads(input.spaceId, input.profileId),
+				(current) => ({
+					threads: [
+						...(current?.threads ?? threads).filter(
+							(thread) => thread.threadId !== response.thread.threadId
+						),
+						response.thread,
+					],
+					previews: current?.previews ?? threadPreviews,
+				})
+			);
 			openThread(response.thread.threadId);
 			await Promise.all([
 				threadsQuery.refetch(),
@@ -3611,7 +3606,7 @@ function useSpaceThreadController(input: {
 				applyDeviceWaitToSubmission(
 					trimmedText.length > 0
 						? mentionAuthoring.prepareSubmission(
-								"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+								resolveMissingSpaceMembersMessage(input.membersErrorMessage)
 							)
 						: mentionAuthoring.prepareFileOnlySubmission(),
 					options?.deviceWait
@@ -3623,6 +3618,7 @@ function useSpaceThreadController(input: {
 			await sendPreparedThreadMessage({
 				composerFiles: submittedFiles,
 				clientMessageId,
+				onMessageStaged: options?.onMessageStaged,
 				prepareFiles: async () => {
 					const publishedFiles =
 						await composerFilesController.publishReadyFiles(submittedFiles);
@@ -3773,7 +3769,7 @@ function useSpaceThreadController(input: {
 		try {
 			const preparedSubmission = mentionAuthoring.preparePlainTextSubmission(
 				trimmedText,
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before continuing."
+				resolveMissingSpaceMembersMessage(input.membersErrorMessage)
 			);
 			await sendPreparedThreadMessage({
 				preparedSubmission,
@@ -3807,6 +3803,7 @@ function useSpaceThreadController(input: {
 	}
 
 	async function sendPreparedThreadMessage(sendInput: {
+		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
 		prepareFiles?: () => Promise<{
@@ -3828,7 +3825,7 @@ function useSpaceThreadController(input: {
 			composerFilesController.finishSubmission(files);
 		});
 		const messageCreatedAtMs = Date.now();
-		const activationTargets =
+		let activationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
 		const pendingSignal = createPendingOutgoingSignal({
 			composerFiles: sendInput.composerFiles,
@@ -3841,6 +3838,7 @@ function useSpaceThreadController(input: {
 			text: sendInput.preparedSubmission.text,
 		});
 		appendPendingOutgoingSignal(setPendingOutgoingSignals, pendingSignal);
+		sendInput.onMessageStaged?.(clientMessageId);
 		const sendingWakeProgressItems = buildLocalWakeProgressItems({
 			activationTargets,
 			clientMessageId,
@@ -3912,6 +3910,7 @@ function useSpaceThreadController(input: {
 					}).postThreadSignal(postInput)
 			);
 			postedMessage = true;
+			activationTargets = readPublishedWakeTargetProfileIds(response.signal);
 			completeSpaceSend(clientMessageId);
 			recordWakeDiagnosticIfNeeded({
 				clientMessageId,

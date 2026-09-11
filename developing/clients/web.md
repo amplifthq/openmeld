@@ -1840,14 +1840,17 @@ formatted from `lastSeenAt` against the current clock, never a cached label.
 The People sidebar contains Human Profiles. Starred and user-defined groups
 precede **Online** and **Offline**, based only on Core's Human presence projection.
 Unknown presence stays in an unclassified **People** group. Computer connection
-remains an independent filter. The designated Center Agent lives in the Agents
+remains an independent filter in both the Team toolbar and each section. Both
+surfaces use **Computer connected** and **Computer disconnected**; Online and
+Offline refer only to Humans. Toolbar filters apply across sections and combine
+with the selected Human groups and per-section filters. The designated Center Agent lives in the Agents
 directory, outside Human presence counts. The signed-in member follows
 ordinary placement unless a saved star or custom group applies. The signed-in
 member always appears first within that group, regardless of sort or manual order;
 the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
-ordinary placement. Online requires a live foreground page with Human interaction
-within five minutes. Any active page keeps the Human Online. Computer connections,
+ordinary placement. Online requires an unexpired Core presence lease with Human
+interaction within five minutes. Any active page keeps the Human Online. Computer connections,
 Agent work, and historical activity never establish Human presence.
 Rows show the avatar, name, Computer status icon, Human last-seen
 time when known, and enabled local-agent icons. Computer explanations remain in
@@ -1860,8 +1863,11 @@ the Human is Online. Offline and unknown states have no visible marker; accessib
 Online, Offline, or Online status unavailable labels remain available. One app-shell
 reader refreshes the authorized batch every 30 visible seconds and on foreground
 return. Failed or stale reads remain unknown. Active pages renew a 90-second lease
-every 30 seconds; trusted pointer, keyboard, wheel and touch input reset the
-five-minute idle limit. Departure ends only that page's lease. Historical Web
+every 30 seconds; trusted pointer movement, clicks, keyboard, wheel and touch input
+reset the five-minute idle limit. Brief focus or visibility loss pauses renewals
+and lets the existing server lease expire naturally, instead of immediately
+declaring the Human offline. Space navigation preserves the Organization session;
+page departure and account/Organization exit end only that page's lease. Historical Web
 activity advances only on actual interaction, with its existing five-minute
 throttle; presence renewals do not advance it. Space-local Here … ago remains a
 separate historical fact. No system-wide activity or interaction contents are collected.
@@ -2550,6 +2556,24 @@ the exact Query key and lets that query's `staleTime`, in-flight deduplication,
 and invalidation state decide whether a server read is needed. The Router must
 not add a second freshness clock over Query-backed loaders.
 
+Returning-conversation intent preload reads one contiguous updates page into the
+existing history Query instead of skipping warm history or replacing its tail
+with a recent bootstrap window. The mounted feed shares in-flight updates reads
+by Space, acting Profile, and anchor; completed updates reads remain stale so
+the subscription acknowledgement still closes the read/live gap. Successful
+intent preloads are reusable for five seconds through Query freshness alone.
+
+The Messenger sidebar also warms up to five cached unread conversations, newest
+unread activity first, with at most two background jobs. It uses the existing
+Organization unread summary and confirmed conversation Profile choices, excludes
+the selected conversation, and does not hydrate cold saved Spaces in bulk.
+An unchanged unread revision does not start another background read. Changes
+during a read receive a trailing read. Hidden/offline pages stop queued work;
+scope changes and unmount dispose the owner. Removed history queries cannot be
+resurrected by late reads. Speculation never writes read cursors, scrolling,
+Composer drafts, permissions, or Wake state. Failed prefetch keeps saved content
+and leaves normal entry/reconnect recovery intact; it adds no polling or retries.
+
 The Center Agent conversation is the deliberate exception to route-loader
 intent preload. Opening or ensuring its DM is activation-only, and a read-only
 preload must not return a different loader result that navigation could render.
@@ -2612,6 +2636,16 @@ belong in the IndexedDB Query cache and is never message, read-cursor, or access
 authority.
 
 ### Browser read-cache persistence
+
+Confirmed reaction updates also replace the reaction snapshot on the matching
+cached main-timeline message, within its existing Space and acting-Profile scope.
+This includes mutation responses and refreshes after live reaction invalidation.
+The bounded history persists and restores message text and reactions together;
+the standalone reaction query is not a separate persistence family. Reaction
+versions prevent older responses from undoing newer additions or removals. A
+late response cannot recreate an evicted history or add a Thread reply to the
+main timeline. A missing reaction snapshot is unknown and may fetch; a confirmed
+empty snapshot is not mistaken for missing data.
 
 OpenMeld Web may retain a narrowly approved subset of bounded display queries
 in IndexedDB so a confirmed returning account can see useful route content
@@ -3036,6 +3070,14 @@ Auth, or hide the unfinished choice behind a completed badge.
 ## Space And Thread Presentation
 
 Web presents a Space as a collaboration room and visible outcome surface.
+
+The Space and DM title never shows a green live-connection dot: a healthy
+message stream says nothing about Human presence or Agent Wakeability. Initial
+connection and healthy live updates have no visible status indicator. Only
+interrupted updates show an amber `Reconnecting…` indicator with manual retry;
+catching up on missed messages shows amber `Syncing…`. The accessible live
+region continues to announce connection changes. These states do not derive
+Computer connectivity or override Core-owned Agent readiness.
 
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Access, and Advanced sections. General contains the canonical name and
@@ -3726,9 +3768,13 @@ preserves the draft and never confirms access locally.
 
 The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default only when the current
-Core-owned Wakeability projection is `ready`, while keeping the visible composer
+Core-owned Wakeability projection is `ready`, or the canonical member projection
+provides an eligible offline waiting target, while keeping the visible composer
 text as a plain `@Name` mention. An unavailable or checking Agent defaults to
-Reference. The same picker surface exposes the other allowed relation without a
+Reference unless explicit waiting is supported. Eligible offline Wake uses
+`Wake when online` in the picker, token and relation menu. An offline state alone
+does not promise waiting: it also requires the current server-projected target.
+The same picker surface exposes the other allowed relation without a
 required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
 Selecting a Human Profile creates a fixed Human Mention mark; people never
 receive an Agent relation selector.
@@ -3763,6 +3809,22 @@ precedes this check. Rejection restores the submitted draft if no next draft
 exists; otherwise it preserves the next draft and marks the local message as
 unsent. The Composer stays editable, and Reference authoring and ordinary text
 input remain available.
+
+Missing member data is separate from failed member loading. A draft containing
+structured mentions keeps its text and tokens while the initial snapshot loads;
+its send control waits and the Composer shows a muted loading hint. A failed read
+offers Retry. Ordinary text is not blocked by missing mention data. Composer
+feedback stays inside the input surface without a separate bordered warning box.
+
+Space live events refresh Space members in a bounded window, with one follow-up
+when an event arrives during the read. The app-shell listener alone refreshes
+shared Agent caches from account/organization-scoped browser invalidations.
+Invalidation versions are compared within their Space. Owner-only readiness
+reads never include another owner's Agent; those updates use the authorized
+organization overview. Partial overview updates are tied to their live Query
+instance and cannot overwrite a newer full response or a recreated cache.
+The send-time fresh members read is admission evidence, not another display-cache
+writer. Existing page freshness and bounded recovery timers remain unchanged.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one
@@ -3861,9 +3923,9 @@ directly to that recorded result; Graph must not preserve a redundant
 `Replied`, `Failed`, or `Completed` Wake node between them. Structured statuses
 and system notices keep their recorded event semantics.
 
-The Space header presents those views in a stable two-row hierarchy. The first
+At the latest messages, the Space header presents a two-row hierarchy. The first
 row contains the Space name, access mode, live connection indicator, and
-right-aligned actions. The second row contains Messages and Graph below the
+right-aligned actions. The second row contains Messages and Files below the
 Space name. Those view labels align with the Space name and use a flat active
 underline that overlays the header divider. The Members action shows the active
 member total from the Space member projection. The header and Space sidebar do
@@ -3873,8 +3935,53 @@ in the Members surface. When dismissed contextual setup remains recallable,
 **Get set up** appears in the right-aligned action group immediately before
 **Members**. On compact screens only, the same recall control may move to the
 trailing edge of the second header row so the Space name remains identifiable;
-it stays visually separate from the **Messages** and **Graph** view control and
+it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
+
+While reading earlier messages in an ordinary Space, the tabs move beside the
+title and live-status adornments along a straight diagonal path driven by the
+same scroll progress on both axes. The anchor is measured from the rendered content;
+Space title text is capped at 28rem in both Messages and Files. The compact
+layout reserves at least 240px for navigation, increasing that reservation when
+the rendered tabs require more. Long titles truncate and insufficient width
+retains the two-row layout.
+Direct messages and compact embedded conversations retain their existing headers.
+Returning to the latest messages restores the expanded header. Messages and
+Files share the same header position: changing tabs does not move navigation.
+The browser remembers the normalized header position per Organization, Profile,
+and Space across navigation and reloads. Narrow layouts temporarily use two
+rows without overwriting that saved position. Scrolling Messages resumes the
+motion; Files itself does not drive header compaction.
+Latest-message observations update the read-through scheduler directly rather
+than publishing React state through the Space controller. Scrolling away cancels
+the pending read immediately without rerendering the transcript. Space/Profile
+changes require a fresh latest-message measurement; document visibility, access
+confirmation, and the normal read debounce still gate persistence.
+Scroll frames update only the navigation transform outside React. Header height
+changes at the collapse/expansion boundary, with a matching scroll offset to
+preserve the reading anchor. Collapse and expansion use separate boundaries
+(144px and 72px from the bottom), so small reversals do not repeatedly resize
+the conversation. Restored views use the saved position before paint; a Space
+without a saved position starts expanded. Pausing a scroll preserves its
+progress without snapping. Preferences are written on scroll end, page exit,
+or unmount, never on each animation frame. The tabs return fully to their lower
+row within 24px of the latest messages. Reduced motion switches positions
+without travel.
+
+Messages and files share one pinned-item preview with previous/next navigation.
+The preview's X dismisses all pins for the reader; the original pinner gets a
+Fluid dropdown with Dismiss and Unpin message/file. A Pinned action immediately
+before Members restores the preview. Dismissal is saved per Organization,
+Human Profile, and Space in this browser, without changing shared pin state.
+
+Appearance includes Toolbar shortcuts for Computer, Center Agent, and Inbox.
+Each bottom shortcut also exposes a compact hide control on hover or keyboard
+focus, with Undo. Touch users customize shortcuts in Appearance. Browser-wide
+preferences apply on first paint; hiding all shortcuts removes the reserved
+bottom row while retaining the normal page inset and the Sidebar footer.
+Computer stays in the account menu above Settings. Its warning/danger avatar
+and menu indicators consume the same shared current-Computer presentation as
+the optional toolbar shortcut; hiding a shortcut does not clear attention.
 
 Selecting a Human or Agent identity in a Space opens one compact profile
 popover rather than a table-style details dialog. A Human popover shows the
@@ -3950,8 +4057,9 @@ They must show evidence as evidence: queued, routed, delivered, running,
 replied, failed, missing, pending, or degraded.
 
 Offline computer waiting uses progressive disclosure in both composers:
-**Send and wait** appears only for one current offline/reconnecting target, with
-a fixed 24-hour explanation. The current Agent Binding supplies the computer;
+**Send and wait** replaces the primary send button for one current eligible
+offline/reconnecting target, retaining the send icon and a compact 24-hour
+explanation to its left inside the Composer. The current Agent Binding supplies the computer;
 there is no device or deadline form. The deadline starts when the action is
 clicked. Current admission still rechecks the frozen selector before publication.
 Ordinary online Send and Reference-only authoring retain their existing meaning.

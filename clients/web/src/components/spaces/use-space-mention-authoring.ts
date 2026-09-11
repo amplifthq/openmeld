@@ -35,6 +35,7 @@ import {
 	type SpaceMemberDirectoryDisplay,
 	spaceMemberDirectoryDisplayQueryOptions,
 } from "#/query/spaces/member-directory-display";
+import { createSpaceComposerDeviceWait } from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -49,6 +50,7 @@ export type SpaceComposerSelection = {
 };
 
 export type SpaceMentionPickerItem = {
+	agentMember?: SpaceMembersSnapshot["agents"][number];
 	memberEntry: SpaceMemberDirectoryEntry;
 	kind: "target";
 	suggestion: SpaceMentionSuggestion;
@@ -84,7 +86,6 @@ type TrackedComposerAuthoredMention =
 	};
 
 export type UseSpaceMentionAuthoringInput = {
-	threadWakeContinuationProfileId?: string | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	composerDraftScope: ComposerDraftScope | null;
 	openMeldProfileId: string;
@@ -105,64 +106,6 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 	});
 	const composerText = composerDraft.content.text;
 	const authoredMentions = composerDraft.content.authoredMentions;
-	useEffect(() => {
-		if (
-			input.composerDraftScope?.kind !== "space_thread" ||
-			input.threadWakeContinuationProfileId === undefined
-		) {
-			return;
-		}
-		const previousId = composerDraft.content.threadWakeContinuationProfileId;
-		const previousMention = authoredMentions.find(
-			(mention) => mention.profileId === previousId
-		);
-		if (
-			previousId === null ||
-			(composerText.trim() && composerText.trim() !== previousMention?.text)
-		) {
-			return;
-		}
-		if (previousId === input.threadWakeContinuationProfileId) {
-			return;
-		}
-		if (input.threadWakeContinuationProfileId === null) {
-			if (previousId) {
-				composerDraft.setContent((draft) => ({
-					...draft,
-					text: "",
-					authoredMentions: [],
-					threadWakeContinuationProfileId: undefined,
-				}));
-			}
-			return;
-		}
-		const mention = resolveReplyWakeMention({
-			allowUnavailable: true,
-			snapshot: input.snapshot,
-			wakeTargetProfileId: input.threadWakeContinuationProfileId,
-		});
-		if (!mention) {
-			return;
-		}
-		const text = `${mention.text} `;
-		composerDraft.setContent((draft) => ({
-			...draft,
-			text,
-			authoredMentions: trackAuthoredMentionsInText({
-				mentions: [mention],
-				text,
-			}),
-			threadWakeContinuationProfileId: input.threadWakeContinuationProfileId,
-		}));
-	}, [
-		input.composerDraftScope?.kind,
-		input.threadWakeContinuationProfileId,
-		input.snapshot,
-		composerDraft.content.threadWakeContinuationProfileId,
-		composerDraft.setContent,
-		composerText,
-		authoredMentions,
-	]);
 	const replyTo = composerDraft.content.replyToSignalId
 		? { signalId: composerDraft.content.replyToSignalId }
 		: null;
@@ -352,47 +295,14 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 		mentionPickerItems,
 		replyTo,
 		onComposerEditorChange: (change: SpaceComposerEditorChange) => {
-			composerDraft.setContent((currentDraft) => {
-				const automaticId = currentDraft.threadWakeContinuationProfileId;
-				const automaticMention = change.authoredMentions.find(
-					(mention) =>
-						mention.profileId === automaticId && mention.relation === "wake"
-				);
-				const explicitWake = change.authoredMentions.some(
-					(mention) =>
-						mention.relation === "wake" && mention.profileId !== automaticId
-				);
-				const text =
-					automaticMention && explicitWake
-						? change.text.slice(0, automaticMention.start) +
-							change.text.slice(automaticMention.end)
-						: change.text;
-				const mentions =
-					automaticMention && explicitWake
-						? trackAuthoredMentionsInText({
-								mentions: change.authoredMentions.filter(
-									(mention) => mention !== automaticMention
-								),
-								text,
-							})
-						: change.authoredMentions;
-				return {
-					...currentDraft,
-					authoredMentions: mentions,
-					...(input.composerDraftScope?.kind === "space_thread"
-						? {
-								threadWakeContinuationProfileId:
-									automaticMention && !explicitWake ? automaticId : null,
-							}
-						: {}),
-					restoredFromSignalId:
-						change.restoredFromSignalId ??
-						(change.text.trim()
-							? currentDraft.restoredFromSignalId
-							: undefined),
-					text,
-				};
-			});
+			composerDraft.setContent((currentDraft) => ({
+				...currentDraft,
+				authoredMentions: change.authoredMentions,
+				restoredFromSignalId:
+					change.restoredFromSignalId ??
+					(change.text.trim() ? currentDraft.restoredFromSignalId : undefined),
+				text: change.text,
+			}));
 		},
 		onMentionButtonClick: () => {
 			textareaRef.current?.insertMentionTrigger();
@@ -455,8 +365,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			}
 			const mention: SpaceComposerAuthoredMentionInTextOrder = {
 				profileId: target.profileId,
-				relation:
-					target.wakeAvailability.status === "ready" ? "wake" : "reference",
+				relation: "wake",
 				text: `@${target.profileName}`,
 			};
 			const text = `${mention.text} Please carry out the request in the referenced message.`;
@@ -475,9 +384,6 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 		prepareSubmission: (
 			missingSnapshotMessage: string
 		): PreparedSpaceComposerSubmission & { restoredFromSignalId?: string } => ({
-			...(composerDraft.content.threadWakeContinuationProfileId
-				? { threadWakeContinuation: true as const }
-				: {}),
 			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
 			...prepareSpaceComposerSubmission({
 				authoredMentionsInTextOrder: authoredMentions.map(
@@ -521,10 +427,6 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			currentComposerHasDraftRef.current = true;
 			const nextCaretPosition = preparedSubmission.text.length;
 			composerDraft.setContent({
-				threadWakeContinuationProfileId:
-					preparedSubmission.threadWakeContinuation
-						? preparedSubmission.messageEnvelope?.activationTargets[0]
-						: undefined,
 				restoredFromSignalId: preparedSubmission.restoredFromSignalId,
 				authoredMentions: trackAuthoredMentionsInText({
 					mentions: preparedSubmission.authoredMentionsInTextOrder,
@@ -607,6 +509,9 @@ export function buildSpaceMentionTargetItems(input: {
 			}
 			return {
 				item: {
+					agentMember: input.snapshot.agents.find(
+						(agent) => agent.profileId === suggestion.profileId
+					),
 					kind: "target" as const,
 					memberEntry,
 					suggestion,
@@ -655,12 +560,14 @@ export function buildSpaceMentionTargetItems(input: {
 }
 
 export function resolveDefaultSpaceComposerMentionRelation(
-	suggestion: SpaceMentionSuggestion
+	suggestion: SpaceMentionSuggestion,
+	agentMember?: SpaceMentionPickerItem["agentMember"]
 ): MessageMentionType | null {
 	if (suggestion.profileKind === "agent") {
 		if (
 			suggestion.allowedRelations.wake &&
 			(suggestion.wakeAvailability.status === "ready" ||
+				Boolean(agentMember && createSpaceComposerDeviceWait(agentMember)) ||
 				suggestion.wakeAvailability.status === "preparing" ||
 				suggestion.wakeAvailability.reasonCodes.length === 0)
 		) {

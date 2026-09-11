@@ -655,3 +655,12 @@ gating.
   "agent runtime" (would require amending the shipped `Connect local agent`
   manifest label across owner docs + CLI in the same PR). If B is ever chosen, it
   is a global find/replace + one manifest PR; it changes no other decision here.
+
+## Personal Computer entry
+
+The account dropdown always includes Computer immediately before Settings. It
+uses the same current-account Computer destination and attention projection as
+the optional bottom toolbar shortcut. A shared Web provider owns the query and
+validated reload hint even when the toolbar is hidden. Warning/danger attention
+appears on the account avatar and the Computer menu item; opening the menu does
+not acknowledge or clear it. Ordinary disconnection does not mark the avatar red.

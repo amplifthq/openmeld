@@ -75,6 +75,8 @@ across pointer modes, preserving focus and scroll position.
 Base UI owns overflow measurement. A 12px content mask appears only on edges
 with hidden content, without guessing the parent surface color. Vertical areas
 constrain intrinsic content width; horizontal areas keep intrinsic measurement.
+The mask's four `--fluid-fade-*` properties do not inherit: an edge change must
+not invalidate styles throughout a long transcript beneath the viewport.
 `viewportRef` and `viewportProps` target the actual scrolling element.
 
 Use `ScrollArea` for ordinary panes, directories, settings, card details,

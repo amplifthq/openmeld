@@ -45,7 +45,7 @@ export const listSpaceThreadSignalsQuerySchema = z
   .strictObject({
     includeWakeContinuation: z.preprocess(
       (value) => (value === "true" ? true : value),
-      z.literal(true).optional()
+      z.union([z.literal(true), z.literal("conversation")]).optional()
     ),
     afterSignalId: optionalThreadSignalAnchorSchema,
     limit: optionalThreadSignalLimitSchema,
@@ -95,7 +95,10 @@ export const listSpaceThreadsResponseSchema = z.strictObject({
 
 export const listSpaceThreadSignalsResponseSchema = z.strictObject({
   wakeContinuation: z
-    .strictObject({ targetProfileId: z.string().min(1).nullable() })
+    .strictObject({
+      targetProfileId: z.string().min(1).nullable(),
+      automaticTargetProfileId: z.string().min(1).nullable().optional(),
+    })
     .optional(),
   signals: z.array(signalEnvelopeSchema),
   placements: z.array(spaceThreadSignalPlacementSchema),
