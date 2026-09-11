@@ -50,22 +50,31 @@ session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
 list inside the inset surface, and the current work area. Center Agent,
-Messenger, and Team are the rail's destinations; New Agent is a separate
-creation action. Workspace switching, search, Inbox, account, theme, and Settings
-remain reachable from the rail. Messenger opens `/o/{orgSlug}/chats`, whose
-directory content remains the member's direct messages. After visiting Messenger,
+Spaces, and Team are the rail's destinations. Four circular controls at the
+top stack Organization switching, search, Inbox, and Create. The Organization
+avatar fills its circular trigger. Create opens New Agent and New Space to the
+right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
+motion opens the choices without travel. Account, theme, and Settings
+remain reachable from the rail. Spaces opens `/o/{orgSlug}/chats`, whose
+directory content remains the member's direct messages. After visiting Spaces,
 the application-rail entry returns to its last location in this tab, preserving
 profile, thread, and session selectors. This navigation memory is scoped to the
 account, Organization, and default Human Profile; it never opens a location from
-another Organization. The Messenger heading still opens the directory explicitly.
+another Organization. The Spaces heading still opens the directory explicitly.
+Header actions move into one labeled overflow menu when the contextual list is
+narrow, keeping the title and controls on one row. Both layouts share the same
+creation, view, and filter menu contents.
 
-Spaces, direct messages, and Center Agent conversations share the Messenger
+Spaces, direct messages, and Center Agent conversations share the Spaces
 list in the middle column. Team places its member list in that column instead;
 Settings retains its own settings navigation. A page without contextual
-navigation does not create an empty middle column or load the Messenger list.
+navigation does not create an empty middle column or load the Spaces list.
 The work-area header toggles the middle list without hiding the application
 rail or remounting the conversation. The existing Fluid sidebar engine owns
-resizing, keyboard shortcuts, and edge reveal. The existing outer-sidebar cookie
+resizing and keyboard shortcuts. Dragging the middle column can collapse it,
+and a 32px hover-intent strip along the content edge reveals a floating preview.
+The preview's top Expand sidebar action or the work-area header button restores
+the full column. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in
@@ -87,11 +96,11 @@ Spaces, People, and Agents are optional filters. The plus menu offers New messag
 and New Space. Search conversations filters existing conversations only. When no
 conversations match, Find someone opens the existing organization-wide people
 and Agents picker with the search text prefilled. Browse spaces is a compass icon
-in the Messenger header, before the plus menu, with a tooltip and accessible
+in the Spaces header, before the plus menu, with a tooltip and accessible
 label. It remains visible in both Grouped and Recent, including with collapsed groups,
 filters, or empty results, and opens the existing Your Spaces / Discover page.
 Team remains the member directory; there is no separate Contacts destination.
-Messenger combines the canonical ordinary Space and chat unread aggregates
+Spaces combines the canonical ordinary Space and chat unread aggregates
 and retains chat action/urgent-update priority in its attention indicator.
 
 Selecting only Center Agent in New message opens a local `?draft=new` composer without creating a session or
@@ -403,12 +412,12 @@ primary actions and destinations in a flat list:
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
 - **Center Agent** — directly opens the current Organization's default Center Agent chat.
-- **Messenger** — opens the existing chat directory, with Spaces and private
+- **Spaces** — opens the existing chat directory, with Spaces and private
   conversations available in its contextual list.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
 
 The middle column contains the active module's list. Spaces and Direct messages
-are groups within Messenger, rather than duplicate application-rail links.
+are groups within Spaces, rather than duplicate application-rail links.
 
 **Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
 pages, and contextual entry points but are temporarily absent from the primary
@@ -418,7 +427,7 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Center Agent**, **Messenger**,
+The visible destinations resolve in this order: **Center Agent**, **Spaces**,
 and **Team**, followed by the separate **New Agent** action. The underlying product destinations are:
 
 1. **Home** — directly renders the existing default Center Agent conversation,
@@ -434,7 +443,7 @@ and **Team**, followed by the separate **New Agent** action. The underlying prod
    region; a person's Agent list and detail use full-width content. These pages do not
    mount an additional contextual column or simultaneous mobile drawers.
    Existing list grouping, pinning, unread indicators, identities, and status
-   projections are preserved. Messenger owns the shared creation menu and
+   projections are preserved. Spaces owns the shared creation menu and
    discovery links described above.
    Agent list search and filtering remain available. Settings retains its
    secondary navigation panel.
@@ -443,7 +452,7 @@ and **Team**, followed by the separate **New Agent** action. The underlying prod
    `/o/{orgSlug}/direct-messages/{spaceId}`. The Main Sidebar's contextual
    list shows current DM Spaces by the other participant's profile identity;
    selecting one opens the existing Space conversation surface in the content
-   region. Direct Messages remain a distinct conversation kind within Messenger;
+   region. Direct Messages remain a distinct conversation kind within Spaces;
    this presentation does not create a separate DM data or messaging subsystem.
    People and Agents entry points navigate
    straight to this route family after opening or reusing the DM. Its pending
@@ -576,7 +585,7 @@ preview first. The sidebar header alone shows the deduplicated attention count
 without a number. Both consume the same Core summary: red for open actions,
 otherwise amber for unread urgent updates. Unknown summaries never become zero.
 The preview shows unread context and a bounded list of recent
-items grouped as **Needs action**, **Urgent updates**, and **Recent updates**, preserves source
+items grouped as **Needs action**, **Needs review**, **Urgent updates**, and **Recent updates**, preserves source
 navigation and read-on-open behavior, and exposes a clearly labeled maximize
 action to `/o/{orgSlug}/inbox`. One group does not hide the other. Its width and
 height must remain usable in narrow viewports. Ordinary non-urgent unread updates never
@@ -620,7 +629,7 @@ expanded unless the viewer has saved a manual choice. Custom groups start
 collapsed. Entering a conversation reveals its group; switching views preserves
 both families' existing disclosure choices. Search temporarily reveals matching
 groups without writing disclosure preferences. Creation, view selection,
-filters, and search live in the Messenger header.
+filters, and search live in the Spaces header.
 Ordinary private conversations use `/chats/{spaceId}`. The old
 `/direct-messages` routes only redirect and preserve supported search fields.
 Team's Center Agent entry opens the canonical Center Agent chat.
@@ -683,8 +692,8 @@ maximize action. The compact launcher preview reads the same Core list and
 summary, uses the same structured source mapping and read mutation, and owns no
 parallel unread state.
 
-The page provides **All**, **Unread**, and **Needs action** filters, a compact
-high-attention summary, an explicit **Mark all as read** action, and a
+The page provides **All**, **Unread**, **Needs action**, and permission-gated
+**Needs review** filters, an explicit **Mark all as read** action, and a
 chronological Fluid item list. Opening an item starts its idempotent mark-read
 mutation as part of the same in-app navigation to the structured source target;
 the mutation survives the source route change. Hover, viewport exposure, tab
@@ -765,6 +774,26 @@ CLI controls.
 
 ### Settings structure
 
+The application rail keeps Settings and theme controls visible above the account
+trigger. Their hit areas and keyboard order are stable; footer hover does not
+reveal, hide, or move them.
+
+Normal Settings entry points open the global **App settings** dialog over the
+current organization page. The `appSettings` search parameter owns the selected
+section; opening preserves the background path and search, section switches
+replace that parameter, and closing removes only that parameter. The existing
+standalone `/o/{orgSlug}/settings/*` routes remain available for direct links,
+but normal utility, account-menu, command-menu, and review-history entries use
+the dialog. Notification-settings Inbox sources open it over Inbox.
+
+Both presentations use `SettingsPage`, the same section registry, grouped
+navigation, capability checks, and section components. The dialog reuses the
+existing contextual sidebar item primitives, including icons and selected
+states. `SettingsDialogContent` supplies the shared Space/App dialog shell;
+App settings uses its larger 1024px by 42rem variant, constrained to the viewport.
+Navigation and content scroll independently. Section components and their
+mutations do not fork by presentation.
+
 The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
@@ -787,20 +816,34 @@ The Settings secondary sidebar always shows these two groups:
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
-  label also displays the current `member`, `admin`, or `owner` role badge.
+  label shows only its name and collapse control, without organization or role
+  badges. Roles remain visible in Members.
 
-Invitation review lives at `/o/{orgSlug}/settings/invitations?requestId={id}`
-inside the app shell. Email and Inbox use the same destination; a focused request
-scrolls into view. The legacy external request URL redirects current organization
-reviewers here while preserving the external applicant status surface. An approved
-applicant enters the organization or invited Space after Auth confirms joining.
-Invite members and Invite link appear first. Needs review and Awaiting acceptance
-follow only when populated; neither renders an empty-state panel. The account
-avatar's Invite people menu opens a dialog that reuses the Settings invitation
-controls, including role-gated email invitations and links. A Core-owned actionable request count
-drives the amber Invitations badge and the outer Settings dot; it is not an unread
-count. Approval, delivery, and membership remain separate facts. Clients refresh
-the shared request, invitation, and Inbox projections after a decision.
+Invitation review lives at `/o/{orgSlug}/inbox?requestId={id}`. Open invitation
+items expose source-owned approval controls directly in the full Inbox list.
+Email and legacy Settings links reach the same Inbox detail; the applicant
+status surface stays separate. Pending decisions appear under **Needs review**.
+Approved incomplete invitations appear under **Needs action**, with a recovery
+action rather than another decision. Visibility follows current source permission.
+
+Settings → Invitations retains invite controls and one **Invitation records**
+table, reusing `@openmeld/ui/components/table`. Its five columns are recipient,
+decision, reviewer, invitation status, and actions. Requests and native invitations
+are grouped by recipient, preserving every source record without inventing a
+request-to-invitation ID association. Repeat requests retain separate decision
+rows; invitation status belongs to the recipient group. Direct invitations also
+appear in this table. Status is concise, review dates omit the time of day, and
+exact timestamps remain in request details and date titles. Approve, decline,
+and cancel use visible buttons in the actions column; unavailable actions show
+a dash. Current admins share the same
+records; ordinary members see their own requests. Pending requests sort first,
+including across pages, with direct approve/decline controls for current admins.
+Inbox remains the primary review destination. Both surfaces reuse the same
+source mutation and invalidate the same Inbox and request queries. Pagination
+uses the pending group, created time, and id. Settings has no invitation attention badge.
+The avatar's Invite people dialog continues to reuse the invitation controls.
+Approval, delivery, and membership remain separate facts. Decisions and retries
+refresh shared request, invitation, and Inbox projections.
 
 **Settings → Personal → Appearance** owns the browser-local interface corner
 style. The two current choices are **Square** and **Rounded**. Rounded is the

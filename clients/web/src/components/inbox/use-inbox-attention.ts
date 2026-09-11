@@ -31,7 +31,7 @@ export function resolveInboxAttention(input: {
 	const tone = resolveInboxAttentionTone(summary);
 	const details = [
 		...(actions > 0
-			? [`${actions} ${actions === 1 ? "item needs" : "items need"} action`]
+			? [`${actions} pending ${actions === 1 ? "item" : "items"}`]
 			: []),
 		...(urgent > 0
 			? [`${urgent} unread urgent ${urgent === 1 ? "update" : "updates"}`]

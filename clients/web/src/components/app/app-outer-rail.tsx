@@ -29,7 +29,7 @@ import { resolveAppOuterRailDestinationFromMatches } from "./shell-layout";
 import { SidebarDestinationActionsProvider } from "./sidebar-destination-actions";
 
 // Navigation history only. Conversation identity and drafts remain route-owned.
-const messengerLocations = new Map<string, string>();
+const conversationLocations = new Map<string, string>();
 
 export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	const { presentation } = useAppNavigationPresentation();
@@ -41,18 +41,18 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const location = useRouterState({ select: (state) => state.location });
 	const navigationScope = `${currentUserId}:${currentOrganization.id}:${defaultHumanProfile?.openMeldProfileId ?? ""}`;
-	const currentMessengerPath =
+	const currentConversationPath =
 		activeDestination === "spaces" || activeDestination === "directMessages"
 			? `${location.pathname}${location.searchStr}`
 			: undefined;
 	useEffect(() => {
-		if (currentMessengerPath) {
-			messengerLocations.set(navigationScope, currentMessengerPath);
+		if (currentConversationPath) {
+			conversationLocations.set(navigationScope, currentConversationPath);
 		}
-	}, [navigationScope, currentMessengerPath]);
+	}, [navigationScope, currentConversationPath]);
 	const rememberedPath =
-		currentMessengerPath ?? messengerLocations.get(navigationScope);
-	const messengerPath = rememberedPath?.startsWith(
+		currentConversationPath ?? conversationLocations.get(navigationScope);
+	const conversationPath = rememberedPath?.startsWith(
 		`/o/${currentOrganization.slug}/`
 	)
 		? rememberedPath
@@ -103,7 +103,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 				>
 					{buildAppRailGroups({
 						orgSlug: currentOrganization.slug,
-						messengerPath,
+						conversationPath,
 						centerAgentUnreadCount: Math.max(0, center.data?.unreadCount ?? 0),
 						spacesUnreadCount: Math.max(
 							0,

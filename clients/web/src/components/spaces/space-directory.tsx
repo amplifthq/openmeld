@@ -26,8 +26,8 @@ import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
+	ChatCircleTextIcon,
 	FunnelSimpleIcon,
-	HashIcon,
 	LockKeyIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -556,7 +556,7 @@ function UnindexedJoinedRow(input: {
 						search: { profileId: input.profileId },
 					})}
 				>
-					<HashIcon className="size-4 shrink-0 text-muted-foreground" />
+					<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
 					{input.space.name}
 				</Link>
 			</TableCell>
@@ -614,7 +614,7 @@ function JoinedRow(input: {
 							input.unread ? "font-semibold text-foreground" : "font-medium"
 						)}
 					>
-						<HashIcon className="size-4 shrink-0 text-muted-foreground" />
+						<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
 						<span className="truncate">{item.spaceName}</span>
 						{item.visibility === "private" && (
 							<LockKeyIcon
@@ -825,7 +825,7 @@ function DiscoverList({
 								onClick={() => onPreview(space)}
 								type="button"
 							>
-								<HashIcon className="size-4 shrink-0 text-muted-foreground" />
+								<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
 								{space.name}
 							</button>
 							{input.joinError?.spaceId === space.spaceId && (

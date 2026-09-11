@@ -491,6 +491,9 @@ importers:
       frimousse:
         specifier: 0.3.0
         version: 0.3.0(react@19.2.4)(typescript@5.9.3)
+      liquid-gooey:
+        specifier: 0.2.1
+        version: 0.2.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       lowlight:
         specifier: ^3.3.0
         version: 3.3.0
@@ -10003,6 +10006,12 @@ packages:
     resolution: {integrity: sha512-lDIj4RnYmK7/kXMya+qJsmkRFkGolciXjrsZ6PC25GdTfWOAWetR0ZbsNXRAj1EHHImRSalc+whZFg56F5DVow==}
     engines: {node: '>=20.17'}
     hasBin: true
+
+  liquid-gooey@0.2.1:
+    resolution: {integrity: sha512-BRb0Rscie4JCHFmk4bkWxM+p03c34sidLgNE8XFJGRGEyWM/Wf0FYztJH3CfMWwOVajd4dVurAFe+BTSj8Eeeg==}
+    peerDependencies:
+      react: '>=18'
+      react-dom: '>=18'
 
   listr2@9.0.5:
     resolution: {integrity: sha512-ME4Fb83LgEgwNw96RKNvKV4VTLuXfoKudAmm2lP8Kk87KaMK0/Xrx/aAkMWmT8mDb+3MlFDspfbCs7adjRxA2g==}
@@ -22419,6 +22428,11 @@ snapshots:
       pidtree: 0.6.0
       string-argv: 0.3.2
       yaml: 2.8.2
+
+  liquid-gooey@0.2.1(react-dom@19.2.4(react@19.2.4))(react@19.2.4):
+    dependencies:
+      react: 19.2.4
+      react-dom: 19.2.4(react@19.2.4)
 
   listr2@9.0.5:
     dependencies:

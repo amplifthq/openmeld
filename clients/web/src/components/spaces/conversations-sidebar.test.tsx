@@ -145,7 +145,7 @@ it("searches both types and retains canonical session destinations", () => {
 it("keeps discovery visible in both views and carries an unmatched search into the organization picker", async () => {
 	mount();
 	expect(
-		screen.getByRole("link", { name: "Messenger" }).getAttribute("href")
+		screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
 	).toBe("/o/test/chats");
 	for (const view of ["Grouped", "Recent"] as const) {
 		await selectView(view);

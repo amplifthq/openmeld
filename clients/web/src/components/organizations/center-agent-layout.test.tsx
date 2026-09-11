@@ -33,7 +33,7 @@ vi.mock("#/components/app/app-shell-account", () => ({
 afterEach(cleanup);
 
 describe("CenterAgentLayout", () => {
-	it("renders Center Agent content beside the shared Messenger list", () => {
+	it("renders Center Agent content beside the shared Spaces list", () => {
 		render(
 			<CenterAgentLayout>
 				<div>Organization Center Agent</div>
