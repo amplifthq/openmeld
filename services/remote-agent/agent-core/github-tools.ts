@@ -21,6 +21,7 @@ import {
   string,
   trim,
 } from "valibot";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -146,12 +147,6 @@ export type RemoteAgentGitHubToolName =
 export type RemoteAgentGitHubToolDefinition =
   RemoteAgentToolDefinition<RemoteAgentGitHubToolName>;
 type GitHubActor = (typeof GITHUB_ACTORS)[number];
-
-export type RemoteAgentConnectorExecutionConfig = {
-  baseUrl?: string;
-  fetch?: typeof fetch;
-  runtimeToken?: string;
-};
 
 const nonEmptyStringSchema = pipe(string(), minLength(1));
 const positiveIntegerSchema = pipe(number(), integer(), minValue(1));
@@ -328,7 +323,7 @@ type GitHubIssueBatchManifest = {
 };
 
 export function getRemoteAgentGitHubToolDefinitions(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1031,7 +1026,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
 }
 
 function githubIssueBatchToolDefinition(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1134,7 +1129,7 @@ function resolveGitHubIssueBatchBlockedReasons(
 }
 
 async function executeGitHubIssueBatch(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1227,7 +1222,7 @@ async function executeGitHubIssueBatch(input: {
 
 async function executeGitHubIssueBatchManifest(input: {
   attribution: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   manifest: GitHubIssueBatchManifest;
   manifestKey: string;
@@ -1272,7 +1267,7 @@ async function executeGitHubIssueBatchManifest(input: {
 }
 
 async function executeGitHubIssueBatchItem(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   index: number;
   item: GitHubIssueBatchManifest["items"][number];
@@ -1486,7 +1481,7 @@ function githubToolDefinition(input: {
   description: string | { writeSummary: string };
   input: RemoteAgentToolInputSchema;
   inputConfig: {
-    connectorExecution?: RemoteAgentConnectorExecutionConfig;
+    connectorExecution?: ConnectorExecutionConfig;
     coreWorker: RemoteAgentCoreWorkerBinding;
     storage: RemoteAgentStorage;
     submissionId: string;
@@ -1637,7 +1632,7 @@ function buildGitHubActionAttributionFromExecutionConnection(
 
 async function executeGitHubAction(input: {
   actionId: GitHubActionId;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1745,7 +1740,7 @@ async function executeGitHubAction(input: {
 async function executeIdempotentGitHubWrite(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   operationId: string;
@@ -2729,7 +2724,7 @@ function githubIssueBatchManifestMatches(
 }
 
 async function findGitHubIssueByOperationMarker(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   connectionName: string;
   marker: string;
   owner: string;

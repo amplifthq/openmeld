@@ -1828,6 +1828,11 @@ export {
   pluginPermissionSchema,
 } from "./http/plugin-access";
 export {
+  pluginActionEffectSchema,
+  pluginRuntimeRequestSchema,
+  pluginRuntimeResponseSchema,
+} from "./http/plugin-runtime";
+export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
   prepareReadinessDisplayStateSchema,

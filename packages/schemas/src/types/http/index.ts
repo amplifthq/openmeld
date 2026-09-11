@@ -791,6 +791,10 @@ export type {
 } from "./people-computers";
 export type * from "./plugin-access";
 export type {
+  PluginRuntimeRequest,
+  PluginRuntimeResponse,
+} from "./plugin-runtime";
+export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,
   PrepareReadinessRouteParams,
