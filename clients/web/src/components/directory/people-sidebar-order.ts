@@ -14,6 +14,13 @@ export type PeopleFilter =
 	| "unconnected"
 	| "unknown";
 
+export const PEOPLE_COMPUTER_FILTER_LABELS = {
+	connected: "Computer connected",
+	offline: "Computer disconnected",
+	unconnected: "No computer connected",
+	unknown: "Computer status unavailable",
+} as const;
+
 export function resolvePeopleSections(
 	members: readonly DirectoryHumanProfileRow[],
 	preferences: PeopleSidebarPreferences,

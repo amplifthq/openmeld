@@ -164,8 +164,35 @@ describe("SpaceHeader", () => {
 		expect(titleRow?.className).toContain("col-start-2");
 		expect(within(titleRow as HTMLElement).getByText("Public")).toBeTruthy();
 		expect(
-			within(titleRow as HTMLElement).getByTestId("space-live-status")
-		).toBeTruthy();
+			within(titleRow as HTMLElement).queryByTestId("space-live-status")
+		).toBeNull();
+	});
+
+	it("only shows live connection problems and keeps manual reconnect available", () => {
+		const onReconnectLiveUpdates = vi.fn();
+		const view = render(
+			createSpaceHeader({ liveState: "connecting", onReconnectLiveUpdates })
+		);
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
+		view.rerender(
+			createSpaceHeader({ liveState: "degraded", onReconnectLiveUpdates })
+		);
+		expect(screen.getByText("Reconnecting…")).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Reconnect live updates now" })
+		);
+		expect(onReconnectLiveUpdates).toHaveBeenCalledOnce();
+		view.rerender(
+			createSpaceHeader({ liveState: "stale", onReconnectLiveUpdates })
+		);
+		expect(screen.getByText("Syncing…")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Reconnect live updates now" })
+		).toBeNull();
+		view.rerender(
+			createSpaceHeader({ liveState: "connected", onReconnectLiveUpdates })
+		);
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
 	});
 
 	it("renders space actions without the old app navigation tabs", () => {
@@ -1011,6 +1038,8 @@ describe("SpaceHeader", () => {
 function createSpaceHeader(
 	input: {
 		accessMode?: SpaceAccessMode;
+		liveState?: ComponentProps<typeof SpaceHeader>["liveState"];
+		onReconnectLiveUpdates?: () => void;
 		currentProfileName?: string | null;
 		directMessageOwnerVisibilityLabel?: string | null;
 		onSetAccessMode?: (input: {
@@ -1053,6 +1082,7 @@ function createSpaceHeader(
 					isLeaveSpacePending={false}
 					isSpaceNamePending={false}
 					leaveSpaceErrorMessage={null}
+					liveState={input.liveState}
 					membersControl={
 						input.membersControl === undefined ? (
 							<button type="button">Members</button>
@@ -1065,6 +1095,7 @@ function createSpaceHeader(
 					notificationControl={<button type="button">Notifications</button>}
 					onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 					onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
+					onReconnectLiveUpdates={input.onReconnectLiveUpdates}
 					onSetAccessMode={
 						input.onSetAccessMode ?? vi.fn(async () => undefined)
 					}
