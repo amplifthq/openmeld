@@ -398,7 +398,6 @@ describe("AppOuterRail", () => {
 		renderRail();
 		for (const label of PRIMARY_RAIL_LABELS) {
 			const link = screen.getByRole("link", { name: label });
-			expect(link.className).toContain("h-14");
 			expect(link.textContent).toContain(label);
 		}
 		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();

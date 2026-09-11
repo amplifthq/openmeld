@@ -87,7 +87,7 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "directMessages",
-					label: "Messenger",
+					label: "Spaces",
 					unreadCount: input.spacesUnreadCount + (input.chatUnreadCount ?? 0),
 					attentionTone: input.chatAttentionTone,
 					to:
