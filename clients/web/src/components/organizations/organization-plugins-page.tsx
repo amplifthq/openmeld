@@ -7,22 +7,24 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
-import { CenterAgentPluginsCatalogPanel } from "./center-agent-plugins-catalog-panel";
-import { useCenterAgentRouteState } from "./center-agent-route-state";
 import {
 	OrganizationPluginDetailPage,
 	OrganizationPluginNotFoundPage,
 } from "./organization-plugin-detail-page";
 import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
+import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
-export function OrganizationPluginsPage() {
+export function OrganizationPluginsPage({
+	selectedService,
+}: {
+	selectedService: string | null;
+}) {
 	const { currentOrganization } = useAppOrganization();
-	const { pluginsSelectedService } = useCenterAgentRouteState();
-	const selectedPlugin = pluginsSelectedService
-		? findPluginDefinition(pluginsSelectedService)
+	const selectedPlugin = selectedService
+		? findPluginDefinition(selectedService)
 		: null;
 
-	if (pluginsSelectedService && !selectedPlugin) {
+	if (selectedService && !selectedPlugin) {
 		return (
 			<OrganizationPluginNotFoundPage
 				organizationSlug={currentOrganization.slug}
@@ -57,7 +59,7 @@ export function OrganizationPluginsPage() {
 			<AppPageHeader
 				description={
 					currentOrganization.isPersonal === true
-						? "Connect your accounts so your Center Agent can use them. Every action shows which account it uses."
+						? "Connect your accounts and choose which Agents can use them. Every action shows which account it uses."
 						: `Connect your own accounts or review the accounts shared with ${currentOrganization.name}. Every action shows which account it uses.`
 				}
 				eyebrow={
@@ -67,7 +69,7 @@ export function OrganizationPluginsPage() {
 				}
 				title="Plugins"
 			/>
-			<CenterAgentPluginsCatalogPanel
+			<PluginsCatalogPanel
 				organizationId={currentOrganization.id}
 				organizationSlug={currentOrganization.slug}
 			/>

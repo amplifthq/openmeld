@@ -21,6 +21,7 @@ import {
 	ChatCircleTextIcon,
 	HashIcon,
 	HouseIcon,
+	PlugsIcon,
 	PlusIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
@@ -43,6 +44,7 @@ import {
 	buildOrganizationAgentCreationPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
+	buildOrganizationPluginsPath,
 	buildOrganizationRootPath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -121,6 +123,12 @@ export function buildAppRailGroups(input: {
 					label: "Team",
 					to: buildOrganizationPeoplePath(input.orgSlug),
 					icon: <UsersThreeIcon aria-hidden="true" className="size-4" />,
+				},
+				{
+					id: "plugins",
+					label: "Plugins",
+					to: buildOrganizationPluginsPath(input.orgSlug),
+					icon: <PlugsIcon aria-hidden="true" className="size-4" />,
 				},
 			],
 		},

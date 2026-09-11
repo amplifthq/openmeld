@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrganizationPluginDetailPage } from "./organization-plugin-detail-page";
 import { findPluginDefinition } from "./plugin-catalog";
 
+vi.mock("./plugin-agent-access", () => ({ PluginAgentAccess: () => null }));
+
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to }: { children: ReactNode; to: string }) => (
 		<a href={to}>{children}</a>
@@ -29,8 +31,8 @@ vi.mock("./center-agent-github-connection-card", () => ({
 	),
 }));
 
-vi.mock("./center-agent-plugin-connection-card", () => ({
-	CenterAgentPluginConnectionCard: ({
+vi.mock("./plugin-connection-card", () => ({
+	PluginConnectionCard: ({
 		isPersonalWorkspace,
 	}: {
 		isPersonalWorkspace: boolean;
@@ -69,7 +71,7 @@ describe("OrganizationPluginDetailPage", () => {
 		).toBe("true");
 		expect(
 			screen.getByRole("link", { name: "All Plugins" }).getAttribute("href")
-		).toBe("/o/acme/center-agent/plugins");
+		).toBe("/o/acme/plugins");
 		const appSummary = screen.getByTestId("plugin-detail-summary");
 		expect(appSummary.className).toContain("rounded-md");
 		expect(appSummary.className).toContain("bg-card");
@@ -148,7 +150,7 @@ describe("OrganizationPluginDetailPage", () => {
 
 		expect(
 			screen.getByText(
-				"Your connection stays private to your requests. Workspace access is available to your Center Agent and Routines."
+				"Connect an account, then choose which Agents can use it and what they can do."
 			)
 		).toBeTruthy();
 		expect(

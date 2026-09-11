@@ -123,10 +123,6 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 
-vi.mock("./center-agent-route-state", () => ({
-	useCenterAgentRouteState: () => ({ pluginsSelectedService }),
-}));
-
 vi.mock("./center-agent-github-connection-card", () => ({
 	CenterAgentGitHubConnectionCard: ({
 		canManage,
@@ -143,12 +139,8 @@ vi.mock("./center-agent-github-connection-card", () => ({
 	),
 }));
 
-vi.mock("./center-agent-plugins-catalog-panel", () => ({
-	CenterAgentPluginsCatalogPanel: ({
-		organizationSlug,
-	}: {
-		organizationSlug: string;
-	}) => (
+vi.mock("./plugins-catalog-panel", () => ({
+	PluginsCatalogPanel: ({ organizationSlug }: { organizationSlug: string }) => (
 		<div data-organization-slug={organizationSlug} data-testid="apps-catalog" />
 	),
 }));
@@ -262,7 +254,7 @@ describe("organization access management pages", () => {
 		pluginsSelectedService = "github";
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 
@@ -280,7 +272,7 @@ describe("organization access management pages", () => {
 		pluginsSelectedService = "github";
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 
@@ -293,7 +285,7 @@ describe("organization access management pages", () => {
 	it("shows the Plugin catalog without waiting for role access", () => {
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 
@@ -311,7 +303,7 @@ describe("organization access management pages", () => {
 		};
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 

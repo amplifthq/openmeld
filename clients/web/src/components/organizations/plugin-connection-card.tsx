@@ -149,7 +149,7 @@ function isAuthorizationScopeConnected(input: {
 	);
 }
 
-type CenterAgentPluginConnectionCardProps = {
+type PluginConnectionCardProps = {
 	plugin: Extract<PluginDefinition, { availability: "available" }>;
 	canManage: boolean;
 	isPersonalWorkspace?: boolean;
@@ -157,20 +157,16 @@ type CenterAgentPluginConnectionCardProps = {
 	organizationId: string;
 };
 
-export function CenterAgentPluginConnectionCard(
-	input: CenterAgentPluginConnectionCardProps
-) {
+export function PluginConnectionCard(input: PluginConnectionCardProps) {
 	return (
-		<CenterAgentPluginConnectionCardState
+		<PluginConnectionCardState
 			{...input}
 			key={`${input.organizationId}:${input.plugin.service}:${input.mode}`}
 		/>
 	);
 }
 
-function CenterAgentPluginConnectionCardState(
-	input: CenterAgentPluginConnectionCardProps
-) {
+function PluginConnectionCardState(input: PluginConnectionCardProps) {
 	const queryClient = useQueryClient();
 	const [waitingScope, setWaitingScope] = useState<AuthorizationScope | null>(
 		null

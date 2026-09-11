@@ -1,4 +1,5 @@
 export type AppShellSection =
+	| "plugins"
 	| "newAgent"
 	| "agentActivity"
 	| "agents"
@@ -17,6 +18,7 @@ export type AppShellSection =
 	| "space"
 	| "start";
 export type AppOuterRailDestination =
+	| "plugins"
 	| "newAgent"
 	| "agentActivity"
 	| "agents"
@@ -42,6 +44,7 @@ export const APP_PAGE_FRAME_PADDING_CLASS_NAME = "px-4 sm:px-6 lg:px-8";
 export const APP_SPACE_FRAME_CLASS_NAME = "max-w-[96rem]";
 
 export const appShellStaticData = {
+	plugins: { appShellSection: "plugins" },
 	newAgent: { appShellSection: "newAgent" },
 	agentActivity: { appShellSection: "agentActivity" },
 	agents: { appShellSection: "agents" },
@@ -101,6 +104,7 @@ export function resolveAppOuterRailDestinationFromMatches(
 	const section = resolveAppShellSectionFromMatches(matches);
 
 	switch (section) {
+		case "plugins":
 		case "newAgent":
 		case "agentActivity":
 		case "agents":

@@ -12,8 +12,8 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { CenterAgentPluginsCatalogPanel } from "./center-agent-plugins-catalog-panel";
 import { PLUGINS } from "./plugin-catalog";
+import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 const GITHUB_LINK_NAME = /GitHub/;
 const GOOGLE_DRIVE_LINK_NAME = /Google Drive/;
@@ -45,7 +45,7 @@ vi.mock("#/lib/organizations/connector-connections", () => ({
 	listCurrentOrganizationAppConnections: listAppConnectionsMock,
 }));
 
-describe("CenterAgentPluginsCatalogPanel", () => {
+describe("PluginsCatalogPanel", () => {
 	beforeEach(() => {
 		listAppConnectionsMock.mockReset().mockResolvedValue({
 			connections: [activeConnection("github"), activeConnection("notion")],
@@ -62,7 +62,7 @@ describe("CenterAgentPluginsCatalogPanel", () => {
 		expect(screen.getAllByRole("link")).toHaveLength(PLUGINS.length);
 		expect(
 			screen.getByRole("link", { name: GITHUB_LINK_NAME }).getAttribute("href")
-		).toBe("/o/acme/center-agent/plugins/github");
+		).toBe("/o/acme/plugins/github");
 		expect(screen.getByTestId("app-logo-googledrive").getAttribute("src")).toBe(
 			"/app-logos/google-drive.svg"
 		);
@@ -214,10 +214,7 @@ describe("CenterAgentPluginsCatalogPanel", () => {
 function renderCatalog(queryClient = createTestQueryClient()) {
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
-			<CenterAgentPluginsCatalogPanel
-				organizationId="org-acme"
-				organizationSlug="acme"
-			/>
+			<PluginsCatalogPanel organizationId="org-acme" organizationSlug="acme" />
 		</TestQueryClientProvider>
 	);
 }

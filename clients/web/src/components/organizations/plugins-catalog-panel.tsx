@@ -25,7 +25,7 @@ import {
 	type PluginDefinition,
 } from "./plugin-catalog";
 
-export function CenterAgentPluginsCatalogPanel(input: {
+export function PluginsCatalogPanel(input: {
 	organizationId: string;
 	organizationSlug: string;
 }) {

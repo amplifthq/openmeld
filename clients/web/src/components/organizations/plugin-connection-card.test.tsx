@@ -14,8 +14,8 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
-import { CenterAgentPluginConnectionCard } from "./center-agent-plugin-connection-card";
 import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
+import { PluginConnectionCard } from "./plugin-connection-card";
 
 const listConnectionsMock = vi.hoisted(() => vi.fn());
 const startMemberAuthorizationMock = vi.hoisted(() => vi.fn());
@@ -70,7 +70,7 @@ const figmaApp = requireAvailableApp("figma");
 const notionApp = requireAvailableApp("notion");
 const posthogApp = requireAvailableApp("posthog");
 
-describe("CenterAgentPluginConnectionCard", () => {
+describe("PluginConnectionCard", () => {
 	beforeEach(() => {
 		listConnectionsMock.mockReset().mockResolvedValue({
 			connections: [],
@@ -115,7 +115,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage
 					mode="all"
 					organizationId="org-acme"
@@ -159,7 +159,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage
 					isPersonalWorkspace
 					mode="all"
@@ -208,7 +208,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage
 					mode="all"
 					organizationId="org-acme"
@@ -251,7 +251,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -314,7 +314,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -357,7 +357,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -408,7 +408,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -442,7 +442,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -475,7 +475,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -500,7 +500,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -540,7 +540,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -590,7 +590,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -629,7 +629,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -684,7 +684,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -752,7 +752,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -807,7 +807,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -882,7 +882,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -985,7 +985,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1073,7 +1073,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider queryClient={queryClient}>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1128,7 +1128,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		const view = render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1148,7 +1148,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		view.rerender(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1181,7 +1181,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1225,7 +1225,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1269,7 +1269,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1320,7 +1320,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"
@@ -1359,7 +1359,7 @@ describe("CenterAgentPluginConnectionCard", () => {
 	it("clears credential fields as soon as the submission settles", async () => {
 		render(
 			<TestQueryClientProvider>
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={false}
 					mode="member"
 					organizationId="org-acme"

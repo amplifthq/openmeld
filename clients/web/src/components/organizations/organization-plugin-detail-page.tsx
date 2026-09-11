@@ -6,9 +6,10 @@ import type { ReactNode } from "react";
 import { buildOrganizationPluginsPath } from "#/lib/organizations/organization-routes";
 import { AppLogo } from "./app-logo";
 import { CenterAgentGitHubConnectionCard } from "./center-agent-github-connection-card";
-import { CenterAgentPluginConnectionCard } from "./center-agent-plugin-connection-card";
-import { PluginStatusBadge } from "./center-agent-plugins-catalog-panel";
+import { PluginAgentAccess } from "./plugin-agent-access";
 import type { PluginDefinition } from "./plugin-catalog";
+import { PluginConnectionCard } from "./plugin-connection-card";
+import { PluginStatusBadge } from "./plugins-catalog-panel";
 
 export function OrganizationPluginDetailPage(input: {
 	plugin: PluginDefinition;
@@ -78,9 +79,8 @@ export function OrganizationPluginDetailPage(input: {
 							{input.plugin.name} access
 						</h2>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-xs leading-5">
-							{input.isPersonalWorkspace
-								? "Your connection stays private to your requests. Workspace access is available to your Center Agent and Routines."
-								: "Your connection stays private to your requests. Organization access is available to every member and Routine."}
+							Connect an account, then choose which Agents can use it and what
+							they can do.
 						</p>
 					</div>
 					{input.plugin.service === "github" ? (
@@ -92,7 +92,7 @@ export function OrganizationPluginDetailPage(input: {
 							organizationId={input.organizationId}
 						/>
 					) : (
-						<CenterAgentPluginConnectionCard
+						<PluginConnectionCard
 							canManage={input.canManageSharedPlugins}
 							isPersonalWorkspace={input.isPersonalWorkspace}
 							key={`${input.organizationId}:${input.plugin.service}`}
@@ -101,6 +101,10 @@ export function OrganizationPluginDetailPage(input: {
 							plugin={input.plugin}
 						/>
 					)}
+					<PluginAgentAccess
+						organizationId={input.organizationId}
+						service={input.plugin.service}
+					/>
 				</section>
 			) : (
 				<section className="rounded-md border border-border/70 bg-card px-4 py-5 sm:px-5">
