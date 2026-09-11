@@ -4,8 +4,9 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputersPath,
+	buildOrganizationDirectMessagePath,
 	buildOrganizationDocumentPath,
-	buildOrganizationNotificationsSettingsPath,
+	buildOrganizationInboxPath,
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
@@ -24,7 +25,7 @@ export function buildInboxItemSourceNavigation(input: {
 	switch (target.kind) {
 		case "organization_join_request":
 			return {
-				href: `/o/${encodeURIComponent(input.orgSlug)}/settings/invitations?requestId=${encodeURIComponent(target.requestId)}`,
+				href: `/o/${encodeURIComponent(input.orgSlug)}/inbox?requestId=${encodeURIComponent(target.requestId)}`,
 				openInNewTab: false,
 			};
 		case "agent_profile":
@@ -44,6 +45,19 @@ export function buildInboxItemSourceNavigation(input: {
 				openInNewTab: false,
 			};
 		case "space":
+			if (target.directMessage) {
+				return {
+					href: buildOrganizationDirectMessagePath({
+						orgSlug: input.orgSlug,
+						spaceId: target.spaceId,
+						search: {
+							focusSignalId: target.signalId,
+							focusThreadRootSignalId: target.threadRootSignalId,
+						},
+					}),
+					openInNewTab: false,
+				};
+			}
 			return {
 				href: buildOrganizationSpacePath({
 					orgSlug: input.orgSlug,
@@ -79,6 +93,7 @@ export function buildInboxItemSourceNavigation(input: {
 		case "center_agent":
 			return {
 				href: buildOrganizationCenterAgentChatPath(input.orgSlug, {
+					session: target.spaceId,
 					focusSignalId: target.signalId,
 				}),
 				openInNewTab: false,
@@ -108,7 +123,7 @@ function resolveSettingsTargetPath(input: {
 		case "computers":
 			return buildOrganizationComputersPath(input.orgSlug);
 		case "notifications":
-			return buildOrganizationNotificationsSettingsPath(input.orgSlug);
+			return `${buildOrganizationInboxPath(input.orgSlug)}?appSettings=notifications`;
 		default:
 			return assertNever(input.section);
 	}
@@ -127,6 +142,14 @@ export function isInboxItemSourceLocation(input: {
 	visibleConversation: InboxVisibleConversation | null;
 }): boolean {
 	const target = input.item.sourceTarget;
+	if (target.kind === "center_agent") {
+		return Boolean(
+			target.spaceId &&
+				input.visibleConversation?.kind === "space" &&
+				input.visibleConversation.spaceId === target.spaceId &&
+				input.visibleConversation.threadRootSignalId === null
+		);
+	}
 	if (target.kind === "space") {
 		return (
 			input.visibleConversation?.kind === "space" &&

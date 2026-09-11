@@ -3,7 +3,6 @@ import type { ComponentType, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Route as CenterAgentChannelsRoute } from "./_center-agent/center-agent.channels";
 import { Route as CenterAgentMemoryRoute } from "./_center-agent/center-agent.memory";
-import { Route as CenterAgentAppsRoute } from "./_center-agent/center-agent.plugins";
 import { Route as CenterAgentRoutinesRoute } from "./_center-agent/center-agent.routines";
 import { Route as CenterAgentSkillDetailRoute } from "./_center-agent/center-agent.skills.$skillId";
 import { Route as CenterAgentSkillsRoute } from "./_center-agent/center-agent.skills.index";
@@ -86,10 +85,6 @@ vi.mock(
 		OrganizationSkillsListPage: () => <h1 data-section-id="skills">Skills</h1>,
 	})
 );
-
-vi.mock("#/components/organizations/organization-plugins-page", () => ({
-	OrganizationPluginsPage: () => <h1 data-section-id="plugins">Plugins</h1>,
-}));
 
 vi.mock("#/components/organizations/organization-memory-page", () => ({
 	OrganizationMemoryPage: () => <h1 data-section-id="memory">Memory</h1>,
@@ -375,10 +370,6 @@ describe("primary organization routes", () => {
 		{
 			expectedSectionId: "channels",
 			route: CenterAgentChannelsRoute,
-		},
-		{
-			expectedSectionId: "plugins",
-			route: CenterAgentAppsRoute,
 		},
 		{
 			expectedSectionId: "memory",

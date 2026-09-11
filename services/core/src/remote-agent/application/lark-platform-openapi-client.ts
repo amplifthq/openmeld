@@ -10,6 +10,7 @@ import type {
   ChannelContextMessage,
   NormalizedMessageChannelEvent,
 } from "@openmeld/schemas/types";
+import { readLarkPlatformPostContent } from "./lark-platform-post-content";
 import type {
   LarkPlatformMessageChannelProvider,
   MessageChannelCardCreationResult,
@@ -102,16 +103,7 @@ export async function readLarkPlatformChannelContext(input: {
     return unavailableContext("unavailable");
   }
 
-  const url = new URL("/open-apis/im/v1/messages", apiHost);
-  url.searchParams.set("container_id_type", "chat");
-  url.searchParams.set("container_id", input.currentEvent.locator.chatId);
-  url.searchParams.set(
-    "end_time",
-    String(Math.floor(input.currentEvent.sentAtMs / 1000))
-  );
-  url.searchParams.set("sort_type", "ByCreateTimeDesc");
-  url.searchParams.set("page_size", String(CHANNEL_CONTEXT_MAX_MESSAGES));
-  url.searchParams.set("with_sender_name", "true");
+  const url = buildLarkPlatformHistoryUrl(apiHost, input.currentEvent);
 
   let response: Response;
   try {
@@ -142,6 +134,12 @@ export async function readLarkPlatformChannelContext(input: {
       continue;
     }
     if (!belongsToCurrentConversation(rawItem, input.currentEvent)) {
+      continue;
+    }
+    if (
+      (readNonnegativeInteger(rawItem, "create_time") ?? 0) >
+      input.currentEvent.sentAtMs
+    ) {
       continue;
     }
     if (readString(rawItem, "message_id") === input.currentEvent.messageId) {
@@ -247,6 +245,7 @@ export async function publishLarkPlatformReply(input: {
 }
 
 export async function createLarkPlatformStreamingCard(input: {
+  stopDeliveryId?: string;
   appId: string;
   appSecret: string;
   fetchImpl?: typeof fetch;
@@ -274,7 +273,12 @@ export async function createLarkPlatformStreamingCard(input: {
   try {
     response = await fetchImpl(`${apiHost}/open-apis/cardkit/v1/cards`, {
       body: JSON.stringify({
-        data: JSON.stringify(buildLarkPlatformStreamingCard(input.initialText)),
+        data: JSON.stringify(
+          buildLarkPlatformStreamingCard(
+            input.initialText,
+            input.stopDeliveryId
+          )
+        ),
         type: "card_json",
       }),
       headers: {
@@ -423,6 +427,7 @@ export async function updateLarkPlatformStreamingCardContent(input: {
 }
 
 export async function finalizeLarkPlatformStreamingCard(input: {
+  replyDeliveryId?: string;
   appId: string;
   appSecret: string;
   cardId: string;
@@ -430,6 +435,7 @@ export async function finalizeLarkPlatformStreamingCard(input: {
   provider: LarkPlatformMessageChannelProvider;
   providerPublicationIdempotencyKey: string;
   sequence: number;
+  outcome: "completed" | "failed" | "stopped" | "continued";
   text: string;
 }): Promise<MessageChannelCardMutationResult> {
   const validationFailure = validateCardMutationInput(input);
@@ -440,7 +446,13 @@ export async function finalizeLarkPlatformStreamingCard(input: {
     ...input,
     body: {
       card: {
-        data: JSON.stringify(buildLarkPlatformTerminalCard(input.text)),
+        data: JSON.stringify(
+          buildLarkPlatformTerminalCard(
+            input.text,
+            input.outcome,
+            input.replyDeliveryId
+          )
+        ),
         type: "card_json",
       },
       sequence: input.sequence,
@@ -827,7 +839,10 @@ function validateCardMutationInput(
   return null;
 }
 
-function buildLarkPlatformStreamingCard(text: string): JsonObject {
+function buildLarkPlatformStreamingCard(
+  text: string,
+  stopDeliveryId?: string
+): JsonObject {
   return {
     body: {
       elements: [
@@ -836,23 +851,59 @@ function buildLarkPlatformStreamingCard(text: string): JsonObject {
           element_id: LARK_PLATFORM_STREAMING_CARD_ELEMENT_ID,
           tag: "markdown",
         },
+        ...(stopDeliveryId
+          ? [
+              {
+                tag: "button",
+                element_id: "stop_response",
+                name: "openmeld.center_agent.control",
+                text: { tag: "plain_text", content: "Stop response" },
+                type: "default",
+                behaviors: [
+                  {
+                    type: "callback",
+                    value: {
+                      openmeld_action: "control",
+                      v: 1,
+                      action: "stop",
+                      deliveryId: stopDeliveryId,
+                    },
+                  },
+                ],
+              },
+            ]
+          : []),
       ],
     },
     config: {
       streaming_config: {
-        print_frequency_ms: { default: 70 },
-        print_step: { default: 1 },
+        print_frequency_ms: { default: 30 },
+        print_step: { default: 3 },
         print_strategy: "fast",
       },
       streaming_mode: true,
-      summary: { content: "Working…" },
+      summary: { content: "Request received" },
     },
     schema: "2.0",
   };
 }
 
-function buildLarkPlatformTerminalCard(text: string): JsonObject {
+function buildLarkPlatformTerminalCard(
+  text: string,
+  outcome: "completed" | "failed" | "stopped" | "continued",
+  replyDeliveryId?: string
+): JsonObject {
+  const label = {
+    completed: "Response complete",
+    failed: "Could not complete this request",
+    stopped: "Stopped",
+    continued: "Response continues below",
+  }[outcome];
   return {
+    header: {
+      title: { tag: "plain_text", content: label },
+      template: outcome === "failed" ? "red" : "grey",
+    },
     body: {
       elements: [
         {
@@ -860,13 +911,59 @@ function buildLarkPlatformTerminalCard(text: string): JsonObject {
           element_id: LARK_PLATFORM_STREAMING_CARD_ELEMENT_ID,
           tag: "markdown",
         },
+        ...(replyDeliveryId && outcome === "completed"
+          ? [buildLarkPlatformFollowUpForm(replyDeliveryId)]
+          : []),
       ],
     },
     config: {
       streaming_mode: false,
-      summary: { content: buildCardSummary(text) },
+      summary: {
+        content: buildCardSummary(
+          outcome === "completed" ? text : `${label}: ${text}`
+        ),
+      },
     },
     schema: "2.0",
+  };
+}
+
+function buildLarkPlatformFollowUpForm(deliveryId: string): JsonObject {
+  return {
+    tag: "form",
+    name: "follow_up_form",
+    elements: [
+      {
+        tag: "collapsible_panel",
+        expanded: false,
+        header: { title: { tag: "plain_text", content: "Follow up" } },
+        elements: [
+          {
+            tag: "input",
+            name: "follow_up",
+            required: true,
+            max_length: 1000,
+            placeholder: {
+              tag: "plain_text",
+              content: "Ask a follow-up or describe the next step",
+            },
+          },
+          {
+            tag: "button",
+            name: "openmeld.center_agent.control",
+            form_action_type: "submit",
+            type: "default",
+            text: { tag: "plain_text", content: "Send follow-up" },
+            behaviors: [
+              {
+                type: "callback",
+                value: { v: 1, action: "reply", deliveryId },
+              },
+            ],
+          },
+        ],
+      },
+    ],
   };
 }
 
@@ -1387,6 +1484,27 @@ function readNestedString(
   return isJsonObject(parent) ? readString(parent, key) : null;
 }
 
+function buildLarkPlatformHistoryUrl(
+  apiHost: string,
+  event: LarkPlatformMessageEvent
+): URL {
+  if (event.locator.provider === "slack") {
+    throw new Error("Lark history requires a Feishu or Lark conversation.");
+  }
+  const url = new URL("/open-apis/im/v1/messages", apiHost);
+  const threadId = event.locator.threadId;
+  url.searchParams.set("container_id_type", threadId ? "thread" : "chat");
+  url.searchParams.set("container_id", threadId ?? event.locator.chatId);
+  // The provider does not support time-range parameters on thread reads.
+  if (!threadId) {
+    url.searchParams.set("end_time", String(Math.ceil(event.sentAtMs / 1000)));
+  }
+  url.searchParams.set("sort_type", "ByCreateTimeDesc");
+  url.searchParams.set("page_size", String(CHANNEL_CONTEXT_MAX_MESSAGES));
+  url.searchParams.set("with_sender_name", "true");
+  return url;
+}
+
 function belongsToCurrentConversation(
   item: JsonObject,
   event: LarkPlatformMessageEvent
@@ -1411,18 +1529,18 @@ function normalizeHistoricalMessage(
   const sentAtMs = readNonnegativeInteger(item, "create_time");
   const body = readObject(item, "body");
   const content = parseJsonObject(readString(body, "content"));
-  const rawText =
-    readString(item, "msg_type") === "text"
-      ? readString(content, "text")
-      : null;
+  let rawText: string | null | undefined = null;
+  if (readString(item, "msg_type") === "text") {
+    rawText = readString(content, "text");
+  } else if (readString(item, "msg_type") === "post") {
+    rawText = readLarkPlatformPostContent(content)?.text;
+  }
   if (!(id && sentAtMs !== null && rawText)) {
     return null;
   }
   const sender = readObject(item, "sender");
   const senderType = readString(sender, "sender_type");
-  const text = replaceMentionKeys(rawText, readArray(item, "mentions"))
-    .replace(/\s+/gu, " ")
-    .trim();
+  const text = replaceMentionKeys(rawText, readArray(item, "mentions")).trim();
   if (!text) {
     return null;
   }

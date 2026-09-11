@@ -103,6 +103,7 @@ export const createDispatchOutboxRecord = (input: {
   sourceAutoRelayDepth?: number;
   sourceDispatchChainId?: string;
   sourceSignalSnapshot: DispatchSourceSignalSnapshotInput;
+  deviceWait?: OpenMeldDaemonDispatchQueueMessage["deviceWait"];
   sourceMessageEnvelope?:
     | OpenMeldDaemonDispatchQueueMessage["sourceMessageEnvelope"]
     | null;
@@ -159,6 +160,9 @@ export const createDispatchOutboxRecord = (input: {
     sourceVisitedProfileIds: input.sourceVisitedProfileIds,
   });
   const sourceSignalSnapshot = buildSourceSignalSnapshot({
+    callerContext: input.sourceSignalSnapshot.callerContext,
+    quotedMessage: input.sourceSignalSnapshot.quotedMessage,
+    pinnedFiles: input.sourceSignalSnapshot.pinnedFiles,
     attachments: input.sourceSignalSnapshot.attachments,
     files: input.sourceSignalSnapshot.files,
     centerAgentInteractionSource:
@@ -171,6 +175,7 @@ export const createDispatchOutboxRecord = (input: {
   const replyToSnapshot = buildReplyToSnapshot(input.replyToSnapshot);
 
   const message: OpenMeldDaemonDispatchQueueMessage = {
+    ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     v: OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
     dispatchId,
     spaceId: input.spaceId,
@@ -279,6 +284,11 @@ const resolveDispatchChainContextForOutbox = (input: {
 };
 
 const buildSourceSignalSnapshot = (input: {
+  callerContext?: NonNullable<
+    OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+  >["callerContext"];
+  quotedMessage?: DispatchSourceSignalSnapshotInput["quotedMessage"];
+  pinnedFiles?: DispatchSourceSignalSnapshotInput["pinnedFiles"];
   attachments?: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
   >["attachments"];
@@ -297,6 +307,9 @@ const buildSourceSignalSnapshot = (input: {
     input.profileMentionLabel
   );
   return {
+    ...(input.callerContext ? { callerContext: input.callerContext } : {}),
+    ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
+    ...(input.pinnedFiles?.length ? { pinnedFiles: input.pinnedFiles } : {}),
     ...(input.attachments && input.attachments.length > 0
       ? { attachments: input.attachments }
       : {}),
@@ -835,10 +848,11 @@ export const listDispatchOutboxRecordsBySourceSignalId = (
       `
         SELECT payload_json, status, created_at_ms, queued_at_ms
         FROM openMeldDaemon_outbox
-        WHERE status IN (?, ?, ?)
+        WHERE source_event_id = ? AND status IN (?, ?, ?)
         ORDER BY created_at_ms DESC
         LIMIT ?
       `,
+      normalizedSourceSignalId,
       OPENMELD_DAEMON_OUTBOX_STATUS_PENDING,
       PERSISTED_OUTBOX_STATUS_QUEUED,
       OPENMELD_DAEMON_OUTBOX_STATUS_CANCELLED,

@@ -46,6 +46,12 @@ export type PreparedInboxItemWrite = {
   statements: D1PreparedStatement[];
 };
 
+/** Internal, source-owned predicate evaluated in the same transaction as projection. */
+export type InboxSourceWriteGuard = {
+  sql: string;
+  bindings: readonly (string | number | null)[];
+};
+
 export type OpenOrganizationDocumentDraftInboxTarget = {
   documentId: string;
   organizationId: string;
@@ -61,6 +67,7 @@ export async function prepareEnsureInboxItemStatements(input: {
   candidate: InboxSourceCandidate;
   db: D1Database;
   nowMs: number;
+  sourceGuard?: InboxSourceWriteGuard;
 }): Promise<PreparedInboxItemWrite> {
   const candidate = inboxSourceCandidateSchema.parse(input.candidate);
   const sourceTargetJson = JSON.stringify(candidate.sourceTarget);
@@ -71,7 +78,11 @@ export async function prepareEnsureInboxItemStatements(input: {
     candidate.sourceKey,
   ]);
   const deliveryId =
-    candidate.importance === "urgent" ||
+    (candidate.importance === "urgent" &&
+      !(
+        candidate.sourceTarget.kind === "space" &&
+        candidate.sourceTarget.agentOwnerActivity === true
+      )) ||
     candidate.sourceTarget.kind === "organization_join_request"
       ? await buildStableId("inbox_email", [itemId])
       : null;
@@ -145,11 +156,11 @@ export async function prepareEnsureInboxItemStatements(input: {
           occurred_at_ms,
           created_at_ms,
           updated_at_ms
-        ) VALUES (
+        ) SELECT
           ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
           ${spaceReadWatermark.expression},
           ?, ?, ?
-        )
+        WHERE ${input.sourceGuard?.sql ?? "1"}
         ON CONFLICT(organization_id, recipient_user_id, source_kind, source_key)
         DO UPDATE SET
           title = CASE
@@ -183,7 +194,8 @@ export async function prepareEnsureInboxItemStatements(input: {
       ...spaceReadWatermark.bindings,
       candidate.occurredAtMs,
       input.nowMs,
-      input.nowMs
+      input.nowMs,
+      ...(input.sourceGuard?.bindings ?? [])
     );
   const statements = [insertItem];
   if (deliveryId) {
@@ -204,10 +216,18 @@ export async function prepareEnsureInboxItemStatements(input: {
             FROM inbox_items
             WHERE id = ?
               AND (importance = 'urgent' OR json_extract(source_target_json, '$.kind') = 'organization_join_request')
+              AND (${input.sourceGuard?.sql ?? "1"})
             ON CONFLICT(inbox_item_id) DO NOTHING
           `
         )
-        .bind(deliveryId, input.nowMs, input.nowMs, input.nowMs, itemId)
+        .bind(
+          deliveryId,
+          input.nowMs,
+          input.nowMs,
+          input.nowMs,
+          itemId,
+          ...(input.sourceGuard?.bindings ?? [])
+        )
     );
   }
   return { deliveryId, itemId, statements };
@@ -249,6 +269,8 @@ export function prepareResolveInboxItemsBySourceStatements(input: {
   resolvedAtMs: number;
   sourceKey: string;
   sourceKind: InboxSourceKind;
+  markRead?: boolean;
+  sourceGuard?: InboxSourceWriteGuard;
 }): D1PreparedStatement[] {
   const itemUpdate = input.db
     .prepare(
@@ -257,20 +279,24 @@ export function prepareResolveInboxItemsBySourceStatements(input: {
         SET
           resolution_status = 'resolved',
           resolved_at_ms = ?,
+          ${input.markRead ? "read_at_ms = coalesce(read_at_ms, ?)," : ""}
           updated_at_ms = max(updated_at_ms, ?)
         WHERE organization_id = ?
           AND source_kind = ?
           AND source_key = ?
           AND attention = 'action_required'
           AND resolution_status = 'open'
+          AND (${input.sourceGuard?.sql ?? "1"})
       `
     )
     .bind(
       input.resolvedAtMs,
+      ...(input.markRead ? [input.resolvedAtMs] : []),
       input.resolvedAtMs,
       input.organizationId,
       input.sourceKind,
-      input.sourceKey
+      input.sourceKey,
+      ...(input.sourceGuard?.bindings ?? [])
     );
   const deliveryUpdate = input.db
     .prepare(
@@ -290,6 +316,7 @@ export function prepareResolveInboxItemsBySourceStatements(input: {
             WHERE organization_id = ?
               AND source_kind = ?
               AND source_key = ?
+              AND resolution_status = 'resolved'
           )
       `
     )

@@ -1,5 +1,6 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable runtime contract entrypoints.
 
+export * from "./agent-computer-browser";
 export {
   agentControllerInterfaceAuthSnapshotSchema,
   agentControllerInterfaceAuthStatusSchema,
@@ -74,6 +75,7 @@ export {
   MESSAGE_CHANNEL_PROVIDERS,
   MESSAGE_CHANNEL_RESOURCE_TYPES,
   MESSAGE_CHANNEL_TRANSPORTS,
+  messageChannelCardControlSchema,
   messageChannelConversationLocatorSchema,
   messageChannelEventKindSchema,
   messageChannelIngressEnvelopeSchema,

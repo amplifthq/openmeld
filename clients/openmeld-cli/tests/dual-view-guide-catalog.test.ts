@@ -416,7 +416,7 @@ describe("dual view guide catalog", () => {
     );
     for (const guideError of [requiredGuideError, conflictGuideError]) {
       expect(guideError.message).toContain(
-        "@Name(wake), @Name(reference), or @Name(mention)"
+        "--wake, --reference, or --mention with full Profile IDs"
       );
     }
 

@@ -7,20 +7,21 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ChatCircleTextIcon,
-	HashIcon,
-	WarningIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
+import {
+	AppModuleSidebarToggle,
+	useHasModuleSidebar,
+} from "#/components/app/app-module-sidebar";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
-import { AgentChatBadge } from "./agent-chat-badge";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
 	SpaceHeaderNavigationMenu,
 	type SpaceHeaderNavigationMenuItem,
 } from "./space-header-navigation-menu";
-import { SpaceInfoDialog } from "./space-info-dialog";
+import { SpacePinsRecallAction } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
+import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
 
 export type SpaceWindowHeaderSubtitleItem = {
@@ -41,6 +42,8 @@ export function SpaceWindowHeader(input: {
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
 }) {
+	const readingHeader = useSpaceReadingHeader();
+	const hasModuleSidebar = useHasModuleSidebar();
 	const subtitleItems = input.subtitleItems ?? [];
 	const hasSecondaryRow =
 		input.navigation !== undefined || subtitleItems.length > 0;
@@ -53,9 +56,11 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			ref={readingHeader?.setHeader}
 		>
-			{input.leadingControl ? (
+			{input.leadingControl || hasModuleSidebar ? (
 				<div className="col-start-1 row-start-1 flex shrink-0 items-center gap-3">
+					<AppModuleSidebarToggle />
 					{input.leadingControl}
 				</div>
 			) : null}
@@ -63,7 +68,15 @@ export function SpaceWindowHeader(input: {
 				className="col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden"
 				data-slot="space-window-header-title"
 			>
-				<h1 className="truncate font-medium text-lg">{input.title}</h1>
+				<h1
+					className={cn(
+						"truncate font-medium text-lg",
+						readingHeader && "max-w-[28rem]"
+					)}
+					title={readingHeader ? input.title : undefined}
+				>
+					{input.title}
+				</h1>
 				{input.titleAdornment ?? null}
 			</div>
 
@@ -132,6 +145,7 @@ export function SpaceHeader(input: {
 	canManageSpaceAccess: boolean;
 	canManageSpaceName: boolean;
 	currentProfileName: string | null;
+	currentProfileId?: string;
 	deleteSpaceErrorMessage: string | null;
 	directMessageOwnerVisibilityLabel?: string | null;
 	hideShareControl?: boolean;
@@ -140,7 +154,6 @@ export function SpaceHeader(input: {
 	isLeaveSpacePending: boolean;
 	isSpaceNamePending: boolean;
 	isCenterAgentDirectMessage?: boolean;
-	isRemoteAgentDirectMessage?: boolean;
 	leaveSpaceErrorMessage: string | null;
 	// Realtime stream health for this browser's live connection. Drives the
 	// status dot pinned after the space name; defaults to "connected" so static
@@ -154,14 +167,12 @@ export function SpaceHeader(input: {
 	// on the degraded status indicator.
 	onReconnectLiveUpdates?: () => void;
 	renderFrame?: boolean;
-	// Count of unread messages from others (newer than the read watermark).
-	// Rendered as a trailing "N new" subtitle token when greater than zero.
-	unreadCount?: number;
 	membersControl?: ReactNode;
 	notificationControl?: ReactNode;
 	// "Get set up" recall action shown before Members when the in-Space setup
 	// panel is dismissed but still has actions.
 	setupRecallAction?: ReactNode;
+	onRecallPinnedItems?: () => void;
 	viewControl?: ReactNode;
 	onDeleteSpace: () => Promise<void> | void;
 	onLeaveSpace?: () => Promise<void> | void;
@@ -171,6 +182,7 @@ export function SpaceHeader(input: {
 		password?: string;
 	}) => Promise<void>;
 	onUpdateSpaceName: (name: string) => Promise<void>;
+	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 	spaceNameErrorMessage: string | null;
 	status: GetSpaceStatusResponse;
 }) {
@@ -184,24 +196,6 @@ export function SpaceHeader(input: {
 		directMessageConvertedAt: input.status.directMessageConvertedAt,
 		purpose: input.status.spacePurpose,
 	});
-	const subtitleItems: SpaceWindowHeaderSubtitleItem[] = [];
-	if (input.directMessageOwnerVisibilityLabel) {
-		subtitleItems.push({
-			key: "agent-owner-visibility",
-			node: <span>{input.directMessageOwnerVisibilityLabel}</span>,
-		});
-	}
-	const unreadCount = input.unreadCount ?? 0;
-	if (unreadCount > 0) {
-		subtitleItems.push({
-			key: "unread",
-			node: (
-				<span className="font-medium text-amber-600 dark:text-amber-400">
-					{`${unreadCount} new`}
-				</span>
-			),
-		});
-	}
 
 	return (
 		<SpaceWindowHeader
@@ -221,6 +215,7 @@ export function SpaceHeader(input: {
 								{input.setupRecallAction}
 							</div>
 						) : null}
+						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
@@ -229,8 +224,11 @@ export function SpaceHeader(input: {
 								errorMessage={input.accessModeErrorMessage}
 								isPending={input.isAccessModePending}
 								onSetAccessMode={input.onSetAccessMode}
+								onSetVisibility={input.onSetVisibility}
+								openMeldProfileId={input.currentProfileId}
 								spaceId={input.status.spaceId}
 								spaceName={spaceName}
+								visibility={input.status.organizationVisibility}
 							/>
 						)}
 						{input.menuItems ? (
@@ -242,7 +240,7 @@ export function SpaceHeader(input: {
 								}}
 							/>
 						) : null}
-						<SpaceInfoDialog
+						<SpaceSettingsDialog
 							access={{
 								canManage: input.canManageSpaceAccess,
 								errorMessage: input.accessModeErrorMessage,
@@ -278,9 +276,12 @@ export function SpaceHeader(input: {
 							onOpenChange={
 								input.menuItems ? setSpaceInformationOpen : undefined
 							}
+							onSetVisibility={input.onSetVisibility}
 							open={input.menuItems ? spaceInformationOpen : undefined}
+							openMeldProfileId={input.currentProfileId}
 							showTrigger={!input.menuItems}
 							spaceId={input.status.spaceId}
+							visibility={input.status.organizationVisibility}
 						/>
 					</div>
 				</>
@@ -294,25 +295,23 @@ export function SpaceHeader(input: {
 				input.isCenterAgentDirectMessage && "overflow-x-auto",
 				input.setupRecallAction && "max-lg:pr-12"
 			)}
-			subtitleItems={subtitleItems}
 			title={spaceName}
 			titleAdornment={
 				<span className="flex shrink-0 items-center gap-2 text-muted-foreground text-xs">
 					{input.conversationTitleAction?.(spaceName)}
 					{input.isCenterAgentDirectMessage || isDirectMessage
 						? null
-						: renderSpaceAccessModeHeaderLabel(input.status.accessMode)}
+						: renderSpaceAccessModeHeaderLabel(input.status)}
 					<SpaceLiveStatusIndicator
 						liveErrorMessage={input.liveErrorMessage ?? null}
 						liveState={input.liveState ?? "connected"}
 						onReconnectNow={input.onReconnectLiveUpdates}
 					/>
-					{renderAgentChatBadge(
-						input.isCenterAgentDirectMessage,
-						input.isRemoteAgentDirectMessage,
-						isDirectMessage,
-						input.status.members.agentCount
-					)}
+					{input.directMessageOwnerVisibilityLabel ? (
+						<span className="inline-flex shrink-0 items-center rounded border px-1.5 py-0.5 font-normal text-[10px] leading-none">
+							{input.directMessageOwnerVisibilityLabel}
+						</span>
+					) : null}
 				</span>
 			}
 		/>
@@ -320,9 +319,8 @@ export function SpaceHeader(input: {
 }
 
 export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
-	const Icon = input.isDirectMessage ? ChatCircleTextIcon : HashIcon;
 	return (
-		<Icon
+		<ChatCircleTextIcon
 			aria-hidden="true"
 			className="size-4 text-muted-foreground"
 			data-space-header-icon={
@@ -333,28 +331,14 @@ export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
 	);
 }
 
-function renderAgentChatBadge(
-	isCenterAgent: boolean | undefined,
-	isRemoteAgent: boolean | undefined,
-	isDirectMessage: boolean,
-	agentCount: number
-) {
-	if (isCenterAgent) {
-		return <AgentChatBadge kind="center" />;
-	}
-	if (isDirectMessage && agentCount === 1) {
-		return <AgentChatBadge kind={isRemoteAgent ? "remote" : "local"} />;
-	}
-	return null;
-}
-
 function renderSpaceAccessModeHeaderLabel(
-	accessMode: GetSpaceStatusResponse["accessMode"]
+	status: GetSpaceStatusResponse
 ): ReactNode {
+	const { accessMode } = status;
 	if (accessMode !== "public") {
 		return (
 			<span className="hidden sm:inline">
-				{resolveSpaceAccessModeLabel(accessMode)}
+				{resolveSpaceAccessModeLabel(status)}
 			</span>
 		);
 	}
@@ -385,12 +369,12 @@ function PublicSpaceAccessWarningLabel() {
 	);
 }
 
-function resolveSpaceAccessModeLabel(
-	accessMode: GetSpaceStatusResponse["accessMode"]
-): string {
-	switch (accessMode) {
+function resolveSpaceAccessModeLabel(status: GetSpaceStatusResponse): string {
+	switch (status.accessMode) {
 		case "members_only":
-			return "Members only";
+			return status.organizationVisibility === "public"
+				? "Open to organization"
+				: "Invite only";
 		case "protected":
 			return "Password protected";
 		case "public_view_join_password":
@@ -428,10 +412,7 @@ export function SpaceLiveStatusIndicator(input: {
 	const needsAttention = isDegraded || isStale;
 	const dotClassName = cn(
 		"status-dot",
-		resolveStatusToneIndicatorClassName(
-			needsAttention ? "warning" : "ready",
-			"solid"
-		)
+		resolveStatusToneIndicatorClassName("warning", "solid")
 	);
 	const srLabel = resolveLiveStatusSrLabel(input.liveState);
 	// When degraded we expose a manual retry: don't make the user wait out the
@@ -443,21 +424,16 @@ export function SpaceLiveStatusIndicator(input: {
 	const attentionTooltip = isDegraded
 		? degradedTooltip
 		: (input.liveErrorMessage ?? srLabel);
-	// Every state gets a hover tooltip — the green/connecting dots carry no
-	// visible text, so without it a sighted user has no way to read the status.
-	const tooltipLabel = needsAttention ? attentionTooltip : srLabel;
 
 	const indicatorBody = (
 		<>
 			<span aria-hidden="true" className={dotClassName} />
-			{needsAttention ? (
-				<span
-					aria-hidden="true"
-					className="font-normal text-amber-600 text-xs dark:text-amber-400"
-				>
-					{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
-				</span>
-			) : null}
+			<span
+				aria-hidden="true"
+				className="font-normal text-amber-600 text-xs dark:text-amber-400"
+			>
+				{isDegraded ? SPACE_LIVE_RECONNECTING_LABEL : SPACE_LIVE_STALE_LABEL}
+			</span>
 		</>
 	);
 
@@ -468,31 +444,34 @@ export function SpaceLiveStatusIndicator(input: {
 			<output aria-live="polite" className="sr-only">
 				{srLabel}
 			</output>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						canRetry ? (
-							<button
-								aria-label="Reconnect live updates now"
-								className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
-								data-testid="space-live-status"
-								onClick={input.onReconnectNow}
-								type="button"
-							>
-								{indicatorBody}
-							</button>
-						) : (
-							<span
-								className="flex shrink-0 items-center gap-1.5"
-								data-testid="space-live-status"
-							>
-								{indicatorBody}
-							</span>
-						)
-					}
-				/>
-				<TooltipContent side="bottom">{tooltipLabel}</TooltipContent>
-			</Tooltip>
+			{/* A healthy message stream is not Human presence or Agent readiness. */}
+			{needsAttention ? (
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							canRetry ? (
+								<button
+									aria-label="Reconnect live updates now"
+									className="flex shrink-0 cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-inherit"
+									data-testid="space-live-status"
+									onClick={input.onReconnectNow}
+									type="button"
+								>
+									{indicatorBody}
+								</button>
+							) : (
+								<span
+									className="flex shrink-0 items-center gap-1.5"
+									data-testid="space-live-status"
+								>
+									{indicatorBody}
+								</span>
+							)
+						}
+					/>
+					<TooltipContent side="bottom">{attentionTooltip}</TooltipContent>
+				</Tooltip>
+			) : null}
 		</>
 	);
 }

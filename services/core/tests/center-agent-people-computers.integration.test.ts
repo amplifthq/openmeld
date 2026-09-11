@@ -78,7 +78,7 @@ describe("Center Agent PeopleComputers authorization", () => {
     ).rejects.toThrow("not available on your account");
   });
 
-  it("updates only the represented member's explicit environment, never the hosted owner's computer", async () => {
+  it("updates only the represented member's explicit environment, never the organization's creator's computer", async () => {
     const transport = await import(
       "../src/dispatch/infrastructure/runtime-transport/runtime-transport-client"
     );
@@ -157,7 +157,7 @@ describe("Center Agent PeopleComputers authorization", () => {
     );
   });
 
-  it("reads the requesting member's devices instead of the hosted Profile owner's devices", async () => {
+  it("reads the requesting member's devices instead of the organization's creator's devices", async () => {
     const fixture = await seedFixture();
     const result = await rpcCenterAgentListLocalAgentConnectionCandidates(
       fixture.coreEnv,
@@ -280,12 +280,11 @@ async function seedFixture() {
   }
   await env.OPENMELD_DB.batch([
     env.OPENMELD_DB.prepare(
-      "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, managed_role, created_at, updated_at) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'cli_create', 'center_agent', ?, ?)"
+      "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, managed_role, created_at, updated_at) VALUES (?, 'Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'cli_create', 'center_agent', ?, ?)"
     ).bind(
       centerAgentId,
       `center-agent-${suffix}`,
       organizationId,
-      owner.userId,
       owner.userId,
       now,
       now
@@ -298,8 +297,7 @@ async function seedFixture() {
     activeOrganizationId: organizationId,
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: owner.userId,
-      ownerUserId: owner.userId,
+      callerPrincipalId: centerAgentId,
       openMeldProfileId: centerAgentId,
       profileKind: "agent",
       profileName: "Center Agent",

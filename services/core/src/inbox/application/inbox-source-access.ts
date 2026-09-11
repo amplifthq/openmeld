@@ -1,13 +1,21 @@
-import { inboxItemKindSchema } from "@openmeld/schemas";
+import {
+  inboxItemKindSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
+} from "@openmeld/schemas";
+import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
 
 type InboxItemSqlAlias = "inbox_items" | "items";
 
 export function buildCurrentInboxSourceAccessSql(
-  itemAlias: InboxItemSqlAlias
+  itemAlias: InboxItemSqlAlias,
+  canManageOrganization = false
 ): string {
   return `
     (
       ${itemAlias}.kind IN (${inboxItemKindSchema.options.map((kind) => `'${kind}'`).join(", ")})
+      AND (${canManageOrganization ? "1" : `NOT (${itemAlias}.source_kind = 'system_attention_event' AND ${itemAlias}.source_key LIKE 'authorization-update:%')`})
+      ${TEAMMATE_AGENT_REQUESTS_ENABLED ? "" : `AND json_extract(${itemAlias}.source_target_json, '$.kind') != 'agent_profile_creation_request'`}
+      AND (${canManageOrganization ? "1" : `json_extract(${itemAlias}.source_target_json, '$.kind') != 'organization_join_request'`})
       AND (
           NOT (
             json_extract(${itemAlias}.source_target_json, '$.kind') IN (
@@ -34,7 +42,8 @@ export function buildCurrentInboxSourceAccessSql(
               AND inbox_space.status = 'active'
               AND inbox_space_membership.owner_user_id_snapshot =
                 ${itemAlias}.recipient_user_id
-              AND inbox_space_membership.profile_kind_snapshot = 'human'
+              AND (inbox_space_membership.profile_kind_snapshot = 'human'
+                OR (json_extract(${itemAlias}.source_target_json, '$.agentOwnerActivity') = 1 AND ${personalAgentOwnerAccessSql(`json_extract(${itemAlias}.source_target_json, '$.spaceId')`, `${itemAlias}.recipient_user_id`)}))
               AND inbox_space_membership.status = 'active'
           )
       )

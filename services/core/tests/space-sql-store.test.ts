@@ -335,7 +335,15 @@ describe("space-sql-store", () => {
 
     expect(() => {
       insertSignalRecord(sql as unknown as SqlStorage, signal);
-    }).toThrow("signal.id is required");
+    }).toThrow(
+      expect.objectContaining({
+        name: "ZodError",
+        issues: expect.arrayContaining([
+          expect.objectContaining({ path: ["id"], code: "too_small" }),
+        ]),
+      })
+    );
+    expect(sql.calls).toHaveLength(0);
   });
 
   it("reads recent signals in chronological order", () => {
@@ -438,7 +446,7 @@ describe("space-sql-store", () => {
       ts: Date.parse("2026-03-10T12:00:00.000Z"),
       profile: {
         kind: "agent",
-        profileId: "agt-1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
         profileName: "Codex",
       },
       type: "signal.text",
@@ -447,7 +455,7 @@ describe("space-sql-store", () => {
         meta: {
           dispatchId: "dispatch-1",
           purpose: AGENT_REPLY_FINAL_PURPOSE,
-          targetProfileId: "agt-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
         },
       },
     };
@@ -477,7 +485,7 @@ describe("space-sql-store", () => {
       ts: Date.parse("2026-03-10T12:00:00.000Z"),
       profile: {
         kind: "agent",
-        profileId: "agt-1",
+        profileId: "agt_11111111-1111-4111-8111-111111111111",
         profileName: "Codex",
       },
       type: "signal.text",
@@ -486,7 +494,7 @@ describe("space-sql-store", () => {
         meta: {
           dispatchId: "dispatch-1",
           purpose: AGENT_REPLY_FINAL_PURPOSE,
-          targetProfileId: "agt-1",
+          targetProfileId: "agt_11111111-1111-4111-8111-111111111111",
         },
       },
     };

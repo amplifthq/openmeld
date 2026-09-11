@@ -14,10 +14,7 @@ import { CheckIcon, FunnelSimpleIcon } from "@phosphor-icons/react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import {
-	type AppContextualNavGroup,
-	AppContextualSidebarNav,
-} from "../app/app-contextual-layout";
+import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { useAppNavigationPresentation } from "../app/app-navigation-presentation";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
 import { SidebarDestinationAction } from "../app/sidebar-destination-actions";
@@ -27,20 +24,20 @@ import {
 	useSortableSidebarItem,
 } from "../app/sidebar-drag";
 import { moveSidebarGroup } from "../app/sidebar-drop-target";
+import { useSidebarGroupFilter } from "../app/sidebar-filter";
 import { SidebarFilterBadge } from "../app/sidebar-filter-badge";
-import { useSidebarGroupFilter } from "../app/sidebar-group-filter";
 import { SidebarListSkeleton } from "../app/sidebar-list-skeleton";
 import { SidebarSearchInput } from "../app/sidebar-search-input";
 import { SidebarSectionActions } from "../app/sidebar-section-actions";
 import { useSidebarDisclosure } from "../app/use-sidebar-disclosure";
 import { useSidebarPreferences } from "../app/use-sidebar-preferences";
 import type { OrganizationComputerGroup } from "../computers/organization-computers";
-import { CenterAgentItem } from "./center-agent-item";
 import type { DirectoryHumanProfileRow } from "./directory-human-profile-model";
 import { HumanProfileItem } from "./human-profile-item";
 import {
 	EMPTY_PEOPLE_SIDEBAR,
 	moveSidebarPerson,
+	PEOPLE_COMPUTER_FILTER_LABELS,
 	type PeopleFilter,
 	peopleConnectionFilter,
 	removeSidebarPeopleGroup,
@@ -49,43 +46,16 @@ import {
 
 const FILTERS = [
 	["all", "All people"],
-	["connected", "Computer connected"],
-	["offline", "Computer disconnected"],
-	["unconnected", "No computer connected"],
-	["unknown", "Status needs checking"],
+	...(Object.entries(PEOPLE_COMPUTER_FILTER_LABELS) as [
+		Exclude<PeopleFilter, "all">,
+		string,
+	][]),
 ] as const;
 const SORTS = [
 	["priority", "Recently active"],
 	["name", "Name"],
 	["manual", "Manual order"],
 ] as const;
-
-function includeCenterAgent(
-	groups: AppContextualNavGroup[],
-	filters: {
-		included: boolean;
-		filter: PeopleFilter;
-		recentlyActive: boolean;
-		search: string;
-	}
-) {
-	if (
-		!filters.included ||
-		filters.filter !== "all" ||
-		filters.recentlyActive ||
-		filters.search.trim()
-	) {
-		return groups;
-	}
-	const result = [...groups];
-	result.unshift({
-		id: "center-agent",
-		label: "Center Agent",
-		ariaLabel: "Center Agent",
-		content: <CenterAgentItem />,
-	});
-	return result;
-}
 
 export function PeopleSidebar(input: {
 	members: readonly DirectoryHumanProfileRow[];
@@ -103,10 +73,7 @@ export function PeopleSidebar(input: {
 		input.members.find((m) => m.isCurrentUser)?.id ?? currentUserId;
 	const sidebar = useSidebarPreferences(viewerId, currentOrganization.id);
 	const preferences = sidebar.preferences?.people ?? EMPTY_PEOPLE_SIDEBAR;
-	const loading =
-		input.loading ||
-		sidebar.isPending ||
-		input.members.some((member) => member.computer.state === "checking");
+	const loading = input.loading || sidebar.isPending;
 	const [search, setSearch] = useState("");
 	const [searchOpen, setSearchOpen] = useState(false);
 	const [filter, setFilter] = useState<PeopleFilter>("all");
@@ -114,9 +81,10 @@ export function PeopleSidebar(input: {
 	const groupFilter = useSidebarGroupFilter([
 		{ id: "starred", label: "Starred" },
 		...preferences.groups.map((g) => ({ id: g.id, label: g.name })),
-		{ id: "center-agent", label: "Center Agent" },
 		{ id: "online", label: "Online" },
 		{ id: "offline", label: "Offline" },
+		{ id: "presence-unknown", label: "People with unknown status" },
+		{ id: "center-agent", label: "Center Agent" },
 	]);
 	const { presentation } = useAppNavigationPresentation();
 	const computers = useMemo(
@@ -146,7 +114,9 @@ export function PeopleSidebar(input: {
 	}, [input.members, input.activityNowMs, search, filter, recentlyActive]);
 	const contentReady = !(loading || input.error);
 	const starred = new Set(preferences.starred.itemIds);
-	const sections = resolvePeopleSections(filtered, preferences);
+	const sections = resolvePeopleSections(filtered, preferences, {
+		includeCenterAgent: false,
+	});
 	const activeGroupId =
 		sections.find((section) =>
 			section.members.some((member) => member.id === input.selectedProfileId)
@@ -193,7 +163,9 @@ export function PeopleSidebar(input: {
 				section.id,
 				members.map((m) => m.id)
 			);
-			const defaultSection = ["online", "offline"].includes(section.id);
+			const defaultSection = ["online", "offline", "presence-unknown"].includes(
+				section.id
+			);
 			const setSort = (sort: PeopleSidebarPreferences["people"]["sort"]) => {
 				if (section.id === "starred" || defaultSection) {
 					save({
@@ -225,41 +197,43 @@ export function PeopleSidebar(input: {
 							})
 					: undefined,
 				labelTooltip: new Map([
-					["online", "Computer online"],
-					["offline", "Computer offline"],
+					["online", "People using OpenMeld"],
+					["offline", "People not currently active in OpenMeld"],
 				]).get(section.id),
 				ariaLabel: section.label,
-				labelAccessory: (
-					<SidebarSectionActions
-						disabled={sidebar.disabled}
-						label={section.label}
-						onDelete={
-							!defaultSection && section.id !== "starred"
-								? () => save(removeSidebarPeopleGroup(preferences, section.id))
-								: undefined
-						}
-						onNewGroup={
-							sectionIndex === 0
-								? (name) =>
-										save({
-											...preferences,
-											groups: [
-												...preferences.groups,
-												{
-													id: crypto.randomUUID(),
-													name,
-													sort: "priority",
-													itemIds: [],
-												},
-											],
-										})
-								: undefined
-						}
-						onSort={setSort}
-						sort={section.settings.sort}
-						sortOptions={SORTS}
-					/>
-				),
+				labelAccessory:
+					section.id === "center-agent" ? undefined : (
+						<SidebarSectionActions
+							disabled={sidebar.disabled}
+							label={section.label}
+							onDelete={
+								!defaultSection && section.id !== "starred"
+									? () =>
+											save(removeSidebarPeopleGroup(preferences, section.id))
+									: undefined
+							}
+							onNewGroup={
+								sectionIndex === 0
+									? (name) =>
+											save({
+												...preferences,
+												groups: [
+													...preferences.groups,
+													{
+														id: crypto.randomUUID(),
+														name,
+														sort: "priority",
+														itemIds: [],
+													},
+												],
+											})
+									: undefined
+							}
+							onSort={setSort}
+							sort={section.settings.sort}
+							sortOptions={SORTS}
+						/>
+					),
 				content: (
 					<SidebarDropSection
 						ids={members.map((m) => m.id)}
@@ -312,17 +286,14 @@ export function PeopleSidebar(input: {
 				),
 			};
 		});
-	const displayGroups = includeCenterAgent(groups, {
-		included: groupFilter.includes("center-agent"),
-		filter,
-		recentlyActive,
-		search,
-	});
 	return (
 		<ControlledSidebarGroupStateProvider value={disclosure}>
 			<SidebarDrag
 				canDrop={(itemId, section) => {
-					if (!["online", "offline"].includes(section)) {
+					if (section === "center-agent") {
+						return false;
+					}
+					if (!["online", "offline", "presence-unknown"].includes(section)) {
 						return true;
 					}
 					const member = input.members.find((m) => m.id === itemId);
@@ -331,9 +302,9 @@ export function PeopleSidebar(input: {
 					}
 					return (
 						section ===
-						(peopleConnectionFilter(member) === "connected"
-							? "online"
-							: "offline")
+						(member.presence && member.presence !== "unknown"
+							? member.presence
+							: "presence-unknown")
 					);
 				}}
 				groupIds={
@@ -344,7 +315,9 @@ export function PeopleSidebar(input: {
 						save(
 							moveSidebarPerson(
 								preferences,
-								["online", "offline"].includes(section) ? "people" : section,
+								["online", "offline", "presence-unknown"].includes(section)
+									? "people"
+									: section,
 								id,
 								visible.get(section) ?? [],
 								before
@@ -362,7 +335,7 @@ export function PeopleSidebar(input: {
 				<AppContextualSidebarNav
 					activeItemId={input.selectedProfileId}
 					ariaLabel="People"
-					groups={contentReady ? displayGroups : []}
+					groups={contentReady ? groups : []}
 					leadingContent={
 						<>
 							<div className="flex items-center gap-1 px-1">
@@ -464,14 +437,7 @@ export function PeopleSidebar(input: {
 							{loading && (
 								<SidebarListSkeleton label="Loading people" showPreview />
 							)}
-							{!(
-								!contentReady ||
-								sections.some(
-									(section) =>
-										groupFilter.includes(section.id) &&
-										section.members.length > 0
-								)
-							) && (
+							{contentReady && groups.length === 0 && (
 								<p className="px-2 py-2 text-muted-foreground text-xs">
 									{search.trim() ||
 									filter !== "all" ||

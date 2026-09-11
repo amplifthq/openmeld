@@ -2,16 +2,19 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 
 import { githubPullRequestCandidateFactsSchema } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
 import {
@@ -27,6 +30,7 @@ const GITHUB_EXPRESSION_PATTERN = /\$\{\{\s*github\./u;
 const RUN_LINE_PATTERN = /^(\s+)run:\s*(.*)$/u;
 const LEADING_WHITESPACE_PATTERN = /^\s*/u;
 const TEN_SPACE_PREFIX_PATTERN = /^ {10}/u;
+const EVENT_TYPES_PATTERN = /types: \[([^\]]+)\]/u;
 const INHERITED_NODE_OPTIONS_PATTERN = /NODE_OPTIONS="?\$\{/u;
 const GITHUB_EXPRESSION_PREFIX = ["$", "{{"].join("");
 const DELIVERY_ROUTER_PATHS = [
@@ -40,10 +44,54 @@ const RETIRED_MANDATORY_REVIEW_LANGUAGE = [
   /review remains required/iu,
 ];
 const FINAL_CANDIDATE_EVENT_GUARD = [
+  "github.event.pull_request.base.ref == 'main' &&",
   "github.event.pull_request.draft == false &&",
-  "(github.event.label.name == 'final-candidate' ||",
+  "(github.event.action != 'labeled' ||",
+  " github.event.label.name == 'final-candidate' ||",
   " github.event.label.name == 'final-candidate-full')",
 ].join("\n      ");
+
+test("control validates evidence with only the schema package's production dependencies", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-control-runtime-"));
+  try {
+    cpSync(path.join(REPO_ROOT, "scripts"), path.join(root, "scripts"), {
+      recursive: true,
+    });
+    const schemaRoot = path.join(root, "packages", "schemas");
+    const sourceSchemaRoot = path.join(REPO_ROOT, "packages", "schemas");
+    cpSync(path.join(sourceSchemaRoot, "src"), path.join(schemaRoot, "src"), {
+      recursive: true,
+    });
+    const manifest = JSON.parse(readRepoFile("packages/schemas/package.json"));
+    writeFileSync(
+      path.join(schemaRoot, "package.json"),
+      JSON.stringify(manifest)
+    );
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      const target = path.join(schemaRoot, "node_modules", dependency);
+      mkdirSync(path.dirname(target), { recursive: true });
+      symlinkSync(
+        path.join(sourceSchemaRoot, "node_modules", dependency),
+        target,
+        "junction"
+      );
+    }
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--test",
+        "scripts/ci/final-candidate-publisher.test.mjs",
+        "scripts/ci/final-candidate-policy.test.mjs",
+        "scripts/ci/final-candidate-reuse.test.mjs",
+        "scripts/release/hosted-fleet-plan-admission.test.mjs",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 30_000 }
+    );
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
 
 test("keeps delivery review support optional and actor-neutral", () => {
   for (const relativePath of DELIVERY_ROUTER_PATHS) {
@@ -309,53 +357,90 @@ test("an unrelated label schedules no Final Candidate status writer", () => {
   assert.equal(Object.values(FINAL_CANDIDATE_LABELS).includes("bug"), false);
 });
 
-test("an unrelated label cannot cancel a running Final Candidate", () => {
+test("ready PR events run automatically while drafts and unrelated labels stay idle", () => {
   const workflow = readRepoFile(".github/workflows/final-candidate.yml");
+  const trigger = workflow.split("\nconcurrency:\n")[0];
+  assert.ok(trigger.includes("branches: [main]"));
+  const eventTypes = trigger
+    .match(EVENT_TYPES_PATTERN)?.[1]
+    .split(",")
+    .map((value) => value.trim());
+  assert.deepEqual(eventTypes, [
+    "opened",
+    "synchronize",
+    "reopened",
+    "ready_for_review",
+    "converted_to_draft",
+    "labeled",
+  ]);
+  const pendingJob = readJob(workflow, "publish_pending", "candidate");
+  const finalJob = readJob(workflow, "publish_final", null);
+  const pendingGuard = pendingJob
+    .split("if: >-\n")[1]
+    ?.split("\n    runs-on:")[0];
+  const finalGuard = finalJob.split("if: >-\n")[1]?.split("\n    runs-on:")[0];
   const concurrencyBlock = workflow
     .split("\nconcurrency:\n")[1]
     ?.split("\njobs:\n")[0];
-
-  assert.ok(
-    concurrencyBlock?.includes("github.event.pull_request.draft == false")
-  );
-  assert.ok(
-    concurrencyBlock?.includes("github.event.label.name == 'final-candidate'")
-  );
-  assert.ok(
-    concurrencyBlock?.includes(
-      "github.event.label.name == 'final-candidate-full'"
-    )
-  );
-  assert.ok(
-    concurrencyBlock?.includes(
-      "format('final-candidate-{0}', github.event.pull_request.number)"
-    )
-  );
-  assert.ok(
-    concurrencyBlock?.includes(
-      "format('ignored-final-candidate-label-{0}', github.run_id)"
-    )
-  );
+  const groupExpression = concurrencyBlock?.split("${{")[1]?.split("}}")[0];
+  assert.ok(pendingGuard);
+  assert.ok(finalGuard);
+  assert.ok(groupExpression);
+  assert.ok(concurrencyBlock?.includes("cancel-in-progress: true"));
   assert.ok(!concurrencyBlock?.includes("queue: max"));
-
-  const groupFor = ({ draft = false, label, runId }) =>
-    !draft && Object.values(FINAL_CANDIDATE_LABELS).includes(label)
-      ? "final-candidate-325"
-      : `ignored-final-candidate-label-${runId}`;
-  const legitimateGroup = groupFor({
-    label: "final-candidate",
-    runId: "100",
-  });
-  const unrelatedGroup = groupFor({ label: "bug", runId: "101" });
-  assert.equal(
-    legitimateGroup,
-    groupFor({ label: "final-candidate-full", runId: "102" })
-  );
-  assert.notEqual(legitimateGroup, unrelatedGroup);
-  assert.notEqual(
-    legitimateGroup,
-    groupFor({ draft: true, label: "final-candidate", runId: "103" })
-  );
+  // Evaluate the workflow's expressions, not a second implementation of its policy.
+  for (const action of eventTypes) {
+    for (const draft of [false, true]) {
+      for (const base of ["main", "feature"]) {
+        for (const label of [
+          "",
+          "bug",
+          "final-candidate",
+          "final-candidate-full",
+        ]) {
+          const context = {
+            github: {
+              event: {
+                action,
+                label: { name: label },
+                pull_request: {
+                  draft,
+                  number: 325,
+                  base: { ref: base },
+                },
+              },
+              run_id: "100",
+            },
+            always: () => true,
+            format: (template, value) => template.replace("{0}", value),
+          };
+          const shouldRun =
+            !draft &&
+            base === "main" &&
+            (action !== "labeled" ||
+              ["final-candidate", "final-candidate-full"].includes(label));
+          const scenario = JSON.stringify({ action, draft, base, label });
+          assert.equal(
+            runInNewContext(pendingGuard, context),
+            shouldRun,
+            scenario
+          );
+          assert.equal(
+            runInNewContext(finalGuard, context),
+            shouldRun,
+            scenario
+          );
+          assert.equal(
+            runInNewContext(groupExpression, context),
+            shouldRun || (base === "main" && action === "converted_to_draft")
+              ? "final-candidate-325"
+              : "ignored-final-candidate-event-100",
+            scenario
+          );
+        }
+      }
+    }
+  }
 });
 
 test("turns a post-pending output failure into an exact failure status", () => {

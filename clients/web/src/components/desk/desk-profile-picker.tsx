@@ -2,12 +2,12 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { SpaceAddMembersCandidates } from "#/components/spaces/people-agent-picker-candidates";
 import {
 	buildOrganizationDirectoryAddCandidates,
 	filterAddMemberGroups,
 	type SpaceAddMembersCandidateSummary,
-	SpaceAddMembersCandidates,
-} from "#/components/spaces/space-members-drawer";
+} from "#/components/spaces/people-agent-picker-model";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { organizationSpaceProfileCandidatesQueryOptions } from "#/query/organizations/organization-directory";
 
@@ -15,7 +15,7 @@ export function DeskProfilePicker(input: {
 	shownIds: readonly string[];
 	onAdd: (profiles: readonly SpaceAddMembersCandidateSummary[]) => void;
 }) {
-	const { currentOrganization, currentUserId } = useAppOrganization();
+	const { currentOrganization } = useAppOrganization();
 	const directory = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({
 			enabled: true,
@@ -77,7 +77,6 @@ export function DeskProfilePicker(input: {
 						candidates,
 						query.trim().toLocaleLowerCase()
 					)}
-					currentOwnerUserId={currentUserId}
 					emptyMessage="No matching people or agents."
 					isSubmitting={false}
 					onToggle={(id) => {

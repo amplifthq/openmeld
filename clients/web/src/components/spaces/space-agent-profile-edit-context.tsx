@@ -40,7 +40,7 @@ export function SpaceAgentProfileEditProvider(
 		currentOwnerUserId: string | null;
 		modelCatalog: ModelCatalog | null;
 		organizationId: string | null;
-		orgSlug: string;
+		orgSlug?: string;
 	}>
 ) {
 	const navigate = useNavigate();
@@ -58,7 +58,10 @@ export function SpaceAgentProfileEditProvider(
 	);
 	const onOpenDirectMessage = useCallback(
 		async (profileId: string) => {
-			if (!input.organizationId || pendingDirectMessageProfileId) {
+			if (
+				!(input.organizationId && input.orgSlug) ||
+				pendingDirectMessageProfileId
+			) {
 				return;
 			}
 			setPendingDirectMessageProfileId(profileId);

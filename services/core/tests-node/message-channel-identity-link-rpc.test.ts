@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
 import { buildMessageChannelIdentityLinkId } from "../src/remote-agent/application/message-channel-connection-projection";
 import { rpcDisconnectMessageChannelIdentityLink } from "../src/rpc/methods";
-import { createSqliteD1Harness } from "./helpers/sqlite-d1-harness.test-support";
+import {
+  applyDrizzleMigrationForTable,
+  createSqliteD1Harness,
+} from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Message Channel identity-link disconnect RPC", () => {
   let harness: ReturnType<typeof createSqliteD1Harness>;
@@ -10,6 +13,7 @@ describe("Message Channel identity-link disconnect RPC", () => {
   beforeEach(() => {
     harness = createSqliteD1Harness();
     createTables(harness);
+    applyDrizzleMigrationForTable(harness, "slack_workspace_tokens");
     seedSlackConnection(harness);
   });
 

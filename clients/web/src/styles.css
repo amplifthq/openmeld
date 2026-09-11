@@ -617,57 +617,76 @@ html[data-space-conversation-layout] [data-desk-space-window]
     }
   }
 }
-@media (hover: hover) and (pointer: fine) {
-  .app-sidebar-footer[data-footer-expanded="true"] {
-    gap: 0;
-  }
-
-  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
-    width: 0;
-    justify-content: flex-end;
-    transition: width 150ms ease-out, transform 150ms ease-out, opacity 100ms ease-out;
-  }
-
-  .app-sidebar-footer[data-footer-expanded="true"]:hover .app-sidebar-footer-actions,
-  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
-    width: 64px;
-  }
-
-  .app-sidebar-footer-actions {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(12px);
-    transition: transform 150ms ease-out, opacity 100ms ease-out;
-  }
-
-  /* Let the pointer cross small gaps without collapsing the account row. */
-  .app-sidebar-footer:not(:hover):not(:focus-within) .app-sidebar-footer-actions {
-    transition-delay: 180ms;
-  }
-
-  .app-sidebar-footer:hover .app-sidebar-footer-actions,
-  .app-sidebar-footer:focus-within .app-sidebar-footer-actions,
-  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateX(0);
-  }
-
-  .app-sidebar-footer:focus-within .app-sidebar-footer-actions {
-    transition: none;
-  }
+/* Reserve navigation space in the shared message/composer frame, including
+   Full Width. Centered keeps its existing center while sufficient margin exists. */
+html [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  width: calc(100% - 3.25rem);
+  margin-inline-start: 3.25rem;
 }
-
+html[data-space-conversation-layout="centered"] [data-space-history-rail="true"] [data-space-conversation-content-width] {
+  margin-inline: auto;
+  position: relative;
+  inset-inline-start: min(1.625rem, max(0px, calc((var(--space-conversation-centered-max-width) + 3.25rem - 100%) / 2)));
+}
+.space-history-navigation {
+  position: absolute;
+  z-index: 25;
+  inset-inline-start: .5rem;
+  top: 50%;
+  translate: 0 -50%;
+  width: 2.75rem;
+  max-height: 60%;
+}
+.space-history-ticks { display: flex; flex-direction: column; height: 100%; }
+.space-history-ticks > button {
+  display: flex; align-items: center; width: 100%; flex: 1; min-height: 0;
+  padding: 0 .25rem; cursor: pointer; outline-offset: 2px;
+}
+.space-history-dash {
+  display: block; width: 2.25rem; height: 2px;
+  background: var(--muted-foreground); opacity: .45; transform-origin: left; transform: scaleX(.25);
+}
+.space-history-ticks > button[data-hovered] .space-history-dash { background: var(--foreground); opacity: 1; }
+.space-history-ticks > button:focus-visible .space-history-dash { opacity: 1; }
+.space-history-preview { max-width: calc(100vw - 5rem); position: relative; }
+.space-history-touch-trigger { display: none; }
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  .space-history-dash { transition: transform 125ms cubic-bezier(.23,1,.32,1), opacity 125ms ease; }
+}
 @media (prefers-reduced-motion: reduce) {
-  .app-sidebar-footer .app-sidebar-footer-actions {
-    transform: none;
-    transition: none;
-  }
-  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
-    transition: none;
-  }
+  .space-history-dash { transform: scaleX(.25) !important; }
+  .space-history-preview { animation: none !important; }
+}
+@media (pointer: coarse) {
+  .space-history-navigation { top: 3.5rem; bottom: auto; height: auto !important; translate: none; }
+  .space-history-touch-trigger { display: grid; place-items: center; width: 44px; height: 44px; }
+  .space-history-ticks { display: none; }
 }
 
-.app-sidebar-footer:not([data-footer-motion-ready]) .app-sidebar-footer-actions {
-  transition: none;
+@media (pointer: fine) { .space-history-preview-stepper { display: none; } }
+
+/* Toolbar visibility changes release the main surface's reserved bottom row. */
+[data-toolbar-shortcut][hidden],
+[data-toolbar-shortcut]:has(> .toolbar-shortcut-dismiss:only-child) {
+  display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"] [data-toolbar-shortcut="computer"],
+html[data-hidden-toolbar-shortcuts~="center_agent"] [data-toolbar-shortcut="center_agent"],
+html[data-hidden-toolbar-shortcuts~="inbox"] [data-toolbar-shortcut="inbox"] {
+ display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"][data-hidden-toolbar-shortcuts~="center_agent"][data-hidden-toolbar-shortcuts~="inbox"] [data-slot="app-global-controls"] {
+ display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"][data-hidden-toolbar-shortcuts~="center_agent"][data-hidden-toolbar-shortcuts~="inbox"] [data-slot="app-surface"] {
+ margin-bottom: max(0.5rem, env(safe-area-inset-bottom));
+ transition: none;
+}
+/* Keep the compact close control independent of the mobile toolbar target size. */
+[data-slot="app-global-controls"] button.toolbar-shortcut-dismiss {
+ min-height: 1.25rem;
+ min-width: 1.25rem;
+}
+@media (hover: none) {
+ .toolbar-shortcut-dismiss { display: none; }
 }

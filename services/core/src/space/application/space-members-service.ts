@@ -191,6 +191,9 @@ export const upsertSpaceCreatorMember = (input: {
 
   const nowIso = input.nowIso ?? new Date().toISOString();
   const existing = readSpaceMemberRecord(input.sql, creator.profileId);
+  if (existing?.status === "removed") {
+    return existing;
+  }
   const next = buildNextSpaceMemberRecord({
     existing,
     existingProfileSnapshot: existing,
@@ -382,9 +385,6 @@ export const removeSpaceMembersUseCase = (input: {
   const alreadyAbsentMemberIds: string[] = [];
   const uniqueMemberProfileIds: string[] = [];
   const seenProfileIds = new Set<string>();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
 
   for (const memberProfileId of input.memberProfileIds) {
     if (seenProfileIds.has(memberProfileId)) {
@@ -405,13 +405,15 @@ export const removeSpaceMembersUseCase = (input: {
     const existing = readSpaceMemberRecord(input.sql, memberProfileId);
     if (
       existing?.status === "active" &&
-      (memberProfileId === creatorProfileId ||
-        existing.memberSource === "space_creator")
+      existing.profileKindSnapshot === "human" &&
+      existing.ownerUserIdSnapshot &&
+      input.metaRecord?.ownerUserIds?.includes(existing.ownerUserIdSnapshot)
     ) {
       throw new SpaceMembersUseCaseError({
         status: 400,
-        code: "space.members.creator_forbidden",
-        message: "space creator cannot be removed from this space",
+        code: "space.members.owner_forbidden",
+        message:
+          "Change this person's role to Member before removing them. Keep at least one Space owner.",
       });
     }
   }
@@ -451,16 +453,15 @@ export const leaveSpaceUseCase = (input: {
   nowIso?: string;
 }): LeaveSpaceResponse => {
   const nowIso = input.nowIso ?? new Date().toISOString();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
-
-  if (input.actorProfileId === creatorProfileId) {
+  if (
+    input.actorOwnerUserId &&
+    input.metaRecord?.ownerUserIds?.includes(input.actorOwnerUserId)
+  ) {
     throw new SpaceMembersUseCaseError({
       status: 400,
-      code: "space.leave_space.creator_forbidden",
+      code: "space.leave_space.owner_forbidden",
       message:
-        "The space creator cannot leave this space. Delete the space instead when only you remain.",
+        "Change your role to Member before leaving. Add another owner first if you are the last owner.",
     });
   }
 
@@ -1360,6 +1361,29 @@ async function buildAgentSnapshot(input: {
     ...redactedOriginFields,
     agentWakeAvailability,
     ownerWakeDiagnostics,
+    deviceWaitTarget: projectDeviceWaitTarget(
+      executionReadiness,
+      agentControllerRef
+    ),
+  };
+}
+
+function projectDeviceWaitTarget(
+  readiness: Awaited<ReturnType<typeof resolveCoreAgentExecutionReadiness>>,
+  agentControllerRef: string | null
+): SpaceMemberAgentSnapshot["deviceWaitTarget"] {
+  const binding = readiness.primaryBinding;
+  if (
+    isHostedAgentControllerRef(agentControllerRef) ||
+    binding?.bindingState !== "enabled_primary" ||
+    !binding.bindingId ||
+    !binding.executionTarget
+  ) {
+    return undefined;
+  }
+  return {
+    bindingId: binding.bindingId,
+    openMeldServiceRuntimeId: binding.executionTarget.openMeldServiceRuntimeId,
   };
 }
 
@@ -1664,10 +1688,14 @@ export const SPACE_MEMBER_NAME_READ_BUDGET_MS = 500;
 export async function refreshSpaceMemberNamesFromAuth(input: {
   sql: SqlStorage;
   env: CoreBindings;
-}): Promise<{ changed: boolean; profileFacts: AuthProfileFacts | null }> {
+}): Promise<{
+  changed: boolean;
+  profileFacts: AuthProfileFacts | null | undefined;
+}> {
   const auth = input.env.OPENMELD_AUTH_WORKER;
   if (!auth?.resolveProfilesByIds) {
-    return { changed: false, profileFacts: null };
+    // No batch was attempted. Older Auth receivers still use scalar reads.
+    return { changed: false, profileFacts: undefined };
   }
   const members = listSpaceMemberRecords(input.sql, {
     status: "active",

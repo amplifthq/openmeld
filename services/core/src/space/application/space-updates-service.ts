@@ -4,7 +4,10 @@ import {
   SPACE_UPDATES_MAX_LIMIT,
 } from "@openmeld/schemas";
 import type { GetSpaceUpdatesResponse } from "@openmeld/schemas/types";
-import { listSignalEntriesAfterAnchor } from "../infrastructure/sql/space-signal-repo";
+import {
+  listSignalEntriesAfterAnchor,
+  readSignalEntryById,
+} from "../infrastructure/sql/space-signal-repo";
 import { readSpaceThreadSignalPlacementBySignalId } from "../infrastructure/sql/space-thread-repo";
 import { isFormalSpaceUpdateSignal } from "../rules/formal-space-update";
 import { parseStoredSignal } from "../rules/parsers/stored-signal";
@@ -84,7 +87,8 @@ function collectSignalsAfterAnchor(input: {
   const signals: SignalEnvelope[] = [];
   for (const [, rawSignal] of page.entries) {
     const signal = parseStoredSignal(rawSignal);
-    if (!(signal && isFormalSpaceUpdateSignal(signal))) {
+    const changedMessageId = readChangedMessageId(signal);
+    if (!(signal && (isFormalSpaceUpdateSignal(signal) || changedMessageId))) {
       continue;
     }
     const placement = readSpaceThreadSignalPlacementBySignalId(
@@ -93,6 +97,21 @@ function collectSignalsAfterAnchor(input: {
     );
     if (placement?.placement === "thread") {
       continue;
+    }
+    if (changedMessageId) {
+      const entry = readSignalEntryById(input.sql, changedMessageId);
+      const current = entry ? parseStoredSignal(entry[1]) : null;
+      if (current) {
+        signals.push(
+          redactSignalForViewer({
+            signal: current,
+            viewerOwnerUserId: input.viewerOwnerUserId,
+            viewerProfileId: input.viewerProfileId,
+            creatorProfileIdByProfileId:
+              input.viewerCreatorProfileIdsByProfileId,
+          })
+        );
+      }
     }
     signals.push(
       redactSignalForViewer({
@@ -107,4 +126,12 @@ function collectSignalsAfterAnchor(input: {
     }
   }
   return signals;
+}
+
+function readChangedMessageId(signal: SignalEnvelope | null): string | null {
+  return signal?.type === "signal.text" &&
+    signal.profile.kind === "system" &&
+    signal.data.meta?.purpose === "space_message_changed"
+    ? (signal.data.meta.changedMessageId ?? null)
+    : null;
 }

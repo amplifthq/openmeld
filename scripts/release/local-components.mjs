@@ -476,6 +476,28 @@ export async function runLocalComponentsReleaseTool(
     parsed.options.manifest ?? DEFAULT_RELEASE_MANIFEST_PATH
   );
 
+  if (parsed.command === "require") {
+    if (parsed.positionals.length === 0) {
+      throw new Error(
+        "Usage: pnpm release:local-components require <cli|service|skills> --reason <text>"
+      );
+    }
+    if (!parsed.options.reason) {
+      throw new Error(
+        "A --reason value is required when marking a component required."
+      );
+    }
+    const policies = { ...parsed.options.policies };
+    for (const component of parsed.positionals) {
+      if (!COMPONENTS.includes(component)) {
+        throw new Error(`Unknown local component: ${component}`);
+      }
+      policies[component] = "required";
+    }
+    parsed.options.policies = policies;
+    parsed.command = "stamp";
+  }
+
   switch (parsed.command) {
     case "status": {
       const facts = await collectLocalComponentFacts({ repoRoot });
@@ -512,6 +534,7 @@ export async function runLocalComponentsReleaseTool(
         dependencies,
         parsed,
         resolution: decisionPlan.versionResolution,
+        previous: await readReleaseManifest(manifestPath),
         stampedAt,
         repoRoot,
       });
@@ -541,13 +564,13 @@ export async function runLocalComponentsReleaseTool(
           parsed,
           repoRoot,
         });
-        const stampFloor = await writeAndVerifyStampedManifest({
+        await writeAndVerifyStampedManifest({
           manifest,
           manifestPath,
           parsed,
           repoRoot,
         });
-        stampResult = { manifest, stampFloor };
+        stampResult = { manifest, stampFloor: versionWrite.floor };
       } catch (error) {
         await rollbackStampCliVersion(versionWrite);
         throw error;
@@ -562,67 +585,6 @@ export async function runLocalComponentsReleaseTool(
         parsed.options.json,
         ({ manifest: writtenManifest, versionResolution }) =>
           `${formatLocalComponentDecisionPlan(decisionPlan)}\n\n${formatVersionResolutionPrefix(versionResolution)}Stamped and verified ${relative(repoRoot, manifestPath)}\n${formatPolicySummary(writtenManifest)}${formatFloorProjectionSuffix(stampResult.stampFloor)}`
-      );
-      return;
-    }
-    case "require": {
-      assertStampUsesReleaseBase(parsed);
-      if (parsed.positionals.length === 0) {
-        throw new Error(
-          "Usage: pnpm release:local-components require <cli|service|skills> --reason <text>"
-        );
-      }
-      if (!parsed.options.reason) {
-        throw new Error(
-          "A --reason value is required when marking a component required."
-        );
-      }
-      const policies = { ...parsed.options.policies };
-      for (const component of parsed.positionals) {
-        if (!COMPONENTS.includes(component)) {
-          throw new Error(`Unknown local component: ${component}`);
-        }
-        policies[component] = "required";
-      }
-      await buildStablePackagedOpenMeldCli({
-        build:
-          dependencies.buildPackagedOpenMeldCli ?? buildPackagedOpenMeldCli,
-        repoRoot,
-      });
-      const facts = await collectLocalComponentFacts({
-        repoRoot,
-        requireServiceBundle: !parsed.options.allowMissingServiceBundle,
-      });
-      const previous = await readReleaseManifest(manifestPath);
-      const manifest = buildReleasePolicyManifest({
-        facts,
-        now: parsed.options.now,
-        policies,
-        previous,
-        reason: parsed.options.reason,
-        reasons: parsed.options.reasons,
-      });
-      await assertReleaseManifestPolicy({
-        facts,
-        manifest,
-        parsed,
-        repoRoot,
-      });
-      const requireFloor = await writeAndVerifyStampedManifest({
-        manifest,
-        manifestPath,
-        parsed,
-        repoRoot,
-      });
-      writeOutput(
-        {
-          cliRequiredFloor: requireFloor,
-          manifest,
-          manifestPath: relative(repoRoot, manifestPath),
-        },
-        parsed.options.json,
-        ({ manifest: writtenManifest }) =>
-          `Updated and verified ${relative(repoRoot, manifestPath)}\n${formatPolicySummary(writtenManifest)}${formatFloorProjectionSuffix(requireFloor)}`
       );
       return;
     }
@@ -810,23 +772,41 @@ async function prepareStampCliVersion(input) {
     }));
   const packageJsonPath = join(input.repoRoot, CLI_PACKAGE_JSON_PATH);
   const original = await readOptionalFile(packageJsonPath);
-  if (!resolution) {
-    return { original, packageJsonPath, resolution, written: original };
-  }
   if (original === null) {
     throw new Error(`${CLI_PACKAGE_JSON_PATH} is missing.`);
   }
   const packageJson = JSON.parse(original);
   const nextPackageJson = {
     ...packageJson,
-    version: resolution.targetVersion,
-    openMeldReleaseDate: resolveReleaseDate(input.stampedAt),
+    ...(resolution
+      ? {
+          version: resolution.targetVersion,
+          openMeldReleaseDate: resolveReleaseDate(input.stampedAt),
+        }
+      : {}),
   };
-  const written = `${stringifyRepoJson(nextPackageJson)}\n`;
+  const floor = projectCliRequiredFloor({
+    packageJson: nextPackageJson,
+    updatePolicy: resolveComponentPolicy({
+      component: "cli",
+      fallback: input.previous?.components.cli.updatePolicy ?? "ok",
+      policies: input.parsed.options.policies,
+    }),
+  });
+  const written =
+    resolution || floor.changed
+      ? `${stringifyRepoJson(floor.packageJson)}\n`
+      : original;
   if (written !== original) {
     await writeFile(packageJsonPath, written, "utf8");
   }
-  return { original, packageJsonPath, resolution, written };
+  return {
+    original,
+    packageJsonPath,
+    resolution,
+    written,
+    floor: floor.projection,
+  };
 }
 
 function resolveReleaseDate(timestamp) {
@@ -898,20 +878,10 @@ async function captureReleaseSourceSnapshot(repoRoot) {
 }
 
 async function writeAndVerifyStampedManifest(input) {
-  const packageJsonPath = join(input.repoRoot, CLI_PACKAGE_JSON_PATH);
-  const [originalManifest, originalPackageJson] = await Promise.all([
-    readOptionalFile(input.manifestPath),
-    readOptionalFile(packageJsonPath),
-  ]);
+  const originalManifest = await readOptionalFile(input.manifestPath);
   const writtenManifest = `${stringifyRepoJson(input.manifest)}\n`;
-  let writtenPackageJson = originalPackageJson;
   try {
     await writeJsonFile(input.manifestPath, input.manifest);
-    const floor = await projectCliRequiredFloor({
-      manifest: input.manifest,
-      repoRoot: input.repoRoot,
-    });
-    writtenPackageJson = await readOptionalFile(packageJsonPath);
     const sourceBeforeVerification = await captureReleaseSourceSnapshot(
       input.repoRoot
     );
@@ -931,20 +901,12 @@ async function writeAndVerifyStampedManifest(input) {
     if (verification.errors.length > 0) {
       throw new Error(formatVerifyFailure(verification));
     }
-    return floor;
   } catch (error) {
-    await Promise.all([
-      restoreFileIfUnchanged({
-        currentExpected: writtenManifest,
-        original: originalManifest,
-        path: input.manifestPath,
-      }),
-      restoreFileIfUnchanged({
-        currentExpected: writtenPackageJson,
-        original: originalPackageJson,
-        path: packageJsonPath,
-      }),
-    ]);
+    await restoreFileIfUnchanged({
+      currentExpected: writtenManifest,
+      original: originalManifest,
+      path: input.manifestPath,
+    });
     throw error;
   }
 }
@@ -1579,46 +1541,28 @@ function readPackageReleaseLine(packageJson) {
   return normalizeOptionalString(openmeld.releaseLine);
 }
 
-/**
- * Projects the CLI forced-update floor from the just-stamped manifest into the
- * published package.json field the running CLI reads from npm `latest`. The
- * floor is monotonic: a `required` release raises it to its own version, while
- * any other policy carries the previous floor forward unchanged. This is the
- * single derivation point so the manifest and the npm projection cannot drift.
- *
- * NOTE: this writes a CUSTOM `openmeld.minRequiredCliVersion` field. The entire
- * forced-update gate depends on npm preserving + serving that field on the
- * `latest` packument. That is confirmed for now via the existing top-level
- * `openMeldReleaseDate` custom field (which npm does serve), but it MUST be verified
- * against the live registry on the first `required` release — see the
- * copy-pasteable check printed by `formatFloorProjectionSuffix` and the
- * operational note in developing/architecture/shared-contracts.md. If npm ever
- * strips it, the gate silently never fires; fall back to a dist-tag floor.
- */
-async function projectCliRequiredFloor(input) {
-  const packageJsonPath = join(input.repoRoot, CLI_PACKAGE_JSON_PATH);
-  const packageJson = await readJson(packageJsonPath);
+// Resolve the monotonic npm update floor before bundling: package metadata is
+// bundled into the CLI, so changing it after hashing invalidates the stamp.
+function projectCliRequiredFloor({ packageJson, updatePolicy }) {
   const previousFloor = readPackageMinRequiredCliVersion(packageJson);
-  const cli = input.manifest.components.cli;
   const nextFloor =
-    cli.updatePolicy === "required"
-      ? maxSemver(previousFloor, cli.packageVersion)
+    updatePolicy === "required"
+      ? maxSemver(previousFloor, packageJson.version)
       : previousFloor;
-
-  if (nextFloor === previousFloor) {
-    return { changed: false, nextFloor, previousFloor };
-  }
-
-  const existingOpenMeld =
-    packageJson.openmeld && typeof packageJson.openmeld === "object"
-      ? packageJson.openmeld
-      : {};
-  const nextPackageJson = {
-    ...packageJson,
-    openmeld: { ...existingOpenMeld, minRequiredCliVersion: nextFloor },
+  const changed = nextFloor !== previousFloor;
+  return {
+    changed,
+    packageJson: changed
+      ? {
+          ...packageJson,
+          openmeld: {
+            ...packageJson.openmeld,
+            minRequiredCliVersion: nextFloor,
+          },
+        }
+      : packageJson,
+    projection: { changed, nextFloor, previousFloor },
   };
-  await writeJsonFile(packageJsonPath, nextPackageJson);
-  return { changed: true, nextFloor, previousFloor };
 }
 
 function formatFloorProjectionSuffix(projection) {

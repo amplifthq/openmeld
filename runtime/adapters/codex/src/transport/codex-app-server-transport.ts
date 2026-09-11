@@ -4,6 +4,7 @@ import type {
   AdapterAgentControllerConversationOccupancy,
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
+  AdapterDispatchRequest,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -23,6 +24,7 @@ import type {
 import {
   AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
   classifyRuntimePermissionDenialMessage,
+  createProviderOriginalError,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
@@ -295,6 +297,7 @@ export async function invokeCodexAppServerTransport(input: {
   onProcessControlEvent?: AdapterRuntimeProcessCallback;
   onRuntimeEvent?: AdapterRuntimeEventCallback;
   instructionPrompt?: AdapterInstructionPrompt;
+  newSessionTitle?: AdapterDispatchRequest["newSessionTitle"];
   prompt: string;
   streamingMode?: AdapterStreamingMode;
   startupTimeoutMs?: number;
@@ -395,6 +398,12 @@ export async function invokeCodexAppServerTransport(input: {
         threadId: executionThreadId,
         turnId,
       });
+      session.setNewSessionTitleInBackground({
+        existingThreadId: input.threadId,
+        executionMode: input.executionMode,
+        threadId: executionThreadId,
+        title: input.newSessionTitle,
+      });
       const unregisterActiveTurn = session.registerActiveTurn({
         onActiveTurn: input.onActiveTurn,
         taskId: input.taskId,
@@ -464,6 +473,8 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
     return;
   }
   const failureMessage = readTurnFailureMessage(turn);
+  const originalError =
+    createProviderOriginalError(failureMessage) ?? undefined;
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message: failureMessage,
     source: "codex",
@@ -473,6 +484,7 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
       code: permissionDenial.code,
       errorType: permissionDenial.errorType,
       message: permissionDenial.message,
+      originalError,
     });
   }
   const providerFailure = classifyCodexProviderAccountFailure({
@@ -492,6 +504,7 @@ function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
     code: "runtime.turn.failed",
     errorType: "adapter",
     message: `runtime.turn.failed: ${failureMessage}`,
+    originalError,
   });
 }
 
@@ -1305,6 +1318,36 @@ class CodexAppServerSession {
           ? {}
           : { overrideMs: this.#controlRequestTimeoutMs }),
       }),
+    });
+  }
+
+  setNewSessionTitleInBackground(input: {
+    existingThreadId: string | null;
+    executionMode?: AdapterDispatchExecutionMode;
+    threadId: string;
+    title?: AdapterDispatchRequest["newSessionTitle"];
+  }): void {
+    if (
+      normalizeOptionalText(input.existingThreadId) ||
+      input.executionMode === "repair" ||
+      !input.title
+    ) {
+      return;
+    }
+    // Metadata is best effort on the already-running connection. Do not use
+    // requestControl: its admission timeout kills the whole execution. One
+    // unanswered request lives only until this ordinary session closes.
+    this.request("thread/name/set", {
+      name: input.title,
+      threadId: input.threadId,
+    }).catch((error: unknown) => {
+      console.warn("[openmeld.codex.new_session_title_failed]", {
+        code:
+          error instanceof CodexAppServerTransportError
+            ? error.code
+            : "unknown",
+        threadId: input.threadId,
+      });
     });
   }
 
@@ -2569,6 +2612,7 @@ function toJsonRpcTransportError(
 ): CodexAppServerTransportError {
   const message =
     normalizeOptionalText(error.message) ?? "codex app-server error";
+  const originalError = createProviderOriginalError(message) ?? undefined;
   const permissionDenial = classifyRuntimePermissionDenialMessage({
     message,
     source: "codex",
@@ -2578,6 +2622,7 @@ function toJsonRpcTransportError(
       code: permissionDenial.code,
       errorType: permissionDenial.errorType,
       message: permissionDenial.message,
+      originalError,
     });
   }
   const providerFailure = classifyCodexProviderAccountFailure({ message });
@@ -2601,6 +2646,7 @@ function toJsonRpcTransportError(
       code: "auth.required",
       errorType: "auth",
       message,
+      originalError,
     });
   }
   if (
@@ -2615,12 +2661,14 @@ function toJsonRpcTransportError(
       code: "context_not_found",
       errorType: "config",
       message,
+      originalError,
     });
   }
   return new CodexAppServerTransportError({
     code: "upstream_unreachable",
     errorType: "adapter",
     message,
+    originalError,
     ...(typeof error.code === "number" ? { rpcErrorCode: error.code } : {}),
   });
 }

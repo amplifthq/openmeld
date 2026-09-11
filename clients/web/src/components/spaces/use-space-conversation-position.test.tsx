@@ -24,6 +24,8 @@ afterEach(() => {
 function fixture() {
 	const viewport = document.createElement("div");
 	const message = document.createElement("div");
+	message.dataset.signalId = "message-a";
+	message.dataset.historySignalId = "message-a";
 	viewport.appendChild(message);
 	document.body.appendChild(viewport);
 	let messageTop = 800;
@@ -154,4 +156,72 @@ it("saves before navigation without waiting for scrollend, and keeps different S
 	expect(
 		readSpaceConversationPosition("human-a:space-conversation:b")
 	).toBeNull();
+});
+
+it("waits for a scroll pause before measuring and ignores callback identity changes", () => {
+	const f = fixture();
+	const measure = vi.spyOn(f.message, "getBoundingClientRect");
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	act(() => vi.advanceTimersByTime(40));
+	measure.mockClear();
+	for (let step = 0; step < 10; step++) {
+		f.input.viewport.scrollTop = 800 + step * 5;
+		act(() => {
+			result.current.onScroll(f.input.viewport);
+			vi.advanceTimersByTime(16);
+		});
+		rerender({
+			...f.input,
+			onLoadEarlierHistory: vi.fn(async () => undefined),
+		});
+	}
+	expect(measure).not.toHaveBeenCalled();
+	act(() => vi.advanceTimersByTime(150));
+	expect(readSpaceConversationPosition(f.key)).toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: -45,
+	});
+});
+
+it("restores from a recorded message when a long temporary reply disappears", async () => {
+	const f = fixture();
+	const stream = document.createElement("div");
+	stream.dataset.signalId = "stream:submission-reading-position";
+	stream.getBoundingClientRect = () =>
+		({
+			top: 1000 - f.input.viewport.scrollTop,
+			bottom: 1800 - f.input.viewport.scrollTop,
+		}) as DOMRect;
+	f.input.viewport.appendChild(stream);
+	const first = renderHook(useSpaceConversationPosition, {
+		initialProps: f.input,
+	});
+	act(() => vi.advanceTimersByTime(40));
+	f.input.viewport.scrollTop = 1100;
+	act(() => first.result.current.onScrollEnd(f.input.viewport));
+	first.unmount();
+	expect(readSpaceConversationPosition(f.key)).toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: -300,
+	});
+	stream.remove();
+	const onLoadHistoryAround = vi.fn(async () => true);
+	const { rerender } = renderHook(useSpaceConversationPosition, {
+		initialProps: {
+			...f.input,
+			hasEarlierHistory: true,
+			messageElementsRef: { current: new Map<string, HTMLElement>() },
+			onLoadHistoryAround,
+		},
+	});
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(40);
+	});
+	expect(onLoadHistoryAround).toHaveBeenCalledExactlyOnceWith("message-a");
+	f.input.viewport.scrollTop = 0;
+	rerender({ ...f.input, hasEarlierHistory: false, onLoadHistoryAround });
+	act(() => vi.advanceTimersByTime(40));
+	expect(f.input.viewport.scrollTop).toBe(1100);
 });

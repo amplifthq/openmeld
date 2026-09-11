@@ -23,9 +23,9 @@ vi.mock("#/components/app/app-inner-sidebar", () => ({
 }));
 
 vi.mock("#/components/app/app-outer-rail", () => ({
-	AppOuterRail: (props: { contextualNavigation?: ReactNode }) => {
+	AppOuterRail: (props: { messengerNavigation?: ReactNode }) => {
 		appOuterRailSpy(props);
-		return <aside data-testid="outer-rail">{props.contextualNavigation}</aside>;
+		return <aside data-testid="outer-rail">{props.messengerNavigation}</aside>;
 	},
 }));
 
@@ -37,16 +37,15 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/current-computer-toolbar-launcher", () => ({
+vi.mock("#/components/app/current-computer", () => ({
 	CurrentComputerToolbarLauncher: () => null,
+	useCurrentComputer: () => null,
 }));
 
-vi.mock("#/components/spaces/app-spaces-sidebar", () => ({
-	AppSpacesSidebar: () => <nav data-testid="spaces-sidebar">Spaces</nav>,
-}));
-
-vi.mock("#/components/spaces/chats-sidebar", () => ({
-	ChatsSidebar: () => <nav data-testid="direct-messages-sidebar">Chats</nav>,
+vi.mock("#/components/spaces/conversations-sidebar", () => ({
+	ConversationsSidebar: () => (
+		<nav data-testid="conversations-sidebar">Conversations</nav>
+	),
 }));
 
 const RUNNING_WAKE_PROGRESS_ITEMS = [
@@ -115,7 +114,7 @@ describe("AppSpaceShell", () => {
 		);
 
 		expect(screen.queryByTestId("inner-sidebar")).toBeNull();
-		expect(screen.queryByTestId("spaces-sidebar")).toBeNull();
+		expect(screen.queryByTestId("conversations-sidebar")).toBeNull();
 		expect(screen.getByText("Main content")).toBeTruthy();
 	});
 
@@ -127,11 +126,11 @@ describe("AppSpaceShell", () => {
 		);
 
 		expect(screen.getByText("Center Agent loading")).toBeTruthy();
-		expect(screen.queryByTestId("spaces-sidebar")).toBeNull();
+		expect(screen.queryByTestId("conversations-sidebar")).toBeNull();
 		expect(screen.getByTestId("space-window-frame")).toBeTruthy();
 	});
 
-	it("places Spaces navigation in the main sidebar", () => {
+	it("places Spaces navigation in the middle column with one fixed application rail", () => {
 		render(
 			<AppSpaceShell currentProfileId="human-1" currentSpaceId="space-1">
 				<div>Main content</div>
@@ -139,6 +138,16 @@ describe("AppSpaceShell", () => {
 		);
 
 		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
+		expect(
+			screen
+				.getByTestId("app-module-sidebar")
+				.contains(screen.getByTestId("conversations-sidebar"))
+		).toBe(true);
+		expect(
+			screen
+				.getByTestId("outer-rail")
+				.contains(screen.getByTestId("conversations-sidebar"))
+		).toBe(false);
 	});
 
 	it("owns the visible Wake progress projection shared by the conversation and sidebar", () => {
@@ -155,7 +164,7 @@ describe("AppSpaceShell", () => {
 });
 
 describe("AppDirectMessageShell", () => {
-	it("pairs the Chats sidebar with the shared conversation content", () => {
+	it("pairs the conversations sidebar with the shared conversation content", () => {
 		appInnerSidebarSpy.mockReset();
 		render(
 			<AppDirectMessageShell
@@ -166,8 +175,7 @@ describe("AppDirectMessageShell", () => {
 			</AppDirectMessageShell>
 		);
 
-		expect(screen.getByTestId("direct-messages-sidebar")).toBeTruthy();
-		expect(screen.queryByTestId("spaces-sidebar")).toBeNull();
+		expect(screen.getByTestId("conversations-sidebar")).toBeTruthy();
 		expect(screen.getByText("Messages")).toBeTruthy();
 		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
 	});

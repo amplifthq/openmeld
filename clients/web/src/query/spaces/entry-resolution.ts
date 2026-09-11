@@ -77,6 +77,8 @@ export function spaceEntryResolutionQueryOptions(input: {
 				signal,
 			}),
 		enabled: input.enabled,
+		// Explicit Send admission must fail/retry visibly even while offline.
+		networkMode: "always",
 		gcTime: ROUTE_REVISIT_GC_TIME_MS,
 		retry: shouldRetrySpaceQuery,
 		staleTime: SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS,

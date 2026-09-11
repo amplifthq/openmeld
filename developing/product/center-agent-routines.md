@@ -29,6 +29,39 @@
 
 ## Current Implementation Status
 
+### Personal Remote Agent Routines
+
+Personal Remote Agents reuse the same Routine definitions, minute scheduler,
+atomic occurrence claim, Workflow execution, Run history, and native result
+publication. The owner can create, list, update, pause, resume, and delete that
+Agent's Routines through its chat tools. Personal Routine management is not yet
+exposed in the Center Agent Web or CLI Routine surfaces.
+
+- A personal definition stores its immutable `agent_profile_id`; each claimed
+  Run freezes `agent_profile_id_snapshot`. A null executor preserves the
+  designated Center Agent behavior for existing Routines.
+- Personal tools require the verified owner of the admitted Agent execution.
+  Another member cannot schedule work using that owner's authority. Lists and
+  mutations are scoped to the exact Agent; Center tools and existing human
+  Routine routes remain scoped to Center Routines.
+- Targets are the owner's DM with that Agent or an eligible organization Space.
+  The owner and Agent must retain access at admission. A disabled or reassigned
+  Agent, revoked membership, or mismatched Run executor prevents execution.
+- Runs use the personal Agent's current model, conversation identity, shared
+  tool policy, and Computer scope. They do not recall Center Agent memory.
+  The delegated owner remains the verified tool requester; the personal Agent
+  remains the visible result author.
+- Personal Routines cannot use Channels or grant Center-only unattended actions.
+  Existing standard/read-only policy, destructive-action restrictions, limits,
+  pause semantics, and duplicate-publication protection still apply.
+
+Deploy migration `0166`, then the new Core and Remote Agent together before
+opening personal Routine creation. The Remote receiver must understand the
+personal Routine author contract. Before rolling Core back to a version that
+does not understand personal executors, pause personal Routines and drain their
+in-flight Runs; an old scheduler must never scan enabled personal definitions.
+No Local Service or CLI upgrade is required for this capability.
+
 As of 2026-07-23, the repository implements the Center Agent Routines MVP
 product contract end to end:
 
@@ -215,9 +248,10 @@ The stored definition includes:
 - `scheduleKind = once | cron`; a one-time Routine stores `runAtMs`, while a
   recurring Routine stores one five-field schedule expression and one explicit
   IANA `timezone`
-- `destinationKind = space | slack_thread`; a Space destination stores
+- `destinationKind = space | slack_thread | message_channel`; a Space destination stores
   `targetSpaceId`, while a Slack destination stores the durable team, channel,
-  thread, and OpenMeld conversation locators
+  thread, and OpenMeld conversation locators. A Message Channel destination stores
+  the typed Feishu/Lark connection, app, tenant, chat, root message, and thread locator.
 - a bounded structured `authorizedActions` grant for unattended capabilities
   that require more than free-text instructions; the default is no grants
 - `enabled`, `paused`, or terminal `completed` status
@@ -237,11 +271,17 @@ as `completed`, `failed`, or `skipped`.
 The destination is required and never server-selected. A Web or CLI caller must
 explicitly select a same-organization eligible Space. In an interactive Center
 Agent conversation, `current_conversation` explicitly selects the current
-OpenMeld Space or current Slack thread; Core never derives this from a later
+OpenMeld Space, current Slack thread, or current Feishu/Lark conversation; Core never derives this from a later
 message or a mutable channel name. A Slack destination freezes its team id,
 channel id, root thread timestamp, canonical conversation id, and a
 presentation-only label. A Center Agent DM may appear in the Core-owned
 eligible-target projection, but it is still selected explicitly.
+
+Feishu/Lark current-chat selection requires a Core-issued turn locator and its
+source Native Delivery, attributed to the same active member and Organization.
+The model cannot invent another chat as a Routine target. Connection ownership
+and readiness are rechecked at mutation and admission. Each Run snapshots the
+typed locator; definition edits never redirect an already claimed Run.
 
 One claimed Run must use its frozen destination snapshot for worker
 submission, successful result publication, failure publication, and recovery.
@@ -289,13 +329,11 @@ closed.
 
 An explicit verified-member request authorizes create, update, pause, or resume
 without a second confirmation when the required fields are clear. Interactive
-delete remains the destructive exception: the Center Agent restates the Routine
-name and exact delete action and obtains one separate confirmation. A clear
-affirmative reply to that exact proposal completes the safeguard; the Center
-Agent must then execute without asking again. Remote Agent issues a one-time
+delete also proceeds without repeated authorization when the verified request
+names the exact Routine and deletion. Remote Agent issues a one-time
 token bound to the represented user, Organization, exact Routine, and exact
-delete input; the first call ends the turn and the token cannot be consumed by
-the same submission. The private Routine RPC still carries no confirmation
+delete input; the Agent may consume it in the same submission when already
+authorized, and asks first otherwise. The private Routine RPC still carries no confirmation
 token. Core's separate hard layer remains current identity, represented-member
 authorization, quota, schedule, and target validation.
 
@@ -518,7 +556,8 @@ A Routine Run uses the Remote Agent native-delivery exception. It does not
 create a user Wake, enter RuntimeCoordinator, or fabricate a source Space
 message. The native delivery ledger links the delivery to `routineRunId` and
 records the frozen result surface: `conversationKind = "space"` for OpenMeld
-Space delivery or `conversationKind = "slack"` with the Slack thread locator.
+Space delivery, `conversationKind = "slack"` with the Slack thread locator, or
+`conversationKind = "message_channel"` with the frozen Feishu/Lark locator.
 Exactly one is the user-visible result surface.
 
 Each occurrence causes one initial Center Agent execution. It may also cause
@@ -590,7 +629,8 @@ the delegation without pretending that the member is currently speaking.
 `delegatedBy.ownerUserId` must equal `sender.createdByUserId`; a missing or
 different delegated identity is an invalid Routine envelope, not shared-only
 authority.
-The trigger also carries the Run's frozen Space or Slack-thread destination.
+The trigger also carries the Run's frozen Space, Slack-thread, or Feishu/Lark
+Message Channel destination.
 This is the only source for resolving `current_conversation` inside a Routine;
 the worker must not reinterpret a Slack conversation id as a Space id.
 The worker submit root keeps the designated Center Agent as `author` and sets
@@ -745,12 +785,12 @@ idempotency, and Core authorization remain unchanged for ordinary actions.
 Routine deletion is unsupported during a Routine and returns
 `routine_destructive_action_unsupported` before reading the Routine directory
 or calling Core deletion. Interactive deletion still resolves the requested ID
-and name against Core-owned current state and uses its exact later-turn
+and name against Core-owned current state and uses its exact action-bound
 confirmation bound to that target.
 
 Project create, update, and Default Project selection are inherited as ordinary
 represented-member writes with durable operation IDs. They carry no free-text
-authorization evidence. Interactive Project removal retains its later-turn
+authorization evidence. Interactive Project removal retains its action-bound
 token; Project removal during a Routine is unsupported in both Remote Agent and
 Core and returns `routine_destructive_action_unsupported` with zero side
 effects.

@@ -2,6 +2,7 @@ import {
   centerAgentConnectorConnectionSelectionSchema,
   openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "@openmeld/schemas";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -10,7 +11,6 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
-import { digestCanonicalJson } from "../agent-core/canonical-json";
 import {
   getRemoteAgentGitHubToolDefinitions as buildRemoteAgentGitHubToolDefinitions,
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
@@ -800,7 +800,7 @@ describe("Remote Agent GitHub tools", () => {
         repo: "openmeld",
       })
     ).rejects.toThrow(
-      "GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Plugins → GitHub and the installation's repository access."
+      "GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Plugins → GitHub and the installation's repository access."
     );
   });
 
@@ -1451,7 +1451,7 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_get_current_user", {})
     ).rejects.toThrow(
-      "Open Center Agent → Plugins → GitHub for this workspace, check Your GitHub, and try again."
+      "Open Plugins → GitHub for this workspace, check Your GitHub, and try again."
     );
   });
 
@@ -2227,7 +2227,7 @@ describe("Remote Agent GitHub tools", () => {
       },
       name: "github_delete_file" as RemoteAgentGitHubToolName,
       requiredMessage:
-        "This action will delete obsolete.json on cleanup from openmeld/app as Mira. Because deleting or merging can be difficult to undo, reply to confirm this exact action.",
+        "This action will delete obsolete.json on cleanup from openmeld/app as Mira. If the verified user already authorized this exact action and target, use the token with unchanged input now. Otherwise ask for that authorization before using it. The token binds the action; it does not grant user permission.",
     },
     {
       actionId: "github.create_pull_request",
@@ -2331,7 +2331,7 @@ describe("Remote Agent GitHub tools", () => {
       },
       name: "github_merge_pull_request" as RemoteAgentGitHubToolName,
       requiredMessage:
-        "This action will squash-merge pull request openmeld/app#42 as Mira. Because deleting or merging can be difficult to undo, reply to confirm this exact action.",
+        "This action will squash-merge pull request openmeld/app#42 as Mira. If the verified user already authorized this exact action and target, use the token with unchanged input now. Otherwise ask for that authorization before using it. The token binds the action; it does not grant user permission.",
     },
   ])("applies the unified authorization policy to $name", async ({
     actionId,
@@ -2396,20 +2396,19 @@ describe("Remote Agent GitHub tools", () => {
         requiredMessage,
         writeConfirmationToken: expect.any(String),
       },
-      status: "destructive_confirmation_required",
+      status: "destructive_action_preview",
     });
     expect(fetchMock).not.toHaveBeenCalled();
     const destructiveTool = tools.find((tool) => tool.name === name);
-    expect(destructiveTool?.endsTurnAfter?.(firstResult)).toBe(true);
+    expect(destructiveTool?.endsTurnAfter?.(firstResult)).not.toBe(true);
 
-    const nextTurnTools = await createNextTurnGitHubTools({
+    const sameTurnTools = getRemoteAgentGitHubToolDefinitions({
       connectorExecution,
       coreWorker,
-      request,
       storage,
     });
     await expect(
-      executeTool(nextTurnTools, name, {
+      executeTool(sameTurnTools, name, {
         ...input,
         writeConfirmationToken: requireWriteConfirmationToken(firstResult),
       })
@@ -2420,7 +2419,7 @@ describe("Remote Agent GitHub tools", () => {
     );
   });
 
-  it("requires a later submission and binds one-time confirmation to the exact input", async () => {
+  it("binds one-time confirmation to the exact input across submissions", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorage(request);
     const fetchMock = vi.fn<typeof fetch>(async () =>
@@ -2460,14 +2459,6 @@ describe("Remote Agent GitHub tools", () => {
     );
     const writeConfirmationToken = requireWriteConfirmationToken(disclosure);
 
-    await expect(
-      executeTool(tools, "github_delete_file", {
-        ...originalInput,
-        writeConfirmationToken,
-      })
-    ).resolves.toMatchObject({ status: "destructive_confirmation_required" });
-    expect(fetchMock).not.toHaveBeenCalled();
-
     const nextTurnTools = await createNextTurnGitHubTools({
       connectorExecution: {
         baseUrl: "https://connectors.example.test",
@@ -2501,10 +2492,10 @@ describe("Remote Agent GitHub tools", () => {
     expect(changedDisclosure).toMatchObject({
       confirmation: {
         requiredMessage:
-          "This action will delete different.json from openmeld/app as Mira. Because deleting or merging can be difficult to undo, reply to confirm this exact action.",
+          "This action will delete different.json from openmeld/app as Mira. If the verified user already authorized this exact action and target, use the token with unchanged input now. Otherwise ask for that authorization before using it. The token binds the action; it does not grant user permission.",
         writeConfirmationToken: expect.any(String),
       },
-      status: "destructive_confirmation_required",
+      status: "destructive_action_preview",
     });
     expect(requireWriteConfirmationToken(changedDisclosure)).not.toBe(
       writeConfirmationToken
@@ -2523,7 +2514,7 @@ describe("Remote Agent GitHub tools", () => {
         operationId: "delete-file-second-operation",
         writeConfirmationToken,
       })
-    ).resolves.toMatchObject({ status: "destructive_confirmation_required" });
+    ).resolves.toMatchObject({ status: "destructive_action_preview" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -2569,7 +2560,7 @@ describe("Remote Agent GitHub tools", () => {
         sha: "abc123",
         writeConfirmationToken: requireWriteConfirmationToken(disclosure),
       })
-    ).resolves.toMatchObject({ status: "destructive_confirmation_required" });
+    ).resolves.toMatchObject({ status: "destructive_action_preview" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -2632,7 +2623,7 @@ describe("Remote Agent GitHub tools", () => {
         connectionOwnerUserId: "user_felix",
         writeConfirmationToken: expect.any(String),
       },
-      status: "destructive_confirmation_required",
+      status: "destructive_action_preview",
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -2698,7 +2689,7 @@ describe("Remote Agent GitHub tools", () => {
         ...originalInput,
         writeConfirmationToken: requireWriteConfirmationToken(userDisclosure),
       })
-    ).resolves.toMatchObject({ status: "destructive_confirmation_required" });
+    ).resolves.toMatchObject({ status: "destructive_action_preview" });
 
     const differentOrganizationRequest = createSubmitTurnRequest({
       organizationId: "org_456",
@@ -2732,7 +2723,7 @@ describe("Remote Agent GitHub tools", () => {
           organizationDisclosure
         ),
       })
-    ).resolves.toMatchObject({ status: "destructive_confirmation_required" });
+    ).resolves.toMatchObject({ status: "destructive_action_preview" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -2798,7 +2789,7 @@ describe("Remote Agent GitHub tools", () => {
 
     expect(results.map(readToolStatus).sort()).toEqual([
       "completed",
-      "destructive_confirmation_required",
+      "destructive_action_preview",
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

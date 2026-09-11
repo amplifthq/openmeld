@@ -4,7 +4,64 @@ import type {
   SpaceMessageFileReference,
 } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
-import { parseDispatchTask } from "../src/local-service/dispatch/parse-dispatch-task";
+import {
+  buildDispatchPromptPlan,
+  buildDispatchSessionTitle,
+  parseDispatchTask,
+} from "../src/local-service/dispatch/parse-dispatch-task";
+
+it("names a new Session from the Wake request rather than the bootstrap instructions", () => {
+  expect(
+    buildDispatchSessionTitle({
+      targetProfileName: "Monica",
+      prompt: "Adjust the close button\n  and pagination",
+    })
+  ).toBe("OpenMeld · Monica · Adjust the close button and pagination");
+  expect(
+    buildDispatchSessionTitle({ targetProfileName: null, prompt: "Fix layout" })
+  ).toBe("OpenMeld · Fix layout");
+  expect(
+    buildDispatchSessionTitle({ targetProfileName: "Monica", prompt: " \n " })
+  ).toBeUndefined();
+  const longTitle =
+    buildDispatchSessionTitle({
+      targetProfileName: "Monica",
+      prompt: "🙂".repeat(200),
+    }) ?? "";
+  expect(longTitle.length).toBeLessThanOrEqual(120);
+  expect(longTitle.isWellFormed()).toBe(true);
+  expect(longTitle.endsWith("…")).toBe(true);
+});
+
+it("delivers verified Space caller facts without changing the message or session title", () => {
+  const deliverRequest = createDeliverRequest({
+    targetProfileId: "agt-target-a",
+    sourceText: "Review my design",
+  });
+  const callerContext = {
+    relationship: "external",
+    spaceRole: "member",
+    audience: "external",
+  } as const;
+  if (!deliverRequest.payload.sourceSignalSnapshot) {
+    throw new Error("Fixture must include its source signal");
+  }
+  deliverRequest.payload.sourceSignalSnapshot.callerContext = callerContext;
+  const task = parseDispatchTask({ deliverRequest, fallbackRouteConfig: null });
+  expect(task?.callerContext).toEqual(callerContext);
+  expect(task?.prompt).toBe("Review my design");
+  const plan = buildDispatchPromptPlan({
+    prompt: "Review my design",
+    spaceId: "space",
+    dispatchTriggerSource: "activation_targets",
+    targetProfileId: "agt-target-a",
+    callerContext,
+    shouldInjectBootstrap: false,
+  });
+  expect(plan.userPrompt).toContain(
+    "OpenMeld verified caller: external. Space role: member. Result audience: external."
+  );
+});
 
 function createDeliverRequest(input: {
   activationTargets?: string[];
@@ -249,7 +306,7 @@ describe("parseDispatchTask", () => {
       revision: 1,
       name: `screen-${index + 1}.png`,
       mimeType: "image/png",
-      sizeBytes: 10 * 1024 * 1024,
+      sizeBytes: 250 * 1024 * 1024,
     }));
     const parsed = parseDispatchTask({
       deliverRequest: createDeliverRequest({

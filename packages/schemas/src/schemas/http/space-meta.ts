@@ -16,9 +16,9 @@ export const MAX_SPACE_GUIDE_LENGTH = 4000 as const;
 export const spaceOrganizationVisibilitySchema = z.enum(["public", "private"]);
 
 export function resolveInitialSpaceAccessMode(
-  visibility: z.infer<typeof spaceOrganizationVisibilitySchema>
-): "public" | "members_only" {
-  return visibility === "private" ? "members_only" : "public";
+  _visibility: z.infer<typeof spaceOrganizationVisibilitySchema>
+): "members_only" {
+  return "members_only";
 }
 
 export const spaceCreatorSchema = z
@@ -70,6 +70,8 @@ export const spaceMetaSchema = z.strictObject({
   purpose: trimmedNonEmptyStringSchema.optional(),
   directMessage: spaceDirectMessageMetaSchema.optional(),
   creator: spaceCreatorSchema.optional(),
+  ownerUserIds: z.array(trimmedNonEmptyStringSchema).optional(),
+  allowGuests: z.boolean().optional(),
   guide: trimmedNonEmptyStringSchema.optional(),
   accessMode: spaceAccessModeSchema.optional(),
   passwordProtected: z.boolean().optional(),
@@ -84,13 +86,24 @@ export const getSpaceMetaResponseSchema = spaceMetaSchema;
 
 export const patchSpaceMetaBodySchema = z
   .strictObject({
+    visibility: spaceOrganizationVisibilitySchema.optional(),
+    allowGuests: z.boolean().optional(),
+    ownership: z
+      .strictObject({
+        userId: trimmedNonEmptyStringSchema,
+        role: z.enum(["owner", "member"]),
+      })
+      .optional(),
     name: spaceNameSchema.optional(),
     purpose: z.string().optional(),
     guide: z.string().max(MAX_SPACE_GUIDE_LENGTH).optional(),
   })
   .superRefine((value, ctx) => {
     if (
+      value.ownership !== undefined ||
+      value.allowGuests !== undefined ||
       value.name !== undefined ||
+      value.visibility !== undefined ||
       value.purpose !== undefined ||
       value.guide !== undefined
     ) {
@@ -98,10 +111,15 @@ export const patchSpaceMetaBodySchema = z
     }
     ctx.addIssue({
       code: "custom",
-      message: "Expected name, purpose or guide",
+      message: "Expected name, purpose, guide or visibility",
     });
   })
   .transform((value) => ({
+    ...(value.allowGuests === undefined
+      ? {}
+      : { allowGuests: value.allowGuests }),
+    ...(value.ownership === undefined ? {} : { ownership: value.ownership }),
+    ...(value.visibility === undefined ? {} : { visibility: value.visibility }),
     ...(value.name === undefined ? {} : { name: value.name }),
     ...(value.purpose === undefined ? {} : { purpose: value.purpose }),
     ...(value.guide === undefined ? {} : { guide: value.guide }),

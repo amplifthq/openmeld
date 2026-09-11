@@ -1,5 +1,6 @@
 import type { InboxSummaryResponse } from "@openmeld/schemas/types";
 import { useQuery } from "@tanstack/react-query";
+import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { inboxSummaryQueryOptions } from "#/query/organizations/inbox";
 
 export function resolveInboxAttention(input: {
@@ -27,15 +28,10 @@ export function resolveInboxAttention(input: {
 	const actions = summary.unresolvedActionCount;
 	const urgent = summary.unreadUrgentUpdateCount;
 	const count = actions + urgent;
-	let tone: "danger" | "warning" | null = null;
-	if (actions > 0) {
-		tone = "danger";
-	} else if (urgent > 0) {
-		tone = "warning";
-	}
+	const tone = resolveInboxAttentionTone(summary);
 	const details = [
 		...(actions > 0
-			? [`${actions} ${actions === 1 ? "item needs" : "items need"} action`]
+			? [`${actions} pending ${actions === 1 ? "item" : "items"}`]
 			: []),
 		...(urgent > 0
 			? [`${urgent} unread urgent ${urgent === 1 ? "update" : "updates"}`]

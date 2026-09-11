@@ -1,7 +1,3 @@
-import {
-	normalizeSpacePasswordText,
-	spaceAccessModeUsesPassword,
-} from "@openmeld/schemas";
 import type {
 	SpaceAccessMode,
 	SpaceOrganizationVisibility,
@@ -10,7 +6,6 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
-import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { useSurface } from "@openmeld/ui/lib/surface-context";
@@ -19,11 +14,10 @@ import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
-import { SpaceAccessModeRadioGroup } from "#/components/spaces/space-access-editor";
+import { SpaceVisibilityPicker } from "#/components/spaces/space-visibility-picker";
 import { WelcomeLayout } from "./welcome-layout";
 
 const SPACE_NAME_INPUT_ID = "welcome-space-name-input";
-const SPACE_PASSWORD_INPUT_ID = "welcome-space-password-input";
 const SPACE_ORGANIZATION_VISIBILITY_ID =
 	"welcome-space-organization-visibility";
 const SPACE_EXPLANATION = "A Space is where people and agents work together.";
@@ -256,17 +250,10 @@ function CreateSpaceForm(props: {
 }) {
 	const createStartedRef = useRef(false);
 	const [name, setName] = useState("");
-	const [accessMode, setAccessMode] = useState<SpaceAccessMode>("members_only");
 	const [visibility, setVisibility] =
 		useState<SpaceOrganizationVisibility>("private");
-	const [password, setPassword] = useState("");
 	const trimmedName = name.trim();
-	const selectedModeNeedsPassword = spaceAccessModeUsesPassword(accessMode);
-	const normalizedPassword = normalizeSpacePasswordText(password);
-	const canCreate =
-		trimmedName.length > 0 &&
-		!props.isPending &&
-		(!selectedModeNeedsPassword || normalizedPassword.length > 0);
+	const canCreate = trimmedName.length > 0 && !props.isPending;
 
 	useEffect(() => {
 		if (!props.isPending) {
@@ -282,12 +269,9 @@ function CreateSpaceForm(props: {
 		createStartedRef.current = true;
 		try {
 			props.onCreate({
-				accessMode,
+				accessMode: "members_only",
 				name: trimmedName,
 				visibility: props.contextKind === "personal" ? "private" : visibility,
-				...(selectedModeNeedsPassword && normalizedPassword.length > 0
-					? { password: normalizedPassword }
-					: {}),
 			});
 		} catch (error) {
 			createStartedRef.current = false;
@@ -311,60 +295,14 @@ function CreateSpaceForm(props: {
 			</div>
 			{props.contextKind === "organization" ? (
 				<div className="grid gap-2">
-					<Label id={SPACE_ORGANIZATION_VISIBILITY_ID}>
-						Organization directory listing
+					<Label htmlFor={SPACE_ORGANIZATION_VISIBILITY_ID}>
+						Who can join this Space
 					</Label>
-					<RadioGroup
-						aria-disabled={props.isPending || undefined}
-						aria-labelledby={SPACE_ORGANIZATION_VISIBILITY_ID}
-						className={cn(
-							"w-full gap-1",
-							props.isPending && "pointer-events-none opacity-70"
-						)}
-						selectedIndex={visibility === "private" ? 0 : 1}
-					>
-						<RadioItem
-							className="px-3 py-2.5"
-							description="Only members you add can find and join this Space."
-							index={0}
-							label="Private"
-							onSelect={() => setVisibility("private")}
-							selected={visibility === "private"}
-						/>
-						<RadioItem
-							className="px-3 py-2.5"
-							description="Everyone in this organization can find and join this Space."
-							index={1}
-							label="Public"
-							onSelect={() => setVisibility("public")}
-							selected={visibility === "public"}
-						/>
-					</RadioGroup>
-				</div>
-			) : null}
-			<div className="grid gap-2">
-				<Label>Link access</Label>
-				<SpaceAccessModeRadioGroup
-					disabled={props.isPending}
-					onChange={(nextAccessMode) => {
-						setAccessMode(nextAccessMode);
-						if (!spaceAccessModeUsesPassword(nextAccessMode)) {
-							setPassword("");
-						}
-					}}
-					value={accessMode}
-				/>
-			</div>
-			{selectedModeNeedsPassword ? (
-				<div className="grid gap-2">
-					<Label htmlFor={SPACE_PASSWORD_INPUT_ID}>Set Space password</Label>
-					<Input
-						autoComplete="new-password"
+					<SpaceVisibilityPicker
 						disabled={props.isPending}
-						id={SPACE_PASSWORD_INPUT_ID}
-						onChange={(event) => setPassword(event.target.value)}
-						type="password"
-						value={password}
+						id={SPACE_ORGANIZATION_VISIBILITY_ID}
+						onChange={setVisibility}
+						value={visibility}
 					/>
 				</div>
 			) : null}

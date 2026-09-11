@@ -365,7 +365,7 @@ function resolveCenterAgentErrorMessageWithoutDiagnostics(
 		case "center_agent.designation_not_ready":
 			return "The connection is still settling. Try connecting again in a moment.";
 		case "center_agent.creator_required":
-			return "Only the Organization creator can pause or resume the Center Agent.";
+			return "Only Organization owners and admins can pause or resume the Center Agent.";
 		case "center_agent.pause_incomplete":
 			return "The Center Agent is paused, but OpenMeld could not stop every current task. Try pausing again or open diagnostics.";
 		case "center_agent.model_configuration_changed":

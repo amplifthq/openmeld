@@ -22,6 +22,7 @@ import { AppOrganizationProvider } from "#/lib/organizations/organization-contex
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import { buildRemoteCenterAgentReadiness } from "#/test-support/center-agent-readiness";
 import {
 	createTestQueryClient,
@@ -189,9 +190,19 @@ function SpaceMembersSidePanel(input: TestSpaceMembersSidePanelProps) {
 }
 
 function renderWithQueryClient(ui: ReactElement) {
-	return render(<TestQueryClientProvider>{ui}</TestQueryClientProvider>);
+	const queryClient = createTestQueryClient();
+	queryClient.setQueryData(
+		spaceQueryKeys.status("space-1", "11111111-1111-4111-8111-111111111111"),
+		{ ownerUserIds: ["user_felix"] }
+	);
+	return render(
+		<TestQueryClientProvider queryClient={queryClient}>
+			{ui}
+		</TestQueryClientProvider>
+	);
 }
 
+import { SpaceAddMembersLauncher } from "./space-members-drawer";
 import {
 	SPACE_MEMBERS_LOAD_ERROR_MESSAGE,
 	SPACE_MEMBERS_REFRESH_ERROR_MESSAGE,
@@ -229,16 +240,12 @@ describe("SpaceMembersSidePanel", () => {
 		};
 		const surfaces = (nonce: number) => (
 			<>
-				<SpaceMembersSidePanel
-					{...common}
-					handlesAddMembersRequest={desktop}
-					openAddMembersNonce={nonce}
-				/>
-				<SpaceMembersDrawer
-					{...common}
-					handlesAddMembersRequest={!desktop}
-					openAddMembersNonce={nonce}
-				/>
+				{desktop ? (
+					<SpaceMembersSidePanel {...common} />
+				) : (
+					<SpaceMembersDrawer {...common} />
+				)}
+				<SpaceAddMembersLauncher {...common} openAddMembersNonce={nonce} />
 			</>
 		);
 		const view = renderWithQueryClient(surfaces(0));
@@ -357,6 +364,7 @@ describe("SpaceMembersSidePanel", () => {
 				snapshot={createSpaceMembersSnapshot({
 					humans: [
 						createSpaceMemberHumanSnapshot({
+							ownerUserId: "user_felix",
 							profileName: "Felix",
 							profileId: "11111111-1111-4111-8111-111111111111",
 						}),
@@ -1010,9 +1018,12 @@ describe("SpaceMembersSidePanel", () => {
 			"A Offline Agent",
 			"F Offline Agent",
 		];
-		expect(readTextOrder(getMembersSection("Agents"), expectedOrder)).toEqual(
-			expectedOrder
-		);
+		expect(
+			readTextOrder(getMembersSection("People & Agents"), expectedOrder)
+		).toEqual(expectedOrder);
+		expect(screen.getByText("Felix")).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Collapse Felix" })).toBeTruthy();
+		expect(screen.queryByRole("heading", { name: "Agents" })).toBeNull();
 	});
 
 	it("keeps live human profiles before inactive human profiles", () => {
@@ -1567,15 +1578,6 @@ describe("SpaceMembersSidePanel", () => {
 		const joinedCheckbox = within(dialog).getByRole("checkbox", {
 			name: "Research Agent",
 		});
-		const createButton = within(dialog).getByRole("button", {
-			name: "New Agent",
-		});
-		const ownerRow = createButton.parentElement;
-		if (!ownerRow) {
-			throw new Error("Missing owner row");
-		}
-		expect(within(ownerRow).getByText("Felix")).toBeTruthy();
-		expect(within(ownerRow).getByText("In this Space")).toBeTruthy();
 		expect(
 			within(dialog).getAllByRole("button", { name: "New Agent" })
 		).toHaveLength(1);

@@ -2,6 +2,7 @@ import type {
   AdapterAgentControllerConversationOccupancy,
   AdapterComputerFileAccessBoundary,
   AdapterDispatchExecutionMode,
+  AdapterDispatchRequest,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -140,6 +141,7 @@ export async function invokeCodexAppServer(input: {
   env?: Record<string, string | undefined>;
   executionMode?: AdapterDispatchExecutionMode;
   instructionPrompt?: AdapterInstructionPrompt;
+  newSessionTitle?: AdapterDispatchRequest["newSessionTitle"];
   onActiveTurn?: CodexAppServerActiveTurnRegistrar;
   onInteractionRequest?: AdapterInteractionCallback;
   onPreview?: AdapterPreviewCallback;

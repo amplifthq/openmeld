@@ -20,6 +20,28 @@ const VERSION_FIVE_UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 
 describe("Remote Agent Message Channel event service", () => {
+  it("rejects durable events accepted by a prior connection generation before reading context or executing", async () => {
+    const dependencies = createDependencies();
+    const adapter = createProviderAdapter();
+    const result = await processRemoteAgentMessageChannelEvent(
+      {
+        db: {} as D1Database,
+        identityDb: {} as D1Database,
+        env: {} as CoreBindings,
+        envelope: { ...createEnvelope(), connectionGeneration: 2 },
+        queueAttempts: 1,
+        queueMessageId: "old-generation-event",
+        registry: createMessageChannelProviderRegistry([adapter]),
+      },
+      dependencies
+    );
+    expect(result).toEqual({
+      status: "rejected",
+      reasonCode: "message_channel.connection_generation_changed",
+    });
+    expect(adapter.readChannelContext).not.toHaveBeenCalled();
+    expect(dependencies.submitNativeDelivery).not.toHaveBeenCalled();
+  });
   it("admits a known member through the shared native-delivery path and advances context only after admission", async () => {
     const envelope = createEnvelope();
     const channelContext = createChannelContext(envelope);
@@ -28,8 +50,10 @@ describe("Remote Agent Message Channel event service", () => {
     });
     const dependencies = createDependencies();
     const sequence: string[] = [];
-    dependencies.submitNativeDelivery.mockImplementation(() => {
+    dependencies.submitNativeDelivery.mockImplementation(async (input) => {
       sequence.push("admitted");
+      expect(adapter.readChannelContext).not.toHaveBeenCalled();
+      Object.assign(input.request, await input.prepareInput?.());
       return Promise.resolve({
         deliveryId: "delivery_lark_1",
         dispatchId: "dispatch_lark_1",
@@ -388,7 +412,7 @@ describe("Remote Agent Message Channel event service", () => {
     ).rejects.toMatchObject({
       reasonCode: "lark.message_resource_http_503",
     });
-    expect(dependencies.submitNativeDelivery).not.toHaveBeenCalled();
+    expect(dependencies.submitNativeDelivery).toHaveBeenCalledOnce();
     expect(dependencies.releaseIngress).toHaveBeenCalledWith(
       expect.objectContaining({
         failureReasonCode: "lark.message_resource_http_503",
@@ -603,8 +627,9 @@ function createDependencies() {
     ),
     submitNativeDelivery: vi.fn<
       RemoteAgentMessageChannelEventServiceDependencies["submitNativeDelivery"]
-    >(() =>
-      Promise.resolve({
+    >(async (input) => {
+      Object.assign(input.request, await input.prepareInput?.());
+      return {
         deliveryId: "delivery_lark_1",
         dispatchId: "dispatch_lark_1",
         idempotencyKey: "idempotency_lark_1",
@@ -612,8 +637,8 @@ function createDependencies() {
           "21f74ea8-904c-56a2-b09f-575ed7ee3d9c",
         shouldAck: true,
         status: "submitted",
-      })
-    ),
+      };
+    }),
     upsertContextCursor: vi.fn(() => Promise.resolve({})),
   } satisfies RemoteAgentMessageChannelEventServiceDependencies;
 }
@@ -623,6 +648,7 @@ function createProviderAdapter(input?: {
 }): MessageChannelProviderAdapter {
   return {
     createWorkingCard: vi.fn(),
+    publishFile: vi.fn(),
     downloadResource: vi.fn(),
     finalizeWorkingCard: vi.fn(),
     provider: "lark",

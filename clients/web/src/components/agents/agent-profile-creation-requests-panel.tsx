@@ -1,5 +1,7 @@
 "use client";
 
+import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
+
 import type {
 	AgentProfileCreationRequest,
 	OrganizationDirectoryResponse,
@@ -50,7 +52,14 @@ export function AgentProfileCreationRequestsPanel(input: {
 			organizationId: input.organizationId,
 		})
 	);
-	const requestCount = requestsQuery.data?.requests.length ?? 0;
+	// Retain the teammate UI for reopening, but also filter stale client caches.
+	const visibleRequests =
+		requestsQuery.data?.requests.filter(
+			(request) =>
+				TEAMMATE_AGENT_REQUESTS_ENABLED ||
+				request.requesterUserId === request.targetOwnerUserId
+		) ?? [];
+	const requestCount = visibleRequests.length;
 	const mutation = useMutation({
 		mutationFn: async (action: RequestAction) => {
 			switch (action.kind) {
@@ -168,24 +177,31 @@ export function AgentProfileCreationRequestsPanel(input: {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
-			<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-				<p className="max-w-2xl text-muted-foreground text-xs leading-5">
-					Track requests you sent and approve requests for Agents that a
-					teammate wants you to own.
+			{TEAMMATE_AGENT_REQUESTS_ENABLED ? (
+				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+					<p className="max-w-2xl text-muted-foreground text-xs leading-5">
+						Track requests you sent and approve requests for Agents that a
+						teammate wants you to own.
+					</p>
+					<Button
+						disabled={!hasAnotherMember}
+						onClick={input.onCreateAgent}
+						size="sm"
+						type="button"
+					>
+						Request Agent for teammate
+					</Button>
+				</div>
+			) : (
+				<p className="text-muted-foreground text-xs">
+					Check the progress of Agents you created and finish any remaining
+					setup.
 				</p>
-				<Button
-					disabled={!hasAnotherMember}
-					onClick={input.onCreateAgent}
-					size="sm"
-					type="button"
-				>
-					Request Agent for teammate
-				</Button>
-			</div>
+			)}
 
 			{requestsQuery.isPending ? (
 				<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-					Loading requests…
+					Loading Agent setup…
 				</p>
 			) : null}
 			{requestsQuery.isError ? (
@@ -202,12 +218,12 @@ export function AgentProfileCreationRequestsPanel(input: {
 					</Button>
 				</div>
 			) : null}
-			{requestsQuery.data?.requests.length === 0 ? (
+			{requestsQuery.data && visibleRequests.length === 0 ? (
 				<p className="rounded-md border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-sm">
-					No Agent requests yet.
+					No Agent setup to show.
 				</p>
 			) : null}
-			{requestsQuery.data?.requests.map((request) => {
+			{visibleRequests.map((request) => {
 				const isFocused = request.id === input.focusRequestId;
 				const localSetup =
 					request.status === "completed" && request.createdAgentProfileId
@@ -450,6 +466,9 @@ function requestSummary(input: {
 	membersByUserId: ReadonlyMap<string, DirectoryMember>;
 	request: AgentProfileCreationRequest;
 }): string {
+	if (input.request.requesterUserId === input.request.targetOwnerUserId) {
+		return `Setup started via ${sourceLabel(input.request.source)}.`;
+	}
 	const requester = memberName(
 		input.membersByUserId,
 		input.request.requesterUserId,

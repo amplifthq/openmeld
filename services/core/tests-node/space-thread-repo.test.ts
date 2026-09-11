@@ -4,11 +4,63 @@ import {
   listSpaceThreadPreviewEntries,
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
+  readLatestExplicitThreadWake,
+  readThreadParticipants,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 
 const JOIN_SPACE_SIGNALS_SQL_REGEX = /JOIN\s+space_signals/i;
 
 describe("space-thread-repo", () => {
+  it("finds the last human selection across pages without following Agent replies or automatic continuations", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(
+        "CREATE TABLE space_signals (id TEXT PRIMARY KEY, payload_json TEXT); CREATE TABLE space_thread_signal_placements (signal_id TEXT PRIMARY KEY, thread_id TEXT);"
+      );
+      const add = (
+        id: string,
+        kind: string,
+        targets: string[],
+        automatic = false,
+        thread = "thread"
+      ) => {
+        db.prepare("INSERT INTO space_signals VALUES (?, ?)").run(
+          id,
+          JSON.stringify({
+            id,
+            type: "signal.text",
+            profile: { kind, profileId: kind === "agent" ? "A" : "H" },
+            data: {
+              messageEnvelope: { activationTargets: targets },
+              meta: { threadWakeContinuation: automatic },
+            },
+          })
+        );
+        db.prepare(
+          "INSERT INTO space_thread_signal_placements VALUES (?, ?)"
+        ).run(id, thread);
+      };
+      add("first", "human", ["A"]);
+      add("switch", "human", ["B"]);
+      add("agent", "agent", ["C"]);
+      add("automatic", "human", ["A"], true);
+      add("other", "human", ["C"], false, "other-thread");
+      const sql = new SqliteSqlStorage(db) as unknown as SqlStorage;
+      expect(readThreadParticipants(sql, "thread")).toEqual([
+        { profileId: "H", kind: "human" },
+        { profileId: "A", kind: "agent" },
+      ]);
+      expect(
+        JSON.parse(readLatestExplicitThreadWake(sql, "thread") ?? "null").id
+      ).toBe("switch");
+      add("multi", "human", ["A", "B"]);
+      expect(
+        JSON.parse(readLatestExplicitThreadWake(sql, "thread") ?? "null").id
+      ).toBe("multi");
+    } finally {
+      db.close();
+    }
+  });
   it("loads every thread preview entry with one joined query", () => {
     const createdAtMs = Date.parse("2026-07-16T03:15:00.000Z");
     const exec = vi.fn((_sql: string, ..._params: SqlStorageValue[]) => ({

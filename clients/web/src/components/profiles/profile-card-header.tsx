@@ -12,7 +12,7 @@ export function ProfileCardHeader(input: {
 		<div className="flex min-w-0 items-start gap-3">
 			{input.avatar}
 			<div className="min-w-0 flex-1 pt-0.5">
-				<p className="flex items-center gap-1.5 font-semibold text-base text-foreground">
+				<p className="break-words font-semibold text-base text-foreground">
 					<span className="min-w-0 break-words">{input.name}</span>
 					{input.badge}
 				</p>

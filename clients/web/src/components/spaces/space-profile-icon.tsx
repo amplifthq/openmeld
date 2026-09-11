@@ -5,6 +5,10 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { RobotIcon } from "@phosphor-icons/react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import {
+	HumanPresenceIndicator,
+	useHumanPresence,
+} from "#/components/profiles/human-presence";
 
 const SPACE_PROFILE_ICON_SIZE_CLASS_NAMES = {
 	inline: "size-3.5",
@@ -39,6 +43,7 @@ export function SpaceProfileIcon(input: {
 	size?: keyof typeof SPACE_PROFILE_ICON_SIZE_CLASS_NAMES;
 }) {
 	const size = input.size ?? "xs";
+	const presence = useHumanPresence();
 
 	if (input.profileKind === "agent" && input.isCenterAgent) {
 		return (
@@ -57,18 +62,23 @@ export function SpaceProfileIcon(input: {
 
 	if (input.profileKind === "human") {
 		return (
-			<DitherProfileAvatar
-				avatarImageUrl={input.avatarImageUrl}
-				className={cn(
-					SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size],
-					input.className
+			<span className={cn("relative inline-flex shrink-0", input.className)}>
+				<DitherProfileAvatar
+					avatarImageUrl={input.avatarImageUrl}
+					className={SPACE_PROFILE_ICON_SIZE_CLASS_NAMES[size]}
+					data-testid={`space-profile-icon-${input.profileId}`}
+					profileId={input.profileId}
+					profileKind="human"
+					profileName={input.profileName}
+					size={SPACE_PROFILE_ICON_SIZE_PIXELS[size]}
+				/>
+				{size !== "inline" && (
+					<HumanPresenceIndicator
+						large={size === "md" || size === "lg"}
+						status={presence.get(input.profileId)}
+					/>
 				)}
-				data-testid={`space-profile-icon-${input.profileId}`}
-				profileId={input.profileId}
-				profileKind="human"
-				profileName={input.profileName}
-				size={SPACE_PROFILE_ICON_SIZE_PIXELS[size]}
-			/>
+			</span>
 		);
 	}
 

@@ -72,8 +72,8 @@ describe("organizationMemberOpenMeldServiceStatusesQueryOptions", () => {
 });
 
 describe("organizationMemberRoleQueryOptions", () => {
-	it("derives the current account role from the URL organization's directory", async () => {
-		vi.mocked(readCurrentOrganizationDirectory).mockResolvedValue(
+	it("derives the current account role without reading Agent runtime state", async () => {
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValue(
 			createDirectory({
 				organizationId: "org-beta",
 				role: "admin",
@@ -91,9 +91,12 @@ describe("organizationMemberRoleQueryOptions", () => {
 		);
 
 		expect(role).toBe("admin");
-		expect(readCurrentOrganizationDirectory).toHaveBeenCalledWith({
+		expect(readCurrentOrganizationProfileDirectory).toHaveBeenCalledWith({
 			organizationId: "org-beta",
+			signal: expect.any(AbortSignal),
 		});
+		expect(readCurrentOrganizationDirectory).not.toHaveBeenCalled();
+		expect(readCurrentOrganizationAgentRuntimeOverview).not.toHaveBeenCalled();
 		expect(
 			organizationMemberRoleQueryOptions({
 				enabled: true,
@@ -104,7 +107,7 @@ describe("organizationMemberRoleQueryOptions", () => {
 	});
 
 	it("fails closed when the directory resolves for another organization", async () => {
-		vi.mocked(readCurrentOrganizationDirectory).mockResolvedValue(
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValue(
 			createDirectory({
 				organizationId: "org-acme",
 				role: "owner",
@@ -125,6 +128,29 @@ describe("organizationMemberRoleQueryOptions", () => {
 			})
 		).rejects.toThrow(
 			"Organization directory resolved for a different organization."
+		);
+	});
+
+	it("fails closed when the current account is missing from the profile directory", async () => {
+		vi.mocked(readCurrentOrganizationProfileDirectory).mockResolvedValue(
+			createDirectory({
+				organizationId: "org-beta",
+				role: "owner",
+				userId: "another-user",
+			})
+		);
+
+		await expect(
+			new QueryClient().fetchQuery({
+				...organizationMemberRoleQueryOptions({
+					enabled: true,
+					organizationId: "org-beta",
+					userId: "user-123",
+				}),
+				retry: false,
+			})
+		).rejects.toThrow(
+			"The current account is missing from the organization directory."
 		);
 	});
 });

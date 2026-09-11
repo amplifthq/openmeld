@@ -1,4 +1,5 @@
 import { defineTool } from "@flue/runtime";
+import { personalRemoteAgentSpaceToolResponseSchema } from "@openmeld/schemas";
 import type {
   CenterAgentModelRoute,
   RemoteAgentTurnEnvelope,
@@ -9,9 +10,11 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
-import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
-import { getPersonalRemoteAgentTools } from "../agent-core/personal-remote-agent-tools";
+import {
+  getPersonalRemoteAgentTools,
+  isPersonalRemoteAgentProductTool,
+} from "../agent-core/personal-remote-agent-tools";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
@@ -20,6 +23,7 @@ import {
   type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import { createRemoteAgentCapabilityDiscoveryDefinitions } from "./capability-discovery";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -36,7 +40,7 @@ export async function getRemoteAgentFlueTools(input: {
   agentActivityReadEnabled?: boolean;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
@@ -49,22 +53,43 @@ export async function getRemoteAgentFlueTools(input: {
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
-  if (input.personalAgent) {
-    return getPersonalRemoteAgentTools(input).map((definition) =>
-      toFlueTool({
-        definition,
-        storage: input.storage,
-        submissionId: input.submissionId,
-      })
-    );
-  }
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
-  const definitions = [
-    ...getRemoteAgentOpenMeldToolDefinitions(input),
+  const availableDefinitions = [
+    ...(input.personalAgent
+      ? [
+          ...getPersonalRemoteAgentTools(input),
+          ...getRemoteAgentOpenMeldToolDefinitions(input).filter((definition) =>
+            isPersonalRemoteAgentProductTool(definition.name)
+          ),
+        ]
+      : getRemoteAgentOpenMeldToolDefinitions(input)),
     ...(unverifiedMember ? [] : (input.sandboxDefinitions ?? [])),
   ];
+  const definitions = input.personalAgent
+    ? availableDefinitions.map((definition) => ({
+        ...definition,
+        execute: async (...args: Parameters<typeof definition.execute>) => {
+          const authorize = input.coreWorker.personalRemoteAgentSpaceTool;
+          if (!authorize) {
+            throw new Error(
+              "Remote Agent capability authorization is unavailable."
+            );
+          }
+          const authorized = personalRemoteAgentSpaceToolResponseSchema.parse(
+            await authorize({
+              submissionId: input.submissionId,
+              operation: { kind: "authorize" },
+            })
+          );
+          if (authorized.kind !== "authorize") {
+            throw new Error("Remote Agent capability authorization failed.");
+          }
+          return await definition.execute(...args);
+        },
+      }))
+    : availableDefinitions;
   const capabilityDiscoveryDefinitions =
     definitions.length > 0
       ? createRemoteAgentCapabilityDiscoveryDefinitions(

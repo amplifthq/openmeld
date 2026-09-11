@@ -29,6 +29,10 @@ import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
+import {
+	buildSpaceComposerAddressingTargets,
+	type SpaceComposerAddressingTarget,
+} from "./use-space-mention-authoring";
 
 const LAST_WAKE_DIAGNOSTIC_STORAGE_KEY = "openmeld.space.last-wake-diagnostic";
 const LAST_DIAGNOSTIC_REPORT_STORAGE_KEY =
@@ -141,6 +145,32 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 			(member) => member.status === "active"
 		) ?? [];
 	return activeAgents.length === 1 ? [activeAgents[0].profileId] : [];
+}
+
+export function readPublishedWakeTargetProfileIds(
+	signal: SignalEnvelope
+): string[] {
+	return signal.type === "signal.text"
+		? (signal.data.messageEnvelope?.activationTargets ?? [])
+		: [];
+}
+
+export function resolveComposerAddressingTargets(input: {
+	addressingTargets: readonly SpaceComposerAddressingTarget[];
+	membersSnapshot: SpaceMembersSnapshot | null;
+	senderProfileId: string;
+	status: GetSpaceStatusResponse | null;
+}): readonly SpaceComposerAddressingTarget[] {
+	if (input.addressingTargets.length > 0) {
+		return input.addressingTargets;
+	}
+	return buildSpaceComposerAddressingTargets({
+		mentions: resolveComposerWakeProgressTargetProfileIds({
+			...input,
+			explicitActivationTargets: [],
+		}).map((profileId) => ({ profileId, relation: "wake" })),
+		snapshot: input.membersSnapshot,
+	});
 }
 
 export function createClientMessageId(): string {
@@ -559,6 +589,7 @@ export async function pollWakeProgress(input: {
 					includeSourceContext: true,
 					includeTiming: true,
 					includeWaitReason: true,
+					includeDeviceWait: true,
 					includeWakeStopEligibility: true,
 					spaceId: input.spaceId,
 					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
@@ -697,10 +728,27 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		input.threadContext.threadId,
 		input.openMeldProfileId
 	);
+	const previous =
+		input.queryClient.getQueryData<ListSpaceThreadSignalsResponse>(
+			threadSignalsKey
+		);
+	const introducesAuthor =
+		input.signal.type === "signal.text" &&
+		!input.signal.data.meta?.transient &&
+		!previous?.signals.some(
+			(signal) => signal.profile.profileId === input.signal.profile.profileId
+		);
 	input.queryClient.setQueryData<ListSpaceThreadSignalsResponse>(
 		threadSignalsKey,
 		(current) => mergeThreadSignalsCache(current, input)
 	);
+	if (introducesAuthor) {
+		input.queryClient
+			.invalidateQueries({ queryKey: threadSignalsKey })
+			.catch((error) => {
+				console.error("Could not refresh Thread participants.", error);
+			});
+	}
 
 	const threadsKey = spaceQueryKeys.threads(
 		input.spaceId,
@@ -729,7 +777,7 @@ export function mergeThreadSignalsCache(
 	)
 		? currentPlacements
 		: [...currentPlacements, input.placement].sort(comparePlacementOrder);
-	return { signals, placements };
+	return { ...current, signals, placements };
 }
 
 export function mergeThreadPreviewCache(
@@ -829,10 +877,6 @@ export function comparePlacementOrder(
 export function resolveLeaveSpaceErrorMessage(
 	failure: StructuredApiClientFailure
 ): string {
-	if (failure.code === "space.leave_space.creator_forbidden") {
-		return "The space creator cannot leave this space. Delete the space instead when only you remain.";
-	}
-
 	return failure.message;
 }
 

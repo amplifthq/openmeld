@@ -19,10 +19,10 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { DirectMessagePicker } from "#/components/spaces/new-direct-message-dialog";
-import type { SpaceAddMembersCandidateSummary } from "#/components/spaces/space-members-drawer";
+import type { SpaceAddMembersCandidateSummary } from "#/components/spaces/people-agent-picker-model";
 import { buildOrganizationNewSpacePath } from "#/lib/organizations/organization-routes";
 import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import { DeskChatPicker } from "./desk-chat-picker";
 import { DeskProfilePicker } from "./desk-profile-picker";
 import type { DeskWidgetKind } from "./desk-widget-types";
 
@@ -137,7 +137,7 @@ export function DeskAddDialog(input: {
 								</>
 							)}
 							{category === "chats" && (
-								<DirectMessagePicker
+								<DeskChatPicker
 									enabled={input.open}
 									onOpenCenterAgent={() => input.onWidget("center")}
 									onOpenChat={input.onChat}

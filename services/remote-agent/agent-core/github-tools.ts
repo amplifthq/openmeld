@@ -3,6 +3,7 @@ import type {
   CenterAgentConnectorActionExecutionConnection,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import {
   array,
   boolean,
@@ -21,6 +22,7 @@ import {
   string,
   trim,
 } from "valibot";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -29,7 +31,6 @@ import {
   readRemoteAgentCallbackContext,
   recordRemoteAgentNavigationTarget,
 } from "./callback-context";
-import { digestCanonicalJson } from "./canonical-json";
 import {
   readConnectorActionOperation,
   recordConnectorActionOperation,
@@ -37,7 +38,6 @@ import {
 } from "./connector-tools";
 import { callCoreRpc, requireCoreRpc } from "./core-rpc";
 import {
-  isRemoteAgentDestructiveConfirmationResult,
   resolveRemoteAgentDestructiveAuthorization,
   resolveRemoteAgentRoutineExternalWriteBlock,
 } from "./destructive-authorization";
@@ -147,12 +147,6 @@ export type RemoteAgentGitHubToolName =
 export type RemoteAgentGitHubToolDefinition =
   RemoteAgentToolDefinition<RemoteAgentGitHubToolName>;
 type GitHubActor = (typeof GITHUB_ACTORS)[number];
-
-export type RemoteAgentConnectorExecutionConfig = {
-  baseUrl?: string;
-  fetch?: typeof fetch;
-  runtimeToken?: string;
-};
 
 const nonEmptyStringSchema = pipe(string(), minLength(1));
 const positiveIntegerSchema = pipe(number(), integer(), minValue(1));
@@ -329,7 +323,7 @@ type GitHubIssueBatchManifest = {
 };
 
 export function getRemoteAgentGitHubToolDefinitions(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1032,7 +1026,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
 }
 
 function githubIssueBatchToolDefinition(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1135,7 +1129,7 @@ function resolveGitHubIssueBatchBlockedReasons(
 }
 
 async function executeGitHubIssueBatch(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1228,7 +1222,7 @@ async function executeGitHubIssueBatch(input: {
 
 async function executeGitHubIssueBatchManifest(input: {
   attribution: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   manifest: GitHubIssueBatchManifest;
   manifestKey: string;
@@ -1273,7 +1267,7 @@ async function executeGitHubIssueBatchManifest(input: {
 }
 
 async function executeGitHubIssueBatchItem(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   index: number;
   item: GitHubIssueBatchManifest["items"][number];
@@ -1330,6 +1324,7 @@ async function executeGitHubIssueBatchItem(input: {
 
   await recordGitHubConnectorActionAudit({
     actionId: "github.create_issue",
+    connectionName: input.manifest.connectionName,
     coreWorker: input.coreWorker,
     operationId: auditOperationId,
     outcome: "attempted",
@@ -1487,7 +1482,7 @@ function githubToolDefinition(input: {
   description: string | { writeSummary: string };
   input: RemoteAgentToolInputSchema;
   inputConfig: {
-    connectorExecution?: RemoteAgentConnectorExecutionConfig;
+    connectorExecution?: ConnectorExecutionConfig;
     coreWorker: RemoteAgentCoreWorkerBinding;
     storage: RemoteAgentStorage;
     submissionId: string;
@@ -1507,12 +1502,6 @@ function githubToolDefinition(input: {
     description: `${GITHUB_ACTOR_GUIDANCE} ${
       input.writeDisclosure ? `${GITHUB_WRITE_OPERATION_GUIDANCE} ` : ""
     }${actionDescription}`,
-    ...(destructive
-      ? {
-          endsTurnAfter: (result: unknown) =>
-            isRemoteAgentDestructiveConfirmationResult(result),
-        }
-      : {}),
     execute: async (payload) =>
       await executeGitHubAction({
         actionId: input.actionId,
@@ -1644,7 +1633,7 @@ function buildGitHubActionAttributionFromExecutionConnection(
 
 async function executeGitHubAction(input: {
   actionId: GitHubActionId;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1752,7 +1741,7 @@ async function executeGitHubAction(input: {
 async function executeIdempotentGitHubWrite(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   operationId: string;
@@ -1982,7 +1971,7 @@ async function resolvePendingGitHubDestructiveConfirmation(input: {
   return {
     attribution: input.attribution,
     ...result,
-    ...(result.status === "destructive_confirmation_required"
+    ...(result.status === "destructive_action_preview"
       ? {
           confirmation: {
             ...result.confirmation,
@@ -1998,7 +1987,7 @@ function describeGitHubWriteTool(input: {
   summary: string;
 }): string {
   if (input.destructive) {
-    return `${input.summary} This is a destructive external write. In an interactive conversation, the first call without writeConfirmationToken returns the required confirmation; after the user confirms, call again with that exact one-time token and unchanged input. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
+    return `${input.summary} This is a destructive external write. The first call without writeConfirmationToken previews the exact action and returns a one-time token. If the verified user already authorized that action and target, call again with the token and unchanged input in this turn; otherwise ask first. A token is not user authorization. Routines do not currently support delete or merge actions; the tool returns routine_destructive_action_unsupported with zero side effects.`;
   }
   return `${input.summary} This is an ordinary external write.`;
 }
@@ -2592,6 +2581,7 @@ function describeGitHubWriteIdentity(input: {
 }
 
 async function recordGitHubConnectorActionAudit(input: {
+  connectionName?: string;
   actionId: GitHubActionId;
   coreWorker: RemoteAgentCoreWorkerBinding;
   operationId: string;
@@ -2611,6 +2601,7 @@ async function recordGitHubConnectorActionAudit(input: {
     "centerAgentRecordConnectorActionAudit",
     {
       actionId: input.actionId,
+      connectionName: input.connectionName,
       context: input.toolContext.context,
       operationId: input.operationId,
       outcome: input.outcome,
@@ -2736,7 +2727,7 @@ function githubIssueBatchManifestMatches(
 }
 
 async function findGitHubIssueByOperationMarker(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   connectionName: string;
   marker: string;
   owner: string;
@@ -2794,7 +2785,7 @@ function resolveUnavailableGitHubConnectionMessage(input: {
       : "Your GitHub";
   const action = input.hasNavigationAction
     ? "Use the Open GitHub access action below"
-    : "Open Center Agent → Plugins → GitHub for this workspace";
+    : "Open Plugins → GitHub for this workspace";
   return `${accessName} is not ready. It may be disconnected or authorization may still be pending. ${action}, check ${accessName}, and try again. OpenMeld did not use a different GitHub identity.`;
 }
 
@@ -2966,7 +2957,7 @@ function resolveOpenConnectorGitHubActionError(input: {
     input.errorCode === "authorization_failed" ||
     (input.errorCode === "invalid_input" && normalizedMessage === "not found")
   ) {
-    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Plugins → GitHub and the installation's repository access.`;
+    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Plugins → GitHub and the installation's repository access.`;
   }
 
   return baseMessage;

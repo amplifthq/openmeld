@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { findActiveDevLockHolder, readDevLockPayload } from "./dev-lock.mjs";
@@ -43,7 +44,9 @@ const ROOT_DEV_TURBO_FILTERS = [
   "--filter=!@openmeld/core",
   "--filter=!@openmeld/desktop",
 ];
-const SHARED_DB_PREFLIGHT_TIMEOUT_MS = 30_000;
+// Cold workspace builds are part of this check; allow them to finish on busy
+// development machines without weakening the migration verification itself.
+const SHARED_DB_PREFLIGHT_TIMEOUT_MS = 120_000;
 const STANDARD_DEV_TURBO_FLAGS = new Set([
   "--concurrency",
   "--output-logs",
@@ -239,12 +242,22 @@ function tryReadProcessRowsForCleanup() {
 }
 
 function startTurboDev(extraArgs, runSupervisor, options = {}) {
-  const pnpmCommand = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
   const turboArgs = buildTurboDevArgs(extraArgs, {
-    defaultConcurrency: deriveDefaultTurboConcurrency({ repoRoot }),
+    defaultConcurrency: deriveDefaultTurboConcurrency({
+      repoRoot,
+      taskName: options.taskName,
+    }),
     taskName: options.taskName,
   });
-  const child = spawn(pnpmCommand, turboArgs, {
+  const require = createRequire(import.meta.url);
+  const manifestPath = require.resolve("turbo/package.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  const bin = resolve(
+    manifestPath,
+    "..",
+    typeof manifest.bin === "string" ? manifest.bin : manifest.bin.turbo
+  );
+  const child = spawn(process.execPath, [bin, ...turboArgs.slice(1)], {
     cwd: repoRoot,
     stdio: "inherit",
     env: process.env,
@@ -315,7 +328,10 @@ export function buildTurboDevArgs(extraArgs, options = {}) {
 
 export function deriveDefaultTurboConcurrency(options = {}) {
   const targetRepoRoot = resolve(String(options.repoRoot ?? repoRoot));
-  return Math.max(countRootDevLanePackages(targetRepoRoot) + 2, 2);
+  return Math.max(
+    countRootDevLanePackages(targetRepoRoot, options.taskName ?? "dev") + 2,
+    2
+  );
 }
 
 export function hasExplicitConcurrencyArg(args) {
@@ -336,14 +352,14 @@ function resolveDefaultConcurrency(options) {
   return value;
 }
 
-function countRootDevLanePackages(targetRepoRoot) {
+function countRootDevLanePackages(targetRepoRoot, taskName) {
   let packageCount = 0;
 
   for (const workspaceDir of ROOT_DEV_WORKSPACE_DIRS) {
     const absoluteWorkspaceDir = join(targetRepoRoot, workspaceDir);
     for (const packageJsonPath of walkPackageJsonPaths(absoluteWorkspaceDir)) {
       const manifest = readPackageManifest(packageJsonPath);
-      if (!hasDevScript(manifest.scripts)) {
+      if (!hasDevScript(manifest.scripts, taskName)) {
         continue;
       }
       if (ROOT_DEV_EXCLUDED_PACKAGE_NAMES.has(String(manifest.name ?? ""))) {
@@ -386,12 +402,12 @@ function readPackageManifest(packageJsonPath) {
   return JSON.parse(raw);
 }
 
-function hasDevScript(scripts) {
+function hasDevScript(scripts, taskName) {
   return Boolean(
     scripts &&
       typeof scripts === "object" &&
-      typeof scripts.dev === "string" &&
-      scripts.dev.trim().length > 0
+      typeof scripts[taskName] === "string" &&
+      scripts[taskName].trim().length > 0
   );
 }
 

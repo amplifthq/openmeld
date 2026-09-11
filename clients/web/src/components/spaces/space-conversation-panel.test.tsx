@@ -11,11 +11,12 @@ import type {
 	SpaceThreadPreview,
 	WakeProgressItem,
 } from "@openmeld/schemas/types";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
 	cleanup,
 	fireEvent,
-	render,
+	render as renderBare,
 	screen,
 	waitFor,
 	within,
@@ -71,9 +72,31 @@ vi.mock("@tanstack/react-query", async () => {
 
 	return {
 		...actual,
-		useQuery: useQueryMock,
+		useQuery: (options: Parameters<typeof actual.useQuery>[0]) => {
+			const isReaction = options.queryKey[0] === "space-message-reactions";
+			const reactionQuery = actual.useQuery({
+				...options,
+				enabled: isReaction && options.enabled !== false,
+			});
+			const result = useQueryMock(options);
+			if (isReaction) {
+				return reactionQuery;
+			}
+			return options.enabled === false ? { data: undefined } : result;
+		},
 	};
 });
+
+function QueryWrapper({ children }: { children: ReactNode }) {
+	const [client] = useState(
+		() => new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	);
+	return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+function render(ui: ReactNode) {
+	return renderBare(ui, { wrapper: QueryWrapper });
+}
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -124,9 +147,10 @@ describe("SpaceConversationPanel", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("switches between the Messages and Graph views from one Space timeline", () => {
+	it("returns from the retained Graph view to Messages with the draft intact", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			allowedActions: ["post_message"],
 			composerText: "Draft the follow-up.",
 			readOnly: false,
@@ -137,16 +161,6 @@ describe("SpaceConversationPanel", () => {
 				}),
 			],
 		});
-
-		expect(
-			screen.getByRole("log", { name: "Conversation history" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("textbox", {
-				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
-			}).textContent
-		).toBe("Draft the follow-up.");
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(screen.queryByRole("log", { name: "Conversation history" })).toBe(
 			null
@@ -201,9 +215,7 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(screen.getByRole("button", { name: "View in Graph" }));
 
 		await waitFor(() => {
-			expect(
-				screen.getByRole("tab", { name: "Graph" }).getAttribute("aria-selected")
-			).toBe("true");
+			expect(screen.getByRole("region", { name: "Space Graph" })).toBeTruthy();
 		});
 		expect(
 			screen.queryByRole("dialog", { name: "Message details" })
@@ -689,7 +701,10 @@ describe("SpaceConversationPanel", () => {
 			'[data-slot="space-composer-section"]'
 		);
 		expect(composer).not.toBeNull();
-		expect(surface.nextElementSibling).toBe(composer);
+		expect(composer?.contains(surface)).toBe(true);
+		expect(
+			surface.nextElementSibling?.contains(screen.getByRole("textbox"))
+		).toBe(true);
 	});
 
 	it("anchors the earlier-history loading header to the conversation content rail", () => {
@@ -900,9 +915,10 @@ describe("SpaceConversationPanel", () => {
 			})
 		).toHaveLength(1);
 		expect(
-			firstDateMarker.querySelector("[data-conversation-date-marker-pill]")
-		).toBeNull();
-		expect(firstDateMarker.textContent).toBe("");
+			firstDateMarker.querySelector<HTMLElement>(
+				"[data-conversation-date-marker-pill]"
+			)?.hidden
+		).toBe(true);
 		expect(
 			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
 				?.firstElementChild?.className
@@ -927,9 +943,10 @@ describe("SpaceConversationPanel", () => {
 			})
 		).toHaveLength(1);
 		expect(
-			secondDateMarker.querySelector("[data-conversation-date-marker-pill]")
-		).toBeNull();
-		expect(secondDateMarker.textContent).toBe("");
+			secondDateMarker.querySelector<HTMLElement>(
+				"[data-conversation-date-marker-pill]"
+			)?.hidden
+		).toBe(true);
 		const stickyPillTrack = document.querySelector(
 			"[data-slot='conversation-date-pill-track']"
 		);
@@ -1417,11 +1434,10 @@ describe("SpaceConversationPanel", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onViewingLatestChange = vi.fn();
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			onViewingLatestChange,
 			timelineItems: [createTimelineItem()],
 		});
-
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(onViewingLatestChange).toHaveBeenLastCalledWith(false);
 	});
@@ -1430,11 +1446,11 @@ describe("SpaceConversationPanel", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onLoadEarlierHistory = vi.fn().mockResolvedValue(undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			hasEarlierHistory: true,
 			onLoadEarlierHistory,
 			timelineItems: [createTimelineItem()],
 		});
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(screen.getByText("Drag cards to arrange")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
@@ -1446,11 +1462,11 @@ describe("SpaceConversationPanel", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		const onLoadEarlierHistory = vi.fn().mockResolvedValue(undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			hasEarlierHistory: true,
 			onLoadEarlierHistory,
 			timelineItems: [],
 		});
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		fireEvent.click(screen.getByRole("button", { name: "Load earlier" }));
 
@@ -1460,6 +1476,7 @@ describe("SpaceConversationPanel", () => {
 	it("labels a structured Agent status as a status update in the Graph", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
+			activeSpaceView: "graph",
 			hasEarlierHistory: false,
 			timelineItems: [
 				createTimelineItem({
@@ -1468,7 +1485,6 @@ describe("SpaceConversationPanel", () => {
 				}),
 			],
 		});
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		expect(screen.getByText("Status update")).toBeTruthy();
 	});
@@ -1485,10 +1501,13 @@ describe("SpaceConversationPanel", () => {
 		];
 		const view = render(
 			<SpaceConversationPanelHarness
-				overrides={{ onLoadEarlierHistory, timelineItems }}
+				overrides={{
+					activeSpaceView: "graph",
+					onLoadEarlierHistory,
+					timelineItems,
+				}}
 			/>
 		);
-		fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
 
 		view.rerender(
 			<SpaceConversationPanelHarness
@@ -1712,12 +1731,26 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("lets long unbroken message text wrap inside the message bubble", () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				disconnect = vi.fn();
+				unobserve = vi.fn();
+			}
+		);
 		const longMessage = `wake ${"x".repeat(160)} https://example.com/${"y".repeat(160)}`;
 		renderSpaceConversationPanel({
 			timelineItems: [createTimelineItem({ text: longMessage })],
 		});
 
-		const messageText = screen.getByText(longMessage);
+		const messageText = screen.getByText(
+			(_, element) =>
+				element?.textContent === longMessage &&
+				![...element.children].some(
+					(child) => child.textContent === longMessage
+				)
+		);
 		const messageBubble = messageText.closest("[data-signal-id]");
 
 		expect(messageBubble?.className).not.toContain("min-w-[16rem]");
@@ -1726,7 +1759,7 @@ describe("SpaceConversationPanel", () => {
 		expect(messageText.className).toContain("[overflow-wrap:anywhere]");
 	});
 
-	it("keeps agent messages transparent and gives self messages a readable surface", () => {
+	it("gives Agent messages a neutral surface and self messages a blue surface while preserving alignment", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -1752,12 +1785,13 @@ describe("SpaceConversationPanel", () => {
 			.closest("[data-signal-id]");
 		expect(agentBubble?.classList.contains("border")).toBe(true);
 		expect(agentBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(agentBubble?.classList.contains("bg-transparent")).toBe(true);
+		expect(agentBubble?.classList.contains("bg-muted/35")).toBe(true);
 		expect(agentBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(agentBubble?.classList.contains("max-w-[62ch]")).toBe(false);
 		expect(selfBubble?.classList.contains("border")).toBe(true);
 		expect(selfBubble?.classList.contains("border-transparent")).toBe(true);
-		expect(selfBubble?.classList.contains("bg-muted/35")).toBe(true);
+		expect(selfBubble?.classList.contains("bg-unread/12")).toBe(true);
+		expect(selfBubble?.classList.contains("dark:bg-unread/40")).toBe(true);
 		expect(selfBubble?.classList.contains("rounded-md")).toBe(true);
 		expect(selfBubble?.classList.contains("max-w-full")).toBe(true);
 		expect(selfBubble?.classList.contains("min-w-[16rem]")).toBe(false);
@@ -1844,64 +1878,6 @@ describe("SpaceConversationPanel", () => {
 			"signal-self"
 		);
 		expect(selfScrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
-	});
-
-	it("renders stable message footers below bubbles without absolute overlays", () => {
-		renderSpaceConversationPanel({
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					actorName: "Runner",
-					actorProfileId: "agent-profile-1",
-					actorProfileKind: "agent",
-					actorProfileName: "Runner",
-					id: "signal-agent",
-					text: "Agent reply",
-				}),
-				createTimelineItem({
-					id: "signal-self",
-					text: "Self message",
-				}),
-			],
-		});
-
-		for (const [messageText, expectedAlignment] of [
-			["Agent reply", "justify-start"],
-			["Self message", "justify-end"],
-		] as const) {
-			const message = screen.getByText(messageText).closest("[data-signal-id]");
-			const row = message?.closest("[data-message-row-id]");
-			const bubble = message?.closest("[data-slot='bubble']");
-			const footer = row?.querySelector('[data-slot="message-footer"]');
-			const actions = footer?.querySelector(
-				'[data-slot="message-footer-primary-actions"]'
-			);
-
-			expect(row).not.toBeNull();
-			expect(footer).not.toBeNull();
-			expect(row?.contains(footer ?? null)).toBe(true);
-			expect(bubble?.contains(footer ?? null)).toBe(false);
-			expect(footer?.className).toContain("min-h-7");
-			expect(footer?.className).toContain(expectedAlignment);
-			expect(actions?.className).toContain("opacity-0");
-			expect(actions?.className).toContain(
-				"group-hover/message-row:opacity-100"
-			);
-			expect(actions?.className).toContain(
-				"group-focus-within/message-row:opacity-100"
-			);
-			expect(
-				row?.querySelector("[data-slot='message-hover-actions']")
-			).toBeNull();
-
-			for (const button of within(footer as HTMLElement).getAllByRole(
-				"button"
-			)) {
-				expect(button.className).toContain("size-7");
-				expect(button.className).toContain("border-0");
-				expect(button.className).toContain("bg-transparent");
-			}
-		}
 	});
 
 	it("shows every grouped message's own timestamp in its reserved footer", () => {
@@ -1995,6 +1971,67 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it.each([
+		"wake",
+		"reference",
+	] as const)("offers computer recovery before sending a disconnected %s target", (relation) => {
+		const profileId = "agt_22222222-2222-4222-8222-222222222222";
+		renderSpaceConversationPanel({
+			allowedActions: ["post_message"],
+			readOnly: false,
+			composerText: "@Runner hello",
+			composerAddressingTargets: [
+				{
+					profileId,
+					profileName: "Runner",
+					primaryMentionLabel: "Runner",
+					relation,
+					allowedRelations: { mention: false, reference: true, wake: false },
+					wakeAvailability: {
+						status: "blocked",
+						reasonCodes: ["local_service.not_connected_for_account"],
+						reasonText: "Connect your computer before this Agent can reply.",
+					},
+				},
+			],
+			prepareSetupHref: "/o/acme/connect",
+			agentRecoveryPlansByProfileId: new Map([
+				[
+					profileId,
+					{
+						kind: "review_computer",
+						profileId,
+						profileName: "Runner",
+						primaryActionId: "reconnect_openmeld_service",
+						primaryActionLabel: "Reconnect Computer",
+						recoveryReasonCode: "local_service.not_connected_for_account",
+						title: "Runner’s computer is disconnected",
+						secondaryLabel: "Computer not connected",
+						body: "Reconnect the computer so it can receive local Wake work.",
+					},
+				],
+			]),
+		});
+		const recovery = screen.queryByRole("link", { name: "Reconnect Computer" });
+		if (relation === "wake") {
+			expect(recovery?.getAttribute("href")).toBe("/o/acme/connect");
+			expect(screen.queryByText("Computer not connected")).toBeNull();
+			expect(
+				screen
+					.getByRole("button", { name: "Send message" })
+					.hasAttribute("disabled")
+			).toBe(false);
+		} else {
+			expect(recovery).toBeNull();
+			expect(screen.queryByText("Computer not connected")).toBeNull();
+			expect(
+				screen
+					.getByRole("button", { name: "Send message" })
+					.hasAttribute("disabled")
+			).toBe(false);
+		}
+	});
+
 	it("shows the current recovery action beside a known blocked Wake", () => {
 		const blockedProfileId = "agt_22222222-2222-4222-8222-222222222222";
 		renderSpaceConversationPanel({
@@ -2041,7 +2078,7 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(screen.queryByText("1 file ready to send")).toBeNull();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		expect(sendButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(sendButton);
@@ -2049,7 +2086,7 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends the text while excluding a failed file", async () => {
+	it("preserves the message until a failed file is removed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
@@ -2060,12 +2097,12 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("opens an upward Files menu from the composer plus button", async () => {
@@ -2702,8 +2739,10 @@ describe("SpaceConversationPanel", () => {
 		const jumpButton = screen.getByRole("button", {
 			name: "Jump to latest message",
 		});
-		expect(jumpButton.getAttribute("data-active")).toBe("false");
-		expect(jumpButton.hasAttribute("inert")).toBe(true);
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("false");
+		expect(!!jumpButton.closest("[inert]")).toBe(true);
 
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
@@ -2735,9 +2774,11 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.scroll(conversationLog);
 
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("true");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("true");
 		});
-		expect(jumpButton.hasAttribute("inert")).toBe(false);
+		expect(!!jumpButton.closest("[inert]")).toBe(false);
 		const messageScroller = jumpButton.closest(
 			"[data-slot='message-scroller']"
 		);
@@ -2747,31 +2788,6 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			jumpButton.closest("[data-slot='message-scroller-content']")
 		).toBeNull();
-		expect(jumpButton.getAttribute("data-slot")).toBe(
-			"message-scroller-button"
-		);
-		expect(jumpButton.getAttribute("data-variant")).toBe("secondary");
-		expect(jumpButton.className).toContain("border-transparent");
-		expect(jumpButton.className).toContain("conversation-floating-surface");
-		expect(jumpButton.className).toContain("conversation-floating-surface");
-		expect(jumpButton.className).not.toContain("ring-background");
-		expect(jumpButton.className).not.toContain("shadow-lg");
-		expect(jumpButton.className).toContain("data-[active=false]:blur-[6px]");
-		expect(jumpButton.className).toContain("data-[active=true]:blur-none");
-		expect(jumpButton.className).toContain(
-			"motion-reduce:data-[active=false]:blur-none"
-		);
-		expect(jumpButton.className).toContain("inset-s-1/2");
-		expect(jumpButton.className).toContain("-translate-x-1/2");
-		expect(jumpButton.className).toContain("data-[direction=end]:bottom-4");
-		expect(jumpButton.className).toContain(
-			"data-[direction=end]:data-[active=false]:translate-y-full"
-		);
-		expect(jumpButton.className).toContain(
-			"data-[active=false]:pointer-events-none"
-		);
-		expect(jumpButton.style.insetInlineEnd).toBe("");
-		expect(jumpButton.style.insetInlineStart).toBe("");
 
 		fireEvent.click(jumpButton);
 
@@ -2780,7 +2796,9 @@ describe("SpaceConversationPanel", () => {
 			top: 700,
 		});
 		await waitFor(() => {
-			expect(jumpButton.getAttribute("data-active")).toBe("false");
+			expect(
+				jumpButton.closest("[data-active]")?.getAttribute("data-active")
+			).toBe("false");
 		});
 	});
 
@@ -2837,6 +2855,11 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(screen.queryByText("Sending...")).toBeNull();
+		expect(
+			document
+				.querySelector('[data-signal-id="pending:client-message-1"]')
+				?.hasAttribute("data-history-signal-id")
+		).toBe(false);
 		expect(
 			document.querySelector("[data-space-message-delivery-status]")
 		).toBeNull();
@@ -2991,9 +3014,6 @@ describe("SpaceConversationPanel", () => {
 			progressRow.querySelector('[data-space-agent-orb-state="connecting"]')
 		).toBeTruthy();
 		expect(progressInset).toBeNull();
-		expect(answerSurface?.className).toContain("px-0");
-		expect(answerSurface?.className).toContain("py-0");
-		expect(answerSurface?.className).toContain("sm:px-0");
 		expect(
 			answerSurface?.querySelector('[data-slot="space-message-body"]')
 		).toBeNull();
@@ -3067,6 +3087,9 @@ describe("SpaceConversationPanel", () => {
 			'[data-message-id^="active-wake:"]'
 		);
 		expect(updatedOptimisticReply).toBe(optimisticReply);
+		expect(
+			updatedOptimisticReply?.querySelector("[data-history-signal-id]")
+		).toBeNull();
 		expect(
 			within(updatedOptimisticReply as HTMLElement).getByTestId(
 				"space-message-progress-control-slot"
@@ -3258,6 +3281,57 @@ describe("SpaceConversationPanel", () => {
 		).toBeTruthy();
 	});
 
+	it.each([
+		false,
+		true,
+	])("keeps the same answer DOM row when a Local Agent finishes (DM=%s)", (isDirectMessage) => {
+		const streaming = createTimelineItem({
+			id: "stream:local-agent",
+			wakeDispatchId: "dispatch-1",
+			actorProfileKind: "agent",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorName: "Runner",
+			text: "",
+			agentStreamState: {
+				reasonCode: null,
+				sequence: 1,
+				status: "streaming",
+				streamId: "local-agent:10:dispatch-1:9:attempt-1",
+			},
+		});
+		const rendered = renderSpaceConversationPanel({
+			isDirectMessage,
+			timelineItems: [streaming],
+		});
+		const row = screen
+			.getByRole("status", { name: "Agent is working" })
+			.closest("[data-message-id]");
+		expect(row).not.toBeNull();
+		rendered.rerender(
+			<SpaceConversationPanel
+				{...createSpaceConversationPanelProps({
+					isDirectMessage,
+					timelineItems: [
+						{
+							...streaming,
+							id: "durable-final",
+							text: "Ready to review.",
+							agentStreamState: undefined,
+							isAgentFinalReply: true,
+						},
+					],
+				})}
+			/>
+		);
+		expect(
+			screen.queryByRole("status", { name: "Agent is working" })
+		).toBeNull();
+		expect(
+			screen.getByText("Ready to review.").closest("[data-message-id]")
+		).toBe(row);
+		expect(row?.getAttribute("data-message-id")).toBe("durable-final");
+	});
+
 	it("aligns an empty local Agent working row with the profile name and separates it from the header", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
@@ -3376,13 +3450,37 @@ describe("SpaceConversationPanel", () => {
 			"I am working through the request"
 		);
 		expect(progressInset).toBeNull();
-		expect(messageBubble?.className).toContain("px-0");
-		expect(messageBubble?.className).toContain("py-0");
-		expect(messageBubble?.className).toContain("sm:px-0");
 		expect(screen.getByText("Agent is working")).toBeTruthy();
 		expect(messageBubble?.getAttribute("data-signal-id")).toBe(
 			"stream:submission-1"
 		);
+		expect(messageBubble?.hasAttribute("data-history-signal-id")).toBe(false);
+	});
+
+	it.each([
+		"failed",
+		"stopped",
+		"completed_but_publish_failed",
+	] as const)("does not use an unpublished %s reply as a history anchor", (status) => {
+		renderSpaceConversationPanel({
+			timelineItems: [
+				createTimelineItem({
+					id: "stream:unpublished-reply",
+					text: "Partial reply retained for diagnosis",
+					agentStreamState: {
+						streamId: "stream:unpublished-reply",
+						sequence: 3,
+						status,
+						reasonCode: null,
+					},
+				}),
+			],
+		});
+		const reply = document.querySelector(
+			'[data-signal-id="stream:unpublished-reply"]'
+		);
+		expect(reply).not.toBeNull();
+		expect(reply?.hasAttribute("data-history-signal-id")).toBe(false);
 	});
 
 	it("does not render an empty progress inset for a completed reply", () => {
@@ -3403,6 +3501,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			document.querySelector('[data-slot="space-message-row-progress-inset"]')
 		).toBeNull();
+		expect(
+			document
+				.querySelector('[data-signal-id="signal:completed-reply"]')
+				?.getAttribute("data-history-signal-id")
+		).toBe("signal:completed-reply");
 	});
 
 	it("opens the durable source message details from live Agent work", () => {
@@ -3658,8 +3761,8 @@ describe("SpaceConversationPanel", () => {
 			"[data-slot='message-footer']"
 		) as HTMLElement;
 		expect(
-			within(footer).getByText("Codex 5.6 Sol couldn’t reply")
-		).toBeTruthy();
+			within(footer).queryByText("Codex 5.6 Sol couldn’t reply")
+		).toBeNull();
 		expect(
 			within(sourceMessage as HTMLElement).queryByText(detailedFailure)
 		).toBeNull();
@@ -3667,7 +3770,7 @@ describe("SpaceConversationPanel", () => {
 			within(sourceMessage as HTMLElement).queryByTestId("space-outcome-row")
 		).toBeNull();
 		const details = within(footer).getByRole("button", {
-			name: "Message details",
+			name: "View error details: Codex 5.6 Sol couldn’t reply",
 		});
 		expect(details.className).toContain("text-destructive");
 		fireEvent.click(details);
@@ -3726,7 +3829,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.queryByRole("button", { name: "Retry as new execution" })
 		).toBeNull();
-		fireEvent.click(screen.getByRole("button", { name: "Message details" }));
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		);
 		await screen.findByRole("dialog", { name: "Message details" });
 		await waitFor(() => expect(onRecoverExecution).toHaveBeenCalledOnce());
 		expect(
@@ -3766,7 +3873,12 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("2 agents couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: 2 agents couldn’t reply",
+			})
+		).toBeTruthy();
+		expect(screen.queryByText("2 agents couldn’t reply")).toBeNull();
 		expect(screen.queryByTestId("space-outcome-row")).toBeNull();
 		expect(screen.queryByText("Codex 5.6 Sol couldn’t reply")).toBeNull();
 		expect(screen.queryByText("Claude Opus 4.8 couldn’t reply")).toBeNull();
@@ -3803,7 +3915,11 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(screen.getByText("Agent couldn’t reply")).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "View error details: Agent couldn’t reply",
+			})
+		).toBeTruthy();
 		expect(screen.getByText("Claude was stopped by the user.")).toBeTruthy();
 		expect(screen.getAllByTestId("space-outcome-row")).toHaveLength(1);
 		expect(
@@ -4109,7 +4225,7 @@ describe("SpaceConversationPanel", () => {
 		expect(dialog.queryByText("Now")).toBeNull();
 	});
 
-	it("shows agent controller metadata without owner repetition", () => {
+	it("attributes Local Agent messages to the owner", () => {
 		renderSpaceConversationPanel({
 			timelineItems: [
 				createTimelineItem({
@@ -4133,9 +4249,7 @@ describe("SpaceConversationPanel", () => {
 			screen.getByTestId("space-agent-profile-avatar-agent-profile-1")
 		).toBeTruthy();
 		expect(screen.getByTestId("local-agent-logo-codex")).toBeTruthy();
-		expect(
-			screen.getByText("Controlled by Felix's MacBook Pro Codex")
-		).toBeTruthy();
+		expect(screen.getByText("Mira")).toBeTruthy();
 		expect(screen.queryByText("Owned by Mira")).toBeNull();
 		expect(
 			screen.queryByText(

@@ -14,6 +14,7 @@ import {
 	DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 	formatAgentRecoveryActionLabel,
 	HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+	TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import type {
 	AgentActivityInventorySession,
@@ -46,6 +47,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
+import { ArrowLeftIcon } from "@phosphor-icons/react";
 import {
 	type QueryClient,
 	useMutation,
@@ -148,6 +150,7 @@ import { resolveCreateProfileSubmitBlockReason } from "./create-profile-form-log
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 import { isOpenCodeAgentId } from "./open-code-permissions-field";
 import { RequestedAgentProjectField } from "./requested-agent-project-field";
+import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-recovery";
 
 type RecoveryController = ReturnType<typeof useLocalAgentRecoveryController>;
 const PROJECT_PATH_SEPARATOR_PATTERN = /[\\/]/u;
@@ -485,15 +488,13 @@ export function CreateProfileDialogStep(
 				disabled={view.formProps.isSubmitting}
 				onClick={() => view.onOpenChange(false)}
 				size="sm"
-				variant="ghost"
+				variant="outline"
 			>
+				<ArrowLeftIcon aria-hidden="true" className="size-4" />
 				Back to people and agents
 			</Button>
 			<DialogHeader>
 				<DialogTitle>{view.title}</DialogTitle>
-				<DialogDescription>
-					Create an Agent, then return to select who to add to this Space.
-				</DialogDescription>
 			</DialogHeader>
 			<AgentProfileGenerator form={formProps} surface="dialog" />
 		</>
@@ -526,11 +527,24 @@ export function CreateAgentProfilePage(
 	);
 }
 
+function resolveAllowedInitialSessionPreset(
+	input: Pick<
+		CreateProfileDialogProps,
+		"agentActivitySessionPreset" | "currentUserId"
+	>
+) {
+	// Launch hold: never carry another member's native session into self creation.
+	return TEAMMATE_AGENT_REQUESTS_ENABLED ||
+		input.agentActivitySessionPreset?.ownerUserId === input.currentUserId
+		? input.agentActivitySessionPreset
+		: undefined;
+}
+
 function useCreateProfileDialogController(
 	input: CreateProfileDialogProps,
 	options: { agentOnly: boolean; templateNaming: boolean }
 ) {
-	const initialSessionPreset = input.agentActivitySessionPreset;
+	const initialSessionPreset = resolveAllowedInitialSessionPreset(input);
 	const currentUserId = input.currentUserId ?? "";
 	const initialOwnerMode = resolveInitialOwnerMode({
 		currentUserId,
@@ -797,27 +811,47 @@ function useCreateProfileDialogController(
 		selectedTeammateBinding,
 	});
 	const recoveryActionHref = buildConnectComputerPath({
+		connectedComputerId: recovery.currentComputer?.connectedComputerId,
 		orgSlug,
 		returnTo: "agent_creation",
 		session: "fresh",
 	});
+	const creationGuidance = resolveLocalAgentCreationGuidance({
+		queryFailed: creationComputerReadiness.isError,
+		readiness: creationComputerReadiness.data,
+		target: bindingTarget,
+	});
+	const retryCreationConnection = () => {
+		Promise.all([
+			creationGuidance === "set_up_local_agents" && bindingTarget
+				? recovery.refreshLocalAgentCatalog({
+						deviceId: bindingTarget.deviceId,
+						runtimeLane: bindingTarget.runtimeLane,
+					})
+				: recovery.refreshAll(),
+			creationComputerReadiness.refetch(),
+		]).catch((error: unknown) =>
+			console.error("Could not refresh the computer for Agent creation.", error)
+		);
+	};
+	const { computerRecovery, connectAnotherComputer } =
+		useAgentCreationComputerRecovery({
+			enabled: input.open && ownerMode === "self",
+			orgSlug,
+			recovery,
+			guidance: creationGuidance,
+			hasLocalAgents: ownLocalAgentIds.length > 0,
+			isPending: creationComputerReadiness.isPending,
+			sessionComputerId: sessionPreset?.computerId,
+			onRetry: retryCreationConnection,
+		});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
 			? buildOrganizationCenterAgentChatPath(orgSlug)
 			: null,
 		computerHref: recoveryActionHref,
-		guidance: resolveLocalAgentCreationGuidance({
-			queryFailed: creationComputerReadiness.isError,
-			readiness: creationComputerReadiness.data,
-			target: bindingTarget,
-		}),
-		onRetry: () => {
-			recovery
-				.refreshAll()
-				.catch((error: unknown) =>
-					console.error("Could not refresh local agents for creation.", error)
-				);
-		},
+		guidance: creationGuidance,
+		onRetry: retryCreationConnection,
 		ownerMode,
 		recoveryActionHref,
 	});
@@ -1229,6 +1263,8 @@ function useCreateProfileDialogController(
 	const agentOwnerUserId =
 		ownerMode === "teammate" ? targetOwnerUserId : currentUserId;
 	const formProps: ComponentProps<typeof CreateProfileForm> = {
+		computerRecovery,
+		connectAnotherComputer,
 		agentComputerSlot:
 			canChooseComputer && computerChoices.length > 1 ? (
 				<div className="grid gap-2 text-sm">
@@ -2334,6 +2370,10 @@ function useCreationComputerReadiness(input: {
 		: input.recovery.currentLocalRuntimeReplyReadinessQuery;
 	return {
 		data: readinessQuery.data,
+		isPending:
+			input.recovery.localRuntimesQuery.isPending ||
+			(Boolean(target) && readinessQuery.isPending),
+		refetch: readinessQuery.refetch,
 		isError:
 			input.recovery.localRuntimesQuery.isError || readinessQuery.isError,
 	};
@@ -2353,6 +2393,18 @@ function useOnlyCreationComputer(input: {
 			!(input.enabled && input.canChooseComputer) ||
 			input.isSubmitting ||
 			!target
+		) {
+			return;
+		}
+		// A selected enrolled computer going offline must not silently move the
+		// user's draft to the only other online computer.
+		if (
+			input.recovery.localRuntimesQuery.data?.peopleComputers.computers.some(
+				(computer) =>
+					computer.identityStatus === "enrolled" &&
+					(computer.deviceId === input.recovery.deviceId ||
+						computer.legacyDeviceIds?.includes(input.recovery.deviceId ?? ""))
+			)
 		) {
 			return;
 		}
@@ -2992,6 +3044,7 @@ function canRequestTeammateAgent(input: {
 		!input.hasInitialSessionPreset || input.initialOwnerMode === "teammate";
 	return (
 		initialSessionAllowsTeammateRequest &&
+		TEAMMATE_AGENT_REQUESTS_ENABLED &&
 		input.allowTeammateRequests === true &&
 		Boolean(input.currentUserId)
 	);
@@ -3205,7 +3258,7 @@ function resolveCreateProfileDialogTitle(input: {
 }): string {
 	return input.additionalHumanProfileCreationEnabled
 		? "Create a new profile"
-		: "Create a new Agent";
+		: "Create an Agent";
 }
 
 function resolveCreateProfileDialogDescription(input: {
@@ -3537,7 +3590,7 @@ function showCreatedAgentRequestToast(input: {
 			toast.info(
 				input.request.createdAgentProfileId
 					? "Agent created. Finishing setup in the background."
-					: "Creating Agent. You can check progress in Agent requests."
+					: "Creating Agent. You can check progress in Agent setup."
 			);
 			return;
 		default:

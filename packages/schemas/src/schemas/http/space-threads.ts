@@ -43,6 +43,10 @@ const optionalThreadSignalLimitSchema = z.preprocess((value) => {
 
 export const listSpaceThreadSignalsQuerySchema = z
   .strictObject({
+    includeWakeContinuation: z.preprocess(
+      (value) => (value === "true" ? true : value),
+      z.union([z.literal(true), z.literal("conversation")]).optional()
+    ),
     afterSignalId: optionalThreadSignalAnchorSchema,
     limit: optionalThreadSignalLimitSchema,
   })
@@ -90,18 +94,29 @@ export const listSpaceThreadsResponseSchema = z.strictObject({
 });
 
 export const listSpaceThreadSignalsResponseSchema = z.strictObject({
+  wakeContinuation: z
+    .strictObject({
+      targetProfileId: z.string().min(1).nullable(),
+      automaticTargetProfileId: z.string().min(1).nullable().optional(),
+    })
+    .optional(),
   signals: z.array(signalEnvelopeSchema),
   placements: z.array(spaceThreadSignalPlacementSchema),
 });
 
 export const postSpaceThreadSignalBodySchema = z
   .strictObject({
+    threadWakeContinuation: z.literal(true).optional(),
     text: signalTextSchema.shape.data.shape.text,
+    deviceWait: signalTextSchema.shape.data.shape.deviceWait.optional(),
     files: signalTextSchema.shape.data.shape.files.optional(),
     messageEnvelope: messageEnvelopeSchema.optional(),
     clientMessageId: clientMessageIdSchema,
     authorHasRead:
       signalTextSchema.shape.data.shape.meta.unwrap().shape.authorHasRead,
+    restoredFromSignalId:
+      signalTextSchema.shape.data.shape.meta.unwrap().shape
+        .restoredFromSignalId,
   })
   .superRefine((value, ctx) => {
     const parsed = signalTextSchema.shape.data.safeParse({

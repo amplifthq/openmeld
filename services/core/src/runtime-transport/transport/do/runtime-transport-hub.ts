@@ -445,6 +445,7 @@ import {
   isHistoricalPublicationClosureEvidence,
   isRuntimeCoordinatorFinalizationRetryParkLimitReached,
   isRuntimeCoordinatorHeadLifecycleRecord,
+  isRuntimeCoordinatorHeadWaitingForDevice,
   isRuntimeCoordinatorHeadWaitingRecoveryCandidate,
   isRuntimeCoordinatorLateResultRecoverable,
   isRuntimeCoordinatorPublicationProjectionSettled,
@@ -540,7 +541,6 @@ import {
   readRuntimeCoordinatorTokenAuthorityFromStorage,
   removeRuntimeCoordinatorFinalizationRetryFromStorage,
   upsertRuntimeCoordinatorFinalizationRetryEntryInStorage,
-  writeRuntimeCoordinatorHeadLifecycleRecordToStorage,
   writeRuntimeCoordinatorPreExecutionHandoffRecordToStorage,
   writeRuntimeCoordinatorRunCommandStateInTransaction,
   writeRuntimeCoordinatorRunCommandStateToStorage,
@@ -3316,6 +3316,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           })
         );
       }
+      // Repeat even without a readiness change: an earlier online event may
+      // have arrived before the durable waiting head was committed.
       this.ctx.waitUntil(
         this.triggerRuntimeCoordinatorHeadWaitingRecovery({
           ownerUserId: verifiedOwnerUserId,
@@ -11238,6 +11240,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (admission.status === "continuation_needs_attention") {
       this.scheduledHousekeepingAlarmAtMs = nowMs;
     }
+    if (request.acceptedDispatchSnapshot?.deviceWait) {
+      this.queueHousekeepingAlarmSync();
+    }
     return resolveRuntimeCoordinatorHeadAdmissionResponse({
       admission,
       request,
@@ -11385,14 +11390,26 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: nowMs,
       waitingBoundary: undefined,
     };
-    await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
-    await this.publishRuntimeCoordinatorHeadFailureNotice(nextRecord);
+    const stored =
+      await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
+    if (stored.status !== "publication_intent_ready") {
+      return {
+        ok: false,
+        status: "conflict",
+        primaryDispatchId: stored.primaryDispatchId,
+        publicationIntentId: stored.publicationIntent?.intentId ?? null,
+        runtimeCoordinatorExecutionId: null,
+        reasonCode: "runtime_coordinator.head_terminal_transition_won",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    }
+    await this.publishRuntimeCoordinatorHeadFailureNotice(stored);
 
     return {
       ok: true,
       primaryDispatchId: existing.primaryDispatchId,
       publicationIntentId,
-      reasonCode: request.reasonCode,
+      reasonCode: stored.noExecutionDecision?.reasonCode ?? request.reasonCode,
       runtimeCoordinatorExecutionId: null,
       status: "publication_intent_ready",
       targetWakeLifecycleId: identity.targetWakeLifecycleId,
@@ -11549,15 +11566,46 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       updatedAtMs: nowMs,
       waitingBoundary: undefined,
     };
-    await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
+    return await this.commitRuntimeCoordinatorHeadStop({
+      record: nextRecord,
+      nowMs,
+    });
+  }
+
+  private async commitRuntimeCoordinatorHeadStop(input: {
+    record: RuntimeCoordinatorHeadLifecycleRecord;
+    nowMs: number;
+  }): Promise<RuntimeTransportRuntimeCoordinatorHeadPreAgentStopResponse> {
+    const nextRecord = input.record;
+    const nowMs = input.nowMs;
+    const identity = nextRecord.targetWakeLifecycleIdentity;
+    const publicationIntentId =
+      buildRuntimeCoordinatorHeadStoppedPublicationIntentId(
+        identity.targetWakeLifecycleId
+      );
+    const stored =
+      await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
+    if (stored.status !== "stopped_before_execution") {
+      return {
+        ok: false,
+        status: stored.runtimeCoordinatorExecutionId
+          ? "execution_linked"
+          : "conflict",
+        primaryDispatchId: stored.primaryDispatchId,
+        publicationIntentId: stored.publicationIntent?.intentId ?? null,
+        runtimeCoordinatorExecutionId: stored.runtimeCoordinatorExecutionId,
+        reasonCode: "runtime_coordinator.head_terminal_transition_won",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    }
     await this.publishRuntimeCoordinatorHeadPreAgentStoppedOutcome({
       nowMs,
-      record: nextRecord,
+      record: stored,
     });
 
     return {
       ok: true,
-      primaryDispatchId: baseRecord.primaryDispatchId,
+      primaryDispatchId: stored.primaryDispatchId,
       publicationIntentId,
       reasonCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
       runtimeCoordinatorExecutionId: null,
@@ -11581,6 +11629,45 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
     await this.writeRuntimeCoordinatorHeadLifecycleRecord(record);
     return record;
+  }
+
+  private async resolveRuntimeCoordinatorHeadWaitingTiming(
+    existing: RuntimeCoordinatorHeadLifecycleRecord
+  ) {
+    const pendingPromotion =
+      existing.acceptedAtMs === undefined && existing.status === "waiting"
+        ? await readPendingAgentProfileWorkPromotion(
+            this.ctx.storage,
+            existing.targetWakeLifecycleIdentity.targetProfileId
+          )
+        : null;
+    const existingWithAcceptanceTiming =
+      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(
+        existing,
+        pendingPromotion?.dispatchId === existing.primaryDispatchId &&
+          pendingPromotion.targetWakeLifecycleId ===
+            existing.targetWakeLifecycleId
+          ? { acceptedAtMs: pendingPromotion.createdAtMs }
+          : undefined
+      );
+    const existingBoundary = existingWithAcceptanceTiming.waitingBoundary;
+    const waitingSinceMs =
+      existingBoundary?.waitingSinceMs ??
+      existingWithAcceptanceTiming.acceptedAtMs ??
+      existingWithAcceptanceTiming.createdAtMs;
+    const softDeadlineAtMs =
+      existingBoundary?.softDeadlineAtMs ??
+      waitingSinceMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS;
+    const deadlineAtMs =
+      existing.acceptedDispatchSnapshot?.deviceWait?.deadlineAtMs ??
+      existingBoundary?.deadlineAtMs ??
+      waitingSinceMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS;
+    return {
+      existingWithAcceptanceTiming,
+      waitingSinceMs,
+      softDeadlineAtMs,
+      deadlineAtMs,
+    };
   }
 
   private async recordRuntimeCoordinatorHeadWaiting(
@@ -11673,33 +11760,12 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const waitingDecision = resolveRuntimeCoordinatorHeadWaitingDecision(
       request.reasonCode
     );
-    const pendingPromotion =
-      existing.acceptedAtMs === undefined && existing.status === "waiting"
-        ? await readPendingAgentProfileWorkPromotion(
-            this.ctx.storage,
-            identity.targetProfileId
-          )
-        : null;
-    const existingWithAcceptanceTiming =
-      normalizeLegacyRuntimeCoordinatorHeadAcceptanceTiming(
-        existing,
-        pendingPromotion?.dispatchId === existing.primaryDispatchId &&
-          pendingPromotion.targetWakeLifecycleId ===
-            existing.targetWakeLifecycleId
-          ? { acceptedAtMs: pendingPromotion.createdAtMs }
-          : undefined
-      );
-    const existingBoundary = existingWithAcceptanceTiming.waitingBoundary;
-    const waitingSinceMs =
-      existingBoundary?.waitingSinceMs ??
-      existingWithAcceptanceTiming.acceptedAtMs ??
-      existingWithAcceptanceTiming.createdAtMs;
-    const softDeadlineAtMs =
-      existingBoundary?.softDeadlineAtMs ??
-      waitingSinceMs + RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS;
-    const deadlineAtMs =
-      existingBoundary?.deadlineAtMs ??
-      waitingSinceMs + RUNTIME_COORDINATOR_HEAD_WAITING_HARD_DEADLINE_MS;
+    const {
+      existingWithAcceptanceTiming,
+      waitingSinceMs,
+      softDeadlineAtMs,
+      deadlineAtMs,
+    } = await this.resolveRuntimeCoordinatorHeadWaitingTiming(existing);
     if (deadlineAtMs <= nowMs) {
       const nextRecord =
         buildRuntimeCoordinatorHeadPublicationIntentReadyRecord({
@@ -11707,11 +11773,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           existing: existingWithAcceptanceTiming,
           nowMs,
           publicationCategory: waitingPolicy.waitingCategory,
-          reasonCode: request.reasonCode,
+          reasonCode: existing.acceptedDispatchSnapshot?.deviceWait
+            ? "wake.device_wait.expired"
+            : request.reasonCode,
           userRecoveryAction: waitingPolicy.userRecoveryAction,
         });
-      await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
-      await this.publishRuntimeCoordinatorHeadFailureNotice(nextRecord);
+      const stored =
+        await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
+      if (stored.status !== "publication_intent_ready") {
+        return {
+          ok: false,
+          status: "conflict",
+          primaryDispatchId: stored.primaryDispatchId,
+          runtimeCoordinatorExecutionId: null,
+          reasonCode: "runtime_coordinator.head_terminal_transition_won",
+          targetWakeLifecycleId: identity.targetWakeLifecycleId,
+        };
+      }
+      await this.publishRuntimeCoordinatorHeadFailureNotice(stored);
       return {
         ok: true,
         primaryDispatchId: nextRecord.primaryDispatchId,
@@ -11720,7 +11799,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           buildRuntimeCoordinatorHeadPublicationIntentId(
             identity.targetWakeLifecycleId
           ),
-        reasonCode: request.reasonCode,
+        reasonCode:
+          stored.noExecutionDecision?.reasonCode ?? request.reasonCode,
         runtimeCoordinatorExecutionId: null,
         status: "publication_intent_ready",
         targetWakeLifecycleId: identity.targetWakeLifecycleId,
@@ -11736,13 +11816,23 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       waitingSinceMs,
       ...waitingPolicy,
     };
-    await this.writeRuntimeCoordinatorHeadLifecycleRecord({
+    const stored = await this.writeRuntimeCoordinatorHeadLifecycleRecord({
       ...existingWithAcceptanceTiming,
       runtimeCoordinatorExecutionId: null,
       status: "waiting",
       updatedAtMs: nowMs,
       waitingBoundary,
     });
+    if (stored.status !== "waiting") {
+      return {
+        ok: false,
+        status: "conflict",
+        primaryDispatchId: stored.primaryDispatchId,
+        runtimeCoordinatorExecutionId: null,
+        reasonCode: "runtime_coordinator.head_terminal_transition_won",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
+    }
     await this.syncHousekeepingAlarm();
 
     return {
@@ -12073,13 +12163,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   }
 
   private async writeRuntimeCoordinatorHeadLifecycleRecord(
-    record: RuntimeCoordinatorHeadLifecycleRecord
-  ): Promise<void> {
-    const pendingPromotion =
-      await writeRuntimeCoordinatorHeadLifecycleRecordToStorage(
-        this.ctx.storage,
-        record
+    proposedRecord: RuntimeCoordinatorHeadLifecycleRecord
+  ): Promise<RuntimeCoordinatorHeadLifecycleRecord> {
+    const result = await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: false,
+      nowMs: proposedRecord.updatedAtMs,
+      record: proposedRecord,
+      storage: this.ctx.storage,
+    });
+    if (!("effectiveRecord" in result)) {
+      throw new Error(
+        `RuntimeCoordinator head transition was not accepted: ${result.status}.`,
+        { cause: result }
       );
+    }
+    const record = result.effectiveRecord;
+    const pendingPromotion = result.pendingPromotion;
     this.publishAgentReadinessInvalidated({
       profileIds: [record.targetWakeLifecycleIdentity.targetProfileId],
       reason: "agent_profile_work_coordinator.changed",
@@ -12095,25 +12194,54 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         "terminal_transaction"
       );
     }
+    return record;
   }
 
   private async escalateRuntimeCoordinatorHeadWaitingDeadline(input: {
     nowMs: number;
     record: RuntimeCoordinatorHeadWaitingAlarmWorkItem;
   }): Promise<void> {
-    const waitingPolicy = resolveRuntimeCoordinatorHeadWaitingPolicy(
-      input.record.waitingBoundary.reasonCode
+    // An alarm may have read this record before a cancellation or delivery won.
+    const current = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+      input.record.targetWakeLifecycleId
     );
+    if (
+      !(
+        current &&
+        (current.status === "waiting" ||
+          isRuntimeCoordinatorHeadWaitingForDevice(current))
+      )
+    ) {
+      return;
+    }
+    const deviceWait = current.acceptedDispatchSnapshot?.deviceWait;
+    const waitingBoundary = current.waitingBoundary;
+    const deadlineAtMs =
+      deviceWait?.deadlineAtMs ?? waitingBoundary?.deadlineAtMs;
+    if (deadlineAtMs === undefined || deadlineAtMs > input.nowMs) {
+      return;
+    }
+    // Accepted/FIFO-queued intent proves a deadline, not an offline computer.
+    // Preserve observed waiting evidence when present; otherwise classify the
+    // expired local task without inventing route or readiness facts.
+    const waitingPolicy = waitingBoundary
+      ? resolveRuntimeCoordinatorHeadWaitingPolicy(waitingBoundary.reasonCode)
+      : {
+          waitingCategory: "local_agent_unavailable" as const,
+          userRecoveryAction: "check_status" as const,
+          reasonCode: "wake.device_wait.expired" as const,
+        };
     const nextRecord = buildRuntimeCoordinatorHeadPublicationIntentReadyRecord({
       decisionSource: "runtime_coordinator_head_waiting_deadline",
-      existing: input.record,
+      existing: current,
       nowMs: input.nowMs,
       publicationCategory: waitingPolicy.waitingCategory,
-      reasonCode: input.record.waitingBoundary.reasonCode,
+      reasonCode: waitingPolicy.reasonCode,
       userRecoveryAction: waitingPolicy.userRecoveryAction,
     });
-    await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
-    await this.publishRuntimeCoordinatorHeadFailureNotice(nextRecord);
+    const stored =
+      await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
+    await this.publishRuntimeCoordinatorHeadFailureNotice(stored);
   }
 
   private async processRuntimeCoordinatorHeadWaitingAlarm(
@@ -13494,29 +13622,20 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
     const acceptedResultStop =
-      await this.runSerializedRuntimeCoordinatorFinalization({
+      await this.runSerializedRuntimeCoordinatorFinalizationToCompletion({
         runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
         run: () =>
           this.stopAcceptedRuntimeCoordinatorResult({ db, input, nowMs }),
-      }).catch(() => null);
-    if (!acceptedResultStop) {
-      return buildWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.wake_stop_store_unavailable",
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: input.targetProfileId,
-      });
-    }
-    if (acceptedResultStop.status === "in_flight") {
-      return buildWakeStopFailureResponse({
-        reasonCode: "runtime_coordinator.wake_stop_state_changed",
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-        status: "retry_later",
-        targetProfileId: input.targetProfileId,
-      });
-    }
-    if (acceptedResultStop.value) {
-      return acceptedResultStop.value;
+      }).catch(() =>
+        buildWakeStopFailureResponse({
+          reasonCode: "runtime_coordinator.wake_stop_store_unavailable",
+          runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+          status: "retry_later",
+          targetProfileId: input.targetProfileId,
+        })
+      );
+    if (acceptedResultStop) {
+      return acceptedResultStop;
     }
     const preparedStop =
       await this.prepareRuntimeCoordinatorWakeStopCommandState({

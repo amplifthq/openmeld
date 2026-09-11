@@ -19,9 +19,7 @@ import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
-	HashIcon,
 	HouseIcon,
-	PlusIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -36,17 +34,20 @@ import { useAppNavigationPresentation } from "#/components/app/app-navigation-pr
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
 import {
-	buildOrganizationAgentCreationPath,
+	resolveInboxAttentionLabel,
+	resolveInboxIndicatorClassName,
+} from "#/lib/inbox/attention";
+import {
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationRootPath,
-	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
 type AppRailDestinationId = AppOuterRailDestination;
 
 type AppRailDestination = {
+	attentionTone?: "danger" | "warning" | null;
 	attentionCount?: number;
 	icon: ReactNode;
 	id: AppRailDestinationId;
@@ -63,6 +64,9 @@ type AppRailGroup = {
 };
 
 export function buildAppRailGroups(input: {
+	conversationPath?: string;
+	chatUnreadCount?: number;
+	chatAttentionTone?: "danger" | "warning" | null;
 	orgSlug: string;
 	centerAgentUnreadCount: number;
 	prefetchCenterAgentConversation: () => void;
@@ -74,43 +78,26 @@ export function buildAppRailGroups(input: {
 			label: null,
 			destinations: [
 				{
-					id: "newAgent",
-					label: "New Agent",
-					to: buildOrganizationAgentCreationPath(input.orgSlug),
-					icon: <PlusIcon aria-hidden="true" className="size-4" />,
-				},
-				{
 					id: "home",
 					label: "Desk",
 					to: buildOrganizationRootPath(input.orgSlug),
-					icon: <HouseIcon aria-hidden="true" className="size-4" />,
-				},
-				{
-					id: "spaces",
-					label: "Spaces",
-					to: buildOrganizationSpacesPath(input.orgSlug),
-					unreadCount: input.spacesUnreadCount,
-					icon: (
-						<HashIcon
-							aria-hidden="true"
-							className="size-4"
-							data-space-icon="channel"
-						/>
-					),
+					icon: <HouseIcon aria-hidden="true" className="size-5" />,
 				},
 				{
 					id: "directMessages",
-					label: "Chats",
-					onIntentPrefetch: input.prefetchCenterAgentConversation,
-					unreadCount: input.centerAgentUnreadCount,
-					to: buildOrganizationDirectMessagesPath(input.orgSlug),
-					icon: <ChatCircleTextIcon aria-hidden="true" className="size-4" />,
+					label: "Spaces",
+					unreadCount: input.spacesUnreadCount + (input.chatUnreadCount ?? 0),
+					attentionTone: input.chatAttentionTone,
+					to:
+						input.conversationPath ??
+						buildOrganizationDirectMessagesPath(input.orgSlug),
+					icon: <ChatCircleTextIcon aria-hidden="true" className="size-5" />,
 				},
 				{
 					id: "people",
 					label: "Team",
 					to: buildOrganizationPeoplePath(input.orgSlug),
-					icon: <UsersThreeIcon aria-hidden="true" className="size-4" />,
+					icon: <UsersThreeIcon aria-hidden="true" className="size-5" />,
 				},
 			],
 		},
@@ -126,10 +113,19 @@ export function AppRailNavigationGroup(input: {
 	const { presentation } = useAppNavigationPresentation();
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
-			<SidebarMenu activeLayoutId={`main-sidebar-selection-${presentation}`}>
+			<SidebarMenu
+				activeLayoutId={`main-sidebar-selection-${presentation}`}
+				className={input.tier === "icon" ? "gap-1.5" : undefined}
+			>
 				{input.group.destinations.map((destination) => (
 					<AppRailLink
-						active={destination.id === input.activeDestination}
+						active={
+							destination.id === input.activeDestination ||
+							(destination.id === "directMessages" &&
+								input.activeDestination === "spaces") ||
+							(destination.id === "people" &&
+								input.activeDestination === "agents")
+						}
 						destination={destination}
 						key={destination.id}
 						tier={input.tier}
@@ -140,7 +136,7 @@ export function AppRailNavigationGroup(input: {
 	);
 	const groupClassName = cn(
 		APP_NAV_GROUP_CLASS_NAME,
-		input.position > 0 && "mt-0"
+		input.position > 0 && "mt-4 border-border border-t pt-3"
 	);
 
 	return (
@@ -152,11 +148,12 @@ export function AppRailNavigationGroup(input: {
 
 export function CollapsedRailTooltip(input: {
 	children: ReactElement;
+	disabled?: boolean;
 	label: string;
 	side?: "top" | "right";
 }) {
 	return (
-		<Tooltip>
+		<Tooltip disabled={input.disabled}>
 			<TooltipTrigger delay={0} render={input.children} />
 			<TooltipContent side={input.side ?? "right"}>
 				{input.label}
@@ -179,15 +176,24 @@ export function AppRailLink(input: {
 	const unreadIndicatorKind = resolveAppRailUnreadIndicatorKind(
 		input.destination.id
 	);
-	if (unreadCount > 0 && unreadIndicatorKind) {
+	if (
+		(unreadCount > 0 || input.destination.attentionTone) &&
+		unreadIndicatorKind
+	) {
 		statusIndicator = {
 			kind: unreadIndicatorKind,
+			tone: input.destination.attentionTone,
 		};
 	}
 	const accessibleLabel = buildAppRailAccessibleLabel({
 		attentionCount,
 		destinationId: input.destination.id,
-		label: input.destination.label,
+		label: [
+			input.destination.label,
+			resolveInboxAttentionLabel(input.destination.attentionTone),
+		]
+			.filter(Boolean)
+			.join(", "),
 		unreadCount,
 	});
 	const children = (
@@ -198,11 +204,17 @@ export function AppRailLink(input: {
 				statusIndicator={statusIndicator}
 				tier={input.tier}
 			/>
-			<AppRailDestinationLabel
-				destination={input.destination}
-				statusIndicator={statusIndicator}
-				tier={input.tier}
-			/>
+			{isIcon ? (
+				<span className="max-w-full whitespace-normal text-center text-[10px] leading-tight">
+					{input.destination.label}
+				</span>
+			) : (
+				<AppRailDestinationLabel
+					destination={input.destination}
+					statusIndicator={statusIndicator}
+					tier={input.tier}
+				/>
+			)}
 			<AppRailTrailingAttentionBadge
 				attentionCount={attentionCount}
 				tier={input.tier}
@@ -213,7 +225,7 @@ export function AppRailLink(input: {
 		"flex min-w-0 items-center border border-transparent outline-none focus-visible:text-sidebar-accent-foreground",
 		APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 		APP_NAV_ITEM_TONE_CLASS_NAME,
-		isIcon && "size-9 justify-center px-0",
+		isIcon && "h-12 w-full flex-col justify-center gap-1 px-1 py-1",
 		input.tier === "expanded" && APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
 		input.tier === "expanded" && "gap-1.5 ps-[5px]",
 		input.active && "text-sidebar-accent-foreground"
@@ -244,10 +256,16 @@ export function AppRailLink(input: {
 	const Item = SidebarMenuItem;
 	const MenuButton = SidebarMenuButton;
 	return (
-		<Item className={isIcon ? "mx-auto size-9" : "group/destination relative"}>
+		<Item
+			className={isIcon ? "mx-auto h-12 w-full" : "group/destination relative"}
+		>
 			{isIcon ? (
 				<CollapsedRailTooltip label={accessibleLabel}>
-					<SidebarMenuButton isActive={input.active} render={link}>
+					<SidebarMenuButton
+						className="h-12"
+						isActive={input.active}
+						render={link}
+					>
 						{children}
 					</SidebarMenuButton>
 				</CollapsedRailTooltip>
@@ -278,7 +296,7 @@ function AppRailDestinationIcon(input: {
 	tier: SidebarMode;
 }) {
 	return (
-		<span className="relative flex size-4 shrink-0 items-center justify-center">
+		<span className="relative flex size-5 shrink-0 items-center justify-center">
 			{input.destination.icon}
 			{input.statusIndicator && input.tier !== "expanded" ? (
 				<AppRailStatusDot
@@ -351,9 +369,13 @@ function AppRailAttentionBadge(input: {
 	);
 }
 
-type AppRailStatusIndicatorKind = "center-agent-unread" | "spaces-unread";
+type AppRailStatusIndicatorKind =
+	| "center-agent-unread"
+	| "spaces-unread"
+	| "chats-unread";
 
 type AppRailStatusIndicator = {
+	tone?: "danger" | "warning" | null;
 	kind: AppRailStatusIndicatorKind;
 };
 
@@ -366,8 +388,8 @@ function AppRailStatusDot(input: {
 			aria-hidden="true"
 			className={cn(
 				"status-dot",
-				"bg-unread",
-				input.placement === "overlay" && "absolute -end-1.5 -top-1.5"
+				resolveInboxIndicatorClassName(input.indicator.tone),
+				input.placement === "overlay" && "absolute end-0 top-0"
 			)}
 			data-app-rail-status-indicator={input.indicator.kind}
 			data-app-rail-status-placement={input.placement}
@@ -403,6 +425,9 @@ function resolveAppRailUnreadIndicatorKind(
 	}
 	if (destinationId === "spaces") {
 		return "spaces-unread";
+	}
+	if (destinationId === "directMessages") {
+		return "chats-unread";
 	}
 	return null;
 }

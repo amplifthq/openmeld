@@ -40,7 +40,7 @@ describe("personal Remote Agent shared Space context", () => {
     expect(context).toContain("2 Agent Profiles were activated");
     expect(context).toContain("agt_teammate");
     expect(context).not.toContain("agt_reference_only");
-    expect(context).toContain("Activation is not evidence");
+    expect(context?.toLowerCase()).toContain("activation is not evidence");
     expect(context).toContain("openmeld_read_space_board");
     expect(context).toContain("openmeld_read_space_updates");
     expect(context).not.toContain("local OpenMeld Service");

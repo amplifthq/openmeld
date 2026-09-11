@@ -158,6 +158,64 @@ environment callback, or no coordination best fits the actual work.
 
 ### Resource Discipline
 
+For a new worktree, use Node from `.nvmrc`, pnpm from `packageManager`, and
+`pnpm install --frozen-lockfile`. Run `pnpm dev:doctor`, then
+`pnpm dev:worktree`. Once its readiness message appears, run
+`pnpm dev:web:worktree` in a second terminal **in the same worktree**. Use the
+printed lane-specific URL. Docker is needed only for
+`pnpm dev:worktree:sandbox`. `pnpm check` checks installed dependencies; it no
+longer installs them implicitly. Install again after a lockfile change.
+
+The isolated launchers reserve local capacity before starting processes.
+Worktrees of the same Git checkout share the registry in the Git common
+directory; separate clones do not. Reading and editing code needs no slot.
+Root `build`, `check`, `test`, `test:integration`, `test:runtime`, and affected
+validation commands share one broad-work slot by default. Nested commands
+inherit their live ancestor's reservation instead of waiting on themselves.
+For another expensive local command, use `pnpm dev:run -- <command> [args]`.
+Direct package commands, `dev:raw`, and the legacy fixed-port server bypass
+this admission policy. Keep those focused and inspect machine facts first.
+Hosted GitHub jobs retain their independent runner limits.
+
+Startup budgets are estimates: 6 GiB for a Worker stack, 2 GiB for Web and
+2 GiB for broad verification. Admission keeps 15% of effective machine memory
+(at least 1 GiB) as headroom and accounts for reservations that have not yet
+materialized as resident memory. macOS also blocks new work while the OS
+reports memory pressure. These checks reduce overlapping peaks; they are not
+OS-enforced memory caps and cannot prevent another application from growing.
+
+`pnpm dev:status` reports process trees, summed RSS and machine memory
+separately from disk space. RSS can count shared pages more than once. macOS
+memory availability includes free, inactive and speculative pages and is
+explicitly an estimate; Node's free-page count alone is insufficient there.
+New lane records include process start identities. Older running lanes without
+those identities can only be attributed through recognizable commands and
+their descendants; restarting them through the current entrypoint improves
+ownership evidence. Do not infer ownership from a PID or port alone.
+
+When capacity is unavailable, the command prints the reason and registered
+owners, waits without starting workers, and can be cancelled with Ctrl+C.
+Stop an environment you own and no longer need, or wait for its owner to finish;
+do not kill another agent's processes. For measured workloads on another
+machine, explicitly configure `OPENMELD_LOCAL_HEAVY_SLOTS` (positive integer),
+`OPENMELD_LOCAL_MEMORY_HEADROOM_GIB`, `OPENMELD_LOCAL_STACK_GIB`,
+`OPENMELD_LOCAL_WEB_GIB`, or `OPENMELD_LOCAL_HEAVY_GIB` (positive numbers).
+Keep limits consistent between terminals. Increasing slots does not increase
+available memory. Existing processes are never terminated to admit new work.
+
+Each isolated environment owns its descendant cleanup. Ctrl+C and
+`pnpm dev:stop` request graceful exit, verify process identities, and reclaim
+remaining owned descendants. Start, failure and cancellation must release
+their resource reservations. Hard-killing an owner cannot execute its cleanup;
+inspect and stop confirmed worktree leftovers before starting again. Preserve
+lane-specific secrets, state directories and `OPENMELD_HOME` across this work.
+
+Run `pnpm verify:dev-lifecycle` after changing these contracts. The narrow
+`Dev lifecycle` PR workflow exercises disposable subprocess trees on macOS,
+Linux and Windows without installing dependencies or starting cloud services.
+It supplements normal Final Candidate certification. Full OpenMeld startup,
+hot reload and two-lane isolation still require a real development smoke.
+
 - A background command attached to Codex must redirect standard input explicitly
   with `< /dev/null` so it cannot wait on the agent session.
 - Before starting a heavy local fallback, handing off a worktree, or leaving a
@@ -306,6 +364,13 @@ commands when multiple worktrees need live localhost stacks at the same time:
 | `pnpm dev:isolated:no-sandbox` | Legacy Docker-free isolated stack for checkouts that still use local environment files. |
 | `pnpm dev:isolated --test-scheduled` | Legacy isolated stack that also prints its loopback-only Routine scheduler trigger. |
 | `pnpm dev:web:isolated` | Legacy low-level Web attachment for checkouts that still use local environment files. |
+
+For isolated Plugin UI acceptance, `OPENMELD_DEV_PLUGIN_FIXTURE_URL` can point
+Gateway at a compatible local provider simulator. It accepts only an
+`http://127.0.0.1` origin and uses the fixed non-secret `local-plugin-fixture`
+token, never the real OpenConnector administration credential. Keep simulator
+state disposable and make simulated authorization explicit. This option does
+not simulate Remote Agent tool execution or establish a real provider connection.
 
 For normal localhost development, use two terminals in the same worktree:
 
@@ -627,6 +692,36 @@ blocker-capable review are stable, run the selected broad gates once for the
 exact candidate. This is scheduling guidance, not an additional gate or an
 approval requirement.
 
+### PostHog Test Skills
+
+The three test skills under `.agents/skills/` are pinned upstream copies;
+each `UPSTREAM.json` records its source and revision. Update them deliberately
+and review the upstream diff. Keep OpenMeld adaptations here, not in copied
+skill bodies. Claude Code already routes through `AGENTS.md`; other agents
+can follow its explicit file links without a global installation.
+
+Use their judgment, not PostHog's toolchain: run the owning package's Vitest
+or Node tests instead of `hogli`, Django, or Jest commands. For CI evidence use
+`gh run view <run-id> --log-failed` and the relevant run attempt; PostHog's
+insights and Trunk services are not configured here. Repository contracts and
+the user's authorized scope take precedence over upstream approval steps.
+Do not require a written questionnaire, repetition quota, or extra approval
+for an ordinary authorized change.
+
+Keep assertions tied to independent behavior. In PR #883, replacing an SQL
+interpreter mock with SQLite made harmless SQL formatting changes pass while
+detecting swapped persisted identifiers the mock missed. Use real persistence
+when SQL semantics are the risk, with focused local D1 tests for D1-specific
+behavior. The skills' no-network advice applies to isolated unit tests, not
+to explicitly selected integration or real-user smoke.
+
+When cleaning substantial coverage, establish what still catches the important
+failure. A focused temporary fault can demonstrate this when useful; mutation
+testing is not mandatory for every PR. Control time when dates are fixtures,
+and avoid asserting source text or incidental query formatting. Diagnose
+deterministic failures before calling them flaky; do not use retries, skips,
+or larger timeouts to hide an unexplained failure.
+
 ### Validation Commands
 
 The Final Candidate, merge, release, health, smoke, evidence, and fallback
@@ -653,53 +748,29 @@ when upgrading either build, and remove them when the build versions converge.
 Do not widen a runtime upgrade into a Web/Desktop build migration merely to
 make independently deployed build tools use one version.
 
-`verify:pre-push:checks` covers dependency consistency, static workflow and
-environment contracts, Changelog and documentation contracts, formatting
-support contracts, and retired identifiers. It does not replace workspace type
-checks, unit tests, integration tests, or release-ready verification.
+The CI/CD procedure and its rationale have one owner:
+[Agent-Native Delivery](agent-native-delivery.md#daily-workflow). It applies to
+engineers and every coding agent. Read it before pushing a candidate or merging.
 
-`verify:pr` runs changed-workspace checks and unit tests. Agents use this lane
-when changed-workspace validation has practical defect-finding value during
-development or review; standard Final Candidate does not repeat it. Checks and
-unit tests run as two explicit phases: packages
-may still run in parallel within one phase, but a memory-heavy package never
-runs its type-check and unit-test processes at the same time on one runner. The
-isolated Final Candidate wrapper also gives Node processes one explicit 6 GiB
-heap ceiling so Core type-checking is not constrained by Node's smaller default
-heap on a hosted runner.
+- Commit hook: staged-file checks.
+- Development push hook: mandatory focused checks on the exact clean commit.
+- Draft PR: focused remote feedback; keep work draft until ready to merge.
+- Standard FC: exact identity, trusted control, static contracts, and path-owned
+  database/release readiness. No blanket unit or integration rerun.
+- The owner validates changed behavior and downstream risks before marking ready.
 
-`test:integration:affected` is an agent-chosen development or review lane when
-a shared package, service, runtime, or persistence interaction cannot be proved
-more cheaply. Standard Final Candidate does not repeat it. `db:check` remains a
-standard candidate check for database owner paths. Local-component paths select
-strict release-ready verification on an exact versioned release branch and
-deferred base-aware verification on an ordinary feature branch. These
-selections are implemented and behavior-tested in
-`scripts/ci/final-candidate-policy.mjs`; do not copy the path policy into
-another workflow or document.
+Use `pnpm run verify:pr -- --feedback --plan` to inspect focused selection;
+remove `--plan` to execute it. `verify:pr` remains the explicit affected-workspace
+code/type-check and unit-test command, including downstream consumers.
+`test:integration:affected` validates affected integration boundaries;
+`verify:pr:full` requests whole-repository confidence. Do not use broad commands
+as an automatic iteration loop. Fetch missing base history instead of ignoring
+it; `OPENMELD_AFFECTED_BASE` chooses an explicit available base.
 
-`verify:pr:full` is the explicit stronger Final Candidate confidence lane.
-Manually dispatched Deep Confidence remains the exhaustive diagnostic lane for
-risk that warrants broad Worker, CLI, or runtime integration coverage. Neither
-is a default paid gate.
-
-Inspect the exact plan with:
-
-```sh
-git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
-```
-
-Run any printed command independently to diagnose it. Add `--full` only when
-the agent judges the broader confidence worth the time. The plan must state
-what it selected, what it skipped, and why.
-
-The Git pre-push hook does not repeat candidate checks for ordinary development
-branches. It retains strict release-ready enforcement for direct `main`, tags,
-and exact versioned release branches. The authoritative final candidate is
-explicit and runs once through the normal hosted lane or guarded local fallback.
-
-If affected scripts need a base ref, fetch it or set
-`OPENMELD_AFFECTED_BASE` explicitly. Do not ignore a missing-base result.
+`verify:pre-push:checks` retains the static repository contract suite. It is not
+a substitute for behavior tests or release readiness. Desktop dependency builds
+use Turbo's cache so its package hooks do not rebuild unchanged contracts after
+Turbo has already built them.
 
 When a package-level script needs repo-root Turbo behavior from another working
 directory, use the repo-root form with
@@ -1738,8 +1809,9 @@ policy script owns this classification; ordinary feature branches remain
 deferred and cannot carry a release stamp, while a malformed or mixed-scope
 release branch fails closed.
 
-The pre-push hook skips ordinary non-`main` development updates. It parses Git's
-pushed-ref lines and remains strict when a push includes `refs/heads/main`, a
+The pre-push release check defers ordinary development builds to FC; the
+focused-check hook still runs on development pushes. Release checking remains
+strict when a push includes `refs/heads/main`, a
 versioned release branch, a tag, malformed input, or no input. A strict push
 requires every non-deletion object to resolve to checked-out `HEAD` and rejects
 uncommitted release-relevant or gate-control paths. Final Candidate passes the

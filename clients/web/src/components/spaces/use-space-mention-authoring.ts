@@ -18,6 +18,7 @@ import {
 	type SpaceSendTargetAllowedRelations,
 	type SpaceSendTargetWakeAvailability,
 } from "@openmeld/space";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
@@ -30,6 +31,11 @@ import {
 	readSpaceRecentMentionProfileIds,
 	writeSpaceRecentMentionProfileIds,
 } from "#/lib/spaces/recent-mention-storage";
+import {
+	type SpaceMemberDirectoryDisplay,
+	spaceMemberDirectoryDisplayQueryOptions,
+} from "#/query/spaces/member-directory-display";
+import { createSpaceComposerDeviceWait } from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -44,6 +50,7 @@ export type SpaceComposerSelection = {
 };
 
 export type SpaceMentionPickerItem = {
+	agentMember?: SpaceMembersSnapshot["agents"][number];
 	memberEntry: SpaceMemberDirectoryEntry;
 	kind: "target";
 	suggestion: SpaceMentionSuggestion;
@@ -55,6 +62,9 @@ export type SpaceReplyToSignalInput = {
 };
 
 export type SpaceComposerAddressingTarget = {
+	agentWakeAvailability?: import("@openmeld/schemas/types").SpaceMemberAgentSnapshot["agentWakeAvailability"];
+	deviceWaitTarget?: import("@openmeld/schemas/types").WakeDeviceWaitTarget;
+	runtimeDeviceDisplayName?: string | null;
 	allowedRelations: SpaceSendTargetAllowedRelations;
 	primaryMentionLabel: string;
 	profileId: string;
@@ -119,15 +129,17 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			}),
 		[authoredMentions, composerText, input.snapshot]
 	);
-	const addressingTargets = useMemo(
+	const queryClient = useQueryClient();
+	const directoryOptions = useMemo(
 		() =>
-			buildSpaceComposerAddressingTargets({
-				mentions: addressingMentions,
-				snapshot: input.snapshot,
-			}),
-		[addressingMentions, input.snapshot]
+			spaceMemberDirectoryDisplayQueryOptions(
+				input.spaceId,
+				input.openMeldProfileId
+			),
+		[input.spaceId, input.openMeldProfileId]
 	);
-	const mentionPickerItems = useMemo(
+	const directoryQuery = useQuery(directoryOptions);
+	const freshMentionPickerItems = useMemo(
 		() =>
 			input.snapshot
 				? buildSpaceMentionTargetItems({
@@ -138,6 +150,53 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				: [],
 		[input.snapshot, recentMentionProfileIds]
 	);
+	useEffect(() => {
+		if (!input.snapshot) {
+			return;
+		}
+		queryClient.setQueryData(directoryOptions.queryKey, {
+			version: 1,
+			members: freshMentionPickerItems.map(({ suggestion, memberEntry }) => ({
+				profileId: suggestion.profileId,
+				profileName: suggestion.profileName,
+				profileKind: suggestion.profileKind,
+				primaryMentionLabel: suggestion.primaryMentionLabel,
+				avatarUrl: memberEntry.avatarUrl,
+				agentControllerRef: memberEntry.agentControllerRef,
+			})),
+		});
+	}, [
+		input.snapshot,
+		freshMentionPickerItems,
+		queryClient,
+		directoryOptions.queryKey,
+	]);
+	const mentionPickerItems = useMemo(
+		() =>
+			input.snapshot
+				? freshMentionPickerItems
+				: (directoryQuery.data?.members ?? []).map(toCachedMentionPickerItem),
+		[input.snapshot, freshMentionPickerItems, directoryQuery.data]
+	);
+	const addressingTargets = useMemo(() => {
+		if (input.snapshot) {
+			return buildSpaceComposerAddressingTargets({
+				mentions: addressingMentions,
+				snapshot: input.snapshot,
+			});
+		}
+		return authoredMentions.flatMap((mention) => {
+			const item = mentionPickerItems.find(
+				(candidate) => candidate.suggestion.profileId === mention.profileId
+			);
+			return item ? [{ ...item.suggestion, relation: mention.relation }] : [];
+		});
+	}, [
+		input.snapshot,
+		addressingMentions,
+		authoredMentions,
+		mentionPickerItems,
+	]);
 
 	useEffect(() => {
 		const snapshot = input.snapshot;
@@ -239,6 +298,9 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			composerDraft.setContent((currentDraft) => ({
 				...currentDraft,
 				authoredMentions: change.authoredMentions,
+				restoredFromSignalId:
+					change.restoredFromSignalId ??
+					(change.text.trim() ? currentDraft.restoredFromSignalId : undefined),
 				text: change.text,
 			}));
 		},
@@ -282,8 +344,48 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				start: nextText.length,
 			};
 		},
-		prepareSubmission: (missingSnapshotMessage: string) =>
-			prepareSpaceComposerSubmission({
+		composeExpiredDeviceWait: (request: {
+			sourceSignalId: string;
+			targetProfileId: string;
+		}) => {
+			if (currentComposerHasDraftRef.current) {
+				throw new Error(
+					"Send or clear your current draft before starting this task again."
+				);
+			}
+			const target = input.snapshot
+				? createSpaceTargetCatalog(input.snapshot).byProfileId.get(
+						request.targetProfileId
+					)
+				: undefined;
+			if (target?.profileKind !== "agent") {
+				throw new Error(
+					"This Agent is no longer available in the Space. Choose an Agent to send a new task."
+				);
+			}
+			const mention: SpaceComposerAuthoredMentionInTextOrder = {
+				profileId: target.profileId,
+				relation: "wake",
+				text: `@${target.profileName}`,
+			};
+			const text = `${mention.text} Please carry out the request in the referenced message.`;
+			composerDraft.setContent({
+				authoredMentions: trackAuthoredMentionsInText({
+					mentions: [mention],
+					text,
+				}),
+				replyToSignalId: request.sourceSignalId,
+				text,
+			});
+			currentComposerHasDraftRef.current = true;
+			pendingSelectionRef.current = { start: text.length, end: text.length };
+			textareaRef.current?.focus();
+		},
+		prepareSubmission: (
+			missingSnapshotMessage: string
+		): PreparedSpaceComposerSubmission & { restoredFromSignalId?: string } => ({
+			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
+			...prepareSpaceComposerSubmission({
 				authoredMentionsInTextOrder: authoredMentions.map(
 					toAuthoredMentionInput
 				),
@@ -292,8 +394,13 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				snapshot: input.snapshot,
 				text: composerText,
 			}),
-		prepareFileOnlySubmission: () =>
-			prepareSpaceFileOnlySubmission({ replyTo }),
+		}),
+		prepareFileOnlySubmission: (): PreparedSpaceComposerSubmission & {
+			restoredFromSignalId?: string;
+		} => ({
+			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
+			...prepareSpaceFileOnlySubmission({ replyTo }),
+		}),
 		preparePlainTextSubmission: (
 			text: string,
 			missingSnapshotMessage: string
@@ -310,7 +417,9 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			resetComposerState();
 		},
 		restoreFailedSubmission: (
-			preparedSubmission: PreparedSpaceComposerSubmission
+			preparedSubmission: PreparedSpaceComposerSubmission & {
+				restoredFromSignalId?: string;
+			}
 		) => {
 			if (currentComposerHasDraftRef.current) {
 				return false;
@@ -318,6 +427,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			currentComposerHasDraftRef.current = true;
 			const nextCaretPosition = preparedSubmission.text.length;
 			composerDraft.setContent({
+				restoredFromSignalId: preparedSubmission.restoredFromSignalId,
 				authoredMentions: trackAuthoredMentionsInText({
 					mentions: preparedSubmission.authoredMentionsInTextOrder,
 					text: preparedSubmission.text,
@@ -357,6 +467,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				}
 			}
 		},
+		mentionEmptyMessage: resolveMentionEmptyMessage(input),
 		textareaRef,
 	};
 
@@ -398,6 +509,9 @@ export function buildSpaceMentionTargetItems(input: {
 			}
 			return {
 				item: {
+					agentMember: input.snapshot.agents.find(
+						(agent) => agent.profileId === suggestion.profileId
+					),
 					kind: "target" as const,
 					memberEntry,
 					suggestion,
@@ -446,13 +560,16 @@ export function buildSpaceMentionTargetItems(input: {
 }
 
 export function resolveDefaultSpaceComposerMentionRelation(
-	suggestion: SpaceMentionSuggestion
+	suggestion: SpaceMentionSuggestion,
+	agentMember?: SpaceMentionPickerItem["agentMember"]
 ): MessageMentionType | null {
 	if (suggestion.profileKind === "agent") {
 		if (
 			suggestion.allowedRelations.wake &&
 			(suggestion.wakeAvailability.status === "ready" ||
-				suggestion.wakeAvailability.status === "preparing")
+				Boolean(agentMember && createSpaceComposerDeviceWait(agentMember)) ||
+				suggestion.wakeAvailability.status === "preparing" ||
+				suggestion.wakeAvailability.reasonCodes.length === 0)
 		) {
 			return "wake";
 		}
@@ -512,7 +629,13 @@ export function buildSpaceComposerAddressingTargets(input: {
 		if (!target?.allowedRelations[mention.relation]) {
 			continue;
 		}
+		const member = input.snapshot.agents.find(
+			(candidate) => candidate.profileId === target.profileId
+		);
 		targetByProfileId.set(mention.profileId, {
+			agentWakeAvailability: member?.agentWakeAvailability,
+			deviceWaitTarget: member?.deviceWaitTarget,
+			runtimeDeviceDisplayName: target.runtimeDeviceDisplayName,
 			allowedRelations: target.allowedRelations,
 			primaryMentionLabel: target.primaryMentionLabel,
 			profileId: target.profileId,
@@ -670,6 +793,7 @@ function resolveReplyComposerText(input: {
 }
 
 function resolveReplyWakeMention(input: {
+	allowUnavailable?: boolean;
 	snapshot: SpaceMembersSnapshot | null;
 	wakeTargetProfileId: string | null;
 }): SpaceComposerAuthoredMentionInTextOrder | null {
@@ -680,7 +804,10 @@ function resolveReplyWakeMention(input: {
 	const target = createSpaceTargetCatalog(input.snapshot).byProfileId.get(
 		input.wakeTargetProfileId
 	);
-	if (target?.profileKind !== "agent" || !target.allowedRelations.wake) {
+	if (
+		target?.profileKind !== "agent" ||
+		!(input.allowUnavailable || target.allowedRelations.wake)
+	) {
 		return null;
 	}
 
@@ -689,4 +816,68 @@ function resolveReplyWakeMention(input: {
 		relation: "wake",
 		text: `@${target.profileName}`,
 	};
+}
+
+function toCachedMentionPickerItem(
+	member: SpaceMemberDirectoryDisplay["members"][number]
+): SpaceMentionPickerItem {
+	const agent = member.profileKind === "agent";
+	return {
+		kind: "target",
+		suggestion: {
+			...member,
+			allowedRelations: { mention: !agent, reference: agent, wake: agent },
+			controllerDisplay: null,
+			description: "Checking current membership…",
+			exactMentionLabels: [member.primaryMentionLabel],
+			labelSource: "profile_name",
+			liveNow: false,
+			ownerDisplay: null,
+			wakeAvailability: {
+				status: "blocked",
+				reasonCodes: [],
+				reasonText: "Checking whether this agent can reply.",
+			},
+		},
+		memberEntry: {
+			...member,
+			id: member.profileId,
+			mentionLabel: member.primaryMentionLabel,
+			searchText: member.profileName,
+			addedByDisplayName: null,
+			addedByProfileId: null,
+			agentControllerConversationId: null,
+			agentControllerPermissionMode: null,
+			controllerDisplayName: null,
+			availabilityAction: null,
+			availabilityBadgeLabel: null,
+			availabilityCategory: null,
+			availabilityIsRefreshing: agent,
+			availabilityPhase: null,
+			availabilityReasonCode: null,
+			availabilitySummary: null,
+			availabilityTooltip: null,
+			lastSeenLabel: null,
+			liveNow: false,
+			manualParticipationOnly: false,
+			modelSelection: null,
+			ownerDisplay: null,
+			ownerName: null,
+			ownerUserId: null,
+			presenceLabel: null,
+			presenceStatus: null,
+			runtimeDeviceDisplayName: null,
+			workingDirectory: null,
+		},
+	};
+}
+
+function resolveMentionEmptyMessage(input: UseSpaceMentionAuthoringInput) {
+	if (input.snapshot) {
+		return "No matching members";
+	}
+	if (input.membersErrorMessage) {
+		return "Couldn’t load members. Try again shortly.";
+	}
+	return "Loading members…";
 }

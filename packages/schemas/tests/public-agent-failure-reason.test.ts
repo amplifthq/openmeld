@@ -14,6 +14,15 @@ import {
   shouldPreferMappedPublicAgentFailureReason,
 } from "../src";
 
+it.each([
+  "wake.device_wait.expired",
+  "wake.device_wait.access_revoked",
+])("does not imply automatic retry for ended request %s", (errorCode) => {
+  expect(
+    resolvePublicAgentFailureRecovery({ errorCode, targetLabel: "Runner" })
+  ).toMatchObject({ kind: "request_ended", recoveryTarget: null });
+});
+
 const PROVIDER_CREDITS_COPY =
   "The model provider rejected this request because the provider account does not have enough credits. Add credits or update billing directly with the provider, then wake the agent again.";
 const PROVIDER_CREDENTIALS_COPY =
@@ -986,7 +995,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "agent_execution.route_unavailable",
-      "Runner is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.",
+      "OpenMeld couldn't check Runner's connection. Try again.",
     ],
     [
       "route.not_registered",
@@ -998,7 +1007,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "route.unavailable",
-      "Runner is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.",
+      "OpenMeld couldn't check Runner's connection. Try again.",
     ],
     [
       "controller.registry.disabled",

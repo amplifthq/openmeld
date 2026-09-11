@@ -34,6 +34,12 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`SettingsDialogContent` is the shared presentational shell for Space settings
+and App settings: Fluid dialog behavior, a navigation slot, and independently
+scrolling content. The default keeps the Space dialog dimensions; the spacious
+variant scales width and height together for App settings. Navigation models,
+section selection, permissions, and URL state remain in the consuming client.
+
 Prefer existing Fluid components whenever the required primitive is available,
 including dropdowns, selects, and action menus. Do not reconstruct menus from
 generic Popover and Button components; reuse Fluid interaction behavior and the
@@ -41,6 +47,21 @@ shared radius tokens. Sidebar section actions reveal on their own section's
 hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
+
+`components/link-preview-card` owns compact link metadata presentation only:
+site, title, bounded description, and optional bounded image. It accepts
+validated data from its consumer and performs no metadata requests or Space
+authorization. Message-specific extraction, caching, and disclosure stay in Web.
+
+`fluid/dialog` adapts the official Fluid Functionalism Base UI Dialog registry
+(September 9, 2026). It owns the small/large/extra-large width ladder and elevated
+surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS
+motion. It does not add a second state or animation engine. Reduced motion
+removes panel animation. Product settings compose the existing `SettingsNav`
+and `ScrollArea`; product sections and mutation rules remain Web-owned.
+Dialogs use the fixed level-2 surface (`#1e1e1e` in dark mode) with level-4
+shadow depth. Nested dialogs keep this same background rather than progressively
+brightening with their parent's surface. Child controls inherit level 2.
 
 ### Scroll ownership
 
@@ -54,6 +75,8 @@ across pointer modes, preserving focus and scroll position.
 Base UI owns overflow measurement. A 12px content mask appears only on edges
 with hidden content, without guessing the parent surface color. Vertical areas
 constrain intrinsic content width; horizontal areas keep intrinsic measurement.
+The mask's four `--fluid-fade-*` properties do not inherit: an edge change must
+not invalidate styles throughout a long transcript beneath the viewport.
 `viewportRef` and `viewportProps` target the actual scrolling element.
 
 Use `ScrollArea` for ordinary panes, directories, settings, card details,
@@ -218,6 +241,13 @@ surface recipe as Tabs. Web composers share `PromptInput` and a dedicated
 a small outer shadow, and `rounded-2xl` corners. Shared card token changes must
 not change this finish. Its content retains level-two context so Wake/Reference
 tokens use level three. These changes do not alter access policy or send behavior.
+
+Space and Thread pending actions mount inside the shared composer width. Their
+inset, collapsible strip overlaps behind the composer edge. Plan, question, and
+permission forms reuse the AICSS-adapted `ApprovalCard` anatomy; its shared Fluid
+ScrollArea bounds request details and provides edge fades, while response actions
+remain outside the scrolling body. The primitive never approves or advances a
+request; the existing interaction owner retains all response and access policy.
 
 `TabsSubtle` also exposes an `underline` variant for flat navigation embedded
 against a structural divider. It keeps selection rectangular, uses the owning

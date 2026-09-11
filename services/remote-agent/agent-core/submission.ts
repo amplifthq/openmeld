@@ -56,7 +56,7 @@ export type RemoteAgentAdmissionImage =
 
 export type RemoteAgentSubmissionMetadata = {
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   authorDisplayName: string | null;
   bindingId: string;
   dispatchId: string;
@@ -159,20 +159,7 @@ export function buildRemoteAgentName(request: {
 
 export function resolveRemoteAgentTurnEnvelopeForName(input: {
   agentName: string;
-  requestContext: Pick<
-    RemoteAgentWorkerSubmitTurnRequest,
-    | "dispatchId"
-    | "agentProfileId"
-    | "author"
-    | "conversationId"
-    | "idempotencyKey"
-    | "onBehalfOf"
-    | "organizationId"
-    | "sourceClientMessageId"
-    | "spaceId"
-    | "triggerMessageId"
-    | "turnEnvelope"
-  > | null;
+  requestContext: RemoteAgentWorkerSubmitTurnRequest | null;
 }): RemoteAgentWorkerSubmitTurnRequest["turnEnvelope"] | null {
   const rejection = resolveRemoteAgentTurnEnvelopeAdmissionRejection(input);
   if (rejection) {
@@ -183,20 +170,7 @@ export function resolveRemoteAgentTurnEnvelopeForName(input: {
 
 export function resolveRemoteAgentTurnEnvelopeAdmissionRejection(input: {
   agentName: string;
-  requestContext: Pick<
-    RemoteAgentWorkerSubmitTurnRequest,
-    | "dispatchId"
-    | "agentProfileId"
-    | "author"
-    | "conversationId"
-    | "idempotencyKey"
-    | "onBehalfOf"
-    | "organizationId"
-    | "sourceClientMessageId"
-    | "spaceId"
-    | "triggerMessageId"
-    | "turnEnvelope"
-  > | null;
+  requestContext: RemoteAgentWorkerSubmitTurnRequest | null;
 }): {
   message: string;
   reasonCode: RemoteAgentWorkerAdmissionRejectionCode;
@@ -221,8 +195,7 @@ export function resolveRemoteAgentTurnEnvelopeAdmissionRejection(input: {
       ? context !== null &&
         context.sourceClientMessageId == null &&
         context.onBehalfOf === null &&
-        context.author.profileKind === "agent" &&
-        context.author.profileId === context.agentProfileId
+        routineAuthorMatches(context)
       : true;
   if (!routineRequestIdentityMatches) {
     return {
@@ -269,6 +242,30 @@ export function resolveRemoteAgentTurnEnvelopeAdmissionRejection(input: {
     };
   }
   return null;
+}
+
+function routineAuthorMatches(
+  context: RemoteAgentWorkerSubmitTurnRequest
+): boolean {
+  if (
+    context.v === 4 &&
+    context.conversationIdentity?.kind === "personal_agent"
+  ) {
+    const sender = context.turnEnvelope.sender;
+    return (
+      sender.kind === "routine" &&
+      sender.delegatedBy.verified &&
+      sender.delegatedBy.ownerUserId === context.agentProfileOwnerUserId &&
+      context.agentProfileOwnerUserId != null &&
+      context.author.profileKind === "human" &&
+      context.author.profileId === sender.delegatedBy.profileId &&
+      context.conversationIdentity.agentProfileId === context.agentProfileId
+    );
+  }
+  return (
+    context.author.profileKind === "agent" &&
+    context.author.profileId === context.agentProfileId
+  );
 }
 
 export function resolveRemoteAgentTurnEnvelopeForExecution(input: {
@@ -478,6 +475,7 @@ function renderRemoteAgentConversationContinuityContext(
       occurredAt: entry.occurredAt,
       source: entry.source,
       text: entry.content.text,
+      ...(entry.reactions ? { reactions: entry.reactions } : {}),
       truncated: entry.content.truncated,
     })
   );

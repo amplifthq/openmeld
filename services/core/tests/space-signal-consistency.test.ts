@@ -287,6 +287,9 @@ const webSocketMessage = (
   Space.prototype as unknown as {
     webSocketMessage(
       this: {
+        mergePublishedAuthorProfile: (
+          profile: SignalEnvelope["profile"]
+        ) => Promise<SignalEnvelope["profile"]>;
         sessions: Map<
           unknown,
           {
@@ -660,7 +663,7 @@ const flushPendingDispatchOutbox = (
         reason: DispatchOutboxSubmitReason,
         candidate?: unknown,
         human?: unknown
-      ) => Promise<boolean | undefined>;
+      ) => Promise<{ status: "enqueued" | "queue_unavailable" }>;
       enqueueDispatchMessageWithRetry: (
         message: OpenMeldDaemonDispatchQueueMessage,
         reason?: DispatchOutboxSubmitReason,
@@ -725,10 +728,15 @@ const publishOutboxPoisonTerminalFailureNotice = (
 ).publishOutboxPoisonTerminalFailureNotice;
 
 const createOutboxRedriveMethodTarget = () => ({
+  runPendingDispatchOutboxFlush: (
+    Space.prototype as unknown as {
+      runPendingDispatchOutboxFlush(): Promise<void>;
+    }
+  ).runPendingDispatchOutboxFlush,
   publishOutboxPoisonTerminalFailureNotice,
   recordOutboxCandidateFailure,
   redriveHandedOffOutboxCandidate,
-  submitDispatchOutboxMessage(
+  async submitDispatchOutboxMessage(
     this: {
       enqueueDispatchMessageWithRetry: (
         message: OpenMeldDaemonDispatchQueueMessage,
@@ -742,12 +750,17 @@ const createOutboxRedriveMethodTarget = () => ({
     candidate?: unknown,
     human?: unknown
   ) {
-    return this.enqueueDispatchMessageWithRetry(
+    const submitted = await this.enqueueDispatchMessageWithRetry(
       message,
       reason,
       candidate,
       human
     );
+    return {
+      status: submitted
+        ? ("enqueued" as const)
+        : ("queue_unavailable" as const),
+    };
   },
 });
 
@@ -2516,7 +2529,7 @@ describe("space signal consistency matrix", () => {
         dispatchId: poisonMessage.dispatchId,
         generatedBy: "openmeld",
         noticeType: "terminal_failure",
-        reason: "dispatch.target_profile_owner_unresolved",
+        reason: "dispatch.outbox.candidate_failed",
       },
       type: "signal.system_notice",
     });
@@ -2980,7 +2993,7 @@ describe("space signal consistency matrix", () => {
     expect(decisions).toEqual([]);
   });
 
-  it("removes canonical target mention before writing sourceSignalSnapshot for dispatch", () => {
+  it("preserves literal legacy mention text in sourceSignalSnapshot for dispatch", () => {
     const signal: SignalEnvelope = {
       v: 1,
       id: "sig-strip-target-mention",
@@ -3037,7 +3050,7 @@ describe("space signal consistency matrix", () => {
     const [firstRecord] = records;
     expect(firstRecord).toBeDefined();
     expect(firstRecord?.sourceSignalSnapshot?.text).toBe(
-      "wake up, who are you"
+      "@auto-reply-test-codex(wake) wake up, who are you"
     );
     expect(firstRecord?.organizationId).toBe("org-space-1");
     expect(firstRecord?.replyToSnapshot).toEqual({
@@ -3114,7 +3127,7 @@ describe("space signal consistency matrix", () => {
       ],
       profileId: "usr-owner",
       profileKind: "human",
-      text: "review this diagram",
+      text: "@auto-reply-test-codex(wake) review this diagram",
     });
     expect(records[0]?.payloadJson).toContain("attachment-1");
     expect(records[0]?.payloadJson).toContain("diagram.png");
@@ -3895,8 +3908,19 @@ describe("space signal consistency matrix", () => {
     expect(dispatchMessages).toEqual([]);
   });
 
-  it("rejects a thread Wake authoring failure through the same user-authored publish path", async () => {
+  it.each([
+    false,
+    true,
+  ])("keeps thread waiting intent top-level and rejects authoring failures (waiting: %s)", async (waitForDevice) => {
     const missingTargetProfileId = "agt_99999999-9999-4999-8999-999999999999";
+    const deviceWait = waitForDevice
+      ? {
+          bindingId: "binding-1",
+          openMeldServiceRuntimeId: "runtime-1",
+          targetProfileId: missingTargetProfileId,
+          deadlineAtMs: Date.now() + 60_000,
+        }
+      : undefined;
     const message = `OpenMeld could not start this Wake for ${missingTargetProfileId}. That agent is not in this Space. The message was not sent. Choose an agent in this Space and try again.`;
     const sql = {
       exec: vi.fn((query: string) => {
@@ -3989,6 +4013,7 @@ describe("space signal consistency matrix", () => {
           method: "POST",
           body: JSON.stringify({
             clientMessageId: "client-thread-invalid-target",
+            ...(deviceWait ? { deviceWait } : {}),
             text,
             messageEnvelope: createMessageEnvelope({
               text,
@@ -4015,6 +4040,7 @@ describe("space signal consistency matrix", () => {
       }),
       text,
       expect.objectContaining({
+        ...(deviceWait ? { deviceWait } : {}),
         messageEnvelope: expect.objectContaining({
           activationTargets: [missingTargetProfileId],
         }),
@@ -4093,6 +4119,9 @@ describe("space signal consistency matrix", () => {
       {
         sessions,
         buildTextSignal: buildTextSignalSpy,
+        mergePublishedAuthorProfile: async (
+          profile: SignalEnvelope["profile"]
+        ) => profile,
         publishTextSignal: publishTextSignalSpy,
       },
       webSocket,
@@ -4151,6 +4180,9 @@ describe("space signal consistency matrix", () => {
           data: { text },
         }),
         publishTextSignal: publishTextSignalSpy,
+        mergePublishedAuthorProfile: async (
+          profile: SignalEnvelope["profile"]
+        ) => profile,
       },
       webSocket,
       JSON.stringify({

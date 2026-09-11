@@ -1,17 +1,22 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	cleanup,
 	fireEvent,
-	render,
+	render as renderComponent,
 	screen,
 	within,
 } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceMessageFooter,
 	type SpaceMessageFooterAddressingTarget,
 } from "./space-message-footer";
 
-vi.mock("@phosphor-icons/react", () => ({
+import { MessageReactionsProvider } from "./space-message-reactions";
+
+vi.mock("@phosphor-icons/react", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@phosphor-icons/react")>()),
 	ArrowBendUpLeftIcon: () => <span />,
 	CaretRightIcon: () => <span />,
 	ChatCircleIcon: () => <span />,
@@ -19,8 +24,21 @@ vi.mock("@phosphor-icons/react", () => ({
 	DotsThreeIcon: () => <span />,
 	InfoIcon: () => <span data-testid="details-info" />,
 	TargetIcon: () => <span data-testid="addressing-target" />,
-	WarningCircleIcon: () => <span data-testid="details-warning" />,
+	WarningCircleIcon: (props: Record<string, unknown>) => (
+		<span {...props} data-testid="details-warning" />
+	),
 }));
+
+function render(children: ReactNode) {
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	return renderComponent(
+		<QueryClientProvider client={queryClient}>
+			<MessageReactionsProvider>{children}</MessageReactionsProvider>
+		</QueryClientProvider>
+	);
+}
 
 const WAKE_TARGET: SpaceMessageFooterAddressingTarget = {
 	agentControllerRef: "codex",
@@ -36,7 +54,7 @@ describe("SpaceMessageFooter", () => {
 		cleanup();
 	});
 
-	it("keeps the normal action order and puts lower-priority actions in More", () => {
+	it("keeps the normal action order without an empty overflow menu", () => {
 		const view = render(
 			<SpaceMessageFooter
 				addressingTargets={[WAKE_TARGET]}
@@ -65,20 +83,8 @@ describe("SpaceMessageFooter", () => {
 			"Reply in thread",
 			"Message addressing",
 			"Message details",
-			"More actions",
 		]);
-		expect(
-			screen.getByRole("button", { name: "More actions" }).className
-		).toContain("@min-[36rem]:hidden");
-
-		fireEvent.click(screen.getByRole("button", { name: "More actions" }));
-		expect(screen.getByRole("menuitem", { name: "Reply" })).toBeTruthy();
-		expect(
-			screen.getByRole("menuitem", { name: "Reply in thread" })
-		).toBeTruthy();
-		expect(
-			screen.getByRole("menuitem", { name: "Message addressing" })
-		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "More actions" })).toBeNull();
 	});
 
 	it("keeps a failed footer compact and moves every secondary action into More", () => {
@@ -100,10 +106,10 @@ describe("SpaceMessageFooter", () => {
 		expect(footer?.className).not.toContain("before:");
 		expect(footer?.className).not.toContain("after:");
 		const failureAction = screen.getByRole("button", {
-			name: "Open message details: Review Codex couldn’t reply",
+			name: "View error details: Review Codex couldn’t reply",
 		});
-		expect(failureAction.className).toContain("hover:underline");
-		expect(failureAction.className).toContain("focus-visible:underline");
+		expect(failureAction.textContent).toBe("");
+		expect(screen.queryByText("Review Codex couldn’t reply")).toBeNull();
 		expect(screen.getByTestId("details-warning")).toBeTruthy();
 		const primary = view.container.querySelector(
 			'[data-slot="message-footer-primary-actions"]'
@@ -112,11 +118,10 @@ describe("SpaceMessageFooter", () => {
 		expect(
 			primaryButtons.map((button) => button.getAttribute("aria-label"))
 		).toEqual([
-			"Message details",
-			"Open message details: Review Codex couldn’t reply",
+			"View error details: Review Codex couldn’t reply",
 			"More actions",
 		]);
-		for (const button of [primaryButtons[0], primaryButtons[2]]) {
+		for (const button of primaryButtons) {
 			expect(button.className).toContain("p-1.5");
 			expect(button.className).toContain("max-lg:min-h-7");
 			expect(button.className).toContain("max-lg:min-w-7");
@@ -140,7 +145,7 @@ describe("SpaceMessageFooter", () => {
 		).toBeTruthy();
 	});
 
-	it("keeps the failure summary readable when Message details is unavailable", () => {
+	it("keeps an accessible failure icon when Message details is unavailable", () => {
 		render(
 			<SpaceMessageFooter
 				addressingTargets={[]}
@@ -150,10 +155,13 @@ describe("SpaceMessageFooter", () => {
 			/>
 		);
 
-		expect(screen.getByText("Agent couldn’t reply").tagName).toBe("SPAN");
+		expect(
+			screen.getByRole("img", { name: "Agent couldn’t reply" })
+		).toBeTruthy();
+		expect(screen.queryByText("Agent couldn’t reply")).toBeNull();
 		expect(
 			screen.queryByRole("button", {
-				name: "Open message details: Agent couldn’t reply",
+				name: "View error details: Agent couldn’t reply",
 			})
 		).toBeNull();
 	});

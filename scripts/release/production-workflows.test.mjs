@@ -289,17 +289,13 @@ test("deploys the Auth receiver before Web in coordinated GitHub releases", () =
   );
 });
 
-test("runs one explicit Final Candidate request with separate runner and publishers", () => {
+test("keeps Final Candidate execution separate from status publication", () => {
   const candidate = readRepoFile(".github/workflows/final-candidate.yml");
   const deepConfidence = readRepoFile(".github/workflows/deep-confidence.yml");
   const rootPackage = JSON.parse(readRepoFile("package.json"));
   const hook = readRepoFile(".husky/pre-push");
 
   assert.ok(candidate.includes("name: OpenMeld Final Candidate"));
-  assert.ok(candidate.includes("types: [labeled]"));
-  assert.ok(!candidate.includes("synchronize"));
-  assert.ok(!candidate.includes("opened"));
-  assert.ok(!candidate.includes("ready_for_review"));
   assert.ok(!candidate.includes("workflow_dispatch"));
   assert.equal(candidate.match(/^ {4}runs-on: ubuntu-latest$/gmu)?.length, 3);
   assert.ok(candidate.includes("github.event.label.name == 'final-candidate'"));

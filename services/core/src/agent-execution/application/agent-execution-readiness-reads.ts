@@ -1,6 +1,7 @@
 import type { AuthRpcResolveProfileByIdResult } from "@openmeld/schemas/types";
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import type { CoreBindings } from "../../lib/bindings";
+import { createD1ReadBatch } from "../../lib/d1-read-batch";
 import { readCurrentRuntimeAgentControllerReports } from "../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import {
   readRuntimeRegistryRecord,
@@ -11,9 +12,12 @@ import {
 // Controller share in-flight reads, including failures, but no result survives
 // into another request. The repositories still validate every stored fact.
 export function createAgentExecutionReadinessReads(input?: {
-  // Validated Auth facts read earlier in this same request, never client state.
+  // Validated Auth facts from this request, never client state. Undefined means
+  // not read; null means the batch failed and must not fan out into scalar reads.
   profileFacts?: AuthProfileFacts | null;
+  batchProfileReads?: boolean;
 }) {
+  const readBatch = input?.batchProfileReads ? createD1ReadBatch() : undefined;
   const runtimeById = new Map<
     D1Database,
     Map<string, ReturnType<typeof readRuntimeRegistryRecordByRuntimeId>>
@@ -27,6 +31,7 @@ export function createAgentExecutionReadinessReads(input?: {
     Map<string, ReturnType<typeof readCurrentRuntimeAgentControllerReports>>
   >();
   return {
+    readBatch,
     async resolveProfileById(request: {
       authWorker: Required<
         Pick<
@@ -36,6 +41,13 @@ export function createAgentExecutionReadinessReads(input?: {
       >;
       profileId: string;
     }): Promise<AuthRpcResolveProfileByIdResult> {
+      if (input?.profileFacts === null) {
+        return {
+          ok: false,
+          code: "profile.lookup_failed",
+          message: "Profile facts are temporarily unavailable.",
+        };
+      }
       const profile = input?.profileFacts?.get(request.profileId);
       if (profile === null) {
         return {

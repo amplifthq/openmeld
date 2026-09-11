@@ -27,8 +27,83 @@ import {
 } from "./production-release.mjs";
 
 const REMOTE_SOURCE_SHA = "79178c150dc976b13f05d84a7711465c44447e3c";
+const DEVICE_WAIT_ORDER_ERROR =
+  /Device wait requires Core before Gateway and Web/u;
+const PERSONAL_CORE_RECEIVER_ERROR = /require the Core receiver/u;
+const PERSONAL_RECEIVER_CONFLICT_ERROR = /conflict with/u;
+const PERSONAL_TOOLS_PATHS = [
+  "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
+  "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
+  "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
+  "services/remote-agent/.flue/cloudflare.ts",
+];
+
+test("installs Inbox readers and Core tool authorization before personal Remote tools", () => {
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "web,gateway,core,remote-agent",
+    changedPaths: [
+      ...PERSONAL_TOOLS_PATHS,
+      "packages/schemas/src/schemas/http/inbox.ts",
+      "services/core/src/remote-agent/application/native-delivery-inbox-producer.ts",
+    ],
+  });
+  assert.deepEqual(plan.deployScopeOrder, [
+    "web",
+    "gateway",
+    "core",
+    "remote-agent",
+  ]);
+  assert.ok(
+    plan.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+  assert.ok(
+    !plan.preflightSteps.some(
+      (step) => step.label === "Verify Core CLI channel compatibility"
+    )
+  );
+});
+
+test("rejects personal Remote tool rollout without its Core receiver", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        sourceSha: REMOTE_SOURCE_SHA,
+        scope: "remote-agent",
+        changedPaths: PERSONAL_TOOLS_PATHS,
+      }),
+    PERSONAL_CORE_RECEIVER_ERROR
+  );
+});
+
+test("rejects opposing Remote request and personal tool rollout dependencies", () => {
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        affectedPackages: [],
+        base: "previous-release",
+        sourceSha: REMOTE_SOURCE_SHA,
+        scope: "core,remote-agent",
+        changedPaths: [
+          ...PERSONAL_TOOLS_PATHS,
+          "packages/schemas/src/schemas/runtime/remote-agent-turn-envelope.ts",
+          "services/core/src/remote-agent/application/remote-agent-worker-admission.ts",
+          "services/remote-agent/.flue/agents/center-agent.ts",
+        ],
+      }),
+    PERSONAL_RECEIVER_CONFLICT_ERROR
+  );
+});
 const INDEPENDENT_SKILL_BRIDGE_ERROR_RE = /independent Skill bridge/u;
 const SPACE_INVITATION_ORDER_ERROR = /Space invitation/u;
+const CALLER_CONTEXT_ORDER_ERROR = /Caller context/u;
 const PEOPLE_COMPUTERS_ORDER_ERROR =
   /PeopleComputers receiver order conflicts/u;
 const CURRENT_WORKER_VERSION_RE =
@@ -1012,6 +1087,45 @@ test("rejects a Connect Computer Web deploy without its CLI receiver", () => {
   );
 });
 
+test("publishes the required caller-context Service before Core begins producing it", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/protocol/space-caller-context.ts",
+    "services/core/src/space/transport/do/space.ts",
+    "clients/openmeld-cli/src/local-service/dispatch/parse-dispatch-task.ts",
+    "packages/schemas/src/space-invitation.ts",
+    "services/core/src/organizations/space-invitations.ts",
+    "services/auth/src/lib/hono/space-invitation-routes.ts",
+  ];
+  const plan = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    scope: "db,auth,remote-agent,cli,core,gateway,web",
+    changedPaths,
+  });
+  assert.deepEqual(plan.deployScopeOrder, [
+    "db",
+    "auth",
+    "remote-agent",
+    "cli",
+    "core",
+    "gateway",
+    "web",
+  ]);
+  assert.ok(
+    !plan.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+  for (const scopes of [["core"], ["cli"], ["core", "auth"]]) {
+    assert.throws(
+      () => buildProductionDeployStepSpecs(scopes, { changedPaths }),
+      CALLER_CONTEXT_ORDER_ERROR
+    );
+  }
+});
+
 test("stages Space invitation receivers before publishing the CLI caller", () => {
   const changedPaths = [
     "packages/schemas/src/space-invitation.ts",
@@ -1918,5 +2032,57 @@ test("keeps Core before a response producer while retaining Inbox receiver-first
       "Deploy Remote Agent Worker",
       "Verify Remote Agent deployment is visible",
     ]
+  );
+});
+
+test("installs device-wait receivers before browser callers and Service publication", () => {
+  const changedPaths = [
+    "packages/schemas/src/schemas/protocol/wake-device-wait.ts",
+    "services/core/src/space/transport/do/space.ts",
+    "services/gateway/src/routes/rpc-http.signals.ts",
+    "packages/schemas/src/schemas/daemon/runtime-transport.ts",
+    "services/core/src/runtime-transport/transport/do/runtime-coordinator.ts",
+    "clients/openmeld-cli/src/local-service/service-daemon.ts",
+  ];
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    sourceSha: REMOTE_SOURCE_SHA,
+    changedPaths,
+  };
+  const plan = buildProductionReleasePlan({
+    ...input,
+    scope: "db,auth,core,gateway,web,remote-agent,cli",
+  });
+  assert.equal(plan.deployOrderProfile, "device-wait-receivers-first");
+  assert.deepEqual(plan.deployScopeOrder, [
+    "db",
+    "auth",
+    "core",
+    "gateway",
+    "web",
+    "remote-agent",
+    "cli",
+  ]);
+  const staged = buildProductionReleasePlan({ ...input, scope: "core" });
+  assert.equal(
+    staged.deploySteps[0].args[0],
+    "scripts/release/deploy-core-current-cli-projection.mjs"
+  );
+  assert.deepEqual(
+    buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
+    buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+  );
+  assert.throws(
+    () =>
+      buildProductionReleasePlan({
+        ...input,
+        scope: "cloud",
+        changedPaths: [
+          ...changedPaths,
+          "services/remote-agent/.flue/cloudflare.ts",
+        ],
+      }),
+    DEVICE_WAIT_ORDER_ERROR
   );
 });

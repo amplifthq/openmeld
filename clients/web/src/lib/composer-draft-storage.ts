@@ -20,6 +20,8 @@ export type ComposerDraftAuthoredMention = {
 };
 
 export type ComposerDraftContent = {
+	threadWakeContinuationProfileId?: string | null;
+	restoredFromSignalId?: string;
 	authoredMentions: readonly ComposerDraftAuthoredMention[];
 	replyToSignalId: string | null;
 	text: string;
@@ -69,6 +71,15 @@ export function createComposerDraftRecord(
 	updatedAtMs = Date.now()
 ): ComposerDraftRecord {
 	return {
+		...(content.threadWakeContinuationProfileId !== undefined
+			? {
+					threadWakeContinuationProfileId:
+						content.threadWakeContinuationProfileId,
+				}
+			: {}),
+		...(content.restoredFromSignalId
+			? { restoredFromSignalId: content.restoredFromSignalId }
+			: {}),
 		authoredMentions: [...content.authoredMentions],
 		replyToSignalId: content.replyToSignalId,
 		text: content.text,
@@ -315,6 +326,17 @@ function parseComposerDraftRecord(
 	return {
 		authoredMentions,
 		replyToSignalId: record.replyToSignalId ?? null,
+		...(typeof record.threadWakeContinuationProfileId === "string" ||
+		record.threadWakeContinuationProfileId === null
+			? {
+					threadWakeContinuationProfileId:
+						record.threadWakeContinuationProfileId,
+				}
+			: {}),
+		...(typeof record.restoredFromSignalId === "string" &&
+		record.restoredFromSignalId.trim()
+			? { restoredFromSignalId: record.restoredFromSignalId }
+			: {}),
 		text: record.text,
 		updatedAtMs: record.updatedAtMs as number,
 		version: expectedVersion,

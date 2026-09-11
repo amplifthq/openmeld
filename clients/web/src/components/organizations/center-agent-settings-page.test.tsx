@@ -214,7 +214,7 @@ describe("CenterAgentSettingsContent", () => {
 		expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
 		expect(
 			screen.getByText(
-				"Only the Organization creator can pause the Center Agent."
+				"Only Organization owners and admins can pause the Center Agent."
 			)
 		).toBeTruthy();
 		await waitFor(() => {
@@ -294,6 +294,104 @@ describe("CenterAgentSettingsContent", () => {
 		expect(toastSuccessMock).toHaveBeenCalledWith(
 			"Center Agent will use DeepSeek V4 Flash for new work."
 		);
+	});
+
+	it("searches curated models by ID and keeps the saved model visible until save", async () => {
+		renderSettings({ canManage: true });
+		fireEvent.click(
+			await screen.findByRole("combobox", { name: "Primary model" })
+		);
+		const search = await screen.findByRole("combobox", {
+			name: "Search models",
+		});
+		fireEvent.change(search, { target: { value: " DEEPSEEK/DEEPSEEK-V4 " } });
+		const choice = await screen.findByRole("option", {
+			name: "DeepSeek V4 Flash",
+		});
+		expect(screen.getAllByRole("option")).toHaveLength(1);
+		expect(screen.getByText("Current: GLM 5.3 Flash")).toBeTruthy();
+		fireEvent.click(choice);
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("combobox", { name: "Primary model" })
+					.getAttribute("aria-expanded")
+			).toBe("false")
+		);
+		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
+		expect(
+			screen.getByRole("status", { name: "Model change impact" }).textContent
+		).toContain("including existing conversations");
+		expect(
+			screen.getByRole("status", { name: "Model change impact" }).textContent
+		).toContain("increase input costs");
+		fireEvent.click(screen.getByRole("combobox", { name: "Primary model" }));
+		expect(await screen.findByText("Current: GLM 5.3 Flash")).toBeTruthy();
+		await waitFor(() =>
+			expect(
+				within(screen.getAllByRole("option")[0]).getByText("Current")
+			).toBeTruthy()
+		);
+		fireEvent.keyDown(screen.getByRole("combobox", { name: "Search models" }), {
+			key: "Escape",
+		});
+		fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+		await waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+		fireEvent.click(screen.getByRole("combobox", { name: "Primary model" }));
+		expect(await screen.findByText("Current: DeepSeek V4 Flash")).toBeTruthy();
+		expect(screen.getAllByRole("option")[0].textContent).toContain(
+			"DeepSeek V4 Flash"
+		);
+		expect(
+			within(screen.getAllByRole("option")[0]).getByText("Current")
+		).toBeTruthy();
+	});
+
+	it("shows empty search results without allowing a custom model or losing the current model", async () => {
+		renderSettings({ canManage: true });
+		const trigger = await screen.findByRole("combobox", {
+			name: "Primary model",
+		});
+		fireEvent.click(trigger);
+		const search = await screen.findByRole("combobox", {
+			name: "Search models",
+		});
+		fireEvent.change(search, { target: { value: "uncataloged/model" } });
+		expect(await screen.findByText("No models found.")).toBeTruthy();
+		expect(screen.queryAllByRole("option")).toHaveLength(0);
+		expect(screen.getByText("Current: GLM 5.3 Flash")).toBeTruthy();
+		fireEvent.keyDown(search, { key: "Enter" });
+		fireEvent.keyDown(search, { key: "Escape" });
+		await waitFor(() => expect(document.activeElement).toBe(trigger));
+		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
+			"disabled",
+			true
+		);
+		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
+	});
+
+	it("selects a filtered model with the keyboard and leaves persistence to Save", async () => {
+		renderSettings({ canManage: true });
+		const trigger = await screen.findByRole("combobox", {
+			name: "Primary model",
+		});
+		trigger.focus();
+		fireEvent.keyDown(trigger, { key: "ArrowDown" });
+		const search = await screen.findByRole("combobox", {
+			name: "Search models",
+		});
+		fireEvent.change(search, { target: { value: "DeepSeek" } });
+		await screen.findByRole("option", { name: "DeepSeek V4 Flash" });
+		fireEvent.keyDown(search, { key: "ArrowDown" });
+		fireEvent.keyDown(search, { key: "Enter" });
+		await waitFor(() =>
+			expect(trigger.textContent).toContain("DeepSeek V4 Flash")
+		);
+		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
+			"disabled",
+			false
+		);
+		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 	});
 
 	it("refreshes the model after a concurrent settings change", async () => {

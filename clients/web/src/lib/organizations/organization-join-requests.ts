@@ -17,7 +17,7 @@ export async function requestOrganizationJoinRequestResult(
 		path:
 			"token" in request
 				? "/organization/join-link/request?responseVersion=2"
-				: "/organization/join-requests?responseVersion=2",
+				: "/organization/join-requests?responseVersion=3",
 		fallbackMessage: "Could not load the invitation request. Try again.",
 		request: {
 			method: "POST",

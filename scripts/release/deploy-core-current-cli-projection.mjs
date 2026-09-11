@@ -249,6 +249,7 @@ export async function deployCoreWithCurrentCliProjection(input = {}) {
     return target;
   }
   const releaseSteps = buildCoreVersionReleaseStepSpecs({
+    trafficPercent: admissionEvidence.trafficPercent,
     versionId: admissionEvidence.versionId,
     wranglerConfigSource: adapters.readCoreWranglerConfig(),
   });

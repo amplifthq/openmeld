@@ -356,11 +356,34 @@ async function installAuthProfileResolver(input: {
   const profileIds = new Set(input.profileIds);
   await runInDurableObject(input.shard, (instance) => {
     const internal = instance as unknown as { env: CoreBindings };
+    const resolveProfileFact = (profileId: string) => {
+      input.onResolveProfile?.(profileId);
+      return profileIds.has(profileId)
+        ? {
+            ownerUserId: input.ownerUserId,
+            profileHandle: profileId,
+            profileId,
+            profileKind: "agent" as const,
+            profileName: `Agent ${profileId}`,
+            status: "active" as const,
+          }
+        : null;
+    };
     internal.env.OPENMELD_AUTH_WORKER = {
+      resolveProfilesByIds: ({ profileIds: requestedIds }) =>
+        Promise.resolve({
+          ok: true as const,
+          profiles: Object.fromEntries(
+            requestedIds.map((profileId) => [
+              profileId,
+              resolveProfileFact(profileId),
+            ])
+          ),
+        }),
       resolveProfileById: ({ openMeldProfileId }) => {
         const profileId = String(openMeldProfileId ?? "");
-        input.onResolveProfile?.(profileId);
-        if (!profileIds.has(profileId)) {
+        const profile = resolveProfileFact(profileId);
+        if (!profile) {
           return Promise.resolve({
             ok: false as const,
             code: "profile.not_found",
@@ -369,14 +392,7 @@ async function installAuthProfileResolver(input: {
         }
         return Promise.resolve({
           ok: true as const,
-          profile: {
-            ownerUserId: input.ownerUserId,
-            profileHandle: profileId,
-            profileId,
-            profileKind: "agent" as const,
-            profileName: `Agent ${profileId}`,
-            status: "active" as const,
-          },
+          profile,
         });
       },
     };

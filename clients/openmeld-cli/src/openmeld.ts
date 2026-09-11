@@ -1,3 +1,4 @@
+import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import { Command, Option } from "commander";
 import {
   runActivityContext,
@@ -1635,6 +1636,16 @@ const skillsCmd = program
   .command("skills")
   .description("Read and load Organization Skills.")
   .option("--json", "Print one machine-readable JSON envelope.", false);
+
+registerPluginCommands(program, {
+  view: getGlobalViewOption,
+  run: (routeTokens, run) =>
+    runCommandWithEntryChecks({
+      routeTokens,
+      view: getGlobalViewOption(),
+      run,
+    }),
+});
 
 skillsCmd.action(async (opts: { json?: boolean }) => {
   const view = getGlobalViewOption();
@@ -4773,12 +4784,9 @@ profileCmd
   )
   .option(
     "--owner <userId>",
-    "Create for a member from `openmeld org directory --view agent`, or self"
+    "Agent owner: self (creating for other members is not available)"
   )
-  .option(
-    "--computer <computerId>",
-    "Exact Organization-visible Computer for a teammate-owned Agent"
-  )
+  .option("--computer <computerId>", "Exact Computer for your Agent")
   .option("--project <projectId>", "Default Project for the new Agent")
   .option(
     "--no-default-project",
@@ -4981,19 +4989,18 @@ profileCmd
   });
 
 const profileRequestsCmd = profileCmd
-  .command("requests")
+  // Launch hold: keep exact commands for self-creation recovery and isolated
+  // Request an Agent development, without advertising the unreleased product.
+  .command("requests", { hidden: !TEAMMATE_AGENT_REQUESTS_ENABLED })
   .description(
     "Create and manage Organization Agent Profile creation requests."
   );
 
 profileRequestsCmd
   .command("create")
-  .description("Request an Agent Profile for yourself or a teammate.")
+  .description("Create an Agent Profile for yourself.")
   .argument("<profileName>", "Agent Profile name")
-  .requiredOption(
-    "--owner <userId>",
-    "Target member user ID from `openmeld org directory --view agent`, or self"
-  )
+  .requiredOption("--owner <userId>", "Agent owner: self")
   .option(
     "--session <strategy>",
     "Session strategy: new, resume, or fork",
@@ -5058,7 +5065,7 @@ profileRequestsCmd
 
 for (const decision of ["approve", "decline"] as const) {
   profileRequestsCmd
-    .command(decision)
+    .command(decision, { hidden: !TEAMMATE_AGENT_REQUESTS_ENABLED })
     .description(
       `${decision === "approve" ? "Approve" : "Decline"} an Agent Profile creation request for you.`
     )
@@ -5117,7 +5124,7 @@ for (const action of ["cancel", "retry"] as const) {
 }
 
 const profileRequestPreferencesCmd = profileRequestsCmd
-  .command("preferences")
+  .command("preferences", { hidden: !TEAMMATE_AGENT_REQUESTS_ENABLED })
   .description("Manage approvals for teammate Agent Profile requests.");
 
 profileRequestPreferencesCmd
@@ -5721,3 +5728,5 @@ main().catch((error: unknown) => {
   errLine(message);
   process.exitCode = 1;
 });
+
+import { registerPluginCommands } from "./plugins/registration";

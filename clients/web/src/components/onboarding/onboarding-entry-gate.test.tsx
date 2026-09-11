@@ -46,7 +46,7 @@ describe("OnboardingEntryGate", () => {
 		vi.restoreAllMocks();
 	});
 	it("preserves an explicit Space destination without marking setup complete", async () => {
-		render(
+		const view = render(
 			<OnboardingEntryGate
 				currentOrganization={currentOrganization}
 				currentSection="space"
@@ -62,6 +62,18 @@ describe("OnboardingEntryGate", () => {
 		expect(
 			readOnboardingProgress({ storage: window.localStorage, storageScope })
 		).toBeNull();
+		view.rerender(
+			<OnboardingEntryGate
+				currentOrganization={currentOrganization}
+				currentSection="home"
+				organizations={[currentOrganization]}
+				storageScope={storageScope}
+			>
+				Spaces directory
+			</OnboardingEntryGate>
+		);
+		expect(await screen.findByText("Spaces directory")).toBeTruthy();
+		expect(navigateMock).not.toHaveBeenCalled();
 	});
 
 	it("opens onboarding even when browser storage cannot be read", async () => {

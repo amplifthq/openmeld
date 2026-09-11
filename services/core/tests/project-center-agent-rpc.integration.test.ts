@@ -196,7 +196,7 @@ describe("Center Agent Project RPC", () => {
     expect(Number(projectCount?.count)).toBe(1);
   });
 
-  it("requires a later turn and one bound confirmation before removing a Project", async () => {
+  it("allows same-turn removal with a bound token and replays the operation", async () => {
     const fixture = await seedCenterAgentProjectOrganization();
     const created = await rpcCenterAgentCreateProject(coreEnv(), {
       context: fixture.context("create-request"),
@@ -212,19 +212,9 @@ describe("Center Agent Project RPC", () => {
       speakerMember: fixture.speakerMember,
     });
 
-    await expect(
-      rpcCenterAgentRemoveProject(coreEnv(), {
-        confirmationToken: prepared.confirmation.token,
-        context: fixture.context("prepare-remove"),
-        executionMode: "interactive",
-        operationId: "remove-temporary",
-        speakerMember: fixture.speakerMember,
-      })
-    ).rejects.toThrow("project.remove_confirmation_invalid");
-
     const removed = await rpcCenterAgentRemoveProject(coreEnv(), {
       confirmationToken: prepared.confirmation.token,
-      context: fixture.context("confirm-remove"),
+      context: fixture.context("prepare-remove"),
       executionMode: "interactive",
       operationId: "remove-temporary",
       speakerMember: fixture.speakerMember,
@@ -442,13 +432,12 @@ async function seedCenterAgentProjectOrganization() {
           managed_role,
           created_at,
           updated_at
-        ) VALUES (?, 'Project Center Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 'center_agent', ?, ?)
+        ) VALUES (?, 'Project Center Agent', ?, 'agent', 0, 'active', ?, NULL, ?, 'auth_bootstrap', 'center_agent', ?, ?)
       `
     ).bind(
       centerAgentProfileId,
       `project-center-agent-${suffix}`,
       organizationId,
-      ownerUserId,
       ownerUserId,
       nowMs,
       nowMs
@@ -471,8 +460,7 @@ async function seedCenterAgentProjectOrganization() {
       activeOrganizationId: organizationId,
       actorContext: {
         agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-        callerPrincipalId: ownerUserId,
-        ownerUserId,
+        callerPrincipalId: centerAgentProfileId,
         profileKind: "agent" as const,
         requestId,
         openMeldProfileId: centerAgentProfileId,

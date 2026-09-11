@@ -214,6 +214,8 @@ function toComposerDraftContent(
 	return {
 		authoredMentions: record.authoredMentions,
 		replyToSignalId: record.replyToSignalId,
+		restoredFromSignalId: record.restoredFromSignalId,
+		threadWakeContinuationProfileId: record.threadWakeContinuationProfileId,
 		text: record.text,
 	};
 }
@@ -226,6 +228,9 @@ function areComposerDraftRecordsEqual(
 		left.updatedAtMs === right.updatedAtMs &&
 		left.text === right.text &&
 		left.replyToSignalId === right.replyToSignalId &&
+		left.restoredFromSignalId === right.restoredFromSignalId &&
+		left.threadWakeContinuationProfileId ===
+			right.threadWakeContinuationProfileId &&
 		left.authoredMentions.length === right.authoredMentions.length &&
 		left.authoredMentions.every((mention, index) => {
 			const other = right.authoredMentions[index];

@@ -2,7 +2,7 @@ import type {
 	SignalEnvelope,
 	SpaceInboxUnreadTarget,
 } from "@openmeld/schemas/types";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { resolveLatestVisibleTs } from "#/lib/spaces/unread";
 
 const READ_THROUGH_DEBOUNCE_MS = 800;
@@ -23,18 +23,11 @@ export type SpaceUnreadState = {
 export function useSpaceUnread(input: {
 	envelopes: readonly SignalEnvelope[];
 	isReady: boolean;
-	isViewingLatest: boolean;
+	profileId: string;
 	onViewedThroughTs?: (throughTs: number) => Promise<void> | void;
 	spaceId: string;
 	targets: readonly SpaceInboxUnreadTarget[];
-}): SpaceUnreadState {
-	const [visible, setVisible] = useState(isDocumentVisible);
-	const [retryState, setRetryState] = useState(() => ({
-		attempt: 0,
-		spaceId: input.spaceId,
-	}));
-	const retryAttempt =
-		retryState.spaceId === input.spaceId ? retryState.attempt : 0;
+}): SpaceUnreadState & { onViewingLatestChange: (viewing: boolean) => void } {
 	const latestVisibleTs = useMemo(
 		() => resolveLatestVisibleTs(input.envelopes),
 		[input.envelopes]
@@ -43,21 +36,15 @@ export function useSpaceUnread(input: {
 		() => input.targets.filter((target) => target.threadRootSignalId === null),
 		[input.targets]
 	);
-	const isViewingNow = input.isViewingLatest && visible;
-	const canPersistRead = input.onViewedThroughTs !== undefined;
 	const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const persistedThroughTsRef = useRef(0);
-	const identityRef = useRef(input.spaceId);
+	const identity = `${input.spaceId}::${input.profileId}`;
+	const identityRef = useRef(identity);
 	const latestVisibleTsRef = useRef(latestVisibleTs);
-	const isViewingNowRef = useRef(isViewingNow);
+	const isViewingNowRef = useRef(false);
 	const onViewedThroughTsRef = useRef(input.onViewedThroughTs);
 	const mountedRef = useRef(true);
-
-	useEffect(() => {
-		latestVisibleTsRef.current = latestVisibleTs;
-		isViewingNowRef.current = isViewingNow;
-		onViewedThroughTsRef.current = input.onViewedThroughTs;
-	}, [input.onViewedThroughTs, isViewingNow, latestVisibleTs]);
+	const retryAttemptRef = useRef(0);
 
 	const cancelPendingRead = useCallback(() => {
 		if (timerRef.current !== null) {
@@ -66,100 +53,124 @@ export function useSpaceUnread(input: {
 		}
 	}, []);
 
-	useEffect(() => {
-		if (identityRef.current === input.spaceId) {
-			return;
-		}
-		identityRef.current = input.spaceId;
-		persistedThroughTsRef.current = 0;
-		cancelPendingRead();
-	}, [cancelPendingRead, input.spaceId]);
-
-	useEffect(() => {
-		const onVisibilityChange = () => setVisible(isDocumentVisible());
-		document.addEventListener("visibilitychange", onVisibilityChange);
-		return () =>
-			document.removeEventListener("visibilitychange", onVisibilityChange);
-	}, []);
-	useEffect(() => {
-		mountedRef.current = true;
-		return () => {
-			mountedRef.current = false;
-		};
-	}, []);
-
-	useEffect(() => {
-		cancelPendingRead();
-		if (
-			!(isViewingNow && canPersistRead && latestVisibleTs > 0) ||
-			latestVisibleTs <= persistedThroughTsRef.current
-		) {
-			return;
-		}
-		const identity = input.spaceId;
-		const throughTs = latestVisibleTs;
-		const debounceMs =
-			READ_THROUGH_DEBOUNCE_MS + Math.min(retryAttempt, 4) * 200;
-		timerRef.current = setTimeout(() => {
-			timerRef.current = null;
+	const scheduleRead = useCallback(
+		function schedule() {
+			cancelPendingRead();
+			const throughTs = latestVisibleTsRef.current;
 			if (
-				identityRef.current !== identity ||
-				!isViewingNowRef.current ||
-				latestVisibleTsRef.current < throughTs
+				!(
+					mountedRef.current &&
+					isViewingNowRef.current &&
+					isDocumentVisible() &&
+					onViewedThroughTsRef.current &&
+					throughTs > 0
+				) ||
+				throughTs <= persistedThroughTsRef.current
 			) {
 				return;
 			}
-			const persist = onViewedThroughTsRef.current;
-			if (!persist) {
+			const scheduledIdentity = identityRef.current;
+			const debounceMs =
+				READ_THROUGH_DEBOUNCE_MS + Math.min(retryAttemptRef.current, 4) * 200;
+			timerRef.current = setTimeout(() => {
+				timerRef.current = null;
+				if (
+					identityRef.current !== scheduledIdentity ||
+					!isViewingNowRef.current ||
+					!isDocumentVisible() ||
+					latestVisibleTsRef.current < throughTs
+				) {
+					return;
+				}
+				const persist = onViewedThroughTsRef.current;
+				if (!persist) {
+					return;
+				}
+				Promise.resolve(persist(throughTs))
+					.then(() => {
+						if (
+							mountedRef.current &&
+							identityRef.current === scheduledIdentity
+						) {
+							persistedThroughTsRef.current = Math.max(
+								persistedThroughTsRef.current,
+								throughTs
+							);
+							retryAttemptRef.current = 0;
+						}
+					})
+					.catch((error: unknown) => {
+						console.warn(
+							"Failed to persist the Space Inbox read position.",
+							error
+						);
+						if (
+							mountedRef.current &&
+							identityRef.current === scheduledIdentity &&
+							isViewingNowRef.current
+						) {
+							retryAttemptRef.current += 1;
+							schedule();
+						}
+					});
+			}, debounceMs);
+		},
+		[cancelPendingRead]
+	);
+
+	// Scroll observations are imperative: changing this fact must cancel reads
+	// immediately without synchronously rendering the entire Space transcript.
+	const onViewingLatestChange = useCallback(
+		(viewing: boolean) => {
+			if (identityRef.current !== identity) {
+				identityRef.current = identity;
+				persistedThroughTsRef.current = 0;
+				retryAttemptRef.current = 0;
+				isViewingNowRef.current = false;
+			}
+			if (isViewingNowRef.current === viewing) {
 				return;
 			}
-			Promise.resolve(persist(throughTs))
-				.then(() => {
-					if (identityRef.current === identity) {
-						persistedThroughTsRef.current = Math.max(
-							persistedThroughTsRef.current,
-							throughTs
-						);
-						setRetryState((current) =>
-							current.spaceId === identity && current.attempt > 0
-								? { attempt: 0, spaceId: identity }
-								: current
-						);
-					}
-				})
-				.catch((error: unknown) => {
-					console.warn(
-						"Failed to persist the Space Inbox read position.",
-						error
-					);
-					if (
-						mountedRef.current &&
-						identityRef.current === identity &&
-						isViewingNowRef.current
-					) {
-						setRetryState((current) => ({
-							attempt: current.spaceId === identity ? current.attempt + 1 : 1,
-							spaceId: identity,
-						}));
-					}
-				});
-		}, debounceMs);
-		return cancelPendingRead;
-	}, [
-		cancelPendingRead,
-		canPersistRead,
-		input.spaceId,
-		isViewingNow,
-		latestVisibleTs,
-		retryAttempt,
-	]);
+			isViewingNowRef.current = viewing;
+			scheduleRead();
+		},
+		[identity, scheduleRead]
+	);
 
-	useEffect(() => cancelPendingRead, [cancelPendingRead]);
+	useLayoutEffect(() => {
+		const changed =
+			identityRef.current !== identity ||
+			latestVisibleTsRef.current !== latestVisibleTs ||
+			Boolean(onViewedThroughTsRef.current) !==
+				Boolean(input.onViewedThroughTs);
+		if (identityRef.current !== identity) {
+			identityRef.current = identity;
+			persistedThroughTsRef.current = 0;
+			retryAttemptRef.current = 0;
+			isViewingNowRef.current = false;
+		}
+		latestVisibleTsRef.current = latestVisibleTs;
+		onViewedThroughTsRef.current = input.onViewedThroughTs;
+		if (changed) {
+			scheduleRead();
+		}
+	}, [identity, input.onViewedThroughTs, latestVisibleTs, scheduleRead]);
+	useLayoutEffect(() => {
+		mountedRef.current = true;
+		scheduleRead();
+		document.addEventListener("visibilitychange", scheduleRead);
+		return () => {
+			mountedRef.current = false;
+			cancelPendingRead();
+			document.removeEventListener("visibilitychange", scheduleRead);
+		};
+	}, [cancelPendingRead, scheduleRead]);
 
 	return {
 		count: mainTargets.length,
 		firstSignalId: mainTargets[0]?.signalId ?? null,
 		isReady: input.isReady,
 		mainTargets,
+		onViewingLatestChange,
 	};
 }

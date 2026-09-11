@@ -225,6 +225,9 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  callerContext?: NonNullable<
+    RuntimeTransportDeliverDispatchRequest["payload"]["sourceSignalSnapshot"]
+  >["callerContext"];
   agentControllerConversationId: string | null;
   attachments: SpaceMessageAttachment[];
   files: SpaceMessageFileReference[];
@@ -266,13 +269,13 @@ export type ParsedDispatchTask = {
 };
 
 export type DispatchPromptBootstrapInput = {
+  callerContext?: ParsedDispatchTask["callerContext"];
   continuitySnapshot?: OpenMeldDaemonDispatchContinuitySnapshot | null;
   dispatchTriggerSource: "activation_targets" | "listen_all";
   imageAttachmentPromptSection?: string | null;
   spaceFiles?: readonly SpaceMessageFileReference[] | null;
   organizationProtectedInformation?: string | null;
   workingLanguage?: WorkingLanguageGuidance | null;
-  serviceFreshnessWarningLines?: string[] | null;
   sendTargetReferenceLines?: string[] | null;
   shouldInjectBootstrap: boolean;
   mentionSourceProfileId?: string | null;

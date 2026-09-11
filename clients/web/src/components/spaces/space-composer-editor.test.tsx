@@ -12,11 +12,14 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import "fake-indexeddb/auto";
+import { createPlateEditor } from "platejs/react";
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorHandle,
+	SpaceComposerEditorKit,
 } from "./space-composer-editor";
 import { getEditorFocusReadiness } from "./space-composer-focus";
 import type { SpaceComposerAddressingTarget } from "./use-space-mention-authoring";
@@ -29,9 +32,337 @@ const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 const FELIX_OPTION_NAME = /Felix/;
 const RUNNER_OPTION_NAME = /Runner/;
+const ALL_OPTION_NAME = /@all/;
+const BOTH_OPTION_NAME = /Both/;
 
 describe("SpaceComposerEditor", () => {
 	afterEach(cleanup);
+
+	it("opens the shared mention picker at the start of an existing message", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Edit message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				inline
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text="Keep this existing message"
+			/>
+		);
+		await act(() => {
+			composerRef.current?.selectTextRange({ start: 0, end: 0 });
+		});
+		await act(() => {
+			composerRef.current?.insertMentionTrigger();
+		});
+		expect(
+			await screen.findByRole("combobox", { name: "Find a member to mention" })
+		).toBeTruthy();
+		fireEvent.click(
+			await screen.findByRole("option", { name: RUNNER_OPTION_NAME })
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].text).toContain(
+				"Keep this existing message"
+			)
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].authoredMentions[0]).toMatchObject({
+				profileId: AGENT_PROFILE_ID,
+				relation: "wake",
+				start: 0,
+			})
+		);
+	});
+
+	it.each([
+		"close",
+		"Backspace",
+		"empty Backspace",
+	])("dismisses the ghost with %s without accepting it or changing text", (method) => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onDismiss = vi.fn();
+		const onAccept = vi.fn();
+		const onSend = vi.fn();
+		const text = method === "empty Backspace" ? "" : "Keep this draft";
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={vi.fn()}
+				onSend={onSend}
+				placeholder="Message"
+				text={text}
+				wakeRecommendation={{
+					profileId: AGENT_PROFILE_ID,
+					onAccept,
+					onDismiss,
+				}}
+			/>
+		);
+		act(() => composerRef.current?.selectTextRange({ start: 0, end: 0 }));
+		if (method === "close") {
+			fireEvent.click(
+				screen.getByRole("button", { name: "Dismiss Wake suggestion" })
+			);
+		} else {
+			fireEvent.keyDown(screen.getByRole("textbox"), { key: "Backspace" });
+		}
+		expect(onDismiss).toHaveBeenCalledTimes(1);
+		expect(onAccept).not.toHaveBeenCalled();
+		expect(onSend).not.toHaveBeenCalled();
+		expect(screen.getByRole("textbox").textContent).toContain(text);
+	});
+
+	it.each([
+		{ start: 4, end: 4, isComposing: false },
+		{ start: 0, end: 4, isComposing: false },
+		{ start: 0, end: 0, isComposing: true },
+	])("preserves normal Backspace behavior for selection $start-$end (IME: $isComposing)", ({
+		start,
+		end,
+		isComposing,
+	}) => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onDismiss = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={vi.fn()}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text="Keep this draft"
+				wakeRecommendation={{
+					profileId: AGENT_PROFILE_ID,
+					onAccept: vi.fn(),
+					onDismiss,
+				}}
+			/>
+		);
+		act(() => composerRef.current?.selectTextRange({ start, end }));
+		fireEvent.keyDown(screen.getByRole("textbox"), {
+			key: "Backspace",
+			isComposing,
+		});
+		expect(onDismiss).not.toHaveBeenCalled();
+	});
+
+	it("accepts a Wake suggestion as an ordinary token without sending", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		const onSend = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={onSend}
+				placeholder="Message"
+				text="Continue with the first option"
+			/>
+		);
+		act(() =>
+			composerRef.current?.acceptWakeRecommendation?.(AGENT_PROFILE_ID)
+		);
+		await waitFor(() =>
+			expect(onChange.mock.lastCall?.[0].authoredMentions).toEqual([
+				expect.objectContaining({
+					profileId: AGENT_PROFILE_ID,
+					relation: "wake",
+					start: 0,
+				}),
+			])
+		);
+		expect(onChange.mock.lastCall?.[0].text).toContain(
+			"Continue with the first option"
+		);
+		expect(onSend).not.toHaveBeenCalled();
+	});
+
+	it("keeps short Wake checks quiet and removes the indicator when ready", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const target = createAgentTarget();
+			const editorProps = {
+				addressingTargets: [
+					{
+						...target,
+						wakeAvailability: {
+							...target.wakeAvailability,
+							status: "preparing" as const,
+						},
+					},
+				],
+				ariaLabel: "Message this space",
+				authoredMentions: [
+					{
+						start: 0,
+						end: 7,
+						text: "@Runner",
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake" as const,
+					},
+				],
+				mentionPickerItems: [],
+				onChange: vi.fn(),
+				onSend: vi.fn(),
+				placeholder: "Message this space",
+				text: "@Runner review this.",
+			};
+			const view = render(<SpaceComposerEditor {...editorProps} />);
+			expect(screen.queryByLabelText("Checking availability")).toBeNull();
+			act(() => vi.advanceTimersByTime(1000));
+			expect(screen.getByLabelText("Checking availability")).toBeTruthy();
+			view.rerender(
+				<SpaceComposerEditor {...editorProps} addressingTargets={[target]} />
+			);
+			expect(screen.queryByLabelText("Checking availability")).toBeNull();
+			expect(editorProps.onChange).not.toHaveBeenCalled();
+			view.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps @all open for an audience choice and inserts ordinary People and Agent tokens", async () => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text=""
+			/>
+		);
+		act(() => composerRef.current?.insertMentionTrigger());
+		const search = await screen.findByRole("combobox", {
+			name: "Find a member to mention",
+		});
+		fireEvent.change(search, { target: { value: "all" } });
+		fireEvent.click(
+			await screen.findByRole("option", { name: ALL_OPTION_NAME })
+		);
+		expect(
+			screen.getByRole("combobox", { name: "Find a member to mention" })
+		).toBeTruthy();
+		fireEvent.click(
+			await screen.findByRole("option", { name: BOTH_OPTION_NAME })
+		);
+		await waitFor(() => {
+			const mentions = onChange.mock.lastCall?.[0].authoredMentions;
+			expect(mentions).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						profileId: HUMAN_PROFILE_ID,
+						relation: "mention",
+					}),
+					expect.objectContaining({
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+					}),
+				])
+			);
+		});
+	});
+
+	it.each([
+		"",
+		"Hello ",
+		"请帮忙",
+		"確認して",
+		"확인",
+		"Hello:",
+		"（",
+	])("opens mentions immediately after %j without requiring a space", (prefix) => {
+		const editor = createPlateEditor({
+			plugins: SpaceComposerEditorKit,
+			value: [{ type: "p", children: [{ text: prefix }] }],
+		});
+		editor.tf.select({ path: [0, 0], offset: prefix.length });
+		editor.tf.insertText("@");
+		expect(
+			editor.children[0].children.some(
+				(node) => "type" in node && node.type === "mention_input"
+			)
+		).toBe(true);
+	});
+
+	it("keeps an email address as ordinary text", () => {
+		const editor = createPlateEditor({
+			plugins: SpaceComposerEditorKit,
+			value: [{ type: "p", children: [{ text: "felix" }] }],
+		});
+		editor.tf.select({ path: [0, 0], offset: 5 });
+		editor.tf.insertText("@");
+		editor.tf.insertText("example.com");
+		expect(editor.api.string([0])).toBe("felix@example.com");
+		expect(
+			editor.children[0].children.some(
+				(node) => "type" in node && node.type === "mention_input"
+			)
+		).toBe(false);
+	});
+
+	it.each([
+		"button",
+		"escape",
+	])("preserves a literal @ and search text when dismissed with %s", async (method) => {
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const onChange = vi.fn();
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[]}
+				ariaLabel="Message this space"
+				authoredMentions={[]}
+				composerRef={composerRef}
+				mentionPickerItems={createMentionPickerItems()}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text=""
+			/>
+		);
+		act(() => composerRef.current?.insertMentionTrigger());
+		const input = await screen.findByRole("combobox", {
+			name: "Find a member to mention",
+		});
+		fireEvent.change(input, { target: { value: "just text" } });
+		if (method === "button") {
+			fireEvent.click(screen.getByRole("button", { name: "Close mentions" }));
+		} else {
+			fireEvent.keyDown(input, { key: "Escape", keyCode: 27, which: 27 });
+		}
+		await waitFor(() => {
+			expect(
+				screen.queryByRole("combobox", { name: "Find a member to mention" })
+			).toBeNull();
+			expect(onChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({ text: "@just text", authoredMentions: [] })
+			);
+		});
+	});
 
 	it("renders a restored mention with parentheses in its display name without parsing the name as a literal", () => {
 		const profileName = "Felix Lu Codex GPT-5.6 Sol (1)";
@@ -235,9 +566,14 @@ describe("SpaceComposerEditor", () => {
 				name: "Change relation for Runner",
 			})
 		);
-		fireEvent.keyDown(screen.getByRole("option", { name: "Reference" }), {
-			key: "Enter",
-		});
+		fireEvent.keyDown(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			}),
+			{
+				key: "Enter",
+			}
+		);
 		expect(onSend).not.toHaveBeenCalled();
 
 		await waitFor(() => {
@@ -257,22 +593,37 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
-	it("keeps Reference selectable while disabling Wake for a blocked Agent", () => {
+	it.each([
+		false,
+		true,
+	])("keeps Reference selectable and permits offline Wake only with a waiting target (%s)", async (canWait) => {
+		const target = createBlockedAgentTarget();
+		target.agentWakeAvailability = createSpaceMemberAgentSnapshot({
+			profileId: AGENT_PROFILE_ID,
+			agentWakeAvailability: { status: "offline_for_wake" },
+		}).agentWakeAvailability;
+		if (canWait) {
+			target.deviceWaitTarget = {
+				bindingId: "binding-1",
+				openMeldServiceRuntimeId: "runtime-1",
+			};
+		}
+		const onChange = vi.fn();
 		render(
 			<SpaceComposerEditor
-				addressingTargets={[createBlockedAgentTarget()]}
+				addressingTargets={[target]}
 				ariaLabel="Message this space"
 				authoredMentions={[
 					{
 						end: 7,
 						profileId: AGENT_PROFILE_ID,
-						relation: "wake",
+						relation: "reference",
 						start: 0,
 						text: "@Runner",
 					},
 				]}
 				mentionPickerItems={[]}
-				onChange={vi.fn()}
+				onChange={onChange}
 				onSend={vi.fn()}
 				placeholder="To wake an agent, type @, then pick the agent."
 				text="@Runner review this."
@@ -283,14 +634,13 @@ describe("SpaceComposerEditor", () => {
 			name: "Change relation for Runner",
 		});
 		fireEvent.click(relation);
+		const wakeOption = screen.getByRole("option", {
+			name: canWait ? "Wake when online" : "Wake — Offline",
+		});
+		expect(wakeOption.getAttribute("aria-disabled") === "true").toBe(!canWait);
 		expect(
 			screen
-				.getByRole("option", { name: "Wake — Unavailable" })
-				.getAttribute("aria-disabled")
-		).toBe("true");
-		expect(
-			screen
-				.getByRole("option", { name: "Reference" })
+				.getByRole("option", { name: "Mention only — Won’t wake the agent" })
 				.getAttribute("aria-disabled")
 		).not.toBe("true");
 		expect(
@@ -298,6 +648,21 @@ describe("SpaceComposerEditor", () => {
 				.getByRole("textbox", { name: "Message this space" })
 				.getAttribute("contenteditable")
 		).toBe("true");
+		if (canWait) {
+			fireEvent.click(wakeOption);
+			await waitFor(() =>
+				expect(onChange).toHaveBeenLastCalledWith(
+					expect.objectContaining({
+						authoredMentions: [
+							expect.objectContaining({
+								profileId: AGENT_PROFILE_ID,
+								relation: "wake",
+							}),
+						],
+					})
+				)
+			);
+		}
 	});
 
 	it("opens the member picker from the @ control and inserts an Agent Wake token", async () => {
@@ -494,7 +859,7 @@ describe("SpaceComposerEditor", () => {
 			const tokens = screen.getAllByTestId("space-composer-profile-token");
 			expect(tokens).toHaveLength(2);
 			expect(
-				within(tokens[1] as HTMLElement).getByText("Reference")
+				within(tokens[1] as HTMLElement).getByText("Mention only")
 			).toBeTruthy();
 			expect(onChange).toHaveBeenLastCalledWith({
 				authoredMentions: [
@@ -830,6 +1195,41 @@ describe("SpaceComposerEditor", () => {
 				screen.getByRole("textbox", { name: "Message this space" })
 			);
 		});
+	});
+
+	it("cancels deferred draft focus when the user focuses another input", () => {
+		const frames: FrameRequestCallback[] = [];
+		const animationFrame = vi
+			.spyOn(window, "requestAnimationFrame")
+			.mockImplementation((callback) => {
+				frames.push(callback);
+				return frames.length;
+			});
+		try {
+			const view = render(
+				<>
+					<input aria-label="Search messages" />
+					<RestoredDraftHarness text="" />
+				</>
+			);
+			view.rerender(
+				<>
+					<input aria-label="Search messages" />
+					<RestoredDraftHarness text="Restored draft" />
+				</>
+			);
+			const search = screen.getByRole("textbox", { name: "Search messages" });
+			expect(frames.length).toBeGreaterThan(0);
+			act(() => {
+				search.focus();
+				for (const frame of frames.splice(0)) {
+					frame(0);
+				}
+			});
+			expect(document.activeElement).toBe(search);
+		} finally {
+			animationFrame.mockRestore();
+		}
 	});
 
 	it("bounds focus retries when Slate operations are empty but the DOM range is invalid", () => {

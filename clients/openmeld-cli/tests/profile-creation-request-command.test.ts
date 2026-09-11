@@ -95,9 +95,9 @@ const CREATED_REQUEST = {
   requesterUserId: "user-1",
   sessionStrategy: "fork",
   source: "local_agent",
-  status: "pending",
-  statusReason: "approval_required",
-  targetOwnerUserId: "user-2",
+  status: "approved",
+  statusReason: "self_request",
+  targetOwnerUserId: "user-1",
   updatedAt: "2026-08-20T10:00:00.000Z",
 } as const;
 
@@ -176,7 +176,7 @@ describe("Agent Profile creation request CLI", () => {
       requestedSpaceId: "space-1",
       sessionStrategy: "fork",
       source: "local-agent",
-      targetOwner: "user-2",
+      targetOwner: "self",
       view: "agent",
     });
 
@@ -189,7 +189,7 @@ describe("Agent Profile creation request CLI", () => {
       requestedSpaceId: "space-1",
       sessionStrategy: "fork",
       source: "local_agent",
-      targetOwnerUserId: "user-2",
+      targetOwnerUserId: "user-1",
     });
     expect(mocks.presenterData).toHaveBeenCalledWith({
       code: "profile.creation_request.created",
@@ -207,7 +207,7 @@ describe("Agent Profile creation request CLI", () => {
     );
     await runProfileCreationRequestCreate({
       profileName: "Review Agent",
-      targetOwner: "user-2",
+      targetOwner: "self",
       sessionStrategy: "new",
       view: "agent",
     });
@@ -222,7 +222,7 @@ describe("Agent Profile creation request CLI", () => {
           error: expect.objectContaining({
             message:
               "The request may have been accepted. Its final status could not be checked.",
-            nextStep: expect.stringContaining(`--idempotency-key ${key}`),
+            nextStep: expect.stringContaining(`--request-key ${key}`),
           }),
         }),
       })
@@ -230,7 +230,7 @@ describe("Agent Profile creation request CLI", () => {
     expect(mocks.api.createAgentProfileCreationRequest).toHaveBeenCalledOnce();
   });
 
-  it("passes the teammate Computer and Binding choices through the shared request", async () => {
+  it("passes own Computer and Binding choices through the shared request", async () => {
     await runProfileCreationRequestCreate({
       agentController: "builtin:codex",
       agentControllerCollaborationMode: "codex:plan",
@@ -242,7 +242,7 @@ describe("Agent Profile creation request CLI", () => {
       profileName: "Configured Agent",
       reasoningLevel: "high",
       targetComputerId: "computer-2",
-      targetOwner: "user-2",
+      targetOwner: "self",
       view: "agent",
     });
 
@@ -266,7 +266,7 @@ describe("Agent Profile creation request CLI", () => {
       requestedSpaceId: undefined,
       sessionStrategy: "new",
       source: "cli",
-      targetOwnerUserId: "user-2",
+      targetOwnerUserId: "user-1",
     });
   });
 
@@ -367,7 +367,7 @@ describe("Agent Profile creation request CLI", () => {
     });
   });
 
-  it("requires an explicit Computer when creating for a teammate", async () => {
+  it("rejects teammate creation with a non-retry next step before mutation", async () => {
     await runProfileCreationRequestCreate({
       agentController: "builtin:codex",
       profileName: "Teammate Agent",
@@ -378,14 +378,13 @@ describe("Agent Profile creation request CLI", () => {
     expect(mocks.api.getCurrentComputers).not.toHaveBeenCalled();
     expect(mocks.api.createAgentProfileCreationRequest).not.toHaveBeenCalled();
     expect(mocks.presenterData).toHaveBeenCalledWith({
-      code: "profile.creation_request.computer_required",
+      code: "profile.creation_request.teammate_unavailable",
       payload: {
         error: {
-          code: "profile.creation_request.computer_required",
+          code: "profile.creation_request.teammate_unavailable",
           details: undefined,
-          message: "Creating an Agent for a teammate requires their Computer.",
-          nextStep:
-            "Run `openmeld org computers --view agent`, then pass `--computer <computer-id>`.",
+          message: "Creating an Agent for another member is not available.",
+          nextStep: "Use `--owner self` to create your own Agent.",
         },
         status: "error",
       },

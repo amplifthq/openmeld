@@ -16,6 +16,10 @@ import {
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -31,16 +35,19 @@ import {
 	ImageIcon,
 	PencilSimpleIcon,
 	PlusIcon,
+	PushPinIcon,
 	TrashIcon,
 	UploadSimpleIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { type DragEvent, type RefObject, useState } from "react";
+import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import {
 	formatFileSize,
 	formatShortDate,
 	resolveSpaceFileErrorMessage,
 } from "./space-file-utils";
+import { useSpaceFilePinAction } from "./space-pins";
 import { useSpaceFileImageSource } from "./use-space-file-image-source";
 
 export function SpaceFileBrowser(input: {
@@ -495,6 +502,9 @@ function EntryActions(input: {
 	onRename: () => void;
 	onTrash: () => void;
 }) {
+	const pin = useSpaceFilePinAction(
+		input.entry.kind === "file" ? input.entry.id : undefined
+	);
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger
@@ -509,24 +519,38 @@ function EntryActions(input: {
 			>
 				<DotsThreeIcon aria-hidden="true" weight="bold" />
 			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end">
-				<DropdownMenuItem onClick={input.onRename}>
+			<FluidDropdownMenuContent
+				align="end"
+				className="[&_[data-slot=dropdown-menu-item]]:w-full"
+			>
+				{pin ? (
+					<FluidDropdownMenuItem
+						disabled={pin.disabled}
+						index={0}
+						onClick={pin.onSelect}
+					>
+						<PushPinIcon aria-hidden="true" />
+						{pin.label}
+					</FluidDropdownMenuItem>
+				) : null}
+				<FluidDropdownMenuItem index={1} onClick={input.onRename}>
 					<PencilSimpleIcon aria-hidden="true" />
 					Rename
-				</DropdownMenuItem>
-				<DropdownMenuItem onClick={input.onMove}>
+				</FluidDropdownMenuItem>
+				<FluidDropdownMenuItem index={2} onClick={input.onMove}>
 					<FolderOpenIcon aria-hidden="true" />
 					Move to folder…
-				</DropdownMenuItem>
+				</FluidDropdownMenuItem>
 				<DropdownMenuSeparator />
-				<DropdownMenuItem
+				<FluidDropdownMenuItem
 					className="text-destructive focus:text-destructive"
+					index={3}
 					onClick={input.onTrash}
 				>
 					<TrashIcon aria-hidden="true" />
 					Move to Trash
-				</DropdownMenuItem>
-			</DropdownMenuContent>
+				</FluidDropdownMenuItem>
+			</FluidDropdownMenuContent>
 		</DropdownMenu>
 	);
 }
@@ -608,6 +632,9 @@ function renderSpaceFileEntryIcon(entry: SpaceFileEntry) {
 		return (
 			<FolderIcon aria-hidden="true" className="size-4.5" weight="duotone" />
 		);
+	}
+	if (entry.latestRevision.mimeType === "text/html") {
+		return <SpaceFileHtmlBadge />;
 	}
 	if (isSpaceFileTextEditable(entry.latestRevision)) {
 		return (

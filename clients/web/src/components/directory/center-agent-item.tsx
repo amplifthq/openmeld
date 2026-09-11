@@ -1,14 +1,19 @@
-import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
+import { Badge } from "@openmeld/ui/components/badge";
+import { FluidCardGroup } from "@openmeld/ui/fluid/card";
 import { FluidNavMenu, FluidNavMenuItem } from "@openmeld/ui/fluid/nav-menu";
 import { SidebarMenuButton } from "@openmeld/ui/fluid/sidebar-menu";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import { cn } from "@openmeld/ui/lib/utils";
+import { CloudIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { AgentCard } from "#/components/agents/agent-card";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveDesignatedCenterAgentProfile } from "#/components/organizations/center-agent-profile-presentation";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { centerAgentDesignationQueryOptions } from "#/query/organizations/center-agent";
-import { organizationDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 	const { currentOrganization } = useAppOrganization();
@@ -20,7 +25,7 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 		})
 	);
 	const directory = useQuery(
-		organizationDirectoryQueryOptions({
+		organizationProfileDirectoryQueryOptions({
 			enabled: true,
 			organizationId: currentOrganization.id,
 		})
@@ -46,26 +51,31 @@ export function CenterAgentItem(input: { presentation?: "card" | "sidebar" }) {
 	if (input.presentation === "card") {
 		return (
 			<FluidCardGroup>
-				<FluidCardItem
-					className="border border-border"
-					itemId={profile.profileId}
-				>
-					<Link
-						aria-label={`Open ${profile.profileName}`}
-						className="flex min-h-24 items-center gap-3 rounded-md p-4 outline-none focus-visible:ring-2 focus-visible:ring-ring"
-						params={{ orgSlug: currentOrganization.slug }}
-						to="/o/$orgSlug/chats/center-agent"
-					>
+				<AgentCard
+					badge={
+						<Badge
+							className={cn(
+								surfaceClasses(2),
+								"absolute top-2 right-2 h-4 gap-1 px-1.5 py-0 text-[10px] [&>svg]:size-2.5!"
+							)}
+							variant="secondary"
+						>
+							<CloudIcon aria-hidden="true" />
+							Center Agent
+						</Badge>
+					}
+					description={`Owned by ${currentOrganization.name}`}
+					name={profile.profileName}
+					profileId={profile.profileId}
+					renderAvatar={(size) => (
 						<RemoteAgentAvatar
 							profileName={profile.profileName}
 							shape="circle"
-							size={56}
+							size={size}
 						/>
-						<span className="min-w-0 font-medium text-sm">
-							{profile.profileName}
-						</span>
-					</Link>
-				</FluidCardItem>
+					)}
+					to={`/o/${currentOrganization.slug}/chats/center-agent`}
+				/>
 			</FluidCardGroup>
 		);
 	}

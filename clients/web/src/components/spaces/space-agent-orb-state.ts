@@ -17,6 +17,7 @@ export const WAKE_STATUS_ORB_STATE = {
 	retrying: "connecting",
 	queued: "breathing",
 	waiting_for_controller: "breathing",
+	waiting_for_device: "breathing",
 	waiting_for_owner: "listening",
 	needs_input: "listening",
 	working: "solving",

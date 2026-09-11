@@ -358,7 +358,10 @@ An explicit Space destination is the exception: opening a Space or a message
 link, including continuation after accepting a Space invitation, keeps that
 destination. Space access is still authorized normally; the in-Space setup
 guidance remains available. This does not mark Setup Studio complete or change
-membership. A later ordinary entry may still offer the account-level Studio.
+membership. Navigation within that same signed-in App journey stays in the
+product, including the Spaces directory; it must not reopen Studio immediately
+after accepting an invitation. A later ordinary entry may still offer the
+account-level Studio, and opening Studio explicitly still works.
 Email verification and magic-link sign-in preserve the invitation route before
 Space entry, so first-time recipients are not sent to workspace selection in
 the middle of accepting an invitation.
@@ -1052,9 +1055,12 @@ manual verification):
 22. Completed `bring_agents` copy states membership only. If the Members drawer
     reports an agent Offline, no onboarding surface claims that agent can be
     woken.
-23. An ordinary Space or external Message Channel routes computer setup to the
-    Connect page. Only the first-party Center Agent Direct Message hosts the
-    shared workflow inline. Computers remains the fleet management home.
+23. Ordinary Space banners and external Message Channels route computer setup
+    to the Connect page. The first-party Center Agent Direct Message and the
+    Create Agent form can host the shared workflow inline. Creation keeps its
+    parent form mounted, including a Space-originated member dialog, so setup
+    completion resumes that same creation context. Computers remains the fleet
+    management home.
 24. Setup Studio and contextual Web onboarding follow the shared interface-shape
     token. Setup Studio cards, inputs, buttons, demo frames, icon containers,
     and contextual-banner controls use semantic radius utilities so Rounded uses

@@ -1,5 +1,6 @@
 "use client";
 
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AuthProfileView,
 	OrganizationSpaceDirectoryWithMemberCountsItem,
@@ -8,7 +9,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";
-import { HashIcon, PlusIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -26,6 +27,7 @@ import {
 } from "#/components/spaces/app-space-shell";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
+import { SpacePendingInvitations } from "#/components/spaces/space-pending-invitations";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
 import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
@@ -169,10 +171,7 @@ export function AppSpacesIndexContent(input: {
 			}),
 		onError: (error, variables) => {
 			setJoinError({
-				message:
-					error instanceof Error && error.message
-						? error.message
-						: "OpenMeld could not join this Space.",
+				message: toStructuredApiClientFailure(error).message,
 				spaceId: variables.spaceId,
 			});
 		},
@@ -518,7 +517,9 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 							New Space
 						</Link>
 					}
-					leadingControl={<HashIcon className="size-4 text-muted-foreground" />}
+					leadingControl={
+						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
+					}
 					navigation={
 						<TabsSubtle
 							aria-label="Spaces view"
@@ -547,6 +548,7 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 				/>
 			}
 		>
+			{tab === 1 ? <SpacePendingInvitations /> : null}
 			{body}
 		</AppMainContent>
 	);

@@ -40,7 +40,8 @@ describe("agent-execution-readiness-service", () => {
     expect(readiness.agentExecutionReadiness.reasonCodes).toEqual(
       expect.arrayContaining([
         "agent_profile.identity_lookup_unavailable",
-        "agent_profile_binding.profile_owner_unavailable",
+        "agent_profile_binding.store_unavailable",
+        "agent_profile.organization_context_missing",
         "runtime.projection_missing",
         "agent_execution.route_unavailable",
         "not_requested",

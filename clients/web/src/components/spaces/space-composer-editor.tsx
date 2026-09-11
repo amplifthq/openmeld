@@ -11,7 +11,7 @@ import {
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { useSurface } from "@openmeld/ui/lib/surface-context";
 import { cn } from "@openmeld/ui/lib/utils";
-import { XIcon } from "@phosphor-icons/react";
+import { SpinnerGapIcon, XIcon } from "@phosphor-icons/react";
 import { MentionInputPlugin, MentionPlugin } from "@platejs/mention/react";
 import { MotionConfig } from "framer-motion";
 import { PathApi, type TElement, TextApi } from "platejs";
@@ -34,6 +34,7 @@ import {
 	type MutableRefObject,
 	type ReactNode,
 	useContext,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -42,6 +43,7 @@ import {
 import { Editor, EditorContainer } from "#/components/editor/ui/editor";
 import {
 	InlineCombobox,
+	InlineComboboxCancel,
 	InlineComboboxContent,
 	InlineComboboxEmpty,
 	InlineComboboxGroup,
@@ -50,7 +52,10 @@ import {
 	InlineComboboxItem,
 } from "#/components/editor/ui/inline-combobox";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import "./space-wake-recommendation.css";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
+import { SpaceComposerAllMentionOptions } from "./space-composer-all-mention-options";
+import { createSpaceComposerDeviceWait } from "./space-composer-device-wait";
 import {
 	createSpaceComposerEditorValue,
 	createSpaceComposerPastedValue,
@@ -69,6 +74,7 @@ import {
 import { SpaceAgentAvailabilityIndicator } from "./space-member-inline-status-text";
 import { resolveSpaceMemberStatusTone } from "./space-member-status-tone";
 import { SpaceProfileIcon } from "./space-profile-icon";
+import { SpaceWakeSuggestionToken } from "./space-wake-suggestion-token";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceComposerSelection,
@@ -83,6 +89,7 @@ const SPACE_COMPOSER_CLIPBOARD_TYPE =
 export type SpaceComposerEditorHandle = {
 	focus: () => void;
 	insertMentionTrigger: () => void;
+	acceptWakeRecommendation?: (profileId: string) => void;
 	selectTextRange: (selection: SpaceComposerSelection) => void;
 };
 
@@ -90,6 +97,7 @@ export type SpaceComposerInputRef =
 	MutableRefObject<SpaceComposerEditorHandle | null>;
 
 export type SpaceComposerEditorChange = {
+	restoredFromSignalId?: string;
 	authoredMentions: ComposerDraftAuthoredMention[];
 	selection: SpaceComposerSelection;
 	text: string;
@@ -102,8 +110,11 @@ type SpaceComposerEditorProps = {
 	centerAgentProfileId?: string | null;
 	composerRef?: SpaceComposerInputRef;
 	disabled?: boolean;
+	inline?: boolean;
+	lockedWakeProfileIds?: readonly string[];
 	maxHeight?: number;
 	mentionPickerItems: readonly SpaceMentionPickerItem[];
+	mentionEmptyMessage?: string;
 	onChange: (change: SpaceComposerEditorChange) => void;
 	onDragEnter?: (event: DragEvent<HTMLDivElement>) => void;
 	onDragLeave?: (event: DragEvent<HTMLDivElement>) => void;
@@ -113,24 +124,39 @@ type SpaceComposerEditorProps = {
 	onFocus?: FocusEventHandler<HTMLDivElement>;
 	onPaste?: (event: ClipboardEvent<HTMLDivElement>) => void;
 	onSend: () => void;
+	onCancel?: () => void;
+	wakeRecommendation?: {
+		profileId: string;
+		onAccept: () => void;
+		onDismiss: () => void;
+	};
 	placeholder: string;
 	text: string;
 };
 
 type SpaceComposerEditorContextValue = Pick<
 	SpaceComposerEditorProps,
-	"addressingTargets" | "centerAgentProfileId" | "mentionPickerItems"
+	| "addressingTargets"
+	| "centerAgentProfileId"
+	| "mentionPickerItems"
+	| "mentionEmptyMessage"
+	| "lockedWakeProfileIds"
+	| "inline"
+	| "wakeRecommendation"
 >;
 
 const SpaceComposerEditorContext =
 	createContext<SpaceComposerEditorContextValue | null>(null);
 
-const SpaceComposerEditorKit = [
+export const SpaceComposerEditorKit = [
 	ParagraphPlugin.withComponent(SpaceComposerParagraphElement),
 	MentionPlugin.configure({
 		options: {
 			insertSpaceAfterMention: true,
 			trigger: "@",
+			// Allow natural CJK sentences and punctuation without intercepting email addresses.
+			triggerPreviousCharPattern:
+				/^$|^[\s\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}，。！？；：、（）【】《》「」『』“”‘’,;:!?()[\]{}<>"']$/u,
 		},
 	}),
 	MentionInputPlugin.withComponent(SpaceComposerMentionInput),
@@ -165,6 +191,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 	const focusRetryFramesRemainingRef = useRef(0);
 	const isMountedRef = useRef(false);
 	const pendingFocusRef = useRef(false);
+	const pendingFocusOwnerRef = useRef<Element | null>(null);
 	const lastExternalValueRef = useRef({
 		authoredMentions: input.authoredMentions,
 		text: input.text,
@@ -174,11 +201,19 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			addressingTargets: input.addressingTargets,
 			centerAgentProfileId: input.centerAgentProfileId,
 			mentionPickerItems: input.mentionPickerItems,
+			mentionEmptyMessage: input.mentionEmptyMessage,
+			lockedWakeProfileIds: input.lockedWakeProfileIds,
+			inline: input.inline,
+			wakeRecommendation: input.wakeRecommendation,
 		}),
 		[
 			input.addressingTargets,
 			input.centerAgentProfileId,
 			input.mentionPickerItems,
+			input.mentionEmptyMessage,
+			input.lockedWakeProfileIds,
+			input.inline,
+			input.wakeRecommendation,
 		]
 	);
 
@@ -222,12 +257,18 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			authoredMentions: input.authoredMentions,
 			text: input.text,
 		};
+		const wasFocused = editor.api.isFocused();
 		editor.tf.setValue(
 			createSpaceComposerEditorValue({
 				authoredMentions: input.authoredMentions,
 				text: input.text,
 			})
 		);
+		// Replacing the draft removes Slate's selection. Keep the caret in the
+		// new draft only when this editor still owns focus (including a send).
+		if (wasFocused) {
+			editor.tf.select(editor.api.end([]));
+		}
 	}, [editor, input.authoredMentions, input.text]);
 
 	useLayoutEffect(() => {
@@ -241,6 +282,10 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		const flushPendingFocus = () => {
 			focusAnimationFrameRef.current = null;
 			if (!(isMountedRef.current && pendingFocusRef.current)) {
+				return;
+			}
+			if (document.activeElement !== pendingFocusOwnerRef.current) {
+				pendingFocusRef.current = false;
 				return;
 			}
 			const readiness = getEditorFocusReadiness(
@@ -260,6 +305,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			}
 		};
 		const focusWhenReady = () => {
+			pendingFocusOwnerRef.current = document.activeElement;
 			const readiness = getEditorFocusReadiness(
 				editor,
 				SPACE_COMPOSER_FOCUS_RETRY_FRAMES
@@ -289,9 +335,12 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				focusEditorAtSelection(editor, focusWhenReady);
 				// The toolbar opens the picker even after a word. Typed @ keeps
 				// the plugin's whitespace rule, so email addresses stay plain text.
-				const previousChar = editor.api.string(
-					editor.api.range("before", editor.selection)
-				);
+				const start = editor.selection && editor.api.start(editor.selection);
+				const before = start && editor.api.before(start);
+				const previousChar =
+					before && start
+						? editor.api.string({ anchor: before, focus: start })
+						: "";
 				if (previousChar.trim().length > 0) {
 					editor.tf.insertText(" ");
 				}
@@ -305,6 +354,20 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				});
 				focusWhenReady();
 			},
+			acceptWakeRecommendation: (profileId) => {
+				const item = input.mentionPickerItems.find(
+					(candidate) => candidate.suggestion.profileId === profileId
+				);
+				if (
+					!item?.suggestion.allowedRelations.wake ||
+					item.suggestion.wakeAvailability.status !== "ready"
+				) {
+					return;
+				}
+				editor.tf.select(editor.api.start([]));
+				insertProfile(editor, item, true);
+				focusWhenReady();
+			},
 		};
 		input.composerRef.current = composerHandle;
 
@@ -313,7 +376,7 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 				input.composerRef.current = null;
 			}
 		};
-	}, [editor, input.composerRef]);
+	}, [editor, input.composerRef, input.mentionPickerItems]);
 
 	return (
 		<SpaceComposerEditorContext.Provider value={contextValue}>
@@ -348,12 +411,20 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 			>
 				<EditorContainer
 					className="overflow-y-auto"
-					style={{ maxHeight: input.maxHeight ?? 240 }}
+					style={{
+						maxHeight: input.inline ? undefined : (input.maxHeight ?? 240),
+					}}
 				>
 					<Editor
 						aria-label={input.ariaLabel}
-						aria-placeholder={input.placeholder}
-						className="min-h-11 px-1 py-2 text-sm leading-6"
+						aria-placeholder={
+							input.wakeRecommendation ? undefined : input.placeholder
+						}
+						className={
+							input.inline
+								? "min-h-0 rounded-none p-0 content-space-message"
+								: "min-h-11 px-1 py-2 text-sm leading-6"
+						}
 						disabled={input.disabled}
 						onBlurCapture={input.onBlur}
 						onCopyCapture={(event) => handleCopy(event, editor)}
@@ -368,9 +439,50 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 						}
 						onDropCapture={(event) => handleDragCapture(event, input.onDrop)}
 						onFocusCapture={input.onFocus}
-						onKeyDownCapture={(event) =>
-							handleKeyDown(event, editor, input.onSend)
-						}
+						onKeyDownCapture={(event) => {
+							const suggestion = input.wakeRecommendation;
+							const choosingMention = editor.api.some({
+								match: { type: SPACE_COMPOSER_MENTION_INPUT_TYPE },
+							});
+							if (
+								suggestion &&
+								!choosingMention &&
+								!(event.target instanceof HTMLButtonElement) &&
+								!event.nativeEvent.isComposing &&
+								!event.altKey &&
+								!event.ctrlKey &&
+								!event.metaKey &&
+								!event.shiftKey
+							) {
+								if (event.key === "Tab") {
+									event.preventDefault();
+									event.stopPropagation();
+									suggestion.onAccept();
+									return;
+								}
+								if (
+									event.key === "Escape" ||
+									(event.key === "Backspace" &&
+										editor.api.isCollapsed() &&
+										editor.api.isStart(editor.selection?.anchor, []))
+								) {
+									event.preventDefault();
+									event.stopPropagation();
+									suggestion.onDismiss();
+									return;
+								}
+							}
+							if (
+								event.key === "Escape" &&
+								input.onCancel &&
+								!(event.target instanceof HTMLInputElement)
+							) {
+								event.stopPropagation();
+								input.onCancel();
+								return;
+							}
+							handleKeyDown(event, editor, input.onSend);
+						}}
 						onPasteCapture={(event) =>
 							handlePaste(
 								event,
@@ -379,7 +491,9 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 								input.onPaste
 							)
 						}
-						placeholder={input.placeholder}
+						placeholder={
+							input.wakeRecommendation ? undefined : input.placeholder
+						}
 						variant="none"
 					/>
 				</EditorContainer>
@@ -413,21 +527,62 @@ function handleDragCapture(
 }
 
 function SpaceComposerParagraphElement(props: PlateElementProps) {
+	const context = useSpaceComposerEditorContext();
+	const recommendation = context.wakeRecommendation;
+	const candidate =
+		recommendation && props.editor.children[0] === props.element
+			? context.mentionPickerItems.find(
+					(item) => item.suggestion.profileId === recommendation.profileId
+				)
+			: undefined;
 	return (
-		<PlateElement {...props} className="m-0 min-h-6">
+		<PlateElement
+			{...props}
+			className={context.inline ? "m-0 min-h-0" : "m-0 min-h-6"}
+		>
+			{candidate && recommendation ? (
+				<SpaceWakeSuggestionToken
+					ghost
+					isCenterAgent={
+						candidate.suggestion.profileId === context.centerAgentProfileId
+					}
+					onAccept={recommendation.onAccept}
+					onDismiss={recommendation.onDismiss}
+					target={candidate}
+				/>
+			) : null}
 			{props.children}
 		</PlateElement>
 	);
 }
 
-function SpaceComposerProfileToken(
-	props: PlateElementProps<SpaceComposerProfileElement>
+function composerRelationLabel(
+	label: string,
+	relation: string,
+	target: SpaceComposerAddressingTarget | undefined,
+	unavailableLabel?: string
 ) {
-	const { editor, element } = props;
-	const surface = useSurface() + 1;
-	// Moving focus into the portaled menu must not move the draft's caret.
-	const relationSelection = useRef(editor.selection);
-	const context = useSpaceComposerEditorContext();
+	if (relation === "reference") {
+		return "Mention only";
+	}
+	if (relation === "wake" && target && createSpaceComposerDeviceWait(target)) {
+		return "Wake when online";
+	}
+	if (
+		relation === "wake" &&
+		target?.agentWakeAvailability?.category === "offline" &&
+		!target.agentWakeAvailability.isRefreshing
+	) {
+		return "Wake — Offline";
+	}
+	return unavailableLabel ? `${label} — ${unavailableLabel}` : label;
+}
+
+function resolveProfileTokenPresentation(
+	editor: PlateEditor,
+	element: SpaceComposerProfileElement,
+	context: SpaceComposerEditorContextValue
+) {
 	const target = context.addressingTargets.find(
 		(candidate) => candidate.profileId === element.profileId
 	);
@@ -443,15 +598,69 @@ function SpaceComposerProfileToken(
 				allowedRelations: target.allowedRelations,
 				primaryMentionLabel: target.primaryMentionLabel,
 				wakeAvailability: target.wakeAvailability,
-			})
+			}).map((choice) =>
+				choice.relation === "wake" && createSpaceComposerDeviceWait(target)
+					? { ...choice, disabled: false }
+					: choice
+			)
 		: [];
+	const locked =
+		element.relation === "wake" &&
+		context.lockedWakeProfileIds?.includes(element.profileId);
 	const isRepeatedAgent =
 		profileKind === "agent" && isRepeatedProfileElement(editor, element);
+	const isBlockedWake =
+		profileKind === "agent" &&
+		element.relation === "wake" &&
+		!isRepeatedAgent &&
+		!locked &&
+		target?.wakeAvailability.status !== "ready" &&
+		target?.wakeAvailability.status !== "preparing";
+	return {
+		target,
+		pickerItem,
+		profileName,
+		profileKind,
+		choices,
+		locked,
+		isRepeatedAgent,
+		isBlockedWake,
+	};
+}
+
+function SpaceComposerProfileToken(
+	props: PlateElementProps<SpaceComposerProfileElement>
+) {
+	const { editor, element } = props;
+	const surface = useSurface() + 1;
+	// Moving focus into the portaled menu must not move the draft's caret.
+	const relationSelection = useRef(editor.selection);
+	const context = useSpaceComposerEditorContext();
+	const {
+		target,
+		pickerItem,
+		profileName,
+		profileKind,
+		choices,
+		locked,
+		isRepeatedAgent,
+		isBlockedWake,
+	} = resolveProfileTokenPresentation(editor, element, context);
 	let relationControl: ReactNode = null;
-	if (profileKind === "agent" && choices.length > 0 && !isRepeatedAgent) {
+	if (locked) {
+		relationControl = (
+			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
+				Wake
+			</span>
+		);
+	} else if (
+		profileKind === "agent" &&
+		choices.length > 0 &&
+		!isRepeatedAgent
+	) {
 		const selectedRelationLabel =
 			choices.find((choice) => choice.relation === element.relation)?.label ??
-			(element.relation === "wake" ? "Wake" : "Reference");
+			(element.relation === "wake" ? "Wake" : "Mention only");
 		relationControl = (
 			<MotionConfig reducedMotion="user">
 				<Select
@@ -495,7 +704,21 @@ function SpaceComposerProfileToken(
 					<SelectTrigger
 						aria-label={`Change relation for ${profileName}`}
 						className="h-6 min-w-0 gap-1 rounded-none border-0 border-border border-l px-1.5 py-0 font-medium text-muted-foreground text-xs max-lg:h-6 max-lg:min-w-0 [&>svg]:size-3"
-						displayValue={selectedRelationLabel}
+						displayValue={
+							<span className="inline-flex items-center gap-1">
+								{composerRelationLabel(
+									selectedRelationLabel,
+									element.relation,
+									target
+								)}
+								{element.relation === "wake" &&
+								(target?.wakeAvailability.status === "preparing" ||
+									(isBlockedWake &&
+										!target?.wakeAvailability.reasonCodes.length)) ? (
+									<ComposerWakeChecking key={element.profileId} />
+								) : null}
+							</span>
+						}
 						onClickCapture={() => {
 							relationSelection.current = editor.selection;
 						}}
@@ -510,14 +733,29 @@ function SpaceComposerProfileToken(
 					<SelectContent align="end" className="min-w-40" side="top">
 						{choices.map((choice, index) => (
 							<SelectItem
+								aria-label={
+									choice.relation === "reference"
+										? "Mention only — Won’t wake the agent"
+										: undefined
+								}
 								disabled={choice.disabled}
 								index={index}
 								key={choice.relation}
 								value={choice.relation}
 							>
-								{choice.disabled
-									? `${choice.label} — ${resolveComposerUnavailableLabel(pickerItem)}`
-									: choice.label}
+								{composerRelationLabel(
+									choice.label,
+									choice.relation,
+									target,
+									choice.disabled
+										? resolveComposerUnavailableLabel(pickerItem)
+										: undefined
+								)}
+								{choice.relation === "reference" ? (
+									<span className="text-muted-foreground">
+										{" — Won’t wake the agent"}
+									</span>
+								) : null}
 							</SelectItem>
 						))}
 					</SelectContent>
@@ -527,7 +765,7 @@ function SpaceComposerProfileToken(
 	} else if (isRepeatedAgent) {
 		relationControl = (
 			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
-				Reference
+				Mention only
 			</span>
 		);
 	}
@@ -537,11 +775,13 @@ function SpaceComposerProfileToken(
 			<span
 				className={cn(
 					surfaceClasses(surface),
-					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline text-foreground focus-within:ring-2 focus-within:ring-ring"
+					"group/profile-token relative mx-0.5 inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 align-baseline focus-within:ring-2 focus-within:ring-ring",
+					isBlockedWake ? "text-muted-foreground" : "text-foreground"
 				)}
 				contentEditable={false}
 				data-mention-text={element.mentionText}
 				data-testid="space-composer-profile-token"
+				data-wake-confirmed={element.wakeRecommendationAccepted || undefined}
 			>
 				<span
 					aria-hidden="true"
@@ -551,7 +791,10 @@ function SpaceComposerProfileToken(
 					@
 				</span>
 				<span
-					className="inline-flex shrink-0"
+					className={cn(
+						"inline-flex shrink-0",
+						isBlockedWake && "opacity-50 grayscale"
+					)}
 					data-slot="space-composer-profile-token-icon"
 				>
 					<SpaceProfileIcon
@@ -573,48 +816,69 @@ function SpaceComposerProfileToken(
 					{profileName}
 				</span>
 				{relationControl}
-				<button
-					aria-label={`Remove ${profileName} from message`}
-					className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
-					onClick={(event) => {
-						event.stopPropagation();
-						const path = editor.api.findPath(element);
-						if (!path) {
-							return;
-						}
-						const nextPath = PathApi.next(path);
-						const nextNode = (editor.children as SpaceComposerEditorValue)[
-							nextPath[0]
-						]?.children[nextPath[1] ?? 0];
-
-						editor.tf.withoutNormalizing(() => {
-							if (
-								nextNode &&
-								TextApi.isText(nextNode) &&
-								nextNode.text.startsWith(" ")
-							) {
-								editor.tf.delete({
-									at: {
-										anchor: { offset: 0, path: nextPath },
-										focus: { offset: 1, path: nextPath },
-									},
-								});
+				{locked ? null : (
+					<button
+						aria-label={`Remove ${profileName} from message`}
+						className="pointer-events-none absolute -top-2 -right-2 z-10 inline-flex size-5 items-center justify-center rounded-full bg-popover text-muted-foreground opacity-0 shadow-sm ring-1 ring-border transition-opacity duration-100 ease-out hover:text-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-focus-within/profile-token:pointer-events-auto group-focus-within/profile-token:opacity-100 group-hover/profile-token:pointer-events-auto group-hover/profile-token:opacity-100 motion-reduce:transition-none [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100"
+						onClick={(event) => {
+							event.stopPropagation();
+							const path = editor.api.findPath(element);
+							if (!path) {
+								return;
 							}
-							editor.tf.removeNodes({ at: path });
-						});
-						editor.tf.focus();
-					}}
-					onMouseDown={(event) => {
-						event.preventDefault();
-						event.stopPropagation();
-					}}
-					type="button"
-				>
-					<XIcon aria-hidden="true" className="size-3" />
-				</button>
+							const nextPath = PathApi.next(path);
+							const nextNode = (editor.children as SpaceComposerEditorValue)[
+								nextPath[0]
+							]?.children[nextPath[1] ?? 0];
+
+							editor.tf.withoutNormalizing(() => {
+								if (
+									nextNode &&
+									TextApi.isText(nextNode) &&
+									nextNode.text.startsWith(" ")
+								) {
+									editor.tf.delete({
+										at: {
+											anchor: { offset: 0, path: nextPath },
+											focus: { offset: 1, path: nextPath },
+										},
+									});
+								}
+								editor.tf.removeNodes({ at: path });
+							});
+							editor.tf.focus();
+						}}
+						onMouseDown={(event) => {
+							event.preventDefault();
+							event.stopPropagation();
+						}}
+						type="button"
+					>
+						<XIcon aria-hidden="true" className="size-3" />
+					</button>
+				)}
 			</span>
 			{props.children}
 		</PlateElement>
+	);
+}
+
+function ComposerWakeChecking() {
+	const [visible, setVisible] = useState(false);
+	useEffect(() => {
+		const timer = window.setTimeout(() => setVisible(true), 1000);
+		return () => window.clearTimeout(timer);
+	}, []);
+	if (!visible) {
+		return null;
+	}
+	return (
+		<output aria-label="Checking availability">
+			<SpinnerGapIcon
+				aria-hidden="true"
+				className="size-3 motion-safe:animate-spin motion-reduce:animate-none"
+			/>
+		</output>
 	);
 }
 
@@ -638,7 +902,15 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 					aria-label="Member options"
 					className="w-[min(24rem,calc(100vw-1.5rem))]"
 				>
-					<InlineComboboxEmpty>No matching members</InlineComboboxEmpty>
+					<InlineComboboxCancel label="Close mentions" />
+					<SpaceComposerAllMentionOptions
+						suggestions={context.mentionPickerItems.map(
+							(item) => item.suggestion
+						)}
+					/>
+					<InlineComboboxEmpty>
+						{context.mentionEmptyMessage ?? "No matching members"}
+					</InlineComboboxEmpty>
 					<SpaceComposerMentionGroup items={agentItems} title="Agents" />
 					<SpaceComposerMentionGroup items={humanItems} title="People" />
 				</InlineComboboxContent>
@@ -687,7 +959,7 @@ function SpaceComposerMentionGroup(input: {
 						) : null}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">
-						{resolveMentionPickerRelationLabel(item.suggestion)}
+						{resolveMentionPickerRelationLabel(item)}
 					</span>
 				</InlineComboboxItem>
 			))}
@@ -698,6 +970,9 @@ function SpaceComposerMentionGroup(input: {
 function resolveComposerUnavailableLabel(
 	item: SpaceMentionPickerItem | undefined
 ): string {
+	if (item?.memberEntry.availabilityIsRefreshing) {
+		return "Checking";
+	}
 	const display = item
 		? resolveSpaceMemberStatusBadgeDisplay(item.memberEntry)
 		: null;
@@ -713,6 +988,7 @@ function resolveComposerUnavailableLabel(
 function ComposerAgentAvailability({ item }: { item: SpaceMentionPickerItem }) {
 	const entry = item.memberEntry;
 	const display = resolveSpaceMemberStatusBadgeDisplay(entry);
+	const isRefreshing = entry.availabilityIsRefreshing || display?.isRefreshing;
 	const label =
 		display?.label === "Connect"
 			? "Unavailable"
@@ -720,31 +996,46 @@ function ComposerAgentAvailability({ item }: { item: SpaceMentionPickerItem }) {
 	return (
 		<SpaceAgentAvailabilityIndicator
 			category={entry.availabilityCategory}
-			isRefreshing={display?.isRefreshing}
-			label={label}
+			isRefreshing={isRefreshing}
+			label={isRefreshing ? "Checking" : label}
 			phase={entry.availabilityPhase}
 			reasonCode={entry.availabilityReasonCode}
 			tone={resolveSpaceMemberStatusTone(entry)}
-			tooltip={label}
+			tooltip={isRefreshing ? "Checking" : label}
 		/>
 	);
 }
 
 function resolveMentionPickerRelationLabel(
-	suggestion: SpaceMentionPickerItem["suggestion"]
-): "Mention" | "Reference" | "Wake" {
-	const relation = resolveDefaultSpaceComposerMentionRelation(suggestion);
+	item: SpaceMentionPickerItem
+): string {
+	const { suggestion, agentMember } = item;
+	const relation = resolveDefaultSpaceComposerMentionRelation(
+		suggestion,
+		agentMember
+	);
 	if (relation === "reference") {
-		return "Reference";
+		return "Mention only";
+	}
+	if (
+		relation === "wake" &&
+		agentMember &&
+		createSpaceComposerDeviceWait(agentMember)
+	) {
+		return "Wake when online";
 	}
 	return suggestion.profileKind === "human" ? "Mention" : "Wake";
 }
 
 function insertProfile(
 	editor: PlateEditor,
-	item: SpaceMentionPickerItem
+	item: SpaceMentionPickerItem,
+	wakeRecommendationAccepted = false
 ): void {
-	const relation = resolveDefaultSpaceComposerMentionRelation(item.suggestion);
+	const relation = resolveDefaultSpaceComposerMentionRelation(
+		item.suggestion,
+		item.agentMember
+	);
 	if (!relation) {
 		return;
 	}
@@ -764,6 +1055,7 @@ function insertProfile(
 	editor.tf.insertNodes({
 		children: [{ text: "" }],
 		mentionText,
+		wakeRecommendationAccepted,
 		profileId: item.suggestion.profileId,
 		relation: resolvedRelation,
 		type: SPACE_COMPOSER_PROFILE_ELEMENT_TYPE,
@@ -877,7 +1169,8 @@ function buildSpaceComposerPasteTargets(
 ): SpaceComposerPasteTarget[] {
 	return items.flatMap((item) => {
 		const defaultRelation = resolveDefaultSpaceComposerMentionRelation(
-			item.suggestion
+			item.suggestion,
+			item.agentMember
 		);
 		if (!defaultRelation) {
 			return [];

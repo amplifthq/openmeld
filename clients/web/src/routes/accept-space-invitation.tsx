@@ -192,8 +192,9 @@ function InvitationDecision({
 				.
 			</p>
 			<p className="text-muted-foreground text-sm">
-				Accepting joins the organization as a member and gives you access to
-				this Space. It does not connect your computer.
+				{invitation.audience === "guest"
+					? "You’ll join only this Space as a guest. You won’t become an organization member or gain access to other Spaces."
+					: "You’ll join this Space. If you’re not already in the organization, you’ll join it as a member too."}
 			</p>
 			<Button disabled={pending} onClick={onAccept}>
 				{pending ? "Joining…" : "Accept and open Space"}

@@ -6,6 +6,8 @@ import { InboxBrowserNotificationListener } from "#/components/inbox/inbox-brows
 import { InboxBrowserNotificationPrompt } from "#/components/inbox/inbox-browser-notification-prompt";
 import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visible-conversation";
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
+import { HumanPresenceProvider } from "#/components/profiles/human-presence";
+import AppSettingsDialog from "#/components/settings/app-settings-dialog";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
@@ -19,6 +21,7 @@ import {
 	AppShellAccountContext,
 } from "./app-shell-account";
 import { CrossPageHeader } from "./cross-page-header";
+import { CurrentComputerProvider } from "./current-computer";
 import {
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 	type AppShellSection,
@@ -48,38 +51,45 @@ export function AppShell(input: {
 		<AppShellAccountContext.Provider value={input.account}>
 			<AccountAuthChangeListener />
 			<AppOrganizationProvider scope={input.organizationScope}>
-				<WebMemberActivityReporter
-					currentUserId={input.organizationScope.currentUserId}
-					organizationId={input.organizationScope.currentOrganization.id}
-					spaceId={activeSpaceId}
-				/>
-				<StartFlowStateProvider storageScope={input.storageScope}>
-					<InboxVisibleConversationProvider>
-						<AppReadinessInvalidationListener
-							organizationId={input.organizationScope.currentOrganization.id}
-							storageScope={input.storageScope}
-						/>
-						<InboxBrowserNotificationListener
-							organizationId={input.organizationScope.currentOrganization.id}
-							organizationSlug={
-								input.organizationScope.currentOrganization.slug
-							}
-							userId={input.organizationScope.currentUserId}
-						/>
-						<OnboardingEntryGate
-							currentOrganization={input.organizationScope.currentOrganization}
-							currentSection={currentSection}
-							hasExplicitSpaceDestination={Boolean(activeSpaceId)}
-							organizations={input.organizationScope.organizations}
-							storageScope={input.storageScope}
-						>
-							<InboxBrowserNotificationPrompt
+				<HumanPresenceProvider>
+					<WebMemberActivityReporter
+						currentUserId={input.organizationScope.currentUserId}
+						organizationId={input.organizationScope.currentOrganization.id}
+						spaceId={activeSpaceId}
+					/>
+					<StartFlowStateProvider storageScope={input.storageScope}>
+						<InboxVisibleConversationProvider>
+							<AppReadinessInvalidationListener
+								organizationId={input.organizationScope.currentOrganization.id}
+								storageScope={input.storageScope}
+							/>
+							<InboxBrowserNotificationListener
+								organizationId={input.organizationScope.currentOrganization.id}
+								organizationSlug={
+									input.organizationScope.currentOrganization.slug
+								}
 								userId={input.organizationScope.currentUserId}
 							/>
-							<AppShellScaffold currentSection={currentSection} />
-						</OnboardingEntryGate>
-					</InboxVisibleConversationProvider>
-				</StartFlowStateProvider>
+							<OnboardingEntryGate
+								currentOrganization={
+									input.organizationScope.currentOrganization
+								}
+								currentSection={currentSection}
+								hasExplicitSpaceDestination={Boolean(activeSpaceId)}
+								organizations={input.organizationScope.organizations}
+								storageScope={input.storageScope}
+							>
+								{currentSection === "space" && activeSpaceId ? (
+									<InboxBrowserNotificationPrompt
+										userId={input.organizationScope.currentUserId}
+									/>
+								) : null}
+								<AppShellScaffold currentSection={currentSection} />
+								<AppSettingsDialog />
+							</OnboardingEntryGate>
+						</InboxVisibleConversationProvider>
+					</StartFlowStateProvider>
+				</HumanPresenceProvider>
 			</AppOrganizationProvider>
 		</AppShellAccountContext.Provider>
 	);
@@ -131,15 +141,18 @@ function AppReadinessInvalidationListener(input: {
 				});
 			});
 		};
-		const unsubscribe = subscribeAgentReadinessInvalidations((message) => {
-			for (const agentProfileId of message.agentProfileIds) {
-				pendingProfileIdsRef.current.add(agentProfileId);
-			}
-			if (refreshTimerRef.current !== null) {
-				return;
-			}
-			refreshTimerRef.current = window.setTimeout(flush, 500);
-		});
+		const unsubscribe = subscribeAgentReadinessInvalidations(
+			(message) => {
+				for (const agentProfileId of message.agentProfileIds) {
+					pendingProfileIdsRef.current.add(agentProfileId);
+				}
+				if (refreshTimerRef.current !== null) {
+					return;
+				}
+				refreshTimerRef.current = window.setTimeout(flush, 500);
+			},
+			{ organizationId: input.organizationId, storageScope: input.storageScope }
+		);
 		return () => {
 			unsubscribe();
 			if (refreshTimerRef.current !== null) {
@@ -157,7 +170,9 @@ function AppShellScaffold(input: { currentSection: AppShellSection }) {
 	if (input.currentSection !== "start") {
 		return (
 			<main className="h-dvh overflow-hidden bg-background">
-				<Outlet />
+				<CurrentComputerProvider>
+					<Outlet />
+				</CurrentComputerProvider>
 			</main>
 		);
 	}

@@ -12,11 +12,11 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SpaceCollaborationProfilePresentation } from "./space-collaboration-profile";
 import {
-	SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS,
 	SPACE_RESPONSE_TRUNCATED_MARKER,
 	SPACE_RESPONSE_TRUNCATED_SUFFIX,
 	SpaceMessageBody,
 } from "./space-message-body";
+import { SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS } from "./space-message-collapse";
 
 const SHOW_FULL_MESSAGE_PATTERN = /show full message/i;
 const INTERNAL_ACTION_CATALOG_PATTERN = /action catalog/i;
@@ -90,7 +90,7 @@ describe("SpaceMessageBody", () => {
 		expect(screen.queryByText(INTERNAL_ACTION_CATALOG_PATTERN)).toBeNull();
 	});
 
-	it("keeps human-authored Markdown syntax as plain text", () => {
+	it("recognizes links in human messages while preserving other Markdown as plain text", () => {
 		render(
 			<SpaceMessageBody
 				item={{
@@ -100,14 +100,69 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(
-			screen.getByText("**bold** and [Docs](https://example.com/docs)")
-		).toBeTruthy();
-		expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
+		expect(screen.getByText("**bold** and", { exact: false })).toBeTruthy();
+		const link = screen.getByRole("link", { name: "Docs" });
+		expect(link.getAttribute("href")).toBe("https://example.com/docs");
+		expect(link.getAttribute("target")).toBe("_blank");
+		expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+	});
+
+	it("makes bare links clickable without treating code or dangerous schemes as links", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: "See https://example.com. `https://code.example.com` [bad](javascript:alert(1))",
+				}}
+			/>
+		);
+		expect(screen.getAllByRole("link")).toHaveLength(1);
+		expect(screen.getByRole("link").getAttribute("href")).toBe(
+			"https://example.com/"
+		);
+	});
+
+	it.each([
+		false,
+		true,
+	])("preserves a Human mention token without Agent actions (Markdown: %s)", (isAgentFinalReply) => {
+		const profileId = "11111111-1111-4111-8111-111111111111";
+		const onOpenProfile = vi.fn();
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply,
+					text: "@MingYoo hello",
+					mentionTargetProfileIds: [profileId],
+				}}
+				onOpenProfile={onOpenProfile}
+				profilePresentationsById={
+					new Map([
+						[
+							profileId,
+							{
+								agentControllerRef: null,
+								avatarImageUrl: null,
+								isCenterAgent: false,
+								profileId,
+								profileKind: "human",
+								profileName: "MingYoo",
+							},
+						],
+					])
+				}
+			/>
+		);
+		const token = screen.getByRole("button", { name: "Open MingYoo profile" });
+		expect(within(token).getByText("MingYoo")).toBeTruthy();
+		expect(within(token).queryByText("Mention only")).toBeNull();
+		expect(within(token).queryByText("Wake")).toBeNull();
+		fireEvent.click(token);
+		expect(onOpenProfile).toHaveBeenCalledWith(profileId);
 	});
 
 	it("renders a structured Wake target as a compact clickable Agent token", () => {
-		const onOpenAgentProfile = vi.fn();
+		const onOpenProfile = vi.fn();
 		const view = render(
 			<SpaceMessageBody
 				item={{
@@ -115,13 +170,13 @@ describe("SpaceMessageBody", () => {
 					text: `@${WAKE_TARGET_PROFILE_NAME} hi`,
 					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
 				}}
-				onOpenAgentProfile={onOpenAgentProfile}
+				onOpenProfile={onOpenProfile}
 				profilePresentationsById={createWakeTargetProfilePresentations()}
 			/>
 		);
 
 		const mention = view.container.querySelector(
-			'[data-slot="space-message-agent-mention"]'
+			'[data-slot="space-message-profile-mention"]'
 		);
 
 		const mentionButton = screen.getByRole("button", {
@@ -149,8 +204,8 @@ describe("SpaceMessageBody", () => {
 		expect(mention?.nextSibling?.textContent).toBe(" hi");
 
 		fireEvent.click(mentionButton);
-		expect(onOpenAgentProfile).toHaveBeenCalledOnce();
-		expect(onOpenAgentProfile).toHaveBeenCalledWith(WAKE_TARGET_PROFILE_ID);
+		expect(onOpenProfile).toHaveBeenCalledOnce();
+		expect(onOpenProfile).toHaveBeenCalledWith(WAKE_TARGET_PROFILE_ID);
 	});
 
 	it.each([
@@ -181,7 +236,7 @@ describe("SpaceMessageBody", () => {
 	});
 
 	it("renders a structured Agent Reference with the same profile-details behavior", () => {
-		const onOpenAgentProfile = vi.fn();
+		const onOpenProfile = vi.fn();
 		render(
 			<SpaceMessageBody
 				item={{
@@ -190,19 +245,17 @@ describe("SpaceMessageBody", () => {
 					text: `Ask @${REFERENCE_TARGET_PROFILE_NAME} for context.`,
 					wakeTargetProfileIds: [],
 				}}
-				onOpenAgentProfile={onOpenAgentProfile}
+				onOpenProfile={onOpenProfile}
 				profilePresentationsById={createWakeTargetProfilePresentations()}
 			/>
 		);
 
 		const referenceButton = screen.getByRole("button", {
-			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Reference)`,
+			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Mention only)`,
 		});
-		expect(within(referenceButton).getByText("Reference")).toBeTruthy();
+		expect(within(referenceButton).getByText("Mention only")).toBeTruthy();
 		fireEvent.click(referenceButton);
-		expect(onOpenAgentProfile).toHaveBeenCalledWith(
-			REFERENCE_TARGET_PROFILE_ID
-		);
+		expect(onOpenProfile).toHaveBeenCalledWith(REFERENCE_TARGET_PROFILE_ID);
 	});
 
 	it("keeps repeated structured Agent appearances explicit after sending", () => {
@@ -219,17 +272,17 @@ describe("SpaceMessageBody", () => {
 
 		expect(
 			view.container.querySelectorAll(
-				'[data-slot="space-message-agent-mention"]'
+				'[data-slot="space-message-profile-mention"]'
 			)
 		).toHaveLength(2);
 		expect(
 			screen.getByText("Wake", {
-				selector: '[data-slot="space-message-agent-mention"] span',
+				selector: '[data-slot="space-message-profile-mention"] span',
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByText("Reference", {
-				selector: '[data-slot="space-message-agent-mention"] span',
+			screen.getByText("Mention only", {
+				selector: '[data-slot="space-message-profile-mention"] span',
 			})
 		).toBeTruthy();
 	});
@@ -247,7 +300,9 @@ describe("SpaceMessageBody", () => {
 		);
 
 		expect(
-			view.container.querySelector('[data-slot="space-message-agent-mention"]')
+			view.container.querySelector(
+				'[data-slot="space-message-profile-mention"]'
+			)
 		).toBeNull();
 		const humanMessage = screen.getByText(`@${WAKE_TARGET_PROFILE_NAME} hi`);
 		expect(humanMessage.tagName).toBe("P");
@@ -319,7 +374,7 @@ describe("SpaceMessageBody", () => {
 
 		expect(
 			view.container.querySelectorAll(
-				'[data-slot="space-message-agent-mention"]'
+				'[data-slot="space-message-profile-mention"]'
 			)
 		).toHaveLength(1);
 		expect(
@@ -466,7 +521,14 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(screen.queryByRole("link")).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: "Open Space Launch Planning" })
+		).toBeNull();
+		expect(
+			screen
+				.getAllByRole("link")
+				.every((link) => link.getAttribute("href")?.startsWith("https://"))
+		).toBe(true);
 		expect(view.container.textContent).toContain(unresolvedPath);
 		expect(view.container.textContent).toContain(tooShortPath);
 		expect(view.container.textContent).toContain(tooLongPath);
@@ -1095,7 +1157,7 @@ describe("SpaceMessageBody", () => {
 			<SpaceMessageBody
 				item={{
 					isAgentFinalReply: false,
-					text: `${"x".repeat(SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS)} ${hiddenTail}`,
+					text: `${"x".repeat(SPACE_MESSAGE_LOCAL_COLLAPSE_THRESHOLD_CHARS)}\n\n${hiddenTail}`,
 				}}
 			/>
 		);

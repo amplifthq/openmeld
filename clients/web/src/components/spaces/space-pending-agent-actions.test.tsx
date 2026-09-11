@@ -426,9 +426,7 @@ describe("SpacePendingAgentActions", () => {
 		await waitFor(() => {
 			expect(document.activeElement).toBe(returnFocusRef.current);
 		});
-		expect(
-			screen.getByText("@Runner is waiting for your response")
-		).toBeTruthy();
+		expect(screen.getByText("@Runner")).toBeTruthy();
 		expect(screen.queryByText("Allow the second command?")).toBeNull();
 	});
 });

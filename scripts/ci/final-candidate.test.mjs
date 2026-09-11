@@ -49,11 +49,11 @@ const FAILURE_STATUS_PATTERN = /state=failure/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
 const REMOTE_MODE_PATTERN = /Mode: remote/u;
 const PAID_HOSTED_COST_PATTERN =
-  /Cost: paid GitHub Actions when requested; selected checks may be high latency\./u;
+  /Cost: paid GitHub Actions for ready PRs and explicit retries; selected checks may be high latency\./u;
 const FINAL_CERTIFICATION_PATTERN =
   /Use: final merge certification, not development, debugging, or review discovery\./u;
 const PRACTICAL_TRIGGER_PATTERN =
-  /Practical trigger: request only when a green result means the next action is merge\./u;
+  /Practical trigger: keep development and batch leaves in draft; ready PRs run automatically\. Observe an existing run before requesting a retry\./u;
 const PENDING_STATUS_PATTERN = /state=pending/u;
 const SANDBOX_DENIED_PATTERN = /sandbox denied/u;
 const SUCCESS_STATUS_PATTERN = /state=success/u;
@@ -68,6 +68,23 @@ const ORIGINAL_SELECTED_CHECK_PATTERN = /original selected-check/u;
 const LARGE_STDOUT_LINE = "large-stdout-line";
 const LARGE_STDERR_LINE = "large-stderr-line";
 const FULL_COMMAND_LOGS_PATTERN = /Full command logs:/u;
+
+test("selected commands use the certified base instead of an inherited affected base", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      affectedBase: "0".repeat(40),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(
+      readFileSync(fixture.candidateEnvironmentLogPath, "utf8").includes(
+        `BASE=${fixture.baseSha}`
+      )
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
 
 test(
   "an isolated selected command cannot rewrite trusted control or evidence",
@@ -506,7 +523,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 appendFileSync(process.env.TEST_PNPM_LOG, process.argv.slice(2).join(" ") + "\\n");
-appendFileSync(process.env.TEST_CANDIDATE_ENV_LOG, "GH_TOKEN=" + (process.env.GH_TOKEN ? "present" : "absent") + " GITHUB_TOKEN=" + (process.env.GITHUB_TOKEN ? "present" : "absent") + "\\n");
+appendFileSync(process.env.TEST_CANDIDATE_ENV_LOG, "GH_TOKEN=" + (process.env.GH_TOKEN ? "present" : "absent") + " GITHUB_TOKEN=" + (process.env.GITHUB_TOKEN ? "present" : "absent") + " BASE=" + process.env.OPENMELD_AFFECTED_BASE + "\\n");
 if (process.env.TEST_ADVANCE_MAIN_DURING_CHECK === "1" && !existsSync(process.env.TEST_MAIN_DRIFT_MARKER)) {
   const maintainer = process.env.TEST_MAINTAINER_PATH;
   execFileSync("git", ["clone", "--quiet", process.env.TEST_REMOTE_PATH, maintainer]);
@@ -588,6 +605,7 @@ function runCandidateFixture(fixture, options = {}) {
       encoding: "utf8",
       env: {
         ...isolatedGitEnvironment(process.env),
+        OPENMELD_AFFECTED_BASE: options.affectedBase ?? "",
         GH_TOKEN: "write-capable-token-must-not-reach-checks",
         GITHUB_TOKEN: "write-capable-token-must-not-reach-checks",
         PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,

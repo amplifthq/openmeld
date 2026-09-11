@@ -67,7 +67,6 @@ const CREATE_SPACE_ALLOWED_FIELDS = new Set([
   "accessMode",
   "password",
 ]);
-const PATCH_SPACE_META_ALLOWED_FIELDS = new Set(["name", "purpose", "guide"]);
 
 export async function readJsonRequestBody(
   request: Request,
@@ -177,6 +176,7 @@ export function parseSpaceRouteParams(
 
 export function parsePostSignalBody(body: unknown): ParseResult<{
   text: string;
+  deviceWait?: SignalText["data"]["deviceWait"];
   attachments?: SignalText["data"]["attachments"];
   files?: SignalText["data"]["files"];
   messageEnvelope?: SignalText["data"]["messageEnvelope"];
@@ -195,6 +195,7 @@ export function parsePostSignalBody(body: unknown): ParseResult<{
     ok: true,
     value: {
       text: parsed.data.text,
+      ...(parsed.data.deviceWait ? { deviceWait: parsed.data.deviceWait } : {}),
       ...(parsed.data.attachments
         ? { attachments: parsed.data.attachments }
         : {}),
@@ -375,20 +376,15 @@ export function parsePatchSpaceMetaBody(
     body && typeof body === "object" && !Array.isArray(body)
       ? (body as Record<string, unknown>)
       : ({} as Record<string, unknown>);
-  const unknownField = findFirstUnknownField(
-    bodyCandidate,
-    PATCH_SPACE_META_ALLOWED_FIELDS
-  );
-  if (unknownField) {
-    return { ok: false, message: `Unknown field: ${unknownField}` };
-  }
-
   const parsed = patchSpaceMetaBodySchema.safeParse(bodyCandidate);
   if (!parsed.success) {
     const firstIssue = parsed.error.issues[0];
     return {
       ok: false,
-      message: firstIssue?.message ?? "Invalid space meta patch",
+      message:
+        firstIssue?.code === "unrecognized_keys"
+          ? `Unknown field: ${firstIssue.keys[0]}`
+          : (firstIssue?.message ?? "Invalid space meta patch"),
     };
   }
 

@@ -130,6 +130,16 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "space-caller-context-receivers-first": [
+    "db",
+    "auth",
+    "remote-agent",
+    "cli",
+    "core",
+    "gateway",
+    "web",
+  ],
+  "personal-remote-tools-receivers-first": SCOPE_ORDER,
   "inbox-task-retirement-producer-first": [
     "db",
     "core",
@@ -148,6 +158,7 @@ const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
     "web",
     "cli",
   ],
+  "device-wait-receivers-first": CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "people-computers-receivers-first":
     CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "space-invitation-receivers-first": [
@@ -461,6 +472,8 @@ export function buildProductionVerifyStepSpecs(input) {
       scope === "core" &&
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
+      !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+      !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
       steps.push(coreCliChannelCompatibilityStep());
@@ -495,6 +508,8 @@ export function buildProductionPreflightStepSpecs(input) {
     input.scopes.includes("core") &&
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
+    !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+    !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
   ) {
@@ -595,6 +610,15 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     input.taskInboxRetired
   );
   if (
+    deployOrderProfile === "space-caller-context-receivers-first" &&
+    (selected.has("core") || selected.has("cli")) &&
+    !["cli", "auth", "remote-agent"].every((scope) => selected.has(scope))
+  ) {
+    throw new Error(
+      "Caller context requires Auth and Remote receivers, then the required CLI/Service publication with its Core projection."
+    );
+  }
+  if (
     deployOrderProfile === "space-invitation-receivers-first" &&
     (selected.has("auth") || selected.has("cli")) &&
     !(selected.has("core") && selected.has("auth"))
@@ -683,7 +707,9 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "inbox-task-retirement-producer-first" ||
       input.deployOrderProfile ===
         "remote-agent-and-inbox-task-retirement-first" ||
+      input.deployOrderProfile === "device-wait-receivers-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
+      input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
@@ -768,6 +794,15 @@ function resolveProductionDeployScopeOrder(
   );
   const order = DEPLOY_SCOPE_ORDER_BY_PROFILE[profile];
   const selected = new Set(scopes);
+  if (
+    profile === "personal-remote-tools-receivers-first" &&
+    selected.has("remote-agent") &&
+    !selected.has("core")
+  ) {
+    throw new Error(
+      "Personal Remote Agent tools require the Core receiver before Remote Agent deployment."
+    );
+  }
   return order.filter((scope) => selected.has(scope));
 }
 
@@ -775,6 +810,58 @@ function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  if (!isSpaceCallerContextDiff(changedPaths)) {
+    return resolveOtherProductionDeployOrderProfile(
+      changedPaths,
+      taskInboxRetired
+    );
+  }
+  const profile = resolveOtherProductionDeployOrderProfile(
+    changedPaths,
+    taskInboxRetired
+  );
+  if (
+    ![
+      "default-auth-receiver-first",
+      "space-invitation-receivers-first",
+    ].includes(profile)
+  ) {
+    throw new Error(
+      `Caller context requires Service before Core and conflicts with ${profile}; split the release.`
+    );
+  }
+  return "space-caller-context-receivers-first";
+}
+
+function resolveOtherProductionDeployOrderProfile(
+  changedPaths,
+  taskInboxRetired
+) {
+  if (isPersonalRemoteToolsReceiverFirstDiff(changedPaths)) {
+    // This entrypoint change exports the browser facet; it does not expand a
+    // Core-to-Remote request. Remote's tool calls require the Core receiver first.
+    const otherProfile = resolveProductionDeployOrderProfile(
+      changedPaths.filter(
+        (file) =>
+          file !== "services/remote-agent/.flue/cloudflare.ts" &&
+          file !==
+            "services/core/src/remote-agent/application/remote-agent-tool-caller.ts"
+      ),
+      taskInboxRetired
+    );
+    if (
+      ![
+        "default-auth-receiver-first",
+        "core-worker-response-reader-first",
+        "inbox-source-target-receiver-first",
+      ].includes(otherProfile)
+    ) {
+      throw new Error(
+        `Personal Remote Agent tools require Core before Remote and conflict with ${otherProfile}; split the release.`
+      );
+    }
+    return "personal-remote-tools-receivers-first";
+  }
   if (taskInboxRetired) {
     // The exact retired contract is proven against Git below. Other contracts
     // still select their ordinary profile and must be composable with Core first.
@@ -799,6 +886,10 @@ function resolveProductionDeployOrderProfile(
     );
   }
   const profile = resolveExistingProductionDeployOrderProfile(changedPaths);
+  if (isDeviceWaitReceiverFirstDiff(changedPaths)) {
+    assertComposableDeviceWaitReleaseProfile(changedPaths, profile);
+    return "device-wait-receivers-first";
+  }
   if (isPeopleComputersReceiverFirstDiff(changedPaths)) {
     if (
       profile !== "default-auth-receiver-first" &&
@@ -829,12 +920,52 @@ function resolveProductionDeployOrderProfile(
   return "space-invitation-receivers-first";
 }
 
+function assertComposableDeviceWaitReleaseProfile(changedPaths, profile) {
+  if (
+    ![
+      "default-auth-receiver-first",
+      "local-service-runtime-receiver-first",
+      "core-worker-response-reader-first",
+    ].includes(profile) ||
+    isPeopleComputersReceiverFirstDiff(changedPaths) ||
+    isSpaceInvitationReceiverFirstDiff(changedPaths)
+  ) {
+    throw new Error(
+      `Device wait requires Core before Gateway and Web; review conflicting receiver orders (${profile}) in a separate release.`
+    );
+  }
+}
+
+function isSpaceCallerContextDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/protocol/space-caller-context.ts",
+    "services/core/src/space/transport/do/space.ts",
+    "clients/openmeld-cli/src/local-service/dispatch/parse-dispatch-task.ts",
+  ].every((file) => changedPaths.includes(file));
+}
+
+function isDeviceWaitReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/protocol/wake-device-wait.ts",
+    "services/core/src/space/transport/do/space.ts",
+    "services/gateway/src/routes/rpc-http.signals.ts",
+  ].every((file) => changedPaths.includes(file));
+}
+
 function isSpaceInvitationReceiverFirstDiff(changedPaths) {
   return [
     "packages/schemas/src/space-invitation.ts",
     "services/core/src/organizations/space-invitations.ts",
     "services/auth/src/lib/hono/space-invitation-routes.ts",
   ].every((path) => changedPaths.includes(path));
+}
+
+function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/runtime/personal-remote-agent.ts",
+    "services/core/src/remote-agent/application/remote-agent-tool-caller.ts",
+    "services/remote-agent/agent-core/personal-remote-agent-tools.ts",
+  ].every((file) => changedPaths.includes(file));
 }
 
 function isPeopleComputersReceiverFirstDiff(changedPaths) {
@@ -992,6 +1123,7 @@ function assertComposableWakeProgressOptInReleaseProfile(input) {
 
 function doesCliReleaseOwnCoreProjection(profile) {
   return (
+    profile === "space-caller-context-receivers-first" ||
     profile === "default-auth-receiver-first" ||
     profile === "connect-computer-cli-receiver-first" ||
     profile === "core-worker-response-and-connect-computer-receivers-first" ||

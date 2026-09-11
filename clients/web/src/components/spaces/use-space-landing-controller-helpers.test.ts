@@ -1,7 +1,14 @@
 import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
+import {
+	createSpaceMemberAgentSnapshot,
+	createSpaceMemberHumanSnapshot,
+	createSpaceMembersSnapshot,
+} from "@openmeld/schemas/testing";
 import type {
 	GetSpaceStatusResponse,
+	SignalEnvelope,
 	SpaceMembersSnapshot,
+	SpaceThreadSignalPlacement,
 } from "@openmeld/schemas/types";
 import {
 	createWakeProgressItem,
@@ -15,10 +22,12 @@ import {
 	createStatusAndMembersRefreshDedupe,
 	listPendingWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
+	mergeThreadSignalsCache,
 	mergeWakeProgressItemState,
 	pollWakeProgress,
 	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
+	resolveComposerAddressingTargets,
 	resolveComposerWakeProgressTargetProfileIds,
 } from "./use-space-landing-controller-helpers";
 
@@ -27,6 +36,39 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 
 const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
+
+describe("Thread conversation policy during live replies", () => {
+	it("retains the server's direct conversation policy when an Agent reply arrives", () => {
+		const signal: SignalEnvelope = {
+			v: 1,
+			id: "reply",
+			spaceId: "space",
+			ts: 1,
+			type: "signal.text",
+			profile: { kind: "agent", profileId: "A" },
+			data: { text: "OK" },
+		};
+		const placement: SpaceThreadSignalPlacement = {
+			signalId: "reply",
+			threadId: "thread",
+			placement: "thread",
+			createdAt: "2026-09-11T00:00:00.000Z",
+		};
+		const result = mergeThreadSignalsCache(
+			{
+				signals: [],
+				placements: [],
+				wakeContinuation: {
+					targetProfileId: "A",
+					automaticTargetProfileId: "A",
+				},
+			},
+			{ signal, placement }
+		);
+		expect(result.wakeContinuation?.automaticTargetProfileId).toBe("A");
+		expect(result.signals).toEqual([signal]);
+	});
+});
 
 const AGENT_PROFILE_ID = "agent-profile-1";
 const HUMAN_PROFILE_ID = "human-profile-1";
@@ -540,6 +582,7 @@ describe("pollWakeProgress", () => {
 			includeTiming: true,
 			includeSourceContext: true,
 			includeWaitReason: true,
+			includeDeviceWait: true,
 			includeWakeStopEligibility: true,
 			spaceId: "space-123",
 			timeoutMs: 15_000,
@@ -598,6 +641,51 @@ describe("createStatusAndMembersRefreshDedupe", () => {
 });
 
 describe("resolveComposerWakeProgressTargetProfileIds", () => {
+	it("exposes the implicit offline Direct Message target without inventing one for a group Space", () => {
+		const agentProfileId = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const humanProfileId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		const membersSnapshot = createSpaceMembersSnapshot({
+			humans: [createSpaceMemberHumanSnapshot({ profileId: humanProfileId })],
+			agents: [
+				{
+					...createSpaceMemberAgentSnapshot({
+						profileId: agentProfileId,
+						agentWakeAvailability: { status: "offline_for_wake" },
+					}),
+					deviceWaitTarget: {
+						bindingId: "binding-1",
+						openMeldServiceRuntimeId: "runtime-1",
+					},
+				},
+			],
+		});
+		const input = {
+			addressingTargets: [],
+			membersSnapshot,
+			senderProfileId: humanProfileId,
+			status: createStatus({
+				spacePurpose: OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+			}),
+		};
+		expect(resolveComposerAddressingTargets(input)).toEqual([
+			expect.objectContaining({
+				profileId: agentProfileId,
+				relation: "wake",
+				deviceWaitTarget: {
+					bindingId: "binding-1",
+					openMeldServiceRuntimeId: "runtime-1",
+				},
+			}),
+		]);
+		expect(
+			resolveComposerAddressingTargets({
+				...input,
+				status: createStatus({
+					members: { ...input.status.members, totalCount: 3, humanCount: 2 },
+				}),
+			})
+		).toEqual([]);
+	});
 	it("uses explicit wake targets before deriving a Direct Message target", () => {
 		expect(
 			resolveComposerWakeProgressTargetProfileIds({

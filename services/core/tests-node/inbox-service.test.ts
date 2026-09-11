@@ -1,13 +1,361 @@
 import { INBOX_SPACE_SUMMARY_MAX_SPACES } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
+import { canReceivePersonalAgentActivity } from "../src/inbox/application/inbox-agent-owner-access";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
+import { reconcileInvitationInbox } from "../src/organizations/invitation-inbox-projection";
 import {
   applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("separates shared reviews from fulfillment, preserves personal reading, and revokes reviewer access", async () => {
+    const harness = createInboxHarness();
+    try {
+      harness.run({
+        sql: "INSERT INTO organization_join_requests (id, organization_id, requested_by_user_id, email, status, created_at) VALUES ('request-1', 'org_one', 'user_one', 'invitee@example.com', 'pending', 1000)",
+      });
+      const ids: string[] = [];
+      for (const userId of ["user_one", "user_two"]) {
+        const item = await ensureInboxItem({
+          db: harness.db,
+          nowMs: 2000,
+          candidate: {
+            organizationId: "org_one",
+            recipientUserId: userId,
+            attention: "action_required",
+            importance: "urgent",
+            kind: "organization_request",
+            contextLabel: null,
+            occurredAtMs: 1000,
+            preview: "Review the invitation",
+            title: "Review invitation",
+            sourceKind: "organization_member_request",
+            sourceKey: "invitation:request-1",
+            sourceTarget: {
+              kind: "organization_join_request",
+              requestId: "request-1",
+            },
+          },
+        });
+        ids.push(item.itemId);
+      }
+      const manager = createInboxService({
+        db: harness.db,
+        canManageOrganization: true,
+        nowMs: () => 8000,
+      });
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      await reconcileInvitationInbox(harness.db, "org_one");
+      expect(
+        (await manager.list({ ...identity, view: "needs_review" })).items.map(
+          (item) => item.id
+        )
+      ).toEqual([ids[0]]);
+      expect(
+        (await manager.list({ ...identity, view: "needs_action" })).items
+      ).toEqual([]);
+      expect(
+        (await manager.get({ ...identity, itemId: ids[0] as string })).item
+          .importance
+      ).toBe("normal");
+      await manager.markRead({
+        ...identity,
+        itemId: ids[0] as string,
+        read: true,
+      });
+      harness.run({
+        sql: "UPDATE organization_join_requests SET status = 'approved', reviewed_by_user_id = 'user_two', reviewed_at = 3000 WHERE id = 'request-1'",
+      });
+      await reconcileInvitationInbox(harness.db, "org_one");
+      for (const userId of ["user_one", "user_two"]) {
+        const scope = { ...identity, recipientUserId: userId };
+        expect(
+          (await manager.list({ ...scope, view: "needs_review" })).items
+        ).toEqual([]);
+        expect(
+          (await manager.list({ ...scope, view: "needs_action" })).items
+        ).toHaveLength(1);
+      }
+      expect(
+        (await manager.get({ ...identity, itemId: ids[0] as string })).item
+          .readAt
+      ).not.toBeNull();
+      expect(
+        (
+          await manager.get({
+            ...identity,
+            recipientUserId: "user_two",
+            itemId: ids[1] as string,
+          })
+        ).item.readAt
+      ).toBeNull();
+      harness.run({
+        sql: "UPDATE organization_join_requests SET invitation_sent_at = 4000 WHERE id = 'request-1'",
+      });
+      await reconcileInvitationInbox(harness.db, "org_one");
+      for (const userId of ["user_one", "user_two"]) {
+        const scope = { ...identity, recipientUserId: userId };
+        expect(
+          (await manager.list({ ...scope, view: "needs_action" })).items
+        ).toEqual([]);
+        expect((await manager.summary(scope)).unresolvedActionCount).toBe(0);
+      }
+      await expect(
+        createInboxService({ db: harness.db }).get({
+          ...identity,
+          itemId: ids[0] as string,
+        })
+      ).rejects.toMatchObject({ status: 404 });
+      expect(
+        harness.queryAll({
+          sql: "SELECT reviewed_by_user_id, reviewed_at FROM organization_join_requests",
+        })
+      ).toEqual([{ reviewed_by_user_id: "user_two", reviewed_at: 3000 }]);
+    } finally {
+      harness.close();
+    }
+  });
+  it("rechecks current owner/admin access for authorization updates", async () => {
+    const harness = createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const created = await ensureInboxItem({
+        db: harness.db,
+        nowMs: 2000,
+        candidate: {
+          ...identity,
+          attention: "action_required",
+          importance: "urgent",
+          kind: "system_issue",
+          contextLabel: "Authorization update",
+          occurredAtMs: 1000,
+          preview: "Reconnect Slack to update permissions.",
+          title: "Update Slack permissions",
+          sourceKind: "system_attention_event",
+          sourceKey: "authorization-update:channel.slack.T1:v2",
+          sourceTarget: { kind: "settings", section: "channels" },
+        },
+      });
+      await expect(
+        createInboxService({ db: harness.db }).get({
+          ...identity,
+          itemId: created.itemId,
+        })
+      ).rejects.toMatchObject({ status: 404 });
+      await expect(
+        createInboxService({
+          db: harness.db,
+          canManageOrganization: true,
+        }).get({ ...identity, itemId: created.itemId })
+      ).resolves.toMatchObject({ item: { id: created.itemId } });
+      await expect(
+        createInboxService({ db: harness.db }).markRead({
+          ...identity,
+          itemId: created.itemId,
+          read: true,
+        })
+      ).rejects.toMatchObject({ status: 404 });
+    } finally {
+      harness.close();
+    }
+  });
+  it.each([
+    {
+      kind: "space_message" as const,
+      importance: "urgent" as const,
+      urgentCount: 1,
+    },
+    {
+      kind: "agent_reply" as const,
+      importance: "normal" as const,
+      urgentCount: 0,
+    },
+  ])("keeps absent personal Agent owner $kind unread and revokes stale ownership", async ({
+    kind,
+    importance,
+    urgentCount,
+  }) => {
+    const harness = createInboxHarness();
+    try {
+      harness.run({
+        sql: "UPDATE space_index_memberships SET profile_kind_snapshot = 'agent' WHERE profile_id = 'profile_one'",
+      });
+      harness.run({
+        sql: "INSERT INTO openmeld_profiles VALUES ('profile_one', 'Personal Agent', 'agent', 'org_one', 'user_one', NULL)",
+      });
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      await ensureInboxItem({
+        // The Space passes canonical active Agent IDs, independent of index timing.
+        db: harness.db,
+        nowMs: 2000,
+        candidate: {
+          ...identity,
+          attention: "update",
+          importance,
+          kind,
+          contextLabel: "Agent chat",
+          occurredAtMs: 1000,
+          preview: "Hello",
+          title: "Someone messaged your agent",
+          sourceKind: "space_signal",
+          sourceKey: "owner-message",
+          sourceTarget: {
+            kind: "space",
+            agentOwnerActivity: true,
+            spaceId: "space_one",
+            signalId: "owner-message",
+          },
+        },
+      });
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+      const ownerEligibility = {
+        db: harness.db,
+        organizationId: "org_one",
+        userId: "user_one",
+        agentProfileIds: ["profile_one"],
+      };
+      expect(await canReceivePersonalAgentActivity(ownerEligibility)).toBe(
+        true
+      );
+      expect(
+        await canReceivePersonalAgentActivity({
+          ...ownerEligibility,
+          organizationId: "org_two",
+        })
+      ).toBe(false);
+      expect(await service.summary(identity)).toMatchObject({
+        unreadUrgentUpdateCount: urgentCount,
+      });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        ordinarySpaceUnreadCount: 1,
+      });
+      harness.run({
+        sql: "UPDATE space_index_spaces SET space_purpose = 'openmeld_dm_space', active_member_count = 2 WHERE space_id = 'space_one'",
+      });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 1,
+        chatUnreadUrgentUpdateCount: 0,
+      });
+      harness.run({
+        sql: "UPDATE openmeld_profiles SET managed_role = 'center_agent'",
+      });
+      expect(await canReceivePersonalAgentActivity(ownerEligibility)).toBe(
+        false
+      );
+      expect(await service.summary(identity)).toMatchObject({
+        unreadUrgentUpdateCount: 0,
+      });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 0,
+      });
+      harness.run({
+        sql: "UPDATE openmeld_profiles SET managed_role = NULL, owner_user_id = 'user_two'",
+      });
+      expect(await service.summary(identity)).toMatchObject({
+        unreadUrgentUpdateCount: 0,
+      });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 0,
+      });
+      harness.run({
+        sql: "UPDATE openmeld_profiles SET owner_user_id = 'user_one'",
+      });
+      await expect(
+        service.markSpaceReadThrough({
+          ...identity,
+          spaceId: "space_one",
+          throughOccurredAtMs: 1000,
+        })
+      ).resolves.toMatchObject({ markedReadCount: 1 });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 0,
+      });
+      expect(await service.summary(identity)).toMatchObject({
+        unreadUrgentUpdateCount: 0,
+      });
+      expect(
+        harness.queryAll({ sql: "SELECT * FROM inbox_email_deliveries" })
+      ).toHaveLength(0);
+    } finally {
+      harness.close();
+    }
+  });
+  it("keeps complete Chat counts and read action requests distinct", async () => {
+    const harness = createInboxHarness();
+    try {
+      seedCenterAgentDirectMessageSpace(harness, {
+        recipientProfileId: "profile_one",
+        spaceId: "space_one",
+      });
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const action = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "dm-action",
+      });
+      await harness.db
+        .prepare(
+          "UPDATE inbox_items SET attention = 'action_required', resolution_status = 'open', importance = 'urgent', read_at_ms = 1500 WHERE id = ?"
+        )
+        .bind(action.itemId)
+        .run();
+      const urgent = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        spaceId: "space_one",
+        sourceKey: "dm-urgent",
+      });
+      await harness.db
+        .prepare("UPDATE inbox_items SET importance = 'urgent' WHERE id = ?")
+        .bind(urgent.itemId)
+        .run();
+      for (let i = 0; i < 105; i++) {
+        await seedSpaceItem(harness.db, {
+          recipientUserId: "user_one",
+          spaceId: "space_one",
+          sourceKey: `dm-message-${i}`,
+        });
+      }
+      const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 106,
+        chatUnresolvedActionCount: 1,
+        chatUnreadUrgentUpdateCount: 1,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 1,
+            unreadUrgentUpdateCount: 1,
+          },
+        ],
+      });
+      await service.markRead({
+        ...identity,
+        itemId: urgent.itemId,
+        read: true,
+      });
+      expect(await service.spaceSummary(identity)).toMatchObject({
+        chatUnreadCount: 105,
+        chatUnresolvedActionCount: 1,
+        chatUnreadUrgentUpdateCount: 0,
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it("counts urgent updates and open actions once across the full recipient Inbox", async () => {
     const harness = createInboxHarness();
     try {
@@ -101,7 +449,22 @@ describe("Inbox service", () => {
       harness.close();
     }
   });
-  it("excludes retired Task rows from reads and counts without deleting other Inbox items", async () => {
+  it.each([
+    {
+      itemKind: "center_agent_task",
+      sourceKind: "center_agent_task_event",
+      target: { kind: "center_agent_task", taskId: "retired" },
+    },
+    {
+      itemKind: "agent_interaction",
+      sourceKind: "system_attention_event",
+      target: { kind: "agent_profile_creation_request", requestId: "held" },
+    },
+  ])("excludes unavailable $target.kind rows from reads and counts without deleting other Inbox items", async ({
+    itemKind,
+    sourceKind,
+    target,
+  }) => {
     const harness = createInboxHarness();
     try {
       const retired = await seedItem(harness.db, {
@@ -116,12 +479,9 @@ describe("Inbox service", () => {
       });
       await harness.db
         .prepare(
-          "UPDATE inbox_items SET kind = 'center_agent_task', source_kind = 'center_agent_task_event', source_target_json = ? WHERE id = ?"
+          "UPDATE inbox_items SET kind = ?, source_kind = ?, source_target_json = ? WHERE id = ?"
         )
-        .bind(
-          JSON.stringify({ kind: "center_agent_task", taskId: "retired" }),
-          retired.itemId
-        )
+        .bind(itemKind, sourceKind, JSON.stringify(target), retired.itemId)
         .run();
       const service = createInboxService({ db: harness.db, nowMs: () => 4000 });
       const identity = {
@@ -608,6 +968,16 @@ describe("Inbox service", () => {
         })
       ).resolves.toEqual({
         ordinarySpaceUnreadCount: 4,
+        chatUnreadCount: 0,
+        chatUnresolvedActionCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 1,
+            unreadUrgentUpdateCount: 0,
+          },
+        ],
         organizationId: "org_one",
         spaces: [
           {
@@ -773,6 +1143,16 @@ describe("Inbox service", () => {
         })
       ).resolves.toEqual({
         ordinarySpaceUnreadCount: 1,
+        chatUnreadCount: 0,
+        chatUnresolvedActionCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 2,
+            unreadUrgentUpdateCount: 0,
+          },
+        ],
         organizationId: "org_one",
         spaces: [
           {
@@ -823,6 +1203,16 @@ describe("Inbox service", () => {
       ).resolves.toEqual({
         ordinarySpaceUnreadCount: 1,
         organizationId: "org_one",
+        chatUnreadCount: 0,
+        chatUnresolvedActionCount: 0,
+        chatUnreadUrgentUpdateCount: 0,
+        attention: [
+          {
+            spaceId: "space_one",
+            unresolvedActionCount: 2,
+            unreadUrgentUpdateCount: 0,
+          },
+        ],
         spaces: [
           {
             latestUnreadOccurredAtMs: 1100,
@@ -1279,6 +1669,9 @@ function seedBulkUnreadOrdinarySpaces(
 function createInboxHarness() {
   const harness = createSqliteD1Harness();
   harness.run({
+    sql: "CREATE TABLE openmeld_profiles (profile_id TEXT PRIMARY KEY NOT NULL, profile_name TEXT NOT NULL, profile_kind TEXT NOT NULL, organization_id TEXT, owner_user_id TEXT NOT NULL, managed_role TEXT)",
+  });
+  harness.run({
     sql: `
       CREATE TABLE organizations (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1298,6 +1691,7 @@ function createInboxHarness() {
     `,
   });
   applyDrizzleMigrationsForTables(harness, [
+    "organization_join_requests",
     "center_agent_tasks",
     "center_agent_task_authorized_readers",
     "inbox_items",

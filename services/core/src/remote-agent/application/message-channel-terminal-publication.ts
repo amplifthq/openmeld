@@ -1,4 +1,5 @@
 import type { SpaceMessageAttachment } from "@openmeld/schemas/types";
+import { RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE } from "../../runtime-transport/application/runtime-coordinator-authority";
 import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
 import type {
   MessageChannelProviderAdapter,
@@ -39,6 +40,7 @@ export async function publishMessageChannelTerminalResult(input: {
   if (requiresMessageChannelFinalCardMutation(input.delivery)) {
     return await finalizeCard({
       delivery: input.delivery,
+      failureCode: input.failureCode,
       target: input.target,
       text: content.text,
     });
@@ -93,6 +95,7 @@ export function resolveMessageChannelFinalCardSequence(
 
 async function finalizeCard(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
+  failureCode?: string;
   target: {
     adapter: MessageChannelProviderAdapter;
     connection: MessageChannelPublicationTarget["connection"];
@@ -146,13 +149,26 @@ async function finalizeCard(input: {
       status: "failed",
     };
   }
+  let outcome: "completed" | "failed" | "stopped" = "completed";
+  if (input.failureCode) {
+    outcome =
+      input.failureCode ===
+        RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE ||
+      input.failureCode === "remote_agent.execution_cancelled"
+        ? "stopped"
+        : "failed";
+  }
   const publication = await input.target.adapter.finalizeWorkingCard({
+    replyDeliveryId: input.delivery.onBehalfOfUserId
+      ? input.delivery.deliveryId
+      : undefined,
     cardId,
     connection: input.target.connection,
     locator: input.target.locator,
     providerPublicationIdempotencyKey:
       input.target.providerPublicationIdempotencyKey,
     sequence,
+    outcome,
     text: segment.head,
   });
   if (publication.status !== "published") {

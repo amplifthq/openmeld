@@ -28,6 +28,7 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import { buildRemoteAgentCoreContext } from "../agent-core/tool-context";
 import { isRemoteAgentToolResultWithinLimit } from "../agent-core/tool-result-boundary";
 import {
   getRemoteAgentOpenMeldToolDefinitions as buildRemoteAgentOpenMeldToolDefinitions,
@@ -308,7 +309,11 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
 
     expect(tools.map((tool) => tool.name)).toEqual([
-      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
+      ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
+        (name) =>
+          name !== "openmeld_get_agent_profile_creation_approval_preferences" &&
+          name !== "openmeld_set_agent_profile_creation_approval_preferences"
+      ),
     ]);
     expect(tools.map((tool) => tool.name)).not.toContain(
       "openmeld_create_task"
@@ -1094,6 +1099,74 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("reads a current %s file into Computer and keeps encoded bytes out of the model result", async (provider) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider,
+          connectionId: "connection",
+          conversationId: "conversation",
+          resources: [
+            {
+              fileKey: "file_1",
+              fileName: "report.csv",
+              mimeType: null,
+              sizeBytes: null,
+              type: "file",
+            },
+          ],
+        },
+      },
+    });
+    const centerAgentReadChannelFile = vi.fn(async () => ({
+      contentBase64: "YSxiCjEsMg==",
+      fileKey: "file_1",
+      fileName: "report.csv",
+      mimeType: "text/csv",
+      sizeBytes: 7,
+      provider,
+    }));
+    const writeChannelFile = vi.fn(async () => ({
+      path: `${provider}-files/report.csv`,
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentReadChannelFile },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+      computerFileHandoff: {
+        readBinaryFile: vi.fn(),
+        readTextFiles: vi.fn(),
+        writeChannelFile,
+      },
+    });
+    const result = await executeTool(tools, "openmeld_read_channel_file", {
+      fileKey: "file_1",
+    });
+    expect(result).toMatchObject({
+      text: "a,b\n1,2",
+      savedPath: `${provider}-files/report.csv`,
+    });
+    expect(result).not.toHaveProperty("contentBase64");
+    expect(writeChannelFile).toHaveBeenCalledWith({
+      bytes: new TextEncoder().encode("a,b\n1,2"),
+      fileId: "file_1",
+      fileName: "report.csv",
+      provider,
+    });
+    await expect(
+      executeTool(tools, "openmeld_read_channel_file", {
+        fileKey: "other_file",
+      })
+    ).rejects.toThrow("Choose a fileKey");
+    expect(centerAgentReadChannelFile).toHaveBeenCalledOnce();
+  });
+
   it("reads only a Slack file ID observed in channel history and keeps private bytes out of the model result", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");
@@ -1125,14 +1198,14 @@ describe("remote agent OpenMeld tool catalog", () => {
       file: observedFile,
       organizationId: "org_123",
     }));
-    const writeSlackFile = vi.fn(async () => ({
+    const writeChannelFile = vi.fn(async () => ({
       path: "slack-files/F_RELEASE_NOTES-release-notes.md",
     }));
     const tools = getRemoteAgentOpenMeldToolDefinitions({
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles: vi.fn(),
-        writeSlackFile,
+        writeChannelFile,
       },
       coreWorker: {
         centerAgentReadSlackChannelHistory,
@@ -1166,7 +1239,8 @@ describe("remote agent OpenMeld tool catalog", () => {
       ),
       fileId: "F_RELEASE_NOTES",
     });
-    expect(writeSlackFile).toHaveBeenCalledWith({
+    expect(writeChannelFile).toHaveBeenCalledWith({
+      provider: "slack",
       bytes,
       fileId: "F_RELEASE_NOTES",
       fileName: "release-notes.md",
@@ -1247,7 +1321,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       file: imageFile,
       organizationId: "org_123",
     }));
-    const writeSlackFile = vi.fn(async () => ({
+    const writeChannelFile = vi.fn(async () => ({
       path: "slack-files/F_SCREENSHOT-status.png",
     }));
     const imageFetch = vi.fn(async () =>
@@ -1272,7 +1346,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles: vi.fn(),
-        writeSlackFile,
+        writeChannelFile,
       },
       coreWorker: {
         centerAgentReadSlackChannelHistory,
@@ -1642,6 +1716,94 @@ describe("remote agent OpenMeld tool catalog", () => {
     });
   });
 
+  it.each([
+    "feishu",
+    "lark",
+  ] as const)("sends a Computer file only to the current %s conversation", async (provider) => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider,
+          connectionId: "connection",
+          conversationId: "frozen-conversation",
+          filePublicationSupported: true,
+        },
+      },
+    });
+    const centerAgentPostChannelFile = vi.fn(async () => ({
+      fileName: "report.txt",
+      messageId: "om_sent",
+      provider,
+      sizeBytes: 5,
+    }));
+    const readBinaryFile = vi.fn(async () => ({
+      bytes: new TextEncoder().encode("hello"),
+      fileName: "report.txt",
+      path: "report.txt",
+    }));
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: { centerAgentPostChannelFile },
+      storage: await createStorageWithPendingContext(request),
+      turnEnvelope: request.turnEnvelope,
+      computerFileHandoff: {
+        readBinaryFile,
+        readTextFiles: vi.fn(),
+        writeChannelFile: vi.fn(),
+      },
+    });
+    expect(
+      await executeTool(tools, "openmeld_send_channel_file", {
+        path: "report.txt",
+      })
+    ).toMatchObject({ messageId: "om_sent" });
+    expect(centerAgentPostChannelFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: "frozen-conversation",
+        contentBase64: "aGVsbG8=",
+        contentSha256:
+          "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+        speakerMember: { memberId: "member_123", userId: "user_1" },
+      })
+    );
+    await expect(
+      executeTool(tools, "openmeld_send_channel_file", {
+        path: "report.txt",
+        conversationId: "other-chat",
+      })
+    ).rejects.toThrow();
+    expect(centerAgentPostChannelFile).toHaveBeenCalledOnce();
+  });
+
+  it("hides channel file tools until Core supplies their request evidence", async () => {
+    const base = createSubmitTurnRequest();
+    const request = createSubmitTurnRequest({
+      turnEnvelope: {
+        ...base.turnEnvelope,
+        trigger: {
+          source: "message_channel",
+          provider: "feishu",
+          connectionId: "connection",
+          conversationId: "conversation",
+        },
+      },
+    });
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      turnEnvelope: request.turnEnvelope,
+      storage: await createStorageWithPendingContext(request),
+    });
+    expect(
+      tools.some(
+        (tool) =>
+          tool.name === "openmeld_send_channel_file" ||
+          tool.name === "openmeld_read_channel_file"
+      )
+    ).toBe(false);
+  });
+
   it("sends one selected Computer file to the originating Slack thread", async () => {
     const request = createSubmitTurnRequest();
     const bytes = new TextEncoder().encode("release notes");
@@ -1671,7 +1833,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile,
         readTextFiles: vi.fn(),
-        writeSlackFile: vi.fn(),
+        writeChannelFile: vi.fn(),
       },
       coreWorker: { centerAgentPostSlackFile },
       storage: await createStorageWithPendingContext(request),
@@ -3007,7 +3169,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       "use openmeld_create_agent_profile_request"
     );
     expect(descriptions.get("openmeld_create_agent_profile_request")).toContain(
-      "single creation entry point"
+      "verified represented member only"
     );
     expect(
       [...descriptions.keys()].includes(
@@ -3101,7 +3263,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       computerFileHandoff: {
         readBinaryFile: vi.fn(),
         readTextFiles,
-        writeSlackFile: vi.fn(),
+        writeChannelFile: vi.fn(),
       },
       coreWorker: { centerAgentWakeAgentProfilesInSpace },
       storage: await createStorageWithPendingContext(request),
@@ -3408,6 +3570,7 @@ describe("remote agent OpenMeld tool catalog", () => {
         "openmeld_list_agent_tasks"
       ),
       limit: 5,
+      speakerMember: { memberId: "member_123", userId: "user_1" },
     });
   });
 
@@ -3929,12 +4092,12 @@ describe("remote agent OpenMeld tool catalog", () => {
         expect(result).toEqual({
           ...scenario.response,
           sideEffects: 0,
-          status: "destructive_confirmation_required",
+          status: "destructive_action_preview",
         });
         const definition = tools.find(
           (tool) => tool.name === "openmeld_prepare_remove_project"
         );
-        expect(definition?.endsTurnAfter?.(result)).toBe(true);
+        expect(definition?.endsTurnAfter?.(result)).not.toBe(true);
       } else {
         expect(result).toEqual(scenario.response);
       }
@@ -4073,7 +4236,7 @@ describe("remote agent OpenMeld tool catalog", () => {
       sideEffects: 0,
       status: "routine_destructive_action_unsupported",
     });
-    expect(prepareDefinition?.endsTurnAfter?.(prepared)).toBe(false);
+    expect(prepareDefinition?.endsTurnAfter?.(prepared)).not.toBe(true);
     expect(centerAgentPrepareRemoveProject).not.toHaveBeenCalled();
     expect(centerAgentRemoveProject).not.toHaveBeenCalled();
   });
@@ -5071,7 +5234,7 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentCreateAgentProfileCreationRequest).not.toHaveBeenCalled();
   });
 
-  it("manages an Agent Profile request through Core-owned authority", async () => {
+  it("keeps setup recovery available but rejects unreleased approval actions", async () => {
     const request = createSubmitTurnRequest();
     const storage = await createStorageWithPendingContext(request);
     const response = {
@@ -5090,41 +5253,44 @@ describe("remote agent OpenMeld tool catalog", () => {
         action: "approve",
         requestId: "request-1",
       })
+    ).rejects.toThrow();
+    expect(centerAgentManageAgentProfileCreationRequest).not.toHaveBeenCalled();
+    await expect(
+      executeTool(tools, "openmeld_manage_agent_profile_creation_request", {
+        action: "retry",
+        requestId: "request-1",
+      })
     ).resolves.toEqual(response);
     expect(centerAgentManageAgentProfileCreationRequest).toHaveBeenCalledWith({
-      action: "approve",
+      action: "retry",
       context: expect.any(Object),
       onBehalfOf: { profileId: request.author.profileId },
       requestId: "request-1",
     });
   });
 
-  it("refuses product tools without submission owner context", async () => {
+  it("uses the Organization Agent principal without borrowing its creator's identity", () => {
     const request = createSubmitTurnRequest();
-    const storage = new InMemoryDurableObjectStorage();
     const context: RemoteAgentCallbackContext = {
       ...createRemoteAgentCallbackContext({
         ack: ACK,
         nowMs: TEST_NOW_MS,
         request,
       }),
-      agentProfileOwnerUserId: "",
+      agentProfileOwnerUserId: null,
     };
-    await putRemoteAgentCallbackContext(storage, context);
-    const tools = getRemoteAgentOpenMeldToolDefinitions({
-      coreWorker: {
-        centerAgentCreateAgentProfile: vi.fn(),
-      },
-      storage,
-    });
-
-    await expect(
-      executeTool(tools, "openmeld_create_agent_profile", {
-        profileName: "Release Agent",
-      })
-    ).rejects.toThrow(
-      "OpenMeld product tools require the Remote Agent submission owner context."
-    );
+    const actor = buildRemoteAgentCoreContext(
+      context,
+      "ownership-test"
+    ).actorContext;
+    expect(actor.callerPrincipalId).toBe(request.agentProfileId);
+    expect(actor).not.toHaveProperty("ownerUserId");
+    expect(
+      buildRemoteAgentCoreContext(
+        { ...context, agentProfileOwnerUserId: "legacy-creator" },
+        "ownership-test"
+      ).actorContext
+    ).toEqual(actor);
   });
 
   it("does not send a request when Organization feedback reporting is disabled", async () => {
@@ -6372,8 +6538,7 @@ function expectedHostedCenterAgentContext(
     activeOrganizationId: request.organizationId,
     actorContext: {
       agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
-      callerPrincipalId: request.agentProfileOwnerUserId,
-      ownerUserId: request.agentProfileOwnerUserId,
+      callerPrincipalId: request.agentProfileId,
       profileKind: "agent",
       requestId: `remote-agent-tool:${toolName}:flue_submission_123`,
       openMeldProfileId: request.agentProfileId,

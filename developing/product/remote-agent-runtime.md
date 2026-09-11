@@ -189,7 +189,7 @@ identity, runtime generation, and trusted Space dispatch context. Stop,
 reconciliation, and recovery resolve the persisted exact runtime conversation.
 They must not substitute the Space ID or Center Agent identity.
 
-Personal Agents receive only current-conversation message reading, member
+Personal Agents receive current-conversation message reading, member
 discovery, live Space Board and public update reading, and explicit same-Space
 Agent Wake tools. Board and updates reuse the same Core/Space readers as Local
 Agents. Updates default to the accepted Wake's source signal, return at most 20
@@ -207,10 +207,63 @@ return request; normal final replies do not trigger another Agent. A personal
 Agent stops initiating handoffs at six relay steps in the existing dispatch
 chain. Existing Organization daily admission limits also apply.
 
-The initial personal runtime does not materialize Computer workspaces,
-Organization documents, Skills, Apps, or Center Agent memory. Completion must
-not write personal conversation content into Center Agent memory. Shared
-infrastructure does not confer the Center Agent's responsibilities or tools.
+Personal Agents also reuse the hosted Computer, research, capability discovery,
+and Code Mode implementations. Each inner Code Mode call and direct tool call
+revalidates its active delivery before invoking a capability. Approved
+Organization Documents and Projects are available through ordinary member read
+tools. Enabled Organization Skill releases use the same immutable selection,
+materialization, and activation path as Center; installation and administration
+remain Center-only. Imported Skill scripts are not executed by this increment.
+Skill materialization may read the exact frozen releases from Core's durable
+submitted request before its worker acknowledgement is persisted. This read-only
+preparation uses the admission idempotency key and still checks current identity,
+binding and membership. It cannot authorize ordinary tools or read other releases;
+normal tool calls and activation recording still require an accepted delivery.
+
+Personal Apps use permitted Organization-shared connections and may use the
+owner's personal connection when that owner enabled personal Remote Agent
+access and is the verified requester or Routine delegate. Another member's
+Wake and an Agent-to-Agent handoff never inherit the owner's private account.
+Existing connector discovery, durable operation records,
+attribution, and destructive-action confirmation remain authoritative. Actions
+requiring a represented human still require the verified current human sender;
+an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
+General Computer, research, and current-Space collaboration tools remain usable
+on Agent handoffs. Delegated human authority is a separate follow-up.
+
+Personal Computers are durable per Agent Profile and Space (including DMs),
+keyed by the encoded pair, because a shell can traverse its entire filesystem.
+A working-directory convention alone cannot protect DM files from another
+Space. Center retains its existing profile-owned Computer and cross-Space
+continuity. Both roles share the same filesystem and execution implementation.
+Selected Space files, including binary files up to the existing 10 MiB limit,
+can be downloaded into the current Computer and published back through canonical
+Space Files. Published files attach their exact revision to the final reply.
+No bucket credentials or another conversation's Computer are exposed.
+
+`browser_execute` uses the Agents SDK browser tools with a native Code Mode
+facet in the existing Computer DO. Browser sessions are one-shot, closed by the
+SDK when the call completes, and bounded to 30 seconds per call. Multi-step
+navigation and interaction must occur in one call; persistent browser login,
+Live View, and human takeover are outside this increment. Existing browser
+Quick Actions remain available. The browser facet does not own Agent scheduling.
+
+Completion must not write personal conversation content into Center Agent
+memory. Organization administration, personal Channels, and Center memory
+remain excluded. Shared infrastructure does not confer Center duties.
+
+Personal Agents expose the six shared Routine management tools, scoped to their
+verified owner and exact Agent identity. The shared Core scheduler runs them
+through personal v4 conversations and returns results to the owner's DM or an
+eligible Space. Routine admission verifies the frozen delegated owner rather
+than requiring the Center Agent as the request author. See
+`center-agent-routines.md` for authority, lifecycle, and rollout requirements.
+
+Rollout is Core first, then Remote Agent: the latter now uses the additive
+`authorize` personal-tool operation before invoking shared capabilities. Old
+Remote workers continue to work with the new Core; new Remote workers must not
+run against an older Core that cannot validate this operation. No workstation
+Wake or Local Agent harness contract changes.
 
 Personal turn context uses the shared Space Entry Brief, identity, and Wake
 participant renderers. Participant IDs come from the source message's canonical
@@ -562,34 +615,73 @@ the connected provider API.
    may be visible. The worker places an explicit shortening notice inside the
    product-wide text ceiling if a model result is larger; CardKit itself never
    silently truncates the accepted callback.
+   Signed native controls bind the current card message to the same Native
+   Delivery, connection, app, tenant, chat, and verified requester. Stop requests
+   go to the existing Remote Agent execution owner; a click never marks the
+   ledger completed or stopped. The worker's terminal callback finalizes the
+   card. Completed cards offer a collapsed follow-up form. A submission becomes
+   ordinary user input at the original frozen destination, not a business
+   approval or an authorization grant. Identical submissions on one card reuse
+   one operation identity; controls expire after 24 hours and are checked against
+   the current connection and membership. Stale or mismatched controls fail closed.
    Generated callback attachments are not delivered into Lark/Feishu in the
    first release. Core finalizes the same card or reply with an explicit
    generated-image delivery notice, removes the unsupported attachment
    references from provider publication, and terminates the durable callback
    successfully instead of retrying forever or silently discarding the fact.
+   Current-message files are read on demand through Core-frozen resource
+   descriptors in the admitted turn. Core rechecks the current designation,
+   Organization, profile, dispatch, conversation and connected provider before
+   downloading the exact original-message resource, bounded to 5 MiB. Text has a
+   bounded preview; binary files require Computer inspection. Channel credentials
+   are never exposed to the model or used as business-App consent. This read does
+   not authorize arbitrary provider files or other conversations.
+   Verified members can explicitly request a Computer file to be sent back to
+   the admitted conversation using `openmeld_send_channel_file`. Core checks the
+   active represented delivery and digest, then uses the existing Center Agent
+   publication operation ledger. Completed attempts replay their receipt; unknown
+   outcomes cannot automatically republish. Upload credentials stay in Core.
+   This does not authorize other chats, Routine output, or business-App writes.
+   After identity/admission validation, Core prepares the durable receipt card
+   before fetching channel history or input attachments. This receipt means
+   the request was received, not that execution has started. The existing
+   admission watchdog covers this preparation window and leaves accepted
+   executions to their existing lifecycle owner. Accepted replays skip input
+   preparation. Final card presentation distinguishes completed responses,
+   failures, confirmed stops, and rollover segments; closing a segment does
+   not imply that the response or delegated work has completed.
    Core converts a Lark-platform `429` `Retry-After` header into a bounded
    provider retry delay for both stream updates and terminal publication.
    Remote Agent waits for at least that delay, while durable callback retry
    keeps any longer backoff. Existing stream coalescing remains the normal
    request-rate control; `Retry-After` is explicit provider backpressure, not a
    second scheduler or publication path.
+   Remote Agent admits `message_channel` answer deltas to this existing stream
+   path, alongside Web/Space. It publishes the first text immediately, coalesces
+   subsequent provider snapshots at 350 ms, and flushes remaining text before
+   tools and terminal completion. Thinking stays private; Web-only tool parts
+   are not sent to CardKit or counted as visible progress. Slack retains its
+   own publication path. The same durable card is finalized after the result;
+   streaming is not a second response or an execution-completion signal.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
    remain available while worker admission is ambiguous, but a replay that
    resolves to an already accepted delivery removes the newly prepared
    duplicate object.
-   Lark/Feishu use Webhook only after real application-config Patch and receipt
-   plus separate Event Subscription URL and Message Card Request URL
-   verification pass. A persistent WebSocket connector remains an explicit
-   connection-scoped transport option, never an automatic retry or a second
-   simultaneous producer. Provider device-flow expiry ends only credential
-   acquisition: once Core saves the App credentials, it owns a bounded
-   configuration window. A connection that reaches `repair_required` or
-   `revoked` offers an explicit Repair action that reconfigures and re-verifies
-   the same saved App without starting another provider device flow. Feishu
-   remains disabled until a qualified
-   mainland tenant/network gate passes. Slack ingress, Queue, orchestration,
+   New Lark/Feishu connections use the official Personal Agent launcher's
+   persistent WebSocket configuration. Core verifies the Channel permission
+   bundle and bot identity, then completes the current setup claim only after
+   the connection's authenticated socket handshake succeeds. The connector
+   persists complete events before acknowledging them; Queue delivery and
+   Center Agent execution run outside the provider acknowledgement deadline.
+   Existing Webhook connections remain readable and operational until an
+   explicit Repair migrates that same app to persistent events and card
+   callbacks. There is never a second simultaneous ingress producer or an
+   automatic transport fallback. Device-flow expiry ends credential acquisition;
+   saved credentials retain the bounded Core-owned configuration window.
+   A failed or revoked connection offers Repair without creating another app.
+   Slack ingress, Queue, orchestration,
    credential storage, and publication remain unchanged through the first
    Lark/Feishu releases; Slack moves behind the generic seam only in its
    separate parity-gated release.
@@ -1640,10 +1732,10 @@ surface adopts official features where they are free**:
     does not retain browser sessions, expose Live View, or implement human
     browser takeover. Browser screenshots use the existing private Space
     attachment contract and are attached to the final Space reply.
-    The computer is owned by the agent identity: one durable workspace per
+    The Center computer is owned by the agent identity: one durable workspace per
     Agent Profile, keyed `agent-computer:<agentProfileId>`. Org-level
     uniqueness follows from the Center Agent being unique per Organization; a
-    future second hosted agent gets its own computer. The computer does not
+    personal Agents use the conversation-scoped identity described above. The computer does not
     mount an OpenMeld host or user workstation. Files persist across
     conversations, Durable Object restarts, and deploys under the fixed layout
     `/computer/{org,projects,spaces,routines,home}`. Ordinary Space turns
@@ -1808,8 +1900,9 @@ surface adopts official features where they are free**:
   member from the durable turn, call private Core RPC, and use the same
   represented-member authority as Web and CLI. Explicit create, update, pause,
   and resume requests execute without another confirmation. Interactive delete
-  requires one separate confirmation backed by a one-time Remote Agent token;
-  the first call ends the turn and the exact confirmed second call executes.
+  uses a one-time Remote Agent token bound to the exact action. An already
+  authorized request may consume it in the same turn; otherwise the Agent asks
+  before execution. The preview itself does not force the turn to end.
   Core remains the represented-member authorization layer.
 
   A Routine turn inherits the executable interactive catalog by default. This
@@ -1896,8 +1989,8 @@ surface adopts official features where they are free**:
   fingerprint, local connection state, or absolute paths. Mutations carry
   durable operation IDs; Core replays matching retries and rejects an operation
   ID reused with different input. Remove requires a short-lived Core token
-  prepared for the exact Project and consumed after explicit confirmation in a
-  later interactive member turn. Routine turns may list, create, update, and
+  prepared for the exact Project and consumed in the same interactive turn
+  when the verified request already authorizes removal. Routine turns may list, create, update, and
   select Default Project under the same represented-member and idempotency
   contracts without free-text permission evidence. Project removal during a
   Routine is unsupported in both Remote Agent and Core and returns
@@ -2584,8 +2677,10 @@ worker callback contract.
   identity must not contain volatile data.
 - The managed Center Agent Profile and hosted Binding stay in their canonical
   Organization. Legacy Wake-access records are not an admission fact.
-- Binding owner is the designating owner/admin (consistent with the local
-  rule: designate only onto your own Binding).
+- The Center Agent Binding owner is its Organization. The designating member
+  is audit attribution only. Native delivery identifies the stable Organization,
+  Agent Profile, and Binding; member-scoped tools separately verify the person
+  represented by the current turn.
 
 ### Hosted readiness states
 

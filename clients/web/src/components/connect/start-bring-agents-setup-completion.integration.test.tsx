@@ -154,42 +154,47 @@ class ControlledMockWebSocket extends MockWebSocket {
 }
 
 describe("StartBringAgentsSetupPage completion actions", () => {
-	it("keeps fresh embedded Agent setup in place and continues through its host", async () => {
-		const onContinue = vi.fn();
-		readPrepareSessionMock.mockResolvedValue({
-			snapshot: createReadySnapshot({ targetSpaceId: null }),
+	it("completes embedded Agent recovery once without leaving the caller", async () => {
+		const onCompleted = vi.fn();
+		const snapshot = createReadySnapshot({
+			setupBootstrap: createCompletedSetupBootstrapResult(),
+			targetSpaceId: null,
 		});
 		createPrepareSessionMock.mockResolvedValueOnce({
-			opaqueToken: "preptok_completed",
-			opaqueTokenExpiresAt: "2026-05-08T10:10:00.000Z",
-			snapshot: createReadySnapshot({ targetSpaceId: null }),
+			opaqueToken: "preptok_embedded",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot,
 		});
 		useBringAgentsSetupContextMock.mockReturnValue(
 			createSetupContext({
 				kind: "account_computer_setup",
-				returnTo: "agent_creation",
 				resetThisComputer: true,
+				returnTo: "agent_creation",
 			})
 		);
-		render(
+		const element = (
 			<TestQueryClientProvider>
 				<StartFlowStateProvider>
 					<ComputerSetupFlow
 						autoReturnOnCompletion={false}
-						onContinue={onContinue}
+						onCompleted={onCompleted}
 						orgSlug="acme"
 						presentation="embedded"
-						showBackControl={false}
 					/>
 				</StartFlowStateProvider>
 			</TestQueryClientProvider>
 		);
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Continue creating Agent" })
+		const view = render(element);
+		await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
+		expect(onCompleted).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prepareSessionId: snapshot.prepareSessionId,
+				deviceId: snapshot.deviceId,
+			})
 		);
-		expect(onContinue).toHaveBeenCalledTimes(1);
+		view.rerender(element);
+		expect(onCompleted).toHaveBeenCalledOnce();
 		expect(navigateMock).not.toHaveBeenCalled();
-		expect(createPrepareSessionMock).toHaveBeenCalledTimes(1);
 	});
 	it("does not replace targeted Agent recovery with management of another online computer", async () => {
 		useBringAgentsSetupContextMock.mockReturnValue(

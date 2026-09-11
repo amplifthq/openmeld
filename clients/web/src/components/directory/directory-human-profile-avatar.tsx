@@ -2,6 +2,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { UserIcon } from "@phosphor-icons/react";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { HumanPresenceIndicator } from "#/components/profiles/human-presence";
 
 const AVATAR_SIZE = {
 	card: 56,
@@ -28,19 +29,25 @@ export function DirectoryHumanProfileAvatar(input: {
 	const size = AVATAR_SIZE[input.context];
 	if (input.member.profileStatus !== null) {
 		return (
-			<DitherProfileAvatar
-				avatarImageUrl={input.member.avatarImageUrl}
-				className={cn("shrink-0", input.context === "card" && "mt-0.5")}
-				data-testid={
-					input.context === "card"
-						? `human-profile-avatar-${input.member.id}`
-						: undefined
-				}
-				profileId={input.member.id}
-				profileKind="human"
-				profileName={input.member.name}
-				size={size}
-			/>
+			<span className="relative inline-flex shrink-0">
+				<DitherProfileAvatar
+					avatarImageUrl={input.member.avatarImageUrl}
+					className={cn("shrink-0", input.context === "card" && "mt-0.5")}
+					data-testid={
+						input.context === "card"
+							? `human-profile-avatar-${input.member.id}`
+							: undefined
+					}
+					profileId={input.member.id}
+					profileKind="human"
+					profileName={input.member.name}
+					size={size}
+				/>
+				<HumanPresenceIndicator
+					large={input.context !== "sidebar"}
+					status={input.member.presence}
+				/>
+			</span>
 		);
 	}
 

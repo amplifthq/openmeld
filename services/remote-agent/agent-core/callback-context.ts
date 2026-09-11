@@ -132,6 +132,8 @@ import type {
   RemoteAgentWorkerSubmitMessagesResult,
   RemoteAgentWorkerSubmitTurnRequest,
   RemoteAgentWorkLoopCheckpoint,
+  ResolveSpaceFileContentInput,
+  ResolveSpaceFileContentResponse,
   ResumeCenterAgentRoutineResponse,
   SpaceAttachmentDescriptor,
   SpaceFileDescriptor,
@@ -189,7 +191,7 @@ export type RemoteAgentCallbackContext = {
   accepted: boolean;
   acceptedAt: string;
   agentProfileId: string;
-  agentProfileOwnerUserId: string;
+  agentProfileOwnerUserId: string | null;
   anonymousIdentityBoundary?: RemoteAgentAnonymousIdentityBoundary;
   bindingId: string;
   callbackAttempts: number;
@@ -441,6 +443,12 @@ export type RemoteAgentCoreWorkerBinding = {
       context: OpenMeldRequestContext;
     }
   ): Promise<CenterAgentReadSlackFileResponse>;
+  centerAgentReadChannelFile?(
+    input: CenterAgentReadChannelFileBody & { context: OpenMeldRequestContext }
+  ): Promise<CenterAgentReadChannelFileResponse>;
+  centerAgentPostChannelFile?(
+    input: CenterAgentPostChannelFileBody & { context: OpenMeldRequestContext }
+  ): Promise<CenterAgentPostChannelFileResponse>;
   centerAgentSearchSlackMessages?(
     input: CenterAgentSearchSlackMessagesBody & {
       context: OpenMeldRequestContext;
@@ -540,6 +548,11 @@ export type RemoteAgentCoreWorkerBinding = {
     spaceId: string;
     write: CommitSpaceFileWriteInput;
   }): Promise<SpaceFileDescriptor>;
+  readSpaceFileContent?(input: {
+    context: OpenMeldRequestContext;
+    spaceId: string;
+    content: ResolveSpaceFileContentInput;
+  }): Promise<ResolveSpaceFileContentResponse & { bytes: ArrayBuffer }>;
   deleteSpaceAttachmentRecord?(input: {
     attachmentId: string;
   }): Promise<{ deleted: boolean }>;
@@ -1972,3 +1985,10 @@ function toOptionalErrorMessage(error: unknown): string | undefined {
   }
   return sanitizeDispatchErrorSummary(toErrorMessage(error)) ?? undefined;
 }
+
+import type {
+  CenterAgentPostChannelFileBody,
+  CenterAgentPostChannelFileResponse,
+  CenterAgentReadChannelFileBody,
+  CenterAgentReadChannelFileResponse,
+} from "@openmeld/schemas/types";

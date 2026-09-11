@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { TooltipProvider } from "#components/tooltip";
 import {
+  SettingsLocalAgentUsageDockItem,
   SettingsLocalAgentUsageLimits,
   SettingsLocalAgentUsageSummary,
 } from "./settings-computers";
@@ -26,6 +27,78 @@ const OPENCODE_GO_SUMMARY_NAME = /OpenCode Go usage, 12% left, Low/u;
 afterEach(cleanup);
 
 describe("Settings Local Agent usage limits", () => {
+  it("keeps dock quotas separate by computer and provider and preserves a logo without usage", async () => {
+    const limit = {
+      key: "weekly",
+      label: "Weekly usage",
+      observedAt: "2026-08-20T07:50:00.000Z",
+      resetsAt: null,
+      status: "available" as const,
+      usedPercent: 88,
+    };
+    const { rerender } = render(
+      <TooltipProvider>
+        <SettingsLocalAgentUsageDockItem
+          agentName="OpenCode"
+          nowMs={NOW_MS}
+          sources={[
+            {
+              id: "laptop",
+              label: "Laptop",
+              limits: [
+                { ...limit, provider: { id: "go", displayName: "Go" } },
+                {
+                  ...limit,
+                  key: "proxy",
+                  usedPercent: 25,
+                  provider: { id: "proxy", displayName: "Proxy" },
+                },
+              ],
+            },
+            {
+              id: "desktop",
+              label: "Desktop",
+              limits: [{ ...limit, usedPercent: 40, status: "stale" }],
+            },
+          ]}
+        >
+          <span>Agent logo</span>
+        </SettingsLocalAgentUsageDockItem>
+      </TooltipProvider>
+    );
+    expect(
+      screen
+        .getAllByRole("progressbar")
+        .map((ring) => ring.getAttribute("aria-valuenow"))
+    ).toEqual(["12"]);
+    expect(
+      screen
+        .getAllByRole("progressbar")
+        .map((ring) => ring.getAttribute("aria-label"))
+    ).toEqual(["Laptop · Go usage, 12% left, Low"]);
+    expect(screen.queryByText("+2")).toBeNull();
+    const trigger = screen.getByTestId("local-agent-usage-dock-OpenCode");
+    fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
+    fireEvent.mouseEnter(trigger);
+    expect(await screen.findByText("Laptop · OpenCode")).toBeTruthy();
+    expect(screen.getByText("Desktop · OpenCode")).toBeTruthy();
+    expect(screen.getByText("75%")).toBeTruthy();
+    expect(screen.getByText("60%")).toBeTruthy();
+    expect(screen.getByText("Stale")).toBeTruthy();
+    rerender(
+      <TooltipProvider>
+        <SettingsLocalAgentUsageDockItem
+          agentName="OpenCode"
+          nowMs={NOW_MS}
+          sources={[]}
+        >
+          <span>Agent logo</span>
+        </SettingsLocalAgentUsageDockItem>
+      </TooltipProvider>
+    );
+    expect(screen.getByText("Agent logo")).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
+  });
   it("summarizes the most constrained window and previews every limit", async () => {
     render(
       <TooltipProvider>
@@ -80,10 +153,10 @@ describe("Settings Local Agent usage limits", () => {
     fireEvent.mouseEnter(trigger);
 
     expect(await screen.findByText("5-hour usage")).toBeTruthy();
-    expect(screen.getByText("58% left · Available")).toBeTruthy();
+    expect(screen.getByText("58%")).toBeTruthy();
     expect(screen.getByText("Weekly usage")).toBeTruthy();
-    expect(screen.getByText("12% left · Low")).toBeTruthy();
-    expect(screen.getByText("Select this agent to view details.")).toBeTruthy();
+    expect(screen.getAllByText("12%").length).toBeGreaterThan(0);
+    expect(screen.getByText("Low")).toBeTruthy();
   });
 
   it("omits collapsed summaries when the provider reports no percentage", () => {

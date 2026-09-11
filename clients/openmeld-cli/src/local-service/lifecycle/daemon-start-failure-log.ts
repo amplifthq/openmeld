@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { getDaemonSystemServiceLogPath } from "./daemon-service-manager";
 
 const LOG_NOISE_PATTERNS = [
@@ -16,6 +16,93 @@ const LOG_STACK_TRACE_PATTERN = /^\s*at\s+/i;
 const LOG_WHITESPACE_PATTERN = /\s+/g;
 const LOG_ERROR_PREFIX_PATTERN = /^error:\s*/i;
 const LOG_LINE_SPLIT_PATTERN = /\r?\n/;
+const LOG_TIMESTAMP_PATTERN =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\s/u;
+const DIAGNOSTIC_LOG_MAX_BYTES = 256 * 1024;
+
+// Only timestamped lines can be attributed to an incident. Undated output is
+// counted explicitly instead of being presented as current failure evidence.
+export async function readDaemonIncidentLogTail(input: {
+  startedAt: string;
+  endedAt: string;
+  maxLines: number;
+  logPath?: string;
+}): Promise<{
+  lines: string[];
+  note: "file_missing" | "file_empty" | null;
+  window: {
+    excludedUndatedLines: number;
+    excludedOutsideWindowLines: number;
+    sourceTruncated: boolean;
+  };
+}> {
+  const window = {
+    excludedUndatedLines: 0,
+    excludedOutsideWindowLines: 0,
+    sourceTruncated: false,
+  };
+  const file = await open(
+    input.logPath ?? getDaemonSystemServiceLogPath(),
+    "r"
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (!file) {
+    return { lines: [], note: "file_missing", window };
+  }
+  try {
+    const stats = await file.stat();
+    if (!stats.isFile()) {
+      throw new Error("Service log is not a file");
+    }
+    if (!stats.size) {
+      return { lines: [], note: "file_empty", window };
+    }
+    const offset = Math.max(0, stats.size - DIAGNOSTIC_LOG_MAX_BYTES);
+    const buffer = Buffer.alloc(Math.min(stats.size, DIAGNOSTIC_LOG_MAX_BYTES));
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, offset);
+    const raw = buffer.subarray(0, bytesRead).toString("utf8");
+    const prefixEnd = offset > 0 ? raw.indexOf("\n") + 1 : 0;
+    const completeEnd = raw.lastIndexOf("\n") + 1;
+    const complete = raw.slice(prefixEnd, completeEnd);
+    window.sourceTruncated = offset > 0 || completeEnd < raw.length;
+    const start = Date.parse(input.startedAt);
+    const end = Date.parse(input.endedAt);
+    const lines: string[] = [];
+    for (const rawLine of complete.split(LOG_LINE_SPLIT_PATTERN)) {
+      const line = normalizeLogLine(rawLine);
+      if (!line) {
+        continue;
+      }
+      const timestamp = LOG_TIMESTAMP_PATTERN.exec(line)?.[1];
+      if (!(timestamp && Number.isFinite(Date.parse(timestamp)))) {
+        window.excludedUndatedLines += 1;
+        continue;
+      }
+      const at = Date.parse(timestamp);
+      if (at < start || at > end) {
+        window.excludedOutsideWindowLines += 1;
+        continue;
+      }
+      if (!isLogNoise(line.slice(timestamp.length).trim())) {
+        lines.push(line);
+      }
+    }
+    if (lines.length > input.maxLines) {
+      window.sourceTruncated = true;
+    }
+    return {
+      lines: input.maxLines > 0 ? lines.slice(-input.maxLines) : [],
+      note: null,
+      window,
+    };
+  } finally {
+    await file.close();
+  }
+}
 const LOG_DETAIL_MAX_LENGTH = 160;
 const PRESENTATION_BORDER_ONLY_PATTERN =
   /^[\s│┆┃┊┌┐└┘├┤╭╮╰╯─━═╴╵╶╷╸╹╺╻╼╽╾╿█▁▂▃▄▅▆▇▀■□◆◇●○◌◦•·…]+$/u;
@@ -86,28 +173,6 @@ function sliceDaemonStartFailureLogBuffer(input: {
     return input.rawBuffer;
   }
   return input.rawBuffer.subarray(input.cursor.size);
-}
-
-export async function readDaemonStartFailureLogTailLines(input: {
-  maxLines: number;
-}): Promise<string[]> {
-  if (input.maxLines <= 0) {
-    return [];
-  }
-  const rawBuffer = await readFile(getDaemonSystemServiceLogPath()).catch(
-    () => null
-  );
-  if (!rawBuffer || rawBuffer.length === 0) {
-    return [];
-  }
-  const lines = rawBuffer
-    .toString("utf8")
-    .split(LOG_LINE_SPLIT_PATTERN)
-    .map((line) => normalizeLogLine(line))
-    .filter((line) => line.length > 0)
-    .filter((line) => !LOG_STACK_TRACE_PATTERN.test(line))
-    .filter((line) => !isLogNoise(line));
-  return lines.slice(-input.maxLines);
 }
 
 export function selectRelevantDaemonStartFailureLogLine(

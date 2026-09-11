@@ -74,6 +74,7 @@ export type SpaceComposerReplyTarget = {
 };
 
 export type PreparedSpaceComposerSubmission = {
+  threadWakeContinuation?: true;
   authoredMentionsInTextOrder: readonly SpaceComposerAuthoredMentionInTextOrder[];
   mentionsInTextOrder: readonly SpaceAuthoredMentionInTextOrder[];
   hasStructuredTargets: boolean;

@@ -77,7 +77,14 @@ type MessageChannelAdapterTarget = {
 
 export type MessageChannelProviderAdapter = {
   provider: LarkPlatformMessageChannelProvider;
+  publishFile(
+    input: MessageChannelAdapterTarget & {
+      bytes: Uint8Array;
+      fileName: string;
+    }
+  ): Promise<MessageChannelPublicationResult>;
   createWorkingCard(input: {
+    stopDeliveryId?: string;
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     initialText: string;
     locator: MessageChannelConversationLocator;
@@ -136,11 +143,13 @@ export type MessageChannelProviderAdapter = {
     text: string;
   }): Promise<MessageChannelCardMutationResult>;
   finalizeWorkingCard(input: {
+    replyDeliveryId?: string;
     cardId: string;
     connection: RemoteAgentLarkPlatformChannelConnectionRecord;
     locator: MessageChannelConversationLocator;
     providerPublicationIdempotencyKey: string;
     sequence: number;
+    outcome: "completed" | "failed" | "stopped" | "continued";
     text: string;
   }): Promise<MessageChannelCardMutationResult>;
 };

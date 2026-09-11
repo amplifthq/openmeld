@@ -1,3 +1,4 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import type { GetSpaceEntryResolutionResponse } from "@openmeld/schemas/types";
 import { Bars } from "@openmeld/ui/components/bars";
@@ -12,8 +13,11 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { joinOrganizationSpace } from "#/lib/organizations/organization-spaces";
 import { isSessionExpiredError } from "#/lib/session-expired";
 import { isCurrentSpaceAccessRejection } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
@@ -21,6 +25,7 @@ import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolutio
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 
 export function SpaceEntryGate(input: {
+	redirectToOrganization?: boolean;
 	backHref?: string;
 	children: (resolution: GetSpaceEntryResolutionResponse) => ReactNode;
 	/** Already identity-scoped, display-only app content; never used by public entry. */
@@ -37,6 +42,8 @@ export function SpaceEntryGate(input: {
 	const queryClient = useQueryClient();
 	const [passwordError, setPasswordError] = useState<string | null>(null);
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
+	const [joinError, setJoinError] = useState<string | null>(null);
+	const [isJoining, setIsJoining] = useState(false);
 	const queryInput = {
 		spaceId: input.spaceId,
 		...(input.openMeldProfileId === undefined
@@ -91,6 +98,26 @@ export function SpaceEntryGate(input: {
 			input.onAccessRejected?.();
 		}
 	}, [rejected, input.onAccessRejected]);
+	const organizationSlug = resolutionQuery.data?.safeContext.organizationSlug;
+	if (
+		input.redirectToOrganization &&
+		organizationSlug &&
+		!resolutionQuery.error
+	) {
+		return (
+			<Navigate
+				replace
+				to={buildOrganizationSpacePath({
+					orgSlug: organizationSlug,
+					spaceId: input.spaceId,
+					search: {
+						focusSignalId: input.signalId,
+						focusThreadRootSignalId: input.threadRootSignalId,
+					},
+				})}
+			/>
+		);
+	}
 	if (!rejected && resolutionQuery.data?.view.state === "allowed") {
 		return (
 			<SpaceEntryConfirmationContext value={confirmation}>
@@ -147,8 +174,30 @@ export function SpaceEntryGate(input: {
 		<SpaceEntryState
 			backHref={input.backHref}
 			errorMessage={resolutionQuery.error?.message ?? null}
+			isJoining={isJoining}
 			isPending={resolutionQuery.isPending}
 			isRetrying={resolutionQuery.isRefetching}
+			joinError={joinError}
+			onJoin={async () => {
+				const organizationId = resolutionQuery.data?.safeContext.organizationId;
+				if (!organizationId) {
+					return;
+				}
+				setIsJoining(true);
+				setJoinError(null);
+				try {
+					await joinOrganizationSpace({
+						organizationId,
+						spaceId: input.spaceId,
+					});
+					await queryClient.invalidateQueries({ queryKey: ["spaces"] });
+					await resolutionQuery.refetch();
+				} catch (error) {
+					setJoinError(toStructuredApiClientFailure(error).message);
+				} finally {
+					setIsJoining(false);
+				}
+			}}
 			onPasswordChange={(value) => {
 				setPassword(value);
 				setPasswordError(null);
@@ -165,6 +214,9 @@ export function SpaceEntryGate(input: {
 }
 
 export function SpaceEntryState(input: {
+	joinError?: string | null;
+	isJoining?: boolean;
+	onJoin?: () => Promise<void>;
 	backHref?: string;
 	errorMessage: string | null;
 	isPending: boolean;
@@ -273,30 +325,7 @@ export function SpaceEntryState(input: {
 	}
 
 	if (resolution.view.state === "membership_required") {
-		const spaceName = resolution.safeContext.spaceName ?? "this Space";
-		const ownerName = resolution.safeContext.owner?.displayName;
-		return (
-			<EntryStateLayout
-				action={
-					input.backHref ? (
-						<a
-							className={buttonVariants({ variant: "outline" })}
-							href={input.backHref}
-						>
-							<ArrowLeftIcon aria-hidden="true" />
-							Back to Spaces
-						</a>
-					) : null
-				}
-				description={
-					ownerName
-						? `Ask ${ownerName} to add you to this Space.`
-						: "Ask a Space owner to add you."
-				}
-				icon={<UserPlusIcon aria-hidden="true" />}
-				title={`You don't have access to ${spaceName}`}
-			/>
-		);
+		return <SpaceMembershipRequired {...input} resolution={resolution} />;
 	}
 
 	return (
@@ -315,6 +344,61 @@ export function SpaceEntryState(input: {
 			description="It may have been removed, or this account may not have access."
 			icon={<WarningCircleIcon aria-hidden="true" />}
 			title="This Space isn't available"
+		/>
+	);
+}
+
+function SpaceMembershipRequired(
+	input: Omit<Parameters<typeof SpaceEntryState>[0], "resolution"> & {
+		resolution: GetSpaceEntryResolutionResponse;
+	}
+) {
+	const spaceName = input.resolution.safeContext.spaceName ?? "this Space";
+	if (
+		input.resolution.participation.state === "self_join_available" &&
+		input.onJoin
+	) {
+		return (
+			<EntryStateLayout
+				action={
+					<div className="space-y-3">
+						{input.joinError ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.joinError}
+							</p>
+						) : null}
+						<Button disabled={input.isJoining} onClick={input.onJoin}>
+							{input.isJoining ? "Joining…" : "Join Space"}
+						</Button>
+					</div>
+				}
+				description="This Space is open to everyone in your organization. Join to read and take part."
+				icon={<UserPlusIcon aria-hidden="true" />}
+				title={`Join ${spaceName}`}
+			/>
+		);
+	}
+	const ownerName = input.resolution.safeContext.owner?.displayName;
+	return (
+		<EntryStateLayout
+			action={
+				input.backHref ? (
+					<a
+						className={buttonVariants({ variant: "outline" })}
+						href={input.backHref}
+					>
+						<ArrowLeftIcon aria-hidden="true" />
+						Back to Spaces
+					</a>
+				) : null
+			}
+			description={
+				ownerName
+					? `Ask ${ownerName} to add you to this Space.`
+					: "Ask a Space owner to add you."
+			}
+			icon={<UserPlusIcon aria-hidden="true" />}
+			title={`You don't have access to ${spaceName}`}
 		/>
 	);
 }

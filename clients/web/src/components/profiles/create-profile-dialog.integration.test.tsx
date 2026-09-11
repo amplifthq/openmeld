@@ -13,6 +13,16 @@ import {
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Keep dormant request-flow tests available for an isolated future reopening.
+const launchPolicy = vi.hoisted(() => ({ enabled: true }));
+vi.mock("@openmeld/schemas", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@openmeld/schemas")>()),
+	get TEAMMATE_AGENT_REQUESTS_ENABLED() {
+		return launchPolicy.enabled;
+	},
+}));
+
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-profile-creation-local-setup";
 import { agentExecutionReadinessQueryKeys } from "#/query/agents/execution-readiness";
@@ -84,6 +94,14 @@ const createAgentProfileCreationRequestMock = vi.hoisted(() => vi.fn());
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
 const toastWarningMock = vi.hoisted(() => vi.fn());
+
+// The shared setup workflow has its own completion integration suite. This
+// boundary proves creation mounts that workflow without a second user action.
+vi.mock("#/components/connect/start-bring-agents-setup-page", () => ({
+	ComputerSetupFlow: () => (
+		<section aria-label="Inline computer setup">Setup command</section>
+	),
+}));
 
 vi.mock("sonner", () => ({
 	toast: {
@@ -638,6 +656,7 @@ async function selectAgentProfileKind() {
 
 describe("CreateProfileDialog", () => {
 	beforeEach(() => {
+		launchPolicy.enabled = true;
 		readPeopleComputerReplyReadinessMock.mockImplementation(async (target) => ({
 			...buildFakeRecovery().currentLocalRuntimeReplyReadinessQuery.data,
 			currentTarget: { availability: "resolved", ...target },
@@ -901,6 +920,50 @@ describe("CreateProfileDialog", () => {
 		});
 	});
 
+	it("does not offer teammate creation while held for launch", async () => {
+		launchPolicy.enabled = false;
+		renderCreateProfileDialog({ orgSlug: "acme", allowTeammateRequests: true });
+		await selectAgentProfileKind();
+		expect(screen.queryByRole("radio", { name: "A teammate" })).toBeNull();
+	});
+
+	it("replaces cached Agent configuration with the inline connection workflow immediately", async () => {
+		const recovery = buildFakeRecovery();
+		const computer =
+			recovery.localRuntimesQuery.data?.peopleComputers.computers[0];
+		if (!computer) {
+			throw new Error("Expected the fixture Computer inventory.");
+		}
+		computer.identityStatus = "enrolled";
+		computer.connectedComputerId = "computer-office";
+		computer.deviceDisplayName = "Office Mac";
+		computer.connection = {
+			status: "disconnected",
+			sessions: [],
+			reasonCodes: [],
+		};
+		const readiness = recovery.currentLocalRuntimeReplyReadinessQuery.data;
+		if (!readiness) {
+			throw new Error("Expected the fixture readiness projection.");
+		}
+		readiness.service.connected = false;
+		readiness.service.matchingCurrentRuntime = false;
+		renderCurrentCreateProfileDialog({ recovery });
+		expect(
+			await screen.findByRole("region", { name: "Inline computer setup" })
+		).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Reconnect Computer" })
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Back to Agent setup" })
+		).toBeNull();
+		expect(screen.getByText("Reconnect Office Mac")).toBeTruthy();
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
+	});
+
 	it("uses the new Agent-first flow and preserves a manually edited name", async () => {
 		renderCurrentCreateProfileDialog({
 			recovery: buildFakeRecovery([
@@ -1036,7 +1099,7 @@ describe("CreateProfileDialog", () => {
 			(screen.getByLabelText("Profile name") as HTMLInputElement).value
 		).toBe("Build Session Inventory");
 		expect(
-			screen.getByRole("heading", { name: "Create a new Agent" })
+			screen.getByRole("heading", { name: "Create an Agent" })
 		).toBeTruthy();
 		expect(
 			screen.queryByRole("tab", { name: HUMAN_PROFILE_CARD_PATTERN })
@@ -2871,9 +2934,11 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() =>
 			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
 		);
-		expect(
-			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
-		).toBeNull();
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+			).toBeNull()
+		);
 		const submitButton = screen.getByRole("button", {
 			name: "Create Agent",
 		}) as HTMLButtonElement;

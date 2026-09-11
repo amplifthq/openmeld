@@ -460,6 +460,7 @@ export type {
 } from "./cli-binary-manifest";
 export type {
   CenterAgentConnectorConnectionSelection,
+  CenterAgentResolveConnectorConnectionBody,
   ConnectorAppCatalogProvider,
   ConnectorAppCatalogResponse,
   ConnectorAppRequest,
@@ -567,6 +568,7 @@ export type {
   SetCurrentOpenMeldToolsMaintenanceResponse,
   SetLocalRuntimeDisplayNameBody,
 } from "./local-runtimes";
+export type * from "./message-channel-files";
 export type {
   LarkPlatformActiveRegistrationListResponse,
   LarkPlatformActiveRegistrationProjection,
@@ -620,6 +622,7 @@ export type {
   OrganizationDirectoryResponse,
   OrganizationMemberWebActivityResponse,
   OrganizationProfileDirectoryAgentProfile,
+  OrganizationProfileDirectoryReadOptions,
   OrganizationProfileDirectoryResponse,
 } from "./organization-directory";
 export type {
@@ -787,6 +790,16 @@ export type {
   PeopleComputersResponse,
   PeopleComputerTarget,
 } from "./people-computers";
+export type * from "./plugin-access";
+export type {
+  PluginActionRequest,
+  PluginActionResponse,
+  PluginActionRpcInput,
+} from "./plugin-actions";
+export type {
+  PluginRuntimeRequest,
+  PluginRuntimeResponse,
+} from "./plugin-runtime";
 export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,
@@ -1121,6 +1134,12 @@ export type {
   SpaceMessageDetailsWakeTarget,
   SpaceMessageDetailsWorkingDetails,
 } from "./space-message-details";
+export type {
+  SpaceFilePinMutation,
+  SpaceFilePinsResponse,
+  SpaceMessagePinMutation,
+  SpaceMessagePinsResponse,
+} from "./space-message-pins";
 export type {
   PatchSpaceMetaBody,
   SpaceCreator,

@@ -20,6 +20,7 @@ import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as CheckEmailRouteImport } from './routes/check-email'
 import { Route as DesktopRouteImport } from './routes/desktop'
 import { Route as DeviceRouteImport } from './routes/device'
+import { Route as FilePreviewRouteImport } from './routes/file-preview'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as GuideDotmdRouteImport } from './routes/guide[.md]'
 import { Route as InvitationRequestsRouteImport } from './routes/invitation-requests'
@@ -63,6 +64,7 @@ import { Route as OOrgSlugNewSpaceRouteImport } from './routes/o/$orgSlug/new-sp
 import { Route as OOrgSlugOnboardingRouteImport } from './routes/o/$orgSlug/onboarding'
 import { Route as OOrgSlugOrganizationsRouteImport } from './routes/o/$orgSlug/organizations'
 import { Route as OOrgSlugPeopleRouteImport } from './routes/o/$orgSlug/people'
+import { Route as OOrgSlugPluginsRouteImport } from './routes/o/$orgSlug/plugins'
 import { Route as OOrgSlugProjectsRouteImport } from './routes/o/$orgSlug/projects'
 import { Route as OOrgSlugSettingsRouteImport } from './routes/o/$orgSlug/settings'
 import { Route as SlackIdentityStartRouteImport } from './routes/slack/identity/start'
@@ -95,6 +97,8 @@ import { Route as OOrgSlugDocumentsNewRouteImport } from './routes/o/$orgSlug/do
 import { Route as OOrgSlugInboxIndexRouteImport } from './routes/o/$orgSlug/inbox.index'
 import { Route as OOrgSlugPeoplePersonIdRouteImport } from './routes/o/$orgSlug/people_.$personId'
 import { Route as OOrgSlugPeopleAgentRequestsRouteImport } from './routes/o/$orgSlug/people_.agent-requests'
+import { Route as OOrgSlugPluginsIndexRouteImport } from './routes/o/$orgSlug/plugins.index'
+import { Route as OOrgSlugPluginsServiceRouteImport } from './routes/o/$orgSlug/plugins.$service'
 import { Route as OOrgSlugProjectsIndexRouteImport } from './routes/o/$orgSlug/projects.index'
 import { Route as OOrgSlugProjectsProjectIdRouteImport } from './routes/o/$orgSlug/projects.$projectId'
 import { Route as OOrgSlugSettingsIndexRouteImport } from './routes/o/$orgSlug/settings/index'
@@ -184,6 +188,11 @@ const DesktopRoute = DesktopRouteImport.update({
 const DeviceRoute = DeviceRouteImport.update({
   id: '/device',
   path: '/device',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const FilePreviewRoute = FilePreviewRouteImport.update({
+  id: '/file-preview',
+  path: '/file-preview',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
@@ -402,6 +411,11 @@ const OOrgSlugPeopleRoute = OOrgSlugPeopleRouteImport.update({
   path: '/people',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
+const OOrgSlugPluginsRoute = OOrgSlugPluginsRouteImport.update({
+  id: '/plugins',
+  path: '/plugins',
+  getParentRoute: () => OOrgSlugRoute,
+} as any)
 const OOrgSlugProjectsRoute = OOrgSlugProjectsRouteImport.update({
   id: '/projects',
   path: '/projects',
@@ -576,6 +590,16 @@ const OOrgSlugPeopleAgentRequestsRoute =
     path: '/people/agent-requests',
     getParentRoute: () => OOrgSlugRoute,
   } as any)
+const OOrgSlugPluginsIndexRoute = OOrgSlugPluginsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => OOrgSlugPluginsRoute,
+} as any)
+const OOrgSlugPluginsServiceRoute = OOrgSlugPluginsServiceRouteImport.update({
+  id: '/$service',
+  path: '/$service',
+  getParentRoute: () => OOrgSlugPluginsRoute,
+} as any)
 const OOrgSlugProjectsIndexRoute = OOrgSlugProjectsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -789,6 +813,7 @@ export interface FileRoutesByFullPath {
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
+  '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
   '/invitation-requests': typeof InvitationRequestsRoute
@@ -831,6 +856,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/onboarding': typeof OOrgSlugOnboardingRoute
   '/o/$orgSlug/organizations': typeof OOrgSlugOrganizationsRoute
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
+  '/o/$orgSlug/plugins': typeof OOrgSlugPluginsRouteWithChildren
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
   '/slack/identity/start': typeof SlackIdentityStartRoute
@@ -856,6 +882,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/documents/new': typeof OOrgSlugDocumentsNewRoute
   '/o/$orgSlug/people/$personId': typeof OOrgSlugPeoplePersonIdRoute
   '/o/$orgSlug/people/agent-requests': typeof OOrgSlugPeopleAgentRequestsRoute
+  '/o/$orgSlug/plugins/$service': typeof OOrgSlugPluginsServiceRoute
   '/o/$orgSlug/projects/$projectId': typeof OOrgSlugProjectsProjectIdRoute
   '/o/$orgSlug/settings/account': typeof OOrgSlugSettingsAccountRoute
   '/o/$orgSlug/settings/appearance': typeof OOrgSlugSettingsAppearanceRoute
@@ -877,6 +904,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/directory/': typeof OOrgSlugDirectoryIndexRoute
   '/o/$orgSlug/documents/': typeof OOrgSlugDocumentsIndexRoute
   '/o/$orgSlug/inbox/': typeof OOrgSlugInboxIndexRoute
+  '/o/$orgSlug/plugins/': typeof OOrgSlugPluginsIndexRoute
   '/o/$orgSlug/projects/': typeof OOrgSlugProjectsIndexRoute
   '/o/$orgSlug/settings/': typeof OOrgSlugSettingsIndexRoute
   '/o/$orgSlug/spaces/': typeof OOrgSlugSpacesIndexRoute
@@ -911,6 +939,7 @@ export interface FileRoutesByTo {
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
+  '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
   '/invitation-requests': typeof InvitationRequestsRoute
@@ -971,6 +1000,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/documents/new': typeof OOrgSlugDocumentsNewRoute
   '/o/$orgSlug/people/$personId': typeof OOrgSlugPeoplePersonIdRoute
   '/o/$orgSlug/people/agent-requests': typeof OOrgSlugPeopleAgentRequestsRoute
+  '/o/$orgSlug/plugins/$service': typeof OOrgSlugPluginsServiceRoute
   '/o/$orgSlug/projects/$projectId': typeof OOrgSlugProjectsProjectIdRoute
   '/o/$orgSlug/settings/account': typeof OOrgSlugSettingsAccountRoute
   '/o/$orgSlug/settings/appearance': typeof OOrgSlugSettingsAppearanceRoute
@@ -991,6 +1021,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/directory': typeof OOrgSlugDirectoryIndexRoute
   '/o/$orgSlug/documents': typeof OOrgSlugDocumentsIndexRoute
   '/o/$orgSlug/inbox': typeof OOrgSlugInboxIndexRoute
+  '/o/$orgSlug/plugins': typeof OOrgSlugPluginsIndexRoute
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsIndexRoute
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsIndexRoute
   '/o/$orgSlug/spaces': typeof OOrgSlugSpacesIndexRoute
@@ -1025,6 +1056,7 @@ export interface FileRoutesById {
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
   '/device': typeof DeviceRouteWithChildren
+  '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/guide.md': typeof GuideDotmdRoute
   '/invitation-requests': typeof InvitationRequestsRoute
@@ -1068,6 +1100,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/onboarding': typeof OOrgSlugOnboardingRoute
   '/o/$orgSlug/organizations': typeof OOrgSlugOrganizationsRoute
   '/o/$orgSlug/people': typeof OOrgSlugPeopleRoute
+  '/o/$orgSlug/plugins': typeof OOrgSlugPluginsRouteWithChildren
   '/o/$orgSlug/projects': typeof OOrgSlugProjectsRouteWithChildren
   '/o/$orgSlug/settings': typeof OOrgSlugSettingsRouteWithChildren
   '/slack/identity/start': typeof SlackIdentityStartRoute
@@ -1093,6 +1126,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/documents/new': typeof OOrgSlugDocumentsNewRoute
   '/o/$orgSlug/people_/$personId': typeof OOrgSlugPeoplePersonIdRoute
   '/o/$orgSlug/people_/agent-requests': typeof OOrgSlugPeopleAgentRequestsRoute
+  '/o/$orgSlug/plugins/$service': typeof OOrgSlugPluginsServiceRoute
   '/o/$orgSlug/projects/$projectId': typeof OOrgSlugProjectsProjectIdRoute
   '/o/$orgSlug/settings/account': typeof OOrgSlugSettingsAccountRoute
   '/o/$orgSlug/settings/appearance': typeof OOrgSlugSettingsAppearanceRoute
@@ -1114,6 +1148,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/directory/': typeof OOrgSlugDirectoryIndexRoute
   '/o/$orgSlug/documents/': typeof OOrgSlugDocumentsIndexRoute
   '/o/$orgSlug/inbox/': typeof OOrgSlugInboxIndexRoute
+  '/o/$orgSlug/plugins/': typeof OOrgSlugPluginsIndexRoute
   '/o/$orgSlug/projects/': typeof OOrgSlugProjectsIndexRoute
   '/o/$orgSlug/settings/': typeof OOrgSlugSettingsIndexRoute
   '/o/$orgSlug/spaces/': typeof OOrgSlugSpacesIndexRoute
@@ -1150,6 +1185,7 @@ export interface FileRouteTypes {
     | '/check-email'
     | '/desktop'
     | '/device'
+    | '/file-preview'
     | '/forgot-password'
     | '/guide.md'
     | '/invitation-requests'
@@ -1192,6 +1228,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/onboarding'
     | '/o/$orgSlug/organizations'
     | '/o/$orgSlug/people'
+    | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
     | '/slack/identity/start'
@@ -1217,6 +1254,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/documents/new'
     | '/o/$orgSlug/people/$personId'
     | '/o/$orgSlug/people/agent-requests'
+    | '/o/$orgSlug/plugins/$service'
     | '/o/$orgSlug/projects/$projectId'
     | '/o/$orgSlug/settings/account'
     | '/o/$orgSlug/settings/appearance'
@@ -1238,6 +1276,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/directory/'
     | '/o/$orgSlug/documents/'
     | '/o/$orgSlug/inbox/'
+    | '/o/$orgSlug/plugins/'
     | '/o/$orgSlug/projects/'
     | '/o/$orgSlug/settings/'
     | '/o/$orgSlug/spaces/'
@@ -1272,6 +1311,7 @@ export interface FileRouteTypes {
     | '/check-email'
     | '/desktop'
     | '/device'
+    | '/file-preview'
     | '/forgot-password'
     | '/guide.md'
     | '/invitation-requests'
@@ -1332,6 +1372,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/documents/new'
     | '/o/$orgSlug/people/$personId'
     | '/o/$orgSlug/people/agent-requests'
+    | '/o/$orgSlug/plugins/$service'
     | '/o/$orgSlug/projects/$projectId'
     | '/o/$orgSlug/settings/account'
     | '/o/$orgSlug/settings/appearance'
@@ -1352,6 +1393,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/directory'
     | '/o/$orgSlug/documents'
     | '/o/$orgSlug/inbox'
+    | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
     | '/o/$orgSlug/spaces'
@@ -1385,6 +1427,7 @@ export interface FileRouteTypes {
     | '/check-email'
     | '/desktop'
     | '/device'
+    | '/file-preview'
     | '/forgot-password'
     | '/guide.md'
     | '/invitation-requests'
@@ -1428,6 +1471,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/onboarding'
     | '/o/$orgSlug/organizations'
     | '/o/$orgSlug/people'
+    | '/o/$orgSlug/plugins'
     | '/o/$orgSlug/projects'
     | '/o/$orgSlug/settings'
     | '/slack/identity/start'
@@ -1453,6 +1497,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/documents/new'
     | '/o/$orgSlug/people_/$personId'
     | '/o/$orgSlug/people_/agent-requests'
+    | '/o/$orgSlug/plugins/$service'
     | '/o/$orgSlug/projects/$projectId'
     | '/o/$orgSlug/settings/account'
     | '/o/$orgSlug/settings/appearance'
@@ -1474,6 +1519,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/directory/'
     | '/o/$orgSlug/documents/'
     | '/o/$orgSlug/inbox/'
+    | '/o/$orgSlug/plugins/'
     | '/o/$orgSlug/projects/'
     | '/o/$orgSlug/settings/'
     | '/o/$orgSlug/spaces/'
@@ -1509,6 +1555,7 @@ export interface RootRouteChildren {
   CheckEmailRoute: typeof CheckEmailRoute
   DesktopRoute: typeof DesktopRouteWithChildren
   DeviceRoute: typeof DeviceRouteWithChildren
+  FilePreviewRoute: typeof FilePreviewRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   GuideDotmdRoute: typeof GuideDotmdRoute
   InvitationRequestsRoute: typeof InvitationRequestsRoute
@@ -1623,6 +1670,13 @@ declare module '@tanstack/react-router' {
       path: '/device'
       fullPath: '/device'
       preLoaderRoute: typeof DeviceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/file-preview': {
+      id: '/file-preview'
+      path: '/file-preview'
+      fullPath: '/file-preview'
+      preLoaderRoute: typeof FilePreviewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/forgot-password': {
@@ -1926,6 +1980,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugPeopleRouteImport
       parentRoute: typeof OOrgSlugRoute
     }
+    '/o/$orgSlug/plugins': {
+      id: '/o/$orgSlug/plugins'
+      path: '/plugins'
+      fullPath: '/o/$orgSlug/plugins'
+      preLoaderRoute: typeof OOrgSlugPluginsRouteImport
+      parentRoute: typeof OOrgSlugRoute
+    }
     '/o/$orgSlug/projects': {
       id: '/o/$orgSlug/projects'
       path: '/projects'
@@ -2149,6 +2210,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/o/$orgSlug/people/agent-requests'
       preLoaderRoute: typeof OOrgSlugPeopleAgentRequestsRouteImport
       parentRoute: typeof OOrgSlugRoute
+    }
+    '/o/$orgSlug/plugins/': {
+      id: '/o/$orgSlug/plugins/'
+      path: '/'
+      fullPath: '/o/$orgSlug/plugins/'
+      preLoaderRoute: typeof OOrgSlugPluginsIndexRouteImport
+      parentRoute: typeof OOrgSlugPluginsRoute
+    }
+    '/o/$orgSlug/plugins/$service': {
+      id: '/o/$orgSlug/plugins/$service'
+      path: '/$service'
+      fullPath: '/o/$orgSlug/plugins/$service'
+      preLoaderRoute: typeof OOrgSlugPluginsServiceRouteImport
+      parentRoute: typeof OOrgSlugPluginsRoute
     }
     '/o/$orgSlug/projects/': {
       id: '/o/$orgSlug/projects/'
@@ -2621,6 +2696,20 @@ const OOrgSlugInboxRouteWithChildren = OOrgSlugInboxRoute._addFileChildren(
   OOrgSlugInboxRouteChildren,
 )
 
+interface OOrgSlugPluginsRouteChildren {
+  OOrgSlugPluginsServiceRoute: typeof OOrgSlugPluginsServiceRoute
+  OOrgSlugPluginsIndexRoute: typeof OOrgSlugPluginsIndexRoute
+}
+
+const OOrgSlugPluginsRouteChildren: OOrgSlugPluginsRouteChildren = {
+  OOrgSlugPluginsServiceRoute: OOrgSlugPluginsServiceRoute,
+  OOrgSlugPluginsIndexRoute: OOrgSlugPluginsIndexRoute,
+}
+
+const OOrgSlugPluginsRouteWithChildren = OOrgSlugPluginsRoute._addFileChildren(
+  OOrgSlugPluginsRouteChildren,
+)
+
 interface OOrgSlugProjectsRouteChildren {
   OOrgSlugProjectsProjectIdRoute: typeof OOrgSlugProjectsProjectIdRoute
   OOrgSlugProjectsIndexRoute: typeof OOrgSlugProjectsIndexRoute
@@ -2697,6 +2786,7 @@ interface OOrgSlugRouteChildren {
   OOrgSlugOnboardingRoute: typeof OOrgSlugOnboardingRoute
   OOrgSlugOrganizationsRoute: typeof OOrgSlugOrganizationsRoute
   OOrgSlugPeopleRoute: typeof OOrgSlugPeopleRoute
+  OOrgSlugPluginsRoute: typeof OOrgSlugPluginsRouteWithChildren
   OOrgSlugProjectsRoute: typeof OOrgSlugProjectsRouteWithChildren
   OOrgSlugSettingsRoute: typeof OOrgSlugSettingsRouteWithChildren
   OOrgSlugAgentsNewRoute: typeof OOrgSlugAgentsNewRoute
@@ -2727,6 +2817,7 @@ const OOrgSlugRouteChildren: OOrgSlugRouteChildren = {
   OOrgSlugOnboardingRoute: OOrgSlugOnboardingRoute,
   OOrgSlugOrganizationsRoute: OOrgSlugOrganizationsRoute,
   OOrgSlugPeopleRoute: OOrgSlugPeopleRoute,
+  OOrgSlugPluginsRoute: OOrgSlugPluginsRouteWithChildren,
   OOrgSlugProjectsRoute: OOrgSlugProjectsRouteWithChildren,
   OOrgSlugSettingsRoute: OOrgSlugSettingsRouteWithChildren,
   OOrgSlugAgentsNewRoute: OOrgSlugAgentsNewRoute,
@@ -2759,6 +2850,7 @@ const rootRouteChildren: RootRouteChildren = {
   CheckEmailRoute: CheckEmailRoute,
   DesktopRoute: DesktopRouteWithChildren,
   DeviceRoute: DeviceRouteWithChildren,
+  FilePreviewRoute: FilePreviewRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   GuideDotmdRoute: GuideDotmdRoute,
   InvitationRequestsRoute: InvitationRequestsRoute,

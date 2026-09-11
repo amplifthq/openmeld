@@ -261,6 +261,7 @@ export type PublicAgentFailureRecoveryKind =
   | "local_agent_prepare"
   | "local_service"
   | "system_retry"
+  | "request_ended"
   | "unknown";
 
 export type PublicAgentFailureRecoveryTarget =
@@ -285,14 +286,17 @@ export type PublicAgentAvailabilityCopy = {
 export type PublicAgentFailureRecovery =
   | {
       body: string;
-      kind: Exclude<PublicAgentFailureRecoveryKind, "system_retry">;
+      kind: Exclude<
+        PublicAgentFailureRecoveryKind,
+        "system_retry" | "request_ended"
+      >;
       primaryActionId: AgentRecoveryActionId;
       primaryActionLabel: string;
       recoveryTarget: PublicAgentFailureRecoveryTarget;
     }
   | {
       body: string;
-      kind: "system_retry" | "unknown";
+      kind: "system_retry" | "request_ended" | "unknown";
       recoveryTarget: null;
     };
 
@@ -374,12 +378,15 @@ const DEFAULT_CONTROLLER_SIGN_IN_AVAILABILITY_COPY = {
 
 type PublicAgentFailureRecoveryMapping =
   | (PublicAgentFailureRecoveryMappingBase & {
-      kind: Exclude<PublicAgentFailureRecoveryKind, "system_retry">;
+      kind: Exclude<
+        PublicAgentFailureRecoveryKind,
+        "system_retry" | "request_ended"
+      >;
       primaryActionId: AgentRecoveryActionId;
       recoveryTarget: PublicAgentFailureRecoveryTarget;
     })
   | (PublicAgentFailureRecoveryMappingBase & {
-      kind: "system_retry";
+      kind: "system_retry" | "request_ended";
       recoveryTarget: null;
     });
 
@@ -475,9 +482,8 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary:
-        "This Agent's computer connection is unavailable right now.",
-      availabilityTooltip: "Computer connection unavailable",
+      availabilitySummary: "OpenMeld couldn't check this agent's connection.",
+      availabilityTooltip: "Connection check unavailable",
       patterns: ["=wake_route.registration_unavailable"],
     },
     {
@@ -1131,11 +1137,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary:
-        "This Agent's computer connection is unavailable right now.",
-      availabilityTooltip: "Computer connection unavailable",
+      availabilitySummary: "OpenMeld couldn't check this agent's connection.",
+      availabilityTooltip: "Connection check unavailable",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.`,
+        `OpenMeld couldn't check ${targetName}'s connection. Try again.`,
       kind: "local_service",
       patterns: ["=agent_execution.route_unavailable", "=route.unavailable"],
       primaryActionId: "check_status",
@@ -1168,6 +1173,19 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
         `The computer is connected, but ${formatObjectTargetName(targetName)} did not become ready in time for this Wake. Try waking the Agent again in a moment.`,
       kind: "system_retry",
       patterns: ["=daemon.profile.pending_first_report"],
+      recoveryTarget: null,
+    },
+    {
+      body: (targetName) =>
+        `${formatObjectTargetName(targetName)} did not start before the deadline. This Wake has expired and will not run when the computer reconnects. Send a new Wake if the work is still needed.`,
+      kind: "request_ended",
+      patterns: ["=wake.device_wait.expired"],
+      recoveryTarget: null,
+    },
+    {
+      body: "This waiting Wake could not start because its requester or Agent no longer has access to this Space. Review access before sending a new Wake.",
+      kind: "request_ended",
+      patterns: ["=wake.device_wait.access_revoked"],
       recoveryTarget: null,
     },
     {
@@ -1416,7 +1434,7 @@ export function resolvePublicAgentFailureRecovery(input: {
   if (mapping.recoveryTarget === null) {
     return {
       body,
-      kind: "system_retry",
+      kind: mapping.kind,
       recoveryTarget: null,
     };
   }

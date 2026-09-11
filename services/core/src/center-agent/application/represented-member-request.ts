@@ -118,14 +118,14 @@ function requireHostedCenterAgentActor(
   const actorProfile = authorization.actorProfile;
   if (
     actorContext.agentControllerRef !== HOSTED_CENTER_AGENT_CONTROLLER_REF ||
-    !actorContext.ownerUserId ||
-    actorContext.ownerUserId !== actorContext.callerPrincipalId ||
+    actorContext.ownerUserId !== undefined ||
+    actorContext.callerPrincipalId !== actorProfile.profileId ||
     actorProfile.profileKind !== "agent" ||
     actorProfile.status !== "active" ||
     actorProfile.managedRole !== "center_agent" ||
     actorProfile.organizationId !==
       authorization.activeOrganization.organizationId ||
-    actorProfile.ownerUserId !== actorContext.ownerUserId
+    actorProfile.ownerUserId !== null
   ) {
     throw centerAgentNotDesignatedError();
   }

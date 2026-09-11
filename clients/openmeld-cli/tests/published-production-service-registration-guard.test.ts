@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../src/config/published-production-safety";
 import type {
@@ -6,6 +7,7 @@ import type {
   DaemonServiceManager,
 } from "../src/local-service/lifecycle/daemon-service-manager";
 import { guardDaemonServiceManagerMutations } from "../src/local-service/lifecycle/daemon-service-manager";
+import { withTempHome } from "./helpers/fs";
 
 const PROD_ARGV = ["/usr/local/bin/node", "/usr/local/bin/openmeld"];
 const DURING_TESTS_PATTERN = /during tests/;
@@ -162,15 +164,29 @@ describe("guardDaemonServiceManagerMutations", () => {
   });
 
   it("passes mutations through for an isolated lane preset", async () => {
-    const { manager, calls } = buildRecordingManager();
-    const guarded = guardDaemonServiceManagerMutations(manager, {
-      env: { VITEST: "true", OPENMELD_ENV_PRESET: "dev-local" },
-      argv: TEST_ARGV,
-    });
+    await withTempHome(async (testHome) => {
+      const { manager, calls } = buildRecordingManager();
+      const env = {
+        VITEST: "true",
+        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: join(testHome, ".openmeld"),
+      };
+      manager.status = vi.fn().mockResolvedValue({
+        installed: true,
+        running: true,
+        enabled: true,
+        commandSpec: { executable: "/bin/true", args: [], env },
+      });
+      const guarded = guardDaemonServiceManagerMutations(manager, {
+        env,
+        argv: TEST_ARGV,
+      });
 
-    await guarded.stop();
-    await guarded.uninstall();
-    expect(calls).toEqual(["stop", "uninstall"]);
+      await guarded.stop();
+      await guarded.uninstall();
+      expect(calls).toEqual(["stop", "uninstall"]);
+      expect(manager.status).toHaveBeenCalledTimes(2);
+    });
   });
 
   it("is applied by default when the pathInput omits overrides in a test process", async () => {

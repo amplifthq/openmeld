@@ -4,6 +4,7 @@ import {
   agentProfileCreationConfigurationSchema,
   createAgentProfileCreationRequestBodySchema,
   DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "@openmeld/schemas";
 import type { AgentProfileCreationConfiguration } from "@openmeld/schemas/types";
 import { readCurrentLocalDeviceId } from "../local-service/state/current-device-identity";
@@ -73,6 +74,17 @@ export async function runProfileCreationRequestCreate(
       callerUserId: context.callerUserId,
       value: input.targetOwner,
     });
+    if (
+      !TEAMMATE_AGENT_REQUESTS_ENABLED &&
+      targetOwnerUserId !== context.callerUserId
+    ) {
+      throw new ProfileCreationRequestCliError({
+        code: "profile.creation_request.teammate_unavailable",
+        message: "Creating an Agent for another member is not available.",
+        nextStep: "Use `--owner self` to create your own Agent.",
+        title: "Teammate Agent Creation Unavailable",
+      });
+    }
     const configuration = await resolveRequestConfiguration({
       context,
       input,
@@ -118,7 +130,7 @@ export async function runProfileCreationRequestCreate(
         message:
           "The request may have been accepted. Its final status could not be checked.",
         details: [{ label: "Idempotency key", value: idempotencyKey }],
-        nextStep: `Run openmeld profile requests list to check progress. To submit this same intent again, repeat the command with --idempotency-key ${idempotencyKey}.`,
+        nextStep: `Run openmeld profile requests list to check progress. To submit this same intent again, repeat the command with --request-key ${idempotencyKey}.`,
       });
       return;
     }

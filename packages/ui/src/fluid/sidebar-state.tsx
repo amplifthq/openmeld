@@ -48,6 +48,7 @@ type SidebarContextValue = {
   scheduleDismissPeek: () => void;
   cancelPeekTimer: () => void;
   static: boolean;
+  peekOnHover: boolean;
 };
 
 const SidebarContext = createContext<SidebarContextValue | null>(null);
@@ -65,12 +66,14 @@ export function SidebarProvider({
   geometry,
   onGeometryChange,
   static: staticPresentation = false,
+  peekOnHover = true,
   ...props
 }: Omit<ComponentProps<"div">, "onChange"> & {
   children: ReactNode;
   geometry: SidebarGeometry;
   onGeometryChange: (geometry: SidebarGeometry) => void;
   static?: boolean;
+  peekOnHover?: boolean;
 }) {
   const [dragGeometry, setDragGeometry] = useState<SidebarGeometry | null>(
     null
@@ -98,13 +101,16 @@ export function SidebarProvider({
     [cancelPeekTimer]
   );
   const schedulePeek = useCallback(() => {
+    if (!peekOnHover) {
+      return;
+    }
     if (timerIntent.current === "open") {
       return;
     }
     cancelPeekTimer();
     timerIntent.current = "open";
     timer.current = setTimeout(() => setPeeking(true), 150);
-  }, [cancelPeekTimer]);
+  }, [cancelPeekTimer, peekOnHover]);
   const scheduleDismissPeek = useCallback(() => {
     if (timerIntent.current === "close") {
       return;
@@ -181,12 +187,13 @@ export function SidebarProvider({
       setOpen,
       toggleSidebar,
       isResizing: dragGeometry !== null,
-      isPeeking: current.mode === "hidden" && isPeeking,
+      isPeeking: peekOnHover && current.mode === "hidden" && isPeeking,
       setIsPeeking,
       schedulePeek,
       scheduleDismissPeek,
       cancelPeekTimer,
       static: staticPresentation,
+      peekOnHover,
     }),
     [
       current,
@@ -200,6 +207,7 @@ export function SidebarProvider({
       scheduleDismissPeek,
       cancelPeekTimer,
       staticPresentation,
+      peekOnHover,
     ]
   );
 

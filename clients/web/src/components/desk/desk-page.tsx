@@ -31,7 +31,7 @@ import {
 import { toast } from "sonner";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { WorkspaceCanvas } from "#/components/canvas/workspace-canvas";
-import type { SpaceAddMembersCandidateSummary } from "#/components/spaces/space-members-drawer";
+import type { SpaceAddMembersCandidateSummary } from "#/components/spaces/people-agent-picker-model";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {

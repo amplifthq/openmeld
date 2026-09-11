@@ -1137,8 +1137,7 @@ describe("auth session resolution", () => {
       expect.stringContaining("FROM organizations")
     );
     expect(profileServiceMock.ensureManagedAgentProfile).toHaveBeenCalledWith({
-      ownerUserId: "owner-123",
-      createdByUserId: "owner-123",
+      createdByUserId: null,
       creatorProfileId: null,
       organizationId: "org-123",
       managedRole: "center_agent",
@@ -1676,6 +1675,7 @@ describe("auth session resolution", () => {
         profileKind: "agent",
         profileName: "Research Agent",
         status: "active",
+        managedRole: null,
       },
     });
   });
@@ -1707,6 +1707,7 @@ describe("auth session resolution", () => {
         profileKind: "agent",
         profileName: "Research Agent",
         status: "disabled",
+        managedRole: null,
       },
     });
   });

@@ -1647,7 +1647,10 @@ function AgentProfileDirectoryRow(input: {
 			}
 			organizationId={controller.currentOrganization.id}
 			ownerAvatarUrl={
-				input.cardInput.ownerAvatarUrlByUserId?.get(profile.ownerUserId) ?? null
+				profile.ownerUserId
+					? (input.cardInput.ownerAvatarUrlByUserId?.get(profile.ownerUserId) ??
+						null)
+					: null
 			}
 			ownerProfile={
 				input.cardInput.recovery.selectedHumanProfile?.ownerUserId ===
@@ -1943,6 +1946,9 @@ function groupAgentProfilesByOwner(input: {
 }): AgentProfileOwnerGroup[] {
 	const groups = new Map<string, AgentProfileOwnerGroup>();
 	for (const profile of input.profiles) {
+		if (!profile.ownerUserId) {
+			continue;
+		}
 		const existing = groups.get(profile.ownerUserId);
 		if (existing) {
 			existing.profiles.push(profile);
@@ -3750,6 +3756,7 @@ function AgentProfileWorkspacePresentation(input: {
 					)
 				}
 				controllerModelSummary={controllerModelSummary}
+				conversationViewerProfileId={input.input.actorProfileId}
 				currentSession={input.currentSession}
 				details={input.input.details}
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}

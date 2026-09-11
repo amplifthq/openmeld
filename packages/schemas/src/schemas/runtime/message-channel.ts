@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "#lazy-zod";
 
 export const MESSAGE_CHANNEL_PROVIDERS = ["slack", "lark", "feishu"] as const;
 export const MESSAGE_CHANNEL_TRANSPORTS = ["webhook", "websocket"] as const;
@@ -190,8 +191,22 @@ export const normalizedMessageChannelCardActionEventSchema = z.strictObject({
   senderId: providerIdSchema,
   ...messageChannelConversationEventShape,
   actionName: nonEmptyStringSchema.max(128),
-  actionValue: nonEmptyStringSchema.max(2000).nullable(),
+  actionValue: nonEmptyStringSchema.max(8192).nullable(),
 });
+
+export const messageChannelCardControlSchema = z.discriminatedUnion("action", [
+  z.strictObject({
+    v: z.literal(1),
+    action: z.literal("stop"),
+    deliveryId: providerIdSchema,
+  }),
+  z.strictObject({
+    v: z.literal(1),
+    action: z.literal("reply"),
+    deliveryId: providerIdSchema,
+    text: z.string().trim().min(1).max(1000),
+  }),
+]);
 
 export const normalizedMessageChannelBotAddedEventSchema = z.strictObject({
   kind: z.literal("bot_added"),
@@ -239,6 +254,9 @@ export const messageChannelIngressEnvelopeSchema = z
     provider: messageChannelProviderSchema,
     connectionId: providerIdSchema,
     providerEventId: providerIdSchema,
+    // Persistent ingress pins accepted work to its connection incarnation.
+    // Optional for Webhook events already queued before connector rollout.
+    connectionGeneration: z.number().int().positive().optional(),
     receivedAtMs: timestampMsSchema,
     gatewayRequestId: providerIdSchema,
     event: normalizedMessageChannelEventSchema,
@@ -263,7 +281,7 @@ export const messageChannelIngressEnvelopeSchema = z
     }
   });
 
-type MessageChannelConversationLocator = z.infer<
+type MessageChannelConversationLocator = zod.infer<
   typeof messageChannelConversationLocatorSchema
 >;
 
