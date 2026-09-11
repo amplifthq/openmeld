@@ -84,7 +84,7 @@ describe("GlobalInboxLauncher", () => {
 		});
 		listCurrentInboxItemsMock.mockReset().mockImplementation(async (input) => ({
 			items:
-				input.view === "urgent_updates"
+				input.view === "urgent_updates" || input.view === "needs_review"
 					? []
 					: [
 							input.view === "needs_action"
@@ -126,7 +126,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 
 		const trigger = await screen.findByRole("button", {
-			name: "Open Inbox, 2 items need action",
+			name: "Open Inbox, 2 pending items",
 		});
 		const attentionIndicator = trigger.querySelector(
 			'span[aria-hidden="true"]'
@@ -144,7 +144,7 @@ describe("GlobalInboxLauncher", () => {
 		expect(
 			await screen.findByRole("dialog", { name: "Inbox preview" })
 		).toBeTruthy();
-		expect(screen.getByRole("status").textContent).toBe("2 items need action");
+		expect(screen.getByRole("status").textContent).toBe("2 pending items");
 		expect(
 			screen.getByRole("link", { name: "Open full Inbox" }).getAttribute("href")
 		).toBe("/o/amplift/inbox");
@@ -189,7 +189,7 @@ describe("GlobalInboxLauncher", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 
@@ -240,12 +240,12 @@ describe("GlobalInboxLauncher", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 6 items need action",
+				name: "Open Inbox, 6 pending items",
 			})
 		);
 
 		expect((await screen.findByRole("status")).textContent).toBe(
-			"6 items need action"
+			"6 pending items"
 		);
 		expect(screen.queryByText("All caught up")).toBeNull();
 		await waitFor(() => {
@@ -316,7 +316,7 @@ describe("GlobalInboxLauncher", () => {
 		});
 		renderLauncher();
 		const trigger = await screen.findByRole("button", {
-			name: "Open Inbox, 2 items need action, 3 unread urgent updates",
+			name: "Open Inbox, 2 pending items, 3 unread urgent updates",
 		});
 		expect(trigger.className).toContain("text-destructive");
 		expect(trigger.textContent).toBe("Inbox");
@@ -327,7 +327,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 
@@ -350,7 +350,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 
@@ -364,7 +364,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 

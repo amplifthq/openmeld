@@ -10,7 +10,6 @@ import { FluidDropdownMenuItem } from "@openmeld/ui/fluid/dropdown-menu";
 import { SidebarFooter } from "@openmeld/ui/fluid/sidebar";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { SidebarUserFooter } from "@openmeld/ui/fluid/sidebar-user-footer";
-import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CaretRightIcon,
@@ -20,15 +19,14 @@ import {
 	SignOutIcon,
 	SunIcon,
 } from "@phosphor-icons/react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
+import { useAppSettings } from "#/components/settings/use-app-settings";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
-import { buildOrganizationAccountSettingsPath } from "#/lib/organizations/organization-routes";
-import { useInvitationReviewCount } from "#/query/organizations/invitation-requests";
 import {
 	AccountsSwitcherView,
 	useAccountSwitcher,
@@ -48,7 +46,6 @@ export function AppSidebarFooter({
 	account,
 	humanProfileAvatar,
 	mode,
-	orgSlug,
 	isSettingsActive,
 }: {
 	account: AppOuterRailAccount;
@@ -59,25 +56,10 @@ export function AppSidebarFooter({
 }) {
 	const iconOnly = mode === "icon";
 	const computerAttentionLabel = useCurrentComputer()?.attentionLabel;
-	const footerRef = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		// Route layouts recreate the footer. Resolve its initial hover geometry
-		// before enabling transitions, so navigation does not replay an entrance.
-		const frame = requestAnimationFrame(() => {
-			if (footerRef.current) {
-				footerRef.current.dataset.footerMotionReady = "true";
-			}
-		});
-		return () => cancelAnimationFrame(frame);
-	}, []);
-	const name = account.name?.trim() || account.email || "Account";
-	const settingsPath = buildOrganizationAccountSettingsPath(orgSlug);
-	const invitationReviewCount = useInvitationReviewCount().data ?? 0;
-	const settingsLabel =
-		invitationReviewCount > 0
-			? "Settings, invitation requests need attention"
-			: "Settings";
 	const navigate = useNavigate();
+	const name = account.name?.trim() || account.email || "Account";
+	const settingsLabel = "Settings";
+	const openSettings = useAppSettings();
 	const { dismiss, presentation } = useAppNavigationPresentation();
 	const logout = useLogoutAction();
 	const [menuOpen, setMenuOpen] = useState(false);
@@ -88,9 +70,8 @@ export function AppSidebarFooter({
 	const dark = resolvedTheme === "dark";
 	const openAccount = () => {
 		dismiss();
-		navigate({ to: settingsPath }).catch((error: Error) =>
-			toast.error(error.message)
-		);
+		setMenuOpen(false);
+		openSettings().catch((error: Error) => toast.error(error.message));
 	};
 	const avatar = humanProfileAvatar ? (
 		<DitherProfileAvatar
@@ -114,9 +95,45 @@ export function AppSidebarFooter({
 					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11",
 				iconOnly ? "items-center" : "flex-row items-center"
 			)}
-			data-footer-expanded={!iconOnly && presentation !== "drawer"}
-			ref={footerRef}
 		>
+			<div
+				className={cn(
+					"app-sidebar-footer-actions flex shrink-0 gap-1",
+					iconOnly && "flex-col"
+				)}
+			>
+				<CollapsedRailTooltip
+					label={settingsLabel}
+					side={iconOnly ? "right" : "top"}
+				>
+					<button
+						aria-current={isSettingsActive ? "page" : undefined}
+						aria-label={settingsLabel}
+						className={cn(actionClass, "relative")}
+						onClick={openAccount}
+						type="button"
+					>
+						<GearSixIcon className="size-4" />
+					</button>
+				</CollapsedRailTooltip>
+				<CollapsedRailTooltip
+					label={dark ? "Switch to light mode" : "Switch to dark mode"}
+					side={iconOnly ? "right" : "top"}
+				>
+					<button
+						aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+						className={actionClass}
+						onClick={() => setTheme(dark ? "light" : "dark")}
+						type="button"
+					>
+						{dark ? (
+							<SunIcon className="size-4" />
+						) : (
+							<MoonIcon className="size-4" />
+						)}
+					</button>
+				</CollapsedRailTooltip>
+			</div>
 			<SidebarUserFooter
 				avatar={
 					<AccountAvatarWithComputerAttention>
@@ -215,54 +232,6 @@ export function AppSidebarFooter({
 				}
 			/>
 			{invitationEntry.dialog}
-			<div
-				className={cn(
-					"app-sidebar-footer-actions flex shrink-0 gap-1",
-					iconOnly && "flex-col"
-				)}
-			>
-				<CollapsedRailTooltip
-					label={settingsLabel}
-					side={iconOnly ? "right" : "top"}
-				>
-					<Link
-						aria-current={isSettingsActive ? "page" : undefined}
-						aria-label={settingsLabel}
-						className={cn(actionClass, "relative")}
-						onClick={dismiss}
-						to={settingsPath}
-					>
-						<GearSixIcon className="size-4" />
-						{invitationReviewCount > 0 && (
-							<span
-								aria-hidden="true"
-								className={cn(
-									"status-dot absolute top-0 right-0",
-									resolveStatusToneIndicatorClassName("warning", "quiet")
-								)}
-								data-app-rail-status-indicator="invitation-review"
-							/>
-						)}
-					</Link>
-				</CollapsedRailTooltip>
-				<CollapsedRailTooltip
-					label={dark ? "Switch to light mode" : "Switch to dark mode"}
-					side={iconOnly ? "right" : "top"}
-				>
-					<button
-						aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-						className={actionClass}
-						onClick={() => setTheme(dark ? "light" : "dark")}
-						type="button"
-					>
-						{dark ? (
-							<SunIcon className="size-4" />
-						) : (
-							<MoonIcon className="size-4" />
-						)}
-					</button>
-				</CollapsedRailTooltip>
-			</div>
 		</SidebarFooter>
 	);
 }

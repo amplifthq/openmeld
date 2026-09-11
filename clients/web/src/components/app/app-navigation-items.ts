@@ -32,12 +32,12 @@ export function resolveAppNavigationItems(input: {
 			to: buildOrganizationInboxPath(input.orgSlug),
 		},
 		{
-			label: "Spaces",
+			label: "Browse spaces",
 			section: "space",
 			to: buildOrganizationSpacesPath(input.orgSlug),
 		},
 		{
-			label: "Direct messages",
+			label: "Spaces",
 			section: "directMessages",
 			to: buildOrganizationDirectMessagesPath(input.orgSlug),
 		},

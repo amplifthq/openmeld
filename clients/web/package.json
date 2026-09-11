@@ -101,6 +101,7 @@
     "dompurify": "3.4.15",
     "framer-motion": "^12.35.2",
     "frimousse": "0.3.0",
+    "liquid-gooey": "0.2.1",
     "lowlight": "^3.3.0",
     "lucide-react": "^1.8.0",
     "motion": "^12.38.0",

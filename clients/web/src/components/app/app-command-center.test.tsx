@@ -23,6 +23,11 @@ vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 }));
 vi.mock("@tanstack/react-router", () => ({
 	useNavigate: () => navigate,
+	useLocation: ({
+		select,
+	}: {
+		select: (location: { pathname: string }) => unknown;
+	}) => select({ pathname: "/o/test/spaces" }),
 	useMatches: ({ select }: { select: (matches: []) => unknown }) => select([]),
 }));
 vi.mock("next-themes", () => ({

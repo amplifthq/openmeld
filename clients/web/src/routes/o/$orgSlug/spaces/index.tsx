@@ -9,7 +9,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";
-import { HashIcon, PlusIcon } from "@phosphor-icons/react";
+import { ChatCircleTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -517,7 +517,9 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 							New Space
 						</Link>
 					}
-					leadingControl={<HashIcon className="size-4 text-muted-foreground" />}
+					leadingControl={
+						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
+					}
 					navigation={
 						<TabsSubtle
 							aria-label="Spaces view"

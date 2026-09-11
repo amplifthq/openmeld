@@ -108,7 +108,9 @@ test("conversation sidebar S20/S29/S32 browser geometry", () => {
 		run("press", "Escape");
 		run("hover", '[aria-label="Sidebar width"]');
 		run("wait", "200");
-		run("hover", activity);
+		run("click", '[aria-label="Open Messenger navigation"]');
+		run("wait", `[role="dialog"] ${activity}`);
+		run("hover", `[role="dialog"] ${activity}`);
 		run("wait", "200");
 		assert(
 			inspect(
