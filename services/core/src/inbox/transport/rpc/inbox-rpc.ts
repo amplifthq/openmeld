@@ -53,6 +53,7 @@ import type {
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
 import { type CoreBindings, inboxDb } from "../../../lib/bindings";
+import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
 import {
@@ -84,6 +85,7 @@ export async function rpcListInboxItems(
 ): Promise<ListInboxItemsResponse> {
   const request = parseRequest(listInboxItemsRpcInputSchema, input);
   const prepared = await prepareRequest(env, request.context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     listInboxItemsResponseSchema,
     await runService(() =>
@@ -104,6 +106,7 @@ export async function rpcGetInboxItem(
 ): Promise<GetInboxItemResponse> {
   const request = parseRequest(getInboxItemRpcInputSchema, input);
   const prepared = await prepareRequest(env, request.context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     getInboxItemResponseSchema,
     await runService(() =>
@@ -122,6 +125,7 @@ export async function rpcGetInboxSummary(
 ): Promise<InboxSummaryResponse> {
   const request = parseRequest(getInboxSummaryRpcInputSchema, input);
   const prepared = await prepareRequest(env, request.context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     inboxSummaryResponseSchema,
     await runService(() =>
@@ -326,10 +330,11 @@ async function prepareRequest(
     });
   }
   return {
+    db,
     organizationId: membership.organizationId,
     service: createInboxService({
       db,
-      canManageAuthorizationUpdates:
+      canManageOrganization:
         membership.role === "owner" || membership.role === "admin",
     }),
     userId: membership.userId,

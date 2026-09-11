@@ -41,14 +41,19 @@ export function AppFullWidthLayout(input: {
 		<AppSurfaceLayout
 			frameSlotName="app-full-width-layout"
 			globalControls={<AppGlobalControls {...input.globalControls} />}
+			initialModuleSidebarState={input.initialOuterSidebarState}
 			mobileSidebarTitle={input.mobileSidebarTitle}
-			outerRail={
-				<AppOuterRail
-					account={account}
-					contextualNavigation={input.mainSidebarContent}
-					initialState={input.initialOuterSidebarState}
-				/>
+			moduleNavigation={
+				input.mainSidebarContent ? (
+					<>
+						<h2 className="mb-4 px-1 font-medium text-sm">Team</h2>
+						{input.mainSidebarContent}
+					</>
+				) : undefined
 			}
+			moduleNavigationKey="people"
+			moduleNavigationLabel="Team"
+			outerRail={<AppOuterRail account={account} />}
 			sidebar={
 				input.sidebar && input.sidebarPreferenceKey ? (
 					<AppInnerSidebar

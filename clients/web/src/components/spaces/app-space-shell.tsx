@@ -24,13 +24,9 @@ export function SpaceWindowShell(input: {
 	const account = useAppShellAccount();
 	return (
 		<SpaceWindowFrame
-			outerRail={
-				<AppOuterRail
-					account={account}
-					contextualNavigation={input.sidebar}
-					initialState={input.initialOuterSidebarState}
-				/>
-			}
+			initialSidebarState={input.initialOuterSidebarState}
+			navigation={input.sidebar}
+			outerRail={<AppOuterRail account={account} />}
 		>
 			{input.children}
 		</SpaceWindowFrame>
@@ -40,11 +36,16 @@ export function SpaceWindowShell(input: {
 export function SpaceWindowFrame(input: {
 	children: ReactNode;
 	outerRail: ReactNode;
+	navigation?: ReactNode;
+	initialSidebarState?: SidebarPersistedState;
 }) {
 	return (
 		<AppSurfaceLayout
 			frameSlotName="space-window-frame"
 			globalControls={<AppGlobalControls />}
+			initialModuleSidebarState={input.initialSidebarState}
+			moduleNavigation={input.navigation}
+			moduleNavigationLabel="Spaces"
 			outerRail={input.outerRail}
 			testId="space-window-frame"
 		>

@@ -32,6 +32,7 @@ import {
 	resolveInboxAttentionTone,
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
+import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { ChatIcon, resolvePreviewText } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
@@ -120,7 +121,7 @@ export function ChatsDirectory() {
 			size="sm"
 		>
 			<PlusIcon />
-			New chat
+			New message
 		</Button>
 	);
 	return (
@@ -128,7 +129,20 @@ export function ChatsDirectory() {
 			bodyClassName="px-[var(--app-page-inline-padding)] pb-6"
 			header={
 				<SpaceWindowHeader
-					actions={newChat}
+					actions={
+						<div className="flex flex-wrap items-center gap-2">
+							<Button
+								render={
+									<Link to={buildOrganizationSpacesPath(model.org.slug)} />
+								}
+								size="sm"
+								variant="ghost"
+							>
+								Browse spaces
+							</Button>
+							{newChat}
+						</div>
+					}
 					leadingControl={
 						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
 					}
@@ -149,7 +163,7 @@ export function ChatsDirectory() {
 						</TabsSubtle>
 					}
 					renderFrame={false}
-					title="Direct messages"
+					title="Spaces"
 				/>
 			}
 			scroll

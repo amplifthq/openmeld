@@ -45,12 +45,18 @@ export function Sidebar({
     scheduleDismissPeek,
     cancelPeekTimer,
     static: staticPresentation,
+    peekOnHover,
   } = useSidebar();
   const shellRef = useRef<HTMLElement>(null);
   const focusWithin = useRef(false);
   const insideEvents = useRef(new WeakSet<Event>());
   const reduceMotion = useReducedMotion();
-  const peekEnabled = !(staticPresentation || open || isResizing);
+  const peekEnabled = !(
+    staticPresentation ||
+    open ||
+    isResizing ||
+    !peekOnHover
+  );
 
   // React capture reaches owned portals too. A workspace menu can extend past
   // the peek card without being mistaken for an outside press or hover exit.
@@ -286,6 +292,7 @@ export function SidebarTrigger({
 
 function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
   const {
+    peekOnHover,
     state,
     widthPx,
     setGeometry,
@@ -358,7 +365,7 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
       toggleSidebar();
     }
   };
-  if (staticPresentation) {
+  if (staticPresentation || (hiddenEdge && !peekOnHover && !isResizing)) {
     return null;
   }
   const appliedWidth = getSidebarLayoutWidth(state, widthPx);

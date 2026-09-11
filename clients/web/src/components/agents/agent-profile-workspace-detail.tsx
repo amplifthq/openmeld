@@ -26,7 +26,6 @@ import {
 	CheckCircleIcon,
 	ClockCountdownIcon,
 	DesktopTowerIcon,
-	HashIcon,
 	PencilSimpleIcon,
 	ProhibitIcon,
 	WarningCircleIcon,
@@ -657,9 +656,10 @@ function ActivityDestinationLink(input: {
 		resolveActivitySourceLabel(input.destination.source);
 	const isInterrupted = input.state === "interrupted";
 	let icon = <DesktopTowerIcon aria-hidden="true" className="size-4" />;
-	if (input.destination.source === "space") {
-		icon = <HashIcon aria-hidden="true" className="size-4" />;
-	} else if (input.destination.source === "direct_message") {
+	if (
+		input.destination.source === "space" ||
+		input.destination.source === "direct_message"
+	) {
 		icon = <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 	}
 	return (

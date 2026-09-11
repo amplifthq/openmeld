@@ -170,6 +170,7 @@ export function useConversationSidebarFixture() {
 		addGroup: () => undefined,
 		disabled: false,
 		directMessages: {
+			inbox: { data: undefined },
 			org: { id: "org", slug: "test" },
 			profileId: "human",
 			preferences: chatPreferences,

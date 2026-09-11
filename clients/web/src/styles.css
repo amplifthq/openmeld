@@ -558,61 +558,6 @@ html[data-space-self-message-alignment="left"]
     }
   }
 }
-@media (hover: hover) and (pointer: fine) {
-  .app-sidebar-footer[data-footer-expanded="true"] {
-    gap: 0;
-  }
-
-  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
-    width: 0;
-    justify-content: flex-end;
-    transition: width 150ms ease-out, transform 150ms ease-out, opacity 100ms ease-out;
-  }
-
-  .app-sidebar-footer[data-footer-expanded="true"]:hover .app-sidebar-footer-actions,
-  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
-    width: 64px;
-  }
-
-  .app-sidebar-footer-actions {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(12px);
-    transition: transform 150ms ease-out, opacity 100ms ease-out;
-  }
-
-  /* Let the pointer cross small gaps without collapsing the account row. */
-  .app-sidebar-footer:not(:hover):not(:focus-within) .app-sidebar-footer-actions {
-    transition-delay: 180ms;
-  }
-
-  .app-sidebar-footer:hover .app-sidebar-footer-actions,
-  .app-sidebar-footer:focus-within .app-sidebar-footer-actions,
-  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateX(0);
-  }
-
-  .app-sidebar-footer:focus-within .app-sidebar-footer-actions {
-    transition: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-sidebar-footer .app-sidebar-footer-actions {
-    transform: none;
-    transition: none;
-  }
-  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
-    transition: none;
-  }
-}
-
-.app-sidebar-footer:not([data-footer-motion-ready]) .app-sidebar-footer-actions {
-  transition: none;
-}
-
 /* Reserve navigation space in the shared message/composer frame, including
    Full Width. Centered keeps its existing center while sufficient margin exists. */
 html [data-space-history-rail="true"] [data-space-conversation-content-width] {
