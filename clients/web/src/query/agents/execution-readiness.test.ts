@@ -314,9 +314,30 @@ describe("readiness refresh ordering", () => {
 			staleTime: Number.POSITIVE_INFINITY,
 		});
 		const stop = observer.subscribe(() => undefined);
-		return { queryClient, stop };
+		return { queryClient, stop, observer };
 	}
 	afterEach(() => readAgentExecutionReadinessBatchMock.mockReset());
+
+	it("lets an earlier full response settle before a newer targeted refresh", async () => {
+		const { queryClient, stop, observer } = setup();
+		const full = deferred<ReturnType<typeof snapshot>>();
+		observer.setOptions({
+			queryKey: key,
+			queryFn: () => full.promise,
+			staleTime: Number.POSITIVE_INFINITY,
+		});
+		const fullRead = observer.refetch();
+		readAgentExecutionReadinessBatchMock.mockResolvedValue({
+			items: [snapshot("latest").agentProfiles[0].readiness],
+		});
+		const partial = refresh(queryClient);
+		expect(readAgentExecutionReadinessBatchMock).not.toHaveBeenCalled();
+		full.resolve(snapshot("earlier-full"));
+		await Promise.all([fullRead, partial]);
+		expect(queryClient.getQueryData(key)).toEqual(snapshot("latest"));
+		stop();
+		queryClient.clear();
+	});
 
 	it("coalesces concurrent events and reads once more after a change during the read", async () => {
 		const { queryClient, stop } = setup();

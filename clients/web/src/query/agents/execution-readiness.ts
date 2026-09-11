@@ -298,6 +298,12 @@ async function refreshAgentRuntimeOverviewReadiness(input: {
 		overviewRefreshes.get(overview) === state;
 	state.promise = (async () => {
 		while (isCurrent() && state.dirty.size > 0) {
+			// Let an earlier full read settle before starting a newer partial read.
+			// Otherwise its late response could replace the freshly patched state.
+			await settleOverviewRead(overview);
+			if (!isCurrent()) {
+				return;
+			}
 			const ids = normalizeAgentProfileIds([...state.dirty]);
 			state.dirty.clear();
 			const directory =
@@ -357,6 +363,12 @@ async function refreshAgentRuntimeOverviewReadiness(input: {
 		}
 	});
 	return await state.promise;
+}
+
+async function settleOverviewRead(overview: Query) {
+	if (overview.state.fetchStatus === "fetching") {
+		await overview.promise;
+	}
 }
 
 function patchOverviewReadiness(
