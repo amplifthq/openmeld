@@ -29,6 +29,10 @@ the person who pinned it, and a jump to the original message. The preview stays
 on one line and truncates. Multiple pins use previous/next navigation without
 stacking cards above the conversation.
 
+Edit precedes Pin in the message menu. Successful message pinning offers an
+Undo toast that removes that same pin. Already pinned messages have no pin
+action in the menu; the existing pinned-message bar still supports removal.
+
 Files have a separate pin action in the Files browser. Pinned files appear at
 the top of the Messages conversation, above pinned messages. Each kind has its
 own compact preview and navigation; file and message pins never share a carousel.

@@ -98,18 +98,35 @@ export function SpaceMessagePinsProvider(input: {
 		onError: (error) =>
 			toast.error(error.message || "Unable to update the file pin. Try again."),
 	});
+	const updateMessagePin = async (value: SpaceMessagePinMutation) => {
+		const data = await readOrUpdateSpaceMessagePins(createClient(), {
+			spaceId: input.spaceId,
+			mutation: value,
+		});
+		queryClient.setQueryData(queryKey, data);
+		return data;
+	};
+	const showPinError = (error: Error) => {
+		toast.error(error.message || "Unable to update the pin. Try again.");
+	};
 	const mutation = useMutation({
-		mutationFn: (value: SpaceMessagePinMutation) =>
-			readOrUpdateSpaceMessagePins(createClient(), {
-				spaceId: input.spaceId,
-				mutation: value,
-			}),
-		onSuccess: (data) => {
-			queryClient.setQueryData(queryKey, data);
+		mutationFn: updateMessagePin,
+		onSuccess: (_data, value) => {
+			if (value.action === "pin") {
+				toast.success("Message pinned", {
+					action: {
+						label: "Undo",
+						onClick: () => {
+							updateMessagePin({
+								signalId: value.signalId,
+								action: "unpin",
+							}).catch(showPinError);
+						},
+					},
+				});
+			}
 		},
-		onError: (error) => {
-			toast.error(error.message || "Unable to update the pin. Try again.");
-		},
+		onError: showPinError,
 	});
 	return (
 		<FilePinsContext.Provider
@@ -285,13 +302,13 @@ export function useSpaceMessagePinAction(signalId: string | undefined) {
 		return undefined;
 	}
 	const pin = context.pins.find((item) => item.signalId === signalId);
-	if (pin && pin.pinnedByProfileId !== context.profileId) {
+	if (pin) {
 		return undefined;
 	}
 	return {
-		label: pin ? "Unpin message" : "Pin message",
+		label: "Pin message",
 		disabled: context.pending,
-		onSelect: () => context.mutate({ signalId, action: pin ? "unpin" : "pin" }),
+		onSelect: () => context.mutate({ signalId, action: "pin" }),
 	};
 }
 
