@@ -31,10 +31,12 @@ function Harness({
   initial = { mode: "expanded", width: 220 },
   onChange,
   static: staticPresentation = false,
+  peekOnHover = true,
 }: {
   initial?: SidebarGeometry;
   onChange: (next: SidebarGeometry) => void;
   static?: boolean;
+  peekOnHover?: boolean;
 }) {
   const [geometry, setGeometry] = useState(initial);
   return (
@@ -44,6 +46,7 @@ function Harness({
         onChange(next);
         setGeometry(next);
       }}
+      peekOnHover={peekOnHover}
       static={staticPresentation}
     >
       <Sidebar>
@@ -58,9 +61,11 @@ function Harness({
   );
 }
 
-function setup(initial?: SidebarGeometry) {
+function setup(initial?: SidebarGeometry, peekOnHover = true) {
   const changed = vi.fn();
-  const result = render(<Harness initial={initial} onChange={changed} />);
+  const result = render(
+    <Harness initial={initial} onChange={changed} peekOnHover={peekOnHover} />
+  );
   const rail = screen.getByRole("separator", { name: "Resize app sidebar" });
   rail.setPointerCapture = vi.fn();
   rail.releasePointerCapture = vi.fn();
@@ -88,6 +93,21 @@ function pointer(rail: HTMLElement, kind: string, x: number) {
 }
 
 describe("Fluid sidebar interaction contract", () => {
+  it("commits drag collapse before removing the edge when hover preview is disabled", () => {
+    const { rail, changed } = setup(undefined, false);
+    pointer(rail, "pointerdown", 220);
+    pointer(rail, "pointermove", 0);
+    expect(rail.isConnected).toBe(true);
+    pointer(rail, "pointerup", 0);
+    expect(changed).toHaveBeenCalledExactlyOnceWith({
+      mode: "hidden",
+      width: 220,
+    });
+    expect(screen.queryByRole("button", { name: "Peek sidebar" })).toBeNull();
+    expect(
+      screen.queryByRole("separator", { name: "Resize app sidebar" })
+    ).toBeNull();
+  });
   it("keeps one drag captured across all three modes and saves only the final geometry", () => {
     const { rail, changed } = setup();
     pointer(rail, "pointerdown", 220);

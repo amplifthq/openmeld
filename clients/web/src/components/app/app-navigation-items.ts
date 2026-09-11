@@ -37,7 +37,7 @@ export function resolveAppNavigationItems(input: {
 			to: buildOrganizationSpacesPath(input.orgSlug),
 		},
 		{
-			label: "Messenger",
+			label: "Spaces",
 			section: "directMessages",
 			to: buildOrganizationDirectMessagesPath(input.orgSlug),
 		},

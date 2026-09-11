@@ -19,7 +19,6 @@ import {
 	ArrowRightIcon,
 	ChatCircleTextIcon,
 	DesktopIcon,
-	HashIcon,
 	MoonIcon,
 	PlusIcon,
 	SunIcon,
@@ -28,6 +27,7 @@ import { useMatches, useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { useAppSettings } from "#/components/settings/use-app-settings";
 import {
 	isDirectMessageItem,
 	resolveAccountSpaceTrailingStatus,
@@ -46,10 +46,8 @@ import { useConversations } from "#/components/spaces/use-conversations";
 import type { useSpaceListIndicators } from "#/components/spaces/use-space-list-indicators";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
-	buildOrganizationAccountSettingsPath,
 	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentsPath,
-	buildOrganizationAppearanceSettingsPath,
 	buildOrganizationComputersPath,
 	buildOrganizationConnectPath,
 	buildOrganizationDefaultPath,
@@ -57,7 +55,6 @@ import {
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationInboxPath,
 	buildOrganizationNewSpacePath,
-	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
@@ -176,6 +173,7 @@ function CommandCenterContents(input: {
 	const { currentOrganization } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const navigate = useNavigate();
+	const openSettings = useAppSettings();
 	const { resolvedTheme, setTheme } = useTheme();
 	const model = useConversations({
 		currentProfileId: input.profileId,
@@ -341,12 +339,22 @@ function CommandCenterContents(input: {
 			input.close();
 		},
 	});
-	for (const [label, to] of [
-		["Account settings", buildOrganizationAccountSettingsPath(orgSlug)],
-		["Appearance", buildOrganizationAppearanceSettingsPath(orgSlug)],
-		["Notifications", buildOrganizationNotificationsSettingsPath(orgSlug)],
+	for (const [label, section] of [
+		["Account settings", "account"],
+		["Appearance", "appearance"],
+		["Notifications", "notifications"],
 	] as const) {
-		entries.push(link(label, to, "Settings", "settings preferences"));
+		entries.push({
+			id: `settings:${section}`,
+			label,
+			group: "Settings",
+			keywords: "settings preferences",
+			actionLabel: "Open settings",
+			run: () => {
+				input.close();
+				return openSettings(section);
+			},
+		});
 	}
 	const themeIcons = {
 		light: <SunIcon className="size-4" />,
@@ -426,7 +434,7 @@ function spaceCommandEntry(
 				members={item.memberPreviews}
 			/>
 		) : (
-			<HashIcon className="size-4" />
+			<ChatCircleTextIcon className="size-4" />
 		),
 		trailing: <CommandSpaceStatus status={status} unread={unread} />,
 		accessibleLabel: [

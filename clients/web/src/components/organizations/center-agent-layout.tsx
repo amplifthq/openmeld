@@ -25,7 +25,7 @@ export function CenterAgentLayout(input: {
 			}
 			initialModuleSidebarState={input.initialOuterSidebarState}
 			moduleNavigation={<ConversationsSidebar />}
-			moduleNavigationLabel="Messenger"
+			moduleNavigationLabel="Spaces"
 			outerRail={<AppOuterRail account={account} />}
 		>
 			<section
@@ -54,7 +54,7 @@ export function CenterAgentPendingLayout(input: {
 					showPreview
 				/>
 			}
-			moduleNavigationLabel="Messenger"
+			moduleNavigationLabel="Spaces"
 			outerRail={
 				<aside
 					aria-hidden="true"

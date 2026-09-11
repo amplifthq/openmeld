@@ -45,7 +45,7 @@ export function SpaceWindowFrame(input: {
 			globalControls={<AppGlobalControls />}
 			initialModuleSidebarState={input.initialSidebarState}
 			moduleNavigation={input.navigation}
-			moduleNavigationLabel="Messenger"
+			moduleNavigationLabel="Spaces"
 			outerRail={input.outerRail}
 			testId="space-window-frame"
 		>

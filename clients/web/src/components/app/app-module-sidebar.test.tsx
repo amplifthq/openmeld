@@ -38,8 +38,8 @@ function mount(scope = "org:profile:conversations", onMount = vi.fn()) {
 	return render(
 		<TooltipProvider>
 			<AppModuleSidebarProvider available preferenceKey="conversations">
-				<aside aria-label="Applications">Messenger · Team</aside>
-				<AppModuleSidebar label="Messenger" scrollKey={scope}>
+				<aside aria-label="Applications">Spaces · Team</aside>
+				<AppModuleSidebar label="Spaces" scrollKey={scope}>
 					<a href="/conversation">Existing conversation</a>
 				</AppModuleSidebar>
 				<main>
@@ -64,7 +64,11 @@ it("collapses only the middle list, retaining application navigation and the mou
 	).toBeTruthy();
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
 	expect(draft).toHaveProperty("value", "Unsent work");
-	fireEvent.click(screen.getAllByRole("button", { name: "Show sidebar" })[0]);
+	fireEvent.click(screen.getByRole("button", { name: "Peek sidebar" }));
+	expect(
+		screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+	).toBe("hidden");
+	fireEvent.click(screen.getByText("Expand sidebar"));
 	expect(
 		screen.getByRole("link", { name: "Existing conversation" })
 	).toBeTruthy();
@@ -130,7 +134,7 @@ it("renders the mobile list despite a saved collapsed desktop preference", () =>
 		<TooltipProvider>
 			<AppModuleSidebarProvider available preferenceKey="conversations">
 				<AppNavigationPresentationProvider presentation="drawer">
-					<AppModuleSidebar label="Messenger" scrollKey="mobile">
+					<AppModuleSidebar label="Spaces" scrollKey="mobile">
 						<a href="/conversation">Existing conversation</a>
 					</AppModuleSidebar>
 				</AppNavigationPresentationProvider>
