@@ -19,6 +19,8 @@ export function createPluginsApi(client: OpenMeldApiClientFoundation) {
       return await client.requestJson({
         method: "POST",
         operation: "plugins.action",
+        timeoutMs:
+          input.request.action.operation === "execute" ? 120_000 : 30_000,
         requestContext: input.requestContext,
         url: `/v1/organizations/current/plugins/actions?expectedOrganizationId=${encodeURIComponent(input.organizationId)}`,
         body: JSON.stringify(request),

@@ -577,7 +577,7 @@ The Center Agent has one Web product home with complementary destinations:
 
 - **Center Agent** is the product home for the workspace's managed agent and
   owns no secondary sidebar. Its stable header navigation is **Messages,
-  Graph, Files, Routines, Skills, Plugins, Channels**. The first three preserve the selected
+  Graph, Files, Routines, Skills, Channels**. The first three preserve the selected
   conversation surface; Routines owns scheduled work. One compact header menu preserves
   **Memory, Center Agent settings** and, on the
   conversation, **Conversation information**. There is no separate About
@@ -771,7 +771,7 @@ concept. Its surviving destinations use the stable header or its compact menu:
 | ---------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Overview   | **Center Agent → Center Agent settings**             | Identity, status, and configuration live in one low-frequency management surface.                                                                                           |
 | Channels   | **Center Agent → Channels**                          | The single Channel destination in every workspace; Organizations manage connections, while Personal Workspaces show read-only discovery and an Organization-creation guide. |
-| Plugins       | **Center Agent → Plugins**                              | The single member and shared App catalog in every workspace.                                                                                                                |
+| Plugins       | **Plugins**                                             | The single member and shared App catalog in every workspace.                                                                                                                |
 | Memory     | **Center Agent → Memory**                            | Organization policy and the current member's erase action share one clearly separated memory home.                                                                          |
 | Routines   | **Center Agent → Routines**                          | Routine use and creation remain daily product work inside the product that executes them.                                                                                   |
 | Activity   | **Center Agent → Center Agent settings → Audit Log** | Retire the misleading label; this journal records Center Agent tool calls.                                                                                                  |
@@ -1354,7 +1354,7 @@ both under a generic `Connections` label:
   narrowly defined outbound messaging action, such as explicitly publishing a
   top-level message in a Slack channel. That action does not grant model access
   to the provider's wider data or management APIs.
-- **Plugins** are external systems the Center Agent may read from or act in while
+- **Plugins** are external systems authorized Agents may read from or act in while
   doing work. GitHub is the first shipped App through OpenConnector. An App owns
   a scoped credential, action policy, and attribution. It is not a conversation
   result surface merely because the same provider also offers messaging.
@@ -1635,7 +1635,7 @@ governance, identifier namespaces, and deployment conditions differ. The
 Personal Agent Channel grant authorizes only the implemented bot conversation
 surface. It never creates a member user grant for Docs, Calendar, Mail, Tasks,
 or other business actions. Any future Feishu/Lark App belongs to the separate
-Center Agent → Plugins and OpenConnector-or-reviewed-first-party action boundary; its
+Plugins and OpenConnector-or-reviewed-first-party action boundary; its
 credential, execution, idempotency, and audit path must not enter through the
 Channel connection.
 
@@ -1763,7 +1763,7 @@ vendor term; the product category is `Plugins`.
 
 Do not show a planned Slack App merely because the Slack Channel exists. The
 Channel is presented as Slack in **Center Agent → Channels**. A separate Slack
-entry appears in **Center Agent → Plugins** only when OpenMeld ships a distinct
+entry appears in **Plugins** only when OpenMeld ships a distinct
 OpenConnector-backed Slack data/action connection and its model-visible tool
 surface.
 
@@ -1994,6 +1994,24 @@ silently treating the Channel installation as an App connection.
 
 App credentials have two ownership forms:
 
+Plugins is a primary workspace capability shared by Center Agent, Local Agents,
+and personal Remote Agents. A connection's owner sets `none`, `read`, or `write`
+access separately for those three consumers. Organization owners/admins manage
+shared access; only the connection owner manages personal access. Administration
+of a personal registration does not grant use of its credentials. Connections
+remain scoped to one Organization; personal ownership does not imply cross-Org
+credential reuse.
+
+An absent policy preserves historical Center access and shared personal-Remote
+access, while Local access and personal-Remote access to a member connection
+start disabled. Moving navigation alone never expands existing authority.
+Read-only access requires trusted action metadata declaring a read. Unknown and
+destructive effects require write permission and exact-action confirmation.
+Personal Remote Agents may use their owner's connection only for a verified
+request by that owner (including the owner's delegated Routine). Another member
+waking the Agent cannot borrow that private connection. Center continues to use
+the represented member's personal connection under its existing request policy.
+
 - A **member app connection** belongs to one OpenMeld member's external
   identity and is registered inside one Organization. The Center Agent may use
   it only while acting for that verified member in that Organization. It is
@@ -2012,7 +2030,7 @@ App credentials have two ownership forms:
 `Your access` identifies the current member's connections, with `Your GitHub`
 as GitHub's concrete title. `Organization access` identifies
 Organization-controlled shared connections. Both appear inside the same
-**Center Agent → Plugins** page and neither label changes the underlying ownership or
+**Plugins** page and neither label changes the underlying ownership or
 execution authority.
 
 Management location follows the owner instead of repeating mutation controls:

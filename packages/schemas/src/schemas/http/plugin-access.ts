@@ -5,6 +5,31 @@ import {
   connectorServiceSchema,
 } from "./connector-connections";
 
+export const PLUGIN_ERROR_CODES = [
+  "plugin.access_changed",
+  "plugin.access_invalid",
+  "plugin.access_manage_forbidden",
+  "plugin.action_forbidden",
+  "plugin.action_unavailable",
+  "plugin.caller_forbidden",
+  "plugin.catalog_unavailable",
+  "plugin.confirmation_invalid",
+  "plugin.connection_not_found",
+  "plugin.connection_owner_unavailable",
+  "plugin.connection_required",
+  "plugin.connection_unavailable",
+  "plugin.human_required",
+  "plugin.identity_unavailable",
+  "plugin.operation_identity_unavailable",
+  "plugin.operation_unavailable",
+  "plugin.personal_request_required",
+  "plugin.request_invalid",
+  "plugin.request_provenance_unavailable",
+  "plugin.runtime_invalid",
+  "plugin.runtime_unavailable",
+  "plugin.state_unavailable",
+] as const;
+
 export const pluginConsumerSchema = z.enum([
   "center_agent",
   "local_agent",
@@ -19,6 +44,7 @@ export const pluginAccessPolicySchema = z.strictObject({
 export const pluginAccessSchema = z.strictObject({
   canManage: z.boolean(),
   connectionName: connectorConnectionNameSchema,
+  scope: z.enum(["member", "shared"]),
   policy: pluginAccessPolicySchema,
   revision: z.number().int().nonnegative(),
 });

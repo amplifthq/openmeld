@@ -210,7 +210,13 @@ async function presentConnection(
     organizationId: caller.organizationId,
     account: { kind: "user_id", userId: record.userId },
   });
-  if (!(identity?.ok && identity.account)) {
+  if (
+    !(
+      identity?.ok &&
+      identity.organization.id === caller.organizationId &&
+      identity.account?.userId === record.userId
+    )
+  ) {
     throw failure(
       "plugin.connection_owner_unavailable",
       "The connected account owner could not be verified.",

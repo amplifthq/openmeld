@@ -33,7 +33,7 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-**New Agent / Home / Spaces / Direct Messages / Team** product rail, with
+**New Agent / Home / Spaces / Direct Messages / Team / Plugins** product rail, with
 **Settings** as a separated utility. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
 from this rail. The bottom toolbar puts
@@ -42,8 +42,8 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent has no secondary sidebar: **Messages /
-Graph / Files / Tasks / Routines / Skills / Plugins** live in its header, while
-**Channels / Memory / Center Agent settings** live in its compact header menu.
+Graph / Files / Routines / Skills / Channels** live in its header, while
+**Memory / Center Agent settings** live in its compact header menu.
 
 The Web Main Sidebar header places toggle/back/forward controls beside disabled
 Search and an Inbox page link, above a compact Organization selector. Its
@@ -191,7 +191,7 @@ gated.
 Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
 ten-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
-App management exists once under **Center Agent → Plugins** in both personal and
+App management exists once under **Plugins** in both personal and
 multi-member workspaces. Routines is a Center Agent use-and-creation surface,
 not a global Settings page or root product peer.
 

@@ -15,7 +15,10 @@ import {
   createSharedConnectorConnectionName,
   selectActiveConnectorConnection,
 } from "../src/connectors/connector-connection-repository";
-import { requirePluginPermission } from "../src/connectors/plugin-access";
+import {
+  requirePluginPermission,
+  requireRemotePluginConnection,
+} from "../src/connectors/plugin-access";
 import {
   rpcListPluginAccess,
   rpcUpdatePluginAccess,
@@ -33,6 +36,7 @@ import {
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
   rpcBeginGitHubAppInstallationVerification,
   rpcCenterAgentReadConnectorActionOperation,
+  rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
   rpcCenterAgentResolveConnectorConnection,
   rpcCompleteConnectorDisconnect,
@@ -457,6 +461,60 @@ const OPENCONNECTOR_CONNECTION_NAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
 
 describe("Core connector connection ownership", () => {
+  it("requires both the personal Remote Agent owner and the represented requester for private access", async () => {
+    const fixture = await seedConnectorFixture();
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+    )
+      .bind(
+        JSON.stringify({
+          center_agent: "none",
+          local_agent: "none",
+          remote_agent: "read",
+        }),
+        fixture.connectionA
+      )
+      .run();
+    const input = {
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationA,
+      connectionName: fixture.connectionA,
+      service: "github" as const,
+      requesterUserId: fixture.memberA,
+      remoteOwnerUserId: fixture.memberA,
+      effect: "read" as const,
+    };
+    await expect(requireRemotePluginConnection(input)).resolves.toMatchObject({
+      connectionName: fixture.connectionA,
+    });
+    await expect(
+      requireRemotePluginConnection({
+        ...input,
+        requesterUserId: fixture.ownerA,
+      })
+    ).rejects.toThrow("not available");
+    await expect(
+      requireRemotePluginConnection({
+        ...input,
+        remoteOwnerUserId: fixture.ownerA,
+      })
+    ).rejects.toThrow("not available");
+    await expect(
+      requireRemotePluginConnection({ ...input, remoteOwnerUserId: null })
+    ).rejects.toThrow("not available");
+    await expect(
+      requireRemotePluginConnection({ ...input, effect: "write" })
+    ).rejects.toThrow("permission");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET status = 'disconnected', disconnected_at_ms = updated_at_ms WHERE connection_name = ?"
+    )
+      .bind(fixture.connectionA)
+      .run();
+    await expect(
+      requirePluginPermission({ ...input, consumer: "remote_agent" })
+    ).rejects.toThrow("no longer available");
+  });
+
   it("persists owner-managed Agent access with an atomic revision and audit history", async () => {
     const fixture = await seedConnectorFixture();
     const request = {
@@ -470,6 +528,7 @@ describe("Core connector connection ownership", () => {
     const initial = await rpcListPluginAccess(connectorCoreEnv(), request);
     expect(initial.connections).toContainEqual({
       connectionName: fixture.connectionA,
+      scope: "member",
       canManage: true,
       revision: 0,
       policy: {
@@ -1178,6 +1237,37 @@ describe("Core connector connection ownership", () => {
     };
 
     await expect(
+      rpcCenterAgentRecordConnectorActionAudit(connectorCoreEnv(), {
+        ...input,
+        connectionName: undefined,
+      })
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: "plugin.connection_required" }),
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+    )
+      .bind(
+        JSON.stringify({
+          center_agent: "read",
+          local_agent: "none",
+          remote_agent: "none",
+        }),
+        gmailConnection
+      )
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionAudit(connectorCoreEnv(), input)
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: "plugin.action_forbidden" }),
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = NULL WHERE connection_name = ?"
+    )
+      .bind(gmailConnection)
+      .run();
+
+    await expect(
       rpcCenterAgentRecordConnectorActionOperation(connectorCoreEnv(), input)
     ).resolves.toMatchObject({
       attribution: {
@@ -1444,6 +1534,17 @@ describe("Core connector connection ownership", () => {
     expect(resolveUserDisplayName).toHaveBeenCalledWith({
       userId: fixture.memberA,
     });
+    const legacy = await rpcCenterAgentResolveConnectorConnection(
+      coreEnv,
+      input
+    );
+    expect(legacy).not.toHaveProperty("permission");
+    await expect(
+      rpcCenterAgentResolveConnectorConnection(coreEnv, {
+        ...input,
+        includeAccessPolicy: true,
+      })
+    ).resolves.toMatchObject({ permission: "write" });
 
     await env.OPENMELD_DB.prepare(
       "DELETE FROM members WHERE organization_id = ? AND user_id = ?"

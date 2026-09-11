@@ -800,7 +800,7 @@ describe("Remote Agent GitHub tools", () => {
         repo: "openmeld",
       })
     ).rejects.toThrow(
-      "GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Plugins → GitHub and the installation's repository access."
+      "GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Plugins → GitHub and the installation's repository access."
     );
   });
 
@@ -1451,7 +1451,7 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_get_current_user", {})
     ).rejects.toThrow(
-      "Open Center Agent → Plugins → GitHub for this workspace, check Your GitHub, and try again."
+      "Open Plugins → GitHub for this workspace, check Your GitHub, and try again."
     );
   });
 

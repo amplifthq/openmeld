@@ -118,12 +118,13 @@ export async function readPluginAccess(input: {
   db: D1Database;
   organizationId: string;
   connectionName: string;
+  activeOnly?: boolean;
 }) {
   const row = await input.db
     .prepare(
-      "SELECT access_policy, access_revision, scope FROM connector_connections WHERE organization_id = ? AND connection_name = ?"
+      "SELECT access_policy, access_revision, scope FROM connector_connections WHERE organization_id = ? AND connection_name = ? AND (? = 0 OR status = 'active')"
     )
-    .bind(input.organizationId, input.connectionName)
+    .bind(input.organizationId, input.connectionName, input.activeOnly ? 1 : 0)
     .first<ConnectionAccessRow>();
   if (!row) {
     throw createCoreRpcHttpError({
@@ -145,7 +146,7 @@ export async function requirePluginPermission(input: {
   consumer: PluginConsumer;
   effect: "read" | "write" | "destructive" | "unspecified";
 }): Promise<PluginPermission> {
-  const { policy } = await readPluginAccess(input);
+  const { policy } = await readPluginAccess({ ...input, activeOnly: true });
   const permission = policy[input.consumer];
   if (!pluginPermissionAllows(permission, input.effect)) {
     throw createCoreRpcHttpError({

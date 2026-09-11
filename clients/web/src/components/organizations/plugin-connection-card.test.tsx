@@ -173,12 +173,14 @@ describe("PluginConnectionCard", () => {
 			await screen.findByRole("heading", { name: "Workspace access" })
 		).toBeTruthy();
 		expect(
-			screen.getByText("Available to your Center Agent and Routines.")
+			screen.getByText(
+				"Use depends on this connection’s Agent access settings."
+			)
 		).toBeTruthy();
 		expect(await screen.findByText("Workspace connection")).toBeTruthy();
 		expect(
 			screen.getByText(
-				"Authorized by Felix. Available to your Center Agent and Routines."
+				"Authorized by Felix. Use depends on this connection’s Agent access settings."
 			)
 		).toBeTruthy();
 		expect(
@@ -236,7 +238,7 @@ describe("PluginConnectionCard", () => {
 		).toBeTruthy();
 		expect(
 			within(organizationAccess).getByText(
-				"Authorized by Morgan. Available to every member and Routine."
+				"Authorized by Morgan. Use depends on this connection’s Agent access settings."
 			)
 		).toBeTruthy();
 		expect(within(yourAccess).queryByText("Ashley")).toBeNull();

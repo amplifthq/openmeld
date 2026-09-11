@@ -104,11 +104,16 @@ No local-component floor or runtime contract bump is required.
 ### Plugins
 
 The external-capability catalog is named **Plugins**. Product routes use
-`/center-agent/plugins`; old `/center-agent/apps` links redirect there, including
-service detail links. Web components and navigation helpers use Plugin names.
+`/o/<slug>/plugins`, with one service detail route below it. Plugins appears in
+the primary sidebar and does not mount the Center Agent section or route state.
+Old `/center-agent/plugins` and `/center-agent/apps` links redirect there,
+including service detail links. Web components and navigation helpers use Plugin names.
 Vendor terms such as GitHub App and existing connector RPC/tool field names
 remain unchanged: this rename does not migrate connection identities, stored
-credentials, wire discriminants, or authorization policy.
+credentials or existing wire discriminants. Account details show separate
+Center, Local, and personal Remote Agent permissions. Permission saves use a
+server revision check; a conflicting edit must be reloaded, never silently
+overwritten. The server owns management eligibility and execution permission.
 
 ### Collaboration presentation
 
@@ -516,7 +521,7 @@ current Computer exists, it opens the normal setup flow.
 
 The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
-**Skills**, and **Plugins**, in that order. Messages, Graph, and Files preserve the
+**Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
 preserves **Memory** and **Center Agent settings**. The
 conversation variant of that menu also preserves **Conversation information**.
@@ -618,7 +623,7 @@ archive filter, title editing, previews, and drag ordering remain available.
 
 The full Center Agent page, header, starter cards, composer, and all capability
 surfaces reuse their existing components. Messages, Graph, Files,
-Routines, Skills, Plugins, Channels, Memory, settings, and conversation
+Routines, Skills, Channels, Memory, settings, and conversation
 information remain available. Capability routes stay under `/center-agent/*`
 and highlight Direct messages. The starter cards continue scrolling with the conversation.
 No second conversation controller or message store is introduced.
@@ -1188,7 +1193,7 @@ this order:
    identical, remove personal-only route redirects, and close remaining
    content-level parity gaps.
 6. **W-NAV6 — Center Agent progressive disclosure.** Remove the contextual
-   sidebar; keep Routines, Skills, and Plugins in the conversation header;
+   sidebar; keep Routines, Skills, and Channels in the conversation header;
    keep Memory and Center Agent settings in the header menu; and
    retire the redundant About surface and Slack shortcut.
 
@@ -1521,7 +1526,7 @@ the provider-private proof remains the authority.
 
 ### Center Agent App connections
 
-**Center Agent → Plugins** is separate from
+**Plugins** is separate from
 Channels because Plugins grant scoped tool access rather than a conversation
 result surface. It is the single App catalog and management surface in every
 workspace and shows both the current member's private access and
@@ -1611,7 +1616,7 @@ as the OpenMeld bot; personal access is described as explicit-task access for
 the current member's identity or personal repositories.
 
 Disconnect controls come from Core's `canDisconnect` projection. Members manage
-their own connection under Center Agent → Plugins. Organization owners and admins
+their own connection under Plugins. Organization owners and admins
 manage shared Organization access on the same page; regular members see shared
 status read-only. Disconnect opens a modal confirmation before any mutation.
 The modal explains that the operation removes this OpenMeld Organization's

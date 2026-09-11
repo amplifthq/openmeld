@@ -639,7 +639,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"GitHub is unavailable right now. Finish setup and connect it later in Center Agent → Plugins."
+				"GitHub is unavailable right now. Finish setup and connect it later in Plugins."
 			)
 		).toBeTruthy();
 		expect(

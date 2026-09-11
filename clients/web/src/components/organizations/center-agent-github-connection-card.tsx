@@ -46,7 +46,7 @@ import {
 const AUTHORIZATION_POLL_INTERVAL_MS = 1200;
 const MEMBER_AUTHORIZATION_TIMEOUT_MS = 120_000;
 const ONBOARDING_GITHUB_UNAVAILABLE_MESSAGE =
-	"GitHub is unavailable right now. Finish setup and connect it later in Center Agent → Plugins.";
+	"GitHub is unavailable right now. Finish setup and connect it later in Plugins.";
 
 type AuthorizationScope = "member" | "shared";
 type GitHubDisconnectRequest = {

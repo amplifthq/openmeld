@@ -10,14 +10,12 @@ import type {
 import { Button } from "@openmeld/ui/components/button";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
+import { toast } from "sonner";
 import {
 	listPluginAccess,
 	updatePluginAccess,
 } from "#/lib/organizations/connector-connections";
-import {
-	organizationPluginConnectionQueryKeys,
-	organizationPluginServiceConnectionsQueryOptions,
-} from "#/query/organizations/plugin-connections";
+import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 
 const CONSUMERS: { id: PluginConsumer; label: string }[] = [
 	{ id: "center_agent", label: "Center Agent" },
@@ -30,9 +28,6 @@ export function PluginAgentAccess(input: {
 	service: ConnectorService;
 }) {
 	const queryClient = useQueryClient();
-	const connections = useQuery(
-		organizationPluginServiceConnectionsQueryOptions({ ...input, queryClient })
-	);
 	const queryKey = [
 		...organizationPluginConnectionQueryKeys.service(
 			input.organizationId,
@@ -61,13 +56,7 @@ export function PluginAgentAccess(input: {
 			</div>
 		);
 	}
-	const active = access.data.connections.filter((item) =>
-		connections.data?.connections.some(
-			(connection) =>
-				connection.connectionName === item.connectionName &&
-				connection.status === "active"
-		)
-	);
+	const active = access.data.connections;
 	if (active.length === 0) {
 		return null;
 	}
@@ -83,17 +72,12 @@ export function PluginAgentAccess(input: {
 				organization members within these permissions.
 			</p>
 			{active.map((item) => {
-				const connection = connections.data?.connections.find(
-					(candidate) => candidate.connectionName === item.connectionName
-				);
 				return (
 					<ConnectionAgentAccess
 						key={`${item.connectionName}:${item.revision}`}
 						{...input}
 						access={item}
-						label={
-							connection?.scope === "shared" ? "Shared account" : "Your account"
-						}
+						label={item.scope === "shared" ? "Shared account" : "Your account"}
 						onSaved={() => queryClient.invalidateQueries({ queryKey })}
 					/>
 				);
@@ -122,7 +106,10 @@ function ConnectionAgentAccess(input: {
 					policy,
 				},
 			}),
-		onSuccess: input.onSaved,
+		onSuccess: async () => {
+			await input.onSaved();
+			toast.success("Agent access saved.");
+		},
 	});
 	const changed = CONSUMERS.some(
 		({ id: consumer }) => policy[consumer] !== input.access.policy[consumer]
@@ -170,9 +157,14 @@ function ConnectionAgentAccess(input: {
 				</p>
 			)}
 			{mutation.isError ? (
-				<p className="text-destructive text-sm" role="alert">
-					{mutation.error.message}
-				</p>
+				<div>
+					<p className="text-destructive text-sm" role="alert">
+						{mutation.error.message}
+					</p>
+					<Button onClick={input.onSaved} size="sm" variant="outline">
+						Reload access
+					</Button>
+				</div>
 			) : null}
 		</fieldset>
 	);

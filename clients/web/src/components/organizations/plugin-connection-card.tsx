@@ -749,6 +749,9 @@ function PluginConnectionCardContent(input: {
 	statusAvailable: boolean;
 	statusChecking: boolean;
 }) {
+	if (!(input.statusAvailable || input.loading)) {
+		return <PluginConnectionError {...input} />;
+	}
 	const disconnectingCurrentUser =
 		input.disconnectPendingRequest?.scope === "member" &&
 		input.disconnectPendingRequest.userId === input.currentUserId;
@@ -829,11 +832,7 @@ function PluginConnectionCardContent(input: {
 							? input.connectPending.authKind
 							: null
 					}
-					description={
-						input.isPersonalWorkspace
-							? "Available to your Center Agent and Routines."
-							: "Available to every Organization member and Routine."
-					}
+					description="Use depends on this connection’s Agent access settings."
 					disconnectPending={disconnectingShared}
 					key={`shared-${input.credentialResetKey}`}
 					loading={input.loading}
@@ -849,25 +848,36 @@ function PluginConnectionCardContent(input: {
 					}
 				/>
 			)}
-			{input.errorMessage ? (
-				<div
-					className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5"
-					role="alert"
-				>
-					<p className="text-destructive text-xs">{input.errorMessage}</p>
-					{input.showConnectionRetry ? (
-						<Button
-							onClick={input.onRetry}
-							size="xs"
-							type="button"
-							variant="outline"
-						>
-							Retry
-						</Button>
-					) : null}
-				</div>
-			) : null}
+			<PluginConnectionError {...input} />
 		</section>
+	);
+}
+
+function PluginConnectionError(input: {
+	errorMessage: string | null;
+	showConnectionRetry: boolean;
+	onRetry: () => void;
+}) {
+	if (!input.errorMessage) {
+		return null;
+	}
+	return (
+		<div
+			className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-5"
+			role="alert"
+		>
+			<p className="text-destructive text-xs">{input.errorMessage}</p>
+			{input.showConnectionRetry ? (
+				<Button
+					onClick={input.onRetry}
+					size="xs"
+					type="button"
+					variant="outline"
+				>
+					Retry
+				</Button>
+			) : null}
+		</div>
 	);
 }
 
@@ -1253,13 +1263,9 @@ function resolveConnectionSummaryPresentation(input: {
 			subtitle: "Your account. Only you can use this connection.",
 		};
 	}
-	const availability =
-		input.section.connectedScopeName === "Organization"
-			? "Available to every member and Routine."
-			: "Available to your Center Agent and Routines.";
 	return {
 		label: `${input.section.connectedScopeName} connection`,
-		subtitle: `Authorized by ${input.connection.ownerDisplayName}. ${availability}`,
+		subtitle: `Authorized by ${input.connection.ownerDisplayName}. Use depends on this connection’s Agent access settings.`,
 	};
 }
 

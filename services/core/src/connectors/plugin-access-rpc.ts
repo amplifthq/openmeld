@@ -29,18 +29,21 @@ export async function rpcListPluginAccess(
   return {
     organizationId: member.organizationId,
     connections: await Promise.all(
-      connections.map(async (connection) => ({
-        connectionName: connection.connectionName,
-        canManage:
-          connection.scope === "shared"
-            ? canManageShared
-            : connection.userId === member.userId,
-        ...(await readPluginAccess({
-          db,
-          organizationId: member.organizationId,
+      connections
+        .filter((connection) => connection.status === "active")
+        .map(async (connection) => ({
           connectionName: connection.connectionName,
-        })),
-      }))
+          scope: connection.scope,
+          canManage:
+            connection.scope === "shared"
+              ? canManageShared
+              : connection.userId === member.userId,
+          ...(await readPluginAccess({
+            db,
+            organizationId: member.organizationId,
+            connectionName: connection.connectionName,
+          })),
+        }))
     ),
   };
 }
@@ -84,6 +87,7 @@ export async function rpcUpdatePluginAccess(
   });
   return {
     connectionName: connection.connectionName,
+    scope: connection.scope,
     canManage: true,
     ...updated,
   };
