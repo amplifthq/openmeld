@@ -602,6 +602,12 @@ time.
 
 ### Desk and Chats
 
+The first Desk release enables adding Spaces and text only. Other widget
+categories remain commented out in the picker, with their implementations and
+existing browser layouts retained. Text is added from the canvas context menu.
+The broader widget behavior described below is implemented but not offered for
+new additions in this release.
+
 The Add to Desk dialog groups Spaces, Chats, Updates, People, and Computers in
 a sidebar. New accounts do not automatically receive additional widgets.
 Chats reuse the same DirectMessagePicker as the Chats page;

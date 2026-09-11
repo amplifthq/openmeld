@@ -501,6 +501,11 @@ function Desk() {
 		kind: DeskWidgetKind,
 		chat?: { spaceId: string; profileId: string; title: string }
 	) => {
+		// MVP: only text is enabled here; Spaces use their existing add flow.
+		// Keep other widget implementations and saved layouts for the next release.
+		if (kind !== "text") {
+			return;
+		}
 		rememberLayout();
 		const id =
 			kind === "text" ? crypto.randomUUID() : (chat?.spaceId ?? `desk-${kind}`);

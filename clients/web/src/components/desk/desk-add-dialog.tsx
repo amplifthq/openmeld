@@ -9,13 +9,13 @@ import {
 import { Input } from "@openmeld/ui/components/input";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
-	ChatCircleIcon,
+	// ChatCircleIcon,
 	DesktopTowerIcon,
 	HashIcon,
 	PlusIcon,
 	PulseIcon,
 	TrayIcon,
-	UsersIcon,
+	// UsersIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
@@ -28,10 +28,11 @@ import type { DeskWidgetKind } from "./desk-widget-types";
 
 const categories = [
 	{ id: "spaces", label: "Spaces", icon: HashIcon },
-	{ id: "chats", label: "Chats", icon: ChatCircleIcon },
-	{ id: "updates", label: "Updates", icon: TrayIcon },
-	{ id: "people", label: "People & Agents", icon: UsersIcon },
-	{ id: "computers", label: "Computers", icon: DesktopTowerIcon },
+	// MVP: enable these categories when their widgets are ready to ship.
+	// { id: "chats", label: "Chats", icon: ChatCircleIcon },
+	// { id: "updates", label: "Updates", icon: TrayIcon },
+	// { id: "people", label: "People & Agents", icon: UsersIcon },
+	// { id: "computers", label: "Computers", icon: DesktopTowerIcon },
 ] as const;
 export function DeskAddDialog(input: {
 	open: boolean;
@@ -63,7 +64,7 @@ export function DeskAddDialog(input: {
 				<DialogHeader className="border-b px-5 py-4">
 					<DialogTitle>Add to Desk</DialogTitle>
 					<DialogDescription>
-						Keep the people and work you need close by.
+						Choose a Space to add to your canvas.
 					</DialogDescription>
 				</DialogHeader>
 				<div className="flex h-[440px] max-h-[65dvh] min-h-0">
