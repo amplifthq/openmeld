@@ -43,7 +43,6 @@ import {
 	APP_SIDEBAR_DEFAULT_STATES,
 	type AppSidebarPersistedStates,
 } from "#/lib/sidebar-width-cookie";
-import { useInvitationReviewCount } from "#/query/organizations/invitation-requests";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 import { buildSettingsSections } from "./settings-sections";
 
@@ -212,13 +211,11 @@ export function SettingsInnerSidebar(input: {
 	organizationName: string;
 	organizationRole: SettingsOrganizationRole | null;
 }) {
-	const reviewCount = useInvitationReviewCount().data ?? 0;
 	const groups = toContextualSettingsNavGroups({
 		isPersonalWorkspace: input.isPersonalWorkspace,
 		items: input.items,
 		organizationName: input.organizationName,
 		organizationRole: input.organizationRole,
-		reviewCount,
 	});
 
 	return (
@@ -260,7 +257,6 @@ function resolveSettingsNavIcon(sectionId: string): Icon {
 }
 
 function toContextualSettingsNavGroups(input: {
-	reviewCount: number;
 	isPersonalWorkspace: boolean;
 	items: readonly SettingsNavItem[];
 	organizationName: string;
@@ -274,15 +270,6 @@ function toContextualSettingsNavGroups(input: {
 			icon: resolveSettingsNavIcon(item.id),
 			id: item.id,
 			label: item.title,
-			accessory:
-				item.id === "invitations" && input.reviewCount > 0 ? (
-					<span
-						className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-amber-600 text-xs dark:text-amber-400"
-						title={`${input.reviewCount} invitation requests need attention`}
-					>
-						{input.reviewCount > 99 ? "99+" : input.reviewCount}
-					</span>
-				) : undefined,
 			to: item.to,
 		};
 	});

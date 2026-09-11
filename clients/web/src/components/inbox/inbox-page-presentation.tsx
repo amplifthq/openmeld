@@ -7,6 +7,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { TrayIcon, WarningCircleIcon } from "@phosphor-icons/react";
 import { useEffect, useRef } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { isInboxReview } from "#/lib/inbox/review";
 import { InboxItemsList } from "./inbox-list";
 import { INBOX_TABS } from "./inbox-page-tabs";
 
@@ -24,7 +25,7 @@ export function InboxPagePending() {
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
 			<AppPageHeader
-				description="Updates and requests that need your attention."
+				description="Updates, actions, and reviews in one place."
 				eyebrow="Workspace"
 				id="inbox-heading"
 				title="Inbox"
@@ -205,7 +206,7 @@ function buildInboxSections(items: readonly InboxItem[], view: InboxView) {
 			{
 				id: `inbox-${view.replace("_", "-")}-items`,
 				items,
-				label: view === "unread" ? "Unread updates" : "Needs your attention",
+				label: INBOX_TABS.find((tab) => tab.view === view)?.label ?? "Updates",
 				showHeading: false,
 			},
 		];
@@ -217,14 +218,26 @@ function buildInboxSections(items: readonly InboxItem[], view: InboxView) {
 		)
 		.toSorted(compareInboxAttention);
 	const needsAttentionItemIds = new Set(needsAttention.map((item) => item.id));
+	const reviews = needsAttention.filter(isInboxReview);
+	const actions = needsAttention.filter((item) => !isInboxReview(item));
 	const updates = items.filter((item) => !needsAttentionItemIds.has(item.id));
 	return [
-		...(needsAttention.length > 0
+		...(actions.length > 0
 			? [
 					{
 						id: "inbox-needs-attention",
-						items: needsAttention,
-						label: "Needs your attention",
+						items: actions,
+						label: "Needs action",
+						showHeading: true,
+					},
+				]
+			: []),
+		...(reviews.length > 0
+			? [
+					{
+						id: "inbox-needs-review",
+						items: reviews,
+						label: "Needs review",
 						showHeading: true,
 					},
 				]
@@ -298,11 +311,17 @@ function resolveInboxEmptyStateCopy(view: InboxView): {
 			title: "No unread updates",
 		};
 	}
+	if (view === "needs_review") {
+		return {
+			title: "No pending reviews",
+			description: "Requests you can approve or decline will appear here.",
+		};
+	}
 	if (view === "needs_action") {
 		return {
 			description:
-				"Requests that need a decision or approval will appear here.",
-			title: "Nothing needs your attention",
+				"Requests that need a response or recovery will appear here.",
+			title: "No pending actions",
 		};
 	}
 	return {

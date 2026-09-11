@@ -35,10 +35,7 @@ import { type FormEvent, type ReactNode, useEffect, useState } from "react";
 import { OrganizationInformationProtectionSection } from "#/components/organizations/organization-information-protection-section";
 import { OrganizationLogoSection } from "#/components/organizations/organization-logo-section";
 import {
-	cancelOrganizationInvitation,
 	deleteOrganization,
-	listOrganizationInvitations,
-	type OrganizationInvitation,
 	type OrganizationInviteRole,
 	removeOrganizationMember,
 	updateOrganization,
@@ -59,7 +56,7 @@ import {
 } from "#/query/organizations/organization-directory";
 import { applyOrganizationDeletionToScopeCache } from "#/query/organizations/organization-scope";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
-import { OrganizationInvitationRequests } from "./organization-invitation-requests";
+import { OrganizationInvitationRecords } from "./organization-invitation-records";
 import { OrganizationInviteControls } from "./organization-invite-controls";
 
 const MEMBER_ROLE_OPTIONS = [
@@ -116,7 +113,7 @@ function OrganizationSettingsContent(input: {
 	const descriptions = {
 		general: "Manage your organization’s name, logo, and URL.",
 		members: "Manage members and their roles.",
-		invitations: "Invite people and review requests to join your organization.",
+		invitations: "Manage invitations and view approval history.",
 		security: "Manage information protection for your organization.",
 	};
 	let content: ReactNode;
@@ -149,12 +146,8 @@ function OrganizationSettingsContent(input: {
 							canManage={canManage}
 							organizationId={organization.id}
 						/>
-						<OrganizationInvitationRequests
+						<OrganizationInvitationRecords
 							canReview={canManage}
-							organizationId={organization.id}
-						/>
-						<OrganizationInvitationsSection
-							canManage={canManage}
 							organizationId={organization.id}
 						/>
 					</>
@@ -805,147 +798,6 @@ function OrganizationMemberRoleRow(input: {
 	);
 }
 
-function OrganizationInvitationsSection(input: {
-	canManage: boolean;
-	organizationId: string;
-}) {
-	const invitationsQuery = useQuery({
-		enabled: input.canManage,
-		queryFn: async () =>
-			await listOrganizationInvitations({
-				organizationId: input.organizationId,
-			}),
-		queryKey: organizationQueryKeys.invitations(input.organizationId),
-		refetchOnWindowFocus: false,
-		retry: 1,
-		staleTime: 10_000,
-	});
-	const pendingInvitations = (invitationsQuery.data ?? []).filter(
-		(invitation) => (invitation.status ?? "pending") === "pending"
-	);
-	if (
-		!input.canManage ||
-		(invitationsQuery.isSuccess && pendingInvitations.length === 0)
-	) {
-		return null;
-	}
-	return (
-		<SettingsSection id="organization-invitations" title="Awaiting acceptance">
-			<PendingInvitationsList
-				errorMessage={
-					invitationsQuery.isError ? invitationsQuery.error.message : null
-				}
-				invitations={pendingInvitations}
-				isPending={invitationsQuery.isPending}
-				isRetrying={invitationsQuery.isRefetching}
-				onRetry={() => invitationsQuery.refetch()}
-				organizationId={input.organizationId}
-			/>
-		</SettingsSection>
-	);
-}
-
-function PendingInvitationsList(input: {
-	errorMessage: string | null;
-	invitations: readonly OrganizationInvitation[];
-	isPending: boolean;
-	isRetrying: boolean;
-	onRetry: () => void;
-	organizationId: string;
-}) {
-	if (input.isPending) {
-		return (
-			<p className="text-muted-foreground text-sm">Loading invitations.</p>
-		);
-	}
-	if (input.errorMessage) {
-		return (
-			<div className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3">
-				<p className="font-medium text-destructive text-sm">
-					Invitations could not be loaded.
-				</p>
-				<p className="mt-1 text-destructive text-xs">{input.errorMessage}</p>
-				<Button
-					className="mt-3"
-					disabled={input.isRetrying}
-					onClick={input.onRetry}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					{input.isRetrying ? "Retrying" : "Retry"}
-				</Button>
-			</div>
-		);
-	}
-	if (input.invitations.length === 0) {
-		return null;
-	}
-	return (
-		<ul className="divide-y divide-border/70 overflow-hidden rounded-md border border-border/70">
-			{input.invitations.map((invitation) => (
-				<PendingInvitationRow
-					invitation={invitation}
-					key={invitation.id}
-					organizationId={input.organizationId}
-				/>
-			))}
-		</ul>
-	);
-}
-
-function PendingInvitationRow(input: {
-	invitation: OrganizationInvitation;
-	organizationId: string;
-}) {
-	const queryClient = useQueryClient();
-	const cancelMutation = useMutation({
-		mutationFn: async () =>
-			await cancelOrganizationInvitation({
-				invitationId: input.invitation.id,
-			}),
-		onSuccess: async () => {
-			await queryClient.invalidateQueries({
-				queryKey: organizationQueryKeys.invitations(input.organizationId),
-			});
-		},
-	});
-	const status = input.invitation.status ?? "pending";
-	const canCancel = status === "pending";
-
-	return (
-		<li className="grid min-w-0 gap-3 px-4 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-			<div className="min-w-0">
-				<p className="truncate font-medium text-foreground text-sm">
-					{input.invitation.email}
-				</p>
-				<p className="text-muted-foreground text-xs">
-					{resolveInvitationSummary(input.invitation)}
-				</p>
-				{cancelMutation.isError ? (
-					<p className="mt-1 text-destructive text-xs">
-						{cancelMutation.error.message}
-					</p>
-				) : null}
-			</div>
-			<div className="flex flex-wrap items-center gap-2">
-				<span className="shrink-0 rounded-sm border border-border px-2 py-1 text-muted-foreground text-xs capitalize">
-					{status}
-				</span>
-				<Button
-					disabled={!canCancel || cancelMutation.isPending}
-					onClick={() => cancelMutation.mutate()}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					{cancelMutation.isPending ? "Canceling" : "Cancel invitation"}
-				</Button>
-			</div>
-		</li>
-	);
-}
-
 function normalizeEditableMemberRole(role: string): OrganizationInviteRole {
 	return role === "admin" ? "admin" : "member";
 }
@@ -954,31 +806,4 @@ function resolveMemberRoleLabel(role: OrganizationInviteRole): string {
 	return (
 		MEMBER_ROLE_OPTIONS.find((option) => option.value === role)?.label ?? role
 	);
-}
-
-function resolveInvitationSummary(invitation: OrganizationInvitation): string {
-	const role = invitation.role ? resolveDisplayRole(invitation.role) : "Member";
-	const expiresAt = formatInvitationDate(invitation.expiresAt);
-	return expiresAt
-		? `${role} invitation, expires ${expiresAt}`
-		: `${role} invitation`;
-}
-
-function resolveDisplayRole(role: string): string {
-	return `${role.charAt(0).toUpperCase()}${role.slice(1)}`;
-}
-
-function formatInvitationDate(value: string | null): string | null {
-	if (!value) {
-		return null;
-	}
-	const date = new Date(value);
-	if (Number.isNaN(date.getTime())) {
-		return value;
-	}
-	return new Intl.DateTimeFormat("en", {
-		day: "numeric",
-		month: "short",
-		year: "numeric",
-	}).format(date);
 }

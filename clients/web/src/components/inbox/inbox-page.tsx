@@ -6,20 +6,19 @@ import type {
 	InboxView,
 	MarkAllInboxItemsReadResponse,
 } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	TabsSubtle,
 	TabsSubtleItem,
 	TabsSubtlePanel,
 } from "@openmeld/ui/fluid/tabs-subtle";
-import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	useInfiniteQuery,
 	useMutation,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
@@ -35,6 +34,7 @@ import {
 	inboxSummaryQueryOptions,
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
+import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 import {
 	captureInboxCacheSnapshots,
 	type InboxCacheSnapshots,
@@ -47,17 +47,56 @@ import {
 	InboxViewContent,
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
+import { InvitationReview } from "./invitation-review";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 
 export function InboxPage(input: {
 	itemId?: string;
+	requestId?: string;
 	onItemDismissed?: (itemId: string) => void;
 	onViewChange: (view: InboxView) => void;
 	view: InboxView;
 }) {
 	const queryClient = useQueryClient();
-	const { currentOrganization } = useAppOrganization();
+	const { currentOrganization, currentUserId } = useAppOrganization();
+	const role = useQuery(
+		organizationMemberRoleQueryOptions({
+			organizationId: currentOrganization.id,
+			userId: currentUserId,
+			enabled: !currentOrganization.isPersonal,
+		})
+	);
+	const reviews = useInfiniteQuery(
+		inboxItemsInfiniteQueryOptions({
+			organizationId: currentOrganization.id,
+			view: "needs_review",
+			enabled: !currentOrganization.isPersonal,
+		})
+	);
+	const showReviews =
+		role.data === "owner" ||
+		role.data === "admin" ||
+		(reviews.data?.pages[0]?.items.length ?? 0) > 0;
+	const tabs = INBOX_TABS.filter(
+		(tab) => tab.view !== "needs_review" || showReviews
+	);
+	useEffect(() => {
+		if (
+			input.view === "needs_review" &&
+			!showReviews &&
+			role.isSuccess &&
+			reviews.isSuccess
+		) {
+			input.onViewChange("all");
+		}
+	}, [
+		input.view,
+		input.onViewChange,
+		showReviews,
+		role.isSuccess,
+		reviews.isSuccess,
+	]);
 	const [announcement, setAnnouncement] = useState("");
 	const [itemElements] = useState(() => new Map<string, HTMLAnchorElement>());
 	const appliedItemIdRef = useRef<string | null>(null);
@@ -92,12 +131,8 @@ export function InboxPage(input: {
 			: undefined;
 	const selectedIndex = Math.max(
 		0,
-		INBOX_TABS.findIndex((tab) => tab.view === input.view)
+		tabs.findIndex((tab) => tab.view === input.view)
 	);
-	const unresolvedActionCount = summaryQuery.data?.unresolvedActionCount ?? 0;
-	const unresolvedActionSummary = `${unresolvedActionCount} ${
-		unresolvedActionCount === 1 ? "item needs" : "items need"
-	} action`;
 	const registerItemElement = useCallback(
 		(itemId: string, element: HTMLAnchorElement | null) => {
 			if (element) {
@@ -207,7 +242,7 @@ export function InboxPage(input: {
 						</Button>
 					) : null
 				}
-				description="Updates and requests that need your attention."
+				description="Updates, actions, and reviews in one place."
 				eyebrow={
 					currentOrganization.isPersonal
 						? "Personal workspace"
@@ -218,36 +253,37 @@ export function InboxPage(input: {
 			/>
 
 			<div className="flex min-w-0 flex-col gap-4">
+				{input.requestId ? (
+					<section
+						aria-label="Invitation request"
+						className="rounded-md border border-border/70 p-4"
+					>
+						<InvitationReview requestId={input.requestId} />
+						<Link
+							className="mt-3 inline-block text-muted-foreground text-xs hover:underline"
+							params={{ orgSlug: currentOrganization.slug }}
+							search={{ view: "needs-review" }}
+							to="/o/$orgSlug/inbox"
+						>
+							Back to reviews
+						</Link>
+					</section>
+				) : null}
 				<TabsSubtle
 					className="w-fit max-w-full"
 					idPrefix="inbox-view"
 					onSelect={(index) => {
-						const tab = INBOX_TABS[index];
+						const tab = tabs[index];
 						if (tab && tab.view !== input.view) {
 							input.onViewChange(tab.view);
 						}
 					}}
 					selectedIndex={selectedIndex}
 				>
-					{INBOX_TABS.map((tab, index) => (
+					{tabs.map((tab, index) => (
 						<TabsSubtleItem index={index} key={tab.view} label={tab.label} />
 					))}
 				</TabsSubtle>
-
-				{unresolvedActionCount > 0 ? (
-					<output
-						aria-label={unresolvedActionSummary}
-						className="flex w-fit items-center gap-2 text-muted-foreground text-sm"
-					>
-						<Badge
-							aria-hidden="true"
-							className={resolveStatusToneCompactBadgeClassName("warning")}
-							variant="outline"
-						>
-							{unresolvedActionSummary}
-						</Badge>
-					</output>
-				) : null}
 
 				{deepLinkedItemQuery.error?.status === 404 ? (
 					<output
@@ -271,7 +307,7 @@ export function InboxPage(input: {
 					<InboxRefreshWarning onRetry={() => itemsQuery.refetch()} />
 				) : null}
 
-				{INBOX_TABS.map((tab, index) => (
+				{tabs.map((tab, index) => (
 					<TabsSubtlePanel
 						idPrefix="inbox-view"
 						index={index}
@@ -282,7 +318,16 @@ export function InboxPage(input: {
 							focusedItemId={focusedItemId}
 							isError={itemsQuery.isError && !itemsQuery.data}
 							isLoading={itemsQuery.isPending}
-							items={items}
+							items={
+								input.requestId
+									? items.filter(
+											(item) =>
+												item.sourceTarget.kind !==
+													"organization_join_request" ||
+												item.sourceTarget.requestId !== input.requestId
+										)
+									: items
+							}
 							loadMoreState={resolveInboxLoadMoreState(itemsQuery)}
 							onDismiss={dismissItem}
 							onLoadMore={() => itemsQuery.fetchNextPage()}

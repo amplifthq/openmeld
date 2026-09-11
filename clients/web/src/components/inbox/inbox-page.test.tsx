@@ -30,7 +30,6 @@ const markCurrentInboxItemReadMock = vi.hoisted(() => vi.fn());
 const dismissCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const DEEP_LINKED_APPROVAL_NAME_PATTERN = /Deep-linked approval/;
 const INBOX_ITEM_UNAVAILABLE_NAME_PATTERN = /Inbox item isn't available/;
-const NEEDS_ATTENTION_SUMMARY_NAME_PATTERN = /2 items need action/;
 const NEW_SPACE_MESSAGE_LINK_NAME_PATTERN = /New Space message/;
 const SLACK_REPLY_LINK_NAME_PATTERN = /Center Agent replied in Slack/;
 const APPROVAL_COMMAND_LINK_NAME_PATTERN = /Approve the production command/;
@@ -159,7 +158,7 @@ describe("InboxPage", () => {
 		renderInboxPage({ items: [updateItem, urgentItem] });
 
 		const attentionSection = screen
-			.getByRole("heading", { name: "Needs your attention" })
+			.getByRole("heading", { name: "Needs action" })
 			.closest("section");
 		const updatesSection = screen
 			.getByRole("heading", { name: "Updates" })
@@ -378,21 +377,6 @@ describe("InboxPage", () => {
 				name: RECOVERED_INBOX_UPDATE_LINK_NAME_PATTERN,
 			})
 		).toBeTruthy();
-	});
-
-	it("summarizes unresolved actions without promoting ordinary unread updates", () => {
-		renderInboxPage({
-			items: [],
-			totalUnreadCount: 42,
-			unresolvedActionCount: 2,
-		});
-
-		expect(
-			screen.getByRole("status", {
-				name: NEEDS_ATTENTION_SUMMARY_NAME_PATTERN,
-			})
-		).toBeTruthy();
-		expect(screen.queryByText("42")).toBeNull();
 	});
 
 	it("focuses an item even when it is more than 500 Inbox rows old", async () => {

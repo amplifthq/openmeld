@@ -530,7 +530,7 @@ preview first. The sidebar header alone shows the deduplicated attention count
 without a number. Both consume the same Core summary: red for open actions,
 otherwise amber for unread urgent updates. Unknown summaries never become zero.
 The preview shows unread context and a bounded list of recent
-items grouped as **Needs action**, **Urgent updates**, and **Recent updates**, preserves source
+items grouped as **Needs action**, **Needs review**, **Urgent updates**, and **Recent updates**, preserves source
 navigation and read-on-open behavior, and exposes a clearly labeled maximize
 action to `/o/{orgSlug}/inbox`. One group does not hide the other. Its width and
 height must remain usable in narrow viewports. Ordinary non-urgent unread updates never
@@ -637,8 +637,8 @@ maximize action. The compact launcher preview reads the same Core list and
 summary, uses the same structured source mapping and read mutation, and owns no
 parallel unread state.
 
-The page provides **All**, **Unread**, and **Needs action** filters, a compact
-high-attention summary, an explicit **Mark all as read** action, and a
+The page provides **All**, **Unread**, **Needs action**, and permission-gated
+**Needs review** filters, an explicit **Mark all as read** action, and a
 chronological Fluid item list. Opening an item starts its idempotent mark-read
 mutation as part of the same in-app navigation to the structured source target;
 the mutation survives the source route change. Hover, viewport exposure, tab
@@ -743,18 +743,31 @@ The Settings secondary sidebar always shows these two groups:
   each mutation is shown and enforced according to the member's role. The group
   label also displays the current `member`, `admin`, or `owner` role badge.
 
-Invitation review lives at `/o/{orgSlug}/settings/invitations?requestId={id}`
-inside the app shell. Email and Inbox use the same destination; a focused request
-scrolls into view. The legacy external request URL redirects current organization
-reviewers here while preserving the external applicant status surface. An approved
-applicant enters the organization or invited Space after Auth confirms joining.
-Invite members and Invite link appear first. Needs review and Awaiting acceptance
-follow only when populated; neither renders an empty-state panel. The account
-avatar's Invite people menu opens a dialog that reuses the Settings invitation
-controls, including role-gated email invitations and links. A Core-owned actionable request count
-drives the amber Invitations badge and the outer Settings dot; it is not an unread
-count. Approval, delivery, and membership remain separate facts. Clients refresh
-the shared request, invitation, and Inbox projections after a decision.
+Invitation review lives at `/o/{orgSlug}/inbox?requestId={id}`. Open invitation
+items expose source-owned approval controls directly in the full Inbox list.
+Email and legacy Settings links reach the same Inbox detail; the applicant
+status surface stays separate. Pending decisions appear under **Needs review**.
+Approved incomplete invitations appear under **Needs action**, with a recovery
+action rather than another decision. Visibility follows current source permission.
+
+Settings → Invitations retains invite controls and one **Invitation records**
+table, reusing `@openmeld/ui/components/table`. Its five columns are recipient,
+decision, reviewer, invitation status, and actions. Requests and native invitations
+are grouped by recipient, preserving every source record without inventing a
+request-to-invitation ID association. Repeat requests retain separate decision
+rows; invitation status belongs to the recipient group. Direct invitations also
+appear in this table. Status is concise, review dates omit the time of day, and
+exact timestamps remain in request details and date titles. Approve, decline,
+and cancel use visible buttons in the actions column; unavailable actions show
+a dash. Current admins share the same
+records; ordinary members see their own requests. Pending requests sort first,
+including across pages, with direct approve/decline controls for current admins.
+Inbox remains the primary review destination. Both surfaces reuse the same
+source mutation and invalidate the same Inbox and request queries. Pagination
+uses the pending group, created time, and id. Settings has no invitation attention badge.
+The avatar's Invite people dialog continues to reuse the invitation controls.
+Approval, delivery, and membership remain separate facts. Decisions and retries
+refresh shared request, invitation, and Inbox projections.
 
 **Settings → Personal → Appearance** owns the browser-local interface corner
 style. The two current choices are **Square** and **Rounded**. Rounded is the

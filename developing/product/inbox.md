@@ -22,7 +22,8 @@
 
 It brings relevant work from Spaces, Agents, the Center Agent, Documents, and
 system flows into one calm, scannable surface. It does not replace those
-products. Opening an item takes the member to the source that owns the work.
+products. Opening an item exposes the source that owns the work. Invitation
+decisions can be made inside Inbox through the source-owned approval endpoint.
 
 Inbox is not the same concept as a notification:
 
@@ -79,6 +80,23 @@ Every item has two independent classifications:
 `action_required` means the source currently expects a human decision or
 intervention. `urgent` means delaying that attention can block work or cause a
 material failure. An ordinary unread update is not automatically urgent.
+
+**Needs review** contains open document and organization approval requests.
+**Needs action** contains other interventions, including approved invitations
+whose delivery or joining remains incomplete. These views are disjoint.
+`unresolvedActionCount` remains their combined total for compatibility and the
+global attention badge. Reading or dismissing an item never approves it.
+
+Routine invitation reviews have normal importance and retain transactional
+review email independently of urgent-email preferences. The invitation source
+reconciles its projections before Inbox list, item, and summary reads, preserving
+personal read and dismissal state. Current owner/admin permission gates invitation
+item, list, read, dismiss, and count access. Source completion resolves all copies.
+Shared approval history remains available to current admins in Settings even
+when they dismissed their personal Inbox item. Its Fluid Table places pending
+requests before completed records and offers the same approve/decline actions.
+Inbox remains the primary review surface; the Table is an additional entry
+to the same source-owned decision, not a separate queue or approval state.
 
 Phase 1 source kinds are:
 
@@ -278,7 +296,7 @@ surface is the only durable reminder.
 
 ## Read and attention behavior
 
-Inbox provides **All**, **Unread**, and **Needs action** views. Unread items are
+Inbox provides **All**, **Unread**, **Needs action**, and **Needs review** views. Unread items are
 visually explicit without relying on color alone.
 
 Opening an Inbox item marks that item read as part of navigating to its source.
@@ -323,7 +341,7 @@ Failed summaries still expose their unavailable status. Entry activation alone
 never clears an item.
 
 The compact preview uses the same summary breakdown. It separately queries
-**Needs action**, **Urgent updates**, and unread **Recent updates**, in that
+**Needs action**, **Needs review**, **Urgent updates**, and unread **Recent updates**, in that
 order, without duplicating an item across groups. The `urgent_updates` list view
 uses the same predicate as the urgent update count, so older urgent updates
 cannot be displaced by a page of newer ordinary messages. The `recent_updates`
@@ -560,7 +578,7 @@ adapters without changing Inbox truth.
   remains available across the authorized Web shell and shows the
   high-attention count.
 - Activating the launcher opens a responsive compact preview. The preview keeps
-  source navigation and read-on-open behavior, shows **Needs action** and
+  source navigation and read-on-open behavior, shows **Needs action**, **Needs review**, and
   **Recent updates** together when both exist, and its maximize action opens the
   canonical full Inbox page.
 - Unread Center Agent replies show the rail dot in every rail tier and clear
