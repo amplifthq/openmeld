@@ -36,7 +36,7 @@ export function SpaceWakeSuggestionToken({
 					className={cn(
 						"relative isolate inline-flex h-7 max-w-full items-center gap-1 rounded-md px-1.5 text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 						ghost
-							? "bg-muted/40 opacity-50 hover:opacity-75"
+							? "bg-muted/40 opacity-40 hover:opacity-60"
 							: surfaceClasses(surface)
 					)}
 					data-slot={
