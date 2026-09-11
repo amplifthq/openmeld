@@ -43,8 +43,8 @@ content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
-Graph / Files / Tasks / Routines / Skills / Plugins** live in its header, while
-**Channels / Memory / Center Agent settings** live in its compact header menu.
+Graph / Files / Routines / Skills / Channels** live in its header, while
+**Memory / Center Agent settings** live in its compact header menu.
 
 The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its
@@ -62,6 +62,8 @@ pieces without forcing two clients to keep an obsolete route map. Current Web:
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
+- places **Plugins** after **People** and **Agents** in Team, with separate
+  personal and named Organization configuration;
 - makes Team the people directory, with each person's Computers and Agent list
   reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
@@ -198,7 +200,7 @@ gated.
 Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
 ten-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
-App management exists once under **Center Agent → Plugins** in both personal and
+App management exists once under **Plugins** in both personal and
 multi-member workspaces. Routines is a Center Agent use-and-creation surface,
 not a global Settings page or root product peer.
 

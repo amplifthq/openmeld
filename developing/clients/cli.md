@@ -1800,3 +1800,24 @@ Use scoped owner documents for deeper rules:
   real installed product.
 - Detailed workflows and release gates belong in
   `developing/engineering/development-workflow.md`.
+## Plugins
+
+`openmeld plugins list`, `plugins actions <service>`, and
+`plugins call <service> <action-id>` use the current Organization's connected
+accounts through Core. Calls require a Local Agent owned by the signed-in
+account and an enabled workstation Binding; `--profile` selects that Agent.
+Inside a Wake the dispatch context selects it automatically and Core reads the
+recorded requester and destination to prevent accidental use of the Agent
+owner's private account for another member's request. A direct CLI invocation
+uses the signed-in account's authority. The local account and its Service are
+the trust boundary; a dispatch ID is provenance, not a RuntimeCoordinator token
+or a sandbox protecting the account from arbitrary local programs.
+
+Action discovery and execution explicitly select `--account personal|shared`.
+There is no fallback between these identities. `--view agent` returns the shared
+structured response. `--operation` is required for execution and identifies an
+exact request; changing input requires a new operation ID. High-risk actions
+first return a confirmation token; the Agent must review the exact action,
+input, and account with the requester before using `--confirm`. A replay reports
+the previous status rather than executing again. Failed or unknown outcomes
+exit unsuccessfully; discovery and confirmation are not successful execution.

@@ -93,7 +93,7 @@ export const PLUGINS = [
 		description:
 			"Work with documents, wikis, tables, and calendars using your authorized Lark account.",
 		homepage: "https://www.larksuite.com",
-		logoPath: "/app-logos/lark.svg",
+		logoPath: FEISHU_CHANNEL_LOGO_PATH,
 		name: "Lark",
 		service: "lark",
 	},

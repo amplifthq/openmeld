@@ -48,6 +48,7 @@
     "@openmeld/space": "workspace:*",
     "@openmeld/space-mesh": "workspace:*",
     "@openmeld/start": "workspace:*",
+    "@openmeld/utils": "workspace:*",
     "entities": "^8.1.0",
     "hono": "^4.11.7",
     "ipaddr.js": "^2.5.0",

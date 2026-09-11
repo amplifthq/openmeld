@@ -82,7 +82,7 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 	return (
 		<>
 			<AppPageHeader
-				description="Your Personal Workspace is only for you. Create an organization to connect Slack, Lark, or Feishu for your teammates."
+				description="Channels let you choose where to talk to your Agent."
 				descriptionWidth="full"
 				eyebrow="Personal workspace"
 				title="Channels"
@@ -229,7 +229,7 @@ function OrganizationMessageChannelsContent(input: {
 	return (
 		<>
 			<AppPageHeader
-				description={`Connect Slack, Lark, or Feishu so people in ${input.organizationName} can message the same Center Agent and receive replies in the same conversation.`}
+				description="Channels let you choose where to talk to your Agent."
 				descriptionWidth="full"
 				eyebrow="Organization"
 				title="Channels"

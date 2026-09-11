@@ -1,5 +1,9 @@
 import type { z } from "zod/v4";
 
+export type CenterAgentResolveConnectorConnectionBody = z.infer<
+  typeof import("../../schemas/http/connector-connections")["centerAgentResolveConnectorConnectionBodySchema"]
+>;
+
 type ConnectorAppCatalogProviderSchema =
   typeof import("../../schemas/http/connector-connections")["connectorAppCatalogProviderSchema"];
 type ConnectorAppCatalogResponseSchema =

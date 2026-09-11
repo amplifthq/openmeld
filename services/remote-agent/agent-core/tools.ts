@@ -203,6 +203,7 @@ import {
   union,
   unknown as unknownSchema,
 } from "valibot";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentReadableStorage,
@@ -242,7 +243,6 @@ import {
   getRemoteAgentGitHubToolDefinitions,
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
   REMOTE_AGENT_GITHUB_TOOL_NAMES,
-  type RemoteAgentConnectorExecutionConfig,
 } from "./github-tools";
 import {
   type RemoteAgentImagePreparer,
@@ -1577,7 +1577,7 @@ const setOrganizationWorkingLanguageToolInputSchema = strictObject({
 type RemoteAgentOpenMeldToolDefinitionsInput = {
   agentActivityReadEnabled?: boolean;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
