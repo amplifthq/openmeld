@@ -1,6 +1,6 @@
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { BuildingsIcon, UserIcon } from "@phosphor-icons/react";
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, useLocation, useNavigate } from "@tanstack/react-router";
 
 const pluginsRoute = getRouteApi("/o/$orgSlug/plugins");
 
@@ -13,16 +13,18 @@ export function PluginScopeTabs(input: {
 	isPersonalWorkspace: boolean;
 }) {
 	const scope = usePluginScope();
-	const navigate = pluginsRoute.useNavigate();
+	const navigate = useNavigate();
+	const pathname = useLocation({ select: (location) => location.pathname });
 	if (input.isPersonalWorkspace) {
 		return null;
 	}
 	return (
 		<TabsSubtle
 			aria-label="Configure plugins for"
-			className="w-fit max-w-full"
+			className="w-fit max-w-full gap-6"
 			onSelect={(index) =>
 				navigate({
+					to: pathname,
 					search: { scope: index === 0 ? "personal" : "organization" },
 					replace: true,
 				})

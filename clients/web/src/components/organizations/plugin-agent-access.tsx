@@ -133,7 +133,7 @@ function ConnectionAgentAccess(input: {
 			className="mt-4 space-y-3"
 			disabled={!input.access.canManage || mutation.isPending}
 		>
-			<legend className="mb-2 font-medium text-xs">{input.label}</legend>
+			<legend className="sr-only">{input.label}</legend>
 			{CONSUMERS.map(({ id: consumer, label }) => (
 				<div
 					className="flex max-w-lg items-center justify-between gap-4"

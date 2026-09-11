@@ -901,10 +901,7 @@ type ConnectionSectionInput = {
 	statusAvailable: boolean;
 	statusChecking: boolean;
 	title: string;
-} & (
-	| { scope: "member" }
-	| { connectedScopeName: "Organization" | "Workspace"; scope: "shared" }
-);
+} & ({ scope: "member" } | { connectedScopeName: string; scope: "shared" });
 
 function ConnectionSection(input: ConnectionSectionInput) {
 	return (
