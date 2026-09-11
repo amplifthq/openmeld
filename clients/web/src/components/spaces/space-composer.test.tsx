@@ -60,7 +60,7 @@ describe("SpaceComposer sending focus", () => {
 
 it("only consumes a recommendation after the send owner stages a message", () => {
 	const onSubmit = vi.fn<(options?: SpaceComposerSendOptions) => void>();
-	const items = [
+	const items: Partial<SpaceTimelineItem>[] = [
 		{
 			id: "request",
 			actorProfileId: "me",
@@ -76,9 +76,12 @@ it("only consumes a recommendation after the send owner stages a message", () =>
 			deliveryState: "sent",
 			wakeSourceSignalId: "request",
 		},
-	] as SpaceTimelineItem[];
+	];
 	render(
-		<SpaceWakeRecommendationScope items={items} selfProfileId="me">
+		<SpaceWakeRecommendationScope
+			items={items as SpaceTimelineItem[]}
+			selfProfileId="me"
+		>
 			<RecommendationStatus />
 			<SendHarness
 				mention={false}
