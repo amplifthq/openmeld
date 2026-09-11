@@ -3797,9 +3797,12 @@ Direct messages and compact embedded conversations retain their existing headers
 Returning to the latest messages or opening Files restores the expanded header.
 Scroll frames update only the navigation transform outside React. Header height
 changes at the collapse/expansion boundary, with a matching scroll offset to
-preserve the reading anchor. Only an active scroll gesture uses intermediate
-positions; restored positions and completed gestures settle at the nearest
-expanded or compact endpoint. Reduced motion switches positions without travel.
+preserve the reading anchor. Collapse and expansion use separate boundaries
+(144px and 72px from the bottom), so small reversals do not repeatedly resize
+the conversation. Restored views choose an endpoint once; pausing a scroll
+preserves its progress without snapping. The tabs return fully to their lower
+row within 24px of the latest messages. Reduced motion switches positions
+without travel.
 
 Messages and files share one pinned-item preview with previous/next navigation.
 The preview's X dismisses all pins for the reader; the original pinner gets a

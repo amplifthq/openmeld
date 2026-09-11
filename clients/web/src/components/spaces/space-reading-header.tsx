@@ -17,29 +17,51 @@ export function useSpaceReadingHeader() {
 	return useContext(SpaceReadingHeaderContext);
 }
 
-export function resolveSpaceReadingHeaderProgress(
-	distanceFromBottom: number,
-	isUserScrolling: boolean,
-	anchor: { distance: number; progress: number } = { distance: 24, progress: 0 }
-) {
-	if (distanceFromBottom <= 24) {
-		return 0;
+type SpaceReadingHeaderPosition = {
+	compact: boolean;
+	progress: number;
+	anchor: { distance: number; progress: number };
+};
+
+export function resolveSpaceReadingHeaderPosition(
+	distance: number,
+	previous?: SpaceReadingHeaderPosition
+): SpaceReadingHeaderPosition {
+	if (distance <= 24) {
+		return {
+			compact: false,
+			progress: 0,
+			anchor: { distance: 24, progress: 0 },
+		};
 	}
-	if (distanceFromBottom >= 144) {
-		return 1;
+	if (!previous) {
+		// Restoring a view chooses an endpoint once. A pause in an actual scroll
+		// must not round its progress or restart the animation.
+		const compact = distance >= 84;
+		return {
+			compact,
+			progress: compact ? 1 : 0,
+			anchor: { distance: compact ? 72 : distance, progress: compact ? 1 : 0 },
+		};
 	}
-	const anchorDistance = Math.min(144, Math.max(24, anchor.distance));
-	// Interpolate from the resting position toward the relevant endpoint.
-	// Resuming an upward gesture from a restored compact header must not first
-	// send the tabs backwards to the absolute scroll position's partial progress.
+	if (distance >= 144 || (previous.compact && distance >= 72)) {
+		return {
+			compact: true,
+			progress: 1,
+			anchor: { distance: 72, progress: 1 },
+		};
+	}
+	// Separate collapse and expansion boundaries prevent a tiny reversal from
+	// repeatedly resizing the viewport. The tabs leave the compact anchor
+	// continuously once the reader approaches the latest messages.
+	const anchor = previous.anchor;
 	const progress =
-		distanceFromBottom >= anchorDistance
+		distance >= anchor.distance
 			? anchor.progress +
-				((1 - anchor.progress) * (distanceFromBottom - anchorDistance)) /
-					(144 - anchorDistance)
-			: (anchor.progress * (distanceFromBottom - 24)) / (anchorDistance - 24);
-	// Restoring a reading position is not a partially completed gesture.
-	return isUserScrolling ? progress : Math.round(progress);
+				((1 - anchor.progress) * (distance - anchor.distance)) /
+					(144 - anchor.distance)
+			: (anchor.progress * (distance - 24)) / (anchor.distance - 24);
+	return { compact: false, progress, anchor };
 }
 
 export function SpaceReadingHeaderProvider(input: {
@@ -102,9 +124,8 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 	let offsetY = 0;
 	let titleHeight = 0;
 	let navigationHeight = 0;
-	let isUserScrolling = false;
-	let lastProgress = 0;
-	let gestureAnchor = { distance: 24, progress: 0 };
+	let position: SpaceReadingHeaderPosition | undefined;
+	let hasUserScrolled = false;
 	const readDistance = () =>
 		Math.max(
 			0,
@@ -131,15 +152,14 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 	const render = () => {
 		animationFrame = 0;
 		const distance = readDistance();
-		const progress = canCompact
-			? resolveSpaceReadingHeaderProgress(
+		position = canCompact
+			? resolveSpaceReadingHeaderPosition(
 					distance,
-					isUserScrolling,
-					gestureAnchor
+					hasUserScrolled ? position : undefined
 				)
-			: 0;
-		lastProgress = progress;
-		setCompact(progress === 1);
+			: undefined;
+		const progress = position?.progress ?? 0;
+		setCompact(position?.compact ?? false);
 		if (reducedMotion.matches) {
 			navigation.style.transform = compact
 				? `translate(${offsetX}px, ${offsetY}px)`
@@ -157,11 +177,11 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 			animationFrame = requestAnimationFrame(render);
 		}
 	};
+	// Mounting the message scroller can restore its position over several frames.
+	// Choose a resting endpoint until the reader actually starts scrolling, then
+	// keep one continuous scroll mapping across pauses and subsequent gestures.
 	const startUserScroll = () => {
-		if (!isUserScrolling) {
-			gestureAnchor = { distance: readDistance(), progress: lastProgress };
-		}
-		isUserScrolling = true;
+		hasUserScrolled = true;
 	};
 	const onKeyDown = (event: KeyboardEvent) => {
 		if (
@@ -179,27 +199,12 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 		}
 	};
 	const onPointerDown = (event: PointerEvent) => {
-		// Include dragging the native scrollbar, without treating message clicks
-		// or text selection as scroll gestures.
 		if (
 			event.clientX >=
 			scroller.getBoundingClientRect().left + scroller.clientWidth
 		) {
 			startUserScroll();
 		}
-	};
-	const settle = () => {
-		if (isUserScrolling) {
-			const distance = readDistance();
-			gestureAnchor = {
-				distance,
-				progress: Math.round(
-					resolveSpaceReadingHeaderProgress(distance, true, gestureAnchor)
-				),
-			};
-		}
-		isUserScrolling = false;
-		schedule();
 	};
 
 	const measure = () => {
@@ -251,7 +256,6 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 		subtree: true,
 	});
 	scroller.addEventListener("scroll", schedule, { passive: true });
-	scroller.addEventListener("scrollend", settle);
 	scroller.addEventListener("wheel", startUserScroll, { passive: true });
 	scroller.addEventListener("touchmove", startUserScroll, { passive: true });
 	scroller.addEventListener("keydown", onKeyDown);
@@ -267,7 +271,6 @@ function attachSpaceReadingHeader(header: HTMLElement, scroller: HTMLElement) {
 		viewportObserver.disconnect();
 		mutationObserver.disconnect();
 		scroller.removeEventListener("scroll", schedule);
-		scroller.removeEventListener("scrollend", settle);
 		scroller.removeEventListener("wheel", startUserScroll);
 		scroller.removeEventListener("touchmove", startUserScroll);
 		scroller.removeEventListener("keydown", onKeyDown);
