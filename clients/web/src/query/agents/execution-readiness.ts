@@ -3,8 +3,13 @@ import type {
 	AgentExecutionReadinessTargetRuntime,
 	GetAgentExecutionReadinessBatchResponse,
 	OrganizationAgentRuntimeOverviewResponse,
+	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
-import { type QueryClient, queryOptions } from "@tanstack/react-query";
+import {
+	type Query,
+	type QueryClient,
+	queryOptions,
+} from "@tanstack/react-query";
 import {
 	notifyAgentExecutionReadinessRefresh,
 	readAgentExecutionReadinessBatch,
@@ -44,7 +49,7 @@ export const agentExecutionReadinessQueryKeys = {
 			targetRuntime?.kind === "openmeld_service_runtime_id"
 				? targetRuntime.openMeldServiceRuntimeId
 				: "",
-			...agentProfileIds,
+			...normalizeAgentProfileIds(agentProfileIds),
 		] as const,
 } as const;
 
@@ -55,6 +60,7 @@ export function agentExecutionReadinessBatchQueryOptions(input: {
 	storageScope: string;
 	targetRuntime?: AgentExecutionReadinessTargetRuntime;
 }) {
+	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds);
 	return queryOptions<
 		GetAgentExecutionReadinessBatchResponse,
 		StructuredApiClientFailure
@@ -62,12 +68,13 @@ export function agentExecutionReadinessBatchQueryOptions(input: {
 		queryKey: agentExecutionReadinessQueryKeys.batch(
 			input.storageScope,
 			input.organizationId,
-			input.agentProfileIds,
+			agentProfileIds,
 			input.targetRuntime
 		),
-		queryFn: async () =>
+		queryFn: async ({ signal }) =>
 			await readAgentExecutionReadinessBatch({
-				agentProfileIds: input.agentProfileIds,
+				agentProfileIds,
+				signal,
 				organizationId: input.organizationId,
 				...(input.targetRuntime === undefined
 					? {}
@@ -141,7 +148,6 @@ export async function refreshWebAgentReadinessAfterCoreFactsChanged(
 	input: Parameters<typeof refreshWebAgentReadinessFacts>[0]
 ) {
 	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds ?? []);
-	const maxAttempts = Math.max(1, input.maxAttempts ?? 2);
 
 	await runWebAgentReadinessRefreshStep({
 		action: () =>
@@ -153,7 +159,8 @@ export async function refreshWebAgentReadinessAfterCoreFactsChanged(
 				storageScope: input.storageScope,
 			}),
 		agentProfileIds,
-		maxAttempts,
+		// Each Query owns its read retries. Do not repeat the entire fan-out.
+		maxAttempts: 1,
 		onStepFailure: input.onStepFailure,
 		step: "shared_caches",
 		storageScope: input.storageScope,
@@ -169,20 +176,23 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 }) {
 	const agentProfileIds = normalizeAgentProfileIds(input.agentProfileIds ?? []);
 	const refreshes: Promise<unknown>[] = [
-		input.queryClient.invalidateQueries({
-			predicate:
-				agentProfileIds.length === 0
-					? undefined
-					: (query) =>
-							agentProfileIds.some((agentProfileId) =>
-								query.queryKey.includes(agentProfileId)
-							),
-			queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
-				input.storageScope,
-				input.organizationId
-			),
-			refetchType: "active",
-		}),
+		input.queryClient.invalidateQueries(
+			{
+				predicate:
+					agentProfileIds.length === 0
+						? undefined
+						: (query) =>
+								agentProfileIds.some((agentProfileId) =>
+									query.queryKey.includes(agentProfileId)
+								),
+				queryKey: agentExecutionReadinessQueryKeys.batchesForOrganization(
+					input.storageScope,
+					input.organizationId
+				),
+				refetchType: "active",
+			},
+			{ cancelRefetch: false }
+		),
 	];
 	const organizationId = input.organizationId.trim();
 	if (organizationId.length > 0) {
@@ -215,6 +225,7 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 						organizationId,
 						overviewQueryKey,
 						queryClient: input.queryClient,
+						storageScope: input.storageScope,
 					})
 				);
 			}
@@ -243,6 +254,15 @@ export async function refreshWebAgentReadinessSharedCaches(input: {
 	await Promise.all(refreshes);
 }
 
+const overviewRefreshes = new WeakMap<
+	Query,
+	{
+		dirty: Set<string>;
+		promise: Promise<void>;
+		storageScope: string;
+	}
+>();
+
 async function refreshAgentRuntimeOverviewReadiness(input: {
 	agentProfileIds: readonly string[];
 	organizationId: string;
@@ -250,33 +270,112 @@ async function refreshAgentRuntimeOverviewReadiness(input: {
 		typeof organizationQueryKeys.agentRuntimeOverview
 	>;
 	queryClient: QueryClient;
+	storageScope: string;
 }) {
-	await input.queryClient.cancelQueries({
-		exact: true,
-		queryKey: input.overviewQueryKey,
+	const cache = input.queryClient.getQueryCache();
+	const findOverview = () =>
+		cache.find({ exact: true, queryKey: input.overviewQueryKey });
+	const overview = findOverview();
+	if (!overview?.isActive()) {
+		return;
+	}
+	const existing = overviewRefreshes.get(overview);
+	if (existing?.storageScope === input.storageScope) {
+		for (const id of input.agentProfileIds) {
+			existing.dirty.add(id);
+		}
+		return await existing.promise;
+	}
+	const state = {
+		dirty: new Set(input.agentProfileIds),
+		promise: Promise.resolve(),
+		storageScope: input.storageScope,
+	};
+	overviewRefreshes.set(overview, state);
+	const isCurrent = () =>
+		findOverview() === overview &&
+		overview.isActive() &&
+		overviewRefreshes.get(overview) === state;
+	state.promise = (async () => {
+		while (isCurrent() && state.dirty.size > 0) {
+			const ids = normalizeAgentProfileIds([...state.dirty]);
+			state.dirty.clear();
+			const directory =
+				input.queryClient.getQueryData<OrganizationProfileDirectoryResponse>(
+					organizationQueryKeys.profileDirectory(input.organizationId)
+				);
+			const ownIds = new Set(
+				directory?.agentProfiles
+					.filter((profile) => profile.ownerUserId === input.storageScope)
+					.map((profile) => profile.profileId)
+			);
+			// The batch endpoint is owner-only. Shared Agents must use the existing
+			// organization-authorized overview, never an owner request with foreign IDs.
+			if (ids.some((id) => !ownIds.has(id))) {
+				const wasFetching = overview.state.fetchStatus === "fetching";
+				await input.queryClient.invalidateQueries(
+					{
+						exact: true,
+						queryKey: input.overviewQueryKey,
+						refetchType: "active",
+					},
+					{ cancelRefetch: false }
+				);
+				if (wasFetching) {
+					state.dirty = new Set([...state.dirty, ...ids]);
+				}
+				continue;
+			}
+			const generation = overview.state.dataUpdateCount;
+			const refreshed = await input.queryClient.fetchQuery({
+				...agentExecutionReadinessBatchQueryOptions({
+					agentProfileIds: ids,
+					enabled: true,
+					organizationId: input.organizationId,
+					storageScope: input.storageScope,
+				}),
+				staleTime: 0,
+			});
+			if (!isCurrent()) {
+				return;
+			}
+			if (generation !== overview.state.dataUpdateCount) {
+				state.dirty = new Set([...state.dirty, ...ids]);
+				continue;
+			}
+			const readinessByProfileId = new Map(
+				refreshed.items.map((item) => [item.agentProfileId, item])
+			);
+			input.queryClient.setQueryData<OrganizationAgentRuntimeOverviewResponse>(
+				input.overviewQueryKey,
+				(current) => patchOverviewReadiness(current, readinessByProfileId)
+			);
+		}
+	})().finally(() => {
+		if (overviewRefreshes.get(overview) === state) {
+			overviewRefreshes.delete(overview);
+		}
 	});
-	const refreshed = await readAgentExecutionReadinessBatch({
-		agentProfileIds: input.agentProfileIds,
-		organizationId: input.organizationId,
-	});
-	const readinessByProfileId = new Map(
-		refreshed.items.map((item) => [item.agentProfileId, item] as const)
-	);
-	input.queryClient.setQueryData<OrganizationAgentRuntimeOverviewResponse>(
-		input.overviewQueryKey,
-		(current) =>
-			current
-				? {
-						...current,
-						agentProfiles: current.agentProfiles.map((profile) => ({
-							...profile,
-							readiness:
-								readinessByProfileId.get(profile.profileId) ??
-								profile.readiness,
-						})),
-					}
-				: current
-	);
+	return await state.promise;
+}
+
+function patchOverviewReadiness(
+	current: OrganizationAgentRuntimeOverviewResponse | undefined,
+	readinessByProfileId: ReadonlyMap<
+		string,
+		GetAgentExecutionReadinessBatchResponse["items"][number]
+	>
+) {
+	return current
+		? {
+				...current,
+				agentProfiles: current.agentProfiles.map((profile) => ({
+					...profile,
+					readiness:
+						readinessByProfileId.get(profile.profileId) ?? profile.readiness,
+				})),
+			}
+		: current;
 }
 
 async function runWebAgentReadinessRefreshStep(input: {
@@ -332,5 +431,5 @@ function normalizeAgentProfileIds(
 			normalizedAgentProfileIds.add(normalizedAgentProfileId);
 		}
 	}
-	return [...normalizedAgentProfileIds];
+	return [...normalizedAgentProfileIds].sort();
 }

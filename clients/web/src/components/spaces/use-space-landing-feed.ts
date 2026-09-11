@@ -189,9 +189,7 @@ export function useSpaceLandingFeed(input: {
 		agentProfileIds: readonly string[];
 		signalIds: readonly string[];
 	}) => Promise<void> | void;
-	onAgentReadinessInvalidated?: (input: {
-		agentProfileIds: readonly string[];
-	}) => Promise<void> | void;
+	readinessScope?: { organizationId?: string | null; storageScope: string };
 	history: {
 		isPending: boolean;
 		isSuccess: boolean;
@@ -202,6 +200,8 @@ export function useSpaceLandingFeed(input: {
 	};
 }) {
 	const queryClient = useQueryClient();
+	const readinessOrganizationId = input.readinessScope?.organizationId ?? "";
+	const readinessStorageScope = input.readinessScope?.storageScope ?? "";
 	const [timelineEnvelopes, setTimelineEnvelopes] = useState<
 		readonly SignalEnvelope[]
 	>([]);
@@ -252,9 +252,6 @@ export function useSpaceLandingFeed(input: {
 	const onThreadSignalRef = useRef(input.onThreadSignal);
 	const onWakeFinalOutcomeFactsRefreshRef = useRef(
 		input.onWakeFinalOutcomeFactsRefresh
-	);
-	const onAgentReadinessInvalidatedRef = useRef(
-		input.onAgentReadinessInvalidated
 	);
 	const reconnectKeyRef = useRef(0);
 	const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -589,9 +586,6 @@ export function useSpaceLandingFeed(input: {
 		onWakeFinalOutcomeFactsRefreshRef.current =
 			input.onWakeFinalOutcomeFactsRefresh;
 	}, [input.onWakeFinalOutcomeFactsRefresh]);
-	useEffect(() => {
-		onAgentReadinessInvalidatedRef.current = input.onAgentReadinessInvalidated;
-	}, [input.onAgentReadinessInvalidated]);
 
 	useEffect(() => {
 		if (input.spaceId.trim().length === 0) {
@@ -919,7 +913,10 @@ export function useSpaceLandingFeed(input: {
 					membersRefetchTimerRef,
 					message,
 					openMeldProfileId: input.openMeldProfileId,
-					onAgentReadinessInvalidatedRef,
+					readinessScope: {
+						organizationId: readinessOrganizationId,
+						storageScope: readinessStorageScope,
+					},
 					queryClient,
 					setLiveErrorMessage,
 					setLiveState,
@@ -1005,6 +1002,8 @@ export function useSpaceLandingFeed(input: {
 		input.openMeldProfileId,
 		input.membersRefetch,
 		input.participationEnabled,
+		readinessOrganizationId,
+		readinessStorageScope,
 		input.spaceId,
 		input.statusRefetch,
 		reconnectKey,
@@ -1123,13 +1122,7 @@ type NonTimelineLiveMessageInput = {
 	membersRefetchTimerRef: { current: ReturnType<typeof setTimeout> | null };
 	message: SpaceLiveMessage;
 	openMeldProfileId: string;
-	onAgentReadinessInvalidatedRef: {
-		current:
-			| ((input: {
-					agentProfileIds: readonly string[];
-			  }) => Promise<void> | void)
-			| undefined;
-	};
+	readinessScope?: { organizationId: string; storageScope: string };
 	queryClient: QueryClient;
 	setLiveErrorMessage: (value: string | null) => void;
 	setLiveState: (value: SpaceLiveState) => void;
@@ -1341,27 +1334,12 @@ async function flushWakeProgressRefreshes(
 }
 
 function handleAgentReadinessInvalidation(
-	input: Pick<
-		NonTimelineLiveMessageInput,
-		"onAgentReadinessInvalidatedRef" | "spaceId"
-	>,
+	input: Pick<NonTimelineLiveMessageInput, "readinessScope">,
 	frame: SpaceLiveInvalidationMessage["frame"]
 ): void {
-	publishAgentReadinessInvalidationFrame(frame);
-	const agentProfileIds = frame.agentProfileIds ?? [];
-	Promise.resolve(
-		input.onAgentReadinessInvalidatedRef.current?.({ agentProfileIds })
-	).catch((error) => {
-		console.warn(
-			"[openmeld.web.space.agent_readiness_invalidation_refresh_failed]",
-			{
-				agentProfileIds,
-				error: toStructuredApiClientFailure(error).message,
-				reason: frame.reason,
-				spaceId: input.spaceId,
-			}
-		);
-	});
+	if (input.readinessScope) {
+		publishAgentReadinessInvalidationFrame(frame, input.readinessScope);
+	}
 }
 
 function handleLiveSignalMessage(input: {
@@ -1778,16 +1756,31 @@ function shouldRefetchMembersAfterSignal(input: {
 	);
 }
 
+const refetchesNeedingFollowup = new WeakSet<object>();
+
 function debounceRefetch(
 	timerRef: { current: ReturnType<typeof setTimeout> | null },
 	refetch: () => Promise<unknown>
 ) {
 	if (timerRef.current) {
-		clearTimeout(timerRef.current);
+		refetchesNeedingFollowup.add(timerRef);
+		return;
 	}
-	timerRef.current = setTimeout(() => {
-		refetch().catch(() => undefined);
+	const timer = setTimeout(() => {
+		refetchesNeedingFollowup.delete(timerRef);
+		refetch()
+			.catch(() => undefined)
+			.finally(() => {
+				if (timerRef.current !== timer) {
+					return;
+				}
+				timerRef.current = null;
+				if (refetchesNeedingFollowup.delete(timerRef)) {
+					debounceRefetch(timerRef, refetch);
+				}
+			});
 	}, 300);
+	timerRef.current = timer;
 }
 
 function mergeIncomingSignals(input: {

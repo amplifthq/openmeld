@@ -19,3 +19,8 @@ indefinitely when the browser is offline or a response stalls.
 Offline Wakes remain selectable when waiting is supported. Send and wait uses
 the main send button, with a compact offline explanation beside it. Reference
 mentions remain references and never silently start a task.
+
+Drafts with mentions show a quiet loading hint while members load and offer Retry
+if loading fails. Feedback stays inside the Composer without a separate warning
+box. Availability updates no longer let older responses replace newer state or
+repeat the same refresh from multiple page listeners.

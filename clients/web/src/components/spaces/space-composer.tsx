@@ -42,6 +42,7 @@ import type {
 } from "./use-space-mention-authoring";
 
 export type SpaceComposerProps = {
+	members?: { state: "loading" | "error"; onRetry: () => void };
 	recovery?: Omit<
 		ComponentProps<typeof SpaceComposerBlockedWakeRecoveryAction>,
 		"blockedWakeProfileId"
@@ -82,7 +83,6 @@ export type SpaceComposerProps = {
 	presentation?: {
 		className?: string;
 		dataSlot?: string;
-		errorClassName?: string;
 		maxHeight?: number;
 	};
 	slots?: {
@@ -135,12 +135,13 @@ function useComposerWakeSuggestion(input: SpaceComposerProps) {
 }
 
 export function SpaceComposer(input: SpaceComposerProps) {
+	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
 		useComposerWakeSuggestion(input);
 	const deviceWaitPresentation =
 		buildSpaceComposerDeviceWaitPresentation(input);
 	const submit = () => {
-		if (deviceWaitPresentation.disabled) {
+		if (deviceWaitPresentation.disabled || membersPending) {
 			return;
 		}
 		recommendations?.recordSend(recommended?.suggestion.profileId ?? null);
@@ -208,7 +209,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		waitTooltip: deviceWaitPresentation.target
 			? `${deviceWaitPresentation.target.profileName}’s computer is offline. The task will run when it reconnects.`
 			: null,
-		waitDisabled: deviceWaitPresentation.disabled,
+		waitDisabled: deviceWaitPresentation.disabled || membersPending,
 		onSubmit: submit,
 		override: input.slots?.primaryAction,
 		policy,
@@ -324,14 +325,46 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							{primaryAction}
 						</div>
 					</PromptInputActions>
+					<ComposerFeedback
+						error={input.slots?.error}
+						members={input.members}
+						membersPending={membersPending}
+					/>
 				</PromptInput>
 			</div>
-			{input.slots?.error ? (
-				<div className={input.presentation?.errorClassName}>
-					{input.slots.error}
-				</div>
-			) : null}
 		</div>
+	);
+}
+
+function hasPendingComposerMembers(input: SpaceComposerProps) {
+	return Boolean(input.members && input.content.authoredMentions.length > 0);
+}
+
+function ComposerFeedback(input: {
+	members: SpaceComposerProps["members"];
+	membersPending: boolean;
+	error: ReactNode;
+}) {
+	if (!input.membersPending) {
+		return input.error;
+	}
+	return (
+		<output className="text-muted-foreground text-sm">
+			{input.members?.state === "error" ? (
+				<>
+					Couldn't load members.{" "}
+					<button
+						className="underline underline-offset-2"
+						onClick={input.members.onRetry}
+						type="button"
+					>
+						Retry
+					</button>
+				</>
+			) : (
+				"Loading members… You can keep typing."
+			)}
+		</output>
 	);
 }
 

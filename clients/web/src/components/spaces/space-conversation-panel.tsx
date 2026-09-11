@@ -124,6 +124,7 @@ import {
 import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
+	type SpaceComposerProps,
 } from "./space-composer";
 import {
 	resolveSpaceComposerConversationKind,
@@ -247,6 +248,7 @@ type SpaceConversationPanelResolvedProps = {
 	className?: string;
 	composerPrimaryAction?: ReactNode;
 	composerErrorMessage: string | null;
+	composerMembers?: SpaceComposerProps["members"];
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
@@ -2131,7 +2133,7 @@ function SpaceComposerSection(input: {
 							: undefined,
 						targetName: input.composerTargetName,
 					}}
-					presentation={{ errorClassName: "mt-3" }}
+					members={panel.composerMembers}
 					recovery={{
 						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
 						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
@@ -2220,9 +2222,9 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 		return null;
 	}
 	return (
-		<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-			<p>{panel.composerErrorMessage}</p>
-		</div>
+		<p className="text-destructive text-sm" role="alert">
+			{panel.composerErrorMessage}
+		</p>
 	);
 }
 

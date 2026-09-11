@@ -51,6 +51,36 @@ function props(): SpaceComposerProps {
 	};
 }
 describe("Composer offline waiting submission", () => {
+	it("keeps mentions and drafts while members load, offers retry on failure, and enables sending on recovery", () => {
+		const input = props();
+		input.content.addressingTargets = [];
+		input.content.authoredMentions = [
+			{ profileId, relation: "reference", text: "@Runner", start: 0, end: 7 },
+		];
+		input.content.text = "@Runner check the report";
+		const onRetry = vi.fn();
+		const view = render(
+			<SpaceComposer {...input} members={{ state: "loading", onRetry }} />
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Send message",
+				}) as HTMLButtonElement
+			).disabled
+		).toBe(true);
+		expect(screen.getByRole("status").textContent).toContain("Loading members");
+		expect(screen.queryByRole("alert")).toBeNull();
+		view.rerender(
+			<SpaceComposer {...input} members={{ state: "error", onRetry }} />
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		expect(onRetry).toHaveBeenCalledOnce();
+		view.rerender(<SpaceComposer {...input} />);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		expect(input.actions.onSubmit).toHaveBeenCalledOnce();
+		expect(input.actions.onEditorChange).not.toHaveBeenCalled();
+	});
 	it("keeps main's recovery action for blocked targets without competing with Send and wait", () => {
 		const input = props();
 		input.recovery = {

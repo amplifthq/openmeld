@@ -1,7 +1,9 @@
+import { QueryObserver } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { createTestQueryClient } from "#/test-support/query-client";
 import {
+	agentExecutionReadinessBatchQueryOptions,
 	agentExecutionReadinessQueryKeys,
 	refreshWebAgentReadinessAfterCoreFactsChanged,
 	refreshWebAgentReadinessFacts,
@@ -177,7 +179,12 @@ describe("refreshWebAgentReadinessFacts", () => {
 
 	it("patches only the changed Profile readiness in an active runtime overview", async () => {
 		const queryClient = createTestQueryClient();
-		const cancelQueriesSpy = vi.spyOn(queryClient, "cancelQueries");
+		queryClient.setQueryData(
+			organizationQueryKeys.profileDirectory("org-123"),
+			{
+				agentProfiles: [{ profileId: "agt_target", ownerUserId: "scope-test" }],
+			}
+		);
 		const overviewQueryKey = [
 			"organizations",
 			"org-123",
@@ -225,10 +232,7 @@ describe("refreshWebAgentReadinessFacts", () => {
 		expect(readAgentExecutionReadinessBatchMock).toHaveBeenCalledWith({
 			agentProfileIds: ["agt_target"],
 			organizationId: "org-123",
-		});
-		expect(cancelQueriesSpy).toHaveBeenCalledWith({
-			exact: true,
-			queryKey: overviewQueryKey,
+			signal: expect.any(AbortSignal),
 		});
 		const overview = queryClient.getQueryData<{
 			agentProfiles: { profileId: string; readiness: unknown }[];
@@ -266,7 +270,157 @@ describe("refreshWebAgentReadinessFacts", () => {
 					"org-acme",
 				]),
 				refetchType: "active",
-			})
+			}),
+			{ cancelRefetch: false }
 		);
+	});
+});
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((done) => {
+		resolve = done;
+	});
+	return { promise, resolve };
+}
+
+describe("readiness refresh ordering", () => {
+	const key = organizationQueryKeys.agentRuntimeOverview("org-1");
+	const snapshot = (generatedAt: string) => ({
+		agentProfiles: [
+			{
+				profileId: "agt_target",
+				readiness: { agentProfileId: "agt_target", generatedAt },
+			},
+		],
+	});
+	const refresh = (queryClient: ReturnType<typeof createTestQueryClient>) =>
+		refreshWebAgentReadinessSharedCaches({
+			queryClient,
+			organizationId: "org-1",
+			storageScope: "account-1",
+			agentProfileIds: ["agt_target"],
+			includeLocalRuntimeCaches: false,
+		});
+	function setup() {
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(key, snapshot("initial"));
+		queryClient.setQueryData(organizationQueryKeys.profileDirectory("org-1"), {
+			agentProfiles: [{ profileId: "agt_target", ownerUserId: "account-1" }],
+		});
+		const observer = new QueryObserver(queryClient, {
+			queryKey: key,
+			queryFn: async () => snapshot("full"),
+			staleTime: Number.POSITIVE_INFINITY,
+		});
+		const stop = observer.subscribe(() => undefined);
+		return { queryClient, stop };
+	}
+	afterEach(() => readAgentExecutionReadinessBatchMock.mockReset());
+
+	it("coalesces concurrent events and reads once more after a change during the read", async () => {
+		const { queryClient, stop } = setup();
+		const first = deferred<{ items: unknown[] }>();
+		const started = deferred<void>();
+		readAgentExecutionReadinessBatchMock
+			.mockImplementationOnce(() => {
+				started.resolve();
+				return first.promise;
+			})
+			.mockResolvedValue({
+				items: [snapshot("latest").agentProfiles[0].readiness],
+			});
+		const a = refresh(queryClient);
+		await started.promise;
+		const b = refresh(queryClient);
+		const c = refresh(queryClient);
+		expect(readAgentExecutionReadinessBatchMock).toHaveBeenCalledTimes(1);
+		first.resolve({ items: [snapshot("older").agentProfiles[0].readiness] });
+		await Promise.all([a, b, c]);
+		expect(readAgentExecutionReadinessBatchMock).toHaveBeenCalledTimes(2);
+		expect(queryClient.getQueryData(key)).toEqual(snapshot("latest"));
+		stop();
+		queryClient.clear();
+	});
+
+	it.each([
+		"removed",
+		"full-response",
+	])("does not let an old partial response overwrite %s", async (change) => {
+		const { queryClient, stop } = setup();
+		const first = deferred<{ items: unknown[] }>();
+		const started = deferred<void>();
+		const followup = deferred<{ items: unknown[] }>();
+		const followupStarted = deferred<void>();
+		readAgentExecutionReadinessBatchMock
+			.mockImplementationOnce(() => {
+				started.resolve();
+				return first.promise;
+			})
+			.mockImplementationOnce(() => {
+				followupStarted.resolve();
+				return followup.promise;
+			});
+		const pending = refresh(queryClient);
+		await started.promise;
+		if (change === "removed") {
+			queryClient.removeQueries({ queryKey: key, exact: true });
+		}
+		queryClient.setQueryData(key, snapshot("new-full"));
+		first.resolve({
+			items: [snapshot("old-partial").agentProfiles[0].readiness],
+		});
+		if (change === "full-response") {
+			await followupStarted.promise;
+			expect(queryClient.getQueryData(key)).toEqual(snapshot("new-full"));
+			followup.resolve({
+				items: [snapshot("current").agentProfiles[0].readiness],
+			});
+		}
+		await pending;
+		expect(queryClient.getQueryData(key)).toEqual(
+			snapshot(change === "removed" ? "new-full" : "current")
+		);
+		stop();
+		queryClient.clear();
+	});
+
+	it("uses the authorized overview for another owner's Agent", async () => {
+		const { queryClient, stop } = setup();
+		queryClient.setQueryData(organizationQueryKeys.profileDirectory("org-1"), {
+			agentProfiles: [{ profileId: "agt_target", ownerUserId: "someone-else" }],
+		});
+		await refresh(queryClient);
+		expect(readAgentExecutionReadinessBatchMock).not.toHaveBeenCalled();
+		expect(queryClient.getQueryData(key)).toEqual(snapshot("full"));
+		stop();
+		queryClient.clear();
+	});
+
+	it("uses one cancellable request for equivalent Agent sets", async () => {
+		const queryClient = createTestQueryClient();
+		const response = deferred<{ items: unknown[] }>();
+		readAgentExecutionReadinessBatchMock.mockReturnValue(response.promise);
+		const options = (agentProfileIds: string[]) =>
+			agentExecutionReadinessBatchQueryOptions({
+				agentProfileIds,
+				organizationId: "org-1",
+				storageScope: "account-1",
+				enabled: true,
+			});
+		const a = queryClient.fetchQuery(options(["b", "a", "a"]));
+		const b = queryClient.fetchQuery(options(["a", "b"]));
+		expect(readAgentExecutionReadinessBatchMock).toHaveBeenCalledTimes(1);
+		expect(
+			readAgentExecutionReadinessBatchMock.mock.calls[0][0].agentProfileIds
+		).toEqual(["a", "b"]);
+		const signal = readAgentExecutionReadinessBatchMock.mock.calls[0][0]
+			.signal as AbortSignal;
+		const settled = Promise.allSettled([a, b]);
+		await queryClient.cancelQueries();
+		expect(signal.aborted).toBe(true);
+		await settled;
+		response.resolve({ items: [] });
+		queryClient.clear();
 	});
 });

@@ -138,15 +138,18 @@ function AppReadinessInvalidationListener(input: {
 				});
 			});
 		};
-		const unsubscribe = subscribeAgentReadinessInvalidations((message) => {
-			for (const agentProfileId of message.agentProfileIds) {
-				pendingProfileIdsRef.current.add(agentProfileId);
-			}
-			if (refreshTimerRef.current !== null) {
-				return;
-			}
-			refreshTimerRef.current = window.setTimeout(flush, 500);
-		});
+		const unsubscribe = subscribeAgentReadinessInvalidations(
+			(message) => {
+				for (const agentProfileId of message.agentProfileIds) {
+					pendingProfileIdsRef.current.add(agentProfileId);
+				}
+				if (refreshTimerRef.current !== null) {
+					return;
+				}
+				refreshTimerRef.current = window.setTimeout(flush, 500);
+			},
+			{ organizationId: input.organizationId, storageScope: input.storageScope }
+		);
 		return () => {
 			unsubscribe();
 			if (refreshTimerRef.current !== null) {

@@ -3705,6 +3705,22 @@ exists; otherwise it preserves the next draft and marks the local message as
 unsent. The Composer stays editable, and Reference authoring and ordinary text
 input remain available.
 
+Missing member data is separate from failed member loading. A draft containing
+structured mentions keeps its text and tokens while the initial snapshot loads;
+its send control waits and the Composer shows a muted loading hint. A failed read
+offers Retry. Ordinary text is not blocked by missing mention data. Composer
+feedback stays inside the input surface without a separate bordered warning box.
+
+Space live events refresh Space members in a bounded window, with one follow-up
+when an event arrives during the read. The app-shell listener alone refreshes
+shared Agent caches from account/organization-scoped browser invalidations.
+Invalidation versions are compared within their Space. Owner-only readiness
+reads never include another owner's Agent; those updates use the authorized
+organization overview. Partial overview updates are tied to their live Query
+instance and cannot overwrite a newer full response or a recreated cache.
+The send-time fresh members read is admission evidence, not another display-cache
+writer. Existing page freshness and bounded recovery timers remain unchanged.
+
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one
 indicator through the same active-item state, so Web never paints separate
