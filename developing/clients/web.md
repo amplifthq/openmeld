@@ -750,6 +750,10 @@ CLI controls.
 
 ### Settings structure
 
+The application rail keeps Settings and theme controls visible above the account
+trigger. Their hit areas and keyboard order are stable; footer hover does not
+reveal, hide, or move them.
+
 Normal Settings entry points open the global **App settings** dialog over the
 current organization page. The `appSettings` search parameter owns the selected
 section; opening preserves the background path and search, section switches

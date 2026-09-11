@@ -19,7 +19,7 @@ import {
 	SunIcon,
 } from "@phosphor-icons/react";
 import { useTheme } from "next-themes";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
@@ -49,17 +49,6 @@ export function AppSidebarFooter({
 	isSettingsActive: boolean;
 }) {
 	const iconOnly = mode === "icon";
-	const footerRef = useRef<HTMLDivElement>(null);
-	useEffect(() => {
-		// Route layouts recreate the footer. Resolve its initial hover geometry
-		// before enabling transitions, so navigation does not replay an entrance.
-		const frame = requestAnimationFrame(() => {
-			if (footerRef.current) {
-				footerRef.current.dataset.footerMotionReady = "true";
-			}
-		});
-		return () => cancelAnimationFrame(frame);
-	}, []);
 	const name = account.name?.trim() || account.email || "Account";
 	const settingsLabel = "Settings";
 	const openSettings = useAppSettings();
@@ -98,9 +87,45 @@ export function AppSidebarFooter({
 					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11",
 				iconOnly ? "items-center" : "flex-row items-center"
 			)}
-			data-footer-expanded={!iconOnly && presentation !== "drawer"}
-			ref={footerRef}
 		>
+			<div
+				className={cn(
+					"app-sidebar-footer-actions flex shrink-0 gap-1",
+					iconOnly && "flex-col"
+				)}
+			>
+				<CollapsedRailTooltip
+					label={settingsLabel}
+					side={iconOnly ? "right" : "top"}
+				>
+					<button
+						aria-current={isSettingsActive ? "page" : undefined}
+						aria-label={settingsLabel}
+						className={cn(actionClass, "relative")}
+						onClick={openAccount}
+						type="button"
+					>
+						<GearSixIcon className="size-4" />
+					</button>
+				</CollapsedRailTooltip>
+				<CollapsedRailTooltip
+					label={dark ? "Switch to light mode" : "Switch to dark mode"}
+					side={iconOnly ? "right" : "top"}
+				>
+					<button
+						aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
+						className={actionClass}
+						onClick={() => setTheme(dark ? "light" : "dark")}
+						type="button"
+					>
+						{dark ? (
+							<SunIcon className="size-4" />
+						) : (
+							<MoonIcon className="size-4" />
+						)}
+					</button>
+				</CollapsedRailTooltip>
+			</div>
 			<SidebarUserFooter
 				avatar={avatar}
 				className={iconOnly ? "w-9" : "min-w-0 flex-1"}
@@ -180,44 +205,6 @@ export function AppSidebarFooter({
 				open={menuOpen}
 			/>
 			{invitationEntry.dialog}
-			<div
-				className={cn(
-					"app-sidebar-footer-actions flex shrink-0 gap-1",
-					iconOnly && "flex-col"
-				)}
-			>
-				<CollapsedRailTooltip
-					label={settingsLabel}
-					side={iconOnly ? "right" : "top"}
-				>
-					<button
-						aria-current={isSettingsActive ? "page" : undefined}
-						aria-label={settingsLabel}
-						className={cn(actionClass, "relative")}
-						onClick={openAccount}
-						type="button"
-					>
-						<GearSixIcon className="size-4" />
-					</button>
-				</CollapsedRailTooltip>
-				<CollapsedRailTooltip
-					label={dark ? "Switch to light mode" : "Switch to dark mode"}
-					side={iconOnly ? "right" : "top"}
-				>
-					<button
-						aria-label={dark ? "Switch to light mode" : "Switch to dark mode"}
-						className={actionClass}
-						onClick={() => setTheme(dark ? "light" : "dark")}
-						type="button"
-					>
-						{dark ? (
-							<SunIcon className="size-4" />
-						) : (
-							<MoonIcon className="size-4" />
-						)}
-					</button>
-				</CollapsedRailTooltip>
-			</div>
 		</SidebarFooter>
 	);
 }
