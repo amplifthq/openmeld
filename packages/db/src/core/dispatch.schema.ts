@@ -65,6 +65,7 @@ import {
 } from "./center-agent-tasks.schema.ts";
 import { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 import {
+  connectorAccessEvents,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
@@ -1679,6 +1680,7 @@ export const coreSchema = {
   projects,
   routines,
   routineRuns,
+  connectorAccessEvents,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,

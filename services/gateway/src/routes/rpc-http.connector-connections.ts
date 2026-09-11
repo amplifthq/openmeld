@@ -11,6 +11,9 @@ import {
   connectorOrganizationContextQuerySchema,
   connectorServiceSchema,
   createConnectorAppRequestBodySchema,
+  pluginAccessListResponseSchema,
+  pluginAccessSchema,
+  pluginAccessUpdateBodySchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorCredentialConnectBody,
@@ -69,6 +72,69 @@ type OpenConnectorBindings = {
 export function registerConnectorConnectionRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const accessRoute = "/v1/organizations/current/connectors/:service/access";
+  app.get(accessRoute, (c) => {
+    const request = parseConnectorOrganizationRequest(c, accessRoute, "GET");
+    if (!request.ok) {
+      return request.response;
+    }
+    const service = connectorServiceSchema.safeParse(c.req.param("service"));
+    if (!service.success) {
+      return respondBadRequest({
+        c,
+        route: accessRoute,
+        method: "GET",
+        reason: "Choose a supported plugin.",
+        message: "Choose a supported plugin.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      method: "GET",
+      route: accessRoute,
+      retryMode: "none",
+      responseSchema: pluginAccessListResponseSchema,
+      execute: () =>
+        c.var.coreRpc.listPluginAccess({
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: request.expectedOrganizationId,
+          service: service.data,
+        }),
+    });
+  });
+  app.put(accessRoute, async (c) => {
+    const request = parseConnectorOrganizationRequest(c, accessRoute, "PUT");
+    if (!request.ok) {
+      return request.response;
+    }
+    const service = connectorServiceSchema.safeParse(c.req.param("service"));
+    const body = pluginAccessUpdateBodySchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!(service.success && body.success)) {
+      return respondBadRequest({
+        c,
+        route: accessRoute,
+        method: "PUT",
+        reason: "Choose valid plugin access settings.",
+        message: "Choose valid plugin access settings.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      method: "PUT",
+      route: accessRoute,
+      retryMode: "none",
+      responseSchema: pluginAccessSchema,
+      execute: () =>
+        c.var.coreRpc.updatePluginAccess({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: request.expectedOrganizationId,
+          service: service.data,
+        }),
+    });
+  });
   app.get(APP_CATALOG_ROUTE, (c) => {
     const request = parseConnectorOrganizationRequest(
       c,

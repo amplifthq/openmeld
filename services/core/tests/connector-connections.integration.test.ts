@@ -8,6 +8,11 @@ import {
   createSharedConnectorConnectionName,
   selectActiveConnectorConnection,
 } from "../src/connectors/connector-connection-repository";
+import { requirePluginPermission } from "../src/connectors/plugin-access";
+import {
+  rpcListPluginAccess,
+  rpcUpdatePluginAccess,
+} from "../src/connectors/plugin-access-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
@@ -37,6 +42,98 @@ const OPENCONNECTOR_CONNECTION_NAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
 
 describe("Core connector connection ownership", () => {
+  it("persists owner-managed Agent access with an atomic revision and audit history", async () => {
+    const fixture = await seedConnectorFixture();
+    const request = {
+      context: connectorRequestContext({
+        organizationId: fixture.organizationA,
+        userId: fixture.memberA,
+      }),
+      expectedOrganizationId: fixture.organizationA,
+      service: "github" as const,
+    };
+    const initial = await rpcListPluginAccess(connectorCoreEnv(), request);
+    expect(initial.connections).toContainEqual({
+      connectionName: fixture.connectionA,
+      canManage: true,
+      revision: 0,
+      policy: {
+        center_agent: "write",
+        local_agent: "none",
+        remote_agent: "none",
+      },
+    });
+    const update = {
+      ...request,
+      connectionName: fixture.connectionA,
+      expectedRevision: 0,
+      policy: {
+        center_agent: "read",
+        local_agent: "read",
+        remote_agent: "none",
+      } as const,
+    };
+    expect(
+      await rpcUpdatePluginAccess(connectorCoreEnv(), update)
+    ).toMatchObject({ revision: 1, policy: update.policy });
+    await expect(
+      rpcUpdatePluginAccess(connectorCoreEnv(), update)
+    ).rejects.toThrow("Plugin access changed");
+    const access = {
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationA,
+      connectionName: fixture.connectionA,
+      consumer: "local_agent" as const,
+    };
+    await expect(
+      requirePluginPermission({ ...access, effect: "read" })
+    ).resolves.toBe("read");
+    await expect(
+      requirePluginPermission({ ...access, effect: "write" })
+    ).rejects.toThrow("permission");
+    const events = await env.OPENMELD_DB.prepare(
+      "SELECT actor_user_id, revision, previous_policy, policy FROM connector_access_events WHERE connection_name = ?"
+    )
+      .bind(fixture.connectionA)
+      .all();
+    expect(events.results).toEqual([
+      {
+        actor_user_id: fixture.memberA,
+        revision: 1,
+        previous_policy: JSON.stringify(initial.connections[0]?.policy),
+        policy: JSON.stringify(update.policy),
+      },
+    ]);
+  });
+
+  it("denies personal access grants to other members and admins and shared grants to members", async () => {
+    const fixture = await seedConnectorFixture();
+    const shared = await seedSharedConnectorConnection(fixture);
+    for (const [userId, connectionName] of [
+      [fixture.otherMemberA, fixture.connectionA],
+      [fixture.ownerA, fixture.connectionA],
+      [fixture.memberA, shared],
+    ] as const) {
+      await expect(
+        rpcUpdatePluginAccess(connectorCoreEnv(), {
+          context: connectorRequestContext({
+            organizationId: fixture.organizationA,
+            userId,
+          }),
+          expectedOrganizationId: fixture.organizationA,
+          service: "github",
+          connectionName,
+          expectedRevision: 0,
+          policy: {
+            center_agent: "write",
+            local_agent: "write",
+            remote_agent: "write",
+          },
+        })
+      ).rejects.toThrow("Only the account owner");
+    }
+  });
+
   it("owns connector action retries and terminal outcomes in one durable operation", async () => {
     const fixture = await seedConnectorFixture();
     const baseInput = {

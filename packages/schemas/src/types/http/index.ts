@@ -789,6 +789,7 @@ export type {
   PeopleComputersResponse,
   PeopleComputerTarget,
 } from "./people-computers";
+export type * from "./plugin-access";
 export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,

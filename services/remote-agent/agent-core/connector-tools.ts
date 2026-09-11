@@ -348,6 +348,7 @@ async function executeAppAction(input: {
     ...input,
     confirmedSelection,
     existingOperation,
+    effect: resolveActionEffect(executionAction),
     toolContext,
   });
   const run = await runAndFinalizeConnectorAction({
@@ -455,6 +456,7 @@ async function resolveConnectedMessageChannelActionPolicy(input: {
 }
 
 async function prepareConnectorActionOperation(input: {
+  effect: "read" | "write" | "destructive" | "unspecified";
   confirmedSelection?: Awaited<
     ReturnType<typeof requireAvailableConnectorConnection>
   >;
@@ -495,6 +497,7 @@ async function prepareConnectorActionOperation(input: {
   });
   const claim = await recordConnectorActionOperation({
     actionId: input.request.actionId,
+    effect: input.effect,
     connectionName,
     coreWorker: input.dependencies.coreWorker,
     operationId: input.request.operationId,
@@ -707,6 +710,10 @@ function requiresHighRiskConnectorActionPolicy(
   // An omitted effect is missing safety evidence, not evidence that the action
   // is safe. Keep it behind the same policy boundary as destructive actions.
   return action.effect === "destructive" || action.effect === undefined;
+}
+
+function resolveActionEffect(action: OpenConnectorRuntimeAction | undefined) {
+  return action?.effect ?? ("unspecified" as const);
 }
 
 function readDeclaredConnectorActionEffect(
@@ -922,6 +929,7 @@ export async function readConnectorActionOperation(input: {
 
 export async function recordConnectorActionOperation(input: {
   actionId: string;
+  effect?: "read" | "write" | "destructive" | "unspecified";
   connectionName: string;
   coreWorker: RemoteAgentCoreWorkerBinding;
   operationId: string;
@@ -938,6 +946,7 @@ export async function recordConnectorActionOperation(input: {
       "centerAgentRecordConnectorActionOperation",
       {
         actionId: input.actionId,
+        effect: input.effect,
         connectionName: input.connectionName,
         context: input.toolContext.context,
         operationId: input.operationId,

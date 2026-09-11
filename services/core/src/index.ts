@@ -261,6 +261,8 @@ import type {
   PauseCenterAgentRoutineResponse,
   PendingGitHubAppInstallation,
   PeopleComputersResponse,
+  PluginAccessListRpcInput,
+  PluginAccessUpdateRpcInput,
   PostSpaceMembersResponse,
   PostSpaceWakeStopResponse,
   PrepareDiagnosticResponse,
@@ -386,6 +388,10 @@ import {
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
 import { readModelCatalog } from "./config/model-catalog";
+import {
+  rpcListPluginAccess,
+  rpcUpdatePluginAccess,
+} from "./connectors/plugin-access-rpc";
 import {
   inspectCoreDbState,
   inspectCoreDispatchStorageReadiness,
@@ -2591,6 +2597,14 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ListCurrentOrganizationConnectorConnectionsInput
   ): Promise<ConnectorConnectionListResponse> {
     return rpcListCurrentOrganizationConnectorConnections(this.env, input);
+  }
+
+  listPluginAccess(input: PluginAccessListRpcInput) {
+    return rpcListPluginAccess(this.env, input);
+  }
+
+  updatePluginAccess(input: PluginAccessUpdateRpcInput) {
+    return rpcUpdatePluginAccess(this.env, input);
   }
 
   listCurrentOrganizationConnectorAppRequests(

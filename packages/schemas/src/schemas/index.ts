@@ -1818,6 +1818,16 @@ export {
   peopleComputerTargetSchema,
 } from "./http/people-computers";
 export {
+  pluginAccessListResponseSchema,
+  pluginAccessListRpcInputSchema,
+  pluginAccessPolicySchema,
+  pluginAccessSchema,
+  pluginAccessUpdateBodySchema,
+  pluginAccessUpdateRpcInputSchema,
+  pluginConsumerSchema,
+  pluginPermissionSchema,
+} from "./http/plugin-access";
+export {
   getPrepareReadinessQuerySchema,
   getPrepareReadinessResponseSchema,
   prepareReadinessDisplayStateSchema,
