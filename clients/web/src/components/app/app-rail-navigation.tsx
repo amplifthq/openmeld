@@ -306,7 +306,7 @@ function AppRailDestinationIcon(input: {
 	tier: SidebarMode;
 }) {
 	return (
-		<span className="relative flex size-4 shrink-0 items-center justify-center">
+		<span className="relative flex size-5 shrink-0 items-center justify-center">
 			{input.destination.icon}
 			{input.statusIndicator && input.tier !== "expanded" ? (
 				<AppRailStatusDot
@@ -399,7 +399,7 @@ function AppRailStatusDot(input: {
 			className={cn(
 				"status-dot",
 				resolveInboxIndicatorClassName(input.indicator.tone),
-				input.placement === "overlay" && "absolute -end-1.5 -top-1.5"
+				input.placement === "overlay" && "absolute end-0 top-0"
 			)}
 			data-app-rail-status-indicator={input.indicator.kind}
 			data-app-rail-status-placement={input.placement}
