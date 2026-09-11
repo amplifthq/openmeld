@@ -514,15 +514,15 @@ describe("SpaceComposerEditor", () => {
 		true,
 	])("keeps Reference selectable and permits offline Wake only with a waiting target (%s)", async (canWait) => {
 		const target = createBlockedAgentTarget();
+		target.agentWakeAvailability = createSpaceMemberAgentSnapshot({
+			profileId: AGENT_PROFILE_ID,
+			agentWakeAvailability: { status: "offline_for_wake" },
+		}).agentWakeAvailability;
 		if (canWait) {
 			target.deviceWaitTarget = {
 				bindingId: "binding-1",
 				openMeldServiceRuntimeId: "runtime-1",
 			};
-			target.agentWakeAvailability = createSpaceMemberAgentSnapshot({
-				profileId: AGENT_PROFILE_ID,
-				agentWakeAvailability: { status: "offline_for_wake" },
-			}).agentWakeAvailability;
 		}
 		const onChange = vi.fn();
 		render(
@@ -551,7 +551,7 @@ describe("SpaceComposerEditor", () => {
 		});
 		fireEvent.click(relation);
 		const wakeOption = screen.getByRole("option", {
-			name: canWait ? "Wake when online" : "Wake — Unavailable",
+			name: canWait ? "Wake when online" : "Wake — Offline",
 		});
 		expect(wakeOption.getAttribute("aria-disabled") === "true").toBe(!canWait);
 		expect(

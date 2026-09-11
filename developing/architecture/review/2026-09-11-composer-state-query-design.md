@@ -180,7 +180,20 @@ Existing local components can continue setup, Wake, actions and diagnostics.
 No contract epoch or local component release is required for this Web change.
 No scoped architecture owner rule is weakened.
 
-This revision changes the design only. No new implementation, test run, load measurement, staging deploy or production deploy was performed for the revision itself. Prior evidence remains: six local audit probes and 55 focused existing tests. Those do not certify a future implementation.
+The design revision originally had only six audit probes and 55 existing tests.
+Implementation is now tracked in draft PR #951. Its first clean push passed 124
+Web files (1,443 tests), 26 Agent runtime files (299 tests), 27 API client files
+(200 tests), and 115 schema files (1,444 tests). These are the repository's
+affected pre-push checks, not an end-to-end delivery certification. Web TypeScript,
+dependency builds, docs lifecycle and Changelog validation also passed.
+
+Fresh authenticated localhost smoke, screenshots, real Service reconnect/reply,
+and representative multi-tab network measurements remain pending. The isolated
+stack has not started because the local resource manager reports insufficient
+memory/headroom. No other task's environment was stopped or resource limits
+overridden. Keep the PR draft; do not substitute old-lane screenshots or simulated
+UI outcomes for this branch's missing acceptance. No staging or production
+deployment has been performed.
 
 Local reproduction files: `dev-tmp/query-audit/readiness-races.test.ts`, `race-results.log`, `existing-contract-results.log`. Run from `clients/web` with `pnpm exec vitest run --config ../../dev-tmp/query-audit/vitest.config.ts ../../dev-tmp/query-audit/readiness-races.test.ts`. Probes use controlled read-boundary contract slices and real Query instances; they reproduce defects, not full network behavior.
 

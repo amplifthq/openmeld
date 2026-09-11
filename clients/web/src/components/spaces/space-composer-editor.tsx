@@ -555,11 +555,15 @@ function composerRelationLabel(
 	target: SpaceComposerAddressingTarget | undefined,
 	unavailableLabel?: string
 ) {
+	if (relation === "wake" && target && createSpaceComposerDeviceWait(target)) {
+		return "Wake when online";
+	}
 	if (
 		relation === "wake" &&
-		target?.agentWakeAvailability?.category === "offline"
+		target?.agentWakeAvailability?.category === "offline" &&
+		!target.agentWakeAvailability.isRefreshing
 	) {
-		return "Wake when online";
+		return "Wake — Offline";
 	}
 	return unavailableLabel ? `${label} — ${unavailableLabel}` : label;
 }

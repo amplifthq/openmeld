@@ -3667,9 +3667,13 @@ preserves the draft and never confirms access locally.
 
 The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default only when the current
-Core-owned Wakeability projection is `ready`, while keeping the visible composer
+Core-owned Wakeability projection is `ready`, or the canonical member projection
+provides an eligible offline waiting target, while keeping the visible composer
 text as a plain `@Name` mention. An unavailable or checking Agent defaults to
-Reference. The same picker surface exposes the other allowed relation without a
+Reference unless explicit waiting is supported. Eligible offline Wake uses
+`Wake when online` in the picker, token and relation menu. An offline state alone
+does not promise waiting: it also requires the current server-projected target.
+The same picker surface exposes the other allowed relation without a
 required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
 Selecting a Human Profile creates a fixed Human Mention mark; people never
 receive an Agent relation selector.
@@ -3907,8 +3911,9 @@ They must show evidence as evidence: queued, routed, delivered, running,
 replied, failed, missing, pending, or degraded.
 
 Offline computer waiting uses progressive disclosure in both composers:
-**Send and wait** appears only for one current offline/reconnecting target, with
-a fixed 24-hour explanation. The current Agent Binding supplies the computer;
+**Send and wait** replaces the primary send button for one current eligible
+offline/reconnecting target, retaining the send icon and a compact 24-hour
+explanation to its left inside the Composer. The current Agent Binding supplies the computer;
 there is no device or deadline form. The deadline starts when the action is
 clicked. Current admission still rechecks the frozen selector before publication.
 Ordinary online Send and Reference-only authoring retain their existing meaning.
