@@ -3800,6 +3800,11 @@ The browser remembers the normalized header position per Organization, Profile,
 and Space across navigation and reloads. Narrow layouts temporarily use two
 rows without overwriting that saved position. Scrolling Messages resumes the
 motion; Files itself does not drive header compaction.
+Latest-message observations update the read-through scheduler directly rather
+than publishing React state through the Space controller. Scrolling away cancels
+the pending read immediately without rerendering the transcript. Space/Profile
+changes require a fresh latest-message measurement; document visibility, access
+confirmation, and the normal read debounce still gate persistence.
 Scroll frames update only the navigation transform outside React. Header height
 changes at the collapse/expansion boundary, with a matching scroll offset to
 preserve the reading anchor. Collapse and expansion use separate boundaries

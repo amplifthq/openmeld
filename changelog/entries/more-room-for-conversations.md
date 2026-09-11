@@ -16,3 +16,6 @@ Space tabs move beside the title while you read earlier messages, leaving more
 room for the conversation. The header expands again at the latest messages.
 Its position stays the same when you switch to Files, and this browser remembers
 each Space's position when you leave and return.
+Scrolling away from the latest messages avoids a full conversation redraw,
+keeping the header transition responsive in long conversations. Toolbar
+shortcuts in Appearance settings sit side by side and wrap on smaller screens.

@@ -402,6 +402,28 @@
   }
 }
 
+/* Edge changes belong to the masked element, not every message beneath it. */
+@property --fluid-fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fluid-fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fluid-fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fluid-fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+
 /* Folded content and scrollable content share the same edge fade. */
 .fluid-fade-bottom,
 .fluid-scroll-viewport[data-fade] {
