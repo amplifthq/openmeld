@@ -159,6 +159,7 @@ export function SpaceHeader(input: {
 	// "Get set up" recall action shown before Members when the in-Space setup
 	// panel is dismissed but still has actions.
 	setupRecallAction?: ReactNode;
+	onRecallPinnedItems?: () => void;
 	viewControl?: ReactNode;
 	onDeleteSpace: () => Promise<void> | void;
 	onLeaveSpace?: () => Promise<void> | void;
@@ -201,7 +202,7 @@ export function SpaceHeader(input: {
 								{input.setupRecallAction}
 							</div>
 						) : null}
-						<SpacePinsRecallAction />
+						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog

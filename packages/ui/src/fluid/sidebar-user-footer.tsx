@@ -20,6 +20,7 @@ export function SidebarUserFooter({
   iconOnly = false,
   open,
   onOpenChange,
+  triggerLabel,
 }: {
   name: string;
   avatar: ReactNode;
@@ -28,6 +29,7 @@ export function SidebarUserFooter({
   iconOnly?: boolean;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  triggerLabel?: string;
 }) {
   const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(
     null
@@ -44,7 +46,7 @@ export function SidebarUserFooter({
           <DropdownMenuTrigger
             render={
               <SidebarMenuButton
-                aria-label={`Open user menu for ${name}`}
+                aria-label={triggerLabel ?? `Open user menu for ${name}`}
                 className={cn(
                   "h-8 gap-1.5",
                   iconOnly && "size-9 justify-center px-0"

@@ -660,3 +660,29 @@ html[data-space-conversation-layout="centered"] [data-space-history-rail="true"]
 }
 
 @media (pointer: fine) { .space-history-preview-stepper { display: none; } }
+
+/* Toolbar visibility changes release the main surface's reserved bottom row. */
+[data-toolbar-shortcut][hidden],
+[data-toolbar-shortcut]:has(> .toolbar-shortcut-dismiss:only-child) {
+  display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"] [data-toolbar-shortcut="computer"],
+html[data-hidden-toolbar-shortcuts~="center_agent"] [data-toolbar-shortcut="center_agent"],
+html[data-hidden-toolbar-shortcuts~="inbox"] [data-toolbar-shortcut="inbox"] {
+ display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"][data-hidden-toolbar-shortcuts~="center_agent"][data-hidden-toolbar-shortcuts~="inbox"] [data-slot="app-global-controls"] {
+ display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"][data-hidden-toolbar-shortcuts~="center_agent"][data-hidden-toolbar-shortcuts~="inbox"] [data-slot="app-surface"] {
+ margin-bottom: max(0.5rem, env(safe-area-inset-bottom));
+ transition: none;
+}
+/* Keep the compact close control independent of the mobile toolbar target size. */
+[data-slot="app-global-controls"] button.toolbar-shortcut-dismiss {
+ min-height: 1.25rem;
+ min-width: 1.25rem;
+}
+@media (hover: none) {
+ .toolbar-shortcut-dismiss { display: none; }
+}

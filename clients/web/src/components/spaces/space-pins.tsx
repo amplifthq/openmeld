@@ -42,7 +42,7 @@ const PinVisibilityContext = createContext<{
 	setDismissed: (value: boolean) => void;
 } | null>(null);
 
-export function SpacePinsRecallAction() {
+export function SpacePinsRecallAction(input: { onRecall?: () => void } = {}) {
 	const messages = useContext(PinsContext);
 	const files = useContext(FilePinsContext);
 	const visibility = useContext(PinVisibilityContext);
@@ -54,7 +54,10 @@ export function SpacePinsRecallAction() {
 		<Button
 			aria-label="Show pinned items"
 			className="gap-1.5 px-2 text-muted-foreground"
-			onClick={() => visibility.setDismissed(false)}
+			onClick={() => {
+				visibility.setDismissed(false);
+				input.onRecall?.();
+			}}
 			size="sm"
 			variant="ghost"
 		>

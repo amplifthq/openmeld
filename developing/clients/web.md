@@ -3786,6 +3786,21 @@ trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Graph** view control and
 returns to the primary action group at wider breakpoints.
 
+Messages and files share one pinned-item preview with previous/next navigation.
+The preview's X dismisses all pins for the reader; the original pinner gets a
+Fluid dropdown with Dismiss and Unpin message/file. A Pinned action immediately
+before Members restores the preview. Dismissal is saved per Organization,
+Human Profile, and Space in this browser, without changing shared pin state.
+
+Appearance includes Toolbar shortcuts for Computer, Center Agent, and Inbox.
+Each bottom shortcut also exposes a compact hide control on hover or keyboard
+focus, with Undo. Touch users customize shortcuts in Appearance. Browser-wide
+preferences apply on first paint; hiding all shortcuts removes the reserved
+bottom row while retaining the normal page inset and the Sidebar footer.
+Computer stays in the account menu above Settings. Its warning/danger avatar
+and menu indicators consume the same shared current-Computer presentation as
+the optional toolbar shortcut; hiding a shortcut does not clear attention.
+
 Selecting a Human or Agent identity in a Space opens one compact profile
 popover rather than a table-style details dialog. A Human popover shows the
 short Space-specific activity time, such as **Here 2d ago**, from the Space

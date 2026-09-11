@@ -1,0 +1,13 @@
+---
+id: more-room-for-conversations
+title: Make more room for conversations
+kind: improved
+areas: ["spaces", "web", "settings"]
+audiences: ["members"]
+---
+
+Pinned messages and files share one preview that you can dismiss and restore
+from the Space header. Hide individual bottom toolbar shortcuts and restore
+them in Appearance settings; hiding every shortcut gives the conversation more
+room. Computer remains in the account menu, with attention indicators on the
+menu item and your avatar. Display preferences are remembered in this browser.

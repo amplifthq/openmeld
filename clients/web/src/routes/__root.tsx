@@ -20,6 +20,7 @@ import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { Toaster } from "#/components/ui/sonner";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
+import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
 import {
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,
@@ -177,6 +178,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<script
 					dangerouslySetInnerHTML={{
 						__html: SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT,
+					}}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT,
 					}}
 					suppressHydrationWarning
 				/>

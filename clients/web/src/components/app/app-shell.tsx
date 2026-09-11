@@ -20,6 +20,7 @@ import {
 	AppShellAccountContext,
 } from "./app-shell-account";
 import { CrossPageHeader } from "./cross-page-header";
+import { CurrentComputerProvider } from "./current-computer";
 import {
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 	type AppShellSection,
@@ -164,7 +165,9 @@ function AppShellScaffold(input: { currentSection: AppShellSection }) {
 	if (input.currentSection !== "start") {
 		return (
 			<main className="h-dvh overflow-hidden bg-background">
-				<Outlet />
+				<CurrentComputerProvider>
+					<Outlet />
+				</CurrentComputerProvider>
 			</main>
 		);
 	}

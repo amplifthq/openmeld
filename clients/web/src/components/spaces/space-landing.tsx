@@ -1694,6 +1694,9 @@ function SpaceLandingReady({
 							menuLabel="Center Agent menu"
 							onDeleteSpace={controller.onDeleteSpace}
 							onLeaveSpace={currentProfileLeaveAction}
+							onRecallPinnedItems={() =>
+								spaceFileNavigation.changeSpaceView("messages")
+							}
 							onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 							onSetAccessMode={controller.onSetAccessMode}
 							onSetVisibility={controller.onSetVisibility}
