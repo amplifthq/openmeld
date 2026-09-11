@@ -890,6 +890,17 @@ it sends an ordinary message. Explicit dismissal suppresses the corresponding
 post-send suggestion. Other members' Wakes and ambiguous multi-target turns do
 not select the target.
 
+Each completed Wake request grants one recommendation opportunity. The original
+request ID identifies the exchange; supplementary replies do not grant another.
+Accepting or dismissing the recommendation remembers that choice in browser
+session storage, isolated by Organization, Human Profile, and Space. Dismissing
+either entry point suppresses both through navigation and refresh. An ignored
+recommendation moves to the exact staged message's client message ID, without
+remaining in the Composer or repeating on subsequent ordinary messages. A new
+explicit Wake must receive a reply before another recommendation is eligible.
+This presentation-only record never clears, replaces, or shares storage with
+text, mention, or attachment drafts, and never authorizes an Agent execution.
+
 When that suggestion was ignored at send, only the sender sees a dismissible
 ordinary Agent token labeled `Click to wake` below their latest sent message.
 Clicking it directly saves an edit with that Agent's first Wake, without opening

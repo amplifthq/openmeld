@@ -145,11 +145,24 @@ export function SpaceComposer(input: SpaceComposerProps) {
 				options?.deviceWait
 			)
 		) {
-			recommendations?.recordSend(recommended?.suggestion.profileId ?? null);
 			// Return from the send button within this user gesture, before the draft
 			// resets. Network completion must never take focus back from other work.
 			input.composerRef.current?.focus();
-			if (options) {
+			if (
+				recommendations &&
+				(recommendations.candidate || recommendations.nudge)
+			) {
+				input.actions.onSubmit({
+					...options,
+					onMessageStaged: (clientMessageId) => {
+						recommendations.recordSend(
+							recommended?.suggestion.profileId ?? null,
+							clientMessageId
+						);
+						options?.onMessageStaged?.(clientMessageId);
+					},
+				});
+			} else if (options) {
 				input.actions.onSubmit(options);
 			} else {
 				input.actions.onSubmit();

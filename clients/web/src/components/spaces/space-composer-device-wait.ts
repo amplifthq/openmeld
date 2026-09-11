@@ -9,7 +9,11 @@ import type {
 	WakeDeviceWait,
 } from "@openmeld/schemas/types";
 
-export type SpaceComposerSendOptions = { deviceWait?: WakeDeviceWait };
+export type SpaceComposerSendOptions = {
+	deviceWait?: WakeDeviceWait;
+	/** Local UI notification after the exact outgoing message has been staged. */
+	onMessageStaged?: (clientMessageId: string) => void;
+};
 
 type DeviceWaitMember = Pick<
 	SpaceMemberAgentSnapshot,

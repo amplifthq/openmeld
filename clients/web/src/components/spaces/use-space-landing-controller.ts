@@ -2481,6 +2481,7 @@ export function useSpaceLandingController(input: {
 
 	async function sendMessage(options?: {
 		deviceWait?: SpaceComposerSendOptions["deviceWait"];
+		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		pendingMessage?: PendingSpaceMessage;
 		retrySubmission?: PendingComposerSubmission;
 		retryFiles?: readonly SpaceComposerFile[];
@@ -2554,6 +2555,7 @@ export function useSpaceLandingController(input: {
 				preparedSubmission,
 				status: statusSnapshot,
 			});
+			options?.onMessageStaged?.(messageSeed.clientMessageId);
 			composerSession.send.finish();
 			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
