@@ -299,6 +299,15 @@ surface is the only durable reminder.
 Inbox provides **All**, **Unread**, **Needs action**, and **Needs review** views. Unread items are
 visually explicit without relying on color alone.
 
+List titles reserve a 6px status dot with an 8px gap. An unresolved action or
+review uses the existing red attention tone, including after it is read.
+Otherwise, an unread open urgent item uses the yellow urgent tone, and other
+unread items use the blue unread token. Read items without pending work have no
+dot; the reserved space keeps titles aligned. Each item shows at most one dot,
+with action priority above urgency and ordinary unread state. Existing text
+labels and screen-reader unread text remain available. Reading does not resolve
+pending work, and resolving an action removes its red attention treatment.
+
 Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members

@@ -12,3 +12,5 @@ Settings → Invitations also lets admins approve or decline requests in a table
 with pending requests first and shared records of each decision, reviewer,
 time, and invitation status. Direct invitations and approval requests now share
 one recipient-grouped table, with clear actions in a separate column.
+Inbox titles also show a compact status dot: red for pending work, yellow for
+unread urgent updates, and blue for other unread items.

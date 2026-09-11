@@ -186,13 +186,77 @@ describe("InboxPage", () => {
 			.closest("li")
 			?.querySelector('[class*="group/inbox-row"]');
 		expect(urgentRow?.getAttribute("data-inbox-read-state")).toBe("unread");
-		expect(urgentRow?.querySelector("[data-inbox-unread-dot]")).toBeNull();
+		expect(
+			urgentRow
+				?.querySelector("[data-inbox-status-dot]")
+				?.getAttribute("data-inbox-status-dot")
+		).toBe("danger");
 		expect(urgentRow?.className).toContain("motion-reduce:transition-none");
 		expect(
 			screen.getByRole("button", {
 				name: "Actions for Approve the production command",
 			}).className
 		).toContain("motion-reduce:transition-none");
+	});
+
+	it.each([
+		{
+			attention: "update",
+			importance: "normal",
+			resolutionStatus: "open",
+			read: false,
+			indicator: "unread",
+		},
+		{
+			attention: "update",
+			importance: "urgent",
+			resolutionStatus: "open",
+			read: false,
+			indicator: "warning",
+		},
+		{
+			attention: "update",
+			importance: "urgent",
+			resolutionStatus: "open",
+			read: true,
+			indicator: null,
+		},
+		{
+			attention: "action_required",
+			importance: "urgent",
+			resolutionStatus: "open",
+			read: true,
+			indicator: "danger",
+		},
+		{
+			attention: "action_required",
+			importance: "urgent",
+			resolutionStatus: "resolved",
+			read: false,
+			indicator: "unread",
+		},
+		{
+			attention: "action_required",
+			importance: "normal",
+			resolutionStatus: "resolved",
+			read: true,
+			indicator: null,
+		},
+	] as const)("shows $indicator for $attention / $importance / $resolutionStatus / read=$read", (state) => {
+		const item = createInboxItem({
+			attention: state.attention,
+			importance: state.importance,
+			resolutionStatus: state.resolutionStatus,
+			readAt: state.read ? "2026-08-04T01:30:00.000Z" : null,
+			title: "Indicator example",
+		});
+		renderInboxPage({ items: [item] });
+		const dot = screen
+			.getByText("Indicator example")
+			.querySelector("[data-inbox-status-dot]");
+		expect(dot?.getAttribute("data-inbox-status-dot") ?? null).toBe(
+			state.indicator
+		);
 	});
 
 	it("does not keep a resolved action visually urgent", () => {

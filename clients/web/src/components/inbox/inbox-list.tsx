@@ -26,6 +26,10 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
+import {
+	resolveInboxIndicatorClassName,
+	resolveInboxItemIndicator,
+} from "#/lib/inbox/attention";
 import { isInboxReview } from "#/lib/inbox/review";
 import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
 import { InvitationReview } from "./invitation-review";
@@ -156,14 +160,15 @@ function InboxItemRow(input: {
 						<InboxKindIcon item={input.item} />
 					</span>
 
-					<span className="min-w-0 flex-1">
+					<span className="min-w-0 flex-1 ps-3.5">
 						<span className="flex min-w-0 flex-wrap items-center gap-2">
 							<span
 								className={cn(
-									"min-w-0 break-words text-foreground text-sm leading-5",
+									"relative min-w-0 break-words text-foreground text-sm leading-5",
 									unread ? "font-semibold" : "font-medium"
 								)}
 							>
+								<InboxItemStatusDot item={input.item} />
 								{input.item.title}
 							</span>
 							{unread ? <span className="sr-only">Unread.</span> : null}
@@ -204,7 +209,7 @@ function InboxItemRow(input: {
 
 				{inlineInvitation &&
 				input.item.sourceTarget.kind === "organization_join_request" ? (
-					<div className="ps-[3.25rem] pe-4 pb-4">
+					<div className="ps-[4.125rem] pe-4 pb-4">
 						<InvitationReview
 							inline
 							onInteract={handleOpen}
@@ -222,6 +227,25 @@ function InboxItemRow(input: {
 				) : null}
 			</SharedLayoutItem>
 		</li>
+	);
+}
+
+function InboxItemStatusDot({ item }: { item: InboxItem }) {
+	const indicator = resolveInboxItemIndicator(item);
+	if (!indicator) {
+		return null;
+	}
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				"status-dot absolute -start-3.5 top-[7px]",
+				resolveInboxIndicatorClassName(
+					indicator === "unread" ? null : indicator
+				)
+			)}
+			data-inbox-status-dot={indicator}
+		/>
 	);
 }
 
