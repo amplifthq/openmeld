@@ -9,6 +9,7 @@ import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
 import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationInboxPath } from "#/lib/organizations/organization-routes";
+import { AppCreateMenu } from "./app-create-menu";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
 import { CollapsedRailTooltip } from "./app-rail-navigation";
 import {
@@ -33,7 +34,7 @@ export function AppSidebarHeader({
 	const attention = useInboxAttention(currentOrganization.id);
 	const iconOnly = mode === "icon";
 	const actionClass =
-		"flex size-7 shrink-0 items-center justify-center rounded-md text-sidebar-foreground/60 outline-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent";
+		"flex size-10 shrink-0 items-center justify-center rounded-full bg-sidebar-accent/60 text-sidebar-foreground/70 outline-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring";
 	return (
 		<SidebarHeader
 			className={cn(
@@ -42,13 +43,14 @@ export function AppSidebarHeader({
 					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
 			)}
 		>
-			<div
-				className={cn(
-					"items-center gap-0",
-					iconOnly ? "grid grid-cols-2 justify-items-center" : "flex"
-				)}
-			>
-				{!iconOnly && <span className="flex-1" />}
+			<div className={cn("min-w-0", iconOnly && "flex justify-center")}>
+				<OrganizationSwitcher
+					account={account}
+					humanProfileAvatar={humanProfileAvatar}
+					tier={mode === "hidden" ? "expanded" : mode}
+				/>
+			</div>
+			<div className="flex flex-col items-center gap-2 py-1">
 				<button
 					aria-label="Search or run a command"
 					className={actionClass}
@@ -57,7 +59,7 @@ export function AppSidebarHeader({
 					}
 					type="button"
 				>
-					<MagnifyingGlassIcon className="size-4" />
+					<MagnifyingGlassIcon className="size-5" />
 				</button>
 				<CollapsedRailTooltip
 					label={attention.label}
@@ -69,22 +71,14 @@ export function AppSidebarHeader({
 						onClick={dismiss}
 						to={buildOrganizationInboxPath(orgSlug)}
 					>
-						<TrayIcon className="size-4" />
+						<TrayIcon className="size-5" />
 						<InboxAttentionBadge
 							count={attention.count}
 							tone={attention.tone}
 						/>
 					</Link>
 				</CollapsedRailTooltip>
-			</div>
-			<div
-				className={cn("order-first min-w-0", iconOnly && "flex justify-center")}
-			>
-				<OrganizationSwitcher
-					account={account}
-					humanProfileAvatar={humanProfileAvatar}
-					tier={mode === "hidden" ? "expanded" : mode}
-				/>
+				<AppCreateMenu orgSlug={orgSlug} />
 			</div>
 		</SidebarHeader>
 	);

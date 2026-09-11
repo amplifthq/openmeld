@@ -20,7 +20,6 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	HouseIcon,
-	PlusIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -39,7 +38,6 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import {
-	buildOrganizationAgentCreationPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationRootPath,
@@ -102,18 +100,6 @@ export function buildAppRailGroups(input: {
 					label: "Team",
 					to: buildOrganizationPeoplePath(input.orgSlug),
 					icon: <UsersThreeIcon aria-hidden="true" className="size-5" />,
-				},
-			],
-		},
-		{
-			id: "create",
-			label: "Create",
-			destinations: [
-				{
-					id: "newAgent",
-					label: "New Agent",
-					to: buildOrganizationAgentCreationPath(input.orgSlug),
-					icon: <PlusIcon aria-hidden="true" className="size-5" />,
 				},
 			],
 		},

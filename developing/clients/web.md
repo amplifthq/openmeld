@@ -50,8 +50,11 @@ session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
 list inside the inset surface, and the current work area. Center Agent,
-Messenger, and Team are the rail's destinations; New Agent is a separate
-creation action. Workspace switching, search, Inbox, account, theme, and Settings
+Messenger, and Team are the rail's destinations. Four circular controls at the
+top stack Organization switching, search, Inbox, and Create. The Organization
+avatar fills its circular trigger. Create opens New Agent and New Space to the
+right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
+motion opens the choices without travel. Account, theme, and Settings
 remain reachable from the rail. Messenger opens `/o/{orgSlug}/chats`, whose
 directory content remains the member's direct messages. After visiting Messenger,
 the application-rail entry returns to its last location in this tab, preserving

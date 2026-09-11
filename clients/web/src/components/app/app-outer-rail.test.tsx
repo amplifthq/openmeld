@@ -227,17 +227,25 @@ const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = [
-	"Center Agent",
-	"Messenger",
-	"Team",
-	"New Agent",
-] as const;
+const PRIMARY_RAIL_LABELS = ["Center Agent", "Messenger", "Team"] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
 describe("AppOuterRail", () => {
 	beforeEach(() => {
+		vi.stubGlobal(
+			"matchMedia",
+			vi.fn((media: string) => ({
+				media,
+				matches: false,
+				onchange: null,
+				addEventListener: vi.fn(),
+				removeEventListener: vi.fn(),
+				addListener: vi.fn(),
+				removeListener: vi.fn(),
+				dispatchEvent: () => true,
+			}))
+		);
 		viewer += 1;
 		vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
 			fillRect: vi.fn(),
@@ -393,7 +401,7 @@ describe("AppOuterRail", () => {
 			expect(link.className).toContain("h-14");
 			expect(link.textContent).toContain(label);
 		}
-		expect(screen.getByRole("navigation", { name: "Create" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
 	});
 
 	it("warms the Center Agent conversation from primary navigation intent", () => {
@@ -439,13 +447,7 @@ describe("AppOuterRail", () => {
 		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
 		renderRail({ tier: "expanded", width: "9rem" });
 
-		for (const label of [
-			"New Agent",
-			"Center Agent",
-			"Messenger",
-			"Team",
-			"Settings",
-		]) {
+		for (const label of ["Center Agent", "Messenger", "Team", "Settings"]) {
 			const link = screen.getByRole(label === "Settings" ? "button" : "link", {
 				name: label,
 			});
@@ -477,11 +479,16 @@ describe("AppOuterRail", () => {
 		expect(peopleLink.getAttribute("href")).toBe("/o/acme/people");
 	});
 
-	it("opens Agent creation in the current organization", () => {
+	it("offers Agent and Space creation in the current organization", async () => {
 		renderRail();
-
-		const newAgentLink = screen.getByRole("link", { name: "New Agent" });
+		fireEvent.click(screen.getByRole("button", { name: "Create" }));
+		const newAgentLink = await screen.findByRole("menuitem", {
+			name: "New Agent",
+		});
 		expect(newAgentLink.getAttribute("href")).toBe("/o/acme/new-agent");
+		expect(
+			screen.getByRole("menuitem", { name: "New Space" }).getAttribute("href")
+		).toBe("/o/acme/new-space");
 	});
 
 	it("opens the canonical Direct Messages home", () => {
@@ -553,7 +560,7 @@ describe("AppOuterRail", () => {
 			width: "13.75rem",
 		});
 
-		expect(screen.getByRole("link", { name: "New Agent" })).toBeTruthy();
+		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
 		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
