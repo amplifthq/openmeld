@@ -109,8 +109,8 @@ const ignoreFileRemoval = (_localId: string): void => undefined;
 function useComposerWakeSuggestion(input: SpaceComposerProps) {
 	const recommendations = useSpaceWakeRecommendation();
 	const candidate =
-		input.context.placement === "conversation" &&
-		input.context.conversationKind === "space" &&
+		(input.context.placement === "thread" ||
+			input.context.conversationKind === "space") &&
 		input.availability.canSendMessage &&
 		input.content.authoredMentions.length === 0
 			? recommendations?.candidate

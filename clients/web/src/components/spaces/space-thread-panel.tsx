@@ -158,6 +158,7 @@ import {
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
+import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -238,6 +239,7 @@ function createThreadExecutionRecoveryHandler(input: {
 }
 
 type SpaceThreadPanelProps = {
+	wakeRecommendationsEnabled?: boolean;
 	activeThread: SpaceThread | null;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentStreams: readonly SpaceConversationVisibleStreamProjection[];
@@ -520,83 +522,94 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		input.onWakeStopRequest ?? UNAVAILABLE_SPACE_WAKE_STOP_REQUEST
 	);
 	return (
-		<SpaceInlineSidePanel
-			ariaLabel="Thread"
-			className={input.className}
-			id="space-thread-panel"
-			maxWidth={panelWidth.maxWidth}
-			minWidth={panelWidth.minWidth}
-			onWidthChange={panelWidth.onWidthChange}
-			open={input.activeThread !== null}
-			resizeHandleLabel="Resize Thread panel"
-			width={panelWidth.width}
+		<SpaceWakeRecommendationScope
+			disabled={!input.wakeRecommendationsEnabled}
+			items={rawThreadTimelineItems}
+			orgSlug={input.orgSlug}
+			selfProfileId={input.selfProfileId}
+			spaceId={input.activeThread?.spaceId}
+			threadId={input.activeThread?.threadId}
 		>
-			<ThreadPanelHeader onClose={input.onClose} />
-			{renderThreadFocusStatus(focusStatusMessage)}
-			<ThreadTimeline
-				actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(
-					input.actionableAgentInteractionPlacement
-				)}
-				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-				allItems={threadTimelineItems}
-				anchoredOutcomeNoticesBySourceSignalId={
-					anchoredOutcomeNoticesBySourceSignalId
-				}
-				centerAgentProfileId={input.centerAgentProfileId ?? null}
-				computerSetupActionSignalId={computerSetupActionSignalId}
-				computerSetupContext={computerSetupContext}
-				ephemeralActivityItems={scopedActivityItems}
-				errorMessage={input.signalsErrorMessage}
-				firstUnreadSignalId={firstUnreadSignalId}
-				isLoading={input.signalsIsLoading}
-				isPersonalContext={input.isPersonalContext === true}
-				items={threadTimelineItems}
-				latestThreadOccurredAtMs={latestThreadOccurredAtMs}
-				onAgentInteractionResponse={input.onAgentInteractionResponse}
-				onJumpToMessage={jumpToMessage}
-				onOpenMessageDetails={onOpenMessageDetails}
-				onOpenSpaceFile={input.onOpenSpaceFile}
-				onRecoverExecution={messageDetailsItem ? undefined : onRecoverExecution}
-				onViewedThroughTs={input.onViewedThroughTs}
-				onWakeStopRequest={
-					input.onWakeStopRequest ? onWakeStopRequest : undefined
-				}
-				orgSlug={input.orgSlug}
-				prepareSetupHref={input.prepareSetupHref}
-				profilePresentationsById={profilePresentationsById}
-				readOnly={input.readOnly === true}
-				readScopeKey={activeThreadRootSignalId ?? ""}
-				registerMessageElement={registerMessageElement}
-				renderProfileTrigger={
-					profileDetailsDialog.profileDetailsPopoverTriggerById
-				}
-				selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
-				selfProfileId={input.selfProfileId}
-				spaceReferencesById={input.spaceReferencesById}
-				wakeFailureTargetContextsByProfileId={
-					input.wakeFailureTargetContextsByProfileId
-				}
-				wakeOutcomeIndex={wakeOutcomeIndex}
-				wakeStopRequestStatusBySelectorKey={
-					input.wakeStopRequestStatusBySelectorKey
-				}
-				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
-			/>
-			{renderThreadComposer(input)}
-			<ThreadSelectedMessageDetails
-				activeThread={input.activeThread}
-				messageDetailsItem={messageDetailsItem}
-				onClose={closeMessageDetails}
-				onRecoverExecution={onRecoverExecution}
-				onWakeStopRequest={onWakeStopRequest}
-				panelInput={input}
-				profilePresentationsById={profilePresentationsById}
-				replyItems={messageDetailsReplyItems}
-				wakeIssueEntries={messageDetailsWakeProgressState?.issueEntries ?? []}
-				wakeStopTarget={messageDetailsWakeStopTarget}
-				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
-			/>
-		</SpaceInlineSidePanel>
+			<SpaceInlineSidePanel
+				ariaLabel="Thread"
+				className={input.className}
+				id="space-thread-panel"
+				maxWidth={panelWidth.maxWidth}
+				minWidth={panelWidth.minWidth}
+				onWidthChange={panelWidth.onWidthChange}
+				open={input.activeThread !== null}
+				resizeHandleLabel="Resize Thread panel"
+				width={panelWidth.width}
+			>
+				<ThreadPanelHeader onClose={input.onClose} />
+				{renderThreadFocusStatus(focusStatusMessage)}
+				<ThreadTimeline
+					actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(
+						input.actionableAgentInteractionPlacement
+					)}
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
+					allItems={threadTimelineItems}
+					anchoredOutcomeNoticesBySourceSignalId={
+						anchoredOutcomeNoticesBySourceSignalId
+					}
+					centerAgentProfileId={input.centerAgentProfileId ?? null}
+					computerSetupActionSignalId={computerSetupActionSignalId}
+					computerSetupContext={computerSetupContext}
+					ephemeralActivityItems={scopedActivityItems}
+					errorMessage={input.signalsErrorMessage}
+					firstUnreadSignalId={firstUnreadSignalId}
+					isLoading={input.signalsIsLoading}
+					isPersonalContext={input.isPersonalContext === true}
+					items={threadTimelineItems}
+					latestThreadOccurredAtMs={latestThreadOccurredAtMs}
+					onAgentInteractionResponse={input.onAgentInteractionResponse}
+					onJumpToMessage={jumpToMessage}
+					onOpenMessageDetails={onOpenMessageDetails}
+					onOpenSpaceFile={input.onOpenSpaceFile}
+					onRecoverExecution={
+						messageDetailsItem ? undefined : onRecoverExecution
+					}
+					onViewedThroughTs={input.onViewedThroughTs}
+					onWakeStopRequest={
+						input.onWakeStopRequest ? onWakeStopRequest : undefined
+					}
+					orgSlug={input.orgSlug}
+					prepareSetupHref={input.prepareSetupHref}
+					profilePresentationsById={profilePresentationsById}
+					readOnly={input.readOnly === true}
+					readScopeKey={activeThreadRootSignalId ?? ""}
+					registerMessageElement={registerMessageElement}
+					renderProfileTrigger={
+						profileDetailsDialog.profileDetailsPopoverTriggerById
+					}
+					selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
+					selfProfileId={input.selfProfileId}
+					spaceReferencesById={input.spaceReferencesById}
+					wakeFailureTargetContextsByProfileId={
+						input.wakeFailureTargetContextsByProfileId
+					}
+					wakeOutcomeIndex={wakeOutcomeIndex}
+					wakeStopRequestStatusBySelectorKey={
+						input.wakeStopRequestStatusBySelectorKey
+					}
+					wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
+				/>
+				{renderThreadComposer(input)}
+				<ThreadSelectedMessageDetails
+					activeThread={input.activeThread}
+					messageDetailsItem={messageDetailsItem}
+					onClose={closeMessageDetails}
+					onRecoverExecution={onRecoverExecution}
+					onWakeStopRequest={onWakeStopRequest}
+					panelInput={input}
+					profilePresentationsById={profilePresentationsById}
+					replyItems={messageDetailsReplyItems}
+					wakeIssueEntries={messageDetailsWakeProgressState?.issueEntries ?? []}
+					wakeStopTarget={messageDetailsWakeStopTarget}
+					wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
+				/>
+			</SpaceInlineSidePanel>
+		</SpaceWakeRecommendationScope>
 	);
 }
 

@@ -66,6 +66,7 @@ export {
   type SpaceSendTargetProjectionEntry,
   type SpaceSendTargetWakeAvailability,
 } from "./authoring/send-target-projection";
+export { applyAutomaticThreadWake } from "./authoring/thread-wake";
 export {
   buildSpaceProfileAddPlan,
   getSpaceProfileAddModeProfileKinds,
@@ -162,7 +163,10 @@ export {
   type SpaceRoundReadTargetRelation,
   type SpaceRoundSignalPublication,
 } from "./read-projection/round-read-projection";
-export { resolveThreadWakeContinuation } from "./read-projection/thread-wake-continuation";
+export {
+  resolveThreadAutomaticWakeTarget,
+  resolveThreadWakeContinuation,
+} from "./read-projection/thread-wake-continuation";
 export {
   buildDispatchResultReplyWorkflowProjection,
   buildSignalReplyWorkflowProjection,

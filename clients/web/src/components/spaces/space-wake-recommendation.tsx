@@ -63,9 +63,13 @@ export function SpaceWakeRecommendationScope(input: {
 	selfProfileId: string;
 	orgSlug?: string;
 	spaceId?: string;
+	threadId?: string;
+	disabled?: boolean;
 	children: ReactNode;
 }) {
-	const exchange = findRecentWakeExchange(input.items, input.selfProfileId);
+	const exchange = input.disabled
+		? null
+		: findRecentWakeExchange(input.items, input.selfProfileId);
 	const storageKey = wakeRecommendationSessionKey(input);
 	const restored = useMemo(
 		() => readWakeRecommendationRecord(storageKey),
@@ -87,6 +91,7 @@ export function SpaceWakeRecommendationScope(input: {
 				item.actorProfileKind === "human"
 		);
 	const nudge =
+		!input.disabled &&
 		record?.status === "message" &&
 		latestOwn &&
 		latestOwn.clientMessageId === record.clientMessageId &&

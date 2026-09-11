@@ -18,12 +18,14 @@ export function wakeRecommendationSessionKey(input: {
 	orgSlug?: string;
 	selfProfileId: string;
 	spaceId?: string;
+	threadId?: string;
 }): string | null {
 	return input.orgSlug && input.spaceId
 		? `openmeld:wake-recommendation:v1:${JSON.stringify([
 				input.orgSlug,
 				input.selfProfileId,
 				input.spaceId,
+				...(input.threadId ? [input.threadId] : []),
 			])}`
 		: null;
 }

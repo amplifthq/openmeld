@@ -45,6 +45,26 @@ export function createSpaceThreadId(): string {
   return `thr_${crypto.randomUUID()}`;
 }
 
+/** Retained authors across the whole thread, including its root, not just a history page. */
+export function readThreadParticipants(sql: SqlStorage, threadId: string) {
+  return sql
+    .exec<{ profileId: string; kind: string }>(
+      `
+    SELECT DISTINCT json_extract(signal.payload_json, '$.profile.profileId') AS profileId,
+      json_extract(signal.payload_json, '$.profile.kind') AS kind
+    FROM space_signals AS signal
+    JOIN space_thread_signal_placements AS placement ON placement.signal_id = signal.id
+    WHERE placement.thread_id = ?
+      AND json_extract(signal.payload_json, '$.type') = 'signal.text'
+      AND json_extract(signal.payload_json, '$.data.meta.recalledAt') IS NULL
+      AND json_extract(signal.payload_json, '$.profile.kind') IN ('human', 'agent')
+      AND COALESCE(json_extract(signal.payload_json, '$.data.meta.transient'), 0) != 1
+  `,
+      threadId
+    )
+    .toArray();
+}
+
 /** Use storage order, not author timestamps, and search beyond the visible page. */
 export function readLatestExplicitThreadWake(
   sql: SqlStorage,

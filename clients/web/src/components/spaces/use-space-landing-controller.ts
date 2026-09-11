@@ -163,6 +163,7 @@ import {
 	mergeWakeProgressItemState,
 	normalizeOptionalText,
 	pollWakeProgress,
+	readPublishedWakeTargetProfileIds,
 	readSpaceStatusName,
 	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
@@ -1196,6 +1197,7 @@ export type SpaceLandingController =
 			threads: readonly SpaceThread[];
 			threadPreviews: readonly SpaceThreadPreview[];
 			threadSignals: readonly SignalEnvelope[];
+			threadWakeRecommendationsEnabled: boolean;
 			threadsErrorMessage: string | null;
 			threadSignalsErrorMessage: string | null;
 			threadsIsLoading: boolean;
@@ -2457,6 +2459,8 @@ export function useSpaceLandingController(input: {
 		threads: threadController.threads,
 		threadPreviews: threadController.threadPreviews,
 		threadSignals: threadController.threadSignals,
+		threadWakeRecommendationsEnabled:
+			threadController.threadWakeRecommendationsEnabled,
 		threadsErrorMessage: threadController.threadsErrorMessage,
 		threadSignalsErrorMessage: threadController.threadSignalsErrorMessage,
 		threadsIsLoading: threadController.threadsIsLoading,
@@ -3357,8 +3361,6 @@ function useSpaceThreadController(input: {
 							threadId: activeThreadId,
 						}
 					: null,
-			threadWakeContinuationProfileId:
-				threadSignalsQuery.data?.wakeContinuation?.targetProfileId,
 			openMeldProfileId: input.profileId,
 			isMembersLoading: input.isMembersLoading,
 			membersErrorMessage: input.membersErrorMessage,
@@ -3489,6 +3491,9 @@ function useSpaceThreadController(input: {
 		threadPreviews,
 		threadSignals,
 		threadSignalsError: threadSignalsQuery.error,
+		threadWakeRecommendationsEnabled:
+			threadSignalsQuery.data?.wakeContinuation?.automaticTargetProfileId ===
+			null,
 		threadSignalsErrorMessage: threadSignalsQuery.isError
 			? threadSignalsQuery.error.message
 			: null,
@@ -3550,6 +3555,18 @@ function useSpaceThreadController(input: {
 				rootSignalId: threadInput.rootSignalId,
 				clientMutationId: createClientMessageId(),
 			});
+			input.queryClient.setQueryData<ListSpaceThreadsResponse>(
+				spaceQueryKeys.threads(input.spaceId, input.profileId),
+				(current) => ({
+					threads: [
+						...(current?.threads ?? threads).filter(
+							(thread) => thread.threadId !== response.thread.threadId
+						),
+						response.thread,
+					],
+					previews: current?.previews ?? threadPreviews,
+				})
+			);
 			openThread(response.thread.threadId);
 			await Promise.all([
 				threadsQuery.refetch(),
@@ -3625,6 +3642,7 @@ function useSpaceThreadController(input: {
 			await sendPreparedThreadMessage({
 				composerFiles: submittedFiles,
 				clientMessageId,
+				onMessageStaged: options?.onMessageStaged,
 				prepareFiles: async () => {
 					const publishedFiles =
 						await composerFilesController.publishReadyFiles(submittedFiles);
@@ -3809,6 +3827,7 @@ function useSpaceThreadController(input: {
 	}
 
 	async function sendPreparedThreadMessage(sendInput: {
+		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
 		prepareFiles?: () => Promise<{
@@ -3830,7 +3849,7 @@ function useSpaceThreadController(input: {
 			composerFilesController.finishSubmission(files);
 		});
 		const messageCreatedAtMs = Date.now();
-		const activationTargets =
+		let activationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
 		const pendingSignal = createPendingOutgoingSignal({
 			composerFiles: sendInput.composerFiles,
@@ -3843,6 +3862,7 @@ function useSpaceThreadController(input: {
 			text: sendInput.preparedSubmission.text,
 		});
 		appendPendingOutgoingSignal(setPendingOutgoingSignals, pendingSignal);
+		sendInput.onMessageStaged?.(clientMessageId);
 		const sendingWakeProgressItems = buildLocalWakeProgressItems({
 			activationTargets,
 			clientMessageId,
@@ -3914,6 +3934,7 @@ function useSpaceThreadController(input: {
 					}).postThreadSignal(postInput)
 			);
 			postedMessage = true;
+			activationTargets = readPublishedWakeTargetProfileIds(response.signal);
 			completeSpaceSend(clientMessageId);
 			recordWakeDiagnosticIfNeeded({
 				clientMessageId,

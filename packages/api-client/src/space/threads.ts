@@ -125,7 +125,7 @@ export async function listSpaceThreadSignals(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
     afterSignalId?: string;
-    includeWakeContinuation?: true;
+    includeWakeContinuation?: true | "conversation";
     limit?: number;
     threadId: string;
   }
