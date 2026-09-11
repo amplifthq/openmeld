@@ -161,7 +161,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
+          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --prod --ignore-scripts
 
       - name: Install candidate dependencies without repository scripts
         env:
@@ -269,11 +269,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
-          cache: pnpm
-          cache-dependency-path: trusted-control/pnpm-lock.yaml
 
       - name: Install the shared evidence parser only
-        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
+        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --prod --ignore-scripts
 
       - name: Download candidate evidence
         continue-on-error: true

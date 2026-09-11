@@ -96,6 +96,13 @@ plan is the authority for selected/skipped commands, reasons, and durations:
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
+Trusted control installs only the shared evidence parser's production
+dependencies. The result publisher does not restore the full development store;
+restoring that cache costs more than installing its small runtime. Candidate
+dependencies stay isolated and complete for the selected checks. This setup is
+the same for all PR scopes, confidence levels, merge groups, and local fallback;
+it does not change validation coverage or grant candidate code write credentials.
+
 A non-draft PR targeting `main` starts standard FC on opening, new commits,
 reopening, or marking ready; no label is needed. To retry after diagnosing a
 failure, or explicitly request full confidence:
