@@ -24,13 +24,14 @@ import {
 
 export function NewChatDialog(input: {
 	groupId?: string;
+	initialQuery?: string;
 	onCreated?: (spaceId: string) => void | Promise<void>;
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
 	const { currentOrganization: org, currentUserId } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const [query, setQuery] = useState("");
+	const [query, setQuery] = useState(input.initialQuery ?? "");
 	const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
 	const [submitting, setSubmitting] = useState(false);
 	const submittingRef = useRef(false);
@@ -263,7 +264,7 @@ export function NewChatDialog(input: {
 			selectedProfileIds={selected}
 			selectionDisabled={createdSpaceId !== null}
 			submitLabel={submitLabel}
-			title="New chat"
+			title="New message"
 		/>
 	);
 }

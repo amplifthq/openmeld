@@ -1,13 +1,12 @@
 "use client";
 
-import { SidebarHeader, SidebarTrigger } from "@openmeld/ui/fluid/sidebar";
+import { SidebarHeader } from "@openmeld/ui/fluid/sidebar";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowLeftIcon,
 	ArrowRightIcon,
 	MagnifyingGlassIcon,
-	SidebarSimpleIcon,
 	TrayIcon,
 } from "@phosphor-icons/react";
 import { Link, useCanGoBack, useRouter } from "@tanstack/react-router";
@@ -50,18 +49,13 @@ export function AppSidebarHeader({
 					"[&_a]:min-h-11 [&_a]:min-w-11 [&_button]:min-h-11 [&_button]:min-w-11"
 			)}
 		>
-			<div className={cn("flex items-center gap-0", iconOnly && "flex-col")}>
-				{presentation === "inline" && (
-					<CollapsedRailTooltip
-						label="Toggle sidebar"
-						side={iconOnly ? "right" : "top"}
-					>
-						<SidebarTrigger className={actionClass}>
-							<SidebarSimpleIcon className="size-4" />
-						</SidebarTrigger>
-					</CollapsedRailTooltip>
+			<div
+				className={cn(
+					"items-center gap-0",
+					iconOnly ? "grid grid-cols-2 justify-items-center" : "flex"
 				)}
-				{!iconOnly && (
+			>
+				{
 					<>
 						<CollapsedRailTooltip label="Back" side="top">
 							<button
@@ -85,7 +79,7 @@ export function AppSidebarHeader({
 							</button>
 						</CollapsedRailTooltip>
 					</>
-				)}
+				}
 				{!iconOnly && <span className="flex-1" />}
 				<button
 					aria-label="Search or run a command"
@@ -115,7 +109,9 @@ export function AppSidebarHeader({
 					</Link>
 				</CollapsedRailTooltip>
 			</div>
-			<div className={cn("min-w-0", iconOnly && "flex justify-center")}>
+			<div
+				className={cn("order-first min-w-0", iconOnly && "flex justify-center")}
+			>
 				<OrganizationSwitcher
 					account={account}
 					humanProfileAvatar={humanProfileAvatar}
