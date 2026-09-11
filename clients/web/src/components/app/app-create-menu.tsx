@@ -30,7 +30,7 @@ export function AppCreateMenu({ orgSlug }: { orgSlug: string }) {
 			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner
-					align="center"
+					align="start"
 					className="z-50"
 					side="right"
 					sideOffset={12}
@@ -75,10 +75,11 @@ function CreateOptions({
 	return (
 		<Liquid
 			blur={6}
-			className="relative h-10 w-[264px] text-popover-foreground"
+			className="relative w-32 text-popover-foreground"
 			contrast={18}
 			fill="var(--accent)"
 			shadow="0 2px 8px rgba(0,0,0,.14)"
+			style={{ height: options.length * 48 - 8 }}
 		>
 			{options.map((option, index) => (
 				<Liquid.Item
@@ -86,7 +87,8 @@ function CreateOptions({
 					key={option.label}
 					radius={20}
 					transition={motion ? "snappy" : { duration: 0 }}
-					x={expanded || !motion ? index * 136 : -52}
+					x={expanded || !motion ? 0 : -52}
+					y={expanded || !motion ? index * 48 : 0}
 				>
 					<Menu.Item
 						className="flex h-10 w-32 items-center justify-center gap-2 whitespace-nowrap rounded-full px-3 text-sm outline-none data-highlighted:bg-popover data-highlighted:ring-1 data-highlighted:ring-ring"
