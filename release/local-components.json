@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10T07:26:50.975Z",
+  "updatedAt": "2026-09-10T19:39:44.533Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
-      "packageVersion": "0.3.195",
-      "updatePolicy": "available",
-      "reason": "Existing commands remain compatible; teammate creation holds are enforced by Core, and request inspection remains available."
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
+      "packageVersion": "0.3.198",
+      "updatePolicy": "required",
+      "reason": "The large-Space-file command contract changed; older CLI builds cannot satisfy the new download and file-operation contract."
     },
     "service": {
-      "bundleHash": "cc581b7656babf81d8d3705726a76e1a6ebec01374f028afd8e243dbd4d560f6",
-      "bundleVersion": "0.3.195",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
-      "updatePolicy": "available",
-      "reason": "Offline waiting is owned by Core before dispatch; existing Services execute the same admitted tasks, and the local instruction change does not alter the runtime wire contract."
+      "bundleHash": "516acdb386b4786a705293e5e51c78f85542a07ab393b8534b7774f3c6270076",
+      "bundleVersion": "0.3.198",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
+      "updatePolicy": "required",
+      "reason": "Verified Space caller context and large-file handling change the Service execution contract; older Services must update before accepting new Wake work."
     },
     "skills": {
       "bundleHash": "83d47e75112123a73fd0379632148d4577081f0b1efd7ac10a1301999fb73d12",

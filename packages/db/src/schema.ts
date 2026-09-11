@@ -97,6 +97,7 @@ export const {
   centerAgentOrganizationSkillOperations,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
+  organizationMemberPresenceSessions,
   organizationOpportunities,
   organizationWorkingLanguagePreferences,
   organizationBindingAuthorizations,
@@ -163,6 +164,7 @@ export const {
   openMeldDaemonCurrentDeviceTargets,
   spaceAttachments,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
 } = coreSchema;

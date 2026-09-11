@@ -16,7 +16,8 @@ type Status = (typeof STATUS_OPTIONS)[number][0];
 
 export function useSpaceDirectoryFilters(
 	groups: readonly { id: string; label: string }[],
-	onSearch: () => void
+	onSearch: () => void,
+	searchLabel = "Search Spaces"
 ) {
 	const groupFilter = useSidebarGroupFilter(groups);
 	const [statuses, setStatuses] = useState<Status[]>([]);
@@ -48,7 +49,7 @@ export function useSpaceDirectoryFilters(
 		menu: (
 			<>
 				<DropdownMenuItem onClick={() => requestAnimationFrame(onSearch)}>
-					Search Spaces
+					{searchLabel}
 				</DropdownMenuItem>
 				{groupFilter.menu}
 				{STATUS_OPTIONS.map(([id, label]) => (

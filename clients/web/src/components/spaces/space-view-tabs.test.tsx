@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SpaceViewTabs } from "./space-view-tabs";
 
 describe("SpaceViewTabs", () => {
-	it("shows Messages, Graph, and Files as one view control", () => {
+	it("shows Messages and Files while hiding the Graph entry", () => {
 		const onViewChange = vi.fn();
 
 		render(
@@ -15,7 +15,7 @@ describe("SpaceViewTabs", () => {
 		);
 
 		const messagesTab = screen.getByRole("tab", { name: "Messages" });
-		const graphTab = screen.getByRole("tab", { name: "Graph" });
+		expect(screen.queryByRole("tab", { name: "Graph" })).toBeNull();
 		const filesTab = screen.getByRole("tab", { name: "Files" });
 		const tabList = screen.getByRole("tablist", { name: "Space view" });
 
@@ -25,10 +25,6 @@ describe("SpaceViewTabs", () => {
 		expect(tabList.className).toContain("gap-5");
 		expect(messagesTab.className).toContain("px-0");
 		expect(screen.queryByRole("tab", { name: "Conversation" })).toBeNull();
-
-		fireEvent.click(graphTab);
-
-		expect(onViewChange).toHaveBeenCalledWith("graph");
 
 		fireEvent.click(filesTab);
 

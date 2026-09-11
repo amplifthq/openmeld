@@ -114,6 +114,12 @@ function resolveRequesterIdentity(
   if (envelope.sender.kind === "routine") {
     return "organization_routine";
   }
+  if (
+    envelope.sender.callerContext?.relationship === "external" ||
+    envelope.sender.callerContext?.relationship === "anonymous"
+  ) {
+    return "external_participant";
+  }
   if (envelope.sender.kind === "agent_profile") {
     return "agent_profile";
   }

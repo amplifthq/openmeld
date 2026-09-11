@@ -12,7 +12,7 @@ export function useChatFilters(onSearch: () => void) {
 			{ id: "human", label: "People" },
 			{ id: "agent", label: "Agents" },
 		],
-		"All chats"
+		"All direct messages"
 	);
 	const [archived, setArchived] = useState(false);
 	return {
@@ -20,21 +20,21 @@ export function useChatFilters(onSearch: () => void) {
 		archived,
 		setArchived,
 		sectionFilter: {
-			label: "Archived chats",
+			label: "Archived direct messages",
 			checked: archived,
 			onCheckedChange: setArchived,
 		},
 		menu: (
 			<>
 				<DropdownMenuItem onClick={() => requestAnimationFrame(onSearch)}>
-					Search chats
+					Search direct messages
 				</DropdownMenuItem>
 				{category.menu}
 				<DropdownMenuCheckboxItem
 					checked={archived}
 					onCheckedChange={setArchived}
 				>
-					Archived chats
+					Archived direct messages
 				</DropdownMenuCheckboxItem>
 			</>
 		),

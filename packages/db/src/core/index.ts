@@ -144,7 +144,10 @@ export { organizationDocuments } from "./organization-document.schema.ts";
 export { organizationDocumentFolders } from "./organization-document-folder.schema.ts";
 export { centerAgentOrganizationDocumentOperations } from "./organization-document-operation.schema.ts";
 export { organizationInformationProtectionPolicies } from "./organization-information-protection.schema.ts";
-export { organizationMemberActivity } from "./organization-member-activity.schema.ts";
+export {
+  organizationMemberActivity,
+  organizationMemberPresenceSessions,
+} from "./organization-member-activity.schema.ts";
 export {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,
@@ -174,5 +177,6 @@ export {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
 } from "./space-index.schema.ts";
 export { spaceInvitations } from "./space-invitation.schema.ts";

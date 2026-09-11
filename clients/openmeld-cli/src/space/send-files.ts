@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { openAsBlob } from "node:fs";
 import { basename } from "node:path";
 import {
   type StructuredApiClientFailure,
@@ -17,7 +17,7 @@ import type {
 import type { SpaceApi } from "./cli-space-api";
 
 type PreparedSpaceFile = {
-  bytes: Uint8Array;
+  bytes: Blob;
   name: string;
   mimeType: string;
 };
@@ -198,9 +198,9 @@ function formatCleanupFailures(input: {
 async function prepareSpaceSendFile(
   sourcePath: string
 ): Promise<PreparedSpaceFile> {
-  let bytes: Uint8Array;
+  let bytes: Blob;
   try {
-    bytes = await readFile(sourcePath);
+    bytes = await openAsBlob(sourcePath);
   } catch (error) {
     const code = readNodeErrorCode(error);
     if (code === "ENOENT") {
@@ -217,7 +217,7 @@ async function prepareSpaceSendFile(
     });
   }
 
-  if (bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
+  if (bytes.size > SPACE_FILE_MAX_SIZE_BYTES) {
     throw new SpaceSendFileError({
       code: "space.file.too_large",
       message: `File exceeds the ${formatFileSizeLimit()} limit: ${sourcePath}. The message was not sent.`,

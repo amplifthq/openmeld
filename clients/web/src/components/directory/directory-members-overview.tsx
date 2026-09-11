@@ -4,7 +4,6 @@ import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
 	ModelCatalog,
-	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -153,7 +152,6 @@ type DirectoryMembersOverviewProps = {
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	recovery: LocalAgentRecoveryController;
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 	storageScope: string;
 };
 
@@ -467,7 +465,6 @@ function useDirectoryMembersOverviewModel(
 					members: input.directoryQuery.data?.members ?? [],
 					agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 					orgSlug: input.currentOrganization.slug,
-					runtimeOverview: input.runtimeOverview,
 				}).get(input.currentUserId),
 				account: input.account,
 				canCreateHumanProfile,
@@ -493,7 +490,6 @@ function useDirectoryMembersOverviewModel(
 				messageChannelsStatus,
 				members: input.directoryQuery.data?.members ?? [],
 				orgSlug: input.currentOrganization.slug,
-				runtimeOverview: input.runtimeOverview,
 			});
 	const profilesArePending = isPersonalWorkspace
 		? personalProfilesQuery.isPending

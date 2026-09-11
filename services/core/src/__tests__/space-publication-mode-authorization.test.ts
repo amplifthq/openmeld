@@ -42,6 +42,7 @@ function createMeta(input: {
     v: 1,
     createdAt: NOW_ISO,
     organizationId: "org-1",
+    ownerUserIds: ["owner-1"],
     visibility: "private",
     creator: {
       kind: input.creatorKind ?? "human",
@@ -59,11 +60,12 @@ function createMeta(input: {
 }
 
 describe("space publication mode authorization", () => {
-  it("allows the human Space creator with explicit valid password proof", async () => {
+  it("allows a current human Space owner with explicit valid password proof", async () => {
     const verifySpacePasswordProof = vi.fn(async () => true);
 
     const result = await authorizeSpacePublicationModeChange({
       context: createContext({
+        ownerUserId: "owner-1",
         profileId: "hum-owner",
         profileKind: "human",
       }),
@@ -153,6 +155,7 @@ describe("space publication mode authorization", () => {
   it("requires an explicit password even when the actor is the owner", async () => {
     const result = await authorizeSpacePublicationModeChange({
       context: createContext({
+        ownerUserId: "owner-1",
         profileId: "hum-owner",
         profileKind: "human",
       }),
@@ -170,6 +173,7 @@ describe("space publication mode authorization", () => {
   it("requires a configured Space password before publication mode can change", async () => {
     const result = await authorizeSpacePublicationModeChange({
       context: createContext({
+        ownerUserId: "owner-1",
         profileId: "hum-owner",
         profileKind: "human",
       }),

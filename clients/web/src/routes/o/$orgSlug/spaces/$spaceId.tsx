@@ -388,22 +388,9 @@ function ValidatedAppSpaceEntryContent(
 	const selectedProfile = findActiveProfileById(profilesQuery.data ?? [], {
 		profileId: input.profileId,
 	});
-	// The link carries a profile that is not in this account (e.g. a Space link
-	// shared by someone else). Don't strand the user on an in-app interstitial —
-	// redirect to the public Space viewer, the single canonical entry where they
-	// can read the conversation (or unlock it) and join in place as their own
-	// human profile. If they are actually a member, the viewer reconciles and
-	// sends them back into the app with their own profile.
-	if (!selectedProfile) {
-		return (
-			<RedirectToPublicSpace
-				focusSignalId={input.focusSignalId}
-				focusThreadRootSignalId={input.focusThreadRootSignalId}
-				spaceId={input.spaceId}
-			/>
-		);
-	}
-	if (selectedProfile.profileKind !== "human") {
+	// A copied or stale Profile belongs to neither the destination nor its
+	// authority. Resolve this account's Human without leaving the app shell.
+	if (!selectedProfile || selectedProfile.profileKind !== "human") {
 		const rememberedHumanProfileId =
 			readLastUsedHumanProfileId(storageScope) ?? state.selectedHumanProfileId;
 		const humanProfile = resolveAppSpacesProfile({
@@ -642,18 +629,7 @@ function AppSpaceAccessGate(
 			spaceId={input.spaceId}
 			threadRootSignalId={input.focusThreadRootSignalId}
 		>
-			{(resolution) =>
-				resolution.view.state === "allowed" &&
-				resolution.view.experience === "public" ? (
-					<RedirectToPublicSpace
-						focusSignalId={input.focusSignalId}
-						focusThreadRootSignalId={input.focusThreadRootSignalId}
-						spaceId={input.spaceId}
-					/>
-				) : (
-					input.children
-				)
-			}
+			{() => input.children}
 		</SpaceEntryGate>
 	);
 }
@@ -951,43 +927,6 @@ function SpaceProfileLoadFailureState(input: {
 				</Button>
 			</CardContent>
 		</Card>
-	);
-}
-
-function RedirectToPublicSpace(input: {
-	focusSignalId?: string;
-	focusThreadRootSignalId?: string;
-	spaceId: string;
-}) {
-	const navigate = useNavigate();
-
-	useEffect(() => {
-		navigate({
-			params: { spaceId: input.spaceId },
-			replace: true,
-			...(input.focusSignalId || input.focusThreadRootSignalId
-				? {
-						search: {
-							signalId: input.focusSignalId,
-							threadRootSignalId: input.focusThreadRootSignalId,
-						},
-					}
-				: {}),
-			to: "/spaces/$spaceId",
-		}).catch((error: unknown) => {
-			console.error("OpenMeld could not open the public Space view.", error);
-		});
-	}, [
-		navigate,
-		input.focusSignalId,
-		input.focusThreadRootSignalId,
-		input.spaceId,
-	]);
-
-	return (
-		<AppSpaceEntryShell spaceId={input.spaceId}>
-			<SpaceProfileCheckState />
-		</AppSpaceEntryShell>
 	);
 }
 

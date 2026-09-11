@@ -61,6 +61,8 @@ export const connectorConnections = sqliteTable(
       "connector_connections_service_check",
       sql`"service" in (
         'github',
+        'feishu',
+        'lark',
         'gmail',
         'googlecalendar',
         'googledrive',

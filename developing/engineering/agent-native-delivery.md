@@ -13,244 +13,145 @@
 - Source of truth: This file owns the end-to-end agent-native delivery contract
   for this repository.
 
-## Outcome
+## Daily Workflow
 
-Each coding agent owns its declared scope and may complete its own delivery
-lifecycle:
+The same workflow applies to engineers, Codex, Claude Code, and other coding
+agents. Run `pnpm install --frozen-lockfile` in each checkout to install dependencies
+and Husky hooks. Keep `origin/main` available with `git fetch origin main`.
 
-```text
-develop and run focused tests
-  -> inspect the change and evidence required by the task
-  -> commit and push one exact candidate
-  -> sync current main
-  -> run one lightweight Final Candidate
-  -> merge the still-current candidate
-  -> release only affected production scopes
-  -> health check
-  -> smallest real-user smoke for the changed path
+| Stage | Required work | Why |
+| --- | --- | --- |
+| Commit | The hook checks staged files with `lint-staged`. | Catch cheap errors while the change is small. |
+| Push a development branch | The hook runs focused checks on the exact pushed commit and blocks failures. | Find problems before the merge queue. |
+| Develop and review | Validate the behavior and affected consumers; add type, build, database, or integration checks where the changed boundary requires them. | A file selector cannot decide product risk. |
+| Mark the PR ready | Sync current `main`, resolve conflicts, and validate the affected interactions. Standard FC starts automatically. | Certify the actual next merge. |
+| Merge | Require current-base `OpenMeld Final Candidate` success for the unchanged candidate. | Prevent stale or mismatched green results. |
+| Release | Follow [Production Release](production-release.md), then health and real-user smoke. | Merge success is not deployment or product success. |
+
+Do not bypass hooks to ship a failed check. Diagnose with the smallest failing
+command, fix the cause, and push again. Hooks are local feedback, not remotely
+attested evidence; FC does not claim they ran or that every business test passed.
+
+## Focused Checks Before Push
+
+Inspect or run the shared local/draft entrypoint:
+
+```sh
+pnpm run verify:pr -- --feedback --plan
+pnpm run verify:pr -- --feedback
 ```
 
-For a coordinated train of compatible changes, integrate the ready leaf
-branches into one batch branch, sync `main` once, and run one Final Candidate
-on the combined batch PR. Leaf PRs keep their focused evidence but do not each
-pay for an immediately stale Final Candidate or merge to `main` first. The
-combined candidate is the merge unit and proves the interactions users will
-actually receive.
+It selects changed-file Biome checks, relevant docs/Changelog contracts,
+adjacent Node tests, and related Vitest tests in directly changed workspaces.
+Plain package test aliases retain their own config; unsupported runners use
+the package's test command instead of silently skipping tests. Dependency builds
+use Turbo's cache. Test commands run sequentially, Node test files run serially,
+and related Vitest tests use at most two workers without file parallelism.
+Every run uses a disposable `OPENMELD_HOME`.
 
-Batch integration must also check directional release dependencies. For example,
-Space invitations require Core and Auth receivers before the new CLI; follow
-the staged order in `production-release.md`, not the default fleet order.
+Workers pools need their own runtime limits. Gateway tests share one runtime
+and module cache, clear global/environment stubs, and retain per-test storage
+isolation; Vitest's worker count alone does not bound that pool.
+The package test command runs four sequential shards to release cached modules
+between groups. A failed shard stops the command.
 
-This is not a central-coordinator process. CI/CD reports facts; the responsible
-agent uses those facts, the task, and the relevant owner documents to decide
-what to do. CI/CD does not choose business scope, mandate a reviewer, or ask
-unrelated agents to wait.
+The push hook requires the checked-out, clean tree to match every pushed commit.
+An ordinary follow-up push checks the diff from the remote branch's previous
+commit; a first push or rewritten/unavailable history checks the branch against
+locally fetched `origin/main`. Missing base history is an error: fetch it.
+Recheck identity and cleanliness after success. Deletions need no tests;
+protected release pushes retain strict release verification.
 
-## Facts That Must Stay True
+Draft PR Feedback runs the same focused checks remotely against the full PR
+diff. It is independent feedback, not permission to merge. Keep leaf PRs in
+draft during development and batch preparation. Mark ready only when a green
+FC would make merge the next action. New commits cancel superseded feedback
+and FC runs for that PR.
 
-1. Ordinary branch pushes do not trigger broad paid CI. An agent requests one
-   Final Candidate only when one committed PR head is ready for final
-   evaluation. Standard Final Candidate is bounded merge certification, not a
-   second unit/integration test run and not a development, debugging, or
-   review-discovery loop. Use
-   one practical test: if a green result would not make merge the next action,
-   keep using the smallest focused or affected checks that prove the work.
-   When known predecessor pull requests still need to enter `main`, wait for
-   that merge order instead of starting a paid run that cannot certify the
-   eventual merge. Keep the branch moving with focused or affected checks,
-   then sync current `main` once and run the one Final Candidate that can lead
-   directly to merge. When two or more compatible ready changes share one
-   delivery window, prefer one batch integration PR and one combined Final
-   Candidate. If that candidate fails, use the leaf commit boundaries and the
-   smallest failing command to locate the responsible change; do not pay the
-   per-leaf cost in advance merely to make diagnosis easier.
-2. Candidate evidence identifies one exact `head SHA + validation base SHA +
-   tree SHA`, plus candidate kind (`pull-request` or `merge-group`). Evidence
-   never transfers to another identity.
-3. A selected-check failure, missing evidence, identity mismatch, or
-   publication failure cannot become green.
-4. A pull-request candidate begins on current `main`. If `main` advances later,
-   the completed evidence remains truthful evidence for its original base; it
-   is not evidence for the newer merge. Merge queue validates the exact
-   merge-group when available. Otherwise, strict up-to-date protection requires
-   a current-base candidate before merge. Call the completed old-base run
-   prevalidation: it may still inform review or diagnosis, but it is not
-   current-main merge evidence. When the branch reaches the front of its merge
-   order, sync current `main` once and form one new exact-current-main
-   candidate; do not rerun or relabel the old-base result as merge-valid.
-5. Test selection follows changed risk. Focused, affected, and integration
-   checks run while the responsible agent develops and reviews the change.
-   Standard Final Candidate does not repeat broad workspace unit or integration
-   lanes; it certifies exact identity, trusted control, repository contracts,
-   and path-owned database or release readiness. Explicit full confidence is
-   available when repository-wide reruns are worth their latency.
-6. Merge, release, health, and smoke are separate facts. Do not report one as
-   proof of another.
-7. Production releases use one explicit 40-character first-parent `main` SHA.
-   Same-scope releases serialize with `cancel-in-progress: false`; compatible
-   scopes may run in parallel.
-8. GitHub Actions is the normal Final Candidate compute lane. The guarded local
-   lane is the fallback for quota, billing, or runner outages, not the normal
-   way to move CI load onto a busy developer computer.
+Focused selection is deliberately incomplete: a deleted import, a shared
+contract, a dependency change, or platform-specific behavior may need additional
+validation. The owner must cover affected consumers before marking ready; use
+`verify:pr` for affected type/code checks and unit tests, and
+`test:integration:affected` for changed cross-service, persistence, or runtime
+boundaries. These are risk-selected work, not mandatory whole-repository reruns
+on every push. Never turn an empty related-test selection into a claim of full
+coverage. Do not start several broad runs on the same workstation at once.
 
-## Develop, Review, And Prepare
+## Final Candidate
 
-The scheduled model-catalog collector prepares one combined draft evidence PR
-per complete scan, not delivery
-candidates. Its twelve-hour collection, source contracts, and coding-agent
-handoff are defined in
-[Agent Profile Model Selection](../product/agent-model-selection.md#automatic-evidence-handoff).
-It does not request Final Candidate or merge/release. The agent who explicitly
-takes over its PR owns product decisions, missing compatibility evidence, real
-validation, and the normal authorized lifecycle below. An open collector PR is
-left untouched by later bot runs.
+FC certifies one exact `head SHA + base SHA + tree SHA`. Standard FC retains:
 
-Use focused tests while developing. The responsible agent chooses the smallest
-real checks that prove the change, performs the review required by the task,
-and may ask for more confidence when the risk justifies it. No reviewer
-identity, reviewer count, approval count, or specific review style is required
-by CI/CD.
+- current-main ancestry and live PR identity;
+- trusted control entrypoints and complete, matching results;
+- repository static contracts and control-code quality;
+- database checks when database owner paths change; and
+- deferred or strict local-component release readiness, selected by branch/path.
 
-Broad affected and integration runs are agent-chosen development or review
-evidence. Release-ready and Final Candidate are delivery evidence. Before the
-first broad run, finish the review that
-is reasonably likely to change product behavior, contracts, compatibility, or
-scope, and settle its practical blockers. An earlier broad run is appropriate
-when the responsible agent genuinely needs it to locate a cross-boundary bug;
-call that a diagnostic run, run only the boundary that can answer the question,
-and do not cascade into the remaining closeout gates yet.
-
-At closeout, a real finding is evidence, not automatic scope. Fix it in the
-current candidate when its user value is material and the correction remains
-small, coherent with the same owner and contract, and unlikely to delay the
-requested result or reopen broad risk. Also fix findings that block that result
-or materially protect a common or high-harm, irreversible, security-, privacy-,
-data-, or supported-compatibility path. Outside those mandatory cases, a finding
-that introduces a separate owner, source of truth, contract, or user journey
-defaults to a follow-up unless the current correction would otherwise be
-incomplete or unsafe.
-
-Preserve a deferred finding when it is useful enough to revisit. Record the
-symptom, impact, available evidence, and reason for deferral in the repository's
-appropriate issue or feedback system, or in authorized persistent task memory
-when that is the durable surface available to future agents. Beyond the required
-Agent Experience occurrence record below, do not create separate tracking work
-for a trivial observation, and do not let recording reopen the current
-candidate. This judgment does not require a new approval, checklist, ticket,
-reviewer count, or meeting.
-
-Inspect the transparent candidate plan at any time:
+Standard FC does not repeat broad workspace unit or integration tests. This
+keeps final merge latency separate from development feedback. Full confidence
+is explicit when remaining risk justifies a whole-repository rerun. The printed
+plan is the authority for selected/skipped commands, reasons, and durations:
 
 ```sh
 git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- plan
 ```
 
-The plan prints changed paths, selected and skipped checks, reasons, and exact
-commands. It is evidence for engineering judgment, not a command to merge or a
-substitute for understanding the task. Standard plans must not select
-`verify:pr`, `verify:pr:full`, or `test:integration:affected`; those broad lanes
-belong to development/review or explicit full confidence. Add `--full` only
-when uncertainty or material risk makes the repository-wide rerun worth its
-latency.
+Trusted control installs only the shared evidence parser's production
+dependencies. The result publisher does not restore the full development store;
+restoring that cache costs more than installing its small runtime. Candidate
+dependencies stay isolated and complete for the selected checks. This setup is
+the same for all PR scopes, confidence levels, merge groups, and local fallback;
+it does not change validation coverage or grant candidate code write credentials.
 
-Before requesting Final Candidate:
-
-1. finish the scoped implementation, focused tests, and task-required review;
-2. for a coordinated train, integrate every ready compatible leaf into the
-   batch branch and freeze that combined scope;
-3. commit and push the exact single-PR or batch tree;
-4. fetch current `origin/main` and sync it into the candidate branch once;
-5. resolve conflicts and rerun checks affected by the sync; and
-6. confirm a clean worktree and an open, non-draft PR targeting `main`.
-
-These are engineering facts, not an approval form. Final Candidate does not
-require a waiting period, a fixed reviewer count, or permission from a central
-coordinator. The responsible agent keeps the judgment and may request stronger
-confidence when the actual risk warrants it.
-
-Do not ask unrelated agents to freeze `main`. If another operation genuinely
-blocks this task, preserve the exact SHA and completed evidence, state the one
-blocking fact, end the active turn, and resume from a deterministic callback or
-new state change. Repeated polling is appropriate only for a short operation
-that this same turn already started and must close.
-
-Silence is the default collaboration behavior. One pull request, branch, or
-production scope has one execution owner. A non-owner must not monitor or
-mutate its labels, candidate runs, commits, merge, release, or smoke merely to
-be helpful. A status message does not transfer ownership; transfer is explicit,
-names the exact object and remaining action, and is accepted by the new owner.
-
-Send one direct coordination message only when a newly observed fact changes
-another owner's next safe action: a real file overlap, competing mutation of
-the same PR or production scope, an exact `main` or lease dependency, or a
-safety failure. Address the actual owner, include the smallest actionable fact,
-then continue independent work or stop. Do not broadcast, relay through a
-coordinator, request an acknowledgement, poll the other task, take over its
-work, or send routine progress. Send a completion callback only to a task that
-explicitly depends on that outcome; otherwise stay silent.
-
-Use the callback transport the two environments already support. Codex App may
-use `send_message_to_thread`; other environments may use task messaging, a PR
-comment, an authorized focused Space, or an operator handoff. The transport
-carries one real dependency and never creates a central coordinator. Without
-an available transport, preserve the facts and resume only after an external
-state change.
-
-## Final Candidate
-
-The normal path uses GitHub-hosted compute:
+A non-draft PR targeting `main` starts standard FC on opening, new commits,
+reopening, or marking ready; no label is needed. To retry after diagnosing a
+failure, or explicitly request full confidence:
 
 ```sh
-git show origin/main:scripts/ci/trusted-final-candidate.sh | \
-  bash -s -- request --pr <number>
+git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- request --pr <number>
+# Add --full only when the remaining risk warrants it.
+git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- status --pr <number>
+git show origin/main:scripts/ci/trusted-final-candidate.sh | bash -s -- wait --pr <number>
 ```
 
-Observe that request without streaming a full workflow log into the agent
-context:
+Use the current-main entrypoint, never candidate-owned package scripts.
+GitHub Actions is the normal compute lane; the guarded local lane below is for
+Actions outages or explicit control bootstrap. A failed check, missing evidence,
+identity mismatch, or publication failure cannot become green. Local hook output
+and draft feedback cannot substitute for the required FC status.
 
-```sh
-git show origin/main:scripts/ci/trusted-final-candidate.sh | \
-  bash -s -- status --pr <number>
-git show origin/main:scripts/ci/trusted-final-candidate.sh | \
-  bash -s -- wait --pr <number>
-```
+For a batch, integrate compatible ready leaf changes, sync `main` once, validate
+the combined interactions, and run one FC on the batch PR. Do not pay for leaf
+FCs that will immediately become stale. Preserve directional release order: for
+example, new Space-invitation Core/Auth receivers must precede the new CLI.
+If `main` advances, old evidence remains valid only for its original base;
+merge queue must validate the new group, or strict up-to-date protection requires
+syncing and validating the new candidate. Do not freeze unrelated work.
 
-`status` reads once. `wait` polls in the terminal process and prints only state
-transitions plus the final exact status. Full logs stay in GitHub. A captured
-GitHub job annotation distinguishes an Actions budget or billing refusal from a
-candidate check failure and reports whether candidate checks ever started. A
-later hosted budget refusal does not invalidate an existing successful exact
-status for the same head.
+## Evidence And Ownership
 
-Use `--full` only when the responsible agent wants repository-wide confidence.
-Standard requests remain intentionally lightweight; full requests may be slow
-and must not become the default for ordinary pull requests. Standard and full
-requests use distinct labels but publish the same required status:
-
-```text
-OpenMeld Final Candidate
-```
-
-The trusted current-main control plane validates the live PR identity, selects
-checks, runs candidate code without write credentials, publishes the exact
-result, and preserves schema-validated evidence plus complete redacted command
-logs. Successful command output stays in logs; terminal output stays compact:
-identity, plan, current check, result, duration, bounded failure tail, and
-evidence path.
-
-Canonical evidence includes exact identities, changed paths, risk tags,
-selected and skipped checks with reasons, commands, durations, results,
-execution mode, conclusion, publication errors, and whether a check executed
-or reused an earlier exact input fingerprint. The schema owner is
+The trusted current-main controller runs candidate code without write credentials
+and publishes schema-validated evidence: identities, selected/skipped checks,
+commands, results, durations, execution mode, and bounded failure details.
+Full command logs remain in the evidence artifact. The schema owner is
 `packages/schemas/src/schemas/ci/final-candidate.ts`.
 
-The evidence engine retains exact-fingerprint reuse support for affected
-workspace checks and integration checks selected by an older or specialized
-plan. Standard Final Candidate no longer selects those broad lanes, and full
-confidence intentionally runs its full repository gate. Trusted control still
-rechecks current candidate identity. Database, release-ready, signing, deploy,
-health, and smoke evidence is never reused. Reuse is compute optimization, not
-merge advice, approval, or a manual bypass.
+Existing trusted task-input reuse remains available to specialized affected
+plans; standard FC no longer selects those broad tasks. Full confidence executes
+its full gate. Database/release readiness and deployment/health/smoke results are
+never reused. A green FC proves only its recorded selected checks.
+
+Each task owns its implementation, risk assessment, and authorized delivery.
+CI does not require a reviewer count, central coordinator, waiting period, or
+unrelated tasks to stop. Fix findings that block the user result or protect a
+material security, privacy, data, or compatibility boundary; record separable
+follow-ups without reopening an otherwise complete candidate.
+
+Do not monitor or mutate another task's PR, runs, or releases without ownership.
+Send a focused handoff only when a real overlap, dependency, or safety failure
+changes that owner's next action. Routine status broadcasts are unnecessary.
+Model-catalog collector PRs remain draft evidence until an owner takes them over;
+see [Agent Profile Model Selection](../product/agent-model-selection.md#automatic-evidence-handoff).
 
 ### Actions-unavailable fallback
 
@@ -265,11 +166,28 @@ This lane fetches live `main`, reads the live PR, executes trusted current-main
 control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
+The first hop fetches depth-one main metadata into an isolated temporary Git
+repository, using blob filtering and a sparse checkout of `scripts/` to load
+control code on demand. It does not import shallow boundaries or sparse settings
+into the candidate repository, or download unrelated product files and history. The bootstrap and
+candidate runner still refresh main and verify ancestry using the candidate's
+complete history. Repository-local network policy cannot influence the isolated
+control fetch, and a failed fetch cannot fall back to cached control code.
 Before installing or executing candidate checks, it prints a bounded local
-resource preflight: available disk and active OpenMeld dev stacks. Other stacks
+resource preflight: available disk, measured memory and pressure, and active
+OpenMeld dev process trees. Other stacks
 are facts, not an approval rule. Only the critical one-GiB free-disk safety
 floor blocks local execution; constrained-but-usable machines remain an agent
 judgment. The preflight never stops another worktree.
+
+The local development commands it invokes may wait for shared worktree
+capacity as described in
+[Resource Discipline](development-workflow.md#resource-discipline). Waiting
+affects execution timing, not candidate identity or validation requirements.
+The narrow `Dev lifecycle` workflow additionally exercises process ownership
+and resource arbitration on macOS, Linux and Windows when development scripts
+change. It uses disposable processes, requires no cloud credentials, and does
+not replace Final Candidate.
 
 A Final Candidate control-plane change cannot certify itself through a
 candidate-owned entrypoint. When current `main` lacks the new control, inspect
@@ -340,7 +258,8 @@ After merge, follow `developing/engineering/production-release.md`. Plan the
 exact merged SHA, release only affected scopes, and use the guarded hosted or
 local entrypoint selected there. Git-backed scope leases serialize only the
 same production scope; they do not block unrelated development, merges, or
-compatible releases. A successful guarded local release publishes durable
+compatible releases. Hosted same-scope releases use `cancel-in-progress: false`;
+new requests must not cancel an active deployment. A successful guarded local release publishes durable
 per-scope evidence refs that record its exact first-parent `main` source and
 completion time before releasing those leases. `release:status` combines that
 evidence with hosted release jobs; operators do not have to remember ephemeral

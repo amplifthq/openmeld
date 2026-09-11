@@ -610,7 +610,15 @@ function createPreparedStatement(
         success: true,
       }),
     run: async () => toD1RunResult(statement.run(...params)),
-    [RUN_IN_TRANSACTION]: () => toD1RunResult(statement.run(...params)),
+    // D1 batch SELECTs return rows (verified by tests/d1-read-batch.test.ts).
+    // Keep the existing mutation path and change-count semantics intact.
+    [RUN_IN_TRANSACTION]: () =>
+      statement.sourceSQL.trimStart().toLowerCase().startsWith("select")
+        ? {
+            ...toD1RunResult({ changes: 0 }),
+            results: statement.all(...params),
+          }
+        : toD1RunResult(statement.run(...params)),
   } as TestPreparedStatement;
 }
 

@@ -1,6 +1,7 @@
 import { ChatCircleIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { MessageLinksText } from "./message-links-text";
 
 const SPACE_REFERENCE_PATH_PATTERN = /\/spaces?\/([0-9a-f]{64})/gi;
 const SPACE_REFERENCE_LEFT_DELIMITER_PATTERN = /[\s([{<"'“‘—–]/u;
@@ -64,11 +65,19 @@ export function SpaceMessageReferenceText(input: {
 	referencesById: SpaceMessageReferencesById;
 	text: string;
 }) {
+	let offset = 0;
 	return (
 		<>
 			{splitSpaceMessageReferenceText(input.text).map((segment) => {
+				const start = offset;
+				offset +=
+					segment.kind === "text"
+						? segment.value.length
+						: segment.rawPath.length;
 				if (segment.kind === "text") {
-					return segment.value;
+					return (
+						<MessageLinksText key={`text:${start}`} text={segment.value} />
+					);
 				}
 
 				const reference = input.referencesById.get(segment.spaceId);

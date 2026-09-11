@@ -33,6 +33,7 @@ import {
   AccordionTrigger,
 } from "#fluid/accordion";
 import { FluidCardGroup, FluidCardItem } from "#fluid/card";
+import { ScrollArea } from "#fluid/scroll-area";
 import { Surface } from "#fluid/surface";
 import {
   resolveStatusToneAdvisoryBadgeClassName,
@@ -432,29 +433,10 @@ export function SettingsLocalAgentUsageSummary({
             </span>
           }
         />
-        <TooltipContent
-          className="min-w-64 max-w-sm flex-col items-stretch gap-2.5 whitespace-normal text-left"
-          side="top"
-        >
-          <span className="font-medium">Usage limits</span>
-          <span className="grid gap-3">
-            {providerGroups.map((group) => (
-              <span className="grid gap-2" key={group.id}>
-                <span className="font-medium">{group.displayName}</span>
-                {group.limits.map((limit) => (
-                  <UsageLimitPreview
-                    key={limit.key}
-                    limit={limit}
-                    nowMs={nowMs}
-                  />
-                ))}
-              </span>
-            ))}
-          </span>
-          <span className="border-background/20 border-t pt-2 text-background/75">
-            Select this agent to view details.
-          </span>
-        </TooltipContent>
+        <UsageTooltipContent>
+          <span className="font-medium">{agentName}</span>
+          <UsageLimitPreviewGrid limits={limits ?? []} nowMs={nowMs} />
+        </UsageTooltipContent>
       </Tooltip>
     );
   }
@@ -491,27 +473,152 @@ export function SettingsLocalAgentUsageSummary({
           </span>
         }
       />
-      <TooltipContent
-        className="min-w-64 max-w-sm flex-col items-stretch gap-2.5 whitespace-normal text-left"
-        side="top"
-      >
-        <span className="font-medium">Usage limits</span>
+      <UsageTooltipContent>
+        <span className="font-medium">{agentName}</span>
         {orderedLimits && orderedLimits.length > 0 ? (
-          <span className="grid gap-2">
-            {orderedLimits.map((limit) => (
-              <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
-            ))}
-          </span>
+          <UsageLimitPreviewGrid limits={orderedLimits} nowMs={nowMs} />
         ) : (
-          <span className="text-background/75">
+          <span className="text-muted-foreground">
             Not reported by provider yet.
           </span>
         )}
-        <span className="border-background/20 border-t pt-2 text-background/75">
-          Select this agent to view details.
-        </span>
-      </TooltipContent>
+      </UsageTooltipContent>
     </Tooltip>
+  );
+}
+
+export type LocalAgentUsageSource = {
+  id: string;
+  label: string;
+  limits: AgentControllerUsageLimits;
+};
+
+export function hasLocalAgentUsage(sources: readonly LocalAgentUsageSource[]) {
+  return sources.some(
+    (source) => resolveUsageLimitSummary(source.limits) !== null
+  );
+}
+
+/** A single controller logo with separate, source-labelled quota previews. */
+export function SettingsLocalAgentUsageDockItem({
+  agentName,
+  children,
+  sources,
+  nowMs,
+  stackOrder = 0,
+}: {
+  agentName: string;
+  children: ReactNode;
+  sources: readonly LocalAgentUsageSource[];
+  nowMs: number;
+  stackOrder?: number;
+}) {
+  const groups = sources.flatMap((source) =>
+    (
+      groupProviderUsageLimits(source.limits) ?? [
+        { id: "default", displayName: agentName, limits: source.limits },
+      ]
+    ).map((group) => ({
+      ...group,
+      id: `${source.id}:${group.id}`,
+      label: `${source.label} · ${group.displayName}`,
+      summary: resolveUsageLimitSummary(group.limits),
+    }))
+  );
+  const summaries = groups.filter((group) => group.summary !== null);
+  const visible = summaries.slice(0, 1);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <span
+            className="relative inline-flex size-[27px] shrink-0 items-end hover:z-50!"
+            data-testid={`local-agent-usage-dock-${agentName}`}
+            style={{ zIndex: stackOrder }}
+          />
+        }
+      >
+        <span className="sr-only">{agentName}</span>
+        {children}
+        <span className="absolute top-0 right-0 flex -space-x-1.5">
+          {visible.map(({ id, label, summary }) =>
+            summary ? (
+              <span
+                aria-label={`${label} usage, ${summary.accessibleDetails}`}
+                aria-valuemax={100}
+                aria-valuemin={0}
+                aria-valuenow={summary.remainingPercent}
+                aria-valuetext={`${formatRemainingPercent(summary.remainingPercent)} left`}
+                className="relative"
+                key={id}
+                role="progressbar"
+              >
+                <UsageLimitRing
+                  className="size-[13.5px] [&>circle:first-child]:fill-card"
+                  remainingPercent={summary.remainingPercent}
+                  strokeWidth={3}
+                  tone={summary.presentation.tone}
+                />
+              </span>
+            ) : null
+          )}
+        </span>
+      </TooltipTrigger>
+      <UsageTooltipContent>
+        {sources.length === 0 && <span>{agentName}</span>}
+        {sources.map((source) => (
+          <span className="grid gap-3" key={source.id}>
+            <span className="font-medium">
+              {source.label} · {agentName}
+            </span>
+            <UsageLimitPreviewGrid
+              limits={
+                orderUsageLimitsForDisplay({
+                  agentName,
+                  limits: source.limits,
+                }) ?? []
+              }
+              nowMs={nowMs}
+            />
+          </span>
+        ))}
+      </UsageTooltipContent>
+    </Tooltip>
+  );
+}
+
+function UsageTooltipContent({ children }: { children: ReactNode }) {
+  return (
+    <TooltipContent
+      arrowClassName="bg-popover fill-popover"
+      className="block w-96 max-w-[calc(100vw-2rem)] bg-popover p-0 text-popover-foreground shadow-md ring-1 ring-border"
+      side="top"
+      sideOffset={6}
+    >
+      <ScrollArea
+        contentClassName="grid gap-4 p-3"
+        scrollFade
+        viewportClassName="max-h-[min(18rem,60vh)]"
+      >
+        {children}
+      </ScrollArea>
+    </TooltipContent>
+  );
+}
+
+function UsageLimitPreviewGrid({
+  limits,
+  nowMs,
+}: {
+  limits: AgentControllerUsageLimits;
+  nowMs: number;
+}) {
+  return (
+    <span className="flex flex-col items-center justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-start">
+      {limits.map((limit) => (
+        <UsageLimitPreview key={limit.key} limit={limit} nowMs={nowMs} />
+      ))}
+    </span>
   );
 }
 
@@ -525,23 +632,46 @@ function UsageLimitPreview({
   const presentation = resolveUsageLimitPresentation(limit);
   const remainingPercent = resolveRemainingPercent(limit.usedPercent);
   return (
-    <span className="grid gap-0.5">
+    <span className="flex w-28 flex-col items-center gap-1.5 whitespace-normal text-center text-[10px] leading-snug">
+      {remainingPercent === null ? (
+        <span>{resolveMissingUsageCopy(limit.status)}</span>
+      ) : (
+        <span className="relative grid size-12 place-items-center">
+          <UsageLimitRing
+            className="absolute inset-0 size-full"
+            remainingPercent={remainingPercent}
+            strokeWidth={1.75}
+            tone={presentation.tone}
+          />
+          <span className="flex flex-col items-center tabular-nums">
+            <span className="font-medium text-xs">
+              {formatRemainingPercent(remainingPercent)}
+            </span>
+            <span className="text-[8px] text-muted-foreground">left</span>
+          </span>
+        </span>
+      )}
+      {limit.provider && (
+        <span className="font-medium">{limit.provider.displayName}</span>
+      )}
       <span className="font-medium">{limit.label}</span>
-      <span>
-        {remainingPercent === null
-          ? resolveMissingUsageCopy(limit.status)
-          : `${formatRemainingPercent(remainingPercent)} left`}
-        {" · "}
-        {presentation.label}
+      {presentation.label !== "Available" && (
+        <span
+          className={resolveStatusToneStrongTextClassName(presentation.tone)}
+        >
+          {presentation.label}
+        </span>
+      )}
+      <span className="text-muted-foreground">
+        {formatUsageLimitReset(limit.resetsAt, nowMs)}
       </span>
-      <span className="text-background/75">
-        {formatUsageLimitReset(limit.resetsAt, nowMs)} ·{" "}
-        {formatUsageLimitObservation({
-          nowMs,
-          observedAt: limit.observedAt,
-          stale: limit.status === "stale",
-        })}
-      </span>
+      {limit.status === "stale" && (
+        <span className="text-muted-foreground">
+          {formatRelativePastDuration(
+            Math.max(0, nowMs - Date.parse(limit.observedAt))
+          )}
+        </span>
+      )}
     </span>
   );
 }

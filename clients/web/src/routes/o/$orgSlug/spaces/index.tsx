@@ -1,5 +1,6 @@
 "use client";
 
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	AuthProfileView,
 	OrganizationSpaceDirectoryWithMemberCountsItem,
@@ -26,6 +27,7 @@ import {
 } from "#/components/spaces/app-space-shell";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
+import { SpacePendingInvitations } from "#/components/spaces/space-pending-invitations";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
 import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
@@ -169,10 +171,7 @@ export function AppSpacesIndexContent(input: {
 			}),
 		onError: (error, variables) => {
 			setJoinError({
-				message:
-					error instanceof Error && error.message
-						? error.message
-						: "OpenMeld could not join this Space.",
+				message: toStructuredApiClientFailure(error).message,
 				spaceId: variables.spaceId,
 			});
 		},
@@ -547,6 +546,7 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 				/>
 			}
 		>
+			{tab === 1 ? <SpacePendingInvitations /> : null}
 			{body}
 		</AppMainContent>
 	);

@@ -460,6 +460,7 @@ import { rpcCenterAgentSetOrganizationWorkingLanguage } from "./organizations/ce
 import { resolveOrganizationMembershipById } from "./organizations/organization-context";
 import { organizationJoinRequest } from "./organizations/organization-join-requests";
 import { spaceInvitation } from "./organizations/space-invitations";
+import { checkSpaceOwnerDeparture } from "./organizations/space-owner-departure";
 import { PrepareSessionHub } from "./prepare-session/transport/do/prepare-session-hub";
 import {
   type CreatePrepareSessionInput,
@@ -581,6 +582,7 @@ import {
   type ConsumeSlackIdentityLinkInput,
   type ConsumeSlackOAuthStateInput,
   type ConvertDirectMessageToSpaceInput,
+  type CoreRpcContextInput,
   type CreateCenterAgentContextLoadReceiptInput,
   type CreateCenterAgentContextManifestInput,
   type CreateCurrentOrganizationConnectorAppRequestInput,
@@ -702,6 +704,7 @@ import {
   type ReadSpaceFileContentRpcResponse,
   type ReconcileCurrentOrganizationConnectorConnectionsInput,
   type RecordCenterAgentAuditInput,
+  type RecordCurrentOrganizationMemberPresenceInput,
   type RecordCurrentOrganizationWebActivityInput,
   type RecordSpaceAttachmentInput,
   type RefreshCurrentLocalAgentCatalogInput,
@@ -841,6 +844,7 @@ import {
   rpcGetCurrentOrganizationComputers,
   rpcGetCurrentOrganizationDirectory,
   rpcGetCurrentOrganizationMemberOpenMeldServiceStatuses,
+  rpcGetCurrentOrganizationMemberPresence,
   rpcGetCurrentOrganizationProfileDirectory,
   rpcGetCurrentOrganizationSpaceDirectory,
   rpcGetCurrentOrganizationSpaceDirectoryWithMemberCounts,
@@ -861,6 +865,7 @@ import {
   rpcGetSpaceFile,
   rpcGetSpaceHistoryNavigation,
   rpcGetSpaceIdentityDirectory,
+  rpcGetSpaceLinkPreviews,
   rpcGetSpaceMemberDirectory,
   rpcGetSpaceMembers,
   rpcGetSpaceMessageDetails,
@@ -927,6 +932,7 @@ import {
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
+  rpcRecordCurrentOrganizationMemberPresence,
   rpcRecordCurrentOrganizationWebActivity,
   rpcRecordSpaceAttachment,
   rpcRefreshCurrentLocalAgentCatalog,
@@ -961,8 +967,11 @@ import {
   rpcSetSpaceAccessMode,
   rpcSetSpaceMessageReaction,
   rpcSpaceFilePins,
+  rpcSpaceFileUpdateSettings,
+  rpcSpaceFileUpload,
   rpcSpaceMessagePins,
   rpcStageSpaceComposerUpload,
+  rpcStreamSpaceFileContent,
   rpcSubmitAgentActivityEvents,
   rpcSubmitAgentActivitySessionReconciliation,
   rpcSubmitAgentControllerTaskLifecycleEvents,
@@ -1059,6 +1068,11 @@ export class ProfileLifecycleEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: import("@openmeld/schemas").OrganizationJoinRequestRpcInput
   ) {
     return organizationJoinRequest(this.env, input);
+  }
+  checkSpaceOwnerDeparture(
+    input: import("@openmeld/schemas").SpaceOwnerDepartureInput
+  ) {
+    return checkSpaceOwnerDeparture(this.env, input);
   }
   spaceInvitation(
     input: import("@openmeld/schemas").SpaceInvitationRpcInput
@@ -1869,6 +1883,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcResolveSpaceFileContent(this.env, input);
   }
 
+  streamSpaceFileContent(input: ReadSpaceFileContentRpcInput) {
+    return rpcStreamSpaceFileContent(this.env, input);
+  }
+
   readSpaceFileContent(
     input: ReadSpaceFileContentRpcInput
   ): Promise<ReadSpaceFileContentRpcResponse> {
@@ -1879,6 +1897,15 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: WriteSpaceFileContentRpcInput
   ): Promise<SpaceFileDescriptor> {
     return rpcWriteSpaceFileContent(this.env, input);
+  }
+
+  spaceFileUpload(input: Parameters<typeof rpcSpaceFileUpload>[1]) {
+    return rpcSpaceFileUpload(this.env, input);
+  }
+  spaceFileUpdateSettings(
+    input: Parameters<typeof rpcSpaceFileUpdateSettings>[1]
+  ) {
+    return rpcSpaceFileUpdateSettings(this.env, input);
   }
 
   stageSpaceComposerUpload(input: StageSpaceComposerUploadRpcInput) {
@@ -1994,6 +2021,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetSpaceMessageDetailsInput
   ): Promise<GetSpaceMessageDetailsResponse> {
     return rpcGetSpaceMessageDetails(this.env, input);
+  }
+
+  getSpaceLinkPreviews(input: GetSpaceMessageDetailsInput) {
+    return rpcGetSpaceLinkPreviews(this.env, input);
   }
 
   async createSpaceDiagnosticReport(
@@ -2449,6 +2480,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetCurrentOrganizationAgentRuntimeOverviewInput
   ): Promise<OrganizationAgentRuntimeOverviewResponse> {
     return rpcGetCurrentOrganizationAgentRuntimeOverview(this.env, input);
+  }
+
+  getCurrentOrganizationMemberPresence(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return rpcGetCurrentOrganizationMemberPresence(this.env, input);
+  }
+
+  recordCurrentOrganizationMemberPresence(
+    input: RecordCurrentOrganizationMemberPresenceInput
+  ) {
+    return rpcRecordCurrentOrganizationMemberPresence(this.env, input);
   }
 
   recordCurrentOrganizationWebActivity(
@@ -4085,6 +4128,10 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.getSpaceMessageDetails(input);
   }
 
+  getSpaceLinkPreviews(input: GetSpaceMessageDetailsInput) {
+    return super.getSpaceLinkPreviews(input);
+  }
+
   createSpaceDiagnosticReport(
     input: CreateSpaceDiagnosticReportInput
   ): Promise<CreateSpaceDiagnosticReportResponse> {
@@ -4548,6 +4595,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: RecordCurrentOrganizationWebActivityInput
   ): Promise<OrganizationMemberWebActivityResponse> {
     return super.recordCurrentOrganizationWebActivity(input);
+  }
+
+  getCurrentOrganizationMemberPresence(input: {
+    context?: CoreRpcContextInput;
+  }) {
+    return super.getCurrentOrganizationMemberPresence(input);
+  }
+
+  recordCurrentOrganizationMemberPresence(
+    input: RecordCurrentOrganizationMemberPresenceInput
+  ) {
+    return super.recordCurrentOrganizationMemberPresence(input);
   }
 
   getCurrentOrganizationComputers(

@@ -279,16 +279,24 @@ export function buildSpaceThreadEventsPath(
 export function buildSpaceThreadSignalsPath(
   spaceId: string,
   threadId: string,
-  query?: { afterSignalId: string; limit: number }
+  query?: {
+    afterSignalId?: string;
+    limit?: number;
+    includeWakeContinuation?: true;
+  }
 ): string {
   const path = `${buildSpaceThreadPath(spaceId, threadId)}/signals`;
   if (!query) {
     return path;
   }
-  const searchParams = new URLSearchParams({
-    afterSignalId: query.afterSignalId,
-    limit: String(query.limit),
-  });
+  const searchParams = new URLSearchParams();
+  if (query.afterSignalId && query.limit !== undefined) {
+    searchParams.set("afterSignalId", query.afterSignalId);
+    searchParams.set("limit", String(query.limit));
+  }
+  if (query.includeWakeContinuation) {
+    searchParams.set("includeWakeContinuation", "true");
+  }
   return `${path}?${searchParams.toString()}`;
 }
 

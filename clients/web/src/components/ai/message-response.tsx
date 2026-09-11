@@ -1,3 +1,4 @@
+import { normalizeMessageLink } from "@openmeld/protocol";
 import { cn } from "@openmeld/ui/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { type ComponentProps, memo, type ReactNode, useMemo } from "react";
@@ -5,7 +6,6 @@ import rehypeSanitize from "rehype-sanitize";
 import type { ExtraProps } from "streamdown";
 import { defaultRemarkPlugins, Streamdown } from "streamdown";
 
-const ALLOWED_MARKDOWN_PROTOCOLS = new Set(["https:", "mailto:"]);
 const ALLOWED_INTERNAL_SPACE_PATH_PATTERN = /^\/spaces\/[0-9a-f]{64}$/;
 const ALLOWED_INTERNAL_PROFILE_MENTION_PATH_PATTERN =
 	/^\/__openmeld\/message-profile-mentions\/[^/?#]+(?:\?relation=(?:wake|reference|mention))?$/;
@@ -205,10 +205,5 @@ function isAllowedInternalMessagePath(url: string): boolean {
 }
 
 function isAllowedMarkdownUrl(url: string): boolean {
-	try {
-		const parsed = new URL(url);
-		return ALLOWED_MARKDOWN_PROTOCOLS.has(parsed.protocol);
-	} catch {
-		return false;
-	}
+	return normalizeMessageLink(url) !== null;
 }

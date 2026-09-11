@@ -87,7 +87,11 @@ export function AppOuterRail({
 		centerAgentInboxSummary.data?.unreadCount ?? 0
 	);
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const scrollKey = `${defaultHumanProfile?.openMeldProfileId ?? ""}:${currentOrganization.id}:${activeDestination}:${presentation}`;
+	const scrollDestination =
+		activeDestination === "spaces" || activeDestination === "directMessages"
+			? "conversations"
+			: activeDestination;
+	const scrollKey = `${defaultHumanProfile?.openMeldProfileId ?? ""}:${currentOrganization.id}:${scrollDestination}:${presentation}`;
 	const restoreSidebarScroll = useCallback(
 		(node: HTMLDivElement | null) => {
 			if (node) {

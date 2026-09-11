@@ -74,19 +74,41 @@ export const FEISHU_CHANNEL_IDENTITY = {
 	service: "feishu",
 } as const;
 
+export const GITHUB_PLUGIN = {
+	availability: "available",
+	category: "Developer tools",
+	connection: { auth: { kind: "oauth" } },
+	description: "Read repositories and pull requests, and create issues.",
+	homepage: "https://github.com",
+	logoPath: "/app-logos/github.svg",
+	name: "GitHub",
+	service: "github",
+} as const satisfies PluginDefinition;
+
 export const PLUGINS = [
 	{
 		availability: "available",
-		category: "Developer tools",
-		connection: {
-			auth: { kind: "oauth" },
-		},
-		description: "Read repositories and pull requests, and create issues.",
-		homepage: "https://github.com",
-		logoPath: "/app-logos/github.svg",
-		name: "GitHub",
-		service: "github",
+		category: "Productivity",
+		connection: { auth: { kind: "oauth" } },
+		description:
+			"Work with documents, wikis, tables, and calendars using your authorized Lark account.",
+		homepage: "https://www.larksuite.com",
+		logoPath: "/app-logos/lark.svg",
+		name: "Lark",
+		service: "lark",
 	},
+	{
+		availability: "available",
+		category: "Productivity",
+		connection: { auth: { kind: "oauth" } },
+		description:
+			"Work with documents, wikis, tables, and calendars using your authorized Feishu account.",
+		homepage: "https://www.feishu.cn",
+		logoPath: FEISHU_CHANNEL_LOGO_PATH,
+		name: "Feishu",
+		service: "feishu",
+	},
+	GITHUB_PLUGIN,
 	{
 		availability: "available",
 		category: "Productivity",
@@ -320,5 +342,3 @@ export const PLUGINS = [
 export function findPluginDefinition(service: string): PluginDefinition | null {
 	return PLUGINS.find((plugin) => plugin.service === service) ?? null;
 }
-
-export const GITHUB_PLUGIN = PLUGINS[0];

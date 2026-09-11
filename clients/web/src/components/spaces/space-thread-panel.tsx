@@ -323,9 +323,11 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			<SpaceMessageEditingScope
 				draftKey={JSON.stringify([input.composerText, input.composerFiles])}
 				hasDraft={Boolean(input.composerText || input.composerFiles.length)}
+				mentionPickerItems={input.composerMentionPickerItems}
 				onRestore={(message, canReplaceDraft) =>
 					restoreRecalledMessage({ ...input, message, canReplaceDraft })
 				}
+				orgSlug={input.orgSlug}
 				readOnly={input.readOnly}
 				selfProfileId={input.selfProfileId}
 				threadRootSignalId={input.activeThread?.rootSignalId}

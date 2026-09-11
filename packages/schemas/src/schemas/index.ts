@@ -1,5 +1,22 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 export {
+  HUMAN_PRESENCE_HEARTBEAT_MS,
+  HUMAN_PRESENCE_IDLE_MS,
+  HUMAN_PRESENCE_LEASE_MS,
+  organizationMemberPresenceBodySchema,
+  organizationMemberPresenceResponseSchema,
+  organizationMemberPresenceSchema,
+  organizationMemberPresenceWriteResponseSchema,
+} from "./http/organization-member-presence";
+export {
+  SPACE_FILE_UPLOAD_PART_BYTES,
+  SPACE_FILE_UPLOAD_TTL_MS,
+  spaceFileUploadCommandSchema,
+  spaceFileUploadMetadataSchema,
+  spaceFileUploadPartSchema,
+  spaceFileUploadResponseSchema,
+} from "./http/space-file-upload";
+export {
   spaceHistoryNavigationQuerySchema,
   spaceHistoryNavigationSchema,
 } from "./http/space-history-navigation";
@@ -1573,6 +1590,7 @@ export {
   organizationDirectoryResponseSchema,
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryAgentProfileSchema,
+  organizationProfileDirectoryReadOptionsSchema,
   organizationProfileDirectoryResponseSchema,
   spaceMemberWebActivityWriteSchema,
 } from "./http/organization-directory";
@@ -1874,6 +1892,7 @@ export {
   updateProjectResponseSchema,
   updateProjectRpcInputSchema,
 } from "./http/projects";
+export { remoteAgentProviderCompletionSchema } from "./http/remote-agent-provider-completion";
 export {
   AGENT_CONTROLLER_TASK_LIFECYCLE_EVENT_BATCH_MAX_BYTES,
   agentControllerTaskLifecycleEventRejectedReasonSchema,
@@ -2093,11 +2112,16 @@ export {
   spaceEntryViewSchema,
 } from "./http/space-entry";
 export {
+  spaceFileUpdateSettingsCommandSchema,
+  spaceFileUpdateSettingsSchema,
+} from "./http/space-file-update-settings";
+export {
   buildSpaceComposerPublishedFileId,
   buildSpaceComposerUploadObjectKey,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdForMutation,
+  buildSpaceFileRevisionIdFromDigest,
   commitSpaceFileWriteInputSchema,
   createSpaceFileUploadQuerySchema,
   createSpaceFolderBodySchema,
@@ -2128,6 +2152,7 @@ export {
   SPACE_FILE_MAX_NAME_LENGTH,
   SPACE_FILE_MAX_SIZE_BYTES,
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
+  SPACE_FILE_RAW_UPLOAD_MAX_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceComposerUploadDescriptorSchema,
   spaceComposerUploadIdSchema,
@@ -2331,6 +2356,7 @@ export {
   waitlistErrorResponseSchema,
   waitlistJoinStatusSchema,
 } from "./http/waitlist";
+export { wakeFailureListSchema } from "./http/wake-failure-list";
 export {
   formatLocalComponentsSummaryDescription,
   formatLocalComponentsSummaryLabel,
@@ -2688,6 +2714,7 @@ export {
   MESSAGE_CHANNEL_PROVIDERS,
   MESSAGE_CHANNEL_RESOURCE_TYPES,
   MESSAGE_CHANNEL_TRANSPORTS,
+  messageChannelCardControlSchema,
   messageChannelConversationLocatorSchema,
   messageChannelEventKindSchema,
   messageChannelIngressEnvelopeSchema,

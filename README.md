@@ -127,6 +127,10 @@ The rule that keeps this honest: a Wake produces exactly **one visible reply or 
 
 ## Development
 
+For commit, push, validation, and merge instructions, follow the shared
+[CI/CD workflow](developing/engineering/agent-native-delivery.md#daily-workflow).
+It applies equally to engineers, Codex, Claude Code, and other coding agents.
+
 OpenMeld is a pnpm + Turborepo monorepo.
 
 ```text

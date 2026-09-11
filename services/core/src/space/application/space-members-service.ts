@@ -191,6 +191,9 @@ export const upsertSpaceCreatorMember = (input: {
 
   const nowIso = input.nowIso ?? new Date().toISOString();
   const existing = readSpaceMemberRecord(input.sql, creator.profileId);
+  if (existing?.status === "removed") {
+    return existing;
+  }
   const next = buildNextSpaceMemberRecord({
     existing,
     existingProfileSnapshot: existing,
@@ -382,9 +385,6 @@ export const removeSpaceMembersUseCase = (input: {
   const alreadyAbsentMemberIds: string[] = [];
   const uniqueMemberProfileIds: string[] = [];
   const seenProfileIds = new Set<string>();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
 
   for (const memberProfileId of input.memberProfileIds) {
     if (seenProfileIds.has(memberProfileId)) {
@@ -405,13 +405,15 @@ export const removeSpaceMembersUseCase = (input: {
     const existing = readSpaceMemberRecord(input.sql, memberProfileId);
     if (
       existing?.status === "active" &&
-      (memberProfileId === creatorProfileId ||
-        existing.memberSource === "space_creator")
+      existing.profileKindSnapshot === "human" &&
+      existing.ownerUserIdSnapshot &&
+      input.metaRecord?.ownerUserIds?.includes(existing.ownerUserIdSnapshot)
     ) {
       throw new SpaceMembersUseCaseError({
         status: 400,
-        code: "space.members.creator_forbidden",
-        message: "space creator cannot be removed from this space",
+        code: "space.members.owner_forbidden",
+        message:
+          "Change this person's role to Member before removing them. Keep at least one Space owner.",
       });
     }
   }
@@ -451,16 +453,15 @@ export const leaveSpaceUseCase = (input: {
   nowIso?: string;
 }): LeaveSpaceResponse => {
   const nowIso = input.nowIso ?? new Date().toISOString();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
-
-  if (input.actorProfileId === creatorProfileId) {
+  if (
+    input.actorOwnerUserId &&
+    input.metaRecord?.ownerUserIds?.includes(input.actorOwnerUserId)
+  ) {
     throw new SpaceMembersUseCaseError({
       status: 400,
-      code: "space.leave_space.creator_forbidden",
+      code: "space.leave_space.owner_forbidden",
       message:
-        "The space creator cannot leave this space. Delete the space instead when only you remain.",
+        "Change your role to Member before leaving. Add another owner first if you are the last owner.",
     });
   }
 

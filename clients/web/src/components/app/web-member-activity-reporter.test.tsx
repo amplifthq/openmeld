@@ -1,11 +1,27 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { WebMemberActivityReporter } from "./web-member-activity-reporter";
 
 const recordWebActivityMock = vi.hoisted(() => vi.fn());
+const recordPresenceMock = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/organizations/organization-member-presence", () => ({
+	recordCurrentOrganizationMemberPresence: recordPresenceMock,
+	memberPresenceQueryKey: (id: string) => [
+		"organization",
+		id,
+		"member-presence",
+	],
+}));
+beforeEach(() => {
+	vi.spyOn(document, "hasFocus").mockReturnValue(true);
+	recordPresenceMock.mockResolvedValue({
+		organizationId: "org-1",
+		userId: "user-1",
+	});
+});
 
 vi.mock("#/lib/organizations/organization-member-activity", () => ({
 	recordCurrentOrganizationWebActivity: recordWebActivityMock,
@@ -14,10 +30,53 @@ vi.mock("#/lib/organizations/organization-member-activity", () => ({
 afterEach(() => {
 	cleanup();
 	recordWebActivityMock.mockReset();
+	recordPresenceMock.mockReset();
 	vi.restoreAllMocks();
 });
 
 describe("WebMemberActivityReporter", () => {
+	it("stops online and historical activity after five idle minutes, then reports foreground return", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-09-10T00:00:00Z"));
+		vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+		recordWebActivityMock.mockResolvedValue({
+			organizationId: "org-1",
+			userId: "user-1",
+			lastActiveAt: new Date().toISOString(),
+		});
+		const client = new QueryClient();
+		const view = renderWithQueryClient(
+			<WebMemberActivityReporter
+				currentUserId="user-1"
+				organizationId="org-1"
+			/>,
+			client
+		);
+		try {
+			await act(() => vi.advanceTimersByTimeAsync(300_000));
+			expect(recordWebActivityMock).toHaveBeenCalledTimes(1);
+			expect(recordPresenceMock).toHaveBeenLastCalledWith(
+				"org-1",
+				expect.objectContaining({ foreground: false, interaction: false })
+			);
+			const count = recordPresenceMock.mock.calls.length;
+			await act(() => vi.advanceTimersByTimeAsync(120_000));
+			expect(recordPresenceMock).toHaveBeenCalledTimes(count);
+			await act(async () => {
+				window.dispatchEvent(new Event("focus"));
+				await vi.advanceTimersByTimeAsync(0);
+			});
+			expect(recordPresenceMock).toHaveBeenLastCalledWith(
+				"org-1",
+				expect.objectContaining({ foreground: true, interaction: true })
+			);
+			expect(recordWebActivityMock).toHaveBeenCalledTimes(2);
+		} finally {
+			view.unmount();
+			client.clear();
+			vi.useRealTimers();
+		}
+	});
 	it("reports the visible Space but never advances visits from a background tab", async () => {
 		vi.useFakeTimers();
 		let visibility: DocumentVisibilityState = "hidden";

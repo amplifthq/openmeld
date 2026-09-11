@@ -1,5 +1,6 @@
 import { spaceBootstrapResponseSchema } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAccessHeaders } from "./access-version";
 import { currentSpaceAddressingHeaders } from "./addressing-contract";
 import { buildSpaceBootstrapPath } from "./routes";
 import { buildSpaceSignalsReadSearchParams } from "./signals";
@@ -19,7 +20,10 @@ export async function getSpaceBootstrap(
       input.includeAgentStreamPresence
     ),
     operation: "space.bootstrap.read",
-    headers: currentSpaceAddressingHeaders(),
+    headers: {
+      ...currentSpaceAddressingHeaders(),
+      ...currentSpaceAccessHeaders(),
+    },
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,

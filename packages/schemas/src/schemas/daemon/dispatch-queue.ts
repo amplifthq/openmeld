@@ -1,11 +1,15 @@
 import * as z from "../../lazy-zod";
-import { spaceMessageFileReferencesSchema } from "../http/space-files";
+import {
+  spaceMessageFileReferenceSchema,
+  spaceMessageFileReferencesSchema,
+} from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import { signalTextReplyToSchema } from "../protocol/signal";
 import { spaceMessageAttachmentsSchema } from "../protocol/space-attachment";
+import { spaceCallerContextSchema } from "../protocol/space-caller-context";
 import { wakeDeviceWaitSchema } from "../protocol/wake-device-wait";
 import {
   agentTaskCompletionObservationSchema,
@@ -91,6 +95,16 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  callerContext: spaceCallerContextSchema.optional(),
+  pinnedFiles: z.array(spaceMessageFileReferenceSchema).max(100).optional(),
+  quotedMessage: z
+    .strictObject({
+      signalId: z.string().min(1),
+      author: z.string().min(1).nullable(),
+      text: z.string().max(16_000).nullable(),
+      status: z.enum(["available", "recalled", "unavailable"]),
+    })
+    .optional(),
   text: z.string().min(1),
   profileId: z.string().min(1).nullable(),
   profileKind: z.enum(["agent", "human", "system"]).nullable(),

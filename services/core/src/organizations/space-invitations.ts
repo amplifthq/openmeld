@@ -20,6 +20,7 @@ type InvitationRow = {
   organization_id: string;
   space_id: string;
   email: string;
+  audience: "organization" | "guest";
   inviter_user_id: string;
   sponsor_user_id: string | null;
   organization_invitation_id: string | null;
@@ -55,6 +56,7 @@ function view(row: InvitationRow): SpaceInvitation {
     spaceName: row.space_name ?? "Untitled Space",
     inviterName: row.inviter_name,
     email: row.email,
+    audience: row.audience,
     expiresAt: row.expires_at,
     status:
       row.status === "pending" && row.expires_at <= Date.now()
@@ -226,13 +228,26 @@ async function createOrListInvitations(
     { action: "create" | "list" }
   >
 ): Promise<SpaceInvitationRpcResult> {
-  await authorizeManager(env, request.organizationId, request.spaceId, userId);
+  await authorizeManager(
+    env,
+    request.organizationId,
+    request.spaceId,
+    userId,
+    true,
+    userId,
+    request.audience,
+    request.action === "list" ? "manage" : "invite"
+  );
   if (request.action === "list") {
     const rows = await db
       .prepare(
-        `${SELECT} WHERE i.space_id = ? AND i.organization_id = ? AND i.status IN ('pending', 'accepting') ORDER BY i.created_at DESC LIMIT 100`
+        `${SELECT} WHERE i.space_id = ? AND i.organization_id = ? AND i.audience = ? AND i.status IN ('pending', 'accepting') ORDER BY i.created_at DESC LIMIT 100`
       )
-      .bind(request.spaceId, request.organizationId)
+      .bind(
+        request.spaceId,
+        request.organizationId,
+        request.audience ?? "organization"
+      )
       .all<InvitationRow>();
     return success(rows.results);
   }
@@ -243,6 +258,12 @@ async function createOrListInvitations(
     .bind(request.spaceId, request.email)
     .first<InvitationRow>();
   if (existing) {
+    if (existing.audience !== (request.audience ?? "organization")) {
+      fail(
+        "audience_conflict",
+        "This person already has a different pending invitation. Revoke it before changing how they join."
+      );
+    }
     return await manageInvitation(env, db, userId, existing, {
       action: "resend",
       invitationId: existing.id,
@@ -251,7 +272,7 @@ async function createOrListInvitations(
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO space_invitations (id, organization_id, space_id, email, inviter_user_id, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING`
+      `INSERT INTO space_invitations (id, organization_id, space_id, email, inviter_user_id, audience, status, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?) ON CONFLICT DO NOTHING`
     )
     .bind(
       id,
@@ -259,6 +280,7 @@ async function createOrListInvitations(
       request.spaceId,
       request.email,
       userId,
+      request.audience ?? "organization",
       Date.now(),
       Date.now() + LIFETIME_MS
     )
@@ -290,7 +312,9 @@ async function manageInvitation(
     row.space_id,
     userId,
     true,
-    row.sponsor_user_id ?? userId
+    row.sponsor_user_id ?? userId,
+    row.audience,
+    request.action === "revoke" ? "manage" : "invite"
   );
   if (
     row.status !== "pending" &&
@@ -311,6 +335,7 @@ async function manageInvitation(
       spaceId: row.space_id,
       context: managerContext,
       invitationId: row.id,
+      audience: row.audience,
     });
     await db
       .prepare(
@@ -429,7 +454,8 @@ async function acceptInvitation(
     row.space_id,
     row.inviter_user_id,
     true,
-    row.sponsor_user_id ?? row.inviter_user_id
+    row.sponsor_user_id ?? row.inviter_user_id,
+    row.audience
   );
   if (request.action === "claim") {
     await db
@@ -451,17 +477,20 @@ async function acceptInvitation(
   if (request.action !== "complete" || row.status !== "accepting") {
     fail("invalid_action", "Accept this invitation before continuing.");
   }
-  if (!membership.ok) {
+  if (!membership.ok && row.audience !== "guest") {
     fail(
       "organization_membership_required",
       "Join the organization before continuing. Try accepting this invitation again."
     );
   }
-  const member = await readResolvedOrganizationOwnerHumanSpaceMember({
-    db,
-    organizationId: row.organization_id,
-    ownerUserId: input.userId,
-  });
+  const member =
+    row.audience === "guest"
+      ? await readGuestHumanProfile(db, input.userId)
+      : await readResolvedOrganizationOwnerHumanSpaceMember({
+          db,
+          organizationId: row.organization_id,
+          ownerUserId: input.userId,
+        });
   if (!member) {
     fail(
       "profile_unavailable",
@@ -477,6 +506,7 @@ async function acceptInvitation(
     context,
     invitationId: row.id,
     member,
+    audience: row.audience,
   });
   await db
     .prepare(
@@ -499,7 +529,9 @@ async function authorizeManager(
   spaceId: string,
   userId: string,
   requireInvitationPermission = true,
-  sponsorUserId = userId
+  sponsorUserId = userId,
+  audience: "organization" | "guest" = "organization",
+  intent: "invite" | "manage" = "invite"
 ): Promise<OpenMeldRequestContext> {
   const membership = await resolveOrganizationMembershipById({
     env,
@@ -509,7 +541,8 @@ async function authorizeManager(
   if (
     !(
       membership.ok &&
-      (!requireInvitationPermission ||
+      (audience === "guest" ||
+        !requireInvitationPermission ||
         memberRoleHasOrganizationPermission(membership.role, {
           invitation: ["create"],
         }))
@@ -566,10 +599,41 @@ async function authorizeManager(
   if (!stub) {
     fail("unavailable", "This Space is no longer available.");
   }
-  if (!(await stub.rpcAuthorizeSpaceInvitation({ spaceId, context }))) {
+  if (
+    !(await stub.rpcAuthorizeSpaceInvitation({
+      spaceId,
+      context,
+      audience,
+      intent,
+    }))
+  ) {
     fail("forbidden", "Only members of an ordinary Space can invite people.");
   }
   return context;
+}
+
+async function readGuestHumanProfile(db: D1Database, userId: string) {
+  const row = await db
+    .prepare(`SELECT p.profile_id, p.profile_name, p.owner_user_id, u.name AS owner_name
+    FROM openmeld_profiles p JOIN users u ON u.id = p.owner_user_id
+    WHERE p.owner_user_id = ? AND p.profile_kind = 'human' AND p.is_default = 1 AND p.status = 'active' LIMIT 1`)
+    .bind(userId)
+    .first<{
+      profile_id: string;
+      profile_name: string;
+      owner_user_id: string;
+      owner_name: string | null;
+    }>();
+  return row
+    ? {
+        profileId: row.profile_id,
+        profileName: row.profile_name,
+        profileKind: "human" as const,
+        ownerUserId: row.owner_user_id,
+        ownerName: row.owner_name,
+        agentControllerRef: null,
+      }
+    : null;
 }
 
 // A member can propose adding someone, but cannot authorize Organization entry.
