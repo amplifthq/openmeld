@@ -176,10 +176,9 @@ normal mounted catch-up continues from the contiguous cached tail.
 
 Seven new deterministic cases cover the query/scheduler boundary and sidebar
 visibility/online wiring. Together with existing history, feed, route preload
-and sidebar regressions, 110 focused tests passed. The fresh local stack was
-attempted again and remained blocked by startup memory/headroom; only this
-task's queued launcher was cancelled. No new real-browser timing or screenshot
-evidence is claimed. This Web-only extension does not weaken the architecture
+and sidebar regressions, 110 focused tests passed. Initial local startup was
+blocked by memory/headroom. The September 11 acceptance below supersedes that
+earlier evidence gap. This Web-only extension does not weaken the architecture
 rules or change server, Service, CLI, read-cursor or execution contracts.
 
 Implementation recheck against origin/main `7cf0b014d` corrected F5: the mounted
@@ -212,13 +211,47 @@ Web files (1,443 tests), 26 Agent runtime files (299 tests), 27 API client files
 affected pre-push checks, not an end-to-end delivery certification. Web TypeScript,
 dependency builds, docs lifecycle and Changelog validation also passed.
 
-Fresh authenticated localhost smoke, screenshots, real Service reconnect/reply,
-and representative multi-tab network measurements remain pending. The isolated
-stack has not started because the local resource manager reports insufficient
-memory/headroom. No other task's environment was stopped or resource limits
-overridden. Keep the PR draft; do not substitute old-lane screenshots or simulated
-UI outcomes for this branch's missing acceptance. No staging or production
-deployment has been performed.
+### September 11 synchronized-main browser acceptance
+
+Merged origin/main `3abbe5308` into the branch as `70d904f51`. Web TypeScript,
+94 focused tests and the clean pre-push checks passed. The isolated
+`wt-ac74ca949f6a` stack and Web started without stopping other environments or
+overriding resource limits. Chrome completed normal login, then its automation
+connection repeatedly timed out. Acceptance continued in the in-app browser,
+with a separate Agent Browser session for the second account. Both accounts
+signed in normally; the second joined through product invitation links.
+
+Observed through the product UI and real local services:
+
+- Ordinary text sent successfully and remained after a full page reload.
+- Offline Agent selection defaults to `Wake when online`. Its token and menu
+  agree; the primary action is `Send and wait` with the send icon. The muted
+  offline/deadline text remains inside the Composer. Explicit Reference and
+  draft text survive navigating away and back.
+- A waiting Wake received a persisted signal, pinned binding/runtime/Agent and
+  a 24-hour deadline. Wake progress exposed the waiting dispatch. UI cancellation
+  produced a visible stopped outcome that survived navigation/reload. The exact
+  client message is `920b0d2b-8ca8-4f97-8e0c-21e064e8ff3a`, dispatch
+  `dab928e6-de70-4ef6-b250-a0107bd2190d`.
+- While Maya viewed Design feedback, Casey sent to the already cached Product
+  planning Space in a separate authenticated browser. Before Maya clicked it,
+  the unread summary triggered an updates request containing Casey's message.
+  The unread marker remained until navigation; the message was then visible in
+  the actual viewport. This proves pre-navigation delivery, not a production
+  latency percentile or an instantaneous guarantee.
+- Blocking a later background updates request produced the expected prefetch
+  failure log without replacing the Composer or losing its draft. Restoring
+  networking and entering the Space recovered the message normally. A separate
+  offline/online transition also preserved the draft. All network overrides
+  were removed.
+
+Screenshots and sanitized response/request evidence are in the worktree-local
+`dev-tmp/smoke-20260911/` directory. These checks do not prove a real Service
+reconnect and Agent reply, 24-hour expiry, all browser/network combinations, or
+production performance. The fixture Agents are not executing installations.
+Core Wakeability, RuntimeCoordinator execution, Space outbox and read-cursor
+authority remain unchanged; no scoped architecture rule is weakened. PR #951
+remains draft. No Final Candidate, merge or deployment is claimed by this smoke.
 
 Local reproduction files: `dev-tmp/query-audit/readiness-races.test.ts`, `race-results.log`, `existing-contract-results.log`. Run from `clients/web` with `pnpm exec vitest run --config ../../dev-tmp/query-audit/vitest.config.ts ../../dev-tmp/query-audit/readiness-races.test.ts`. Probes use controlled read-boundary contract slices and real Query instances; they reproduce defects, not full network behavior.
 
