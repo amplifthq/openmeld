@@ -213,6 +213,7 @@ import {
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpacePinnedItemsBar } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
@@ -515,6 +516,7 @@ export function SpaceConversationPanel(
 function SpaceConversationPanelContent(
 	publicInput: SpaceConversationPanelProps
 ) {
+	const readingHeader = useSpaceReadingHeader();
 	const { viewState, ...props } = publicInput;
 	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
 	const input: SpaceConversationPanelResolvedProps = {
@@ -597,6 +599,13 @@ function SpaceConversationPanelContent(
 		threadFocusStatusMessage,
 		unreadNavigation,
 	} = navigation;
+	const registerReadingScrollElement = useCallback(
+		(element: HTMLDivElement | null) => {
+			registerConversationScrollElement(element);
+			readingHeader?.setScrollElement(element);
+		},
+		[readingHeader, registerConversationScrollElement]
+	);
 	const showHistoryRail =
 		(input.historyNavigation?.directory?.total ?? 0) >
 		SPACE_INITIAL_HISTORY_MAX_MESSAGES;
@@ -755,7 +764,7 @@ function SpaceConversationPanelContent(
 								onScrollEnd={(event) => {
 									onConversationScrollEnd(event.currentTarget);
 								}}
-								ref={registerConversationScrollElement}
+								ref={registerReadingScrollElement}
 								role="log"
 							>
 								<SpaceConversationStickyDate

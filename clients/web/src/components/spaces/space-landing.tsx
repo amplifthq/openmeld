@@ -149,6 +149,7 @@ import {
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
 import { SpacePinsProvider } from "./space-pins";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
+import { SpaceReadingHeaderProvider } from "./space-reading-header";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
 import {
 	SpaceLandingFailureSurface,
@@ -1801,7 +1802,14 @@ function SpaceLandingReady({
 			profileId={controller.profileId}
 			spaceId={controller.spaceId}
 		>
-			{content}
+			<SpaceReadingHeaderProvider
+				isDirectMessage={isDirectMessage}
+				isEmbedded={isCompactPresentation}
+				key={`${controller.spaceId}:${controller.profileId}`}
+				view={spaceView}
+			>
+				{content}
+			</SpaceReadingHeaderProvider>
 		</SpacePinsProvider>
 	);
 }

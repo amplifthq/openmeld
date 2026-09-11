@@ -20,6 +20,7 @@ import {
 	type SpaceHeaderNavigationMenuItem,
 } from "./space-header-navigation-menu";
 import { SpacePinsRecallAction } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
 
@@ -41,6 +42,7 @@ export function SpaceWindowHeader(input: {
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
 }) {
+	const readingHeader = useSpaceReadingHeader();
 	const subtitleItems = input.subtitleItems ?? [];
 	const hasSecondaryRow =
 		input.navigation !== undefined || subtitleItems.length > 0;
@@ -53,6 +55,7 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl ? (
 				<div className="col-start-1 row-start-1 flex shrink-0 items-center gap-3">

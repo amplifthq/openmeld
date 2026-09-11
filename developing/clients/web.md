@@ -3771,9 +3771,9 @@ directly to that recorded result; Graph must not preserve a redundant
 `Replied`, `Failed`, or `Completed` Wake node between them. Structured statuses
 and system notices keep their recorded event semantics.
 
-The Space header presents those views in a stable two-row hierarchy. The first
+At the latest messages, the Space header presents a two-row hierarchy. The first
 row contains the Space name, access mode, live connection indicator, and
-right-aligned actions. The second row contains Messages and Graph below the
+right-aligned actions. The second row contains Messages and Files below the
 Space name. Those view labels align with the Space name and use a flat active
 underline that overlays the header divider. The Members action shows the active
 member total from the Space member projection. The header and Space sidebar do
@@ -3783,8 +3783,18 @@ in the Members surface. When dismissed contextual setup remains recallable,
 **Get set up** appears in the right-aligned action group immediately before
 **Members**. On compact screens only, the same recall control may move to the
 trailing edge of the second header row so the Space name remains identifiable;
-it stays visually separate from the **Messages** and **Graph** view control and
+it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
+
+While reading earlier messages in an ordinary Space, the tabs move beside the
+title and live-status adornments. Their horizontal path finishes before they
+rise into the title row. The anchor is measured from the rendered content;
+long titles truncate and insufficient width retains the two-row layout.
+Direct messages and compact embedded conversations retain their existing headers.
+Returning to the latest messages or opening Files restores the expanded header.
+Scroll frames update only the navigation transform outside React. Header height
+changes at the collapse/expansion boundary, with a matching scroll offset to
+preserve the reading anchor. Reduced motion switches positions without travel.
 
 Messages and files share one pinned-item preview with previous/next navigation.
 The preview's X dismisses all pins for the reader; the original pinner gets a
