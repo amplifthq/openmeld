@@ -555,6 +555,9 @@ function composerRelationLabel(
 	target: SpaceComposerAddressingTarget | undefined,
 	unavailableLabel?: string
 ) {
+	if (relation === "reference") {
+		return "Mention only";
+	}
 	if (relation === "wake" && target && createSpaceComposerDeviceWait(target)) {
 		return "Wake when online";
 	}
@@ -650,7 +653,7 @@ function SpaceComposerProfileToken(
 	) {
 		const selectedRelationLabel =
 			choices.find((choice) => choice.relation === element.relation)?.label ??
-			(element.relation === "wake" ? "Wake" : "Reference");
+			(element.relation === "wake" ? "Wake" : "Mention only");
 		relationControl = (
 			<MotionConfig reducedMotion="user">
 				<Select
@@ -723,6 +726,11 @@ function SpaceComposerProfileToken(
 					<SelectContent align="end" className="min-w-40" side="top">
 						{choices.map((choice, index) => (
 							<SelectItem
+								aria-label={
+									choice.relation === "reference"
+										? "Mention only — Won’t wake the agent"
+										: undefined
+								}
 								disabled={choice.disabled}
 								index={index}
 								key={choice.relation}
@@ -736,6 +744,11 @@ function SpaceComposerProfileToken(
 										? resolveComposerUnavailableLabel(pickerItem)
 										: undefined
 								)}
+								{choice.relation === "reference" ? (
+									<span className="text-muted-foreground">
+										{" — Won’t wake the agent"}
+									</span>
+								) : null}
 							</SelectItem>
 						))}
 					</SelectContent>
@@ -745,7 +758,7 @@ function SpaceComposerProfileToken(
 	} else if (isRepeatedAgent) {
 		relationControl = (
 			<span className="inline-flex h-6 items-center border-border border-l px-2 font-medium text-muted-foreground text-xs">
-				Reference
+				Mention only
 			</span>
 		);
 	}
@@ -995,7 +1008,7 @@ function resolveMentionPickerRelationLabel(
 		agentMember
 	);
 	if (relation === "reference") {
-		return "Reference";
+		return "Mention only";
 	}
 	if (
 		relation === "wake" &&

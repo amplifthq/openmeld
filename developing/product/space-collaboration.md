@@ -779,6 +779,9 @@ It has three relations:
 Wake asks an Agent Profile to do work.
 
 Reference includes an Agent Profile as message context without assigning work.
+Web labels this relation `Mention only`. The Composer relation menu explains it
+as `Mention only — Won’t wake the agent`; compact tokens use `Mention only`.
+The serialized relation remains `reference`, with no change to execution semantics.
 Human Mention directs a person's attention to the message without creating
 Agent work or requiring a reply.
 

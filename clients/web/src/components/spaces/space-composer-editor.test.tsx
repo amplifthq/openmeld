@@ -487,9 +487,14 @@ describe("SpaceComposerEditor", () => {
 				name: "Change relation for Runner",
 			})
 		);
-		fireEvent.keyDown(screen.getByRole("option", { name: "Reference" }), {
-			key: "Enter",
-		});
+		fireEvent.keyDown(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			}),
+			{
+				key: "Enter",
+			}
+		);
 		expect(onSend).not.toHaveBeenCalled();
 
 		await waitFor(() => {
@@ -556,7 +561,7 @@ describe("SpaceComposerEditor", () => {
 		expect(wakeOption.getAttribute("aria-disabled") === "true").toBe(!canWait);
 		expect(
 			screen
-				.getByRole("option", { name: "Reference" })
+				.getByRole("option", { name: "Mention only — Won’t wake the agent" })
 				.getAttribute("aria-disabled")
 		).not.toBe("true");
 		expect(
@@ -775,7 +780,7 @@ describe("SpaceComposerEditor", () => {
 			const tokens = screen.getAllByTestId("space-composer-profile-token");
 			expect(tokens).toHaveLength(2);
 			expect(
-				within(tokens[1] as HTMLElement).getByText("Reference")
+				within(tokens[1] as HTMLElement).getByText("Mention only")
 			).toBeTruthy();
 			expect(onChange).toHaveBeenLastCalledWith({
 				authoredMentions: [

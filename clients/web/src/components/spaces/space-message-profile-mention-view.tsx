@@ -47,7 +47,7 @@ export function SpaceMessageProfileMention(input: {
 }) {
 	let relationLabel: string | null = null;
 	if (input.profile.profileKind === "agent") {
-		relationLabel = input.profile.relation === "wake" ? "Wake" : "Reference";
+		relationLabel = input.profile.relation === "wake" ? "Wake" : "Mention only";
 	}
 	const content = (
 		<>
