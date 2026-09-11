@@ -3,12 +3,123 @@ import { describe, expect, it } from "vitest";
 import { canReceivePersonalAgentActivity } from "../src/inbox/application/inbox-agent-owner-access";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import { createInboxService } from "../src/inbox/application/inbox-service";
+import { reconcileInvitationInbox } from "../src/organizations/invitation-inbox-projection";
 import {
   applyDrizzleMigrationsForTables,
   createSqliteD1Harness,
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("separates shared reviews from fulfillment, preserves personal reading, and revokes reviewer access", async () => {
+    const harness = createInboxHarness();
+    try {
+      harness.run({
+        sql: "INSERT INTO organization_join_requests (id, organization_id, requested_by_user_id, email, status, created_at) VALUES ('request-1', 'org_one', 'user_one', 'invitee@example.com', 'pending', 1000)",
+      });
+      const ids: string[] = [];
+      for (const userId of ["user_one", "user_two"]) {
+        const item = await ensureInboxItem({
+          db: harness.db,
+          nowMs: 2000,
+          candidate: {
+            organizationId: "org_one",
+            recipientUserId: userId,
+            attention: "action_required",
+            importance: "urgent",
+            kind: "organization_request",
+            contextLabel: null,
+            occurredAtMs: 1000,
+            preview: "Review the invitation",
+            title: "Review invitation",
+            sourceKind: "organization_member_request",
+            sourceKey: "invitation:request-1",
+            sourceTarget: {
+              kind: "organization_join_request",
+              requestId: "request-1",
+            },
+          },
+        });
+        ids.push(item.itemId);
+      }
+      const manager = createInboxService({
+        db: harness.db,
+        canManageOrganization: true,
+        nowMs: () => 8000,
+      });
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      await reconcileInvitationInbox(harness.db, "org_one");
+      expect(
+        (await manager.list({ ...identity, view: "needs_review" })).items.map(
+          (item) => item.id
+        )
+      ).toEqual([ids[0]]);
+      expect(
+        (await manager.list({ ...identity, view: "needs_action" })).items
+      ).toEqual([]);
+      expect(
+        (await manager.get({ ...identity, itemId: ids[0] as string })).item
+          .importance
+      ).toBe("normal");
+      await manager.markRead({
+        ...identity,
+        itemId: ids[0] as string,
+        read: true,
+      });
+      harness.run({
+        sql: "UPDATE organization_join_requests SET status = 'approved', reviewed_by_user_id = 'user_two', reviewed_at = 3000 WHERE id = 'request-1'",
+      });
+      await reconcileInvitationInbox(harness.db, "org_one");
+      for (const userId of ["user_one", "user_two"]) {
+        const scope = { ...identity, recipientUserId: userId };
+        expect(
+          (await manager.list({ ...scope, view: "needs_review" })).items
+        ).toEqual([]);
+        expect(
+          (await manager.list({ ...scope, view: "needs_action" })).items
+        ).toHaveLength(1);
+      }
+      expect(
+        (await manager.get({ ...identity, itemId: ids[0] as string })).item
+          .readAt
+      ).not.toBeNull();
+      expect(
+        (
+          await manager.get({
+            ...identity,
+            recipientUserId: "user_two",
+            itemId: ids[1] as string,
+          })
+        ).item.readAt
+      ).toBeNull();
+      harness.run({
+        sql: "UPDATE organization_join_requests SET invitation_sent_at = 4000 WHERE id = 'request-1'",
+      });
+      await reconcileInvitationInbox(harness.db, "org_one");
+      for (const userId of ["user_one", "user_two"]) {
+        const scope = { ...identity, recipientUserId: userId };
+        expect(
+          (await manager.list({ ...scope, view: "needs_action" })).items
+        ).toEqual([]);
+        expect((await manager.summary(scope)).unresolvedActionCount).toBe(0);
+      }
+      await expect(
+        createInboxService({ db: harness.db }).get({
+          ...identity,
+          itemId: ids[0] as string,
+        })
+      ).rejects.toMatchObject({ status: 404 });
+      expect(
+        harness.queryAll({
+          sql: "SELECT reviewed_by_user_id, reviewed_at FROM organization_join_requests",
+        })
+      ).toEqual([{ reviewed_by_user_id: "user_two", reviewed_at: 3000 }]);
+    } finally {
+      harness.close();
+    }
+  });
   it("rechecks current owner/admin access for authorization updates", async () => {
     const harness = createInboxHarness();
     try {
@@ -42,7 +153,7 @@ describe("Inbox service", () => {
       await expect(
         createInboxService({
           db: harness.db,
-          canManageAuthorizationUpdates: true,
+          canManageOrganization: true,
         }).get({ ...identity, itemId: created.itemId })
       ).resolves.toMatchObject({ item: { id: created.itemId } });
       await expect(
@@ -1580,6 +1691,7 @@ function createInboxHarness() {
     `,
   });
   applyDrizzleMigrationsForTables(harness, [
+    "organization_join_requests",
     "center_agent_tasks",
     "center_agent_task_authorized_readers",
     "inbox_items",

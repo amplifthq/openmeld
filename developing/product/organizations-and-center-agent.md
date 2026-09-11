@@ -359,11 +359,19 @@ docs directly readable against our schema.
   verified recipient request, Core records `applicantUserId`; after approval Auth
   fulfills membership and optional Space access before Core records `joinedAt`.
   No second invitation acceptance is required. Owners and admins all receive an
-  urgent Inbox action and transactional review email through the existing delivery
+  normal-priority Inbox review and transactional review email through the existing delivery
   ledger. Any one may approve; another may retry incomplete fulfillment. Approval
   remains actionable until delivery or joining succeeds, then all reviewer items
-  resolve. There is no configurable policy or multi-stage approval. Targeted
-  Space guest invitations are separate: acceptance grants only Space membership,
+  resolve. Pending decisions appear under **Needs review**; approved incomplete
+  fulfillment appears under **Needs action**. New Web callers use an explicit
+  retry action, so a stale approval cannot repeat fulfillment. Settings retains
+  shared decision records with the original reviewer and time; retries do not
+  replace that attribution. For an Organization-only email request, approval or retry completes
+  the request with `joinedAt` when Auth's account identity projection confirms
+  the recipient is already a member. It does not send another invitation, claim
+  email delivery, or grant access. Organization membership alone does not complete
+  a request targeting a Space. There is no configurable policy or multi-stage
+  approval. Targeted Space guest invitations are separate: acceptance grants only Space membership,
   never Organization membership or Organization reviewer authority.
 - Links are scoped to the Organization or one Space, with one active link per
   scope and mode. New links expire after 30 days and can be revoked. Existing

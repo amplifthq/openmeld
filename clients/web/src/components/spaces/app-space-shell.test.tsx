@@ -23,9 +23,9 @@ vi.mock("#/components/app/app-inner-sidebar", () => ({
 }));
 
 vi.mock("#/components/app/app-outer-rail", () => ({
-	AppOuterRail: (props: { contextualNavigation?: ReactNode }) => {
+	AppOuterRail: (props: { messengerNavigation?: ReactNode }) => {
 		appOuterRailSpy(props);
-		return <aside data-testid="outer-rail">{props.contextualNavigation}</aside>;
+		return <aside data-testid="outer-rail">{props.messengerNavigation}</aside>;
 	},
 }));
 
@@ -129,7 +129,7 @@ describe("AppSpaceShell", () => {
 		expect(screen.getByTestId("space-window-frame")).toBeTruthy();
 	});
 
-	it("places Spaces navigation in the main sidebar", () => {
+	it("places Spaces navigation in the middle column with one fixed application rail", () => {
 		render(
 			<AppSpaceShell currentProfileId="human-1" currentSpaceId="space-1">
 				<div>Main content</div>
@@ -137,6 +137,16 @@ describe("AppSpaceShell", () => {
 		);
 
 		expect(appInnerSidebarSpy).not.toHaveBeenCalled();
+		expect(
+			screen
+				.getByTestId("app-module-sidebar")
+				.contains(screen.getByTestId("conversations-sidebar"))
+		).toBe(true);
+		expect(
+			screen
+				.getByTestId("outer-rail")
+				.contains(screen.getByTestId("conversations-sidebar"))
+		).toBe(false);
 	});
 
 	it("owns the visible Wake progress projection shared by the conversation and sidebar", () => {

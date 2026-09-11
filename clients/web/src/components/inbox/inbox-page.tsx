@@ -6,23 +6,33 @@ import type {
 	InboxView,
 	MarkAllInboxItemsReadResponse,
 } from "@openmeld/schemas/types";
-import { Badge } from "@openmeld/ui/components/badge";
+import {
+	AlertDialog,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@openmeld/ui/components/alert-dialog";
 import { Button } from "@openmeld/ui/components/button";
+import { Switch } from "@openmeld/ui/components/switch";
 import {
 	TabsSubtle,
 	TabsSubtleItem,
 	TabsSubtlePanel,
 } from "@openmeld/ui/fluid/tabs-subtle";
-import { resolveStatusToneCompactBadgeClassName } from "@openmeld/ui/lib/status-tone";
 import {
 	useInfiniteQuery,
 	useMutation,
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { isInboxReview } from "#/lib/inbox/review";
 import {
 	type InboxFailure,
 	markAllCurrentInboxItemsRead,
@@ -35,6 +45,7 @@ import {
 	inboxSummaryQueryOptions,
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
+import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 import {
 	captureInboxCacheSnapshots,
 	type InboxCacheSnapshots,
@@ -47,25 +58,67 @@ import {
 	InboxViewContent,
 } from "./inbox-page-presentation";
 import { INBOX_TABS } from "./inbox-page-tabs";
+import { InvitationReview } from "./invitation-review";
 import { useInboxItemDismissMutation } from "./use-inbox-item-dismiss-mutation";
 import { useInboxItemReadMutation } from "./use-inbox-item-read-mutation";
 
 export function InboxPage(input: {
 	itemId?: string;
+	requestId?: string;
 	onItemDismissed?: (itemId: string) => void;
 	onViewChange: (view: InboxView) => void;
+	onUnreadOnlyChange?: (unreadOnly: boolean) => void;
+	unreadOnly?: boolean;
 	view: InboxView;
 }) {
 	const queryClient = useQueryClient();
-	const { currentOrganization } = useAppOrganization();
+	const { currentOrganization, currentUserId } = useAppOrganization();
+	const role = useQuery(
+		organizationMemberRoleQueryOptions({
+			organizationId: currentOrganization.id,
+			userId: currentUserId,
+			enabled: !currentOrganization.isPersonal,
+		})
+	);
+	const reviews = useInfiniteQuery(
+		inboxItemsInfiniteQueryOptions({
+			organizationId: currentOrganization.id,
+			view: "needs_review",
+			enabled: !currentOrganization.isPersonal,
+		})
+	);
+	const showReviews =
+		role.data === "owner" ||
+		role.data === "admin" ||
+		(reviews.data?.pages[0]?.items.length ?? 0) > 0;
+	const tabs = INBOX_TABS.filter(
+		(tab) => tab.view !== "needs_review" || showReviews
+	);
+	useEffect(() => {
+		if (
+			input.view === "needs_review" &&
+			!showReviews &&
+			role.isSuccess &&
+			reviews.isSuccess
+		) {
+			input.onViewChange("all");
+		}
+	}, [
+		input.view,
+		input.onViewChange,
+		showReviews,
+		role.isSuccess,
+		reviews.isSuccess,
+	]);
 	const [announcement, setAnnouncement] = useState("");
+	const [confirmMarkAllRead, setConfirmMarkAllRead] = useState(false);
 	const [itemElements] = useState(() => new Map<string, HTMLAnchorElement>());
 	const appliedItemIdRef = useRef<string | null>(null);
 	const [deepLinkMarkedReadItemIds] = useState(() => new Set<string>());
 	const itemsQuery = useInfiniteQuery(
 		inboxItemsInfiniteQueryOptions({
 			organizationId: currentOrganization.id,
-			view: input.view,
+			view: input.unreadOnly ? "unread" : input.view,
 		})
 	);
 	const summaryQuery = useQuery(
@@ -78,10 +131,29 @@ export function InboxPage(input: {
 			organizationId: currentOrganization.id,
 		})
 	);
-	const listedItems = useMemo(
-		() => itemsQuery.data?.pages.flatMap((page) => page.items) ?? [],
-		[itemsQuery.data]
-	);
+	const listedItems = useMemo(() => {
+		const loaded = itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+		if (!input.unreadOnly) {
+			return loaded;
+		}
+		return loaded.filter((item) => {
+			if (item.readAt !== null) {
+				return false;
+			}
+			if (input.view === "all") {
+				return true;
+			}
+			const actionable =
+				item.attention === "action_required" &&
+				item.resolutionStatus === "open";
+			return (
+				actionable &&
+				(input.view === "needs_review"
+					? isInboxReview(item)
+					: !isInboxReview(item))
+			);
+		});
+	}, [itemsQuery.data, input.unreadOnly, input.view]);
 	const items = useMemo(
 		() => mergeDeepLinkedInboxItem(listedItems, deepLinkedItemQuery.data?.item),
 		[deepLinkedItemQuery.data?.item, listedItems]
@@ -92,12 +164,8 @@ export function InboxPage(input: {
 			: undefined;
 	const selectedIndex = Math.max(
 		0,
-		INBOX_TABS.findIndex((tab) => tab.view === input.view)
+		tabs.findIndex((tab) => tab.view === input.view)
 	);
-	const unresolvedActionCount = summaryQuery.data?.unresolvedActionCount ?? 0;
-	const unresolvedActionSummary = `${unresolvedActionCount} ${
-		unresolvedActionCount === 1 ? "item needs" : "items need"
-	} action`;
 	const registerItemElement = useCallback(
 		(itemId: string, element: HTMLAnchorElement | null) => {
 			if (element) {
@@ -193,21 +261,7 @@ export function InboxPage(input: {
 	return (
 		<div className="flex min-w-0 flex-col gap-6">
 			<AppPageHeader
-				action={
-					summaryQuery.data && summaryQuery.data.totalUnreadCount > 0 ? (
-						<Button
-							disabled={markAllReadMutation.isPending}
-							onClick={() => markAllReadMutation.mutate()}
-							size="sm"
-							variant="outline"
-						>
-							{markAllReadMutation.isPending
-								? "Marking as read…"
-								: "Mark all as read"}
-						</Button>
-					) : null
-				}
-				description="Updates and requests that need your attention."
+				description="Updates, actions, and reviews in one place."
 				eyebrow={
 					currentOrganization.isPersonal
 						? "Personal workspace"
@@ -218,36 +272,68 @@ export function InboxPage(input: {
 			/>
 
 			<div className="flex min-w-0 flex-col gap-4">
-				<TabsSubtle
-					className="w-fit max-w-full"
-					idPrefix="inbox-view"
-					onSelect={(index) => {
-						const tab = INBOX_TABS[index];
-						if (tab && tab.view !== input.view) {
-							input.onViewChange(tab.view);
-						}
-					}}
-					selectedIndex={selectedIndex}
-				>
-					{INBOX_TABS.map((tab, index) => (
-						<TabsSubtleItem index={index} key={tab.view} label={tab.label} />
-					))}
-				</TabsSubtle>
-
-				{unresolvedActionCount > 0 ? (
-					<output
-						aria-label={unresolvedActionSummary}
-						className="flex w-fit items-center gap-2 text-muted-foreground text-sm"
+				{input.requestId ? (
+					<section
+						aria-label="Invitation request"
+						className="rounded-md border border-border/70 p-4"
 					>
-						<Badge
-							aria-hidden="true"
-							className={resolveStatusToneCompactBadgeClassName("warning")}
-							variant="outline"
+						<InvitationReview requestId={input.requestId} />
+						<Link
+							className="mt-3 inline-block text-muted-foreground text-xs hover:underline"
+							params={{ orgSlug: currentOrganization.slug }}
+							search={{ view: "needs-review" }}
+							to="/o/$orgSlug/inbox"
 						>
-							{unresolvedActionSummary}
-						</Badge>
-					</output>
+							Back to reviews
+						</Link>
+					</section>
 				) : null}
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<TabsSubtle
+						className="w-fit max-w-full"
+						idPrefix="inbox-view"
+						onSelect={(index) => {
+							const tab = tabs[index];
+							if (tab && tab.view !== input.view) {
+								input.onViewChange(tab.view);
+							}
+						}}
+						selectedIndex={selectedIndex}
+					>
+						{tabs.map((tab, index) => (
+							<TabsSubtleItem index={index} key={tab.view} label={tab.label} />
+						))}
+					</TabsSubtle>
+					<div className="flex flex-wrap items-center gap-3">
+						{input.unreadOnly &&
+						(summaryQuery.data?.totalUnreadCount ?? 0) > 0 ? (
+							<Button
+								disabled={markAllReadMutation.isPending}
+								onClick={() => setConfirmMarkAllRead(true)}
+								size="sm"
+								variant="outline"
+							>
+								{markAllReadMutation.isPending
+									? "Marking as read…"
+									: "Mark all as read"}
+							</Button>
+						) : null}
+						<label
+							className="flex cursor-pointer items-center gap-2 text-muted-foreground text-sm"
+							htmlFor="inbox-unread-only"
+						>
+							Unread only
+							<Switch
+								aria-label="Unread only"
+								checked={input.unreadOnly ?? false}
+								id="inbox-unread-only"
+								onCheckedChange={(checked) =>
+									input.onUnreadOnlyChange?.(checked)
+								}
+							/>
+						</label>
+					</div>
+				</div>
 
 				{deepLinkedItemQuery.error?.status === 404 ? (
 					<output
@@ -271,7 +357,7 @@ export function InboxPage(input: {
 					<InboxRefreshWarning onRetry={() => itemsQuery.refetch()} />
 				) : null}
 
-				{INBOX_TABS.map((tab, index) => (
+				{tabs.map((tab, index) => (
 					<TabsSubtlePanel
 						idPrefix="inbox-view"
 						index={index}
@@ -282,7 +368,16 @@ export function InboxPage(input: {
 							focusedItemId={focusedItemId}
 							isError={itemsQuery.isError && !itemsQuery.data}
 							isLoading={itemsQuery.isPending}
-							items={items}
+							items={
+								input.requestId
+									? items.filter(
+											(item) =>
+												item.sourceTarget.kind !==
+													"organization_join_request" ||
+												item.sourceTarget.requestId !== input.requestId
+										)
+									: items
+							}
 							loadMoreState={resolveInboxLoadMoreState(itemsQuery)}
 							onDismiss={dismissItem}
 							onLoadMore={() => itemsQuery.fetchNextPage()}
@@ -291,12 +386,40 @@ export function InboxPage(input: {
 							onSetRead={markItemRead}
 							organizationSlug={currentOrganization.slug}
 							registerItemElement={registerItemElement}
+							unreadOnly={input.unreadOnly}
 							view={tab.view}
 						/>
 					</TabsSubtlePanel>
 				))}
 			</div>
 
+			<AlertDialog
+				onOpenChange={setConfirmMarkAllRead}
+				open={confirmMarkAllRead}
+			>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Mark all as read?</AlertDialogTitle>
+						<AlertDialogDescription>
+							All your Inbox items in {currentOrganization.name} will be marked
+							as read, including Space messages outside this filter. This also
+							clears their unread indicators in Spaces. Pending actions and
+							reviews stay open.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<Button
+							onClick={() => {
+								setConfirmMarkAllRead(false);
+								markAllReadMutation.mutate();
+							}}
+						>
+							Mark all as read
+						</Button>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 			<div aria-atomic="true" aria-live="polite" className="sr-only">
 				{announcement}
 			</div>
