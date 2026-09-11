@@ -137,7 +137,6 @@ import {
 	type SpaceRemoveMemberResult,
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
-import { SpaceMessagePinsProvider } from "./space-message-pins";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -148,6 +147,7 @@ import {
 	resolveSpacePendingAgentActionIdentity,
 } from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
+import { SpacePinsProvider } from "./space-pins";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
 import {
@@ -1632,7 +1632,7 @@ function SpaceLandingReady({
 		/>
 	);
 
-	return (
+	const content = (
 		<SpaceAgentProfileEditProvider
 			accountProfiles={accountProfiles}
 			context={agentProfileEditContext ?? null}
@@ -1790,6 +1790,16 @@ function SpaceLandingReady({
 				{pendingAgentActions.profileEditDialog}
 			</SpaceWakeBookmarksProvider>
 		</SpaceAgentProfileEditProvider>
+	);
+	return (
+		<SpacePinsProvider
+			canPin={currentProfileIsActiveSpaceMember}
+			organizationSlug={input.orgSlug}
+			profileId={controller.profileId}
+			spaceId={controller.spaceId}
+		>
+			{content}
+		</SpacePinsProvider>
 	);
 }
 
@@ -2088,23 +2098,6 @@ function SpaceLandingConversation({
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
-			pinnedMessageProvider={(children) =>
-				input.orgSlug ? (
-					<SpaceMessagePinsProvider
-						canPin={
-							currentProfileIsActiveSpaceMember &&
-							!controller.profileId.startsWith("agt_")
-						}
-						organizationSlug={input.orgSlug}
-						profileId={controller.profileId}
-						spaceId={controller.spaceId}
-					>
-						{children}
-					</SpaceMessagePinsProvider>
-				) : (
-					children
-				)
-			}
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}

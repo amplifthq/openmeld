@@ -29,9 +29,9 @@ the person who pinned it, and a jump to the original message. The preview stays
 on one line and truncates. Multiple pins use previous/next navigation without
 stacking cards above the conversation.
 
-Files have a separate pin action in the Files browser. Pinned files appear at
-the top of the Messages conversation, above pinned messages. Each kind has its
-own compact preview and navigation; file and message pins never share a carousel.
+Files have a separate pin action in the Files browser. Pinned files and messages
+share one compact preview and previous/next navigation above the conversation.
+Files appear first, followed by messages; selection follows the source identity.
 Opening a pinned file uses the existing Files viewer. The pin follows the file's
 identity and latest revision, including renames, rather than copying its content.
 Trashed files are omitted. Pinning a message with attachments does not pin those
@@ -45,7 +45,12 @@ between devices. Opening older history never moves the read revision backwards.
 Failed content loads do not acknowledge a previewable file as read.
 
 Only the original pinner can remove a pin, including through the API. The close
-button means shared unpin, not personal dismissal, and requires no confirmation.
+button dismisses the entire pin preview for the current reader. For the original
+pinner it opens a Fluid menu with Dismiss and Unpin file/message; unpin affects
+only the selected item and requires no confirmation. Dismissal is saved per
+Organization, Human Profile, and Space in this browser. A Pinned action immediately
+before Members restores the preview. New pins do not reopen a dismissed preview;
+when no pins remain, both preview and recall action disappear.
 Pinning an already pinned message does not transfer ownership. Pins whose source
 message is no longer retained are omitted from the display. This is separate
 from the broader shared-document and knowledge synchronization work in #851.
