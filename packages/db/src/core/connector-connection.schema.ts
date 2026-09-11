@@ -285,3 +285,19 @@ export const githubAppInstallationStates = sqliteTable(
     ),
   ]
 );
+export const pluginActionConfirmations = sqliteTable(
+  "plugin_action_confirmations",
+  {
+    token: text("token").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorProfileId: text("actor_profile_id").notNull(),
+    requestSignature: text("request_signature").notNull(),
+    accessRevision: integer("access_revision").notNull(),
+    expiresAtMs: integer("expires_at_ms").notNull(),
+  },
+  (table) => [
+    index("plugin_action_confirmations_expiry_idx").on(table.expiresAtMs),
+  ]
+);

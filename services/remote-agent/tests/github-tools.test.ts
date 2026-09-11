@@ -2,6 +2,7 @@ import {
   centerAgentConnectorConnectionSelectionSchema,
   openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "@openmeld/schemas";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -10,7 +11,6 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
-import { digestCanonicalJson } from "../agent-core/canonical-json";
 import {
   getRemoteAgentGitHubToolDefinitions as buildRemoteAgentGitHubToolDefinitions,
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,

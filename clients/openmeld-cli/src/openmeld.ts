@@ -1637,6 +1637,16 @@ const skillsCmd = program
   .description("Read and load Organization Skills.")
   .option("--json", "Print one machine-readable JSON envelope.", false);
 
+registerPluginCommands(program, {
+  view: getGlobalViewOption,
+  run: (routeTokens, run) =>
+    runCommandWithEntryChecks({
+      routeTokens,
+      view: getGlobalViewOption(),
+      run,
+    }),
+});
+
 skillsCmd.action(async (opts: { json?: boolean }) => {
   const view = getGlobalViewOption();
   await runCommandWithEntryChecks({
@@ -5718,3 +5728,5 @@ main().catch((error: unknown) => {
   errLine(message);
   process.exitCode = 1;
 });
+
+import { registerPluginCommands } from "./plugins/registration";

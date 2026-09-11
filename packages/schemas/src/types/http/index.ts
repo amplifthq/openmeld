@@ -460,6 +460,7 @@ export type {
 } from "./cli-binary-manifest";
 export type {
   CenterAgentConnectorConnectionSelection,
+  CenterAgentResolveConnectorConnectionBody,
   ConnectorAppCatalogProvider,
   ConnectorAppCatalogResponse,
   ConnectorAppRequest,
@@ -790,6 +791,11 @@ export type {
   PeopleComputerTarget,
 } from "./people-computers";
 export type * from "./plugin-access";
+export type {
+  PluginActionRequest,
+  PluginActionResponse,
+  PluginActionRpcInput,
+} from "./plugin-actions";
 export type {
   PluginRuntimeRequest,
   PluginRuntimeResponse,

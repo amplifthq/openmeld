@@ -69,6 +69,7 @@ import {
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
+  pluginActionConfirmations,
 } from "./connector-connection.schema.ts";
 import { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 import { evalReports } from "./eval-report.schema.ts";
@@ -1681,6 +1682,7 @@ export const coreSchema = {
   routines,
   routineRuns,
   connectorAccessEvents,
+  pluginActionConfirmations,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,

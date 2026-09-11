@@ -14,6 +14,8 @@ import {
   pluginAccessListResponseSchema,
   pluginAccessSchema,
   pluginAccessUpdateBodySchema,
+  pluginActionRequestSchema,
+  pluginActionResponseSchema,
 } from "@openmeld/schemas";
 import type {
   ConnectorCredentialConnectBody,
@@ -72,6 +74,42 @@ type OpenConnectorBindings = {
 export function registerConnectorConnectionRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const actionRoute = "/v1/organizations/current/plugins/actions";
+  app.post(actionRoute, async (c) => {
+    const organization = parseConnectorOrganizationRequest(
+      c,
+      actionRoute,
+      "POST"
+    );
+    if (!organization.ok) {
+      return organization.response;
+    }
+    const request = pluginActionRequestSchema.safeParse(
+      await c.req.json().catch(() => null)
+    );
+    if (!request.success) {
+      return respondBadRequest({
+        c,
+        route: actionRoute,
+        method: "POST",
+        reason: "Invalid plugin action.",
+        message: "Choose a valid plugin action.",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      method: "POST",
+      route: actionRoute,
+      retryMode: "none",
+      responseSchema: pluginActionResponseSchema,
+      execute: () =>
+        c.var.coreRpc.pluginAction({
+          context: buildCoreRpcContext(c),
+          expectedOrganizationId: organization.expectedOrganizationId,
+          request: request.data,
+        }),
+    });
+  });
   const accessRoute = "/v1/organizations/current/connectors/:service/access";
   app.get(accessRoute, (c) => {
     const request = parseConnectorOrganizationRequest(c, accessRoute, "GET");

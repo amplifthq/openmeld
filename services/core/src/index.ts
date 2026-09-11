@@ -2603,6 +2603,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListPluginAccess(this.env, input);
   }
 
+  pluginAction(input: import("@openmeld/schemas/types").PluginActionRpcInput) {
+    return rpcPluginAction(this.env, input);
+  }
+
   updatePluginAccess(input: PluginAccessUpdateRpcInput) {
     return rpcUpdatePluginAccess(this.env, input);
   }
@@ -5450,6 +5454,7 @@ import type {
   CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileResponse,
 } from "@openmeld/schemas/types";
+import { rpcPluginAction } from "./connectors/plugin-actions";
 import {
   type CenterAgentPostChannelFileInput,
   rpcCenterAgentPostChannelFile,

@@ -50,6 +50,7 @@ export {
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
+  pluginActionConfirmations,
 } from "./connector-connection.schema.ts";
 export { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 export {

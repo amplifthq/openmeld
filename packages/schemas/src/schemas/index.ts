@@ -1349,6 +1349,7 @@ export {
   CONNECTOR_CONNECTION_STATUSES,
   CONNECTOR_SERVICES,
   centerAgentConnectorConnectionSelectionSchema,
+  centerAgentResolveConnectorConnectionBodySchema,
   connectorAppCatalogProviderSchema,
   connectorAppCatalogResponseSchema,
   connectorAppRequestListResponseSchema,
@@ -1827,6 +1828,11 @@ export {
   pluginConsumerSchema,
   pluginPermissionSchema,
 } from "./http/plugin-access";
+export {
+  pluginActionRequestSchema,
+  pluginActionResponseSchema,
+  pluginActionRpcInputSchema,
+} from "./http/plugin-actions";
 export {
   pluginActionEffectSchema,
   pluginRuntimeRequestSchema,

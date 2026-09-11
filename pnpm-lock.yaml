@@ -1295,6 +1295,9 @@ importers:
       '@openmeld/start':
         specifier: workspace:*
         version: link:../../packages/start
+      '@openmeld/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       entities:
         specifier: ^8.1.0
         version: 8.1.0
@@ -1411,6 +1414,9 @@ importers:
       '@openmeld/space-mesh':
         specifier: workspace:*
         version: link:../../packages/space-mesh
+      '@openmeld/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@valibot/to-json-schema':
         specifier: 1.7.1
         version: 1.7.1(valibot@1.4.0(typescript@5.9.3))

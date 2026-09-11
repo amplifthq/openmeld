@@ -3,6 +3,7 @@ import type {
   CenterAgentConnectorActionExecutionConnection,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import {
   array,
   boolean,
@@ -30,7 +31,6 @@ import {
   readRemoteAgentCallbackContext,
   recordRemoteAgentNavigationTarget,
 } from "./callback-context";
-import { digestCanonicalJson } from "./canonical-json";
 import {
   readConnectorActionOperation,
   recordConnectorActionOperation,
@@ -1324,6 +1324,7 @@ async function executeGitHubIssueBatchItem(input: {
 
   await recordGitHubConnectorActionAudit({
     actionId: "github.create_issue",
+    connectionName: input.manifest.connectionName,
     coreWorker: input.coreWorker,
     operationId: auditOperationId,
     outcome: "attempted",
@@ -2580,6 +2581,7 @@ function describeGitHubWriteIdentity(input: {
 }
 
 async function recordGitHubConnectorActionAudit(input: {
+  connectionName?: string;
   actionId: GitHubActionId;
   coreWorker: RemoteAgentCoreWorkerBinding;
   operationId: string;
@@ -2599,6 +2601,7 @@ async function recordGitHubConnectorActionAudit(input: {
     "centerAgentRecordConnectorActionAudit",
     {
       actionId: input.actionId,
+      connectionName: input.connectionName,
       context: input.toolContext.context,
       operationId: input.operationId,
       outcome: input.outcome,

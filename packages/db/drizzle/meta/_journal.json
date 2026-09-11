@@ -1205,6 +1205,13 @@
       "when": 1789103026014,
       "tag": "0171_rainy_nico_minoru",
       "breakpoints": true
+    },
+    {
+      "idx": 172,
+      "version": "6",
+      "when": 1789104591399,
+      "tag": "0172_thick_glorian",
+      "breakpoints": true
     }
   ]
 }

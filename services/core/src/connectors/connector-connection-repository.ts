@@ -178,21 +178,24 @@ export async function upsertPendingSharedConnectorConnection(input: {
 export async function listConnectorConnections(input: {
   db: D1Database;
   organizationId: string;
-  service: ConnectorService;
+  service?: ConnectorService;
   userId?: string;
 }): Promise<ConnectorConnectionRecord[]> {
   const userClause = input.userId
     ? "AND (connection.scope = 'shared' OR connection.user_id = ?)"
     : "";
-  const bindings = input.userId
-    ? [input.organizationId, input.service, input.userId]
-    : [input.organizationId, input.service];
+  const serviceClause = input.service ? "AND connection.service = ?" : "";
+  const bindings = [
+    input.organizationId,
+    ...(input.service ? [input.service] : []),
+    ...(input.userId ? [input.userId] : []),
+  ];
   const result = await input.db
     .prepare(
       `
         ${connectorConnectionSelectSql}
         WHERE connection.organization_id = ?
-          AND connection.service = ?
+          ${serviceClause}
           ${userClause}
         ORDER BY connection.created_at_ms ASC, connection.connection_name ASC
       `

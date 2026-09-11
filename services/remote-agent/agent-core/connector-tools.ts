@@ -10,6 +10,7 @@ import type {
   OpenConnectorRuntimeAction,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import {
   integer,
   maxLength,
@@ -40,7 +41,6 @@ import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
 } from "./callback-context";
-import { digestCanonicalJson } from "./canonical-json";
 import {
   type CenterAgentAppConnectorService,
   getConnectedAppDisplayName,
@@ -172,17 +172,21 @@ export function getRemoteAgentConnectorToolDefinitions(
         const requester = resolveConnectorTurnRequester(
           toolContext.turnEnvelope
         );
-        await requireAvailableConnectorConnection({
+        const connection = await requireAvailableConnectorConnection({
           connectionPreference: requester.connectionPreference,
           coreWorker: input.coreWorker,
           requesterUserId: requester.requesterUserId,
           service: request.service,
           toolContext,
         });
-        const actions = await listOpenConnectorActions({
+        const catalog = await listOpenConnectorActions({
           connectorExecution: input.connectorExecution,
           service: request.service,
         });
+        const actions =
+          connection.permission === "read"
+            ? catalog.filter((action) => action.effect === "read")
+            : catalog;
         const query = request.query?.trim();
         const matchingActions = query
           ? await searchOpenConnectorActions({
@@ -649,6 +653,7 @@ async function resolveConnectorConnection(input: {
   );
   const selection = centerAgentConnectorConnectionSelectionSchema.parse(
     await resolveConnection({
+      includeAccessPolicy: true,
       connectionPreference: input.connectionPreference,
       context: input.toolContext.context,
       requesterUserId: input.requesterUserId,
@@ -673,11 +678,12 @@ async function requireAvailableConnectorConnection(
   const selection = await resolveConnectorConnection(input);
   if (!(selection.connection && selection.selection)) {
     throw new Error(
-      `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not connected for this request. Open Center Agent → Plugins and connect an account.`
+      `${getConnectedAppDisplayName(input.service as CenterAgentAppConnectorService)} is not available for this request. Open Plugins and review the account and Agent access.`
     );
   }
   return {
     connection: selection.connection,
+    permission: selection.permission,
     selection: selection.selection,
   };
 }

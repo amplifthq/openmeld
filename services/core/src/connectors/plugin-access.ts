@@ -7,7 +7,43 @@ import type {
   PluginPermission,
 } from "@openmeld/schemas/types";
 import { createCoreRpcHttpError } from "../rpc/errors";
-import { selectActiveConnectorConnection } from "./connector-connection-repository";
+import {
+  requireConnectorConnectionForExecution,
+  selectActiveConnectorConnection,
+} from "./connector-connection-repository";
+
+export async function requireRemotePluginConnection(input: {
+  db: D1Database;
+  organizationId: string;
+  connectionName: string;
+  service: ConnectorService;
+  requesterUserId: string | null;
+  remoteOwnerUserId?: string | null;
+  effect: "read" | "write" | "destructive" | "unspecified";
+}) {
+  const connection = await requireConnectorConnectionForExecution(input);
+  if (
+    connection.status !== "active" ||
+    connection.service !== input.service ||
+    (connection.scope === "member" &&
+      (connection.userId !== input.requesterUserId ||
+        (input.remoteOwnerUserId !== undefined &&
+          connection.userId !== input.remoteOwnerUserId)))
+  ) {
+    throw createCoreRpcHttpError({
+      code: "center_agent.connector_action_connection_invalid",
+      reason:
+        "This connector connection is not available to the current Organization member.",
+      status: 409,
+    });
+  }
+  await requirePluginPermission({
+    ...input,
+    consumer:
+      input.remoteOwnerUserId === undefined ? "center_agent" : "remote_agent",
+  });
+  return connection;
+}
 
 type ConnectionAccessRow = {
   access_policy: string | null;
@@ -70,8 +106,9 @@ export async function selectPluginConnection(input: {
       ...input,
       connectionName: selected.connection.connectionName,
     });
-    if (policy[input.consumer] !== "none") {
-      return selected;
+    const permission = policy[input.consumer];
+    if (permission !== "none") {
+      return { ...selected, permission };
     }
   }
   return null;
