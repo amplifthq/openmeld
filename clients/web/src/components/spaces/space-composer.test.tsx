@@ -18,9 +18,9 @@ import {
 	useSpaceWakeRecommendation,
 } from "./space-wake-recommendation";
 
-describe("SpaceComposer sending focus", () => {
-	afterEach(cleanup);
+afterEach(cleanup);
 
+describe("SpaceComposer sending focus", () => {
 	it.each([
 		{ placement: "conversation", method: "click", mention: false },
 		{ placement: "conversation", method: "Enter", mention: true },
