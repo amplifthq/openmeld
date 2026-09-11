@@ -24,6 +24,15 @@ import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@openmeld/ui/components/table";
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
+import {
 	Select,
 	SelectContent,
 	SelectItem,
@@ -587,18 +596,34 @@ function OrganizationMembersSection(input: {
 				<p className="text-destructive text-sm">{input.errorMessage}</p>
 			) : null}
 			{input.directory ? (
-				<ul className="overflow-hidden rounded-md border border-border/70">
-					{input.directory.members.map((member) => (
-						<OrganizationMemberRoleRow
-							canManage={input.canManage}
-							canRemove={input.canRemoveMembers}
-							currentUserId={input.currentUserId}
-							key={member.memberId}
-							member={member}
-							organizationId={input.organizationId}
-						/>
-					))}
-				</ul>
+				<ScrollArea viewportClassName="max-h-[min(28rem,55dvh)]">
+					<Table aria-label="Members and roles">
+						<TableHeader>
+							<TableRow>
+								<TableHead>Member</TableHead>
+								<TableHead>Role</TableHead>
+								<TableHead>Actions</TableHead>
+							</TableRow>
+						</TableHeader>
+						<TableBody>
+							{[...input.directory.members]
+								.sort(
+									(a, b) => memberRoleOrder(a.role) - memberRoleOrder(b.role)
+								)
+								.map((member, index) => (
+									<OrganizationMemberRoleRow
+										canManage={input.canManage}
+										canRemove={input.canRemoveMembers}
+										currentUserId={input.currentUserId}
+										index={index}
+										key={member.memberId}
+										member={member}
+										organizationId={input.organizationId}
+									/>
+								))}
+						</TableBody>
+					</Table>
+				</ScrollArea>
 			) : null}
 			<div className="mt-3 space-y-1 text-muted-foreground text-xs leading-5">
 				<p>Owner — Full control, including deleting the organization.</p>
@@ -615,6 +640,7 @@ function OrganizationMembersSection(input: {
 }
 
 function OrganizationMemberRoleRow(input: {
+	index: number;
 	canManage: boolean;
 	canRemove: boolean;
 	currentUserId: string;
@@ -676,8 +702,8 @@ function OrganizationMemberRoleRow(input: {
 	const isMutating = roleMutation.isPending || removeMutation.isPending;
 
 	return (
-		<li className="grid min-w-0 gap-3 border-border/70 border-b px-4 py-3 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-			<div className="min-w-0">
+		<TableRow index={input.index}>
+			<TableCell className="w-full max-w-0">
 				<p className="truncate font-medium text-foreground text-sm">
 					{memberName}
 				</p>
@@ -697,8 +723,8 @@ function OrganizationMemberRoleRow(input: {
 				{savedMessage ? (
 					<p className="mt-1 text-muted-foreground text-xs">{savedMessage}</p>
 				) : null}
-			</div>
-			<div className="flex flex-wrap items-center gap-2">
+			</TableCell>
+			<TableCell>
 				{canEdit ? (
 					<Select
 						disabled={isMutating}
@@ -725,77 +751,91 @@ function OrganizationMemberRoleRow(input: {
 						</SelectContent>
 					</Select>
 				) : (
-					<span className="shrink-0 rounded-sm border border-border px-2 py-1 text-muted-foreground text-xs capitalize">
+					<span className="text-muted-foreground capitalize">
 						{input.member.role}
 					</span>
 				)}
-				{canEdit ? (
-					<Button
-						disabled={!hasChanges || isMutating}
-						onClick={() => {
-							setSavedMessage(null);
-							roleMutation.mutate();
-						}}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						{roleMutation.isPending ? "Saving" : "Save role"}
-					</Button>
-				) : null}
-				{canRemove ? (
-					<Button
-						aria-label={`Remove ${memberName}`}
-						disabled={isMutating}
-						onClick={() => {
-							setSavedMessage(null);
-							removeMutation.reset();
-							setRemoveDialogOpen(true);
-						}}
-						size="sm"
-						type="button"
-						variant="destructive"
-					>
-						Remove
-					</Button>
-				) : null}
-			</div>
-			<AlertDialog
-				onOpenChange={(open) => {
-					if (!removeMutation.isPending) {
-						setRemoveDialogOpen(open);
-						if (!(open || removeMutation.isError)) {
-							removeMutation.reset();
-						}
-					}
-				}}
-				open={removeDialogOpen}
-			>
-				<AlertDialogContent>
-					<AlertDialogHeader>
-						<AlertDialogTitle>Remove {memberName}?</AlertDialogTitle>
-						<AlertDialogDescription>
-							This action cannot be undone. {memberName} will immediately lose
-							access to this organization.
-						</AlertDialogDescription>
-					</AlertDialogHeader>
-					<AlertDialogFooter>
-						<AlertDialogCancel disabled={removeMutation.isPending}>
-							Cancel
-						</AlertDialogCancel>
-						<AlertDialogAction
-							disabled={removeMutation.isPending}
-							onClick={() => removeMutation.mutate()}
+			</TableCell>
+			<TableCell>
+				<div className="flex items-center gap-2">
+					{canEdit || canRemove ? null : (
+						<span className="text-muted-foreground">—</span>
+					)}
+					{canEdit ? (
+						<Button
+							disabled={!hasChanges || isMutating}
+							onClick={() => {
+								setSavedMessage(null);
+								roleMutation.mutate();
+							}}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							{roleMutation.isPending ? "Saving" : "Save role"}
+						</Button>
+					) : null}
+					{canRemove ? (
+						<Button
+							aria-label={`Remove ${memberName}`}
+							disabled={isMutating}
+							onClick={() => {
+								setSavedMessage(null);
+								removeMutation.reset();
+								setRemoveDialogOpen(true);
+							}}
+							size="sm"
 							type="button"
 							variant="destructive"
 						>
-							{removeMutation.isPending ? "Removing" : "Remove member"}
-						</AlertDialogAction>
-					</AlertDialogFooter>
-				</AlertDialogContent>
-			</AlertDialog>
-		</li>
+							Remove
+						</Button>
+					) : null}
+				</div>
+				<AlertDialog
+					onOpenChange={(open) => {
+						if (!removeMutation.isPending) {
+							setRemoveDialogOpen(open);
+							if (!(open || removeMutation.isError)) {
+								removeMutation.reset();
+							}
+						}
+					}}
+					open={removeDialogOpen}
+				>
+					<AlertDialogContent>
+						<AlertDialogHeader>
+							<AlertDialogTitle>Remove {memberName}?</AlertDialogTitle>
+							<AlertDialogDescription>
+								This action cannot be undone. {memberName} will immediately lose
+								access to this organization.
+							</AlertDialogDescription>
+						</AlertDialogHeader>
+						<AlertDialogFooter>
+							<AlertDialogCancel disabled={removeMutation.isPending}>
+								Cancel
+							</AlertDialogCancel>
+							<AlertDialogAction
+								disabled={removeMutation.isPending}
+								onClick={() => removeMutation.mutate()}
+								type="button"
+								variant="destructive"
+							>
+								{removeMutation.isPending ? "Removing" : "Remove member"}
+							</AlertDialogAction>
+						</AlertDialogFooter>
+					</AlertDialogContent>
+				</AlertDialog>
+			</TableCell>
+		</TableRow>
 	);
+}
+
+function memberRoleOrder(role: string): number {
+	if (role === "owner") {
+		return 0;
+	}
+	return role === "admin" ? 1 : 2;
 }
 
 function normalizeEditableMemberRole(role: string): OrganizationInviteRole {
