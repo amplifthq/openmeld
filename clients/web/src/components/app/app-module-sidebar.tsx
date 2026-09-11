@@ -8,7 +8,9 @@ import {
 import {
 	type SidebarGeometry,
 	SidebarProvider,
+	useSidebar,
 } from "@openmeld/ui/fluid/sidebar-state";
+import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import {
 	createContext,
 	type ReactNode,
@@ -104,6 +106,7 @@ export function AppModuleSidebar(input: {
 	scrollKey: string;
 }) {
 	const { presentation } = useAppNavigationPresentation();
+	const { isPeeking } = useSidebar();
 	const restoreScroll = useCallback(
 		(node: HTMLDivElement | null) => {
 			if (node) {
@@ -137,9 +140,17 @@ export function AppModuleSidebar(input: {
 	return (
 		<Sidebar
 			aria-label={input.label}
-			className="h-full border-border border-r bg-sidebar text-sidebar-foreground [&_[data-sidebar=panel]]:bg-sidebar [&_[data-sidebar=restore]]:left-20"
+			className="h-full border-border border-r bg-sidebar text-sidebar-foreground [&_[data-sidebar=panel]]:bg-sidebar [&_[data-sidebar=restore]]:hidden [&_[data-sidebar=reveal]]:w-8"
 			data-testid="app-module-sidebar"
 		>
+			{isPeeking && (
+				<div className="flex shrink-0 justify-end px-3 pt-3">
+					<SidebarTrigger className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground text-xs hover:bg-muted hover:text-foreground">
+						<SidebarSimpleIcon aria-hidden="true" className="size-4" />
+						Expand sidebar
+					</SidebarTrigger>
+				</div>
+			)}
 			{content}
 		</Sidebar>
 	);

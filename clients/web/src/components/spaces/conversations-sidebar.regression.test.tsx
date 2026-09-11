@@ -1050,7 +1050,7 @@ describe("ConversationsSidebar", () => {
 		expect(screen.queryByRole("link", { name: "Acme Project" })).toBeNull();
 	});
 
-	it("[S18] renders the Messenger title without repeating the OpenMeld brand", () => {
+	it("[S18] renders the Spaces title without repeating the OpenMeld brand", () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
@@ -1064,7 +1064,7 @@ describe("ConversationsSidebar", () => {
 		);
 
 		expect(sidebarHeader).toBeNull();
-		expect(screen.getByRole("link", { name: "Messenger" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(screen.queryByText("Chatroom for agents & humans")).toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "OpenMeld Spaces" })

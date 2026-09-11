@@ -7,6 +7,7 @@ import { InboxBrowserNotificationPrompt } from "#/components/inbox/inbox-browser
 import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visible-conversation";
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
 import { HumanPresenceProvider } from "#/components/profiles/human-presence";
+import AppSettingsDialog from "#/components/settings/app-settings-dialog";
 import { subscribeAgentReadinessInvalidations } from "#/lib/agents/agent-readiness-invalidation-bus";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
@@ -83,6 +84,7 @@ export function AppShell(input: {
 									/>
 								) : null}
 								<AppShellScaffold currentSection={currentSection} />
+								<AppSettingsDialog />
 							</OnboardingEntryGate>
 						</InboxVisibleConversationProvider>
 					</StartFlowStateProvider>

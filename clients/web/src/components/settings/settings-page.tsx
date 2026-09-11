@@ -1,4 +1,4 @@
-import { Badge } from "@openmeld/ui/components/badge";
+import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -6,7 +6,6 @@ import {
 	type SettingsSectionDef,
 	toSettingsNavItems,
 } from "@openmeld/ui/lib/settings-contract";
-import { cn } from "@openmeld/ui/lib/utils";
 import {
 	BellIcon,
 	BuildingsIcon,
@@ -19,7 +18,7 @@ import {
 	UsersIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { redirect } from "@tanstack/react-router";
+import { redirect, useLocation } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import {
 	AppContextualContentFrame,
@@ -43,7 +42,6 @@ import {
 	APP_SIDEBAR_DEFAULT_STATES,
 	type AppSidebarPersistedStates,
 } from "#/lib/sidebar-width-cookie";
-import { useInvitationReviewCount } from "#/query/organizations/invitation-requests";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
 import { buildSettingsSections } from "./settings-sections";
 
@@ -65,8 +63,6 @@ const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"invitations",
 	"security",
 ] as const;
-const SETTINGS_IDENTITY_BADGE_CLASS_NAME =
-	"h-4 shrink-0 border-border/70 bg-muted/30 px-1.5 text-[10px] text-muted-foreground";
 
 /**
  * The Web usage of the shared Settings contract — see
@@ -75,9 +71,8 @@ const SETTINGS_IDENTITY_BADGE_CLASS_NAME =
  * registry by those capabilities, and renders the active section inside the
  * unified app shell.
  *
- * The contextual nav renders each `to` as a real route link (deep-linkable,
- * back/forward, open-in-new-tab). The active item is driven by
- * `activeSectionId`, which the active leaf route supplies.
+ * Both the standalone route and global dialog use this registry and navigation.
+ * The host supplies the active section and, for the dialog, section navigation.
  */
 
 // Plain Web is a cloud-account host: no local OpenMeld Service, so the Service
@@ -88,7 +83,10 @@ const WEB_HOST_CAPABILITIES = resolveHostCapabilities("cloud");
 export function SettingsPage(input: {
 	activeSectionId: string;
 	initialSidebarStates?: AppSidebarPersistedStates;
+	presentation?: "page" | "dialog";
+	onNavigate?: (section: string) => void;
 }) {
+	const pathname = useLocation({ select: (location) => location.pathname });
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const sections = resolveSettingsSections(
@@ -107,6 +105,13 @@ export function SettingsPage(input: {
 	// the requested URL. Redirect to the always-present Account leaf instead.
 	// This also protects any future gated leaf added to the registry.
 	if (!activeSection) {
+		if (input.presentation === "dialog") {
+			throw redirect({
+				to: pathname,
+				replace: true,
+				search: (previous) => ({ ...previous, appSettings: "account" }),
+			});
+		}
 		throw redirect({
 			replace: true,
 			to: buildOrganizationAccountSettingsPath(orgSlug),
@@ -120,12 +125,16 @@ export function SettingsPage(input: {
 			currentUserId={currentUserId}
 			initialSidebarStates={input.initialSidebarStates}
 			navItems={navItems}
+			onNavigate={input.onNavigate}
 			organization={currentOrganization}
+			presentation={input.presentation}
 		/>
 	);
 }
 
 function SettingsPageShell(input: {
+	presentation?: "page" | "dialog";
+	onNavigate?: (section: string) => void;
 	activeSection: SettingsSectionDef;
 	activeSectionId: string;
 	currentUserId: string;
@@ -146,6 +155,40 @@ function SettingsPageShell(input: {
 		isPersonal: input.organization.isPersonal === true,
 		role: roleQuery.data,
 	});
+	const navigation = (
+		<SettingsInnerSidebar
+			activeSectionId={input.activeSectionId}
+			isPersonalWorkspace={input.organization.isPersonal === true}
+			items={input.navItems}
+			onNavigate={input.onNavigate}
+			onSendFeedback={() => setFeedbackOpen(true)}
+			organizationName={input.organization.name}
+			organizationRole={organizationRole}
+			presentation={input.presentation}
+		/>
+	);
+	const content = input.activeSection.render({
+		capabilities: WEB_HOST_CAPABILITIES,
+	});
+	if (input.presentation === "dialog") {
+		return (
+			<>
+				<SettingsDialogContent
+					contentKey={input.activeSectionId}
+					description="Manage your account and organization preferences."
+					navigation={navigation}
+					spacious
+					title="App settings"
+				>
+					{content}
+				</SettingsDialogContent>
+				<SendFeedbackDialog
+					onOpenChange={setFeedbackOpen}
+					open={feedbackOpen}
+				/>
+			</>
+		);
+	}
 
 	return (
 		<>
@@ -162,22 +205,11 @@ function SettingsPageShell(input: {
 						preferenceKey="settings"
 						separatorLabel="Resize the settings sidebar"
 					>
-						<SettingsInnerSidebar
-							activeSectionId={input.activeSectionId}
-							isPersonalWorkspace={input.organization.isPersonal === true}
-							items={input.navItems}
-							onSendFeedback={() => setFeedbackOpen(true)}
-							organizationName={input.organization.name}
-							organizationRole={organizationRole}
-						/>
+						{navigation}
 					</AppInnerSidebar>
 				}
 			>
-				<SettingsContentFrame>
-					{input.activeSection.render({
-						capabilities: WEB_HOST_CAPABILITIES,
-					})}
-				</SettingsContentFrame>
+				<SettingsContentFrame>{content}</SettingsContentFrame>
 			</AppSurfaceLayout>
 			<SendFeedbackDialog onOpenChange={setFeedbackOpen} open={feedbackOpen} />
 		</>
@@ -197,6 +229,8 @@ export function SettingsContentFrame(input: { children: ReactNode }) {
 }
 
 export function SettingsInnerSidebar(input: {
+	presentation?: "page" | "dialog";
+	onNavigate?: (section: string) => void;
 	activeSectionId: string;
 	isPersonalWorkspace: boolean;
 	items: readonly SettingsNavItem[];
@@ -204,25 +238,37 @@ export function SettingsInnerSidebar(input: {
 	organizationName: string;
 	organizationRole: SettingsOrganizationRole | null;
 }) {
-	const reviewCount = useInvitationReviewCount().data ?? 0;
 	const groups = toContextualSettingsNavGroups({
 		isPersonalWorkspace: input.isPersonalWorkspace,
 		items: input.items,
 		organizationName: input.organizationName,
 		organizationRole: input.organizationRole,
-		reviewCount,
 	});
 
 	return (
 		<AppContextualSidebarNav
 			activeItemId={input.activeSectionId}
 			ariaLabel="Settings"
-			groups={groups}
+			groups={
+				input.onNavigate
+					? groups.map((group) =>
+							group.items
+								? {
+										...group,
+										items: group.items.map(({ to: _to, ...item }) => item),
+									}
+								: group
+						)
+					: groups
+			}
 			onActivate={(itemId) => {
 				if (itemId === SEND_FEEDBACK_SETTINGS_ITEM_ID) {
 					input.onSendFeedback();
+				} else {
+					input.onNavigate?.(itemId);
 				}
 			}}
+			placement={input.presentation === "dialog" ? "main" : "secondary"}
 			title="Settings"
 		/>
 	);
@@ -252,7 +298,6 @@ function resolveSettingsNavIcon(sectionId: string): Icon {
 }
 
 function toContextualSettingsNavGroups(input: {
-	reviewCount: number;
 	isPersonalWorkspace: boolean;
 	items: readonly SettingsNavItem[];
 	organizationName: string;
@@ -266,42 +311,10 @@ function toContextualSettingsNavGroups(input: {
 			icon: resolveSettingsNavIcon(item.id),
 			id: item.id,
 			label: item.title,
-			accessory:
-				item.id === "invitations" && input.reviewCount > 0 ? (
-					<span
-						className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500/15 px-1.5 text-amber-600 text-xs dark:text-amber-400"
-						title={`${input.reviewCount} invitation requests need attention`}
-					>
-						{input.reviewCount > 99 ? "99+" : input.reviewCount}
-					</span>
-				) : undefined,
 			to: item.to,
 		};
 	});
 	const organizationLabel = input.organizationName;
-	const identityBadges =
-		input.organizationRole || !input.isPersonalWorkspace ? (
-			<span className="flex shrink-0 items-center gap-1">
-				{input.isPersonalWorkspace ? null : (
-					<Badge
-						aria-label="Organization"
-						className={SETTINGS_IDENTITY_BADGE_CLASS_NAME}
-						variant="outline"
-					>
-						Org
-					</Badge>
-				)}
-				{input.organizationRole ? (
-					<Badge
-						aria-label={`Organization role: ${input.organizationRole}`}
-						className={cn(SETTINGS_IDENTITY_BADGE_CLASS_NAME, "lowercase")}
-						variant="outline"
-					>
-						{input.organizationRole}
-					</Badge>
-				) : null}
-			</span>
-		) : null;
 	return [
 		{
 			ariaLabel: "Personal settings",
@@ -331,7 +344,6 @@ function toContextualSettingsNavGroups(input: {
 					input.organizationRole === "admin"
 			),
 			label: organizationLabel,
-			labelAccessory: identityBadges,
 		},
 	];
 }

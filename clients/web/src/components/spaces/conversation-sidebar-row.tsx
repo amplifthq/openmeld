@@ -17,9 +17,9 @@ import {
 	SidebarMenuButton,
 } from "@openmeld/ui/fluid/sidebar-menu";
 import {
+	ChatCircleTextIcon,
 	CloudIcon,
 	DotsThreeIcon,
-	HashIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -321,7 +321,7 @@ function ConversationIcon(input: {
 			/>
 		);
 	}
-	return <HashIcon aria-label="Space" className="size-5 shrink-0" />;
+	return <ChatCircleTextIcon aria-label="Space" className="size-5 shrink-0" />;
 }
 
 export function resolvePreviewText(

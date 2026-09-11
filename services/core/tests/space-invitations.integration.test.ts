@@ -445,6 +445,103 @@ const requestCore: CoreBindings = {
 };
 
 describe("invitation approval boundary", () => {
+  it("lists old pending requests before completed records across pages and keeps member history private", async () => {
+    const f = await fixture();
+    await env.OPENMELD_DB.batch(
+      Array.from({ length: 104 }, (_, index) =>
+        env.OPENMELD_DB.prepare(
+          "INSERT INTO organization_join_requests (id, organization_id, requested_by_user_id, email, status, created_at, reviewed_by_user_id, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+        ).bind(
+          `${f.organizationId}-${index}`,
+          f.organizationId,
+          f.ownerId,
+          `request-${index}@example.com`,
+          index < 2 ? "pending" : "approved",
+          index < 2 ? 1 : 1000 + index,
+          index < 2 ? null : f.ownerId,
+          index < 2 ? null : 2000 + index
+        )
+      )
+    );
+    const call = (
+      userId: string,
+      request: OrganizationJoinRequestRpcInput["request"]
+    ) =>
+      organizationJoinRequest(requestCore, {
+        responseVersion: "3",
+        userId,
+        email: `${userId}@example.com`,
+        emailVerified: true,
+        request,
+      });
+    const first = await call(f.ownerId, {
+      action: "list",
+      organizationId: f.organizationId,
+    });
+    if (!first.ok) {
+      throw new Error(first.message);
+    }
+    expect(first.requests).toHaveLength(100);
+    expect(first.requests.slice(0, 2).map((request) => request.status)).toEqual(
+      ["pending", "pending"]
+    );
+    expect(
+      first.requests.slice(2).every((request) => request.status === "approved")
+    ).toBe(true);
+    const last = first.requests.at(-1);
+    if (!last) {
+      throw new Error("Expected a cursor row");
+    }
+    const next = await call(f.ownerId, {
+      action: "list",
+      organizationId: f.organizationId,
+      before: {
+        createdAt: last.createdAt,
+        id: last.id,
+        pending: last.status === "pending",
+      },
+    });
+    if (!next.ok) {
+      throw new Error(next.message);
+    }
+    expect(next.requests).toHaveLength(4);
+    expect(
+      new Set(
+        [...first.requests, ...next.requests].map((request) => request.id)
+      ).size
+    ).toBe(104);
+    // A page ending inside the pending group must include remaining pending
+    // rows before crossing into completed records, even at an equal timestamp.
+    const pendingCursor = first.requests[0];
+    if (!pendingCursor) {
+      throw new Error("Expected a pending cursor row");
+    }
+    const afterPending = await call(f.ownerId, {
+      action: "list",
+      organizationId: f.organizationId,
+      before: {
+        createdAt: pendingCursor.createdAt,
+        id: pendingCursor.id,
+        pending: true,
+      },
+    });
+    expect(afterPending).toMatchObject({
+      ok: true,
+      requests: [
+        first.requests[1],
+        ...first.requests.slice(2),
+        next.requests[0],
+      ],
+    });
+    await f.joinOrganization();
+    expect(
+      await call(f.recipientId, {
+        action: "list",
+        organizationId: f.organizationId,
+      })
+    ).toMatchObject({ ok: true, requests: [] });
+  });
+
   it("does not complete a Space invitation just because the recipient belongs to the organization", async () => {
     const f = await fixture();
     await f.joinOrganization();
@@ -532,7 +629,7 @@ describe("invitation approval boundary", () => {
     ).toEqual({ total: 0 });
     expect(await f.memberStatus()).toBeNull();
   });
-  it("notifies every administrator urgently and lets any one complete a recipient's joining request", async () => {
+  it("notifies every administrator without marking routine reviews urgent and lets any one complete a recipient's joining request", async () => {
     const f = await fixture();
     const adminId = crypto.randomUUID();
     await env.OPENMELD_DB.batch([
@@ -545,10 +642,11 @@ describe("invitation approval boundary", () => {
     ]);
     const call = (
       userId: string,
-      request: OrganizationJoinRequestRpcInput["request"]
+      request: OrganizationJoinRequestRpcInput["request"],
+      responseVersion: "2" | "3" = "2"
     ) =>
       organizationJoinRequest(requestCore, {
-        responseVersion: "2",
+        responseVersion,
         userId,
         email: `${userId}@example.com`,
         emailVerified: true,
@@ -584,7 +682,7 @@ describe("invitation approval boundary", () => {
       expect.arrayContaining(
         [f.ownerId, adminId].map((recipient_user_id) => ({
           recipient_user_id,
-          importance: "urgent",
+          importance: "normal",
           attention: "action_required",
         }))
       )
@@ -598,15 +696,20 @@ describe("invitation approval boundary", () => {
         .first()
     ).toEqual({ total: 2 });
     const decisions = await Promise.all([
-      call(f.ownerId, { action: "approve", requestId }),
-      call(adminId, { action: "approve", requestId }),
+      call(f.ownerId, { action: "approve", requestId }, "3"),
+      call(adminId, { action: "approve", requestId }, "3"),
     ]);
-    for (const decision of decisions) {
-      expect(decision).toMatchObject({
-        ok: true,
-        requests: [{ status: "approved" }],
-      });
+    expect(decisions.filter((decision) => decision.ok)).toHaveLength(1);
+    expect(decisions.find((decision) => !decision.ok)).toMatchObject({
+      ok: false,
+      code: "organization.join_request.already_reviewed",
+    });
+    const approved = decisions.find((decision) => decision.ok);
+    if (!approved?.ok) {
+      throw new Error("No approval succeeded");
     }
+    const retried = await call(adminId, { action: "retry", requestId }, "3");
+    expect(retried).toEqual(approved);
     expect(
       await call(adminId, { action: "join_complete", requestId })
     ).toMatchObject({ ok: false });
@@ -689,7 +792,7 @@ describe("invitation approval boundary", () => {
       )
         .bind(f.organizationId, `invitation:${requestId}`)
         .first()
-    ).toEqual({ importance: "urgent", attention: "action_required" });
+    ).toEqual({ importance: "normal", attention: "action_required" });
     expect(
       await call(f.ownerId, { action: "approve", requestId })
     ).toMatchObject({

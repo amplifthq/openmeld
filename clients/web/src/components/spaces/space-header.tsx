@@ -7,11 +7,7 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ChatCircleTextIcon,
-	HashIcon,
-	WarningIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleTextIcon, WarningIcon } from "@phosphor-icons/react";
 import { Fragment, type ReactNode, useState } from "react";
 import {
 	AppModuleSidebarToggle,
@@ -309,9 +305,8 @@ export function SpaceHeader(input: {
 }
 
 export function SpaceHeaderIdentityIcon(input: { isDirectMessage: boolean }) {
-	const Icon = input.isDirectMessage ? ChatCircleTextIcon : HashIcon;
 	return (
-		<Icon
+		<ChatCircleTextIcon
 			aria-hidden="true"
 			className="size-4 text-muted-foreground"
 			data-space-header-icon={

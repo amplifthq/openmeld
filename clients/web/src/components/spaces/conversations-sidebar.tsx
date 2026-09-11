@@ -14,6 +14,9 @@ import {
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
@@ -24,13 +27,21 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
+	ChatCircleTextIcon,
 	CompassIcon,
+	DotsThreeIcon,
 	FunnelSimpleIcon,
 	ListIcon,
 	PlusIcon,
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type MouseEvent, useMemo, useState } from "react";
+import {
+	type MouseEvent,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import {
 	resolveInboxAttentionLabel,
@@ -90,6 +101,8 @@ export function ConversationsSidebar(
 	});
 	const { view, setView } = useConversationView(currentUserId, dm.org.id);
 	const [search, setSearch] = useState("");
+	const { headerRef, titleRef, actionsRef, compactActions } =
+		useHeaderActionOverflow();
 	const [archived, setArchived] = useState(false);
 	const [creating, setCreating] = useState(false);
 	const [newMessageQuery, setNewMessageQuery] = useState("");
@@ -222,117 +235,200 @@ export function ConversationsSidebar(
 			newMessage(section.groupId ? section.id : undefined);
 		}
 	};
+	const creationMenu = (
+		<>
+			<DropdownMenuItem onClick={() => newMessage()}>
+				New message
+			</DropdownMenuItem>
+			<DropdownMenuItem
+				render={
+					<Link
+						onClick={onNavigate}
+						to={buildOrganizationNewSpacePath(dm.org.slug)}
+					/>
+				}
+			>
+				New Space
+			</DropdownMenuItem>
+		</>
+	);
+	const viewMenu = (
+		<>
+			<DropdownMenuRadioGroup
+				onValueChange={(value) => {
+					if (value === "grouped" || value === "recent") {
+						setView(value);
+					}
+				}}
+				value={view}
+			>
+				<DropdownMenuRadioItem closeOnClick value="grouped">
+					Grouped
+				</DropdownMenuRadioItem>
+				<DropdownMenuRadioItem closeOnClick value="recent">
+					Recent
+				</DropdownMenuRadioItem>
+			</DropdownMenuRadioGroup>
+		</>
+	);
+	const filterMenu = (
+		<>
+			{kinds.menu}
+			<DropdownMenuSeparator />
+			{filter.menu}
+			<DropdownMenuSeparator />
+			<DropdownMenuCheckboxItem
+				checked={archived}
+				onCheckedChange={setArchived}
+			>
+				Archived direct messages
+			</DropdownMenuCheckboxItem>
+		</>
+	);
 	return (
 		<>
-			<div className="mb-2 flex min-w-0 flex-wrap items-center gap-1 px-1">
-				<MessengerDirectoryLink
-					inbox={dm.inbox.data}
-					onNavigate={onNavigate}
-					orgSlug={dm.org.slug}
-				/>
-				<div className="ml-auto flex shrink-0 items-center gap-1">
-					<Tooltip>
-						<TooltipTrigger
-							render={
-								<Link
-									aria-label="Browse spaces"
-									className={buttonVariants({
-										size: "icon-sm",
-										variant: "ghost",
-									})}
-									onClick={onNavigate}
-									to={buildOrganizationSpacesPath(dm.org.slug)}
-								/>
-							}
-						>
-							<CompassIcon aria-hidden="true" />
-						</TooltipTrigger>
-						<TooltipContent>Browse spaces</TooltipContent>
-					</Tooltip>
+			<div className="mb-2 px-1">
+				<div
+					className="relative flex min-w-0 items-center gap-1"
+					ref={headerRef}
+				>
+					<div className="shrink-0" ref={titleRef}>
+						<SpacesDirectoryLink
+							inbox={dm.inbox.data}
+							onNavigate={onNavigate}
+							orgSlug={dm.org.slug}
+						/>
+					</div>
+					<div
+						className={
+							compactActions
+								? "pointer-events-none invisible absolute right-0 flex w-max items-center gap-1"
+								: "ml-auto flex shrink-0 items-center gap-1"
+						}
+						inert={compactActions}
+						ref={actionsRef}
+					>
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Link
+										aria-label="Browse spaces"
+										className={buttonVariants({
+											size: "icon-sm",
+											variant: "ghost",
+										})}
+										onClick={onNavigate}
+										to={buildOrganizationSpacesPath(dm.org.slug)}
+									/>
+								}
+							>
+								<CompassIcon aria-hidden="true" />
+							</TooltipTrigger>
+							<TooltipContent>Browse spaces</TooltipContent>
+						</Tooltip>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="New conversation"
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<PlusIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{creationMenu}
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="Conversation view"
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<ListIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">{viewMenu}</DropdownMenuContent>
+						</DropdownMenu>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="Filter conversations"
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<FunnelSimpleIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="end"
+								className="w-60 max-w-[calc(100vw-2rem)]"
+							>
+								{filterMenu}
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
 					<DropdownMenu>
 						<DropdownMenuTrigger
 							render={
 								<Button
-									aria-label="New conversation"
+									aria-label="Spaces actions"
+									className="ml-auto hidden shrink-0 data-[compact=true]:inline-flex"
+									data-compact={compactActions}
 									size="icon-sm"
 									variant="ghost"
 								/>
 							}
 						>
-							<PlusIcon />
+							<DotsThreeIcon />
 						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							<DropdownMenuItem onClick={() => newMessage()}>
-								New message
-							</DropdownMenuItem>
+						<DropdownMenuContent align="start" className="w-56">
 							<DropdownMenuItem
 								render={
 									<Link
 										onClick={onNavigate}
-										to={buildOrganizationNewSpacePath(dm.org.slug)}
+										to={buildOrganizationSpacesPath(dm.org.slug)}
 									/>
 								}
 							>
-								New Space
+								<CompassIcon aria-hidden="true" />
+								Browse spaces
 							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label="Conversation view"
-									size="icon-sm"
-									variant="ghost"
-								/>
-							}
-						>
-							<ListIcon />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end">
-							<DropdownMenuRadioGroup
-								onValueChange={(value) => {
-									if (value === "grouped" || value === "recent") {
-										setView(value);
-									}
-								}}
-								value={view}
-							>
-								<DropdownMenuRadioItem closeOnClick value="grouped">
-									Grouped
-								</DropdownMenuRadioItem>
-								<DropdownMenuRadioItem closeOnClick value="recent">
-									Recent
-								</DropdownMenuRadioItem>
-							</DropdownMenuRadioGroup>
-						</DropdownMenuContent>
-					</DropdownMenu>
-					<DropdownMenu>
-						<DropdownMenuTrigger
-							render={
-								<Button
-									aria-label="Filter conversations"
-									size="icon-sm"
-									variant="ghost"
-								/>
-							}
-						>
-							<FunnelSimpleIcon />
-						</DropdownMenuTrigger>
-						<DropdownMenuContent
-							align="end"
-							className="w-60 max-w-[calc(100vw-2rem)]"
-						>
-							{kinds.menu}
-							<DropdownMenuSeparator />
-							{filter.menu}
-							<DropdownMenuSeparator />
-							<DropdownMenuCheckboxItem
-								checked={archived}
-								onCheckedChange={setArchived}
-							>
-								Archived direct messages
-							</DropdownMenuCheckboxItem>
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									<PlusIcon aria-hidden="true" />
+									New conversation
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent className="w-60">
+									{creationMenu}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									<ListIcon aria-hidden="true" />
+									Conversation view
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent className="w-60">
+									{viewMenu}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									<FunnelSimpleIcon aria-hidden="true" />
+									Filter conversations
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent className="w-60">
+									{filterMenu}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
 						</DropdownMenuContent>
 					</DropdownMenu>
 				</div>
@@ -651,7 +747,7 @@ export function ConversationsSidebar(
 	);
 }
 
-function MessengerDirectoryLink({
+function SpacesDirectoryLink({
 	inbox,
 	onNavigate,
 	orgSlug,
@@ -668,7 +764,7 @@ function MessengerDirectoryLink({
 		unreadUrgentUpdateCount: inbox?.chatUnreadUrgentUpdateCount,
 	});
 	const label = [
-		"Messenger",
+		"Spaces",
 		resolveInboxAttentionLabel(tone),
 		unreadCount > 0
 			? `${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`
@@ -683,7 +779,11 @@ function MessengerDirectoryLink({
 			onClick={onNavigate}
 			to={buildOrganizationDirectMessagesPath(orgSlug)}
 		>
-			<span className="truncate">Messenger</span>
+			<ChatCircleTextIcon
+				aria-hidden="true"
+				className="size-4 shrink-0 text-muted-foreground"
+			/>
+			<span className="truncate">Spaces</span>
 			{unreadCount > 0 || tone ? (
 				<span
 					aria-hidden="true"
@@ -693,4 +793,35 @@ function MessengerDirectoryLink({
 			) : null}
 		</Link>
 	);
+}
+
+function useHeaderActionOverflow() {
+	const headerRef = useRef<HTMLDivElement>(null);
+	const titleRef = useRef<HTMLDivElement>(null);
+	const actionsRef = useRef<HTMLDivElement>(null);
+	const [compactActions, setCompactActions] = useState(false);
+	useLayoutEffect(() => {
+		const header = headerRef.current;
+		const title = titleRef.current;
+		const actions = actionsRef.current;
+		if (!(header && title && actions)) {
+			return;
+		}
+		const measure = () => {
+			const gap = Number.parseFloat(getComputedStyle(header).columnGap) || 0;
+			setCompactActions(
+				title.getBoundingClientRect().width +
+					actions.getBoundingClientRect().width +
+					gap >
+					header.getBoundingClientRect().width
+			);
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(header);
+		observer.observe(title);
+		observer.observe(actions);
+		return () => observer.disconnect();
+	}, []);
+	return { headerRef, titleRef, actionsRef, compactActions };
 }

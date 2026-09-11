@@ -35,6 +35,13 @@ export function OrganizationInboxPreview(input: {
 			view: "needs_action",
 		})
 	);
+	const reviewsQuery = useInfiniteQuery(
+		inboxItemsInfiniteQueryOptions({
+			enabled,
+			organizationId: input.currentOrganization.id,
+			view: "needs_review",
+		})
+	);
 	const unreadQuery = useInfiniteQuery(
 		inboxItemsInfiniteQueryOptions({
 			enabled,
@@ -52,19 +59,29 @@ export function OrganizationInboxPreview(input: {
 	const actionItems = (
 		actionsQuery.data?.pages.flatMap((page) => page.items) ?? []
 	).slice(0, actionLimit);
+	const reviewItems = (
+		reviewsQuery.data?.pages.flatMap((page) => page.items) ?? []
+	).slice(0, Math.min(actionLimit, itemLimit - actionItems.length));
 	const urgentItems = (
 		urgentQuery.data?.pages.flatMap((page) => page.items) ?? []
-	).slice(0, Math.min(2, itemLimit - actionItems.length));
+	).slice(0, Math.min(2, itemLimit - actionItems.length - reviewItems.length));
 	const updateItems = (
 		unreadQuery.data?.pages.flatMap((page) => page.items) ?? []
-	).slice(0, itemLimit - actionItems.length - urgentItems.length);
+	).slice(
+		0,
+		itemLimit - actionItems.length - reviewItems.length - urgentItems.length
+	);
 	const { setRead } = useInboxItemReadMutation({
 		organizationId: input.currentOrganization.id,
 	});
 	const refreshFailed =
-		actionsQuery.isError || unreadQuery.isError || urgentQuery.isError;
+		actionsQuery.isError ||
+		reviewsQuery.isError ||
+		unreadQuery.isError ||
+		urgentQuery.isError;
 	const dataUnavailable =
 		(actionsQuery.isError && !actionsQuery.data) ||
+		(reviewsQuery.isError && !reviewsQuery.data) ||
 		(unreadQuery.isError && !unreadQuery.data) ||
 		(urgentQuery.isError && !urgentQuery.data);
 
@@ -73,7 +90,10 @@ export function OrganizationInboxPreview(input: {
 			actionItems={actionItems}
 			isError={dataUnavailable}
 			isLoading={
-				actionsQuery.isPending || unreadQuery.isPending || urgentQuery.isPending
+				actionsQuery.isPending ||
+				reviewsQuery.isPending ||
+				unreadQuery.isPending ||
+				urgentQuery.isPending
 			}
 			isStale={refreshFailed && !dataUnavailable}
 			onOpenItem={(item) => {
@@ -83,12 +103,14 @@ export function OrganizationInboxPreview(input: {
 			onRetry={async () =>
 				await Promise.all([
 					actionsQuery.refetch(),
+					reviewsQuery.refetch(),
 					unreadQuery.refetch(),
 					urgentQuery.refetch(),
 				])
 			}
 			onSetRead={setRead}
 			organizationSlug={input.currentOrganization.slug}
+			reviewItems={reviewItems}
 			updateItems={updateItems}
 			urgentItems={urgentItems}
 		/>
@@ -96,6 +118,7 @@ export function OrganizationInboxPreview(input: {
 }
 
 function InboxPreviewContent(input: {
+	reviewItems: readonly InboxItem[];
 	urgentItems: readonly InboxItem[];
 	actionItems: readonly InboxItem[];
 	isError: boolean;
@@ -140,6 +163,7 @@ function InboxPreviewContent(input: {
 	}
 	const isEmpty =
 		input.actionItems.length === 0 &&
+		input.reviewItems.length === 0 &&
 		input.updateItems.length === 0 &&
 		input.urgentItems.length === 0;
 	return (
@@ -169,6 +193,15 @@ function InboxPreviewContent(input: {
 				<InboxPreviewSection
 					items={input.actionItems}
 					label="Needs action"
+					onOpenItem={input.onOpenItem}
+					onSetRead={input.onSetRead}
+					organizationSlug={input.organizationSlug}
+				/>
+			) : null}
+			{input.reviewItems.length > 0 ? (
+				<InboxPreviewSection
+					items={input.reviewItems}
+					label="Needs review"
 					onOpenItem={input.onOpenItem}
 					onSetRead={input.onSetRead}
 					organizationSlug={input.organizationSlug}

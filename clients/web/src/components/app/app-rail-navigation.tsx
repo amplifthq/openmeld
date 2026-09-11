@@ -20,7 +20,6 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	HouseIcon,
-	PlusIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -39,7 +38,6 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import {
-	buildOrganizationAgentCreationPath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationRootPath,
@@ -66,7 +64,7 @@ type AppRailGroup = {
 };
 
 export function buildAppRailGroups(input: {
-	messengerPath?: string;
+	conversationPath?: string;
 	chatUnreadCount?: number;
 	chatAttentionTone?: "danger" | "warning" | null;
 	orgSlug: string;
@@ -89,11 +87,11 @@ export function buildAppRailGroups(input: {
 				},
 				{
 					id: "directMessages",
-					label: "Messenger",
+					label: "Spaces",
 					unreadCount: input.spacesUnreadCount + (input.chatUnreadCount ?? 0),
 					attentionTone: input.chatAttentionTone,
 					to:
-						input.messengerPath ??
+						input.conversationPath ??
 						buildOrganizationDirectMessagesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-5" />,
 				},
@@ -102,18 +100,6 @@ export function buildAppRailGroups(input: {
 					label: "Team",
 					to: buildOrganizationPeoplePath(input.orgSlug),
 					icon: <UsersThreeIcon aria-hidden="true" className="size-5" />,
-				},
-			],
-		},
-		{
-			id: "create",
-			label: "Create",
-			destinations: [
-				{
-					id: "newAgent",
-					label: "New Agent",
-					to: buildOrganizationAgentCreationPath(input.orgSlug),
-					icon: <PlusIcon aria-hidden="true" className="size-5" />,
 				},
 			],
 		},
@@ -129,7 +115,10 @@ export function AppRailNavigationGroup(input: {
 	const { presentation } = useAppNavigationPresentation();
 	const navigation = (
 		<nav aria-label={input.group.label ?? "Primary navigation"}>
-			<SidebarMenu activeLayoutId={`main-sidebar-selection-${presentation}`}>
+			<SidebarMenu
+				activeLayoutId={`main-sidebar-selection-${presentation}`}
+				className={input.tier === "icon" ? "gap-1.5" : undefined}
+			>
 				{input.group.destinations.map((destination) => (
 					<AppRailLink
 						active={
@@ -161,11 +150,12 @@ export function AppRailNavigationGroup(input: {
 
 export function CollapsedRailTooltip(input: {
 	children: ReactElement;
+	disabled?: boolean;
 	label: string;
 	side?: "top" | "right";
 }) {
 	return (
-		<Tooltip>
+		<Tooltip disabled={input.disabled}>
 			<TooltipTrigger delay={0} render={input.children} />
 			<TooltipContent side={input.side ?? "right"}>
 				{input.label}
@@ -237,7 +227,7 @@ export function AppRailLink(input: {
 		"flex min-w-0 items-center border border-transparent outline-none focus-visible:text-sidebar-accent-foreground",
 		APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 		APP_NAV_ITEM_TONE_CLASS_NAME,
-		isIcon && "h-14 w-full flex-col justify-center gap-1.5 px-1 py-2",
+		isIcon && "h-12 w-full flex-col justify-center gap-1 px-1 py-1",
 		input.tier === "expanded" && APP_NAV_ITEM_FULL_DENSITY_CLASS_NAME,
 		input.tier === "expanded" && "gap-1.5 ps-[5px]",
 		input.active && "text-sidebar-accent-foreground"
@@ -269,12 +259,12 @@ export function AppRailLink(input: {
 	const MenuButton = SidebarMenuButton;
 	return (
 		<Item
-			className={isIcon ? "mx-auto h-14 w-full" : "group/destination relative"}
+			className={isIcon ? "mx-auto h-12 w-full" : "group/destination relative"}
 		>
 			{isIcon ? (
 				<CollapsedRailTooltip label={accessibleLabel}>
 					<SidebarMenuButton
-						className="h-14"
+						className="h-12"
 						isActive={input.active}
 						render={link}
 					>

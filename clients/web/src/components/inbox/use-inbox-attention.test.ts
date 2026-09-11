@@ -76,6 +76,6 @@ describe("Inbox attention", () => {
 				pending: false,
 				unavailable: false,
 			}).label
-		).toBe("Inbox, 2 items need action, 3 unread urgent updates");
+		).toBe("Inbox, 2 pending items, 3 unread urgent updates");
 	});
 });
