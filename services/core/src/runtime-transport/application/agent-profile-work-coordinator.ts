@@ -1,4 +1,10 @@
-export const AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING = 50;
+import { AGENT_PROFILE_WORK_MAX_WAITING } from "@openmeld/agent-runtime";
+
+// Shared policy value (packages/agent-runtime/src/work-policy.ts). The
+// coordinator still enforces one structural execution slot: index zero of
+// `workItems` owns it. The shared concurrency limit is not consumed here yet.
+export const AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING =
+  AGENT_PROFILE_WORK_MAX_WAITING;
 
 export type AgentProfileWorkCoordinatorItem = {
   dispatchId: string;

@@ -6,7 +6,10 @@ import {
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
 import type { DispatchSpaceActionRecord } from "../runtime/dispatch-space-action-context";
-import { readDispatchSpaceActionContextFromEnv } from "../runtime/dispatch-space-action-context";
+import {
+  DispatchSpaceActionClosedError,
+  readDispatchSpaceActionContextFromEnv,
+} from "../runtime/dispatch-space-action-context";
 import {
   recordDispatchSpaceReply,
   recordDispatchSpaceSilent,
@@ -150,20 +153,33 @@ export async function runSpaceActionMcpServer(): Promise<void> {
   await server.connect(new StdioServerTransport());
 }
 
-async function executeSpaceAction(
+export async function executeSpaceAction(
   action: () => DispatchSpaceActionRecord | Promise<DispatchSpaceActionRecord>
 ) {
   try {
     const record = await action();
+    // Receipt: proposal_saved_locally. This is explicitly local-only; it must
+    // not read as generic action success (design: Wake Completion And Action Receipts).
     return {
       content: [
         {
           type: "text" as const,
-          text: `Action recorded: OpenMeld saved this unpublished Space action proposal (${record.action.type}) for the current Wake.`,
+          text: `Local proposal saved (receipt: proposal_saved_locally, action: ${record.action.type}). OpenMeld has only recorded this Space action proposal on this computer for the current Wake. Coordinator acceptance and Space publication are NOT yet confirmed; do not report it as posted.`,
         },
       ],
     };
   } catch (error) {
+    if (error instanceof DispatchSpaceActionClosedError) {
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Action rejected (receipt: rejected_closed, reason: ${error.reasonCode}). ${error.message} Nothing was recorded or published.`,
+          },
+        ],
+        isError: true,
+      };
+    }
     return {
       content: [
         {

@@ -25,7 +25,10 @@ import {
   runSpaceActionTargets,
   runSpaceActionWake,
 } from "../src/space/action-command";
-import { createSpaceActionMcpServer } from "../src/space/action-mcp-server";
+import {
+  createSpaceActionMcpServer,
+  executeSpaceAction,
+} from "../src/space/action-mcp-server";
 
 const AGENT_PROFILE_ID = "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const AGENT_PROFILE_ID_TWO = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
@@ -681,6 +684,40 @@ describe("OpenMeld Space Action MCP server", () => {
       await client.close();
       await server.close();
     }
+  });
+  it("returns typed receipts at the MCP boundary: closed -> error, fresh -> local proposal, replay -> same receipt", async () => {
+    const expired = createTestContext([], { ttlMs: 1 });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const closed = await executeSpaceAction(() =>
+      writeDispatchSpaceActionRecord({
+        action: { type: "stay_silent", reason: "late" },
+        command: "test",
+        context: expired,
+      })
+    );
+    expect(closed.isError).toBe(true);
+    expect(closed.content[0]?.text).toContain("receipt: rejected_closed");
+    expect(closed.content[0]?.text).toContain("space_action.context_expired");
+    expect(closed.content[0]?.text).not.toContain("Action recorded");
+    expect(readDispatchSpaceActionRecord({ context: expired }).status).toBe(
+      "missing"
+    );
+
+    const fresh = createTestContext([]);
+    const record = () =>
+      writeDispatchSpaceActionRecord({
+        action: { type: "stay_silent", reason: "nothing to add" },
+        command: "test",
+        context: fresh,
+      });
+    const first = await executeSpaceAction(record);
+    expect(first.isError).not.toBe(true);
+    expect(first.content[0]?.text).toContain("receipt: proposal_saved_locally");
+    expect(first.content[0]?.text).toContain("NOT yet confirmed");
+    expect(first.content[0]?.text).not.toContain("Action recorded");
+
+    const replay = await executeSpaceAction(record);
+    expect(replay).toEqual(first);
   });
 });
 

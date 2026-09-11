@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_WORK_MAX_WAITING } from "@openmeld/agent-runtime";
 import { describe, expect, it } from "vitest";
 import {
   AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING,
@@ -600,5 +601,14 @@ describe("Agent Profile Work Coordinator", () => {
       status: "idle",
       waitingCount: 0,
     });
+  });
+});
+
+describe("agent-profile-work-coordinator shared policy", () => {
+  it("reads the waiting limit from the shared agent-runtime work policy", () => {
+    expect(AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING).toBe(
+      AGENT_PROFILE_WORK_MAX_WAITING
+    );
+    expect(AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING).toBe(50);
   });
 });

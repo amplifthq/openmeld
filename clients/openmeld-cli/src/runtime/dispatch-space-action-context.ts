@@ -19,6 +19,7 @@ import type {
   SpaceMemberDirectoryEntry,
 } from "@openmeld/schemas/types";
 import { isSelfWakeSpaceAction } from "@openmeld/space-mesh";
+import { z } from "zod/v4";
 import { daemonRuntimeRootPath } from "../config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../config/paths";
 import {
@@ -30,6 +31,38 @@ import {
 
 export const OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV =
   "OPENMELD_SPACE_ACTION_CONTEXT_PATH";
+
+// Local receipt discriminator for the recorder + MCP boundary. Kept in the CLI
+// (not packages/schemas) because no shared payload carries it yet; the remote
+// "accepted_for_finalization" / "published" receipts belong to the
+// Service/Coordinator path and are intentionally not modelled here.
+export const dispatchSpaceActionReceiptKindSchema = z.enum([
+  "proposal_saved_locally",
+  "rejected_closed",
+  "outcome_unknown",
+]);
+export type DispatchSpaceActionReceiptKind = z.infer<
+  typeof dispatchSpaceActionReceiptKindSchema
+>;
+
+export const dispatchSpaceActionClosedReasonCodeSchema = z.enum([
+  "space_action.context_expired",
+  "space_action.context_mismatch",
+]);
+export type DispatchSpaceActionClosedReasonCode = z.infer<
+  typeof dispatchSpaceActionClosedReasonCodeSchema
+>;
+
+/** The local action context is known expired/closed/mismatched: a new ordinary action must be rejected, never recorded. */
+export class DispatchSpaceActionClosedError extends Error {
+  readonly receipt = "rejected_closed" as const;
+  readonly reasonCode: DispatchSpaceActionClosedReasonCode;
+  constructor(reasonCode: DispatchSpaceActionClosedReasonCode, message: string) {
+    super(message);
+    this.name = "DispatchSpaceActionClosedError";
+    this.reasonCode = reasonCode;
+  }
+}
 
 const DISPATCH_SPACE_ACTION_CONTEXT_VERSION = 1 as const;
 const DISPATCH_SPACE_ACTION_RECORD_VERSION = 1 as const;
@@ -327,7 +360,8 @@ function assertDispatchRuntimeEnvMatchesContext(input: {
     );
   }
   if (envDispatchId !== input.context.dispatchId) {
-    throw new Error(
+    throw new DispatchSpaceActionClosedError(
+      "space_action.context_mismatch",
       "OpenMeld Space Action dispatch context does not match the active dispatch runtime."
     );
   }
@@ -341,7 +375,8 @@ function assertDispatchRuntimeEnvMatchesContext(input: {
     );
   }
   if (envTargetProfileId !== input.context.targetProfileId) {
-    throw new Error(
+    throw new DispatchSpaceActionClosedError(
+      "space_action.context_mismatch",
       "OpenMeld Space Action target profile does not match the active dispatch runtime."
     );
   }
@@ -434,7 +469,10 @@ function assertContextActive(
   nowMs: number
 ): void {
   if (nowMs > context.expiresAtMs) {
-    throw new Error("The OpenMeld Space Action dispatch context has expired.");
+    throw new DispatchSpaceActionClosedError(
+      "space_action.context_expired",
+      "The OpenMeld Space Action dispatch context has expired."
+    );
   }
 }
 
