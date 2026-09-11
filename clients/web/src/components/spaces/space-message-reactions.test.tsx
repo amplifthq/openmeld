@@ -53,6 +53,48 @@ const signal: SignalEnvelope = {
 };
 
 describe("message reaction cache", () => {
+	it("saves a confirmed reaction when the user leaves before the response arrives", async () => {
+		const client = new QueryClient();
+		const historyKey = spaceQueryKeys.history("space-a", "profile-a");
+		client.setQueryData(historyKey, { envelopes: [signal] });
+		let resolveResponse!: (
+			value: Awaited<ReturnType<Api["setMessageReaction"]>>
+		) => void;
+		api.setMessageReaction.mockReturnValue(
+			new Promise((resolve) => {
+				resolveResponse = resolve;
+			})
+		);
+		const view = renderHook(
+			() =>
+				useMessageReactions({
+					spaceId: "space-a",
+					signalId: "message-a",
+					profileId: "profile-a",
+					snapshot: empty,
+				}),
+			{
+				wrapper: ({ children }: PropsWithChildren) => (
+					<QueryClientProvider client={client}>{children}</QueryClientProvider>
+				),
+			}
+		);
+		let pending!: Promise<void>;
+		act(() => {
+			pending = view.result.current.toggle({ emoji: "👍", label: "thumbs up" });
+		});
+		view.unmount();
+		resolveResponse({ signalId: "message-a", reactions: reacted });
+		await pending;
+		try {
+			expect(
+				client.getQueryData<SpaceHistorySnapshot>(historyKey)?.envelopes[0]
+					?.reactions
+			).toEqual(reacted);
+		} finally {
+			client.clear();
+		}
+	});
 	it("fetches a missing snapshot instead of treating it as permanently empty", async () => {
 		const client = new QueryClient({
 			defaultOptions: { queries: { retry: false } },

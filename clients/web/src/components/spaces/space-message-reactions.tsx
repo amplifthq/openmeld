@@ -136,6 +136,18 @@ export function useMessageReactions(input?: MessageReactionInput) {
 		],
 		[input?.spaceId, input?.signalId, input?.profileId]
 	);
+	function saveHistoryReactions(reactions: SpaceMessageReactions) {
+		if (input) {
+			writeSpaceHistoryReactionsToCache({
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+				signalId: input.signalId,
+				reactions,
+			});
+		}
+		return reactions;
+	}
 	const query = useQuery({
 		queryKey: key,
 		enabled: Boolean(input),
@@ -145,12 +157,14 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			if (!input) {
 				return EMPTY;
 			}
-			return (
-				await api.getMessageReactions({
-					spaceId: input.spaceId,
-					signalId: input.signalId,
-				})
-			).reactions;
+			return saveHistoryReactions(
+				(
+					await api.getMessageReactions({
+						spaceId: input.spaceId,
+						signalId: input.signalId,
+					})
+				).reactions
+			);
 		},
 		structuralSharing: (oldData, newData) => {
 			const old = oldData as SpaceMessageReactions | undefined,
@@ -172,18 +186,6 @@ export function useMessageReactions(input?: MessageReactionInput) {
 			);
 		}
 	}, [input?.snapshot, key, queryClient]);
-	const { spaceId, profileId, signalId } = input ?? {};
-	useEffect(() => {
-		if (spaceId && profileId && signalId && reactions !== EMPTY) {
-			writeSpaceHistoryReactionsToCache({
-				queryClient,
-				spaceId,
-				openMeldProfileId: profileId,
-				signalId,
-				reactions,
-			});
-		}
-	}, [spaceId, profileId, signalId, reactions, queryClient]);
 	const [pending, setPending] = useState<
 		Record<string, { active: boolean; label: string }>
 	>({});
@@ -235,6 +237,8 @@ export function useMessageReactions(input?: MessageReactionInput) {
 				emoji: emoji.emoji,
 				active,
 			});
+			// The user may have navigated away while this request was in flight.
+			saveHistoryReactions(response.reactions);
 			queryClient.setQueryData<SpaceMessageReactions>(key, (old) =>
 				!old || old.version <= response.reactions.version
 					? response.reactions
