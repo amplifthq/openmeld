@@ -136,6 +136,7 @@ import type {
 	SpaceExecutionRecoveryAttempt,
 	SpaceExecutionRecoveryResolution,
 } from "./space-execution-recovery-actions";
+import { resolveMissingSpaceMembersMessage } from "./space-members-error-copy";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import {
 	completeSpaceSend,
@@ -1330,9 +1331,6 @@ export function useSpaceLandingController(input: {
 	initialComposerDraft?: ComposerDraftRecord | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	initialPendingMessage?: PendingSpaceMessage | null;
-	onAgentReadinessInvalidated?: (input: {
-		agentProfileIds: readonly string[];
-	}) => Promise<void> | void;
 	onWakeFinalOutcomeFactsRefresh?: (input: {
 		agentProfileIds: readonly string[];
 		signalIds: readonly string[];
@@ -1546,7 +1544,10 @@ export function useSpaceLandingController(input: {
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
 		participationEnabled: currentProfileIsActiveSpaceMember,
-		onAgentReadinessInvalidated: input.onAgentReadinessInvalidated,
+		readinessScope: {
+			organizationId: input.organizationId,
+			storageScope: input.ownerAccountId,
+		},
 		onWakeFinalOutcomeFactsRefresh: input.onWakeFinalOutcomeFactsRefresh,
 		onThreadSignal: handleLiveThreadSignal,
 		spaceId: input.spaceId,
@@ -2508,7 +2509,7 @@ export function useSpaceLandingController(input: {
 		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
 			const missingMembersMessage =
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
+				resolveMissingSpaceMembersMessage(membersErrorMessage);
 			const preparedSubmission =
 				options?.retrySubmission ??
 				applyDeviceWaitToSubmission(
@@ -2697,10 +2698,6 @@ export function useSpaceLandingController(input: {
 			openMeldProfileId: input.profileId,
 			spaceId: input.spaceId,
 		});
-		queryClient.setQueryData(
-			spaceQueryKeys.members(input.spaceId, input.profileId),
-			currentMembersSnapshot
-		);
 		return currentMembersSnapshot;
 	}
 
@@ -3609,7 +3606,7 @@ function useSpaceThreadController(input: {
 				applyDeviceWaitToSubmission(
 					trimmedText.length > 0
 						? mentionAuthoring.prepareSubmission(
-								"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
+								resolveMissingSpaceMembersMessage(input.membersErrorMessage)
 							)
 						: mentionAuthoring.prepareFileOnlySubmission(),
 					options?.deviceWait
@@ -3772,7 +3769,7 @@ function useSpaceThreadController(input: {
 		try {
 			const preparedSubmission = mentionAuthoring.preparePlainTextSubmission(
 				trimmedText,
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before continuing."
+				resolveMissingSpaceMembersMessage(input.membersErrorMessage)
 			);
 			await sendPreparedThreadMessage({
 				preparedSubmission,

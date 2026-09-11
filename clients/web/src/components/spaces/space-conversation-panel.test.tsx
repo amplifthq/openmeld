@@ -2015,12 +2015,12 @@ describe("SpaceConversationPanel", () => {
 		const recovery = screen.queryByRole("link", { name: "Reconnect Computer" });
 		if (relation === "wake") {
 			expect(recovery?.getAttribute("href")).toBe("/o/acme/connect");
-			expect(screen.getByText("Computer not connected")).toBeTruthy();
+			expect(screen.queryByText("Computer not connected")).toBeNull();
 			expect(
 				screen
 					.getByRole("button", { name: "Send message" })
 					.hasAttribute("disabled")
-			).toBe(true);
+			).toBe(false);
 		} else {
 			expect(recovery).toBeNull();
 			expect(screen.queryByText("Computer not connected")).toBeNull();

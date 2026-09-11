@@ -96,7 +96,6 @@ import {
 import {
 	refreshWebAgentReadinessAfterCoreFactsChanged,
 	refreshWebAgentReadinessFacts,
-	refreshWebAgentReadinessSharedCaches,
 	type WebAgentReadinessRefreshFailure,
 } from "#/query/agents/execution-readiness";
 import { modelCatalogQueryOptions } from "#/query/config/model-catalog";
@@ -465,8 +464,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		| ((refreshInput?: CurrentSpaceMemberFactsRefreshInput) => Promise<void>)
 		| null
 	>(null);
-	const readinessInvalidationProfileIdsRef = useRef(new Set<string>());
-	const readinessInvalidationRefreshTimerRef = useRef<number | null>(null);
 	const routeCatalogRefreshProfileIdsRef = useRef(new Set<string>());
 	const refreshWakeFinalOutcomeFacts = useCallback(
 		async (refreshInput: WakeFinalOutcomeFactsRefreshInput) => {
@@ -480,53 +477,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		},
 		[]
 	);
-	const flushAgentReadinessInvalidated = useCallback(async () => {
-		const agentProfileIds = [...readinessInvalidationProfileIdsRef.current];
-		readinessInvalidationProfileIdsRef.current.clear();
-		readinessInvalidationRefreshTimerRef.current = null;
-		if (!organizationId) {
-			return;
-		}
-		await refreshWebAgentReadinessSharedCaches({
-			agentProfileIds,
-			includeLocalRuntimeCaches: false,
-			organizationId,
-			queryClient,
-			storageScope: recovery.storageScope,
-		});
-	}, [organizationId, queryClient, recovery.storageScope]);
-	const refreshAgentReadinessInvalidated = useCallback(
-		(input: { agentProfileIds: readonly string[] }) => {
-			for (const agentProfileId of input.agentProfileIds) {
-				const normalizedProfileId = agentProfileId.trim();
-				if (normalizedProfileId.length > 0) {
-					readinessInvalidationProfileIdsRef.current.add(normalizedProfileId);
-				}
-			}
-			if (readinessInvalidationRefreshTimerRef.current !== null) {
-				return;
-			}
-			readinessInvalidationRefreshTimerRef.current = window.setTimeout(() => {
-				flushAgentReadinessInvalidated().catch((error: unknown) => {
-					console.warn(
-						"Failed to refresh Agent readiness after live invalidation.",
-						error
-					);
-				});
-			}, 500);
-		},
-		[flushAgentReadinessInvalidated]
-	);
-	useEffect(
-		() => () => {
-			if (readinessInvalidationRefreshTimerRef.current !== null) {
-				window.clearTimeout(readinessInvalidationRefreshTimerRef.current);
-				readinessInvalidationRefreshTimerRef.current = null;
-			}
-			readinessInvalidationProfileIdsRef.current.clear();
-		},
-		[]
-	);
 	const controller = useSpaceLandingController({
 		...input,
 		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
@@ -536,7 +486,6 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
 		unreadTargets: spaceInboxReadPosition.targets,
-		onAgentReadinessInvalidated: refreshAgentReadinessInvalidated,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
 		onWakeFinalOutcomeFactsRefresh: refreshWakeFinalOutcomeFacts,
 		ownerAccountId: recovery.storageScope,
@@ -2049,6 +1998,14 @@ function SpaceLandingConversation({
 			composerBlockedWakeProfileId={controller.composerBlockedWakeProfileId}
 			composerErrorMessage={controller.composerErrorMessage}
 			composerFiles={controller.composerFiles}
+			composerMembers={
+				controller.membersSnapshot
+					? undefined
+					: {
+							state: controller.membersError ? "error" : "loading",
+							onRetry: controller.onRefreshMembers,
+						}
+			}
 			composerMentionPickerItems={controller.composerMentionPickerItems}
 			composerPrimaryAction={composerPrimaryAction}
 			composerReplyToSignalId={controller.composerReplyToSignalId}
@@ -2596,6 +2553,14 @@ function SpaceLandingSecondaryPanels({
 				composerFiles={controller.threadComposerFiles}
 				composerHasAuthoredMentions={
 					controller.threadComposerHasAuthoredMentions
+				}
+				composerMembers={
+					controller.membersSnapshot
+						? undefined
+						: {
+								state: controller.membersError ? "error" : "loading",
+								onRetry: controller.onRefreshMembers,
+							}
 				}
 				composerMentionPickerItems={controller.threadComposerMentionPickerItems}
 				composerText={controller.threadComposerText}

@@ -195,6 +195,51 @@ describe("SpaceComposerEditor", () => {
 		expect(onSend).not.toHaveBeenCalled();
 	});
 
+	it("keeps short Wake checks quiet and removes the indicator when ready", () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+		try {
+			const target = createAgentTarget();
+			const editorProps = {
+				addressingTargets: [
+					{
+						...target,
+						wakeAvailability: {
+							...target.wakeAvailability,
+							status: "preparing" as const,
+						},
+					},
+				],
+				ariaLabel: "Message this space",
+				authoredMentions: [
+					{
+						start: 0,
+						end: 7,
+						text: "@Runner",
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake" as const,
+					},
+				],
+				mentionPickerItems: [],
+				onChange: vi.fn(),
+				onSend: vi.fn(),
+				placeholder: "Message this space",
+				text: "@Runner review this.",
+			};
+			const view = render(<SpaceComposerEditor {...editorProps} />);
+			expect(screen.queryByLabelText("Checking availability")).toBeNull();
+			act(() => vi.advanceTimersByTime(1000));
+			expect(screen.getByLabelText("Checking availability")).toBeTruthy();
+			view.rerender(
+				<SpaceComposerEditor {...editorProps} addressingTargets={[target]} />
+			);
+			expect(screen.queryByLabelText("Checking availability")).toBeNull();
+			expect(editorProps.onChange).not.toHaveBeenCalled();
+			view.unmount();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("keeps @all open for an audience choice and inserts ordinary People and Agent tokens", async () => {
 		const composerRef = createRef<SpaceComposerEditorHandle>();
 		const onChange = vi.fn();
@@ -521,9 +566,14 @@ describe("SpaceComposerEditor", () => {
 				name: "Change relation for Runner",
 			})
 		);
-		fireEvent.keyDown(screen.getByRole("option", { name: "Reference" }), {
-			key: "Enter",
-		});
+		fireEvent.keyDown(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			}),
+			{
+				key: "Enter",
+			}
+		);
 		expect(onSend).not.toHaveBeenCalled();
 
 		await waitFor(() => {
@@ -543,22 +593,37 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
-	it("keeps Reference selectable while disabling Wake for a blocked Agent", () => {
+	it.each([
+		false,
+		true,
+	])("keeps Reference selectable and permits offline Wake only with a waiting target (%s)", async (canWait) => {
+		const target = createBlockedAgentTarget();
+		target.agentWakeAvailability = createSpaceMemberAgentSnapshot({
+			profileId: AGENT_PROFILE_ID,
+			agentWakeAvailability: { status: "offline_for_wake" },
+		}).agentWakeAvailability;
+		if (canWait) {
+			target.deviceWaitTarget = {
+				bindingId: "binding-1",
+				openMeldServiceRuntimeId: "runtime-1",
+			};
+		}
+		const onChange = vi.fn();
 		render(
 			<SpaceComposerEditor
-				addressingTargets={[createBlockedAgentTarget()]}
+				addressingTargets={[target]}
 				ariaLabel="Message this space"
 				authoredMentions={[
 					{
 						end: 7,
 						profileId: AGENT_PROFILE_ID,
-						relation: "wake",
+						relation: "reference",
 						start: 0,
 						text: "@Runner",
 					},
 				]}
 				mentionPickerItems={[]}
-				onChange={vi.fn()}
+				onChange={onChange}
 				onSend={vi.fn()}
 				placeholder="To wake an agent, type @, then pick the agent."
 				text="@Runner review this."
@@ -569,14 +634,13 @@ describe("SpaceComposerEditor", () => {
 			name: "Change relation for Runner",
 		});
 		fireEvent.click(relation);
+		const wakeOption = screen.getByRole("option", {
+			name: canWait ? "Wake when online" : "Wake — Offline",
+		});
+		expect(wakeOption.getAttribute("aria-disabled") === "true").toBe(!canWait);
 		expect(
 			screen
-				.getByRole("option", { name: "Wake — Unavailable" })
-				.getAttribute("aria-disabled")
-		).toBe("true");
-		expect(
-			screen
-				.getByRole("option", { name: "Reference" })
+				.getByRole("option", { name: "Mention only — Won’t wake the agent" })
 				.getAttribute("aria-disabled")
 		).not.toBe("true");
 		expect(
@@ -584,6 +648,21 @@ describe("SpaceComposerEditor", () => {
 				.getByRole("textbox", { name: "Message this space" })
 				.getAttribute("contenteditable")
 		).toBe("true");
+		if (canWait) {
+			fireEvent.click(wakeOption);
+			await waitFor(() =>
+				expect(onChange).toHaveBeenLastCalledWith(
+					expect.objectContaining({
+						authoredMentions: [
+							expect.objectContaining({
+								profileId: AGENT_PROFILE_ID,
+								relation: "wake",
+							}),
+						],
+					})
+				)
+			);
+		}
 	});
 
 	it("opens the member picker from the @ control and inserts an Agent Wake token", async () => {
@@ -780,7 +859,7 @@ describe("SpaceComposerEditor", () => {
 			const tokens = screen.getAllByTestId("space-composer-profile-token");
 			expect(tokens).toHaveLength(2);
 			expect(
-				within(tokens[1] as HTMLElement).getByText("Reference")
+				within(tokens[1] as HTMLElement).getByText("Mention only")
 			).toBeTruthy();
 			expect(onChange).toHaveBeenLastCalledWith({
 				authoredMentions: [

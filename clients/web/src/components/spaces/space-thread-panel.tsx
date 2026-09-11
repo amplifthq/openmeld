@@ -94,6 +94,7 @@ import {
 import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
+	type SpaceComposerProps,
 } from "./space-composer";
 import {
 	resolveSpaceComposerConversationKind,
@@ -254,6 +255,7 @@ type SpaceThreadPanelProps = {
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
 	composerBlockedWakeProfileId: string | null;
 	composerErrorMessage: string | null;
+	composerMembers?: SpaceComposerProps["members"];
 	composerHasAuthoredMentions?: boolean;
 	composerText: string;
 	composerFiles: readonly SpaceComposerFile[];
@@ -880,6 +882,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			composerFileLimitReached={input.composerFileLimitReached}
 			composerFiles={input.composerFiles}
 			composerHasAuthoredMentions={input.composerHasAuthoredMentions}
+			composerMembers={input.composerMembers}
 			composerMentionPickerItems={input.composerMentionPickerItems ?? []}
 			composerText={input.composerText}
 			isAgentRecoveryPending={input.isAgentRecoveryPending}
@@ -1796,6 +1799,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	composerMembers?: SpaceComposerProps["members"];
 	pendingActionSurface?: ReactNode;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -1878,10 +1882,10 @@ function ThreadComposer(input: {
 				}),
 				placement: "thread",
 			}}
+			members={input.composerMembers}
 			presentation={{
 				className: "px-4 py-4",
 				dataSlot: "thread-composer",
-				errorClassName: "mt-3",
 				maxHeight: 180,
 			}}
 			recovery={{
@@ -1896,9 +1900,9 @@ function ThreadComposer(input: {
 				pendingActionSurface: input.pendingActionSurface,
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
-					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-						<p>{input.composerErrorMessage}</p>
-					</div>
+					<p className="text-destructive text-sm" role="alert">
+						{input.composerErrorMessage}
+					</p>
 				) : null,
 				profileControl: input.profileControl,
 			}}

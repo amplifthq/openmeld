@@ -73,6 +73,11 @@ export function applyDeviceWaitToSubmission<
 		return submission;
 	}
 	const envelope = submission.messageEnvelope;
+	if (envelope?.referenceTargets.includes(deviceWait.targetProfileId)) {
+		throw new Error(
+			"Choose Wake before sending a task that waits for a computer."
+		);
+	}
 	return {
 		...submission,
 		deviceWait,

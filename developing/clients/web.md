@@ -2556,6 +2556,24 @@ the exact Query key and lets that query's `staleTime`, in-flight deduplication,
 and invalidation state decide whether a server read is needed. The Router must
 not add a second freshness clock over Query-backed loaders.
 
+Returning-conversation intent preload reads one contiguous updates page into the
+existing history Query instead of skipping warm history or replacing its tail
+with a recent bootstrap window. The mounted feed shares in-flight updates reads
+by Space, acting Profile, and anchor; completed updates reads remain stale so
+the subscription acknowledgement still closes the read/live gap. Successful
+intent preloads are reusable for five seconds through Query freshness alone.
+
+The Messenger sidebar also warms up to five cached unread conversations, newest
+unread activity first, with at most two background jobs. It uses the existing
+Organization unread summary and confirmed conversation Profile choices, excludes
+the selected conversation, and does not hydrate cold saved Spaces in bulk.
+An unchanged unread revision does not start another background read. Changes
+during a read receive a trailing read. Hidden/offline pages stop queued work;
+scope changes and unmount dispose the owner. Removed history queries cannot be
+resurrected by late reads. Speculation never writes read cursors, scrolling,
+Composer drafts, permissions, or Wake state. Failed prefetch keeps saved content
+and leaves normal entry/reconnect recovery intact; it adds no polling or retries.
+
 The Center Agent conversation is the deliberate exception to route-loader
 intent preload. Opening or ensuring its DM is activation-only, and a read-only
 preload must not return a different loader result that navigation could render.
@@ -3750,9 +3768,13 @@ preserves the draft and never confirms access locally.
 
 The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default only when the current
-Core-owned Wakeability projection is `ready`, while keeping the visible composer
+Core-owned Wakeability projection is `ready`, or the canonical member projection
+provides an eligible offline waiting target, while keeping the visible composer
 text as a plain `@Name` mention. An unavailable or checking Agent defaults to
-Reference. The same picker surface exposes the other allowed relation without a
+Reference unless explicit waiting is supported. Eligible offline Wake uses
+`Wake when online` in the picker, token and relation menu. An offline state alone
+does not promise waiting: it also requires the current server-projected target.
+The same picker surface exposes the other allowed relation without a
 required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
 Selecting a Human Profile creates a fixed Human Mention mark; people never
 receive an Agent relation selector.
@@ -3787,6 +3809,22 @@ precedes this check. Rejection restores the submitted draft if no next draft
 exists; otherwise it preserves the next draft and marks the local message as
 unsent. The Composer stays editable, and Reference authoring and ordinary text
 input remain available.
+
+Missing member data is separate from failed member loading. A draft containing
+structured mentions keeps its text and tokens while the initial snapshot loads;
+its send control waits and the Composer shows a muted loading hint. A failed read
+offers Retry. Ordinary text is not blocked by missing mention data. Composer
+feedback stays inside the input surface without a separate bordered warning box.
+
+Space live events refresh Space members in a bounded window, with one follow-up
+when an event arrives during the read. The app-shell listener alone refreshes
+shared Agent caches from account/organization-scoped browser invalidations.
+Invalidation versions are compared within their Space. Owner-only readiness
+reads never include another owner's Agent; those updates use the authorized
+organization overview. Partial overview updates are tied to their live Query
+instance and cannot overwrite a newer full response or a recreated cache.
+The send-time fresh members read is admission evidence, not another display-cache
+writer. Existing page freshness and bounded recovery timers remain unchanged.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one
@@ -4019,8 +4057,9 @@ They must show evidence as evidence: queued, routed, delivered, running,
 replied, failed, missing, pending, or degraded.
 
 Offline computer waiting uses progressive disclosure in both composers:
-**Send and wait** appears only for one current offline/reconnecting target, with
-a fixed 24-hour explanation. The current Agent Binding supplies the computer;
+**Send and wait** replaces the primary send button for one current eligible
+offline/reconnecting target, retaining the send icon and a compact 24-hour
+explanation to its left inside the Composer. The current Agent Binding supplies the computer;
 there is no device or deadline form. The deadline starts when the action is
 clicked. Current admission still rechecks the frozen selector before publication.
 Ordinary online Send and Reference-only authoring retain their existing meaning.

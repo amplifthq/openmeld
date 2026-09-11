@@ -32,14 +32,14 @@ describe("Space device waiting authoring and progress", () => {
 		expect(status?.label).toBe(label);
 		expect(status?.description).toContain(cause);
 	});
-	it("turns the explicitly selected Reference into one Wake and preserves the deadline", () => {
+	it("preserves an explicitly selected Wake and its waiting deadline", () => {
 		const original = {
 			restoredFromSignalId: "recalled-source",
 			text: "@Runner check the report",
 			messageEnvelope: normalizeMessageEnvelope({
 				text: "@Runner check the report",
-				activationTargets: [],
-				referenceTargets: [targetProfileId],
+				activationTargets: [targetProfileId],
+				referenceTargets: [],
 				mentionTargets: [],
 			}),
 		};
@@ -50,13 +50,26 @@ describe("Space device waiting authoring and progress", () => {
 		]);
 		expect(result.messageEnvelope?.referenceTargets).toEqual([]);
 		expect(result.deviceWait).toEqual(deviceWait);
-		expect(original.messageEnvelope.referenceTargets).toEqual([
-			targetProfileId,
-		]);
+		expect(original.messageEnvelope.referenceTargets).toEqual([]);
 		expect(
 			applyDeviceWaitToSubmission(result, deviceWait).messageEnvelope
 				?.activationTargets
 		).toEqual([targetProfileId]);
+	});
+	it("rejects waiting for an explicitly authored Reference instead of upgrading it", () => {
+		const submission = {
+			text: "@Runner context",
+			messageEnvelope: normalizeMessageEnvelope({
+				text: "@Runner context",
+				activationTargets: [],
+				referenceTargets: [targetProfileId],
+				mentionTargets: [],
+			}),
+		};
+		expect(() => applyDeviceWaitToSubmission(submission, deviceWait)).toThrow(
+			"Choose Wake"
+		);
+		expect(submission.messageEnvelope.activationTargets).toEqual([]);
 	});
 
 	it("formats queued device-wait deadlines for the user's locale", () => {
