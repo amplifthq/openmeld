@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10T19:39:44.533Z",
+  "updatedAt": "2026-09-11T10:49:13.974Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.198",
-      "updatePolicy": "required",
-      "reason": "The large-Space-file command contract changed; older CLI builds cannot satisfy the new download and file-operation contract."
+      "packageVersion": "0.3.199",
+      "updatePolicy": "available",
+      "reason": "Plugin commands are additive; existing setup, Wake, and Space commands interoperate with both cloud versions. Deploy plugin receivers before publishing new callers."
     },
     "service": {
-      "bundleHash": "516acdb386b4786a705293e5e51c78f85542a07ab393b8534b7774f3c6270076",
-      "bundleVersion": "0.3.198",
+      "bundleHash": "2b65e05b9c98b1d61879ffe4eecd786782815aed7c7b2db11f68e31d5d194c0a",
+      "bundleVersion": "0.3.199",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
-      "updatePolicy": "required",
-      "reason": "Verified Space caller context and large-file handling change the Service execution contract; older Services must update before accepting new Wake work."
+      "updatePolicy": "available",
+      "reason": "Existing Prepare, Runtime Transport, Wake, and reply contracts remain unchanged; both Service versions can safely execute accepted work."
     },
     "skills": {
-      "bundleHash": "83d47e75112123a73fd0379632148d4577081f0b1efd7ac10a1301999fb73d12",
+      "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Command guidance reflects the launch hold without removing supported operations; older skills remain subject to the same server authorization."
+      "reason": "The plugin guide adds optional commands without changing existing Wake or reply instructions; publish after the compatible cloud receivers."
     }
   }
 }
