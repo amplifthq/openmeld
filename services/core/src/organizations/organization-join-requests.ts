@@ -369,6 +369,27 @@ async function decideRequest(
     );
   }
   if (
+    current.status === "approved" &&
+    !current.spaceId &&
+    !current.applicantUserId &&
+    current.joinedAt == null &&
+    current.invitationSentAt == null
+  ) {
+    const identity = await readOrganizationAccountIdentityProjection({
+      authWorker: env.OPENMELD_AUTH_WORKER,
+      organizationId: current.organizationId,
+      account: { kind: "email", email: current.email },
+    });
+    if (!identity?.ok) {
+      throw new Error("Invitation recipient identity is unavailable");
+    }
+    // An email request does not imply consent to add membership. Here Auth
+    // confirms membership already exists; no invitation or access grant remains.
+    if (identity.account?.membership) {
+      return completeDelivery(db, current, true);
+    }
+  }
+  if (
     current.status !== "approved" ||
     current.invitationSentAt !== null ||
     current.joinedAt != null

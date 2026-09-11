@@ -362,8 +362,12 @@ docs directly readable against our schema.
   urgent Inbox action and transactional review email through the existing delivery
   ledger. Any one may approve; another may retry incomplete fulfillment. Approval
   remains actionable until delivery or joining succeeds, then all reviewer items
-  resolve. There is no configurable policy or multi-stage approval. Targeted
-  Space guest invitations are separate: acceptance grants only Space membership,
+  resolve. For an Organization-only email request, approval or retry completes
+  the request with `joinedAt` when Auth's account identity projection confirms
+  the recipient is already a member. It does not send another invitation, claim
+  email delivery, or grant access. Organization membership alone does not complete
+  a request targeting a Space. There is no configurable policy or multi-stage
+  approval. Targeted Space guest invitations are separate: acceptance grants only Space membership,
   never Organization membership or Organization reviewer authority.
 - Links are scoped to the Organization or one Space, with one active link per
   scope and mode. New links expire after 30 days and can be revoked. Existing

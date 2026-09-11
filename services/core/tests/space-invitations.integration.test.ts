@@ -375,6 +375,41 @@ describe("targeted guest invitations", () => {
 const requestCore: CoreBindings = {
   ...core,
   OPENMELD_AUTH_WORKER: {
+    resolveOrganizationAccountIdentity: async ({ organizationId, account }) => {
+      if (account?.kind !== "email") {
+        throw new Error("This fixture resolves invitation recipients by email");
+      }
+      const row = await env.OPENMELD_DB.prepare(
+        "SELECT u.id, u.email, m.id AS member_id FROM users u LEFT JOIN members m ON m.user_id = u.id AND m.organization_id = ? WHERE lower(u.email) = lower(?)"
+      )
+        .bind(organizationId, account.email)
+        .first<{
+          id: string;
+          email: string;
+          member_id: string | null;
+        }>();
+      return {
+        ok: true,
+        organization: {
+          id: organizationId,
+          name: "Harbor Design",
+          slug: organizationId,
+          personal: false,
+          memberCount: 1,
+        },
+        account: row
+          ? {
+              userId: row.id,
+              email: row.email,
+              displayName: "Morgan Lee",
+              defaultHumanProfile: null,
+              membership: row.member_id
+                ? { memberId: row.member_id, role: "member" }
+                : null,
+            }
+          : null,
+      };
+    },
     resolveOrganizationDirectoryMembers: async ({ organizationId }) => {
       const rows = await env.OPENMELD_DB.prepare(
         "SELECT m.id, m.user_id, m.role, u.email, u.name FROM members m JOIN users u ON u.id = m.user_id WHERE m.organization_id = ?"
@@ -410,6 +445,93 @@ const requestCore: CoreBindings = {
 };
 
 describe("invitation approval boundary", () => {
+  it("does not complete a Space invitation just because the recipient belongs to the organization", async () => {
+    const f = await fixture();
+    await f.joinOrganization();
+    const call = (request: OrganizationJoinRequestRpcInput["request"]) =>
+      organizationJoinRequest(requestCore, {
+        responseVersion: "2",
+        userId: f.ownerId,
+        email: `${f.ownerId}@example.com`,
+        emailVerified: true,
+        request,
+      });
+    const created = await call({
+      action: "create",
+      organizationId: f.organizationId,
+      spaceId: f.spaceId,
+      email: `${f.recipientId}@example.com`,
+    });
+    if (!(created.ok && created.requests[0])) {
+      throw new Error("Request was not created");
+    }
+    expect(
+      await call({ action: "approve", requestId: created.requests[0].id })
+    ).toMatchObject({
+      ok: true,
+      requests: [{ joinedAt: null, invitationSentAt: null }],
+    });
+    expect(
+      await call({ action: "summary", organizationId: f.organizationId })
+    ).toMatchObject({ actionRequiredCount: 1 });
+    expect(await f.memberStatus()).toBeNull();
+  });
+  it.each([
+    false,
+    true,
+  ])("completes an email request for an existing member on approval or retry (retry=%s)", async (retry) => {
+    const f = await fixture();
+    const call = (request: OrganizationJoinRequestRpcInput["request"]) =>
+      organizationJoinRequest(requestCore, {
+        responseVersion: "2",
+        userId: f.ownerId,
+        email: `${f.ownerId}@example.com`,
+        emailVerified: true,
+        request,
+      });
+    const created = await call({
+      action: "create",
+      organizationId: f.organizationId,
+      email: `${f.recipientId}@example.com`,
+    });
+    if (!(created.ok && created.requests[0])) {
+      throw new Error("Request was not created");
+    }
+    const requestId = created.requests[0].id;
+    if (retry) {
+      expect(await call({ action: "approve", requestId })).toMatchObject({
+        requests: [{ joinedAt: null, invitationSentAt: null }],
+      });
+      expect(
+        await call({ action: "summary", organizationId: f.organizationId })
+      ).toMatchObject({ actionRequiredCount: 1 });
+    }
+    await f.joinOrganization();
+    const completed = await call({ action: "approve", requestId });
+    expect(completed).toMatchObject({
+      ok: true,
+      requests: [
+        {
+          status: "approved",
+          joinedAt: expect.any(Number),
+          invitationSentAt: null,
+          applicantUserId: null,
+        },
+      ],
+    });
+    expect(await call({ action: "approve", requestId })).toEqual(completed);
+    expect(
+      await call({ action: "summary", organizationId: f.organizationId })
+    ).toMatchObject({ actionRequiredCount: 0 });
+    expect(
+      await env.OPENMELD_DB.prepare(
+        "SELECT count(*) AS total FROM inbox_items WHERE organization_id = ? AND resolution_status = 'open'"
+      )
+        .bind(f.organizationId)
+        .first()
+    ).toEqual({ total: 0 });
+    expect(await f.memberStatus()).toBeNull();
+  });
   it("notifies every administrator urgently and lets any one complete a recipient's joining request", async () => {
     const f = await fixture();
     const adminId = crypto.randomUUID();
