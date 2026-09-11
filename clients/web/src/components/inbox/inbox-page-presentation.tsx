@@ -69,6 +69,7 @@ export function InboxViewContent(input: {
 		element: HTMLAnchorElement | null
 	) => void;
 	view: InboxView;
+	unreadOnly?: boolean;
 }) {
 	if (input.isLoading) {
 		return <InboxListSkeleton />;
@@ -77,7 +78,15 @@ export function InboxViewContent(input: {
 		return <InboxInitialError onRetry={input.onRetry} />;
 	}
 	if (input.items.length === 0) {
-		return <InboxEmptyState view={input.view} />;
+		if (input.loadMoreState) {
+			return (
+				<InboxInfiniteScrollTrigger
+					onLoadMore={input.onLoadMore}
+					state={input.loadMoreState}
+				/>
+			);
+		}
+		return <InboxEmptyState unreadOnly={input.unreadOnly} view={input.view} />;
 	}
 
 	const sections = buildInboxSections(input.items, input.view);
@@ -286,8 +295,8 @@ function InboxListSkeleton() {
 	);
 }
 
-function InboxEmptyState(input: { view: InboxView }) {
-	const copy = resolveInboxEmptyStateCopy(input.view);
+function InboxEmptyState(input: { view: InboxView; unreadOnly?: boolean }) {
+	const copy = resolveInboxEmptyStateCopy(input.view, input.unreadOnly);
 	return (
 		<div className="flex min-h-60 flex-col items-center justify-center rounded-md border border-border/70 bg-card px-6 py-12 text-center">
 			<span className="grid size-10 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground">
@@ -301,14 +310,22 @@ function InboxEmptyState(input: { view: InboxView }) {
 	);
 }
 
-function resolveInboxEmptyStateCopy(view: InboxView): {
+function resolveInboxEmptyStateCopy(
+	view: InboxView,
+	unreadOnly = false
+): {
 	description: string;
 	title: string;
 } {
-	if (view === "unread") {
+	if (unreadOnly || view === "unread") {
+		const titles = {
+			all: "No unread items",
+			needs_review: "No unread reviews",
+			needs_action: "No unread actions",
+		};
 		return {
-			description: "New updates will appear here until you read them.",
-			title: "No unread updates",
+			description: "Turn off Unread only to include items you’ve already read.",
+			title: titles[view as keyof typeof titles] ?? "No unread items",
 		};
 	}
 	if (view === "needs_review") {

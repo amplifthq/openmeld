@@ -40,6 +40,7 @@ const OLDER_INBOX_UPDATE_LINK_NAME_PATTERN = /Older Inbox update/;
 const RECOVERED_INBOX_UPDATE_LINK_NAME_PATTERN = /Recovered Inbox update/;
 const VISIBLE_INBOX_UPDATE_LINK_NAME_PATTERN = /Visible Inbox update/;
 const observeIntersectionTargetMock = vi.fn();
+const SPACE_UNREAD_CONFIRMATION_PATTERN = /unread indicators in Spaces/;
 let intersectionObserverCallback: IntersectionObserverCallback | null = null;
 
 vi.mock("@tanstack/react-router", () => ({
@@ -350,10 +351,71 @@ describe("InboxPage", () => {
 	it("changes the URL-backed view from the tabs", () => {
 		const onViewChange = vi.fn();
 		renderInboxPage({ items: [], onViewChange });
+		expect(
+			screen.queryByRole("button", { name: "Mark all as read" })
+		).toBeNull();
 
-		fireEvent.click(screen.getByRole("tab", { name: "Unread" }));
+		fireEvent.click(screen.getByRole("tab", { name: "Needs action" }));
 
-		expect(onViewChange).toHaveBeenCalledWith("unread");
+		expect(onViewChange).toHaveBeenCalledWith("needs_action");
+	});
+
+	it("offers unread as an independent filter and keeps All groups", () => {
+		const onUnreadOnlyChange = vi.fn();
+		renderInboxPage({
+			unreadOnly: true,
+			onUnreadOnlyChange,
+			items: [
+				createInboxItem({
+					id: "action",
+					title: "Unread action",
+					resolutionStatus: "open",
+					attention: "action_required",
+					kind: "system_issue",
+				}),
+				createInboxItem({ id: "update", title: "Unread update" }),
+				createInboxItem({
+					id: "read",
+					title: "Read update",
+					readAt: "2026-09-11T00:00:00Z",
+				}),
+			],
+		});
+		expect(screen.queryByRole("tab", { name: "Unread" })).toBeNull();
+		expect(screen.getByRole("region", { name: "Needs action" })).toBeTruthy();
+		expect(screen.getByRole("region", { name: "Updates" })).toBeTruthy();
+		expect(screen.queryByText("Read update")).toBeNull();
+		fireEvent.click(screen.getByRole("switch", { name: "Unread only" }));
+		expect(onUnreadOnlyChange).toHaveBeenCalledWith(false);
+	});
+
+	it("continues past unrelated unread items before declaring a filtered view empty", async () => {
+		renderInboxPage({
+			unreadOnly: true,
+			view: "needs_action",
+			items: [createInboxItem({ title: "Unrelated update" })],
+			nextPageItems: [
+				createInboxItem({
+					id: "older-action",
+					title: "Older action",
+					resolutionStatus: "open",
+					attention: "action_required",
+					kind: "system_issue",
+				}),
+			],
+		});
+		expect(screen.queryByText("No unread actions")).toBeNull();
+		await waitFor(() =>
+			expect(observeIntersectionTargetMock).toHaveBeenCalled()
+		);
+		act(() => {
+			intersectionObserverCallback?.(
+				[{ isIntersecting: true } as IntersectionObserverEntry],
+				{} as IntersectionObserver
+			);
+		});
+		expect(await screen.findByText("Older action")).toBeTruthy();
+		expect(screen.queryByText("Unrelated update")).toBeNull();
 	});
 
 	it("loads the next page automatically when the list end enters view", async () => {
@@ -526,7 +588,7 @@ describe("InboxPage", () => {
 		expect(markCurrentInboxItemReadMock).not.toHaveBeenCalled();
 	});
 
-	it("marks all unread items read without resolving their action state", async () => {
+	it("requires confirmation before marking all unread items read and preserves action state", async () => {
 		const item = createInboxItem({
 			attention: "action_required",
 			id: "action-item",
@@ -534,10 +596,30 @@ describe("InboxPage", () => {
 		});
 		const { queryClient } = renderInboxPage({
 			items: [item],
+			unreadOnly: true,
 			totalUnreadCount: 1,
 			unresolvedActionCount: 1,
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+		const dialog = await screen.findByRole("alertdialog", {
+			name: "Mark all as read?",
+		});
+		expect(
+			within(dialog).getByText(SPACE_UNREAD_CONFIRMATION_PATTERN)
+		).toBeTruthy();
+		expect(markAllCurrentInboxItemsReadMock).not.toHaveBeenCalled();
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+		expect(markAllCurrentInboxItemsReadMock).not.toHaveBeenCalled();
+		expect(
+			queryClient.getQueryData(inboxQueryKeys.summary("organization-123"))
+		).toMatchObject({ totalUnreadCount: 1 });
+		fireEvent.click(screen.getByRole("button", { name: "Mark all as read" }));
+		fireEvent.click(
+			within(await screen.findByRole("alertdialog")).getByRole("button", {
+				name: "Mark all as read",
+			})
+		);
 
 		await waitFor(() => {
 			expect(markAllCurrentInboxItemsReadMock).toHaveBeenCalledWith({
@@ -630,6 +712,9 @@ function reportListEndIntersection(isIntersecting: boolean): void {
 }
 
 function renderInboxPage(input: {
+	unreadOnly?: boolean;
+	view?: InboxView;
+	onUnreadOnlyChange?: (value: boolean) => void;
 	deepLinkedItem?: InboxItem | null;
 	itemId?: string;
 	items: InboxItem[];
@@ -651,10 +736,16 @@ function renderInboxPage(input: {
 		nextCursor: input.nextPageItems ? "next-page" : null,
 		organizationId: "organization-123",
 	};
-	queryClient.setQueryData(inboxQueryKeys.list("organization-123", "all"), {
-		pageParams: [undefined],
-		pages: [response],
-	});
+	queryClient.setQueryData(
+		inboxQueryKeys.list(
+			"organization-123",
+			input.unreadOnly ? "unread" : (input.view ?? "all")
+		),
+		{
+			pageParams: [undefined],
+			pages: [response],
+		}
+	);
 	queryClient.setQueryData(inboxQueryKeys.summary("organization-123"), {
 		organizationId: "organization-123",
 		totalUnreadCount:
@@ -707,8 +798,10 @@ function renderInboxPage(input: {
 			<InboxPage
 				itemId={input.itemId}
 				onItemDismissed={input.onItemDismissed}
+				onUnreadOnlyChange={input.onUnreadOnlyChange}
 				onViewChange={input.onViewChange ?? vi.fn()}
-				view="all"
+				unreadOnly={input.unreadOnly}
+				view={input.view ?? "all"}
 			/>
 		</QueryClientProvider>
 	);

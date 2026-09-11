@@ -296,8 +296,13 @@ surface is the only durable reminder.
 
 ## Read and attention behavior
 
-Inbox provides **All**, **Unread**, **Needs action**, and **Needs review** views. Unread items are
-visually explicit without relying on color alone.
+Inbox provides **All**, **Needs action**, and **Needs review** tabs. An independent
+**Unread only** switch filters any tab and persists as `unread=true` in the URL
+when switching tabs. All retains its nonempty groups under this filter. Unread
+items remain visually explicit without relying on color alone. The existing
+unread query supplies paginated data; filtered tabs continue loading through
+unrelated items before showing an empty state. Legacy `view=unread` links open
+All with the switch enabled.
 
 List titles reserve a 6px status dot with an 8px gap. An unresolved action or
 review uses the existing red attention tone, including after it is read.
@@ -312,6 +317,12 @@ Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members
 can mark an item unread and can mark all accessible Inbox items read.
+The bulk **Mark all as read** button appears only with **Unread only** enabled,
+immediately to the left of that switch. A compact confirmation explains that
+the action includes items outside the current filter and clears the corresponding
+Space unread indicators in the current organization. Pending actions and reviews
+remain open. Canceling makes no changes; confirming closes the dialog and starts
+the existing optimistic mutation without a blocking wait.
 
 For an external Message Channel source, the same activation contract runs
 before the validated provider permalink opens. Provider read receipts are not
