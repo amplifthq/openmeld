@@ -183,10 +183,6 @@ import {
 	SpaceMessageFooter,
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
-import {
-	SpacePinnedFileBar,
-	SpacePinnedMessageBar,
-} from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
 	buildSpaceMessageProfileMentionProfiles,
@@ -216,6 +212,8 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import { SpacePinnedItemsBar } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
@@ -236,7 +234,6 @@ import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popov
 
 type SpaceConversationPanelResolvedProps = {
 	historyNavigation?: SpaceHistoryNavigationController;
-	pinnedMessageProvider?: (children: ReactNode) => ReactNode;
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -515,14 +512,13 @@ export function SpaceConversationPanel(
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
-	return publicInput.pinnedMessageProvider
-		? publicInput.pinnedMessageProvider(content)
-		: content;
+	return content;
 }
 
 function SpaceConversationPanelContent(
 	publicInput: SpaceConversationPanelProps
 ) {
+	const readingHeader = useSpaceReadingHeader();
 	const { viewState, ...props } = publicInput;
 	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
 	const input: SpaceConversationPanelResolvedProps = {
@@ -605,6 +601,13 @@ function SpaceConversationPanelContent(
 		threadFocusStatusMessage,
 		unreadNavigation,
 	} = navigation;
+	const registerReadingScrollElement = useCallback(
+		(element: HTMLDivElement | null) => {
+			registerConversationScrollElement(element);
+			readingHeader?.setScrollElement(element);
+		},
+		[readingHeader, registerConversationScrollElement]
+	);
 	const showHistoryRail =
 		(input.historyNavigation?.directory?.total ?? 0) >
 		SPACE_INITIAL_HISTORY_MAX_MESSAGES;
@@ -645,10 +648,10 @@ function SpaceConversationPanelContent(
 				threadMessage: threadFocusStatusMessage,
 			})}
 			{input.activeSpaceView === "messages" ? (
-				<>
-					<SpacePinnedFileBar onOpen={input.onOpenSpaceFile} />
-					<SpacePinnedMessageBar onJump={navigation.onJumpToPinnedMessage} />
-				</>
+				<SpacePinnedItemsBar
+					onJump={navigation.onJumpToPinnedMessage}
+					onOpen={input.onOpenSpaceFile}
+				/>
 			) : null}
 
 			<SpacePrimaryView
@@ -763,7 +766,7 @@ function SpaceConversationPanelContent(
 								onScrollEnd={(event) => {
 									onConversationScrollEnd(event.currentTarget);
 								}}
-								ref={registerConversationScrollElement}
+								ref={registerReadingScrollElement}
 								role="log"
 							>
 								<SpaceConversationStickyDate

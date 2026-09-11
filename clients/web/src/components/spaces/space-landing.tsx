@@ -137,7 +137,6 @@ import {
 	type SpaceRemoveMemberResult,
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
-import { SpaceMessagePinsProvider } from "./space-message-pins";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -148,7 +147,9 @@ import {
 	resolveSpacePendingAgentActionIdentity,
 } from "./space-pending-agent-action-model";
 import { SpacePendingAgentActions } from "./space-pending-agent-actions";
+import { SpacePinsProvider } from "./space-pins";
 import { SpaceProfileSwitcher } from "./space-profile-switcher";
+import { SpaceReadingHeaderProvider } from "./space-reading-header";
 import { buildSpaceReferenceMessageTexts } from "./space-reference-message-texts";
 import {
 	SpaceLandingFailureSurface,
@@ -1632,7 +1633,7 @@ function SpaceLandingReady({
 		/>
 	);
 
-	return (
+	const content = (
 		<SpaceAgentProfileEditProvider
 			accountProfiles={accountProfiles}
 			context={agentProfileEditContext ?? null}
@@ -1694,6 +1695,9 @@ function SpaceLandingReady({
 							menuLabel="Center Agent menu"
 							onDeleteSpace={controller.onDeleteSpace}
 							onLeaveSpace={currentProfileLeaveAction}
+							onRecallPinnedItems={() =>
+								spaceFileNavigation.changeSpaceView("messages")
+							}
 							onReconnectLiveUpdates={controller.onReconnectLiveUpdates}
 							onSetAccessMode={controller.onSetAccessMode}
 							onSetVisibility={controller.onSetVisibility}
@@ -1790,6 +1794,26 @@ function SpaceLandingReady({
 				{pendingAgentActions.profileEditDialog}
 			</SpaceWakeBookmarksProvider>
 		</SpaceAgentProfileEditProvider>
+	);
+	return (
+		<SpacePinsProvider
+			canPin={currentProfileIsActiveSpaceMember}
+			organizationSlug={input.orgSlug}
+			profileId={controller.profileId}
+			spaceId={controller.spaceId}
+		>
+			<SpaceReadingHeaderProvider
+				isDirectMessage={isDirectMessage}
+				isEmbedded={isCompactPresentation}
+				key={`${controller.spaceId}:${controller.profileId}`}
+				organizationSlug={input.orgSlug}
+				profileId={controller.profileId}
+				spaceId={controller.spaceId}
+				view={spaceView}
+			>
+				{content}
+			</SpaceReadingHeaderProvider>
+		</SpacePinsProvider>
 	);
 }
 
@@ -2088,23 +2112,6 @@ function SpaceLandingConversation({
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
-			pinnedMessageProvider={(children) =>
-				input.orgSlug ? (
-					<SpaceMessagePinsProvider
-						canPin={
-							currentProfileIsActiveSpaceMember &&
-							!controller.profileId.startsWith("agt_")
-						}
-						organizationSlug={input.orgSlug}
-						profileId={controller.profileId}
-						spaceId={controller.spaceId}
-					>
-						{children}
-					</SpaceMessagePinsProvider>
-				) : (
-					children
-				)
-			}
 			prepareSetupHref={prepareSetupHref}
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}

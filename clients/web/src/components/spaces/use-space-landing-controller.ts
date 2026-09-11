@@ -1570,31 +1570,10 @@ export function useSpaceLandingController(input: {
 		enabled: statusReady,
 		accessRejected: Boolean(currentAccessRejection),
 	});
-	// Starts false: the unread watermark must not advance until the conversation
-	// panel reports a real "scrolled to latest" measurement (a fresh open scrolls
-	// to the bottom and emits true; a deep link to an old message stays false).
-	const [isConversationViewingLatest, setIsConversationViewingLatest] =
-		useState(false);
-	// Reset that measurement synchronously (during render) whenever the
-	// conversation identity changes, so a stale "viewing latest" from a previous
-	// Space can never mark the next Space's messages read before its panel has
-	// measured. The derived value also forces false until the reset lands, so the
-	// in-flight render that triggered the reset never reports a stale measurement.
-	const conversationViewingIdentity = `${input.spaceId}::${input.profileId}`;
-	const [measuredViewingIdentity, setMeasuredViewingIdentity] = useState(
-		conversationViewingIdentity
-	);
-	if (measuredViewingIdentity !== conversationViewingIdentity) {
-		setMeasuredViewingIdentity(conversationViewingIdentity);
-		setIsConversationViewingLatest(false);
-	}
-	const isViewingLatestForCurrentConversation =
-		measuredViewingIdentity === conversationViewingIdentity &&
-		isConversationViewingLatest;
 	const unreadState = useSpaceUnread({
 		envelopes: timelineEnvelopes,
 		isReady: input.unreadStateReady === true,
-		isViewingLatest: isViewingLatestForCurrentConversation,
+		profileId: input.profileId,
 		onViewedThroughTs: resolveConfirmedViewedThroughHandler({
 			isCurrentAccessConfirmed: statusReady,
 			onViewedThroughTs: input.onViewedThroughTs,
@@ -2347,7 +2326,7 @@ export function useSpaceLandingController(input: {
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
-		onConversationViewingLatestChange: setIsConversationViewingLatest,
+		onConversationViewingLatestChange: unreadState.onViewingLatestChange,
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
 		onDeleteSpace: handleDeleteSpace,

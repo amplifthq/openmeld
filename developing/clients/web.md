@@ -3885,9 +3885,9 @@ directly to that recorded result; Graph must not preserve a redundant
 `Replied`, `Failed`, or `Completed` Wake node between them. Structured statuses
 and system notices keep their recorded event semantics.
 
-The Space header presents those views in a stable two-row hierarchy. The first
+At the latest messages, the Space header presents a two-row hierarchy. The first
 row contains the Space name, access mode, live connection indicator, and
-right-aligned actions. The second row contains Messages and Graph below the
+right-aligned actions. The second row contains Messages and Files below the
 Space name. Those view labels align with the Space name and use a flat active
 underline that overlays the header divider. The Members action shows the active
 member total from the Space member projection. The header and Space sidebar do
@@ -3897,8 +3897,53 @@ in the Members surface. When dismissed contextual setup remains recallable,
 **Get set up** appears in the right-aligned action group immediately before
 **Members**. On compact screens only, the same recall control may move to the
 trailing edge of the second header row so the Space name remains identifiable;
-it stays visually separate from the **Messages** and **Graph** view control and
+it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
+
+While reading earlier messages in an ordinary Space, the tabs move beside the
+title and live-status adornments along a straight diagonal path driven by the
+same scroll progress on both axes. The anchor is measured from the rendered content;
+Space title text is capped at 28rem in both Messages and Files. The compact
+layout reserves at least 240px for navigation, increasing that reservation when
+the rendered tabs require more. Long titles truncate and insufficient width
+retains the two-row layout.
+Direct messages and compact embedded conversations retain their existing headers.
+Returning to the latest messages restores the expanded header. Messages and
+Files share the same header position: changing tabs does not move navigation.
+The browser remembers the normalized header position per Organization, Profile,
+and Space across navigation and reloads. Narrow layouts temporarily use two
+rows without overwriting that saved position. Scrolling Messages resumes the
+motion; Files itself does not drive header compaction.
+Latest-message observations update the read-through scheduler directly rather
+than publishing React state through the Space controller. Scrolling away cancels
+the pending read immediately without rerendering the transcript. Space/Profile
+changes require a fresh latest-message measurement; document visibility, access
+confirmation, and the normal read debounce still gate persistence.
+Scroll frames update only the navigation transform outside React. Header height
+changes at the collapse/expansion boundary, with a matching scroll offset to
+preserve the reading anchor. Collapse and expansion use separate boundaries
+(144px and 72px from the bottom), so small reversals do not repeatedly resize
+the conversation. Restored views use the saved position before paint; a Space
+without a saved position starts expanded. Pausing a scroll preserves its
+progress without snapping. Preferences are written on scroll end, page exit,
+or unmount, never on each animation frame. The tabs return fully to their lower
+row within 24px of the latest messages. Reduced motion switches positions
+without travel.
+
+Messages and files share one pinned-item preview with previous/next navigation.
+The preview's X dismisses all pins for the reader; the original pinner gets a
+Fluid dropdown with Dismiss and Unpin message/file. A Pinned action immediately
+before Members restores the preview. Dismissal is saved per Organization,
+Human Profile, and Space in this browser, without changing shared pin state.
+
+Appearance includes Toolbar shortcuts for Computer, Center Agent, and Inbox.
+Each bottom shortcut also exposes a compact hide control on hover or keyboard
+focus, with Undo. Touch users customize shortcuts in Appearance. Browser-wide
+preferences apply on first paint; hiding all shortcuts removes the reserved
+bottom row while retaining the normal page inset and the Sidebar footer.
+Computer stays in the account menu above Settings. Its warning/danger avatar
+and menu indicators consume the same shared current-Computer presentation as
+the optional toolbar shortcut; hiding a shortcut does not clear attention.
 
 Selecting a Human or Agent identity in a Space opens one compact profile
 popover rather than a table-style details dialog. A Human popover shows the

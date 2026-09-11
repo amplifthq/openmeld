@@ -9,6 +9,14 @@ import type {
 	SpaceMessagePinsResponse,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import {
+	DropdownMenu,
+	DropdownMenuTrigger,
+} from "@openmeld/ui/components/dropdown-menu";
+import {
+	FluidDropdownMenuContent,
+	FluidDropdownMenuItem,
+} from "@openmeld/ui/fluid/dropdown-menu";
 import { Surface } from "@openmeld/ui/fluid/surface";
 import {
 	ArrowSquareOutIcon,
@@ -26,8 +34,191 @@ import {
 	hasUnseenPinnedFileUpdate,
 	useSeenFileRevision,
 } from "#/lib/spaces/file-update-seen";
+import { useBrowserPreference } from "#/lib/use-browser-preference";
 import { MessageActionTooltip } from "./space-message-actions";
 
+const PinVisibilityContext = createContext<{
+	dismissed: boolean;
+	setDismissed: (value: boolean) => void;
+} | null>(null);
+
+export function SpacePinsRecallAction(input: { onRecall?: () => void } = {}) {
+	const messages = useContext(PinsContext);
+	const files = useContext(FilePinsContext);
+	const visibility = useContext(PinVisibilityContext);
+	const count = (messages?.pins.length ?? 0) + (files?.pins.length ?? 0);
+	if (!(visibility?.dismissed && count)) {
+		return null;
+	}
+	return (
+		<Button
+			aria-label="Show pinned items"
+			className="gap-1.5 px-2 text-muted-foreground"
+			onClick={() => {
+				visibility.setDismissed(false);
+				input.onRecall?.();
+			}}
+			size="sm"
+			variant="ghost"
+		>
+			<PushPinIcon className="size-4" />
+			<span className="hidden sm:inline">Pinned</span>
+		</Button>
+	);
+}
+
+export function SpacePinnedItemsBar(input: {
+	onJump: (signalId: string) => void;
+	onOpen: (fileId: string, revision: number) => void;
+}) {
+	const messages = useContext(PinsContext);
+	const files = useContext(FilePinsContext);
+	const visibility = useContext(PinVisibilityContext);
+	const [selectedId, setSelectedId] = useState<string | null>(null);
+	const items = [
+		...(files?.pins ?? []).map((pin) => ({
+			kind: "file" as const,
+			id: `file:${pin.file.id}`,
+			pin,
+		})),
+		...(messages?.pins ?? []).map((pin) => ({
+			kind: "message" as const,
+			id: `message:${pin.signalId}`,
+			pin,
+		})),
+	];
+	const index = Math.max(
+		0,
+		items.findIndex((item) => item.id === selectedId)
+	);
+	const item = items[index];
+	if (!item || visibility?.dismissed) {
+		return null;
+	}
+	const context = item.kind === "file" ? files : messages;
+	const canUnpin =
+		context?.canPin && item.pin.pinnedByProfileId === context.profileId;
+	const dismiss = () => visibility?.setDismissed(true);
+	const unpin = () => {
+		if (item.kind === "file") {
+			files?.mutate({ fileId: item.pin.file.id, action: "unpin" });
+		} else {
+			messages?.mutate({ signalId: item.pin.signalId, action: "unpin" });
+		}
+	};
+	const open = () => {
+		if (item.kind === "file") {
+			input.onOpen(item.pin.file.id, item.pin.file.latestRevision.revision);
+		} else {
+			input.onJump(item.pin.signalId);
+		}
+	};
+	return (
+		<div className="shrink-0 px-3 pt-2 sm:px-5" data-slot="space-pinned-items">
+			<Surface className="flex min-w-0 items-center gap-2 px-3 py-2">
+				{item.kind === "file" ? (
+					<FileIcon
+						aria-hidden="true"
+						className="size-4 shrink-0 text-muted-foreground"
+					/>
+				) : (
+					<PushPinIcon
+						aria-hidden="true"
+						className="size-4 shrink-0 text-muted-foreground"
+						weight="fill"
+					/>
+				)}
+				<button
+					className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					onClick={open}
+					type="button"
+				>
+					<span className="flex min-w-0 items-center gap-1.5">
+						<span className="min-w-0 truncate text-sm">
+							{item.kind === "file" ? (
+								item.pin.file.name
+							) : (
+								<>
+									<span className="font-medium">{item.pin.authorName}: </span>
+									{item.pin.preview || "Attachment"}
+								</>
+							)}
+						</span>
+						{item.kind === "file" && files ? (
+							<PinnedFileUpdateBadge pin={item.pin} scope={files} />
+						) : null}
+					</span>
+					<span className="block truncate text-muted-foreground text-xs">
+						Pinned by {item.pin.pinnedByName}
+					</span>
+				</button>
+				{items.length > 1 ? (
+					<div className="flex shrink-0 items-center text-muted-foreground text-xs">
+						<PinBarAction
+							label="Previous pinned item"
+							onClick={() =>
+								setSelectedId(
+									items[(index - 1 + items.length) % items.length]?.id ?? null
+								)
+							}
+						>
+							<CaretLeftIcon />
+						</PinBarAction>
+						<span className="tabular-nums">
+							{index + 1}/{items.length}
+						</span>
+						<PinBarAction
+							label="Next pinned item"
+							onClick={() =>
+								setSelectedId(items[(index + 1) % items.length]?.id ?? null)
+							}
+						>
+							<CaretRightIcon />
+						</PinBarAction>
+					</div>
+				) : null}
+				{canUnpin ? (
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label="Pinned item options"
+									className="size-7 shrink-0 text-muted-foreground shadow-none"
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
+						>
+							<XIcon />
+						</DropdownMenuTrigger>
+						<FluidDropdownMenuContent align="end">
+							<FluidDropdownMenuItem index={0} onClick={dismiss}>
+								Dismiss
+							</FluidDropdownMenuItem>
+							<FluidDropdownMenuItem
+								disabled={context.pending}
+								index={1}
+								onClick={unpin}
+							>
+								{item.kind === "file" ? "Unpin file" : "Unpin message"}
+							</FluidDropdownMenuItem>
+						</FluidDropdownMenuContent>
+					</DropdownMenu>
+				) : (
+					<PinBarAction label="Dismiss pinned items" onClick={dismiss}>
+						<XIcon />
+					</PinBarAction>
+				)}
+				<PinBarAction
+					label={item.kind === "file" ? "Open pinned file" : "Jump to message"}
+					onClick={open}
+				>
+					<ArrowSquareOutIcon />
+				</PinBarAction>
+			</Surface>
+		</div>
+	);
+}
 type PinsContextValue = {
 	pins: SpaceMessagePinsResponse["pins"];
 	profileId: string;
@@ -46,14 +237,32 @@ const FilePinsContext = createContext<FilePinsContextValue | null>(null);
 export const spaceMessagePinsQueryKey = (spaceId: string) =>
 	["space-message-pins", spaceId] as const;
 
-export function SpaceMessagePinsProvider(input: {
+type SpacePinsProviderProps = {
 	children: ReactNode;
 	spaceId: string;
 	profileId: string;
-	organizationSlug: string;
+	organizationSlug?: string;
 	canPin: boolean;
-}) {
+};
+export function SpacePinsProvider(input: SpacePinsProviderProps) {
+	if (!input.organizationSlug) {
+		return input.children;
+	}
+	return (
+		<SpacePinsProviderContent
+			{...input}
+			canPin={input.canPin && !input.profileId.startsWith("agt_")}
+			organizationSlug={input.organizationSlug}
+		/>
+	);
+}
+function SpacePinsProviderContent(
+	input: SpacePinsProviderProps & { organizationSlug: string }
+) {
 	const queryClient = useQueryClient();
+	const [visibility, setVisibility] = useBrowserPreference(
+		`openmeld:pins:${JSON.stringify([input.organizationSlug, input.profileId, input.spaceId])}`
+	);
 	const createClient = () =>
 		createOrganizationScopedWebOpenMeldApiFoundation({
 			organizationSlug: input.organizationSlug,
@@ -149,7 +358,15 @@ export function SpaceMessagePinsProvider(input: {
 					mutate: (value) => mutation.mutate(value),
 				}}
 			>
-				{input.children}
+				<PinVisibilityContext.Provider
+					value={{
+						dismissed: visibility === "hidden",
+						setDismissed: (value) =>
+							setVisibility(value ? "hidden" : "visible"),
+					}}
+				>
+					{input.children}
+				</PinVisibilityContext.Provider>
 			</PinsContext.Provider>
 		</FilePinsContext.Provider>
 	);
@@ -169,100 +386,6 @@ export function useSpaceFilePinAction(fileId: string | undefined) {
 		disabled: context.pending,
 		onSelect: () => context.mutate({ fileId, action: pin ? "unpin" : "pin" }),
 	};
-}
-
-export function SpacePinnedFileBar(input: {
-	onOpen: (fileId: string, revision: number) => void;
-}) {
-	const context = useContext(FilePinsContext);
-	const [selectedId, setSelectedId] = useState<string | null>(null);
-	if (!context?.pins.length) {
-		return null;
-	}
-	const index = Math.max(
-		0,
-		context.pins.findIndex((pin) => pin.file.id === selectedId)
-	);
-	const pin = context.pins[index];
-	if (!pin) {
-		return null;
-	}
-	return (
-		<div className="shrink-0 px-3 pt-2 sm:px-5" data-slot="space-pinned-file">
-			<Surface className="flex min-w-0 items-center gap-2 px-3 py-2">
-				<FileIcon
-					aria-hidden="true"
-					className="size-4 shrink-0 text-muted-foreground"
-				/>
-				<button
-					className="min-w-0 flex-1 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-					onClick={() =>
-						input.onOpen(pin.file.id, pin.file.latestRevision.revision)
-					}
-					type="button"
-				>
-					<div className="flex min-w-0 items-center gap-1.5">
-						<span className="min-w-0 truncate font-medium text-sm">
-							{pin.file.name}
-						</span>
-						<PinnedFileUpdateBadge pin={pin} scope={context} />
-					</div>
-					<p className="truncate text-muted-foreground text-xs">
-						Pinned file · {pin.pinnedByName}
-					</p>
-				</button>
-				{context.pins.length > 1 ? (
-					<div className="flex shrink-0 items-center text-muted-foreground text-xs">
-						<PinBarAction
-							label="Previous pinned file"
-							onClick={() =>
-								setSelectedId(
-									context.pins[
-										(index - 1 + context.pins.length) % context.pins.length
-									]?.file.id ?? null
-								)
-							}
-						>
-							<CaretLeftIcon />
-						</PinBarAction>
-						<span className="tabular-nums">
-							{index + 1}/{context.pins.length}
-						</span>
-						<PinBarAction
-							label="Next pinned file"
-							onClick={() =>
-								setSelectedId(
-									context.pins[(index + 1) % context.pins.length]?.file.id ??
-										null
-								)
-							}
-						>
-							<CaretRightIcon />
-						</PinBarAction>
-					</div>
-				) : null}
-				<PinBarAction
-					label="Open pinned file"
-					onClick={() =>
-						input.onOpen(pin.file.id, pin.file.latestRevision.revision)
-					}
-				>
-					<ArrowSquareOutIcon />
-				</PinBarAction>
-				{context.canPin && pin.pinnedByProfileId === context.profileId ? (
-					<PinBarAction
-						disabled={context.pending}
-						label="Unpin file"
-						onClick={() =>
-							context.mutate({ fileId: pin.file.id, action: "unpin" })
-						}
-					>
-						<XIcon />
-					</PinBarAction>
-				) : null}
-			</Surface>
-		</div>
-	);
 }
 
 function PinnedFileUpdateBadge(input: {
@@ -310,93 +433,6 @@ export function useSpaceMessagePinAction(signalId: string | undefined) {
 		disabled: context.pending,
 		onSelect: () => context.mutate({ signalId, action: "pin" }),
 	};
-}
-
-export function SpacePinnedMessageBar(input: {
-	onJump: (signalId: string) => void;
-}) {
-	const context = useContext(PinsContext);
-	const [selectedId, setSelectedId] = useState<string | null>(null);
-	if (!context?.pins.length) {
-		return null;
-	}
-	const index = Math.max(
-		0,
-		context.pins.findIndex((pin) => pin.signalId === selectedId)
-	);
-	const pin = context.pins[index];
-	if (!pin) {
-		return null;
-	}
-	return (
-		<div
-			className="shrink-0 px-3 pt-2 sm:px-5"
-			data-slot="space-pinned-message"
-		>
-			<Surface className="flex min-w-0 items-center gap-2 px-3 py-2">
-				<PushPinIcon
-					aria-hidden="true"
-					className="size-4 shrink-0 text-muted-foreground"
-					weight="fill"
-				/>
-				<div className="min-w-0 flex-1">
-					<p className="truncate text-sm">
-						<span className="font-medium">{pin.authorName}: </span>
-						{pin.preview || "Attachment"}
-					</p>
-					<p className="truncate text-muted-foreground text-xs">
-						Pinned by {pin.pinnedByName}
-					</p>
-				</div>
-				{context.pins.length > 1 ? (
-					<div className="flex shrink-0 items-center text-muted-foreground text-xs">
-						<PinBarAction
-							label="Previous pinned message"
-							onClick={() =>
-								setSelectedId(
-									context.pins[
-										(index - 1 + context.pins.length) % context.pins.length
-									]?.signalId
-								)
-							}
-						>
-							<CaretLeftIcon />
-						</PinBarAction>
-						<span className="tabular-nums">
-							{index + 1}/{context.pins.length}
-						</span>
-						<PinBarAction
-							label="Next pinned message"
-							onClick={() =>
-								setSelectedId(
-									context.pins[(index + 1) % context.pins.length]?.signalId
-								)
-							}
-						>
-							<CaretRightIcon />
-						</PinBarAction>
-					</div>
-				) : null}
-				<PinBarAction
-					label="Jump to message"
-					onClick={() => input.onJump(pin.signalId)}
-				>
-					<ArrowSquareOutIcon />
-				</PinBarAction>
-				{context.canPin && pin.pinnedByProfileId === context.profileId ? (
-					<PinBarAction
-						disabled={context.pending}
-						label="Unpin message"
-						onClick={() =>
-							context.mutate({ signalId: pin.signalId, action: "unpin" })
-						}
-					>
-						<XIcon />
-					</PinBarAction>
-				) : null}
-			</Surface>
-		</div>
-	);
 }
 
 function PinBarAction(input: {

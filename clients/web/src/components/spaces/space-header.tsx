@@ -19,6 +19,8 @@ import {
 	SpaceHeaderNavigationMenu,
 	type SpaceHeaderNavigationMenuItem,
 } from "./space-header-navigation-menu";
+import { SpacePinsRecallAction } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
 import { SpaceSettingsDialog } from "./space-settings-dialog";
 import { SpaceShareDialog } from "./space-share-dialog";
 
@@ -40,6 +42,7 @@ export function SpaceWindowHeader(input: {
 	// indicator stays pinned to the name while the title truncates.
 	titleAdornment?: ReactNode;
 }) {
+	const readingHeader = useSpaceReadingHeader();
 	const hasModuleSidebar = useHasModuleSidebar();
 	const subtitleItems = input.subtitleItems ?? [];
 	const hasSecondaryRow =
@@ -53,6 +56,7 @@ export function SpaceWindowHeader(input: {
 					: "grid-rows-1",
 				input.contentClassName
 			)}
+			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (
 				<div className="col-start-1 row-start-1 flex shrink-0 items-center gap-3">
@@ -64,7 +68,15 @@ export function SpaceWindowHeader(input: {
 				className="col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden"
 				data-slot="space-window-header-title"
 			>
-				<h1 className="truncate font-medium text-lg">{input.title}</h1>
+				<h1
+					className={cn(
+						"truncate font-medium text-lg",
+						readingHeader && "max-w-[28rem]"
+					)}
+					title={readingHeader ? input.title : undefined}
+				>
+					{input.title}
+				</h1>
 				{input.titleAdornment ?? null}
 			</div>
 
@@ -160,6 +172,7 @@ export function SpaceHeader(input: {
 	// "Get set up" recall action shown before Members when the in-Space setup
 	// panel is dismissed but still has actions.
 	setupRecallAction?: ReactNode;
+	onRecallPinnedItems?: () => void;
 	viewControl?: ReactNode;
 	onDeleteSpace: () => Promise<void> | void;
 	onLeaveSpace?: () => Promise<void> | void;
@@ -202,6 +215,7 @@ export function SpaceHeader(input: {
 								{input.setupRecallAction}
 							</div>
 						) : null}
+						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog

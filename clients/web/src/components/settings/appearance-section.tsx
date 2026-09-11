@@ -1,6 +1,7 @@
 "use client";
 
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
+import { Switch } from "@openmeld/ui/components/switch";
 import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
 import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import {
@@ -17,6 +18,10 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import {
+	TOOLBAR_SHORTCUTS,
+	useToolbarPreference,
+} from "#/lib/appearance/toolbar-preference";
 import {
 	readSpaceConversationLayoutPreference,
 	type SpaceConversationLayout,
@@ -120,6 +125,7 @@ const getClientHydrationSnapshot = () => true;
 const getServerHydrationSnapshot = () => false;
 
 export function AppearanceSection() {
+	const toolbar = useToolbarPreference();
 	const { setTheme, theme } = useTheme();
 	const { setShape, shape } = useShapeContext();
 	const choiceOrientation = useMediaQuery(PHONE_APPEARANCE_CHOICES_QUERY)
@@ -296,6 +302,32 @@ export function AppearanceSection() {
 					label="Your messages"
 					layout="stacked"
 					showDivider={false}
+				/>
+				<SettingsRow
+					control={
+						<div className="flex flex-wrap items-center gap-x-8 gap-y-3">
+							{TOOLBAR_SHORTCUTS.map((item) => (
+								<label
+									className="flex shrink-0 items-center gap-3 text-sm"
+									htmlFor={`toolbar-shortcut-${item.id}`}
+									key={item.id}
+								>
+									<span>{item.label}</span>
+									<Switch
+										aria-label={`Show ${item.label} in toolbar`}
+										checked={toolbar.isVisible(item.id)}
+										id={`toolbar-shortcut-${item.id}`}
+										onCheckedChange={(checked) =>
+											toolbar.setVisible(item.id, checked)
+										}
+									/>
+								</label>
+							))}
+						</div>
+					}
+					description="Choose which shortcuts appear in the bottom toolbar. Saved in this browser."
+					label="Toolbar shortcuts"
+					layout="stacked"
 				/>
 			</section>
 		</>

@@ -13,13 +13,15 @@ import { SidebarUserFooter } from "@openmeld/ui/fluid/sidebar-user-footer";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	CaretRightIcon,
+	DesktopTowerIcon,
 	GearSixIcon,
 	MoonIcon,
 	SignOutIcon,
 	SunIcon,
 } from "@phosphor-icons/react";
+import { useNavigate } from "@tanstack/react-router";
 import { useTheme } from "next-themes";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
@@ -35,6 +37,10 @@ import type {
 	AppOuterRailAccount,
 	HumanProfileAvatarIdentity,
 } from "./app-workspace-switcher";
+import {
+	CurrentComputerAttentionIndicator,
+	useCurrentComputer,
+} from "./current-computer";
 
 export function AppSidebarFooter({
 	account,
@@ -49,6 +55,8 @@ export function AppSidebarFooter({
 	isSettingsActive: boolean;
 }) {
 	const iconOnly = mode === "icon";
+	const computerAttentionLabel = useCurrentComputer()?.attentionLabel;
+	const navigate = useNavigate();
 	const name = account.name?.trim() || account.email || "Account";
 	const settingsLabel = "Settings";
 	const openSettings = useAppSettings();
@@ -127,7 +135,11 @@ export function AppSidebarFooter({
 				</CollapsedRailTooltip>
 			</div>
 			<SidebarUserFooter
-				avatar={avatar}
+				avatar={
+					<AccountAvatarWithComputerAttention>
+						{avatar}
+					</AccountAvatarWithComputerAttention>
+				}
 				className={iconOnly ? "w-9" : "min-w-0 flex-1"}
 				iconOnly={iconOnly}
 				menu={
@@ -165,8 +177,18 @@ export function AppSidebarFooter({
 							</FluidDropdownMenuItem>
 							<DropdownMenuSeparator className="my-1" />
 							{invitationEntry.menuItem}
-							<FluidDropdownMenuItem
+							<ComputerMenuItem
 								index={invitationEntry.nextMenuIndex}
+								onNavigate={(destination) => {
+									setMenuOpen(false);
+									dismiss();
+									navigate({ to: destination }).catch((error: Error) =>
+										toast.error(error.message)
+									);
+								}}
+							/>
+							<FluidDropdownMenuItem
+								index={invitationEntry.nextMenuIndex + 1}
 								onClick={openAccount}
 							>
 								<GearSixIcon />
@@ -174,7 +196,7 @@ export function AppSidebarFooter({
 							</FluidDropdownMenuItem>
 							<FluidDropdownMenuItem
 								disabled={logout.isPending}
-								index={invitationEntry.nextMenuIndex + 1}
+								index={invitationEntry.nextMenuIndex + 2}
 								onClick={() => {
 									logout.mutate(undefined, {
 										onSuccess: () => window.location.assign("/"),
@@ -203,8 +225,59 @@ export function AppSidebarFooter({
 					}
 				}}
 				open={menuOpen}
+				triggerLabel={
+					computerAttentionLabel
+						? `Open user menu for ${name}, ${computerAttentionLabel}`
+						: undefined
+				}
 			/>
 			{invitationEntry.dialog}
 		</SidebarFooter>
+	);
+}
+
+function AccountAvatarWithComputerAttention({
+	children,
+}: {
+	children: ReactNode;
+}) {
+	const computer = useCurrentComputer();
+	const showAttention = computer?.attentionLabel;
+	return (
+		<span className="relative inline-flex">
+			{children}
+			{showAttention ? (
+				<>
+					<span className="sr-only">{computer.accessibleLabel}</span>
+					<span className="absolute -top-0.5 -right-0.5 rounded-full bg-sidebar p-0.5">
+						<CurrentComputerAttentionIndicator status={computer.status} />
+					</span>
+				</>
+			) : null}
+		</span>
+	);
+}
+function ComputerMenuItem(input: {
+	index: number;
+	onNavigate: (destination: string) => void;
+}) {
+	const computer = useCurrentComputer();
+	return (
+		<FluidDropdownMenuItem
+			aria-label={computer?.accessibleLabel ?? "Computer"}
+			disabled={!computer?.destination}
+			index={input.index}
+			onClick={() => {
+				if (computer?.destination) {
+					input.onNavigate(computer.destination);
+				}
+			}}
+		>
+			<DesktopTowerIcon />
+			<span className="flex-1">Computer</span>
+			{computer ? (
+				<CurrentComputerAttentionIndicator status={computer.status} />
+			) : null}
+		</FluidDropdownMenuItem>
 	);
 }

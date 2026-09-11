@@ -39,7 +39,6 @@ import {
 	MessageDetailsActionButton,
 } from "./space-message-actions";
 import { useSpaceMessageEditing } from "./space-message-editing";
-import { useSpaceMessagePinAction } from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
 	MessageReactionIcon,
@@ -49,6 +48,7 @@ import {
 	type useMessageReactions,
 	useMessageReactionsContext,
 } from "./space-message-reactions";
+import { useSpaceMessagePinAction } from "./space-pins";
 import { SpaceMessageWakeRecommendation } from "./space-wake-recommendation";
 
 export type SpaceMessageFooterAddressingTarget = {
