@@ -1,3 +1,4 @@
+import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { createFileRoute, Outlet } from "@tanstack/react-router";
 import { AppGlobalControls } from "#/components/app/app-global-controls";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
@@ -7,6 +8,11 @@ import { appShellStaticData } from "#/components/app/shell-layout";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 
 export const Route = createFileRoute("/o/$orgSlug/plugins")({
+	validateSearch: (
+		search: Record<string, unknown>
+	): { scope: "personal" | "organization" } => ({
+		scope: search.scope === "organization" ? "organization" : "personal",
+	}),
 	staticData: appShellStaticData.plugins,
 	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),
 	component: PluginsLayout,
@@ -22,11 +28,11 @@ function PluginsLayout() {
 				<AppOuterRail account={account} initialState={sidebarStates.outer} />
 			}
 		>
-			<div className="min-h-0 flex-1 overflow-y-auto">
-				<div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+			<ScrollArea className="min-h-0 flex-1">
+				<div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6 lg:px-8">
 					<Outlet />
 				</div>
-			</div>
+			</ScrollArea>
 		</AppSurfaceLayout>
 	);
 }

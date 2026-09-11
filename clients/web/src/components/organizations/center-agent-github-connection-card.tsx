@@ -61,6 +61,7 @@ type GitHubConnectionCardMode = "all" | "member" | "shared";
 type GitHubConnectionCardPresentation = "management" | "onboarding";
 
 export function CenterAgentGitHubConnectionCard(input: {
+	organizationName?: string;
 	canManage: boolean;
 	isPersonalWorkspace?: boolean;
 	mode?: GitHubConnectionCardMode;
@@ -347,6 +348,7 @@ export function CenterAgentGitHubConnectionCard(input: {
 			onConnect={handleConnect}
 			onDisconnect={(request) => disconnectMutation.mutate(request)}
 			onRetry={() => connectionsQuery.refetch()}
+			organizationName={input.organizationName}
 			otherMemberConnections={otherMemberConnections}
 			presentation={presentation}
 			sharedConnection={sharedConnection}
@@ -363,6 +365,7 @@ type GitHubConnectionCardErrorState = {
 } | null;
 
 function GitHubConnectionCardContent(input: {
+	organizationName?: string;
 	authorizationDisabled: boolean;
 	canManage: boolean;
 	currentUserId?: string;
@@ -455,6 +458,7 @@ function GitHubConnectionCardContent(input: {
 					onCancelAuthorization={input.onCancelAuthorization}
 					onConnect={() => input.onConnect("shared")}
 					onDisconnect={() => input.onDisconnect({ scope: "shared" })}
+					organizationName={input.organizationName}
 					presentation={input.presentation}
 					scopeName={input.isPersonalWorkspace ? "Workspace" : "Organization"}
 					statusAvailable={input.statusAvailable}
@@ -580,7 +584,7 @@ function YourGitHubSection(input: {
 			description={
 				isOnboarding
 					? "Connect your GitHub identity for tasks that should run as you."
-					: "The Center Agent uses your GitHub only when your task explicitly needs your identity or personal repositories."
+					: "Let Agents use your GitHub for your requests."
 			}
 			title="Your GitHub"
 		>
@@ -660,6 +664,7 @@ function MemberGitHubConnectionsSection(input: {
 }
 
 function SharedGitHubSection(input: {
+	organizationName?: string;
 	authorizationDisabled: boolean;
 	canManage: boolean;
 	connection?: ConnectorConnection;
@@ -679,7 +684,7 @@ function SharedGitHubSection(input: {
 	const isOnboarding = input.presentation === "onboarding";
 	const canShowAuthorizationAction = input.statusAvailable || isOnboarding;
 	let description =
-		"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use. Organization work and Routines run as the OpenMeld bot.";
+		"Choose the repositories Agents can use. Shared actions run as the OpenMeld bot.";
 	if (isOnboarding) {
 		description =
 			"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use.";
@@ -707,7 +712,7 @@ function SharedGitHubSection(input: {
 				)
 			}
 			description={description}
-			title={`${input.scopeName} GitHub Plugin`}
+			title={`${input.organizationName ?? input.scopeName} GitHub Plugin`}
 		>
 			{input.loading ? <PluginAccessLoadingSkeleton /> : null}
 			{input.disconnectPending && !connection ? (
@@ -737,7 +742,9 @@ function SharedGitHubSection(input: {
 			!input.loading &&
 			!connection ? (
 				<p className="text-muted-foreground text-xs">
-					No {input.scopeName} access is connected yet.
+					{input.organizationName
+						? `GitHub is not connected for ${input.organizationName}.`
+						: `No ${input.scopeName} access is connected yet.`}
 				</p>
 			) : null}
 		</GitHubConnectionSection>

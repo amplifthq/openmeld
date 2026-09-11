@@ -8,6 +8,12 @@ import type {
 	PluginConsumer,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useId, useState } from "react";
 import { toast } from "sonner";
@@ -22,10 +28,17 @@ const CONSUMERS: { id: PluginConsumer; label: string }[] = [
 	{ id: "local_agent", label: "Local Agents" },
 	{ id: "remote_agent", label: "Personal Remote Agents" },
 ];
+const PERMISSION_LABELS = {
+	none: "No access",
+	read: "Read only",
+	write: "Read and write",
+} as const;
 
 export function PluginAgentAccess(input: {
 	organizationId: string;
 	service: ConnectorService;
+	scope: "member" | "shared";
+	organizationName: string;
 }) {
 	const queryClient = useQueryClient();
 	const queryKey = [
@@ -56,7 +69,9 @@ export function PluginAgentAccess(input: {
 			</div>
 		);
 	}
-	const active = access.data.connections;
+	const active = access.data.connections.filter(
+		(connection) => connection.scope === input.scope
+	);
 	if (active.length === 0) {
 		return null;
 	}
@@ -66,18 +81,17 @@ export function PluginAgentAccess(input: {
 			className="border-border/70 border-t px-4 py-4 sm:px-5"
 		>
 			<h3 className="font-medium text-sm">Agent access</h3>
-			<p className="mt-1 text-muted-foreground text-xs leading-5">
-				Choose what each type of Agent can do. Personal accounts are used only
-				for their owner’s requests. Shared accounts are available to
-				organization members within these permissions.
-			</p>
 			{active.map((item) => {
 				return (
 					<ConnectionAgentAccess
 						key={`${item.connectionName}:${item.revision}`}
 						{...input}
 						access={item}
-						label={item.scope === "shared" ? "Shared account" : "Your account"}
+						label={
+							item.scope === "shared"
+								? `Agents in ${input.organizationName}`
+								: "Agents using your account"
+						}
 						onSaved={() => queryClient.invalidateQueries({ queryKey })}
 					/>
 				);
@@ -128,19 +142,31 @@ function ConnectionAgentAccess(input: {
 					<label className="text-sm" htmlFor={`${id}-${consumer}`}>
 						{label}
 					</label>
-					<select
-						className="h-8 rounded-md border border-input bg-background px-2 text-sm disabled:opacity-70"
-						id={`${id}-${consumer}`}
-						onChange={(event) => {
-							const value = pluginPermissionSchema.parse(event.target.value);
+					<Select
+						disabled={!input.access.canManage || mutation.isPending}
+						onValueChange={(nextValue) => {
+							const value = pluginPermissionSchema.parse(nextValue);
 							setPolicy((previous) => ({ ...previous, [consumer]: value }));
 						}}
 						value={policy[consumer]}
 					>
-						<option value="none">No access</option>
-						<option value="read">Read only</option>
-						<option value="write">Read and write</option>
-					</select>
+						<SelectTrigger
+							className="w-40"
+							displayValue={PERMISSION_LABELS[policy[consumer]]}
+							id={`${id}-${consumer}`}
+						/>
+						<SelectContent>
+							<SelectItem index={0} value="none">
+								No access
+							</SelectItem>
+							<SelectItem index={1} value="read">
+								Read only
+							</SelectItem>
+							<SelectItem index={2} value="write">
+								Read and write
+							</SelectItem>
+						</SelectContent>
+					</Select>
 				</div>
 			))}
 			{input.access.canManage ? (

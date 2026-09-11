@@ -109,7 +109,7 @@ function resolveActiveConnectionGroups(input: {
 	canManage: boolean;
 	connections?: ConnectorConnection[];
 	currentUserId?: string;
-	mode: "all" | "member";
+	mode: "all" | "member" | "shared";
 }) {
 	const activeConnections =
 		input.connections?.filter((connection) => connection.status === "active") ??
@@ -150,10 +150,11 @@ function isAuthorizationScopeConnected(input: {
 }
 
 type PluginConnectionCardProps = {
+	organizationName?: string;
 	plugin: Extract<PluginDefinition, { availability: "available" }>;
 	canManage: boolean;
 	isPersonalWorkspace?: boolean;
-	mode: "all" | "member";
+	mode: "all" | "member" | "shared";
 	organizationId: string;
 };
 
@@ -706,6 +707,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 				setLocalError(null);
 				connectionsQuery.refetch();
 			}}
+			organizationName={input.organizationName}
 			otherMemberConnections={otherMemberConnections}
 			plugin={input.plugin}
 			sharedConnection={sharedConnection}
@@ -721,6 +723,7 @@ function PluginConnectionCardState(input: PluginConnectionCardProps) {
 }
 
 function PluginConnectionCardContent(input: {
+	organizationName?: string;
 	actionsDisabled: boolean;
 	plugin: Extract<PluginDefinition, { availability: "available" }>;
 	canManage: boolean;
@@ -731,7 +734,7 @@ function PluginConnectionCardContent(input: {
 	errorMessage: string | null;
 	isPersonalWorkspace: boolean;
 	loading: boolean;
-	mode: "all" | "member";
+	mode: "all" | "member" | "shared";
 	disconnectPendingRequest: DisconnectRequest | null;
 	onConnect: (
 		scope: AuthorizationScope,
@@ -757,6 +760,9 @@ function PluginConnectionCardContent(input: {
 		input.disconnectPendingRequest.userId === input.currentUserId;
 	const disconnectingShared =
 		input.disconnectPendingRequest?.scope === "shared";
+	const sharedScopeName =
+		input.organizationName ??
+		(input.isPersonalWorkspace ? "Workspace" : "Organization");
 	return (
 		<section
 			aria-busy={
@@ -770,35 +776,37 @@ function PluginConnectionCardContent(input: {
 				input.loading && "pointer-events-none opacity-60"
 			)}
 		>
-			<ConnectionSection
-				actionsDisabled={input.actionsDisabled}
-				appName={input.plugin.name}
-				canManage
-				connection={input.currentUserConnection}
-				connectionConfig={input.plugin.connection}
-				connectPendingKind={
-					input.connectPending?.scope === "member"
-						? input.connectPending.authKind
-						: null
-				}
-				description="Used only for your requests."
-				disconnectPending={disconnectingCurrentUser}
-				key={`member-${input.credentialResetKey}`}
-				loading={input.loading}
-				onConnect={(auth, values) => input.onConnect("member", auth, values)}
-				onDisconnect={() =>
-					input.currentUserConnection
-						? input.onDisconnect({
-								scope: "member",
-								userId: input.currentUserConnection.userId,
-							})
-						: undefined
-				}
-				scope="member"
-				statusAvailable={input.statusAvailable}
-				statusChecking={input.statusChecking}
-				title="Your access"
-			/>
+			{input.mode === "shared" ? null : (
+				<ConnectionSection
+					actionsDisabled={input.actionsDisabled}
+					appName={input.plugin.name}
+					canManage
+					connection={input.currentUserConnection}
+					connectionConfig={input.plugin.connection}
+					connectPendingKind={
+						input.connectPending?.scope === "member"
+							? input.connectPending.authKind
+							: null
+					}
+					description="Used only for your requests."
+					disconnectPending={disconnectingCurrentUser}
+					key={`member-${input.credentialResetKey}`}
+					loading={input.loading}
+					onConnect={(auth, values) => input.onConnect("member", auth, values)}
+					onDisconnect={() =>
+						input.currentUserConnection
+							? input.onDisconnect({
+									scope: "member",
+									userId: input.currentUserConnection.userId,
+								})
+							: undefined
+					}
+					scope="member"
+					statusAvailable={input.statusAvailable}
+					statusChecking={input.statusChecking}
+					title="Your account"
+				/>
+			)}
 			{input.mode === "all" && input.canManage && !input.isPersonalWorkspace ? (
 				<MemberConnectionsSection
 					actionsDisabled={input.actionsDisabled}
@@ -822,9 +830,7 @@ function PluginConnectionCardContent(input: {
 					actionsDisabled={input.actionsDisabled}
 					appName={input.plugin.name}
 					canManage={input.canManage}
-					connectedScopeName={
-						input.isPersonalWorkspace ? "Workspace" : "Organization"
-					}
+					connectedScopeName={sharedScopeName}
 					connection={input.sharedConnection}
 					connectionConfig={input.plugin.connection}
 					connectPendingKind={
@@ -841,11 +847,7 @@ function PluginConnectionCardContent(input: {
 					scope="shared"
 					statusAvailable={input.statusAvailable}
 					statusChecking={input.statusChecking}
-					title={
-						input.isPersonalWorkspace
-							? "Workspace access"
-							: "Organization access"
-					}
+					title={`${sharedScopeName} access`}
 				/>
 			)}
 			<PluginConnectionError {...input} />

@@ -5,6 +5,10 @@ import { OrganizationPluginDetailPage } from "./organization-plugin-detail-page"
 import { findPluginDefinition } from "./plugin-catalog";
 
 vi.mock("./plugin-agent-access", () => ({ PluginAgentAccess: () => null }));
+vi.mock("./plugin-scope-tabs", () => ({
+	PluginScopeTabs: () => null,
+	usePluginScope: () => "personal",
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to }: { children: ReactNode; to: string }) => (
@@ -57,9 +61,9 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins
-				connectionMode="all"
 				isPersonalWorkspace={false}
 				organizationId="org-acme"
+				organizationName="Acme"
 				organizationSlug="acme"
 				plugin={github}
 			/>
@@ -72,12 +76,9 @@ describe("OrganizationPluginDetailPage", () => {
 		expect(
 			screen.getByRole("link", { name: "All Plugins" }).getAttribute("href")
 		).toBe("/o/acme/plugins");
-		const appSummary = screen.getByTestId("plugin-detail-summary");
-		expect(appSummary.className).toContain("rounded-md");
-		expect(appSummary.className).toContain("bg-card");
-		const appAccess = screen.getByTestId("plugin-detail-access");
-		expect(appAccess.className).toContain("rounded-md");
-		expect(appAccess.className).toContain("bg-card");
+		expect(screen.getByTestId("github-access").getAttribute("data-mode")).toBe(
+			"member"
+		);
 	});
 
 	it("shows connection controls for an available OAuth App", () => {
@@ -90,9 +91,9 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins={false}
-				connectionMode="all"
 				isPersonalWorkspace={false}
 				organizationId="org-acme"
+				organizationName="Acme"
 				organizationSlug="acme"
 				plugin={googleDrive}
 			/>
@@ -116,9 +117,9 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins
-				connectionMode="all"
 				isPersonalWorkspace={false}
 				organizationId="org-acme"
+				organizationName="Acme"
 				organizationSlug="acme"
 				plugin={figma}
 			/>
@@ -140,18 +141,16 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins
-				connectionMode="all"
 				isPersonalWorkspace
 				organizationId="org-personal"
+				organizationName="Felix"
 				organizationSlug="felix"
 				plugin={googleDrive}
 			/>
 		);
 
 		expect(
-			screen.getByText(
-				"Connect an account, then choose which Agents can use it and what they can do."
-			)
+			screen.getByText("Connect your account for your own requests.")
 		).toBeTruthy();
 		expect(
 			screen.getByTestId("plugin-access").getAttribute("data-personal")

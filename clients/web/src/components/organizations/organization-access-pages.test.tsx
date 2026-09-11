@@ -17,6 +17,8 @@ import {
 import { OrganizationMessageChannelsPage } from "./organization-message-channels-page";
 import { OrganizationPluginsPage } from "./organization-plugins-page";
 
+vi.mock("./plugin-scope-tabs", () => ({ PluginScopeTabs: () => null }));
+
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentDesignationMock = vi.hoisted(() => vi.fn());
 const listCurrentOrganizationMessageChannelsMock = vi.hoisted(() => vi.fn());

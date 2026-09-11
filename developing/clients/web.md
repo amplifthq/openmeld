@@ -115,6 +115,15 @@ Center, Local, and personal Remote Agent permissions. Permission saves use a
 server revision check; a conflicting edit must be reloaded, never silently
 overwritten. The server owns management eligibility and execution permission.
 
+The catalog and detail pages separate **Personal** from the current
+organization's actual name with the same scope tabs. Scope stays in the URL
+when opening a Plugin and returning to the catalog. Personal status includes
+only the signed-in member's connection; organization status includes only the
+shared connection. All members can inspect shared status and permissions;
+only owners and admins can change them. Reuse Fluid Select for permission
+controls and keep account connection controls beside their scoped permissions.
+Loading connection status must not block opening a Plugin's settings.
+
 ### Collaboration presentation
 
 Sending from a conversation or thread Composer returns focus during the send

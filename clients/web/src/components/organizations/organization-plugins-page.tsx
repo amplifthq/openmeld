@@ -12,6 +12,7 @@ import {
 	OrganizationPluginNotFoundPage,
 } from "./organization-plugin-detail-page";
 import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
+import { PluginScopeTabs } from "./plugin-scope-tabs";
 import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
 export function OrganizationPluginsPage({
@@ -45,9 +46,9 @@ export function OrganizationPluginsPage({
 		return (
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins={false}
-				connectionMode="all"
 				isPersonalWorkspace={currentOrganization.isPersonal === true}
 				organizationId={currentOrganization.id}
+				organizationName={currentOrganization.name}
 				organizationSlug={currentOrganization.slug}
 				plugin={selectedPlugin}
 			/>
@@ -59,17 +60,22 @@ export function OrganizationPluginsPage({
 			<AppPageHeader
 				description={
 					currentOrganization.isPersonal === true
-						? "Connect your accounts and choose which Agents can use them. Every action shows which account it uses."
-						: `Connect your own accounts or review the accounts shared with ${currentOrganization.name}. Every action shows which account it uses.`
+						? "Connect your apps to your Agents."
+						: "Connect apps for yourself or your team."
 				}
 				eyebrow={
 					currentOrganization.isPersonal === true
 						? "Personal workspace"
-						: "Organization"
+						: currentOrganization.name
 				}
 				title="Plugins"
 			/>
+			<PluginScopeTabs
+				isPersonalWorkspace={currentOrganization.isPersonal === true}
+				organizationName={currentOrganization.name}
+			/>
 			<PluginsCatalogPanel
+				isPersonalWorkspace={currentOrganization.isPersonal === true}
 				organizationId={currentOrganization.id}
 				organizationSlug={currentOrganization.slug}
 			/>
@@ -113,9 +119,9 @@ function AvailableOrganizationPluginPage(input: {
 	return (
 		<OrganizationPluginDetailPage
 			canManageSharedPlugins={canManageSharedPlugins}
-			connectionMode="all"
 			isPersonalWorkspace={input.organization.isPersonal === true}
 			organizationId={input.organization.id}
+			organizationName={input.organization.name}
 			organizationSlug={input.organization.slug}
 			permissionNotice={permissionNotice}
 			plugin={input.plugin}

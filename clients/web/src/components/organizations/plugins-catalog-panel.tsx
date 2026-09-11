@@ -6,17 +6,12 @@ import { Input } from "@openmeld/ui/components/input";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { resolveStatusToneProminentBadgeClassName } from "@openmeld/ui/lib/status-tone";
-import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
-import { cn } from "@openmeld/ui/lib/utils";
 import { CaretRightIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { buildOrganizationPluginPath } from "#/lib/organizations/organization-routes";
-import {
-	organizationPluginConnectionCatalogQueryOptions,
-	organizationPluginConnectionStatusSummaryQueryOptions,
-} from "#/query/organizations/plugin-connections";
+import { organizationPluginConnectionCatalogQueryOptions } from "#/query/organizations/plugin-connections";
 import { AppLogo } from "./app-logo";
 import {
 	PLUGIN_CATEGORIES,
@@ -24,11 +19,15 @@ import {
 	type PluginCategory,
 	type PluginDefinition,
 } from "./plugin-catalog";
+import { usePluginScope } from "./plugin-scope-tabs";
 
 export function PluginsCatalogPanel(input: {
 	organizationId: string;
 	organizationSlug: string;
+	isPersonalWorkspace?: boolean;
 }) {
+	const selectedScope = usePluginScope();
+	const scope = input.isPersonalWorkspace ? "personal" : selectedScope;
 	const [activeCategory, setActiveCategory] = useState<PluginCategory>("All");
 	const [searchQuery, setSearchQuery] = useState("");
 	const queryClient = useQueryClient();
@@ -39,25 +38,21 @@ export function PluginsCatalogPanel(input: {
 			queryClient,
 		})
 	);
-	const statusSummaryQuery = useQuery(
-		organizationPluginConnectionStatusSummaryQueryOptions({
-			organizationId: input.organizationId,
-		})
-	);
 	const connectedServices = new Set<string>();
 	if (connectionsQuery.data) {
 		for (const connection of connectionsQuery.data.connections) {
-			if (connection.status === "active") {
+			if (
+				connection.status === "active" &&
+				(scope === "organization"
+					? connection.scope === "shared"
+					: connection.scope === "member" &&
+						connection.userId === connectionsQuery.data.currentUserId)
+			) {
 				connectedServices.add(connection.service);
 			}
 		}
-	} else {
-		for (const service of statusSummaryQuery.data?.connectedServices ?? []) {
-			connectedServices.add(service);
-		}
 	}
-	const connectionStatusIsPending =
-		connectionsQuery.isPending && !statusSummaryQuery.data;
+	const connectionStatusIsPending = connectionsQuery.isPending;
 	const visiblePlugins = PLUGINS.filter((plugin) => {
 		const matchesCategory =
 			activeCategory === "All" || plugin.category === activeCategory;
@@ -143,21 +138,26 @@ export function PluginsCatalogPanel(input: {
 
 			{visiblePlugins.length > 0 ? (
 				<FluidCardGroup
-					className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
+					className="grid gap-x-8 gap-y-1 sm:grid-cols-2"
 					role="list"
 				>
 					{visiblePlugins.map((plugin) => (
 						<FluidCardItem
-							className={surfaceClasses(2)}
+							className="bg-transparent"
 							itemId={plugin.service}
 							key={plugin.service}
 							role="listitem"
 						>
 							<PluginCatalogCard
-								connected={connectedServices.has(plugin.service)}
+								connected={
+									connectionsQuery.data
+										? connectedServices.has(plugin.service)
+										: undefined
+								}
 								connectionStatusIsPending={connectionStatusIsPending}
 								organizationSlug={input.organizationSlug}
 								plugin={plugin}
+								scope={scope}
 							/>
 						</FluidCardItem>
 					))}
@@ -178,25 +178,16 @@ export function PluginsCatalogPanel(input: {
 
 function PluginCatalogCard(input: {
 	plugin: PluginDefinition;
-	connected: boolean;
+	connected: boolean | undefined;
 	connectionStatusIsPending: boolean;
 	organizationSlug: string;
+	scope: "personal" | "organization";
 }) {
 	return (
 		<div className="h-full overflow-hidden rounded-md">
 			<Link
-				aria-disabled={input.connectionStatusIsPending || undefined}
-				className={cn(
-					"group flex h-full min-h-20 min-w-0 items-center gap-3 px-4 py-3 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset sm:px-5",
-					input.connectionStatusIsPending &&
-						"pointer-events-none cursor-wait opacity-60"
-				)}
-				onClick={(event) => {
-					if (input.connectionStatusIsPending) {
-						event.preventDefault();
-					}
-				}}
-				tabIndex={input.connectionStatusIsPending ? -1 : undefined}
+				className="group flex h-full min-h-20 min-w-0 items-center gap-3 px-2 py-3 outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-inset"
+				search={{ scope: input.scope }}
 				to={buildOrganizationPluginPath({
 					orgSlug: input.organizationSlug,
 					service: input.plugin.service,
@@ -253,7 +244,9 @@ export function PluginStatusBadge(input: {
 		);
 	}
 	if (!input.connected) {
-		return null;
+		return input.connected === false ? (
+			<span className="text-muted-foreground text-xs">Not connected</span>
+		) : null;
 	}
 	return (
 		<Badge className={resolveStatusToneProminentBadgeClassName("ready")}>

@@ -128,7 +128,7 @@ describe("PluginConnectionCard", () => {
 			name: "Linear connection status",
 		});
 		expect(statusRegion.getAttribute("aria-busy")).toBe("true");
-		expect(screen.getByRole("heading", { name: "Your access" })).toBeTruthy();
+		expect(screen.getByRole("heading", { name: "Your account" })).toBeTruthy();
 		expect(
 			screen.getByRole("heading", { name: "Member connections" })
 		).toBeTruthy();
@@ -219,7 +219,7 @@ describe("PluginConnectionCard", () => {
 			</TestQueryClientProvider>
 		);
 
-		const yourAccess = screen.getByRole("region", { name: "Your access" });
+		const yourAccess = screen.getByRole("region", { name: "Your account" });
 		const memberConnections = screen.getByRole("region", {
 			name: "Member connections",
 		});

@@ -330,7 +330,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use. Organization work and Routines run as the OpenMeld bot."
+				"Choose the repositories Agents can use. Shared actions run as the OpenMeld bot."
 			)
 		).toBeTruthy();
 		expect(

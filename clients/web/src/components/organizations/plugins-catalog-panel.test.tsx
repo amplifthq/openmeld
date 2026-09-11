@@ -24,6 +24,12 @@ const SLACK_LINK_NAME = /Slack/;
 const TEAMS_LINK_NAME = /Microsoft Teams/;
 const TRANSIENT_STATUS_COPY = /checking|updating/i;
 const listAppConnectionsMock = vi.hoisted(() => vi.fn());
+const scopeState = vi.hoisted(() => ({
+	value: "personal" as "personal" | "organization",
+}));
+vi.mock("./plugin-scope-tabs", () => ({
+	usePluginScope: () => scopeState.value,
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -47,6 +53,7 @@ vi.mock("#/lib/organizations/connector-connections", () => ({
 
 describe("PluginsCatalogPanel", () => {
 	beforeEach(() => {
+		scopeState.value = "personal";
 		listAppConnectionsMock.mockReset().mockResolvedValue({
 			connections: [activeConnection("github"), activeConnection("notion")],
 			currentUserId: "user-1",
@@ -107,7 +114,7 @@ describe("PluginsCatalogPanel", () => {
 		expect(arrow?.getAttribute("class")).toContain("sm:block");
 	});
 
-	it("keeps Plugin navigation inert and uses silent shimmer while connection status is unknown", () => {
+	it("keeps Plugin navigation available while connection status loads", () => {
 		listAppConnectionsMock.mockReturnValueOnce(new Promise(() => undefined));
 
 		renderCatalog();
@@ -115,15 +122,15 @@ describe("PluginsCatalogPanel", () => {
 		const catalog = screen.getByRole("region", { name: "Plugin catalog" });
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
 		expect(catalog.getAttribute("aria-busy")).toBe("true");
-		expect(githubLink.getAttribute("aria-disabled")).toBe("true");
-		expect(githubLink.getAttribute("tabindex")).toBe("-1");
+		expect(githubLink.hasAttribute("aria-disabled")).toBe(false);
+		expect(githubLink.getAttribute("tabindex")).toBeNull();
 		expect(
 			within(githubLink).getByTestId("plugin-connection-status-skeleton")
 		).toBeTruthy();
 		expect(screen.queryByText(TRANSIENT_STATUS_COPY)).toBeNull();
 	});
 
-	it("shows a restored connected-service summary while the Catalog refreshes", () => {
+	it("does not apply a legacy unscoped connection summary to personal accounts", () => {
 		const queryClient = createTestQueryClient();
 		queryClient.setQueryData(
 			organizationPluginConnectionQueryKeys.statusSummary("org-acme"),
@@ -138,11 +145,45 @@ describe("PluginsCatalogPanel", () => {
 
 		const catalog = screen.getByRole("region", { name: "Plugin catalog" });
 		const githubLink = screen.getByRole("link", { name: GITHUB_LINK_NAME });
-		expect(catalog.getAttribute("aria-busy")).toBe("false");
+		expect(catalog.getAttribute("aria-busy")).toBe("true");
 		expect(githubLink.hasAttribute("aria-disabled")).toBe(false);
-		expect(within(githubLink).getByText("Connected")).toBeTruthy();
+		expect(within(githubLink).queryByText("Connected")).toBeNull();
 		expect(
 			within(githubLink).queryByTestId("plugin-connection-status-skeleton")
+		).toBeTruthy();
+	});
+
+	it.each([
+		"personal",
+		"organization",
+	] as const)("shows only %s connections in the selected scope", async (scope) => {
+		scopeState.value = scope;
+		listAppConnectionsMock.mockResolvedValue({
+			connections: [
+				activeConnection("github"),
+				{ ...activeConnection("notion"), scope: "shared" },
+				{
+					...activeConnection("github"),
+					service: "figma",
+					userId: "another-member",
+				},
+			],
+			currentUserId: "user-1",
+			organizationId: "org-acme",
+		});
+		renderCatalog();
+		const own = screen.getByRole("link", { name: GITHUB_LINK_NAME });
+		const shared = screen.getByRole("link", { name: NOTION_LINK_NAME });
+		expect(
+			await within(scope === "personal" ? own : shared).findByText("Connected")
+		).toBeTruthy();
+		expect(
+			within(scope === "personal" ? shared : own).queryByText("Connected")
+		).toBeNull();
+		expect(
+			within(screen.getByRole("link", { name: FIGMA_LINK_NAME })).queryByText(
+				"Connected"
+			)
 		).toBeNull();
 	});
 
