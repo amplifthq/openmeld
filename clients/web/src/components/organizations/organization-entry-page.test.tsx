@@ -83,6 +83,10 @@ vi.mock("#/components/app/app-shell-account", () => ({
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization,
+		organizations,
+	}),
 	useAppOrganization: () => ({
 		currentOrganization,
 		organizations,
