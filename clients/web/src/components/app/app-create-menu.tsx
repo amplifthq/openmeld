@@ -26,11 +26,15 @@ export function AppCreateMenu({ orgSlug }: { orgSlug: string }) {
 				aria-label="Create"
 				className="flex size-10 shrink-0 items-center justify-center rounded-full bg-sidebar-accent/60 text-sidebar-foreground/70 outline-none hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring"
 			>
-				<PlusIcon aria-hidden="true" className="size-5" />
+				<PlusIcon
+					aria-hidden="true"
+					className="size-5 transition-transform duration-180 ease-out motion-reduce:transition-none"
+					style={{ transform: open ? "rotate(45deg)" : "rotate(0deg)" }}
+				/>
 			</Menu.Trigger>
 			<Menu.Portal>
 				<Menu.Positioner
-					align="start"
+					align="center"
 					className="z-50"
 					side="right"
 					sideOffset={12}
@@ -79,16 +83,17 @@ function CreateOptions({
 			contrast={18}
 			fill="var(--accent)"
 			shadow="0 2px 8px rgba(0,0,0,.14)"
-			style={{ height: options.length * 48 - 8 }}
+			style={{ height: options.length * 64 - 24 }}
 		>
 			{options.map((option, index) => (
 				<Liquid.Item
 					className="absolute top-0 left-0"
+					delay={motion ? index * 60 : 0}
 					key={option.label}
 					radius={20}
 					transition={motion ? "snappy" : { duration: 0 }}
 					x={expanded || !motion ? 0 : -52}
-					y={expanded || !motion ? index * 48 : 0}
+					y={expanded || !motion ? index * 64 : (options.length - 1) * 32}
 				>
 					<Menu.Item
 						className="flex h-10 w-32 items-center justify-center gap-2 whitespace-nowrap rounded-full px-3 text-sm outline-none data-highlighted:bg-popover data-highlighted:ring-1 data-highlighted:ring-ring"
