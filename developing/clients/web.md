@@ -68,7 +68,9 @@ Settings retains its own settings navigation. A page without contextual
 navigation does not create an empty middle column or load the Messenger list.
 The work-area header toggles the middle list without hiding the application
 rail or remounting the conversation. The existing Fluid sidebar engine owns
-resizing, keyboard shortcuts, and edge reveal. The existing outer-sidebar cookie
+resizing and keyboard shortcuts. Dragging the middle column can collapse it,
+but it has no edge-hover floating preview or hidden resize handle. The visible
+work-area header button restores it. The existing outer-sidebar cookie
 now stores middle-column geometry, with a 308px default; legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in

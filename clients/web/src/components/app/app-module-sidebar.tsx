@@ -67,6 +67,7 @@ export function AppModuleSidebarProvider(input: {
 					width: Number.parseFloat(width) * (width.endsWith("rem") ? 16 : 1),
 				}}
 				onGeometryChange={onGeometryChange}
+				peekOnHover={false}
 				static={!input.available}
 				style={{ display: "contents" }}
 			>

@@ -64,6 +64,13 @@ it("collapses only the middle list, retaining application navigation and the mou
 	).toBeTruthy();
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
 	expect(draft).toHaveProperty("value", "Unsent work");
+	expect(screen.queryByRole("button", { name: "Peek sidebar" })).toBeNull();
+	expect(
+		screen.queryByRole("separator", { name: "Resize app sidebar" })
+	).toBeNull();
+	expect(screen.getAllByRole("button", { name: "Show sidebar" })).toHaveLength(
+		1
+	);
 	fireEvent.click(screen.getAllByRole("button", { name: "Show sidebar" })[0]);
 	expect(
 		screen.getByRole("link", { name: "Existing conversation" })
