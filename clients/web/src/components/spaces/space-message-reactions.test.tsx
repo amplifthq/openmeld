@@ -89,8 +89,7 @@ describe("message reaction cache", () => {
 		try {
 			expect(
 				client.getQueryData<SpaceHistorySnapshot>(historyKey)?.envelopes[0]
-					?.reactions
-			).toEqual(reacted);
+			).toEqual({ ...signal, reactions: reacted });
 		} finally {
 			client.clear();
 		}
