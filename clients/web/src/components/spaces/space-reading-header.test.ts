@@ -18,4 +18,23 @@ describe("Space reading header position", () => {
 			expect(resolveSpaceReadingHeaderProgress(24, isUserScrolling)).toBe(0);
 		}
 	});
+	it("continues from restored endpoints without reversing before following the scroll gesture", () => {
+		const restoredCompact = { distance: 96, progress: 1 };
+		expect(resolveSpaceReadingHeaderProgress(100, true, restoredCompact)).toBe(
+			1
+		);
+		expect(
+			resolveSpaceReadingHeaderProgress(60, true, restoredCompact)
+		).toBeCloseTo(0.5);
+		const settledExpanded = { distance: 60, progress: 0 };
+		expect(resolveSpaceReadingHeaderProgress(50, true, settledExpanded)).toBe(
+			0
+		);
+		expect(
+			resolveSpaceReadingHeaderProgress(102, true, settledExpanded)
+		).toBeCloseTo(0.5);
+		expect(resolveSpaceReadingHeaderProgress(144, true, settledExpanded)).toBe(
+			1
+		);
+	});
 });
