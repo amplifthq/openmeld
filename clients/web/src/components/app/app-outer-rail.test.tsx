@@ -227,7 +227,7 @@ const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = ["Center Agent", "Spaces", "Team"] as const;
+const PRIMARY_RAIL_LABELS = ["Desk", "Spaces", "Team"] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
@@ -403,18 +403,18 @@ describe("AppOuterRail", () => {
 		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
 	});
 
-	it("warms the Center Agent conversation from primary navigation intent", () => {
+	it("does not open a Center Agent session while pointing at Desk", () => {
 		renderRail();
 
-		fireEvent.pointerEnter(screen.getByRole("link", { name: "Center Agent" }));
+		fireEvent.pointerEnter(screen.getByRole("link", { name: "Desk" }));
 
-		expect(prefetchCenterAgentConversationMock).toHaveBeenCalledOnce();
+		expect(prefetchCenterAgentConversationMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps readable wrapped labels in the fixed application rail", () => {
 		renderRail({ tier: "expanded", width: "9rem" });
-		const link = screen.getByRole("link", { name: "Center Agent" });
-		expect(link.textContent).toBe("Center Agent");
+		const link = screen.getByRole("link", { name: "Desk" });
+		expect(link.textContent).toBe("Desk");
 		expect(link.querySelector("span.whitespace-normal")).toBeTruthy();
 	});
 
@@ -446,7 +446,7 @@ describe("AppOuterRail", () => {
 		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
 		renderRail({ tier: "expanded", width: "9rem" });
 
-		for (const label of ["Center Agent", "Spaces", "Team", "Settings"]) {
+		for (const label of ["Desk", "Spaces", "Team", "Settings"]) {
 			const link = screen.getByRole(label === "Settings" ? "button" : "link", {
 				name: label,
 			});
@@ -560,7 +560,7 @@ describe("AppOuterRail", () => {
 		});
 
 		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Center Agent" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Desk" })).toBeTruthy();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
@@ -670,7 +670,7 @@ describe("AppOuterRail", () => {
 	it.each([
 		"icon",
 		"expanded",
-	] as const)("shows Center Agent unread replies on Home in the %s tier", async (tier) => {
+	] as const)("does not attach Center Agent unread replies to Desk in the %s tier", async (tier) => {
 		centerAgentUnreadCount = 2;
 		rememberClientSidebarState("outer", {
 			tier,
@@ -679,14 +679,12 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Center Agent, 2 unread replies",
+			name: "Desk",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="center-agent-unread"]'
 		);
-		expect(indicator).toBeTruthy();
-		expect(indicator?.className).toContain("bg-unread");
-		expect(indicator?.textContent).toBe("");
+		expect(indicator).toBeNull();
 	});
 
 	it("waits for the complete ordinary Space aggregate instead of inferring from bounded rows", async () => {
@@ -1719,7 +1717,7 @@ describe("AppOuterRail", () => {
 
 		const rendered = renderRail();
 
-		const homeLink = screen.getByRole("link", { name: "Center Agent" });
+		const homeLink = screen.getByRole("link", { name: "Desk" });
 		const teamLink = screen.getByRole("link", { name: "Team" });
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");

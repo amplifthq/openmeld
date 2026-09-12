@@ -67,6 +67,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { AgentCreationComputerSetup } from "#/components/connect/agent-creation-computer-setup";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
@@ -454,6 +455,7 @@ export function CreateProfileDialogStep(
 		onBusyChange: (busy: boolean) => void;
 	}
 ) {
+	const [connectingComputer, setConnectingComputer] = useState(false);
 	const view = useCreateProfileDialogController(input, {
 		agentOnly: true,
 		templateNaming: true,
@@ -462,6 +464,23 @@ export function CreateProfileDialogStep(
 		input.onBusyChange(view.formProps.isSubmitting);
 		return () => input.onBusyChange(false);
 	}, [input.onBusyChange, view.formProps.isSubmitting]);
+	if (connectingComputer && input.orgSlug) {
+		return (
+			<AgentCreationComputerSetup
+				onBack={() => setConnectingComputer(false)}
+				orgSlug={input.orgSlug}
+			/>
+		);
+	}
+	const formProps = {
+		...view.formProps,
+		localAgentEmptyState: view.formProps.localAgentEmptyState && {
+			...view.formProps.localAgentEmptyState,
+			onConnectComputer: input.orgSlug
+				? () => setConnectingComputer(true)
+				: undefined,
+		},
+	};
 	return (
 		<>
 			<Button
@@ -477,7 +496,7 @@ export function CreateProfileDialogStep(
 			<DialogHeader>
 				<DialogTitle>{view.title}</DialogTitle>
 			</DialogHeader>
-			<AgentProfileGenerator form={view.formProps} surface="dialog" />
+			<AgentProfileGenerator form={formProps} surface="dialog" />
 		</>
 	);
 }

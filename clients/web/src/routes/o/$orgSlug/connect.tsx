@@ -112,6 +112,7 @@ export function AppConnectContent(input: {
 			<Link
 				aria-label={isCreatingAgent ? "Back to creating Agent" : "Back"}
 				className={buttonVariants({
+					className: "w-fit self-start justify-self-start",
 					size: isCreatingAgent ? "sm" : "icon-sm",
 					variant: "ghost",
 				})}

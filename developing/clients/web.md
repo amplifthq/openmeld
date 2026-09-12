@@ -49,7 +49,7 @@ URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
-list inside the inset surface, and the current work area. Center Agent,
+list inside the inset surface, and the current work area. Desk,
 Spaces, and Team are the rail's destinations. Four circular controls at the
 top stack Organization switching, search, Inbox, and Create. The Organization
 avatar fills its circular trigger. Create opens New Agent and New Space to the
@@ -412,7 +412,7 @@ primary actions and destinations in a flat list:
   overview. Success opens the new Agent's detail; Cancel returns to Agents.
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
-- **Center Agent** — directly opens the current Organization's default Center Agent chat.
+- **Desk** — opens an ordinary Space on the current workspace's canvas.
 - **Spaces** — opens the existing chat directory, with Spaces and private
   conversations available in its contextual list.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
@@ -428,15 +428,14 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Center Agent**, **Spaces**,
-and **Team**, followed by the separate **New Agent** action. The underlying product destinations are:
+The visible destinations resolve in this order: **Desk**, **Spaces**, and
+**Team**, with **New Agent** in the separate Create action. The product destinations are:
 
-1. **Home** — directly renders the existing default Center Agent conversation,
-   keeping Home selected. It shares the complete conversation component,
-   loader, and underlying session with Direct messages, without an intermediate entry
-   screen or a new conversation. Existing Home session and view selectors
-   remain supported. The default follows the existing production open-or-reuse
-   behavior, rather than switching to the most recently active session.
+1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
+   React Flow canvas. See **Desk and Chats** below for selection, creation,
+   persistence, and viewport behavior. Space interactions use the full Space
+   owner. A bottom-right Add to Desk button opens a categorized widget dialog;
+   shared compact conversations provide Chat windows, including Center Agent.
 2. **Spaces** — the current workspace's Space collaboration surface.
    Spaces, Direct Messages, and People place their contextual lists
    in the middle column, separate from the fixed application rail. Each list
@@ -601,18 +600,141 @@ writer owners for that conversation. Inbox and Center Agent
 are separate controls and truths, and at most one compact panel is open at a
 time.
 
-### Home and Direct messages
+### Desk and Chats
 
-The former Home destination is labeled **Center Agent** in navigation and the
-command palette while Home is redesigned. Its Organization-root URL and
-internal `home` section identity remain unchanged.
+The first Desk release enables adding Spaces and text only. Other widget
+categories remain commented out in the picker, with their implementations and
+existing browser layouts retained. Text is added from the canvas context menu.
+The broader widget behavior described below is implemented but not offered for
+new additions in this release.
 
-The authorized Organization root `/o/{orgSlug}` remains Home and directly
-renders the default Center Agent conversation using the existing production
-open-or-reuse loader. Home stays selected and does not redirect to Direct messages.
-`/o/{orgSlug}/chats/center-agent` exposes the same complete conversation UI
-inside Direct messages. Both routes support the existing `session`, `draft`, and view
-selectors and share the underlying conversation without copying history.
+The Add to Desk dialog groups Spaces, Chats, Updates, People, and Computers in
+a sidebar. New accounts do not automatically receive additional widgets.
+Chats reuse the same DirectMessagePicker as the Chats page;
+opening a conversation on Desk changes its presentation, not membership or
+message ownership. Inbox, Center Agent, and Computer cards reuse their existing
+product components. Existing singleton widgets are focused instead of duplicated.
+Window titles, geometry, and text are browser-local per account and Organization.
+Titles sit immediately above their window and move with it. Dragging a title
+moves the window; clicking it enters editing. Text uses the same interaction and
+starts at its content size. New information cards use intrinsic height, while
+conversation windows retain a bounded viewport. Manual resizing remains available.
+Desk Inbox shows the six most recent items, including read records, using the
+shared Inbox list and read mutation. The Toolbar preview remains an attention
+view of unread updates and unresolved requests, with a link to full history.
+People & Agents embeds the Space candidate selector, with independent selection
+of each person or agent. Each selection adds a Profile card instead of a directory
+widget. The card uses the shared Profile identity header and offers a Chat action.
+Visible Profile IDs are the source of truth for the picker's checked, disabled
+state; closing the card makes that identity selectable again. Selection does not
+add anyone to a Space or implicitly select an agent's owner. Profile cards read
+current readiness and operational status from the authorized directory, including
+reported queue counts; they do not infer activity from presence or local sessions.
+Closing a window removes only its Desk placement. It does not delete its source.
+Text is a canvas tool available from the context menu, not a widget category;
+users edit it directly and resize it. Layout changes can be undone locally.
+
+Active agents reads the existing authorized active-Wake summaries for accessible
+Spaces and chats. Reads run four at a time and refresh every minute while the
+widget is mounted and the browser is active. They do not infer execution from
+presence or expose local coding-session observation. Partial read failures are
+visible and never reported as an empty work list. This first version is an
+active-work view, not a history or an organization-wide private-conversation feed.
+Each row identifies the Agent, its owner when available, its Space, and progress.
+No membership, Wakeability, execution, or permission owner changes are introduced.
+
+The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
+its visible Space windows in this browser per account and Organization. Without a
+selection it uses an existing ordinary Space, or creates a private, members-only
+`Welcome Space` through the ordinary creation flow when none exists.
+There is no special Space kind or membership policy. A browser lock prevents
+concurrent tabs from creating duplicates; a pending marker prevents blind
+retries after an uncertain creation result. This is not cross-device atomic
+provisioning. A confirmed deleted Space is removed from Desk and is not recreated.
+
+Welcome tutorial identity is browser-local, keyed by account scope and Space ID,
+independent of the editable name. The shared Space page and directory read this
+same marker. Creation adds only the acting human. The first Welcome member picker
+opening recommends and preselects the designated Center Agent, without adding it
+until Add selected. Deselecting or closing does not reapply that default. Ordinary
+Spaces never preselect it. Its shared picker description explains its workspace
+role. The guide reuses the existing setup card and member dialog;
+ordinary Spaces keep their existing setup guidance. Welcome Spaces show one
+centered dashed action card, first **Add your first agent**, opening the shared
+member selector. Welcome empty content uses the shared panel's start alignment
+so the action is visible in the initial Desk viewport; ordinary empty Spaces
+retain centered alignment. Center Agent can complete the same path as any other
+Agent; existing Welcome members are preserved and can start the conversation.
+Confirmed member additions
+prepare an editable draft only when the Composer has no text, files, or reply.
+Agents receive Wake mentions; people receive ordinary mentions. Nothing is sent
+automatically. The introductory message greets the added members and asks for
+a brief introduction; it does not invent a business task. Clearing
+the draft exposes **Start a conversation** in the same card. Its saved recipient
+IDs are draft intent only and are reconciled against active Space members before
+restoring a draft, using current names. Existing text, files, and replies are
+preserved. There is no separate Center Agent sample-task shortcut.
+The action card appears only in an empty conversation. Once conversation entries
+exist, it stays out of the timeline's top overlay, including while an Agent is
+working. A real final reply from an added Agent to a newly sent user message completes
+the guide, which then disappears. No skip, resume, or replay controls are exposed.
+Legacy paused progress resumes from its saved step. This guide does not change permissions,
+Wakeability, execution ownership, or server-side Space semantics, and does not
+sync its progress across devices.
+
+Desk Space windows use React Flow's native edge and corner resizing, bounded to
+720–2400 canvas pixels wide and 480–1800 high. Window dimensions are remembered
+per window, account, and organization in this browser, independently of the viewport.
+Resizing changes only the canvas container, not the shared Space implementation.
+New windows fit the Desk's available width and height with 32px canvas margins,
+within the existing size limits. Small viewports zoom out enough to show the full window.
+Desk conversation rails fill the available width up to the shared centered-page maximum
+(`--space-conversation-centered-max-width`),
+with 24px inline padding, reduced to 16px in narrow containers. Wider windows
+add outer whitespace rather than lengthening text lines. Appearance's centered/full-width preference applies
+only to page surfaces. Desk passes its measured width into the shared Space so
+the Members side-panel breakpoint follows the window rather than the browser.
+Local development lanes expose Reset Welcome Space at the top-left of Desk.
+The greeting is selectable and resizable; selection reveals its border and close
+button. Its geometry shares the Desk layout storage. Closing it persists an
+account-and-organization-scoped browser preference, with no restore action.
+Dismissed greetings skip the greeting entrance even when the viewport is reset.
+It creates a new private ordinary Space with only the acting human, initializes
+Welcome guidance, and clears the current Desk window and viewport preferences.
+Existing Spaces and their messages remain intact. Production builds omit this action.
+
+Desk and Space Graph share `WorkspaceCanvas`, with independent React Flow
+providers. Desk mounts the same full `SpaceLanding` as the Space route, including
+setup guidance, Messages, Graph, Files, members, sharing, and threads. The same
+responsive rules determine the member surface. The mounted Space survives
+panning and zooming; no preview copy or parallel conversation state exists.
+The maximize link opens its canonical route. The shared member selector uses
+the workspace directory in both Personal and Organization contexts, including
+the workspace's own Center Agent under the existing membership authorization.
+
+The first visit starts with a blank canvas, reveals the centered greeting with
+a subtle scale-in, then the arrow, then the Space. The viewport pans down to
+center the complete Space, including the Composer. Pointer, wheel, or keyboard
+input interrupts the entrance and reveals all content. Reduced motion shows
+the final view immediately. The viewport is remembered locally; Reset view restores
+the fitted Space view. Scrolling a clipped Space reveals its lower content
+before the ordinary conversation scrolls. Embedded Graphs own their wheel input.
+Bottom-left controls collapse to a Canvas tools button and expand on mouse hover,
+keyboard focus, or tap; leaving waits briefly before closing. Their opacity-only
+transition is disabled under reduced motion. The canvas context menu offers
+Add Space, Reset view, and Reset layout. Add Space searches existing joined Spaces
+in the current organization, marks displayed windows On Desk, and links to the
+standard Create Space route. Empty Desk also exposes Add Space. Closing a window
+only removes it from the persisted Desk layout; the Space remains in Spaces and
+can be added again. Confirmed deleted Spaces are removed from every Desk window.
+Reset layout restores
+the greeting and Space positions and default dimensions, clears the saved size,
+and resets the viewport without remounting the Space. Context menus inside the
+Space remain owned by the shared Space interface.
+
+`/o/{orgSlug}/chats/center-agent` remains the canonical full Center Agent page.
+Explicit legacy `session`, `draft`, focused-signal and view selectors on the
+Organization root redirect there, preserving their intent.
 
 Direct messages at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
 It stays on a conversation directory, sharing sidebar grouping, sort order,
@@ -682,7 +804,7 @@ No second conversation controller or message store is introduced.
 ### Inbox
 
 The canonical route is `/o/{orgSlug}/inbox`. The bare authorized Organization
-route renders **Home** after current membership and Organization identity are
+route renders **Desk** after current membership and Organization identity are
 resolved. Inbox remains a lower-priority global utility reached from its
 bottom-right launcher; it must not become the default authenticated or
 post-onboarding destination. Inbox uses the full-width inset app surface without
@@ -2489,7 +2611,7 @@ must preserve `authorizedActions` when supplied; silently dropping that field
 would create a Routine that cannot fulfill its visible document-maintenance or
 team-report promise.
 
-### Home first paint
+### Desk first paint
 
 The deferred proposal for replacing the current aggregate Space bootstrap with
 a bounded, versioned entry read model is tracked in
@@ -2497,17 +2619,17 @@ a bounded, versioned entry read model is tracked in
 production behavior and does not authorize implementation before its trigger
 and consumer-inventory gates are satisfied.
 
-The Organization index renders the canonical Center Agent conversation as Home
-at `/o/{orgSlug}` after its route guard confirms current Organization access.
+The Organization index renders Desk at `/o/{orgSlug}` after its
+route guard confirms current Organization access.
 Ordinary Organization selection, creation, invitation acceptance, and
 onboarding completion all use this same default path. An explicit intent, such
 as continuing Slack installation, may still enter its named destination
 directly.
 
-The Center Agent pathless layout branch owns both Home Chat and its explicit
-capability routes with outer app rail + full-width content and no secondary
-sidebar. That branch owns its pending component; the global router does not
-infer Center Agent pending UI from a pathname. The outer rail derives its
+The Center Agent pathless route branch renders Desk without the Center Agent
+conversation layout. Explicit Center Agent capability routes retain their
+existing layout. That branch owns its pending component; the global router does
+not infer Center Agent pending UI from a pathname. The outer rail derives its
 selected destination from route matches instead of page props or
 navigation-intent state.
 
@@ -3279,20 +3401,28 @@ users receive the final layout without spatial motion.
 
 Members header descriptions own a full-width row below the title and actions.
 The header Add People or Agents action and the one-member empty-state card both
-open the same Add People or Agents dialog. New Agent is a compact primary action
-below the dialog description; the title row is reserved for the title and close
-action. Invite sits beside New Agent for organization members and stays stable
+open the same Add People or Agents dialog. Empty-Space setup and Welcome Space
+actions open that dialog directly without expanding Members. Closing the dialog
+preserves whether the user had already opened Members. New Agent is a compact
+primary action at the right of the current user's People row, including when
+they have no Agents. The title row is reserved for the title and close action.
+Invite remains below the description for organization members and stays stable
 while role information loads; an unresolved role cannot enable a direct invitation.
 New Agent replaces the content inside this same dialog, with Back returning to
-the picker and preserving selection. Creation does not grant Space membership:
+the picker and preserving selection. Connect Computer inside creation opens the
+shared ComputerSetupFlow in the same dialog and keeps the creation controller
+mounted. Back and verified completion return to that creation step without route
+navigation. The standalone Connect route retains its existing return target.
+Creation does not grant Space membership:
 the new Agent returns selected in the picker, and the user can create another
 before the final Add selected operation. Pending teammate requests are not presented
 as created Agents. Only the final membership operation closes the picker.
 The picker presents People as the primary hierarchy, expanded by default, with
 each person's addable Agent Profiles indented below their People row. A person
-who is already in the Space remains visible when one of their Agents can still
-be added. Center Agent remains Organization-owned, appears first in a separate
-Organization group, and carries a compact Remote badge. The hierarchy uses
+who is already in the Space remains visible even without Agents, labeled
+In this Space. Center Agent remains Organization-owned, appears first in a separate
+Organization group, and carries a compact Remote badge with a cloud icon and
+shared surface background and shadow tokens. The hierarchy uses
 spacing, avatars, and typography rather than nested cards or borders. Selecting
 an ordinary Agent explains and counts
 the Core-owned owner-Human participation effect without submitting a duplicate

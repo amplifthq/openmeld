@@ -1527,7 +1527,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("closes Add People or Agents when profile history refresh fails after the membership write", async () => {
+	it("closes Add People or Agents when directory refresh fails after the membership write", async () => {
 		const addMembersMock = vi.fn().mockResolvedValue({
 			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
 			alreadyMemberIds: [],
@@ -1536,13 +1536,14 @@ describe("SpaceLanding", () => {
 		const consoleWarnMock = vi
 			.spyOn(console, "warn")
 			.mockImplementation(() => undefined);
-		upsertProfileSpaceHistoryMock.mockImplementation((input: unknown) =>
-			JSON.stringify(input).includes(SECOND_AGENT_PROFILE_ID)
-				? Promise.reject(new Error("history write failed"))
-				: Promise.resolve([])
-		);
+		useQueryClientMock.mockReturnValue({
+			invalidateQueries: vi
+				.fn()
+				.mockRejectedValue(new Error("Directory refresh failed")),
+			setQueryData: vi.fn(),
+		});
 		createWebSpaceApiMock.mockReturnValue({
-			addMembers: addMembersMock,
+			addOrganizationDirectoryProfilesToSpace: addMembersMock,
 			deleteSpace: vi.fn().mockResolvedValue({
 				deleted: true,
 				spaceId: "space-123",
@@ -1566,6 +1567,7 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			organizationDirectory: createPersonalScoutDirectoryFixture(),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -1614,12 +1616,8 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(addMembersMock).toHaveBeenCalledWith({
-				memberProfileIds: [SECOND_AGENT_PROFILE_ID],
-				requestContext: expect.objectContaining({
-					actorContext: expect.objectContaining({
-						openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
-					}),
-				}),
+				directoryProfileIds: [SECOND_AGENT_PROFILE_ID],
+				expectedCenterAgentProfileId: SECOND_AGENT_PROFILE_ID,
 				spaceId: "space-123",
 			});
 			expect(
@@ -1630,12 +1628,14 @@ describe("SpaceLanding", () => {
 		});
 		expect(screen.queryByText("Member added to this Space.")).toBeNull();
 		expect(screen.queryByText("history write failed")).toBeNull();
-		expect(consoleWarnMock).toHaveBeenCalledWith(
-			"OpenMeld added Space members but could not update history.",
-			expect.objectContaining({
-				profileIds: [SECOND_AGENT_PROFILE_ID],
-				spaceId: "space-123",
-			})
+		await waitFor(() =>
+			expect(consoleWarnMock).toHaveBeenCalledWith(
+				"OpenMeld added Organization Directory profiles but could not refresh Space data.",
+				expect.objectContaining({
+					directoryProfileIds: [SECOND_AGENT_PROFILE_ID],
+					spaceId: "space-123",
+				})
+			)
 		);
 	});
 
@@ -1653,7 +1653,7 @@ describe("SpaceLanding", () => {
 			setQueryData: vi.fn(),
 		});
 		createWebSpaceApiMock.mockReturnValue({
-			addMembers: addMembersMock,
+			addOrganizationDirectoryProfilesToSpace: addMembersMock,
 			deleteSpace: vi.fn().mockResolvedValue({
 				deleted: true,
 				spaceId: "space-123",
@@ -1677,6 +1677,7 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			organizationDirectory: createPersonalScoutDirectoryFixture(),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -18721,6 +18722,20 @@ function createOrganizationScope(
 		currentUserId: "user-mira",
 		organizations: [currentOrganization],
 		storageScope: "user-mira",
+	};
+}
+
+function createPersonalScoutDirectoryFixture(): OrganizationSpaceProfileCandidates {
+	const directory = createOrganizationDirectoryFixture({
+		centerAgentProfileId: SECOND_AGENT_PROFILE_ID,
+		humanProfileId: DEFAULT_SPACE_PROFILE_ID,
+	});
+	return {
+		...directory,
+		agentProfiles: directory.agentProfiles.map((agent) => ({
+			...agent,
+			profileName: "Scout",
+		})),
 	};
 }
 
