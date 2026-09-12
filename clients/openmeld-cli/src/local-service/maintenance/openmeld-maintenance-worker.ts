@@ -1,4 +1,5 @@
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
+import { configureDaemonMaintenanceEnvironment } from "../../config/daemon-service-update-worker-registration";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import {
   acquireLock,
@@ -29,6 +30,7 @@ import { createOpenMeldToolsUpdateCoordinator } from "./openmeld-tools-update-co
 // The OS owns this process. It is also the sole executor of persisted download
 // attempts; Service requests only publish an attempt and wake this worker.
 export async function runOpenMeldMaintenanceWorker(): Promise<void> {
+  configureDaemonMaintenanceEnvironment(process.env);
   await runMaintenanceWithLock();
 }
 

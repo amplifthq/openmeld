@@ -3,7 +3,14 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { daemonRuntimeRootPath } from "./daemon-state";
+import {
+  DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
+  DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
+  DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
+  DAEMON_SERVICE_RUNTIME_MODE_ENV,
+  DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV,
+  daemonRuntimeRootPath,
+} from "./daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
@@ -18,6 +25,23 @@ const SELF_CONTAINED_BUNDLE_FROM_EXECUTABLE_PATTERN =
 
 export const INDEPENDENT_MAINTENANCE_REGISTRATION =
   "openmeld-independent-maintenance-v1";
+
+// Maintenance may call normal Service commands, but it is never the main
+// Service process. Also normalize registrations written by older versions.
+export function configureDaemonMaintenanceEnvironment(
+  env: NodeJS.ProcessEnv
+): void {
+  for (const key of [
+    DAEMON_SERVICE_RUNTIME_AUTO_START_ENV,
+    DAEMON_SERVICE_RUNTIME_CONTROLLER_ENV,
+    DAEMON_SERVICE_RUNTIME_DETACHED_ENV,
+    DAEMON_SERVICE_RUNTIME_MODE_ENV,
+    DAEMON_SERVICE_RUNTIME_SYSTEM_SERVICE_ENV,
+  ]) {
+    delete env[key];
+  }
+  env.OPENMELD_INTERNAL_MAINTENANCE_WORKER = "1";
+}
 const NPM_ENTRY_IMPORT_PATTERN = /^await import\((".*")\);$/mu;
 
 export function daemonServiceUpdateWorkerNpmEntryPath(

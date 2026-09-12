@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
 import {
+  configureDaemonMaintenanceEnvironment,
   daemonServiceUpdateWorkerNpmEntryPath,
   hasIndependentMaintenanceRegistration,
   INDEPENDENT_MAINTENANCE_REGISTRATION,
@@ -446,11 +447,13 @@ export async function buildDaemonServiceUpdateWorkerSpec(
       "OpenMeld could not resolve the prepared Service update executable."
     );
   }
+  const env = { ...baseSpec.env };
+  configureDaemonMaintenanceEnvironment(env);
   return {
     args: binaryDistribution
       ? ["service", "update-worker"]
       : [targetEntryPath, "service", "update-worker"],
-    env: baseSpec.env,
+    env,
     executable: binaryDistribution ? targetEntryPath : process.execPath,
     pendingJobPath: join(
       daemonRuntimeStateRootPath(pathInput),
