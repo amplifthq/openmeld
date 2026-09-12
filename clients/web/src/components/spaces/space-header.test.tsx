@@ -339,6 +339,7 @@ describe("SpaceHeader", () => {
 		);
 
 		fireEvent.mouseEnter(publicAccessWarning);
+		fireEvent.mouseMove(publicAccessWarning);
 
 		await waitFor(() => {
 			expect(

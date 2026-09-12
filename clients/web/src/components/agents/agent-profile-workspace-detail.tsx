@@ -13,6 +13,7 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Card, CardContent, CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	resolveStatusToneBadgeClassName,
@@ -246,45 +247,49 @@ function AgentProfilePresence(input: {
 		</span>
 	);
 	return (
-		<div
-			aria-live="polite"
-			className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
-			data-agent-presence-status={presentation.status}
-			data-testid="agent-profile-presence"
-			title={presentation.tooltip}
-		>
-			{presenceIcon}
-			{presenceLabel}
-			{checkedAt ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					· {checkedAt}
-				</span>
-			) : null}
-			{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					Refreshing…
-				</span>
-			) : null}
-			{presentation.reason ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					{presentation.reason}
-				</span>
-			) : null}
-			{input.headerRecoveryActions ? (
-				<div
-					className="flex max-w-full flex-wrap items-center gap-2"
-					data-testid="agent-profile-header-recovery-actions"
-				>
-					{input.headerRecoveryActions}
-				</div>
-			) : null}
-			{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
-				<span className="text-muted-foreground text-xs" role="alert">
-					Couldn’t refresh availability.
-					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
-				</span>
-			) : null}
-		</div>
+		<TooltipHint content={presentation.tooltip}>
+			<div
+				aria-live="polite"
+				className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+				data-agent-presence-status={presentation.status}
+				data-testid="agent-profile-presence"
+			>
+				{presenceIcon}
+				{presenceLabel}
+				{checkedAt ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						· {checkedAt}
+					</span>
+				) : null}
+				{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						Refreshing…
+					</span>
+				) : null}
+				{presentation.reason ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						{presentation.reason}
+					</span>
+				) : null}
+				{input.headerRecoveryActions ? (
+					<div
+						className="flex max-w-full flex-wrap items-center gap-2"
+						data-testid="agent-profile-header-recovery-actions"
+					>
+						{input.headerRecoveryActions}
+					</div>
+				) : null}
+				{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
+					<span className="text-muted-foreground text-xs" role="alert">
+						Couldn’t refresh availability.
+						<span className="sr-only">
+							{" "}
+							{input.wakeAvailabilityErrorMessage}
+						</span>
+					</span>
+				) : null}
+			</div>
+		</TooltipHint>
 	);
 }
 

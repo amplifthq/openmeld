@@ -1777,7 +1777,6 @@ function SpaceLandingReady({
 		>
 			<SpaceReadingHeaderProvider
 				isDirectMessage={isDirectMessage}
-				isEmbedded={isCompactPresentation}
 				key={`${controller.spaceId}:${controller.profileId}`}
 				organizationSlug={input.orgSlug}
 				profileId={controller.profileId}

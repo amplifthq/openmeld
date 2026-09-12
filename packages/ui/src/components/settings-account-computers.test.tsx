@@ -323,6 +323,7 @@ describe("Settings Computers shared components", () => {
       pointerType: "mouse",
     });
     fireEvent.mouseEnter(tooltipTrigger as HTMLElement);
+    fireEvent.mouseMove(tooltipTrigger as HTMLElement);
     expect(
       await screen.findByText(
         "Update available. Open Details to copy the update command and see how to run it."

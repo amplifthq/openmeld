@@ -7,6 +7,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -254,19 +255,17 @@ function AgentConversationRow(input: {
 			{input.showAgent ? (
 				<TableCell className="whitespace-normal align-top">
 					{agents.map((agent) => (
-						<span
-							className="flex min-w-0 items-center gap-1.5"
-							key={agent.id}
-							title={agent.name}
-						>
-							<AgentProfileControllerAvatar
-								agentControllerRef={agent.agentControllerRef}
-								profileId={agent.id}
-								profileName={agent.name}
-								size={18}
-							/>
-							<span className="truncate text-xs">{agent.name}</span>
-						</span>
+						<TooltipHint content={agent.name} key={agent.id}>
+							<span className="flex min-w-0 items-center gap-1.5">
+								<AgentProfileControllerAvatar
+									agentControllerRef={agent.agentControllerRef}
+									profileId={agent.id}
+									profileName={agent.name}
+									size={18}
+								/>
+								<span className="truncate text-xs">{agent.name}</span>
+							</span>
+						</TooltipHint>
 					))}
 				</TableCell>
 			) : null}

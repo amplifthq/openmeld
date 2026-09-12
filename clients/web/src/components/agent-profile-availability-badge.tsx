@@ -31,7 +31,6 @@ export function AgentProfileAvailabilityBadge(input: {
 			data-availability-reason-code={input.availabilityReasonCode ?? undefined}
 			data-testid={input.testId ?? "agent-profile-availability-badge"}
 			render={input.to ? <Link to={input.to} /> : undefined}
-			title={input.tooltip}
 			variant={input.variant ?? "outline"}
 		>
 			<span

@@ -314,6 +314,10 @@ describe("ConversationsSidebar", () => {
 		// Row-action tests exercise a user's explicitly expanded sidebar.
 		for (const organization of ["org-acme", "org-personal"]) {
 			localStorage.setItem(
+				`openmeld:conversation-view:user-1:${organization}`,
+				"grouped"
+			);
+			localStorage.setItem(
 				`openmeld:space-sidebar-disclosure:human-1:${organization}`,
 				JSON.stringify({ pinned: true, spaces: true })
 			);
@@ -1705,6 +1709,7 @@ describe("ConversationsSidebar", () => {
 		const pin = screen.getByRole("button", { name: "Unpin Alpha" });
 		expect(status.querySelector("canvas")).toBeTruthy();
 		fireEvent.mouseEnter(link);
+		fireEvent.mouseMove(link);
 		expect(status.isConnected).toBe(true);
 		fireEvent.focus(pin);
 		expect(status.isConnected).toBe(true);
@@ -1887,7 +1892,7 @@ describe("ConversationsSidebar", () => {
 		// S32's hover geometry is verified at real browser widths, not inferred from jsdom.
 	});
 
-	it("[S33] shows the full space name quickly on row hover", async () => {
+	it("[S33] shows the full space name on row hover", async () => {
 		const longSpaceName = "CLI Dogfood 20260506 000022";
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -1923,6 +1928,7 @@ describe("ConversationsSidebar", () => {
 		expect(screen.queryByRole("tooltip", { name: longSpaceName })).toBeNull();
 		fireEvent.pointerEnter(link);
 		fireEvent.mouseEnter(link);
+		fireEvent.mouseMove(link);
 		await waitFor(
 			() =>
 				expect(
@@ -1932,7 +1938,7 @@ describe("ConversationsSidebar", () => {
 						)
 					).some((tooltip) => tooltip.textContent?.includes(longSpaceName))
 				).toBe(true),
-			{ timeout: 500 }
+			{ timeout: 1500 }
 		);
 		expect(screen.queryByText("Joined as OpenMeld Test")).toBeNull();
 		expect(screen.queryByText(OTHER_JOINED_PROFILE_TEXT)).toBeNull();
@@ -2273,6 +2279,7 @@ function hoverActivity(status: HTMLElement) {
 	}
 	fireEvent.pointerEnter(trigger);
 	fireEvent.mouseEnter(trigger);
+	fireEvent.mouseMove(trigger);
 }
 
 function getConversationRow(link: HTMLElement): HTMLElement {

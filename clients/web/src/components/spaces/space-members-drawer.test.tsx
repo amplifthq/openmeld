@@ -949,7 +949,9 @@ describe("SpaceMembersSidePanel", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Available");
-		expect(indicator.getAttribute("title")).toBe("Available for Wake");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(indicator.getAttribute("data-refreshing")).toBeNull();
 		expect(screen.queryByText("Checking")).toBeNull();
 		expect(
@@ -1148,7 +1150,9 @@ describe("SpaceMembersSidePanel", () => {
 			"space-agent-availability-indicator"
 		);
 		expect(agentStatus.getAttribute("aria-label")).toBe("Available");
-		expect(agentStatus.getAttribute("title")).toBe("Available for Wake");
+		expect(agentStatus.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(screen.queryByText(CONNECTED_TO_PATTERN)).toBeNull();
 		expect(screen.queryByText(OWNED_BY_MIRA_PATTERN)).toBeNull();
 
@@ -2635,7 +2639,9 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Available");
-		expect(indicator.getAttribute("title")).toBe("Available for Wake");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(indicator.getAttribute("data-refreshing")).toBeNull();
 		expect(
 			screen.queryByText("OpenMeld is checking this agent's local connection.")
@@ -2648,7 +2654,9 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Checking");
-		expect(indicator.getAttribute("title")).toBe("Checking Wake availability");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Checking Wake availability"
+		);
 	});
 
 	it("shows active Wake progress over a hard unavailable availability row", () => {
@@ -2684,7 +2692,7 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Working");
-		expect(indicator.getAttribute("title")).toBe("Wake in progress");
+		expect(indicator.getAttribute("aria-description")).toBe("Wake in progress");
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
