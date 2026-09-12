@@ -1,4 +1,7 @@
-import { projectObservabilityWakeCorrelation } from "@openmeld/schemas";
+import {
+  projectObservabilityWakeCorrelation,
+  SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
+} from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const buildHeadersMock = vi.hoisted(() =>
@@ -105,7 +108,9 @@ describe("Space dispatch trace API", () => {
       expect.objectContaining({
         headers: {
           authorization: "Bearer test-token",
-          "x-openmeld-space-dispatch-trace-response-version": "4",
+          "x-openmeld-space-dispatch-trace-response-version": String(
+            SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION
+          ),
         },
       })
     );
