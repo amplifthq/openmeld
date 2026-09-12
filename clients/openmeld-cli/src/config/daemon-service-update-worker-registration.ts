@@ -52,7 +52,8 @@ export function daemonServiceUpdateWorkerNpmEntryPath(
 
 export async function hasIndependentMaintenanceRegistration(
   pathInput: OpenMeldPathResolutionInput = {},
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
+  expectedDefinition?: string
 ): Promise<boolean> {
   if (platform === "win32") {
     const { runWindowsUserTask, readWindowsTaskAction } = await import(
@@ -69,6 +70,8 @@ export async function hasIndependentMaintenanceRegistration(
       task.installed &&
         !task.legacy &&
         task.actionArguments &&
+        (expectedDefinition === undefined ||
+          task.actionArguments === expectedDefinition) &&
         resolveOpenMeldRootDir({
           env: readWindowsTaskAction(task.actionArguments).env,
         }) === resolveOpenMeldRootDir(pathInput)
@@ -79,6 +82,9 @@ export async function hasIndependentMaintenanceRegistration(
     platform
   );
   if (!registration?.includes(INDEPENDENT_MAINTENANCE_REGISTRATION)) {
+    return false;
+  }
+  if (expectedDefinition !== undefined && registration !== expectedDefinition) {
     return false;
   }
   const { parseDaemonServiceEnvironmentFromDefinition } = await import(

@@ -2306,6 +2306,9 @@ version in addition to the current and rollback versions.
 A CLI scheduling a new job first copies the verified worker and establishes its
 OS registration, even when an older independent worker was installed. A saved
 definition does not prove that its executor supports the new setup contract.
+Maintenance repair also compares the saved definition with the current verified
+program and environment. Switching between binary and npm installs must refresh
+the OS command, not merely recreate a carrier the old command never invokes.
 An already pending update retains its executor ownership. A maintenance child
 must not unload its own OS-owned parent before publishing its job; that existing
 worker replaces its carrier only after Service verification as described above.
