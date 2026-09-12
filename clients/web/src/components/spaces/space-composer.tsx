@@ -1,6 +1,7 @@
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
@@ -328,12 +329,11 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							{input.slots?.profileControl}
 							{input.slots?.beforePrimaryAction}
 							{deviceWaitPresentation.hint ? (
-								<span
-									className="min-w-0 truncate text-muted-foreground text-xs"
-									title={deviceWaitPresentation.hint}
-								>
-									{deviceWaitPresentation.hint}
-								</span>
+								<TooltipHint content={deviceWaitPresentation.hint}>
+									<span className="min-w-0 truncate text-muted-foreground text-xs">
+										{deviceWaitPresentation.hint}
+									</span>
+								</TooltipHint>
 							) : null}
 							{primaryAction}
 						</div>

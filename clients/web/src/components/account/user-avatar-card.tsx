@@ -20,6 +20,7 @@ import {
 	SettingsAccountActionCard,
 	SettingsAccountProfileCard,
 } from "@openmeld/ui/components/settings-account";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	CalendarBlankIcon,
 	CameraIcon,
@@ -338,15 +339,16 @@ function AccountAvatarEditor(input: {
 					</span>
 				</button>
 				{input.currentAvatar ? (
-					<AvatarAction
-						aria-label="Remove photo"
-						className="z-50 text-background opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within/account-avatar:opacity-100 group-hover/account-avatar:opacity-100 [@media(hover:none)]:opacity-100"
-						disabled={isMutating}
-						onClick={() => setRemoveDialogOpen(true)}
-						title="Remove photo"
-					>
-						<XIcon aria-hidden="true" weight="bold" />
-					</AvatarAction>
+					<TooltipHint content="Remove photo">
+						<AvatarAction
+							aria-label="Remove photo"
+							className="z-50 text-background opacity-0 transition-opacity focus-visible:opacity-100 group-focus-within/account-avatar:opacity-100 group-hover/account-avatar:opacity-100 [@media(hover:none)]:opacity-100"
+							disabled={isMutating}
+							onClick={() => setRemoveDialogOpen(true)}
+						>
+							<XIcon aria-hidden="true" weight="bold" />
+						</AvatarAction>
+					</TooltipHint>
 				) : null}
 			</div>
 			{actionError ? (

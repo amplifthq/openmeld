@@ -1,4 +1,5 @@
 import { buttonVariants } from "@openmeld/ui/components/button";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -107,14 +108,15 @@ export function AppNewSpaceContent(input: {
 function NewSpaceHeader(input: { orgSlug: string }) {
 	return (
 		<div className="flex h-full items-center px-4">
-			<Link
-				aria-label="Back to Spaces"
-				className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
-				title="Back to Spaces"
-				to={buildOrganizationSpacesPath(input.orgSlug)}
-			>
-				<ArrowLeftIcon aria-hidden="true" />
-			</Link>
+			<TooltipHint content="Back to Spaces">
+				<Link
+					aria-label="Back to Spaces"
+					className={buttonVariants({ size: "icon-sm", variant: "ghost" })}
+					to={buildOrganizationSpacesPath(input.orgSlug)}
+				>
+					<ArrowLeftIcon aria-hidden="true" />
+				</Link>
+			</TooltipHint>
 		</div>
 	);
 }

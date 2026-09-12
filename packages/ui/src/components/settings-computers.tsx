@@ -25,7 +25,12 @@ import {
 } from "#components/dialog";
 import { LocalAgentLogo } from "#components/local-agent-logo";
 import { hasLocalAgentLogo } from "#components/local-agent-logo-utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#components/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipHint,
+  TooltipTrigger,
+} from "#components/tooltip";
 import {
   Accordion,
   AccordionContent,
@@ -590,7 +595,6 @@ export function SettingsLocalAgentUsageDockItem({
 function UsageTooltipContent({ children }: { children: ReactNode }) {
   return (
     <TooltipContent
-      arrowClassName="bg-popover fill-popover"
       className="block w-96 max-w-[calc(100vw-2rem)] bg-popover p-0 text-popover-foreground shadow-md ring-1 ring-border"
       side="top"
       sideOffset={6}
@@ -1055,9 +1059,9 @@ function UsageLimitTime({
   label: string;
 }) {
   return dateTime ? (
-    <time dateTime={dateTime} title={formatExactUsageLimitTime(dateTime)}>
-      {label}
-    </time>
+    <TooltipHint content={formatExactUsageLimitTime(dateTime)}>
+      <time dateTime={dateTime}>{label}</time>
+    </TooltipHint>
   ) : (
     <span>{label}</span>
   );

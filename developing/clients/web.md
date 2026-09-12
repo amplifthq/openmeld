@@ -4089,35 +4089,29 @@ trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
 
-While reading earlier messages in an ordinary Space, the tabs move beside the
-title and live-status adornments along a straight diagonal path driven by the
-same scroll progress on both axes. The anchor is measured from the rendered content;
-Space title text is capped at 28rem in both Messages and Files. The compact
-layout reserves at least 240px for navigation, increasing that reservation when
-the rendered tabs require more. Long titles truncate and insufficient width
-retains the two-row layout.
-Direct messages and compact embedded conversations retain their existing headers.
-Returning to the latest messages restores the expanded header. Messages and
-Files share the same header position: changing tabs does not move navigation.
-The browser remembers the normalized header position per Organization, Profile,
-and Space across navigation and reloads. Narrow layouts temporarily use two
-rows without overwriting that saved position. Scrolling Messages resumes the
-motion; Files itself does not drive header compaction.
+While reading earlier messages in a Space, a small scroll switches the header
+fully into one compact row. Messages and Files move upward between the sidebar
+toggle and the title, separated from the title by a vertical divider. There is
+no scroll-progress interpolation and no diagonal travel. The same layout applies
+inside Desk windows; width checks use layout coordinates, unaffected by canvas
+zoom. Long titles truncate. Insufficient width and mobile setup recall retain
+the complete two-row layout. Direct messages retain their existing headers.
+Messages and Files share the same expanded/compact preference per Organization,
+Profile, and Space. Returning to the latest messages expands the header. A new
+preference starts expanded; obsolete intermediate-position preferences are not
+reused. Files does not drive compaction. A short vertical entrance runs once
+per collapse, with no travel under reduced motion.
 Latest-message observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
 changes require a fresh latest-message measurement; document visibility, access
 confirmation, and the normal read debounce still gate persistence.
-Scroll frames update only the navigation transform outside React. Header height
-changes at the collapse/expansion boundary, with a matching scroll offset to
-preserve the reading anchor. Collapse and expansion use separate boundaries
-(144px and 72px from the bottom), so small reversals do not repeatedly resize
-the conversation. Restored views use the saved position before paint; a Space
-without a saved position starts expanded. Pausing a scroll preserves its
-progress without snapping. Preferences are written on scroll end, page exit,
-or unmount, never on each animation frame. The tabs return fully to their lower
-row within 24px of the latest messages. Reduced motion switches positions
-without travel.
+Scroll events only check distance from the latest messages. Layout and preference
+writes happen at the endpoint change, never per animation frame. The viewport
+height changes once with a matching scroll offset to preserve the reading anchor.
+A 4px collapse threshold and 1px expansion threshold avoid boundary oscillation.
+Geometry is observed only on resize; there is no animation-frame loop or subtree
+mutation observer.
 
 Messages and files share one pinned-item preview with previous/next navigation.
 The preview's X dismisses all pins for the reader; the original pinner gets a

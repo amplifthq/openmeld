@@ -146,7 +146,6 @@ function ConversationSidebarRowContent(
 		>
 			<Tooltip>
 				<TooltipTrigger
-					delay={0}
 					render={
 						<SidebarMenuButton
 							actionLayout="heading"
@@ -271,7 +270,6 @@ function ConversationActivityIndicator({
 	return (
 		<Tooltip>
 			<TooltipTrigger
-				delay={0}
 				render={
 					<Link
 						aria-label={`${presentation.label}. Open ${title}`}

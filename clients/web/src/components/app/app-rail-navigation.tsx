@@ -151,7 +151,7 @@ export function CollapsedRailTooltip(input: {
 }) {
 	return (
 		<Tooltip disabled={input.disabled}>
-			<TooltipTrigger delay={0} render={input.children} />
+			<TooltipTrigger render={input.children} />
 			<TooltipContent side={input.side ?? "right"}>
 				{input.label}
 			</TooltipContent>

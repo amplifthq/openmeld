@@ -22,6 +22,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
@@ -662,16 +663,14 @@ function RowStatus(input: {
 	return (
 		<div className="flex flex-col gap-1 text-xs">
 			{input.status && (
-				<Link
-					className="flex items-center gap-2"
-					title={input.status.label}
-					to={input.href}
-				>
-					{input.status.orbState && (
-						<SpaceAgentOrb state={input.status.orbState} />
-					)}
-					<span className="truncate">{input.status.label}</span>
-				</Link>
+				<TooltipHint content={input.status.label}>
+					<Link className="flex items-center gap-2" to={input.href}>
+						{input.status.orbState && (
+							<SpaceAgentOrb state={input.status.orbState} />
+						)}
+						<span className="truncate">{input.status.label}</span>
+					</Link>
+				</TooltipHint>
 			)}
 			{input.unread > 0 && (
 				<span className="flex items-center gap-2 text-muted-foreground">

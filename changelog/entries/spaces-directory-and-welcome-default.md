@@ -12,3 +12,7 @@ chosen view, and includes clearer menu icons without a duplicate heading dot.
 
 Desk starts with Welcome Space for both new and existing users, reusing one when
 available and creating one when needed. Other Spaces are added by the user.
+
+Space header tabs move upward into one compact row when reading earlier messages,
+without stopping between positions or overlapping the title in Desk windows.
+Tooltips now share the Fluid appearance and a 500ms hover delay across the app.
