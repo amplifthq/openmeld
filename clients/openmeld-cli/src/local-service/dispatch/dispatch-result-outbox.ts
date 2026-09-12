@@ -335,7 +335,12 @@ export function flushDispatchResultOutbox(input: {
   const records = readOutboxRecords(input.ledgerPaths);
   let changed = false;
   const nextRecords = records.map((record) => {
-    if (record.blockedReasonCode || record.nextAttemptAtMs > nowMs) {
+    const connectionChanged =
+      record.connectionGeneration !== activeConnectionGeneration;
+    if (
+      record.blockedReasonCode ||
+      (!connectionChanged && record.nextAttemptAtMs > nowMs)
+    ) {
       return record;
     }
 
@@ -361,6 +366,8 @@ export function flushDispatchResultOutbox(input: {
         leaseEpoch: record.leaseEpoch,
         metadata: {
           delivery: "outbox_flush",
+          queuedForMs: Math.max(0, nowMs - record.createdAtMs),
+          replayedAfterReconnect: connectionChanged,
           outboxAttemptCount: record.attemptCount + 1,
         },
         result: record.taskResult.payload.status,
@@ -383,6 +390,7 @@ export function flushDispatchResultOutbox(input: {
       return {
         ...record,
         attemptCount: record.attemptCount + 1,
+        connectionGeneration: activeConnectionGeneration,
         lastFailureReason: toErrorMessage(error),
         nextAttemptAtMs:
           nowMs + resolveSendFailureBackoffMs(record.attemptCount + 1),
