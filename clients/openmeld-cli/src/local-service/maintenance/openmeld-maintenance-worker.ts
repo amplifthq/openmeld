@@ -1,7 +1,3 @@
-import {
-  finishComputerSetupAfterBackgroundUpdate,
-  recoverComputerSetupAfterBackgroundUpdate,
-} from "../../commands/computer-setup-continuation";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import {
@@ -90,6 +86,10 @@ async function runMaintenancePass(): Promise<boolean> {
   }
   const result = await runPendingDaemonServiceUpdate();
   if (result?.phase === "updated") {
+    const {
+      finishComputerSetupAfterBackgroundUpdate,
+      recoverComputerSetupAfterBackgroundUpdate,
+    } = await import("../../commands/computer-setup-continuation");
     // Only a verified replacement may replace the working recovery carrier.
     await prepareDaemonServiceUpdateWorkerCarrier(result);
     await finishComputerSetupAfterBackgroundUpdate();
