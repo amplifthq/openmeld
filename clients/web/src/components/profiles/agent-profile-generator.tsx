@@ -6,6 +6,7 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -109,16 +110,17 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 					{input.surface === "page" ? (
 						<div className="grid gap-2">
 							<div className="-ml-2 flex items-center gap-4">
-								<Button
-									aria-label="Back to Team"
-									onClick={input.onCancel}
-									size="icon-sm"
-									title="Back to Team"
-									type="button"
-									variant="ghost"
-								>
-									<ArrowLeftIcon aria-hidden="true" />
-								</Button>
+								<TooltipHint content="Back to Team">
+									<Button
+										aria-label="Back to Team"
+										onClick={input.onCancel}
+										size="icon-sm"
+										type="button"
+										variant="ghost"
+									>
+										<ArrowLeftIcon aria-hidden="true" />
+									</Button>
+								</TooltipHint>
 								<h1 className="font-medium text-2xl tracking-tight">
 									Create Agent
 								</h1>
@@ -370,12 +372,11 @@ function AdvancedSetup(input: {
 			open={input.expanded}
 		>
 			<Collapsible.Trigger className="group/agent-configuration-trigger flex min-h-9 w-full min-w-0 items-center gap-3 border-border border-b pb-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
-				<span
-					className="min-w-0 flex-1 truncate text-muted-foreground text-xs"
-					title={disclosureSummary}
-				>
-					{disclosureSummary}
-				</span>
+				<TooltipHint content={disclosureSummary}>
+					<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs">
+						{disclosureSummary}
+					</span>
+				</TooltipHint>
 				<SlidersHorizontalIcon
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground"

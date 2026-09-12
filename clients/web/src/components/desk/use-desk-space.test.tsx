@@ -3,6 +3,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { AccountSpaceItem } from "#/lib/spaces/account-spaces";
+import { saveWelcomeSpace } from "../spaces/welcome-space-state";
 import { useDeskSpace } from "./use-desk-space";
 
 const { list, create, designation } = vi.hoisted(() => ({
@@ -106,6 +108,7 @@ it("creates one private ordinary Space for concurrent entries", async () => {
 });
 it("reopens the same Space as the human after a reload", async () => {
 	localStorage.setItem(key, "space-existing");
+	saveWelcomeSpace("user-mira", "space-existing", "done");
 	const desk = openDesk();
 	await waitFor(() => expect(desk.result.current.ready).toBe(true));
 	expect(desk.result.current.spaceId).toBe("space-existing");
@@ -114,6 +117,7 @@ it("reopens the same Space as the human after a reload", async () => {
 });
 it("does not recreate a saved Space that disappeared from the index", async () => {
 	localStorage.setItem(key, "space-deleted");
+	saveWelcomeSpace("user-mira", "space-deleted", "done");
 	const desk = openDesk();
 	await waitFor(() => expect(desk.result.current.ready).toBe(true));
 	expect(create).not.toHaveBeenCalled();
@@ -144,4 +148,48 @@ it("creates a Welcome Space without looking up or adding Center Agent", async ()
 	await waitFor(() => expect(desk.result.current.ready).toBe(true));
 	expect(create).toHaveBeenCalledTimes(1);
 	expect(designation).not.toHaveBeenCalled();
+});
+
+it.each([
+	false,
+	true,
+])("replaces an old default work Space and reuses Welcome when available: %s", async (hasWelcome) => {
+	const work: AccountSpaceItem = {
+		spaceId: "work",
+		spaceName: "Release planning",
+		organizationId: "org-mira",
+		openProfileId: profile.openMeldProfileId,
+		openProfileName: "Mira",
+		joinedProfiles: [
+			{
+				profileId: profile.openMeldProfileId,
+				profileName: "Mira",
+				lastJoinedAt: profile.createdAt,
+				pinnedAt: null,
+			},
+		],
+		lastJoinedAt: profile.createdAt,
+		pinnedAt: null,
+		pinnedProfileIds: [],
+		visibility: "private",
+		spacePurpose: null,
+		activeAgentCount: 0,
+		activeHumanCount: 1,
+		activeMemberCount: 1,
+	};
+	localStorage.setItem(key, "work");
+	list.mockResolvedValue({
+		pinnedItems: [work],
+		spaceItems: hasWelcome
+			? [{ ...work, spaceId: "welcome", spaceName: "Welcome Space" }]
+			: [],
+		recentlyDeletedItems: [],
+	});
+	const desk = openDesk();
+	await waitFor(() => expect(desk.result.current.ready).toBe(true));
+	expect(desk.result.current.spaceId).toBe(
+		hasWelcome ? "welcome" : "space-new"
+	);
+	expect(desk.result.current.replacedDefaultSpaceId).toBe("work");
+	expect(create).toHaveBeenCalledTimes(hasWelcome ? 0 : 1);
 });

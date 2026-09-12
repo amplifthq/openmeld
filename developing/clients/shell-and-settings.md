@@ -280,11 +280,12 @@ The Web shell is a stable two-layer composition built from the shared
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal
-  behavior. The Spaces heading opens the existing chat directory. Its plus
+  behavior. The Spaces heading opens the Space directory, without a duplicate
+  aggregate status dot. Direct messages is a tab after Your Spaces. Its plus
   menu offers New message and New Space. Browse spaces is visible in both views,
   and empty search results offer Find someone with the query prefilled in the
   organization picker. Team remains the member directory, without a separate
-  Contacts destination. Grouped is the default; Recent keeps the same Pinned rows and
+  Contacts destination. Recent is the default unless the user chose Grouped. It keeps the same Pinned rows and
   orders other conversations by message time. Both views share row presentation
   and destinations. The view is a browser preference scoped to account and
   Organization; it neither navigates nor remounts the conversation pane.

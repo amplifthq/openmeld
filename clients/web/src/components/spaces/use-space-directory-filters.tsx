@@ -2,15 +2,21 @@ import {
 	DropdownMenuCheckboxItem,
 	DropdownMenuItem,
 } from "@openmeld/ui/components/dropdown-menu";
+import {
+	ActivityIcon,
+	EnvelopeSimpleIcon,
+	HandIcon,
+	MagnifyingGlassIcon,
+} from "@phosphor-icons/react";
 import { useState } from "react";
 import { useSidebarGroupFilter } from "#/components/app/sidebar-filter";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 import type { SpaceSidebarActiveWakeSummary } from "./space-active-wake-presentation";
 
 const STATUS_OPTIONS = [
-	["unread", "Unread"],
-	["needs_input", "Needs your input"],
-	["working", "Working"],
+	["unread", "Unread", EnvelopeSimpleIcon],
+	["needs_input", "Needs your input", HandIcon],
+	["working", "Working", ActivityIcon],
 ] as const;
 type Status = (typeof STATUS_OPTIONS)[number][0];
 
@@ -49,17 +55,18 @@ export function useSpaceDirectoryFilters(
 		menu: (
 			<>
 				<DropdownMenuItem onClick={() => requestAnimationFrame(onSearch)}>
+					<MagnifyingGlassIcon />
 					{searchLabel}
 				</DropdownMenuItem>
 				{groupFilter.menu}
-				{STATUS_OPTIONS.map(([id, label]) => (
+				{STATUS_OPTIONS.map(([id, label, Icon]) => (
 					<DropdownMenuCheckboxItem
 						checked={statuses.includes(id)}
 						closeOnClick={false}
 						key={id}
 						onCheckedChange={() => toggle(id)}
 					>
-						{label}
+						<Icon /> {label}
 					</DropdownMenuCheckboxItem>
 				))}
 			</>

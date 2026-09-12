@@ -2,6 +2,12 @@ import {
 	DropdownMenuCheckboxItem,
 	DropdownMenuItem,
 } from "@openmeld/ui/components/dropdown-menu";
+import {
+	ArchiveIcon,
+	MagnifyingGlassIcon,
+	RobotIcon,
+	UsersIcon,
+} from "@phosphor-icons/react";
 import { useState } from "react";
 import { useSidebarFilter } from "#/components/app/sidebar-filter";
 import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
@@ -9,8 +15,8 @@ import { SidebarFilterBadge } from "#/components/app/sidebar-filter-badge";
 export function useChatFilters(onSearch: () => void) {
 	const category = useSidebarFilter(
 		[
-			{ id: "human", label: "People" },
-			{ id: "agent", label: "Agents" },
+			{ id: "human", label: "People", icon: UsersIcon },
+			{ id: "agent", label: "Agents", icon: RobotIcon },
 		],
 		"All direct messages"
 	);
@@ -27,6 +33,7 @@ export function useChatFilters(onSearch: () => void) {
 		menu: (
 			<>
 				<DropdownMenuItem onClick={() => requestAnimationFrame(onSearch)}>
+					<MagnifyingGlassIcon />
 					Search direct messages
 				</DropdownMenuItem>
 				{category.menu}
@@ -34,7 +41,7 @@ export function useChatFilters(onSearch: () => void) {
 					checked={archived}
 					onCheckedChange={setArchived}
 				>
-					Archived direct messages
+					<ArchiveIcon /> Archived direct messages
 				</DropdownMenuCheckboxItem>
 			</>
 		),

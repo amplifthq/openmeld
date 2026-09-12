@@ -9,6 +9,7 @@ import {
 	MorphingDialogTitle,
 	MorphingDialogTrigger,
 } from "@openmeld/ui/components/morphing-dialog";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { SurfaceProvider, useSurface } from "@openmeld/ui/lib/surface-context";
@@ -106,15 +107,16 @@ export function AgentConfigurationCard(input: {
 					</span>
 					{resolveConfigurationStatus(input.status)}
 				</span>
-				<span
-					className={cn(
-						"mt-1 block break-words font-medium text-sm leading-5",
-						input.summaryClassName
-					)}
-					title={input.summaryTitle}
-				>
-					{input.summary}
-				</span>
+				<TooltipHint content={input.summaryTitle}>
+					<span
+						className={cn(
+							"mt-1 block break-words font-medium text-sm leading-5",
+							input.summaryClassName
+						)}
+					>
+						{input.summary}
+					</span>
+				</TooltipHint>
 				{input.description ? (
 					<span className="mt-1 block text-muted-foreground text-xs leading-4.5">
 						{input.description}

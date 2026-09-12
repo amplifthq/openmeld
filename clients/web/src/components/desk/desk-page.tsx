@@ -361,6 +361,25 @@ function Desk() {
 		}
 	}, [loaded, windows, space.spaceId, space.profileId]);
 	useEffect(() => {
+		if (
+			!(
+				loaded &&
+				space.spaceId &&
+				space.profileId &&
+				space.replacedDefaultSpaceId
+			)
+		) {
+			return;
+		}
+		const replacement = { spaceId: space.spaceId, profileId: space.profileId };
+		setWindows(
+			(current) =>
+				current?.map((item) =>
+					item.spaceId === space.replacedDefaultSpaceId ? replacement : item
+				) ?? [replacement]
+		);
+	}, [loaded, space.spaceId, space.profileId, space.replacedDefaultSpaceId]);
+	useEffect(() => {
 		if (!windows?.some((item) => deletedIds.has(item.spaceId))) {
 			return;
 		}

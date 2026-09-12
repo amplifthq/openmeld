@@ -9,6 +9,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	SharedLayoutGroup,
 	SharedLayoutItem,
@@ -355,12 +356,11 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 function InboxTimestamp(input: { occurredAt: string }) {
 	const date = new Date(input.occurredAt);
 	return (
-		<time
-			dateTime={date.toISOString()}
-			title={INBOX_TIMESTAMP_TITLE_FORMATTER.format(date)}
-		>
-			{formatInboxTimestamp(input.occurredAt)}
-		</time>
+		<TooltipHint content={INBOX_TIMESTAMP_TITLE_FORMATTER.format(date)}>
+			<time dateTime={date.toISOString()}>
+				{formatInboxTimestamp(input.occurredAt)}
+			</time>
+		</TooltipHint>
 	);
 }
 

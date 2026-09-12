@@ -3,6 +3,7 @@ import { isDirectMessageSpace } from "@openmeld/space";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
@@ -50,7 +51,7 @@ export function SpaceWindowHeader(input: {
 	const content = (
 		<div
 			className={cn(
-				"relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)]",
+				"group/space-header relative grid h-full w-full min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] gap-x-3 px-[var(--app-page-inline-padding)] data-[compact=true]:grid-cols-[auto_auto_minmax(0,1fr)_auto] data-[compact=true]:grid-rows-[var(--space-conversation-title-height)]",
 				hasSecondaryRow
 					? "grid-rows-[minmax(0,var(--space-conversation-title-height))_minmax(0,var(--space-conversation-navigation-height))]"
 					: "grid-rows-1",
@@ -59,33 +60,40 @@ export function SpaceWindowHeader(input: {
 			ref={readingHeader?.setHeader}
 		>
 			{input.leadingControl || hasModuleSidebar ? (
-				<div className="col-start-1 row-start-1 flex shrink-0 items-center gap-3">
+				<div
+					className="col-start-1 row-start-1 flex shrink-0 items-center gap-3"
+					data-slot="space-window-header-leading"
+				>
 					<AppModuleSidebarToggle />
 					{input.leadingControl}
 				</div>
 			) : null}
 			<div
 				className={cn(
-					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden",
+					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden group-data-[compact=true]/space-header:col-span-1 group-data-[compact=true]/space-header:col-start-3 group-data-[compact=true]/space-header:my-auto group-data-[compact=true]/space-header:border-l group-data-[compact=true]/space-header:pl-3",
 					!(input.leadingControl || hasModuleSidebar) &&
 						"col-span-2 col-start-1"
 				)}
 				data-slot="space-window-header-title"
 			>
-				<h1
-					className={cn(
-						"truncate font-medium text-lg",
-						readingHeader && "max-w-[28rem]"
-					)}
-					title={readingHeader ? input.title : undefined}
-				>
-					{input.title}
-				</h1>
+				<TooltipHint content={readingHeader ? input.title : undefined}>
+					<h1
+						className={cn(
+							"truncate font-medium text-lg",
+							readingHeader && "max-w-[28rem]"
+						)}
+					>
+						{input.title}
+					</h1>
+				</TooltipHint>
 				{input.titleAdornment ?? null}
 			</div>
 
 			{input.actions ? (
-				<div className="col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-2">
+				<div
+					className="col-start-3 row-start-1 flex shrink-0 items-center justify-end gap-2 group-data-[compact=true]/space-header:col-start-4"
+					data-slot="space-window-header-actions"
+				>
 					{input.actions}
 				</div>
 			) : null}
@@ -93,7 +101,7 @@ export function SpaceWindowHeader(input: {
 			{hasSecondaryRow ? (
 				<div
 					className={cn(
-						"col-end-4 row-start-2 flex min-w-0 items-center gap-3",
+						"col-end-4 row-start-2 flex min-w-0 items-center gap-3 group-data-[compact=true]/space-header:contents",
 						input.navigation
 							? "col-start-1 -mx-2 overflow-visible px-2"
 							: "col-start-2 overflow-hidden",
@@ -103,14 +111,14 @@ export function SpaceWindowHeader(input: {
 				>
 					{input.navigation ? (
 						<div
-							className="flex h-full shrink-0 items-center"
+							className="motion-safe:group-data-[compact=true]/space-header:slide-in-from-bottom-2 flex h-full shrink-0 items-center group-data-[compact=true]/space-header:col-start-2 group-data-[compact=true]/space-header:row-start-1 motion-safe:group-data-[compact=true]/space-header:animate-in motion-safe:group-data-[compact=true]/space-header:duration-150"
 							data-slot="space-window-header-navigation"
 						>
 							{input.navigation}
 						</div>
 					) : null}
 					{subtitleItems.length > 0 ? (
-						<div className="flex min-w-0 items-center gap-x-2 overflow-hidden text-muted-foreground text-xs">
+						<div className="flex min-w-0 items-center gap-x-2 overflow-hidden text-muted-foreground text-xs group-data-[compact=true]/space-header:hidden">
 							{subtitleItems.map((item, index) => (
 								<Fragment key={item.key}>
 									{index > 0 ? <span aria-hidden="true">·</span> : null}

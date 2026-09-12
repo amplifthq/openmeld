@@ -1,13 +1,5 @@
 "use client";
 
-/** Adapted from Fluid Functionalism's Base UI Sidebar (2026-09-05).
- * https://www.fluidfunctionalism.com/r/base/sidebar.json
- * Keeps its offcanvas/peek composition, shared hover intent, pointer capture,
- * drag rescue, edge treatment, and header/content/footer slots. OpenMeld adds
- * the icon snap region, injected persistence, and keyboard resizing. The Web
- * shell owns responsive drawers; this primitive never mounts a second drawer.
- */
-import { Tooltip } from "@base-ui/react/tooltip";
 import { SidebarSimpleIcon } from "@phosphor-icons/react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
@@ -26,6 +18,14 @@ import {
   type SidebarGeometry,
   useSidebar,
 } from "#fluid/sidebar-state";
+/** Adapted from Fluid Functionalism's Base UI Sidebar (2026-09-05).
+ * https://www.fluidfunctionalism.com/r/base/sidebar.json
+ * Keeps its offcanvas/peek composition, shared hover intent, pointer capture,
+ * drag rescue, edge treatment, and header/content/footer slots. OpenMeld adds
+ * the icon snap region, injected persistence, and keyboard resizing. The Web
+ * shell owns responsive drawers; this primitive never mounts a second drawer.
+ */
+import { Tooltip, TooltipContent, TooltipTrigger } from "#fluid/tooltip";
 import { springs } from "#lib/springs";
 import { cn } from "#lib/utils";
 
@@ -245,8 +245,8 @@ export function SidebarTrigger({
   const { state, toggleSidebar, schedulePeek, cancelPeekTimer, isPeeking } =
     useSidebar();
   return (
-    <Tooltip.Root>
-      <Tooltip.Trigger
+    <Tooltip>
+      <TooltipTrigger
         render={
           <button
             {...props}
@@ -277,16 +277,12 @@ export function SidebarTrigger({
         }
       >
         {children ?? <SidebarSimpleIcon className="size-4" />}
-      </Tooltip.Trigger>
-      <Tooltip.Portal>
-        <Tooltip.Positioner className="z-50" side="right" sideOffset={8}>
-          <Tooltip.Popup className="rounded-md bg-foreground px-2 py-1 text-background text-xs">
-            {state === "expanded" ? "Hide sidebar" : "Show sidebar"}{" "}
-            <kbd className="ml-1">[</kbd>
-          </Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {state === "expanded" ? "Hide sidebar" : "Show sidebar"}{" "}
+        <kbd className="ml-1">[</kbd>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -377,11 +373,11 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
     },
   };
   return (
-    <Tooltip.Root
+    <Tooltip
       onOpenChange={setTooltipOpen}
       open={!(isResizing || hiddenEdge) && tooltipOpen}
     >
-      <Tooltip.Trigger
+      <TooltipTrigger
         render={
           // biome-ignore lint/a11y/useSemanticElements: An adjustable splitter needs keyboard and pointer input; hr is not interactive.
           <button
@@ -423,25 +419,20 @@ function SidebarRail({ hiddenEdge }: { hiddenEdge: boolean }) {
           />
         }
       />
-      <Tooltip.Portal>
-        <Tooltip.Positioner
-          anchor={anchor}
-          className="pointer-events-none z-50"
-          side="right"
-          sideOffset={8}
-        >
-          <Tooltip.Popup className="flex flex-col gap-1 rounded-md bg-foreground px-3 py-2 text-background text-xs shadow-sm">
-            <span>Drag to resize</span>
-            <span>
-              Click to {state === "expanded" ? "collapse" : "expand"}{" "}
-              <kbd className="ml-1 rounded-sm border border-background/30 px-1">
-                [
-              </kbd>
-            </span>
-          </Tooltip.Popup>
-        </Tooltip.Positioner>
-      </Tooltip.Portal>
-    </Tooltip.Root>
+      <TooltipContent
+        anchor={anchor}
+        className="pointer-events-none flex-col items-start gap-1"
+        side="right"
+      >
+        <span>Drag to resize</span>
+        <span>
+          Click to {state === "expanded" ? "collapse" : "expand"}{" "}
+          <kbd className="ml-1 rounded-sm border border-background/30 px-1">
+            [
+          </kbd>
+        </span>
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

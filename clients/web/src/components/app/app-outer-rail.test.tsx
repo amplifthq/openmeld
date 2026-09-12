@@ -490,7 +490,7 @@ describe("AppOuterRail", () => {
 		).toBe("/o/acme/new-space");
 	});
 
-	it("opens the canonical Direct Messages home", () => {
+	it("opens the canonical Spaces home", () => {
 		appShellSection = "settings";
 		routerLocation = { pathname: "/o/acme/settings", searchStr: "" };
 		renderRail();
@@ -498,10 +498,10 @@ describe("AppOuterRail", () => {
 		const directMessagesLink = screen.getByRole("link", {
 			name: "Spaces",
 		});
-		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/chats");
+		expect(directMessagesLink.getAttribute("href")).toBe("/o/acme/spaces");
 	});
 
-	it("returns from Team to the exact Spaces location and keeps Organizations isolated", () => {
+	it("returns from Team to Browse Spaces and keeps Organizations isolated", () => {
 		routerLocation = {
 			pathname: "/o/acme/spaces/launch",
 			searchStr: "?profileId=human-two&thread=review",
@@ -512,7 +512,7 @@ describe("AppOuterRail", () => {
 		rendered.rerender(buildRailElement());
 		expect(
 			screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
-		).toBe("/o/acme/spaces/launch?profileId=human-two&thread=review");
+		).toBe("/o/acme/spaces");
 		appOrganization = {
 			...appOrganization,
 			currentOrganization: { id: "org-beta", name: "Beta", slug: "beta" },
@@ -521,7 +521,7 @@ describe("AppOuterRail", () => {
 		rendered.rerender(buildRailElement());
 		expect(
 			screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
-		).toBe("/o/beta/chats");
+		).toBe("/o/beta/spaces");
 	});
 	it("keeps Team flat even with a saved collapsed Team preference", () => {
 		rememberClientSidebarState("outer", {
