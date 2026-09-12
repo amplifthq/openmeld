@@ -14,6 +14,7 @@ const {
   runDaemonInstallMock,
   runDaemonReinstallMock,
   selectPromptMock,
+  waitForExternalUpdateMock,
 } = vi.hoisted(() => ({
   inspectDaemonServiceInventoryMock: vi.fn(),
   readDaemonServiceContractMock: vi.fn(),
@@ -22,6 +23,11 @@ const {
   runDaemonInstallMock: vi.fn(),
   runDaemonReinstallMock: vi.fn(),
   selectPromptMock: vi.fn(),
+  waitForExternalUpdateMock: vi.fn(),
+}));
+
+vi.mock("../src/local-service/maintenance/openmeld-tools-update-join", () => ({
+  waitForOpenMeldToolsUpdateCompletion: waitForExternalUpdateMock,
 }));
 
 vi.mock("@clack/prompts", () => ({
@@ -510,7 +516,7 @@ describe("local service participation gate", () => {
     expect(runDaemonBackgroundStartForDecisionMock).not.toHaveBeenCalled();
   });
 
-  it("keeps Web setup incomplete after scheduling a healthy running Service update", async () => {
+  it("joins a scheduled Service update and continues setup after the same operation finishes", async () => {
     inspectDaemonServiceInventoryMock.mockResolvedValue(
       createInventory({
         anomalyCodes: ["version_outdated", "bundle_version_drift"],
@@ -527,7 +533,15 @@ describe("local service participation gate", () => {
     });
     const presenter = createPresenter();
 
-    const result = await runDaemonServiceParticipationGate({
+    let finishUpdate: () => void = () => undefined;
+    waitForExternalUpdateMock.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finishUpdate = resolve;
+        })
+    );
+
+    const resultPromise = runDaemonServiceParticipationGate({
       intent: "start",
       presenter,
       resolvedView: "human",
@@ -538,11 +552,23 @@ describe("local service participation gate", () => {
       view: "human",
     });
 
-    expect(result).toEqual({
-      errorMessage:
-        "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
-      status: "needs_attention",
+    let completed = false;
+    resultPromise.then(() => {
+      completed = true;
     });
+    await vi.waitFor(() =>
+      expect(waitForExternalUpdateMock).toHaveBeenCalledOnce()
+    );
+    expect(completed).toBe(false);
+    inspectDaemonServiceInventoryMock.mockResolvedValue(
+      createInventory({
+        runtimeStatus: "running",
+        verifiedRunning: true,
+      })
+    );
+    finishUpdate();
+    expect(await resultPromise).toEqual({ status: "aligned" });
+    expect(runDaemonReinstallMock).toHaveBeenCalledOnce();
     expect(runDaemonReinstallMock).toHaveBeenCalledWith(
       expect.objectContaining({
         displayAction: "update",

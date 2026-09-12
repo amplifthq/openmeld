@@ -15,6 +15,10 @@ Setup also migrates original local agent settings without requiring a reset.
 An older npm installation that cannot update no longer blocks setup through
 the new managed OpenMeld binary.
 
+When setup starts a background Service update, it waits for that operation and
+continues automatically instead of asking you to run setup a second time.
+It verifies the running Service before continuing.
+
 Web onboarding keeps an active Terminal connection flow in place while computer
 status refreshes, so a successful connection can finish in the same flow.
 

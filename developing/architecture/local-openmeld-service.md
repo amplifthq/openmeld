@@ -2113,6 +2113,11 @@ answer readiness. This does not authorize force-killing a live Service: controll
 drain or verified runtime absence remains required. Setup joins pending updates;
 a newer Setup advances an older waiting job through that same coordinator before
 joining it, so an old worker cannot replace a newly connected Service afterward.
+This also applies to updates scheduled midway through setup. The caller observes
+the same durable operation until it finishes, then rechecks the running Service
+and account alignment before continuing. Missing completion evidence, a replaced
+operation, rollback, or failure must not be presented as successful setup. The
+observer does not acquire update ownership or start another update.
 
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
