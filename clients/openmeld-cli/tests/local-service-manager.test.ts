@@ -21,7 +21,78 @@ import {
   readSystemdServiceEnabledProbe,
   readWindowsRunnerCommandSummary,
   runServiceDefinitionRollbackSteps,
+  startLaunchdService,
 } from "../src/local-service/lifecycle/daemon-service-manager";
+
+describe("launchd demand startup", () => {
+  it.each([
+    false,
+    true,
+  ])("starts a deferred job without replacing a loaded registration (loaded=%s)", async (initiallyLoaded) => {
+    let loaded = initiallyLoaded;
+    let running = false;
+    let spawns = 0;
+    // Native launchctl contracts: print distinguishes a loaded job from a
+    // missing service; bootstrap need not spawn it; kickstart without -k
+    // starts a stopped job and preserves an already-running instance.
+    const run: NonNullable<
+      Parameters<typeof startLaunchdService>[0]["run"]
+    > = async ({ args }) => {
+      await Promise.resolve();
+      if (args.includes("-k")) {
+        throw new Error("must not kill an existing Service");
+      }
+      if (args[0] === "print") {
+        return loaded
+          ? { exitCode: 0, stdout: "state = not running\nruns = 0", stderr: "" }
+          : {
+              exitCode: 113,
+              stdout: "",
+              stderr:
+                'Could not find service "ai.openmeld.test" in domain for user gui: 501',
+            };
+      }
+      if (args[0] === "bootstrap") {
+        if (loaded) {
+          throw new Error("a loaded registration must not be replaced");
+        }
+        loaded = true;
+      }
+      if (args[0] === "kickstart" && loaded && !running) {
+        running = true;
+        spawns += 1;
+      }
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+    const input = {
+      serviceKey: "gui/501/ai.openmeld.test",
+      guiDomain: "gui/501",
+      plistPath: "/isolated/service.plist",
+      run,
+    };
+    await startLaunchdService(input);
+    expect(running).toBe(true);
+    await startLaunchdService(input);
+    expect(spawns).toBe(1);
+  });
+
+  it("does not mutate an unobservable job", async () => {
+    const run = vi.fn(async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "Operation not permitted",
+    }));
+    await expect(
+      startLaunchdService({
+        serviceKey: "gui/501/ai.openmeld.test",
+        guiDomain: "gui/501",
+        plistPath: "/isolated/service.plist",
+        run,
+      })
+    ).rejects.toThrow("Operation not permitted");
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("launchd job diagnostics parsing", () => {
   it("detects the old installed policy even when the executable was updated", () => {

@@ -3028,6 +3028,7 @@ describe("openmeld service run command", () => {
       install: installMock,
       uninstall: uninstallMock,
       start: startMock,
+      waitUntilAbsent: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
       status: vi.fn(async () => ({
         installed: true,
@@ -3096,6 +3097,7 @@ describe("openmeld service run command", () => {
       install: installMock,
       uninstall: uninstallMock,
       start: startMock,
+      waitUntilAbsent: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
       status: vi.fn(async () => ({
         installed: true,
