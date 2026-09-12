@@ -325,13 +325,6 @@ async function alignServiceWithCurrentCli(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
 }): Promise<void> {
-  if (
-    !readOpenMeldToolsUpdateContextFromEnv() &&
-    (await hasIndependentMaintenanceRegistration())
-  ) {
-    await requestMaintainedUpgrade(input);
-    return;
-  }
   await runInternalUpgradeServiceAlignment({
     ...input,
     daemonVersion: OPENMELD_VERSION,
