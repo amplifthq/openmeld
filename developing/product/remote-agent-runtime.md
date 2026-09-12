@@ -839,12 +839,18 @@ identity, or other tools advance the goal. Large tool catalogs may compact
 schemas into Code Mode, but compaction does not change the semantic owner,
 reasoning policy, tool authorization, or available inner capabilities.
 
-A provider response that completes with no content events, visible text, or
-tool call may be retried once at the provider stream boundary. The worker must
-not retry after any content or tool event has been observed, or after the
-caller cancels the turn. The delivered attempt includes token and cost usage
-from the discarded empty attempt. A second empty response follows the ordinary
-visible terminal-failure path instead of creating an unbounded retry loop.
+A provider response that completes normally without visible text or tool calls
+may be retried once at the existing provider stream boundary, using the same
+frozen model and inference context, including already committed tool results.
+Thinking-only and whitespace events may be buffered up to 256 events and 64 KiB
+of deltas. Visible text, any tool event, or exceeding that buffer commits the
+attempt to normal streaming and disables retry. Length, error, refusal, and
+cancelled completions are not empty-stop recovery candidates. A retry may start
+only within two minutes of the inference starting and before caller cancellation;
+this admission limit never interrupts an active inference. The delivered attempt
+includes token and cost usage from the discarded attempt. A second empty response
+follows the ordinary visible terminal-failure path. Recovery never restarts the
+workflow, repeats tools, or changes an explicitly selected model.
 
 Action authorization is semantic, not lexical. Conversation context may
 complete arguments only inside an action the user already authorized; it cannot

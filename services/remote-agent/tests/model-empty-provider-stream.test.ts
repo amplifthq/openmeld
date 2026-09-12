@@ -192,7 +192,7 @@ describe("Remote Agent completed-empty provider retry", () => {
     });
   });
 
-  it("does not retry after any intermediate provider event", async () => {
+  it("recovers reasoning-only output without exposing the discarded attempt", async () => {
     let attempts = 0;
     const partial = assistantMessage([
       { thinking: "Checking", type: "thinking" },
@@ -219,10 +219,10 @@ describe("Remote Agent completed-empty provider retry", () => {
       "thinking_delta",
       "done",
     ]);
-    expect(attempts).toBe(1);
+    expect(attempts).toBe(2);
   });
 
-  it("does not retry when the final message contains provider reasoning", async () => {
+  it("retries when the final message contains only provider reasoning", async () => {
     let attempts = 0;
     const output = retryCompletedEmptyAssistantStreamOnce({
       createAttempt: () => {
@@ -235,6 +235,33 @@ describe("Remote Agent completed-empty provider retry", () => {
 
     await collectEvents(output);
 
+    expect(attempts).toBe(2);
+  });
+
+  it.each([
+    "text_delta",
+    "toolcall_start",
+  ] as const)("never replays an inference after %s becomes observable", async (type) => {
+    let attempts = 0;
+    const partial = assistantMessage(
+      type === "text_delta"
+        ? [{ type: "text", text: "Sent" }]
+        : [{ type: "toolCall", id: "call-1", name: "send", arguments: {} }]
+    );
+    const output = retryCompletedEmptyAssistantStreamOnce({
+      createAttempt: () => {
+        attempts += 1;
+        return completedStream({
+          content: [],
+          intermediate: [
+            type === "text_delta"
+              ? { type, contentIndex: 0, delta: "Sent", partial }
+              : { type, contentIndex: 0, partial },
+          ],
+        });
+      },
+    });
+    await collectEvents(output);
     expect(attempts).toBe(1);
   });
 
