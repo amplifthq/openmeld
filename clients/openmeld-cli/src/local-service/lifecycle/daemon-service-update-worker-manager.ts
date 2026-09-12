@@ -78,14 +78,18 @@ export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
   const preparedBundle = await readDaemonActiveBundleState();
   if (
     !(
-      preparedBundle &&
-      (await verifyDaemonActiveBundleIntegrity(preparedBundle))
+      preparedBundle?.sourceDistFingerprint &&
+      (preparedBundle.bundleFormat === "binary_v1" ||
+        (await verifyDaemonActiveBundleIntegrity(preparedBundle)))
     )
   ) {
     throw new Error(
       "OpenMeld cannot install automatic maintenance without a verified Service program."
     );
   }
+  // Binary preparation below verifies the maintenance executable against the
+  // prepared source fingerprint. The main Service carrier may still be the
+  // previous version until startup replaces it; it is not this worker's source.
   if (await hasIndependentMaintenanceRegistration()) {
     // A saved registration can outlive its executable (for example after a
     // local reinstall). Restore the verified carrier before trusting the job.

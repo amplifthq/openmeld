@@ -128,7 +128,9 @@ describe("daemon service update worker manager", () => {
     vi.mocked(readDaemonActiveBundleState).mockResolvedValue(
       createBinaryUpdateJob().preparedBundle
     );
-    vi.mocked(verifyDaemonActiveBundleIntegrity).mockResolvedValue(true);
+    // A newly prepared binary can coexist with the previous Service carrier.
+    // Maintenance verifies its own source/carrier, not that older executable.
+    vi.mocked(verifyDaemonActiveBundleIntegrity).mockResolvedValue(false);
     const worker = `${root}/worker`;
     vi.mocked(
       ensureDaemonServiceUpdateWorkerBinaryExecutable
