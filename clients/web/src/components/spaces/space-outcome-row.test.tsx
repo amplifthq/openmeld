@@ -336,7 +336,7 @@ describe("SpaceOutcomeRow", () => {
 				onOpenDetails={null}
 				onRecoverExecution={async () => ({
 					action: "resume_controller_conversation",
-					label: "Continue conversation",
+					label: "Recover reply",
 					status: "available",
 					warning,
 				})}

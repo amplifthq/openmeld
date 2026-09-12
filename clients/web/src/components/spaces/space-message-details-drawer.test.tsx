@@ -860,7 +860,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 				attempt.action === null
 					? {
 							action: "resume_controller_conversation",
-							label: "Continue conversation",
+							label: "Recover reply",
 							status: "available",
 							warning:
 								"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.",
