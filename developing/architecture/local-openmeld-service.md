@@ -1054,8 +1054,11 @@ that decision.
   owner-authenticated token. Ordinary auth reads preserve the committed account
   and must not roll back this continuation. A failed or cancelled continuation
   uses the existing previous-account recovery. Older journals without this
-  intent retain their rollback-on-read behavior. A committed transition is
-  never recovered backward. A cross-account switch requires explicit
+  intent retain their rollback-on-read behavior. Older auth readers can mark a dead Terminal for
+  recovery while preserving its continuation field; the new worker may still
+  resume that intent, subject to the same Core Prepare outcome. Current explicit
+  cancellation and abandonment clear the continuation before account recovery.
+  A committed transition is never recovered backward. A cross-account switch requires explicit
   interactive confirmation bound to the stable identity of the exact committed
   session the user reviewed. The transition lock compares that identity before
   accepting the candidate; if it changed, setup requires fresh review. Before

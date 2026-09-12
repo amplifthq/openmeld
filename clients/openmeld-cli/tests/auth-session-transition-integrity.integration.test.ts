@@ -28,6 +28,7 @@ describe("auth session transition integrity", () => {
     "completed",
     "not_completed",
     "abandoned",
+    "legacy_rollback",
   ] as const)("preserves an interrupted setup and settles %s with one worker", async (outcome) => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
@@ -70,6 +71,26 @@ describe("auth session transition integrity", () => {
         );
         return;
       }
+      if (outcome === "legacy_rollback") {
+        // Captured legacy behavior: the old auth reader preserves unknown
+        // fields but marks a dead Terminal recovery_required (Piper .5 smoke).
+        const journalPath = join(
+          home,
+          ".openmeld",
+          "auth",
+          "session-transition.json"
+        );
+        const journal = JSON.parse(await readFile(journalPath, "utf8"));
+        await writeFile(
+          journalPath,
+          JSON.stringify({
+            ...journal,
+            state: "recovery_required",
+          })
+        );
+      }
+      const finalOutcome =
+        outcome === "legacy_rollback" ? "completed" : outcome;
       const executionsPath = join(home, "setup-executions");
       // A worker can also disappear after taking ownership. The next process
       // must adopt the same journal instead of leaving setup stuck forever.
@@ -94,7 +115,7 @@ describe("auth session transition integrity", () => {
           const auth = await getAuthSessionState({ validateRemote: false });
           if (auth.session?.user?.id !== "candidate-owner") throw new Error("wrong account");
           await appendFile(${JSON.stringify(executionsPath)}, "completed\\n");
-          return ${JSON.stringify(outcome)};
+          return ${JSON.stringify(finalOutcome)};
         });
         process.stdout.write(JSON.stringify({ status: "success", userId: resumed ? "resumed" : "idle" }));
       `;
@@ -108,10 +129,10 @@ describe("auth session transition integrity", () => {
       ]);
       expect(await readFile(executionsPath, "utf8")).toBe("completed\n");
       expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
-        outcome === "completed" ? "candidate-owner" : "previous-owner"
+        finalOutcome === "completed" ? "candidate-owner" : "previous-owner"
       );
       expect(await authSessionTransitionJournalExists(home)).toBe(
-        outcome !== "completed"
+        finalOutcome !== "completed"
       );
     });
   });

@@ -748,6 +748,10 @@ export async function beginAuthSessionTransition(
               {
                 ...currentJournal.journal,
                 state: "recovery_required",
+                computerHandoff: {
+                  ...currentJournal.journal.computerHandoff,
+                  prepareContinuation: undefined,
+                },
               }
             );
             return;
@@ -802,7 +806,7 @@ async function commitAuthSessionTransitionJournal(
 export async function hasPendingComputerSetupContinuation(): Promise<boolean> {
   const journal = await readAuthSessionTransitionJournal();
   return (
-    journal?.state === "pending" &&
+    (journal?.state === "pending" || journal?.state === "recovery_required") &&
     Boolean(journal.computerHandoff?.prepareContinuation)
   );
 }
@@ -818,7 +822,8 @@ export async function resumeInterruptedComputerSetup(
     const journal = await readAuthSessionTransitionJournal();
     if (
       !(
-        journal?.state === "pending" &&
+        (journal?.state === "pending" ||
+          journal?.state === "recovery_required") &&
         journal.computerHandoff?.prepareContinuation
       ) ||
       isProcessIdentityAlive({
@@ -830,6 +835,10 @@ export async function resumeInterruptedComputerSetup(
     }
     const next = {
       ...journal,
+      // Older auth readers roll a dead Terminal back without understanding its
+      // continuation. Keep that original intent until Core confirms completion
+      // or cancellation; current cancellation writers explicitly remove it.
+      state: "pending" as const,
       ownerPid: process.pid,
       ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
     };
@@ -870,6 +879,11 @@ export async function resumeInterruptedComputerSetup(
         await writeAuthSessionTransitionJournalIfOwned(current.journal, {
           ...current.journal,
           state: "recovery_required",
+          computerHandoff: {
+            ...current.journal.computerHandoff,
+            gatewayUrl: claimed.gatewayUrl,
+            prepareContinuation: undefined,
+          },
         });
       }
     });
@@ -911,7 +925,8 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
     // explicit Service stop may have removed its executor. Do not let that
     // abandoned intent permanently prevent the next user-initiated setup.
     if (
-      journal?.state === "pending" &&
+      (journal?.state === "pending" ||
+        journal?.state === "recovery_required") &&
       journal.computerHandoff?.prepareContinuation &&
       !isProcessIdentityAlive({
         ownerPid: journal.ownerPid,
@@ -920,7 +935,14 @@ export async function getInterruptedComputerAuthSessionRecovery(): Promise<Inter
     ) {
       await restoreTransitionPreviousPayload(journal);
       stopRegisteredCandidateService(journal);
-      const recovery = { ...journal, state: "recovery_required" as const };
+      const recovery = {
+        ...journal,
+        state: "recovery_required" as const,
+        computerHandoff: {
+          ...journal.computerHandoff,
+          prepareContinuation: undefined,
+        },
+      };
       await writeAuthSessionTransitionJournalIfOwned(journal, recovery);
       journal = recovery;
     }
@@ -2012,6 +2034,9 @@ async function recoverInterruptedAuthSessionTransitionWithOwnership(): Promise<v
     return;
   }
   if (journal.state === "recovery_required") {
+    if (journal.computerHandoff?.prepareContinuation) {
+      return;
+    }
     stopRegisteredCandidateService(journal);
     return;
   }
