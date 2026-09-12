@@ -328,7 +328,7 @@ describe("AgentProfileGenerator", () => {
 			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
 				.textContent
 		).toContain(
-			"New session · openmeld · GPT-5.6 Sol (default) · Model default · Ask for approval"
+			"GPT-5.6 Sol (default) · Model default · Ask for approval · New session · openmeld · Default"
 		);
 		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
 	});

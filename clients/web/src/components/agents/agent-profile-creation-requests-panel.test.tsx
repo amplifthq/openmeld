@@ -181,9 +181,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 			screen.getByRole("table", { name: "Agent creation history" })
 		).toBeTruthy();
 		expect(
-			screen.getByText(
-				"The Agent was created, but its working folder could not be prepared because OpenMeld couldn’t check whether it was busy. Retry setup to finish configuring this Agent."
-			)
+			screen.getByText("Couldn’t prepare the working folder. Retry setup.")
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "View Agent" })).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Retry setup" }));
