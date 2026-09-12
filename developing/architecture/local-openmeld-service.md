@@ -1343,9 +1343,12 @@ OS service manager job-state evidence (for launchd: `launchctl print` runs,
 state, last exit code, and pended-spawn markers) is startup failure diagnostic
 evidence only. After a startup wait fails it may drive failure cards, the
 lifecycle journal, and Agent View diagnostics — for example distinguishing a
-job macOS never spawned (Login Items blocked) from a crash loop with a nonzero
-exit code. It must never feed service health, Wakeability, readiness, or
-lifecycle decisions. A service-manager `running` state corroborates lifecycle
+job macOS never spawned from a crash loop with a nonzero exit code. Pending
+spawn evidence alone does not prove a denied Login Items permission. It must
+never establish service health, Wakeability, readiness, or permission to replace
+a carrier. After an exhausted startup wait it may suppress an immediate repeated
+start, independently of the user-facing diagnostic wording. A service-manager
+`running` state corroborates lifecycle
 success only when the same full inventory also proves the exact active bundle,
 install state, runtime contract, live managed background runtime lease, and no
 blocking ownership anomaly. Gateway connection and controller catalog loading
@@ -1950,7 +1953,9 @@ global npm `openmeld` copy to the exact
 manifest version when the current terminal still resolves to it, verifies the
 ordinary command, and then runs setup through the managed binary path. The
 Service remains owned by the managed binary; npm reconciliation only closes the
-legacy command-entry gap and must finish before setup can report completion.
+legacy command-entry gap. Failure of that optional npm reconciliation does not
+block setup through the verified managed binary; follow-up commands name that
+binary explicitly.
 
 After reading the manifest, setup first compares the lane-managed executable's
 exact size and sha256 with the published raw executable record. It reuses an
@@ -2009,6 +2014,17 @@ not silently repair, reinstall, stop, start, or mutate runtime state.
 
 Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
+
+On macOS, start inspects the exact lane's launchd job, bootstraps only a missing
+job, and requests a demand start with `kickstart` without `-k`. It does not
+restart an already running job. Bootstrap I/O repair has one owner, waits for
+confirmed removal before reinstalling, and preserves the original and repair
+errors if unsuccessful. Full lifecycle inventory still determines success.
+
+Interrupted account handoff recovery belongs to the explicit handoff flow.
+Generic command dispatch must leave install, update, and diagnostics usable
+when the previous Service cannot start. Credential transition isolation and
+candidate cleanup remain owned by auth-session storage.
 
 Setup succeeds when the service is aligned for this computer, local
 controllers/capabilities have been detected and reported as far as the local
