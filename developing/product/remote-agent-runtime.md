@@ -852,6 +852,15 @@ includes token and cost usage from the discarded attempt. A second empty respons
 follows the ordinary visible terminal-failure path. Recovery never restarts the
 workflow, repeats tools, or changes an explicitly selected model.
 
+Manual reply recovery uses the existing fenced Execution Recovery operation.
+Its worker request carries `replyRecovery` with the original dispatch, operation,
+and optional Space result reference. The same frozen runtime conversation and
+model route are retained. The runtime exposes no executable tools, Skills, or
+Computer sandbox for this request, and does not stream it as a new Space Wake.
+Core publishes its final answer through Space's idempotent recovery-notice owner.
+If it fails, the original failure stays visible and the exact recovery attempt
+becomes unavailable. An unknown publication outcome does not authorize replay.
+
 Action authorization is semantic, not lexical. Conversation context may
 complete arguments only inside an action the user already authorized; it cannot
 create or broaden the action, effect, target, or scope. The same primary model

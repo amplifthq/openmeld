@@ -25,6 +25,21 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Hosted reply recovery rollout
+
+The optional `replyRecovery` field on Remote Agent submit requests is owned by
+`packages/schemas`. It retains the original dispatch and recovery operation;
+Space recovery also requires a result reference. The Worker persists that policy
+in its callback context and removes all executable capabilities. Core alone
+creates the field after exact Execution Recovery inspection.
+
+Deploy the new Remote Worker before Core enables recovery. Older Workers reject
+the unknown request field rather than executing it without restrictions. Normal
+requests remain unchanged, and no CLI, Service, Skills, setup, Wake, or diagnostic
+epoch changes. Before rolling Core back, let accepted recovery deliveries settle;
+an old Core cannot read requests with this new strict field. No database migration
+or local component release is required.
+
 ## Shared Agent Plugins
 
 `packages/schemas` owns `plugin-access`, `plugin-actions`, and `plugin-runtime`.

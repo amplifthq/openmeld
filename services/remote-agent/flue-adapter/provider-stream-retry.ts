@@ -166,6 +166,8 @@ function isProvablyCompletedEmptyAssistantEvent(
   if (
     event.type !== "done" ||
     event.reason !== "stop" ||
+    (event.message.rawStopReason !== undefined &&
+      event.message.rawStopReason !== "stop") ||
     hasDeliverableAssistantContent(event.message)
   ) {
     return false;

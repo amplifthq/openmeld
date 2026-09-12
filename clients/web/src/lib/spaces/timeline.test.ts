@@ -246,6 +246,37 @@ describe("space timeline helpers", () => {
 		});
 	});
 
+	it("presents a retained empty-reply failure as failure rather than an Agent reply", () => {
+		const failure = createTextSignal({
+			id: "old-empty-reply",
+			ts: 30,
+			text: "Old internal error",
+			profile: {
+				kind: "agent",
+				profileId: "agt_123",
+				profileName: "Center Agent",
+			},
+			meta: {
+				dispatchId: "failed-dispatch",
+				errorCode: "remote_agent.empty_assistant_response",
+				purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+			},
+		});
+		const items = buildSpaceTimelineItems({
+			envelopes: [failure],
+			membersSnapshot: createMembersSnapshot(),
+			agentStreams: [],
+		});
+		expect(items[0]).toMatchObject({
+			signalType: "signal.system_notice",
+			systemNoticeType: "terminal_failure",
+			systemNoticeDispatchId: "failed-dispatch",
+			systemNoticeTargetProfileId: "agt_123",
+			isAgentFinalReply: false,
+			text: "Couldn't complete this reply. Your message is saved.",
+		});
+	});
+
 	it.each([
 		{
 			expectedAgentControllerRef: "builtin:claude",

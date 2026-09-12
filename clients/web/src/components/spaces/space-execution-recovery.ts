@@ -9,7 +9,11 @@ export function projectSpaceExecutionRecoveryResolution(
 			action: null,
 			label: null,
 			status: recovery.status,
-			warning: null,
+			warning:
+				recovery.actions.resumeControllerConversation.reasonCode ===
+				"execution_recovery.reply_failed"
+					? recovery.actions.resumeControllerConversation.warning
+					: null,
 		};
 	}
 	const capability = resolveRecommendedExecutionRecoveryCapability(recovery);

@@ -22,7 +22,7 @@ The reported conversation had three consecutive terminal failures on September 1
 
 These are empty-answer failures, not ongoing work or missing browser rendering. This evidence does not prove a normal provider `stop`, absence of reasoning, absence of content-filtering, token exhaustion, or a particular adapter defect.
 
-## Current gaps in OpenMeld
+## Baseline gaps before this change
 
 Source was checked in the current checkout and corresponding files at `origin/main` (`57238f0d4cf81abe8bcffb4888a660a7b4e308da`), rather than assuming the dirty checkout represents deployment.
 
@@ -66,7 +66,7 @@ For an OpenMeld-managed default, an evaluated alternative model can be part of a
 
 The original message and attachments remain in place. During a real automatic recovery, retain the normal working state; only a noticeable delay needs “Taking longer than usual. Trying again…” and a working Stop action. Do not show a failure before recovery is exhausted.
 
-After recovery is exhausted, use “Couldn't complete this reply. Your message is saved.” with one contextual primary action. For a verified no-tool request, `Try again` can resubmit the saved request without retyping or duplicating its timeline row. When recorded operations already completed, a safe `Continue` requires the durable continuation contract; otherwise show what completed and the actual next action. These labels are proposed behavior, not existing capabilities.
+After automatic recovery is exhausted, use “Couldn't complete this reply. Your message is saved.” with one contextual primary action. The implementation uses **Continue conversation** only when Core verifies the saved exact hosted conversation. It does not resubmit the original user request: the continuation has no tools, Computer sandbox, or executable Skills. If that continuation fails, the original failure no longer offers another execution. Unknown publication or connectivity outcomes offer a read-only status check.
 
 Repeated failures must not return the member to the same unchanged loop. A permitted alternative model or a truthful service-unavailable state is preferable, with a direct support action when needed. Error IDs belong under `Details`. If the product says an issue was reported, the report must have a real receipt; automatic operational detection must not fabricate user-submitted Diagnostic Reports.
 
@@ -80,4 +80,34 @@ Writing review: **Block** for the current empty-reply error and `Replied` classi
 4. Exercise representative externally grounded cases: empty/whitespace, reasoning-only, length, refusal, truncated SSE, valid tool-only output, recovery success/exhaustion, stop during recovery, and failure after a recorded external effect. Prove no duplicated tool effects or messages. Then verify the full authenticated UI flow with retained input and an executable next action.
 5. Evaluate usable-answer rate, recovered-failure rate, repeated failures, added latency, provider cost and user impact by actual provider/model/configuration. Do not present these three incidents as a global GLM failure rate.
 
-Architecture assessment: the research changes no execution authority or runtime behavior. Implementing broader invisible-output retries would require an explicit revision of `developing/product/remote-agent-runtime.md`'s current no-content-event retry rule. Automatic cross-model fallback would additionally require its frozen model-route policy to change. Core remains the native-delivery/publication owner, Flue remains the durable execution owner, shared schemas own cross-boundary evidence, and the UI consumes those facts rather than reconstructing them.
+## Draft implementation and evidence
+
+Draft PR #969 implements the bounded inference retry, restricted exact-conversation
+continuation, operational classification, and honest failure/recovery UI. Each
+inference retries at most once, before any visible text or tool event; reasoning
+and whitespace buffering is bounded, cancellation is retained, and both attempts'
+usage is accounted for. The retry-start deadline does not fail an active inference.
+Explicit model selection remains unchanged; native same-model routing is reused.
+Non-deliverable completions are failed execution-stage metrics and structured
+warnings, with distinct recovered and recovery-exhausted operations. This change
+does not create an alert delivery resource or claim an operator was notified.
+
+Focused validation covers provider stream boundaries, capability removal,
+callback persistence, durable hosted submit/publication, recovery projections,
+historical failure presentation, and status-check recovery without another
+execution. Authenticated local browser inspection confirms that a seeded historic
+empty-response message is shown as a saved-message failure, its Message details
+say **Failed**, and **Send report** remains available. This fixture is UI evidence,
+not proof of a live model recovery. Production provider records remain unavailable
+under the current log identity; upstream attribution and live recovery rate remain
+unproven. No production deployment or full model-backed browser continuation has
+been performed.
+
+Architecture assessment: the scoped owner documents explicitly revise the
+invisible-output retry rule and permit restricted hosted continuation. Core remains
+the native-delivery/publication owner, Flue remains the durable execution owner,
+and shared schemas own the cross-boundary recovery policy. RuntimeCoordinator and
+workstation execution authority are unchanged. No conflicting architecture rule
+was identified. The mixed-version order and rollback constraint are recorded in
+`developing/architecture/shared-contracts.md`; no local component epoch or release
+is needed.

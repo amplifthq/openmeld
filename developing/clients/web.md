@@ -3803,10 +3803,20 @@ original terminal outcome and its existing Message details remain unchanged.
 When Core instead exposes a verified exact-controller continuation, Web shows
 **Recover reply** and explains that the same Agent conversation will post
 its already-finished reply without running the task again. Web accepts the
-legacy **Continue conversation** projection during mixed-version rollout but
-normalizes it to **Recover reply** for users. It preserves the terminal failure
+**Continue conversation** projection for a hosted empty reply: the saved
+conversation prepares a reply with tools and Computer actions disabled. Web
+uses the Core-provided label and warning. It preserves the terminal failure
 rather than presenting retained evidence as an already-published reply. The
 recovery notice never creates a second terminal outcome row.
+
+While a requested recovery is running, Web shows **Preparing your reply…** and
+polls the existing inspection endpoint. A failed status check retains an honest
+unknown state with **Check status**, which only reads and never executes another
+recovery. An exhausted hosted continuation disables further execution for that
+original failure and explains that the message is saved. Historical
+`remote_agent_failure` text signals with the exact empty-assistant error code
+project as terminal failures, including **Failed** in Message details; their
+stored history is not rewritten. New empty failures use system notices directly.
 
 Message details presents one cause-specific primary action per failed target.
 It must not pair unrelated actions: a Cursor plan limit opens Cursor plan

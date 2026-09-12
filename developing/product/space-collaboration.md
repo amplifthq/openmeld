@@ -1176,6 +1176,17 @@ again. A reconnect/setup link must not be labeled as either recovery action.
 If neither recovery tier is available, the outcome has no recovery action. A
 new Wake remains a separate user request through the normal composer.
 
+For a hosted Center Agent empty-answer failure, **Continue conversation** may
+prepare a reply from the exact retained conversation. Core verifies the original
+delivery and freezes a reply-recovery request; the Remote Worker disables tools,
+Skills, and Computer access for that request. This is not a fresh execution of
+the original task. It preserves the original message and attachments in history.
+Space publishes a separate idempotent `execution_recovery_completed` notice,
+without rewriting the original failure. A failed recovery disables that action
+and points to the existing Details report path; it does not enable another loop.
+Web presents legacy empty-answer text Signals as failures using their recorded
+failure purpose and reason code, never by matching prose.
+
 Each failed target presents one primary next step chosen from the specific
 cause and available recovery evidence. For example, a Cursor plan limit offers
 **Manage Cursor plan**, an unavailable local Agent may offer its relevant setup
