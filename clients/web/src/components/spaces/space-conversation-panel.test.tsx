@@ -224,7 +224,7 @@ describe("SpaceConversationPanel", () => {
 		expect(graphMessage.closest(".group")?.className).toContain("ring-2");
 	});
 
-	it("renders the earlier-history loading indicator outside the conversation log", () => {
+	it("keeps earlier-history loading out of the conversation while marking it busy", () => {
 		renderSpaceConversationPanel({
 			isLoadingEarlierHistory: true,
 			timelineItems: [createTimelineItem()],
@@ -233,9 +233,8 @@ describe("SpaceConversationPanel", () => {
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
-		const loadingText = screen.getByText("Loading earlier messages...");
-
-		expect(conversationLog.contains(loadingText)).toBe(false);
+		expect(screen.queryByText("Loading earlier messages...")).toBeNull();
+		expect(conversationLog.getAttribute("aria-busy")).toBe("true");
 	});
 
 	it("places setup guidance over the Messages scroller instead of above it", () => {
@@ -705,26 +704,6 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			surface.nextElementSibling?.contains(screen.getByRole("textbox"))
 		).toBe(true);
-	});
-
-	it("anchors the earlier-history loading header to the conversation content rail", () => {
-		renderSpaceConversationPanel({
-			isLoadingEarlierHistory: true,
-			timelineItems: [createTimelineItem()],
-		});
-
-		const loadingText = screen.getByText("Loading earlier messages...");
-		const messageScroller = loadingText.closest(
-			"[data-slot='message-scroller']"
-		);
-		const conversationContentRail = loadingText.closest(
-			"[data-space-conversation-content-width]"
-		);
-
-		expect(messageScroller).not.toBeNull();
-		expect(messageScroller?.contains(loadingText)).toBe(true);
-		expect(conversationContentRail).not.toBeNull();
-		expect(messageScroller?.contains(conversationContentRail)).toBe(true);
 	});
 
 	it("gives each Space conversation a stable scroll restoration identity", () => {

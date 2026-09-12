@@ -10,9 +10,7 @@ import type {
 	SpaceThreadPreview,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
-import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
-import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowUpIcon,
@@ -22,14 +20,6 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
-import {
-	AnimatePresence,
-	domAnimation,
-	LazyMotion,
-	MotionConfig,
-	m,
-	useReducedMotion,
-} from "motion/react";
 import {
 	Fragment,
 	memo,
@@ -554,7 +544,6 @@ function SpaceConversationPanelContent(
 		setDismissedUnreadTargetKeys,
 		setMessageDetailsItem,
 		showComposer,
-		showEarlierHistoryLoadingIndicator,
 		spaceGraph,
 		spaceGraphFocusRequest,
 		spaceGraphLayout,
@@ -736,9 +725,6 @@ function SpaceConversationPanelContent(
 							<SpaceConversationTopOverlay
 								overlayRef={setConversationTopOverlayElement}
 							>
-								<EarlierHistoryLoadingIndicator
-									visible={showEarlierHistoryLoadingIndicator}
-								/>
 								{setupGuidance.banner}
 							</SpaceConversationTopOverlay>
 							<MessageScrollerViewport
@@ -1141,8 +1127,6 @@ function useSpaceConversationPresentationController(
 	);
 	const composerContext = resolveConversationComposerContext(input);
 	const composerTargetName = resolveDirectMessageTargetName(input);
-	const showEarlierHistoryLoadingIndicator =
-		mainTimelineItems.length > 0 && input.isLoadingEarlierHistory;
 	const loadedMainTimelineSignalIds = useMemo(
 		() => new Set(mainTimelineItems.map((item) => item.id)),
 		[mainTimelineItems]
@@ -1245,7 +1229,6 @@ function useSpaceConversationPresentationController(
 		setMessageDetailsItem,
 		setStarterComputerSetupOpen,
 		showComposer,
-		showEarlierHistoryLoadingIndicator,
 		spaceGraph,
 		spaceGraphFocusRequest,
 		spaceGraphLayout,
@@ -2030,47 +2013,6 @@ function mergeUnreadTargetKeys(
 	targetKeys: readonly string[]
 ): Set<string> {
 	return new Set([...current, ...targetKeys]);
-}
-
-function EarlierHistoryLoadingIndicator(input: { visible: boolean }) {
-	const shouldReduceMotion = useReducedMotion();
-	const hiddenFrame = shouldReduceMotion
-		? { opacity: 0 }
-		: { opacity: 0, transform: "translateY(-4px)" };
-	const visibleFrame = shouldReduceMotion
-		? { opacity: 1 }
-		: { opacity: 1, transform: "translateY(0px)" };
-
-	return (
-		<MotionConfig reducedMotion="user">
-			<LazyMotion features={domAnimation} strict>
-				<AnimatePresence initial={false}>
-					{input.visible ? (
-						<m.div
-							animate={visibleFrame}
-							className="pointer-events-none h-16 shrink-0"
-							data-slot="earlier-history-loading"
-							exit={hiddenFrame}
-							initial={hiddenFrame}
-							key="earlier-history-loading"
-							transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-						>
-							<div
-								className="relative mx-auto flex h-full items-center justify-center"
-								data-space-conversation-content-width=""
-							>
-								<ProgressiveBlur blurAmount="6px" height="100%" />
-								<output className="relative z-10 inline-flex max-w-full items-center gap-2 overflow-hidden px-3 text-muted-foreground text-xs">
-									<Bars aria-hidden="true" className="h-3 w-5 shrink-0" />
-									<span className="truncate">Loading earlier messages...</span>
-								</output>
-							</div>
-						</m.div>
-					) : null}
-				</AnimatePresence>
-			</LazyMotion>
-		</MotionConfig>
-	);
 }
 
 function SpaceConversationTopOverlay(input: {
