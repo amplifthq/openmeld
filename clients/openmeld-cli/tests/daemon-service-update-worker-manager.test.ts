@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -44,6 +44,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
   ensureDaemonServiceUpdateWorkerBinaryExecutable: vi.fn(),
   readDaemonActiveBundleState: vi.fn(),
   resolveDaemonBundleEntryPathFromState: vi.fn(),
+  verifyDaemonActiveBundleIntegrity: vi.fn(),
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
   resolveDaemonServiceManager: vi.fn(),
@@ -59,6 +60,7 @@ import {
   ensureDaemonServiceUpdateWorkerBinaryExecutable,
   readDaemonActiveBundleState,
   resolveDaemonBundleEntryPathFromState,
+  verifyDaemonActiveBundleIntegrity,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-command-spec";
 import {
@@ -97,10 +99,11 @@ describe("daemon service update worker manager", () => {
     spawnMock.mockReset();
     hasIndependentMaintenanceRegistrationMock.mockReset();
     readPendingDaemonServiceUpdateMock.mockReset();
-    vi.mocked(startLaunchdService).mockClear();
+    vi.mocked(startLaunchdService).mockReset();
     vi.unstubAllEnvs();
     pruneManagedInstallVersionsMock.mockReset();
     vi.mocked(readDaemonActiveBundleState).mockReset();
+    vi.mocked(verifyDaemonActiveBundleIntegrity).mockReset();
     vi.mocked(ensureDaemonServiceUpdateWorkerBinaryExecutable).mockReset();
     if (originalPlatformDescriptor) {
       Object.defineProperty(process, "platform", originalPlatformDescriptor);
@@ -122,6 +125,21 @@ describe("daemon service update worker manager", () => {
     readPendingDaemonServiceUpdateMock.mockResolvedValue(
       pending ? createBinaryUpdateJob() : null
     );
+    vi.mocked(readDaemonActiveBundleState).mockResolvedValue(
+      createBinaryUpdateJob().preparedBundle
+    );
+    vi.mocked(verifyDaemonActiveBundleIntegrity).mockResolvedValue(true);
+    const worker = `${root}/worker`;
+    vi.mocked(
+      ensureDaemonServiceUpdateWorkerBinaryExecutable
+    ).mockImplementation(async () => {
+      await writeFile(worker, "verified worker");
+      return worker;
+    });
+    vi.mocked(startLaunchdService).mockImplementation(async () => {
+      // launchd cannot run a saved definition whose executable disappeared.
+      expect(await readFile(worker, "utf8")).toBe("verified worker");
+    });
     try {
       await ensureDaemonServiceMaintenanceInstalled();
       // A definition left by failed bootstrap is not proof of a loaded job.

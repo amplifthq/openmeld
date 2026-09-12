@@ -75,14 +75,6 @@ export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
   if (await readPendingDaemonServiceUpdate()) {
     return;
   }
-  if (await hasIndependentMaintenanceRegistration()) {
-    // A saved definition can survive a failed bootstrap. On macOS, converge
-    // the actual job too, preserving any running maintenance process.
-    if (process.platform === "darwin") {
-      await startDaemonServiceUpdateWorker();
-    }
-    return;
-  }
   const preparedBundle = await readDaemonActiveBundleState();
   if (
     !(
@@ -93,6 +85,15 @@ export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
     throw new Error(
       "OpenMeld cannot install automatic maintenance without a verified Service program."
     );
+  }
+  if (await hasIndependentMaintenanceRegistration()) {
+    // A saved registration can outlive its executable (for example after a
+    // local reinstall). Restore the verified carrier before trusting the job.
+    await prepareDaemonServiceUpdateWorkerCarrier({ preparedBundle });
+    if (process.platform === "darwin") {
+      await startDaemonServiceUpdateWorker();
+    }
+    return;
   }
   await installDaemonServiceUpdateWorker({ preparedBundle });
 }

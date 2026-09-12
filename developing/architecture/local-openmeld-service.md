@@ -2027,6 +2027,10 @@ job, and requests a demand start with `kickstart` without `-k`. It does not
 restart an already running job. Bootstrap I/O repair has one owner, waits for
 confirmed removal before reinstalling, and preserves the original and repair
 errors if unsuccessful. Full lifecycle inventory still determines success.
+Outside an active update, maintenance startup also restores its carrier from
+the verified active bundle before trusting a saved OS registration. A plist or
+unit can survive removal of the local executable; registration alone cannot
+prove automatic updates can run. An active update keeps its existing executor.
 
 Interrupted account handoff recovery belongs to the explicit handoff flow.
 Generic command dispatch must leave install, update, and diagnostics usable
