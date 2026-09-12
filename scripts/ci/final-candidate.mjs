@@ -6,6 +6,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { FINAL_CANDIDATE_EVIDENCE_VERSION } from "../../packages/schemas/src/schemas/ci/final-candidate.ts";
+import { settleHostedCandidateRuns } from "./final-candidate-handoff.mjs";
 import {
   appendWorkflowSummary,
   printPlan,
@@ -52,7 +53,7 @@ const TRUSTED_REPO_ROOT = path.resolve(
   ".."
 );
 
-function run() {
+async function run() {
   const [command = "help", ...args] = process.argv.slice(2);
   const options = parseOptions(args);
   if (command === "help" || options.help) {
@@ -68,7 +69,7 @@ function run() {
     return;
   }
   if (command === "run") {
-    runCandidate(options);
+    await runCandidate(options);
     return;
   }
   throw new Error(`Unknown Final Candidate command: ${command}`);
@@ -174,13 +175,14 @@ function requestRemoteCandidate(options) {
   );
 }
 
-function runCandidate(options) {
+async function runCandidate(options) {
   const context = createRunContext(options);
   let evidence;
   let originalError = null;
 
   try {
     prepareCandidateRun(context);
+    await prepareLocalPublication(context);
     publishPendingEvidence(context);
     evidence = executePreparedCandidate(context);
   } catch (error) {
@@ -194,6 +196,17 @@ function runCandidate(options) {
   );
   evidence.publicationErrors = [...context.publicationErrors];
   writeEvidence(evidencePath, evidence);
+  if (context.localPublicationReady) {
+    try {
+      // Also settle runs triggered while the local checks were executing.
+      await prepareLocalPublication(context, false);
+    } catch (error) {
+      recordPublicationError(context, "final-status", error);
+      evidence.publicationErrors = [...context.publicationErrors];
+      writeEvidence(evidencePath, evidence);
+      throw createFinalRunError(originalError, context.publicationErrors);
+    }
+  }
   publishFinalEvidence(context, evidence, evidencePath);
 
   evidence.publicationErrors = [...context.publicationErrors];
@@ -242,6 +255,7 @@ function createRunContext(options) {
     commandLogsPath: null,
     evidencePath: null,
     mode,
+    localPublicationReady: false,
     options,
     execution: null,
     plan: null,
@@ -327,6 +341,21 @@ function publishPendingEvidence(context) {
   }
 }
 
+async function prepareLocalPublication(context, requireCurrentBase = true) {
+  if (context.mode !== "local" || !context.publishStatus) {
+    return;
+  }
+  context.localPublicationReady = false;
+  await settleHostedCandidateRuns({
+    repository: context.repository,
+    pullRequestNumber: context.pullRequestNumber,
+    headSha: context.plan.headSha,
+    branchName: context.state.pullRequest.head.ref,
+  });
+  assertLiveCandidate(context, requireCurrentBase);
+  context.localPublicationReady = true;
+}
+
 function executePreparedCandidate(context) {
   const execution = executeCandidateChecks(context.plan.selectedChecks, {
     now: () => Date.now(),
@@ -348,6 +377,23 @@ function executePreparedCandidate(context) {
     );
   }
 
+  assertLiveCandidate(context, context.candidateKind === "merge-group");
+
+  return createEvidence({
+    conclusion: "success",
+    execution,
+    finishedAt: new Date(),
+    mode: context.mode,
+    planSourceSha:
+      context.plan?.planSourceSha ?? context.options.planSourceSha ?? null,
+    plan: context.plan,
+    pullRequest: context.state.pullRequest,
+    repository: context.repository,
+    startedAt: context.startedAt,
+  });
+}
+
+function assertLiveCandidate(context, requireCurrentBase) {
   const stateInput = {
     cwd: context.candidateRoot,
     expectedBaseSha: context.plan.baseSha,
@@ -363,26 +409,13 @@ function executePreparedCandidate(context) {
         });
   assertCandidateSnapshot(finalState.snapshot, {
     candidateKind: context.candidateKind,
-    requireCurrentBase: context.candidateKind === "merge-group",
+    requireCurrentBase,
   });
   if (finalState.snapshot.treeSha !== context.plan.treeSha) {
     throw new Error(
       `Candidate tree drifted: expected ${context.plan.treeSha}, found ${finalState.snapshot.treeSha}.`
     );
   }
-
-  return createEvidence({
-    conclusion: "success",
-    execution,
-    finishedAt: new Date(),
-    mode: context.mode,
-    planSourceSha:
-      context.plan?.planSourceSha ?? context.options.planSourceSha ?? null,
-    plan: context.plan,
-    pullRequest: context.state.pullRequest,
-    repository: context.repository,
-    startedAt: context.startedAt,
-  });
 }
 
 function resolveCandidateCheckReuse(selectedCheck, context) {
@@ -450,7 +483,10 @@ function createFailureEvidence(context, error) {
 }
 
 function publishFinalEvidence(context, evidence, evidencePath) {
-  if (!context.publishStatus) {
+  if (
+    !context.publishStatus ||
+    (context.mode === "local" && !context.localPublicationReady)
+  ) {
     return;
   }
   if (context.mode === "local" && context.candidateKind === "pull-request") {
@@ -814,7 +850,7 @@ class CandidateCheckError extends Error {
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    run();
+    await run();
   } catch (error) {
     console.error(error instanceof Error ? error.message : error);
     process.exitCode = 1;
