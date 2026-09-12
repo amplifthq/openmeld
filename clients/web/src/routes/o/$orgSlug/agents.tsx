@@ -17,10 +17,12 @@ import {
 	buildOrganizationPersonAgentPath,
 	buildOrganizationPersonAgentsPath,
 } from "#/lib/organizations/organization-routes";
+import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 export const Route = createFileRoute("/o/$orgSlug/agents")({
 	staticData: appShellStaticData.people,
+	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),
 	validateSearch: z.object({
 		profileId: z.string().optional(),
 		requestId: z.string().optional(),
@@ -47,6 +49,7 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 });
 
 function TeamAgentsRoute() {
+	const { sidebarStates } = Route.useLoaderData();
 	const { profileId } = Route.useSearch();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const navigate = useNavigate();
@@ -61,6 +64,7 @@ function TeamAgentsRoute() {
 			<PeopleAndAgentsPage
 				activeSectionId="agents"
 				focusProfileId={null}
+				initialSidebarStates={sidebarStates}
 				onAgentViewChange={(view) => {
 					if (view === "requests") {
 						navigate({

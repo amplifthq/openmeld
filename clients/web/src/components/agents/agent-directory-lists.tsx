@@ -267,7 +267,7 @@ export function AgentDirectoryLists({
 					size="sm"
 					variant="ghost"
 				>
-					Setup history
+					Creation history
 				</Button>
 			)}
 		</div>

@@ -1,4 +1,3 @@
-import type { ConnectorService } from "@openmeld/schemas/types";
 import type { QueryClient } from "@tanstack/react-query";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
 import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
@@ -11,10 +10,6 @@ import {
 	organizationScopeQueryKeys,
 	organizationScopeQueryOptions,
 } from "#/query/organizations/organization-scope";
-import {
-	organizationPluginConnectionCatalogQueryOptions,
-	organizationPluginServiceConnectionsQueryOptions,
-} from "#/query/organizations/plugin-connections";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
@@ -31,39 +26,6 @@ type OrganizationRoutePrefetchInput = {
 	queryPersistence: BrowserQueryPersistenceController;
 	routeFamily: string;
 };
-
-export async function prefetchPluginCatalogRouteData(
-	input: OrganizationRoutePrefetchInput
-): Promise<void> {
-	const scope = await resolveAuthorizedPrefetchScope(input);
-	if (!scope) {
-		return;
-	}
-
-	await input.queryClient.prefetchQuery(
-		organizationPluginConnectionCatalogQueryOptions({
-			organizationId: scope.currentOrganization.id,
-			queryClient: input.queryClient,
-		})
-	);
-}
-
-export async function prefetchAppDetailRouteData(
-	input: OrganizationRoutePrefetchInput & { service: ConnectorService }
-): Promise<void> {
-	const scope = await resolveAuthorizedPrefetchScope(input);
-	if (!scope) {
-		return;
-	}
-
-	await input.queryClient.prefetchQuery(
-		organizationPluginServiceConnectionsQueryOptions({
-			organizationId: scope.currentOrganization.id,
-			queryClient: input.queryClient,
-			service: input.service,
-		})
-	);
-}
 
 export async function prefetchAgentsRouteIdentityData(
 	input: OrganizationRoutePrefetchInput

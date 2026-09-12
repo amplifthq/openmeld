@@ -1,7 +1,6 @@
 "use client";
 
 import { daemonServiceLaneSchema } from "@openmeld/schemas/schemas";
-import { Button } from "@openmeld/ui/components/button";
 import { useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
@@ -27,11 +26,9 @@ type RecoveryInput = {
 };
 
 export function useAgentCreationComputerRecovery(input: RecoveryInput) {
-	const [setupTarget, setSetupTarget] = useState<SetupTarget | null>(null);
 	const [repairComputerId, setRepairComputerId] = useState<string | null>(null);
 	useEffect(() => {
 		if (!input.enabled) {
-			setSetupTarget(null);
 			setRepairComputerId(null);
 		}
 	}, [input.enabled]);
@@ -44,17 +41,15 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 		input.guidance !== "set_up_local_agents" ||
 		!input.hasLocalAgents;
 	const state = resolveRecoveryState(input, target);
-	const activeTarget =
-		setupTarget ?? resolveAutomaticSetupTarget(blocked, state, target);
+	const activeTarget = resolveAutomaticSetupTarget(blocked, state, target);
 	const recovery: AgentCreationComputerRecovery | undefined =
-		input.enabled && (blocked || setupTarget)
+		input.enabled && blocked
 			? {
 					state: activeTarget?.state ?? state,
 					computerName: activeTarget ? activeTarget.name : target.name,
 					onStart: input.onRetry,
-					onBack: setupTarget ? () => setSetupTarget(null) : undefined,
 					computerChoices:
-						!(setupTarget || selected) && enrolled.length > 1 ? (
+						!selected && enrolled.length > 1 ? (
 							<div className="grid gap-2">
 								<label className="grid gap-2 text-sm">
 									Computer to reconnect
@@ -98,7 +93,6 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 										});
 									}
 									input.onRetry();
-									setSetupTarget(null);
 								}}
 								orgSlug={input.orgSlug}
 								presentation="embedded"
@@ -110,18 +104,6 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 			: undefined;
 	return {
 		computerRecovery: recovery,
-		connectAnotherComputer:
-			input.enabled && !recovery ? (
-				<Button
-					className="justify-self-start"
-					onClick={() => setSetupTarget({ state: "connect" })}
-					size="sm"
-					type="button"
-					variant="ghost"
-				>
-					Connect another computer
-				</Button>
-			) : null,
 	};
 }
 
