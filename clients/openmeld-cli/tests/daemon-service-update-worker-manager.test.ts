@@ -122,6 +122,10 @@ describe("daemon service update worker manager", () => {
       value: "darwin",
     });
     hasIndependentMaintenanceRegistrationMock.mockResolvedValue(true);
+    vi.mocked(resolveDaemonServiceManager).mockResolvedValue({
+      controller: "launchd",
+    } as never);
+    vi.mocked(buildDaemonSystemServiceCommandSpec).mockReturnValue(SPEC);
     readPendingDaemonServiceUpdateMock.mockResolvedValue(
       pending ? createBinaryUpdateJob() : null
     );

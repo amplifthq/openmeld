@@ -91,7 +91,30 @@ export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
   // Binary preparation below verifies the maintenance executable against the
   // prepared source fingerprint. The main Service carrier may still be the
   // previous version until startup replaces it; it is not this worker's source.
-  if (await hasIndependentMaintenanceRegistration()) {
+  const spec = await buildDaemonServiceUpdateWorkerSpec({ preparedBundle });
+  const identity = resolveDaemonServiceUpdateWorkerIdentity();
+  let expectedDefinition: string;
+  if (process.platform === "darwin") {
+    expectedDefinition = buildLaunchdServiceUpdateWorkerPlist({
+      label: identity.launchdLabel,
+      logPath: resolveUpdateWorkerLogPath({}),
+      spec,
+    });
+  } else if (process.platform === "linux") {
+    expectedDefinition = buildSystemdServiceUpdateWorkerUnit({ spec });
+  } else {
+    expectedDefinition = windowsTaskActionArguments({
+      ...spec,
+      logPath: resolveUpdateWorkerLogPath({}),
+    });
+  }
+  if (
+    await hasIndependentMaintenanceRegistration(
+      {},
+      process.platform,
+      expectedDefinition
+    )
+  ) {
     // A saved registration can outlive its executable (for example after a
     // local reinstall). Restore the verified carrier before trusting the job.
     await prepareDaemonServiceUpdateWorkerCarrier({ preparedBundle });
