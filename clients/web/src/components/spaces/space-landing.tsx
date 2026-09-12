@@ -177,6 +177,17 @@ import { useSpaceMessageReferences } from "./use-space-message-references";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpacePendingAgentActions } from "./use-space-pending-agent-actions";
 import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
+import { WelcomeSpaceGuide } from "./welcome-space-guide";
+import {
+	buildWelcomeSpaceDraft,
+	readWelcomeRecipients,
+	readWelcomeSpace,
+	resolveWelcomeRecipients,
+	saveWelcomeRecipients,
+	saveWelcomeSpace,
+	useWelcomeSpace,
+	welcomeStepStartedAt,
+} from "./welcome-space-state";
 
 const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
 const EMPTY_SPACE_DESCRIPTION =
@@ -205,7 +216,7 @@ function useSpaceSetupRecallWiring(input: {
 		allHidden: false,
 		hasSetup: false,
 	});
-	const [addMembersFlashNonce, setAddMembersFlashNonce] = useState(0);
+	const [addMembersRequestNonce, setAddMembersRequestNonce] = useState(0);
 	const handleSetupVisibilityChange = useCallback(
 		(visibility: SpaceSetupVisibility) => {
 			setSetupVisibility(visibility);
@@ -218,7 +229,7 @@ function useSpaceSetupRecallWiring(input: {
 		setSetupVisibility((current) => ({ ...current, allHidden: false }));
 	}, [input.onViewChange]);
 	const handleAddAgentsFromBanner = useCallback(() => {
-		setAddMembersFlashNonce((nonce) => nonce + 1);
+		setAddMembersRequestNonce((nonce) => nonce + 1);
 	}, []);
 	const setupRecallAction =
 		setupVisibility.hasSetup &&
@@ -226,7 +237,7 @@ function useSpaceSetupRecallWiring(input: {
 			<SetupRecallButton onClick={handleRecallSetup} />
 		) : null;
 	return {
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		handleAddAgentsFromBanner,
 		handleSetupVisibilityChange,
 		setupRecallAction,
@@ -378,6 +389,8 @@ function useActiveWakeTargetProfileIds(
 }
 
 type SpaceLandingInput = {
+	/** Embedded conversations only advance read state while actively being read. */
+	readingEnabled?: boolean;
 	isGuest?: boolean;
 	conversationTitle?: string;
 	conversationTitleAction?: (title: string) => ReactNode;
@@ -399,6 +412,7 @@ type SpaceLandingInput = {
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug?: string;
 	presentation?: "compact" | "full";
+	membersPresentation?: "inline";
 	spaceId: string;
 	profileId: string;
 };
@@ -482,8 +496,11 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
 			? centerAgentState.centerAgentProfileId
 			: null,
-		onViewedThroughTs: (throughOccurredAtMs) =>
-			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
+		onViewedThroughTs:
+			input.readingEnabled === false
+				? undefined
+				: (throughOccurredAtMs) =>
+						spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
 		unreadTargets: spaceInboxReadPosition.targets,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
@@ -492,7 +509,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		organizationId,
 	});
 	usePublishInboxVisibleConversation(
-		controller.mode === "ready" && spaceView === "messages"
+		input.readingEnabled !== false &&
+			controller.mode === "ready" &&
+			spaceView === "messages"
 			? {
 					kind: "space",
 					spaceId: input.spaceId,
@@ -511,7 +530,11 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			profileId: input.profileId,
 			spaceId: input.spaceId,
 		});
-	const isDesktopMembersPanel = useMediaQuery(SPACE_MEMBERS_SIDE_PANEL_QUERY);
+	const viewportSupportsMembersPanel = useMediaQuery(
+		SPACE_MEMBERS_SIDE_PANEL_QUERY
+	);
+	const isDesktopMembersPanel =
+		input.membersPresentation === "inline" || viewportSupportsMembersPanel;
 	const [membersPanelOpenOverrides, setMembersPanelOpenOverrides] = useState<
 		ReadonlyMap<string, boolean>
 	>(() => new Map());
@@ -1206,10 +1229,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		},
 		[input.spaceId, setMembersOpen]
 	);
-	// Get-set-up panel recall + Add-agents highlight wiring (drives the header
-	// recall action and the Add-members card flash).
+	// Setup recall and direct requests to open the shared member picker.
 	const {
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		handleAddAgentsFromBanner,
 		handleSetupVisibilityChange,
 		setupRecallAction,
@@ -1232,6 +1254,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			organizationId,
 			organizationSlug: input.orgSlug,
 			queryClient,
+			storageScope: recovery.storageScope,
 		});
 	const handleConvertDirectMessageToSpace =
 		useConvertDirectMessageToSpaceHandler({
@@ -1264,7 +1287,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		accountProfiles,
 		activeWakeDisplayTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		agentRecoveryPlansByProfileId,
 		autoRefreshExhaustedProfileIds,
 		centerAgentState,
@@ -1544,7 +1567,7 @@ function SpaceLandingReady({
 		string | undefined
 	>();
 	const activeActionThreadId =
-		!isCompactPresentation && controller.isCurrentAccessConfirmed
+		input.presentation !== "compact" && controller.isCurrentAccessConfirmed
 			? (controller.activeThread?.threadId ?? null)
 			: null;
 	const pendingActionsByPanel = partitionSpacePendingAgentActions(
@@ -1625,6 +1648,7 @@ function SpaceLandingReady({
 							}
 							isDeleteSpacePending={controller.isDeleteSpacePending}
 							isLeaveSpacePending={controller.isLeaveSpacePending}
+							isLoadingMessages={controller.isLoadingEarlierHistory}
 							isSpaceNamePending={controller.isSpaceNamePending}
 							leaveSpaceErrorMessage={controller.leaveSpaceErrorMessage}
 							liveErrorMessage={controller.liveErrorMessage}
@@ -1680,7 +1704,7 @@ function SpaceLandingReady({
 							}
 						/>
 					}
-					showHeader={!isCompactPresentation}
+					showHeader={input.presentation !== "compact"}
 				>
 					<div
 						className="flex min-h-0 flex-1 overflow-hidden"
@@ -1718,7 +1742,7 @@ function SpaceLandingReady({
 							prepareSetupHref={prepareSetupHref}
 							state={state}
 						/>
-						{isCompactPresentation ||
+						{input.presentation === "compact" ||
 						!controller.isCurrentAccessConfirmed ? null : (
 							<SpaceLandingSecondaryPanels
 								agentDirectConversationKind={agentDirectConversationKind}
@@ -1976,6 +2000,71 @@ function SpaceLandingConversation({
 		spaceInboxReadPosition,
 		wakeFailureTargetContextsByProfileId,
 	} = state;
+	const welcomeStep = useWelcomeSpace(recovery.storageScope, input.spaceId);
+	const welcomeRecipients = useMemo(
+		() =>
+			welcomeStep
+				? resolveWelcomeRecipients(
+						[
+							...(controller.membersSnapshot?.humans ?? []),
+							...(controller.membersSnapshot?.agents ?? []),
+						].filter((member) => member.status === "active"),
+						readWelcomeRecipients(recovery.storageScope, input.spaceId),
+						input.profileId
+					)
+				: [],
+		[
+			controller.membersSnapshot,
+			welcomeStep,
+			recovery.storageScope,
+			input.spaceId,
+			input.profileId,
+		]
+	);
+	const hasWelcomeDraft = Boolean(
+		controller.composerText.trim() ||
+			controller.composerFiles.length ||
+			controller.composerReplyToSignalId
+	);
+	useEffect(() => {
+		if (welcomeStep !== "send" && welcomeStep !== "add") {
+			return;
+		}
+		const since = welcomeStepStartedAt(recovery.storageScope, input.spaceId);
+		const sentIds = new Set(
+			controller.timelineItems
+				.filter(
+					(item) =>
+						item.actorProfileId === input.profileId &&
+						item.deliveryState === "sent" &&
+						item.createdAtMs > since
+				)
+				.map((item) => item.id)
+		);
+		if (
+			controller.timelineItems.some(
+				(item) =>
+					item.actorProfileKind === "agent" &&
+					welcomeRecipients.some(
+						(member) => member.profileId === item.actorProfileId
+					) &&
+					item.deliveryState === "sent" &&
+					item.createdAtMs > since &&
+					!!item.replyToSignalId &&
+					sentIds.has(item.replyToSignalId) &&
+					item.isAgentFinalReply
+			)
+		) {
+			saveWelcomeSpace(recovery.storageScope, input.spaceId, "done");
+		}
+	}, [
+		welcomeStep,
+		recovery.storageScope,
+		input.spaceId,
+		input.profileId,
+		controller.timelineItems,
+		welcomeRecipients,
+	]);
 	let readOnlyComposerPlaceholder: string | undefined;
 	if (agentOwnerDirectMessageObserver) {
 		readOnlyComposerPlaceholder =
@@ -2011,11 +2100,16 @@ function SpaceLandingConversation({
 			composerReplyToSignalId={controller.composerReplyToSignalId}
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
-			emptyStateDescription={resolveSpaceConversationEmptyStateDescription({
-				isAgentOwnerDirectMessageObserver:
-					agentOwnerDirectMessageObserver !== null,
-				isDirectMessage,
-			})}
+			emptyStateAlignment={welcomeStep ? "start" : "center"}
+			emptyStateDescription={
+				welcomeStep
+					? null
+					: resolveSpaceConversationEmptyStateDescription({
+							isAgentOwnerDirectMessageObserver:
+								agentOwnerDirectMessageObserver !== null,
+							isDirectMessage,
+						})
+			}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
@@ -2073,8 +2167,38 @@ function SpaceLandingConversation({
 			presentedWakeProgressItems={controller.presentedWakeProgressItems}
 			profileControl={composerProfileControl}
 			readOnlyComposerPlaceholder={readOnlyComposerPlaceholder}
-			renderSetupGuidance={(presentation) =>
-				controller.isCurrentAccessConfirmed && input.orgSlug ? (
+			renderSetupGuidance={(presentation) => {
+				if (!(controller.isCurrentAccessConfirmed && input.orgSlug)) {
+					return null;
+				}
+				if (welcomeStep) {
+					return (
+						<WelcomeSpaceGuide
+							hasDraft={hasWelcomeDraft}
+							hasRecipients={welcomeRecipients.length > 0}
+							onAddAgents={currentSpaceControls.onAddAgentsFromBanner}
+							onPrepareConversation={() => {
+								if (hasWelcomeDraft || welcomeRecipients.length === 0) {
+									return;
+								}
+								controller.onComposerEditorChange(
+									buildWelcomeSpaceDraft(welcomeRecipients)
+								);
+								if (welcomeStep === "add") {
+									saveWelcomeSpace(
+										recovery.storageScope,
+										input.spaceId,
+										"send"
+									);
+								}
+							}}
+							presentation={presentation}
+							scope={recovery.storageScope}
+							spaceId={input.spaceId}
+						/>
+					);
+				}
+				return (
 					<SpaceConversationRecoveryBanner
 						accountProfiles={accountProfiles}
 						actingProfileId={input.profileId}
@@ -2089,8 +2213,8 @@ function SpaceLandingConversation({
 						spaceId={controller.spaceId}
 						spaceName={spaceName}
 					/>
-				) : null
-			}
+				);
+			}}
 			selfAvatarImageUrl={currentUserAvatarImageUrl}
 			selfProfileId={controller.profileId}
 			spaceId={controller.spaceId}
@@ -2479,7 +2603,7 @@ function SpaceLandingSecondaryPanels({
 		accountProfiles,
 		activeWakeDisplayTargetProfileIds,
 		activeWakeWaitingTargetProfileIds,
-		addMembersFlashNonce,
+		addMembersRequestNonce,
 		agentRecoveryPlansByProfileId,
 		autoRefreshExhaustedProfileIds,
 		centerAgentState,
@@ -2525,7 +2649,7 @@ function SpaceLandingSecondaryPanels({
 		onOpenChange: handleMembersOpenChange,
 		onRefresh: refreshCurrentSpaceMemberFacts,
 		onRemoveMember: spaceMemberRemovalHandler,
-		openAddMembersNonce: addMembersFlashNonce,
+		openAddMembersNonce: addMembersRequestNonce,
 		orgSlug: input.orgSlug,
 		prepareSetupHref,
 		snapshot: controller.isCurrentAccessConfirmed
@@ -2604,15 +2728,19 @@ function SpaceLandingSecondaryPanels({
 				onReportMessage={controller.onReportMessage}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
-				onViewedThroughTs={async (throughOccurredAtMs) => {
-					const rootSignalId = controller.activeThread?.rootSignalId;
-					if (rootSignalId) {
-						await spaceInboxReadPosition.markReadThrough(
-							throughOccurredAtMs,
-							rootSignalId
-						);
-					}
-				}}
+				onViewedThroughTs={
+					input.readingEnabled === false
+						? undefined
+						: async (throughOccurredAtMs) => {
+								const rootSignalId = controller.activeThread?.rootSignalId;
+								if (rootSignalId) {
+									await spaceInboxReadPosition.markReadThrough(
+										throughOccurredAtMs,
+										rootSignalId
+									);
+								}
+							}
+				}
 				onWakeStopRequest={controller.onWakeStopRequest}
 				orgSlug={input.orgSlug}
 				pendingActionSurface={pendingActionSurface}
@@ -2832,6 +2960,49 @@ function useRedirectAwayFromDeletedSpace(input: {
 	};
 }
 
+function prepareWelcomeDraft(
+	input: {
+		controller: ReadySpaceLandingController;
+		storageScope: string;
+	},
+	response: {
+		addedMemberIds: string[];
+		items: readonly {
+			profileId: string;
+			profileKind: "human" | "agent";
+			profileName: string;
+		}[];
+	}
+) {
+	const { controller } = input;
+	const step = readWelcomeSpace(input.storageScope, controller.spaceId);
+	if (
+		(step !== "add" && step !== "send") ||
+		response.addedMemberIds.length === 0
+	) {
+		return;
+	}
+	const members = response.items.filter((member) =>
+		response.addedMemberIds.includes(member.profileId)
+	);
+	if (members.length === 0) {
+		return;
+	}
+	saveWelcomeRecipients(
+		input.storageScope,
+		controller.spaceId,
+		members.map((member) => member.profileId)
+	);
+	if (
+		!controller.composerText.trim() &&
+		controller.composerFiles.length === 0 &&
+		!controller.composerReplyToSignalId
+	) {
+		controller.onComposerEditorChange(buildWelcomeSpaceDraft(members));
+	}
+	saveWelcomeSpace(input.storageScope, controller.spaceId, "send");
+}
+
 function useSpaceAddProfilesHandler(input: {
 	accountProfiles: readonly AuthProfileView[];
 	controller: ReturnType<typeof useSpaceLandingController>;
@@ -2879,6 +3050,10 @@ function useSpaceAddProfilesHandler(input: {
 				accountProfiles: input.accountProfiles,
 				memberProfileIds,
 			});
+			prepareWelcomeDraft(
+				{ controller, storageScope: input.storageScope },
+				addMembersResult
+			);
 
 			applySpaceMembersResponseToCache({
 				pendingWakeReadinessProfileIds: agentProfileIdsToRefresh,
@@ -2965,6 +3140,7 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 	organizationId: string | null;
 	organizationSlug?: string;
 	queryClient: ReturnType<typeof useQueryClient>;
+	storageScope: string;
 }): (
 	input: SpaceAddOrganizationDirectoryProfilesInput
 ) => Promise<SpaceAddProfilesResult> {
@@ -3001,6 +3177,10 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 					: {}),
 				spaceId: controller.spaceId,
 			});
+			prepareWelcomeDraft(
+				{ controller, storageScope: input.storageScope },
+				addMembersResult
+			);
 
 			applySpaceMembersResponseToCache({
 				queryClient: input.queryClient,
@@ -3010,6 +3190,14 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 			});
 
 			(async () => {
+				if (input.organizationId) {
+					await refreshWebAgentReadinessAfterCoreFactsChanged({
+						includeLocalRuntimeCaches: false,
+						organizationId: input.organizationId,
+						queryClient: input.queryClient,
+						storageScope: input.storageScope,
+					});
+				}
 				await Promise.all([
 					input.queryClient.invalidateQueries({
 						queryKey: accountSpaceQueryKeys.all,
@@ -3045,6 +3233,7 @@ function useSpaceAddOrganizationDirectoryProfilesHandler(input: {
 			input.organizationId,
 			input.organizationSlug,
 			input.queryClient,
+			input.storageScope,
 		]
 	);
 }

@@ -3,6 +3,26 @@ import { resolveInboxAttention } from "./use-inbox-attention";
 
 describe("Inbox attention", () => {
 	it.each([
+		[0, 0, 0, null, null],
+		[127, 0, 0, "unread", "127 unread"],
+		[127, 0, 1, "warning", "Urgent updates (1)"],
+		[127, 2, 1, "danger", "Needs action (2)"],
+		[0, 1, 0, "danger", "Needs action (1)"],
+	] as const)("maps %i unread, %i actions, %i urgent updates to one indicator", (unread, actions, urgent, indicatorTone, tabLabel) => {
+		expect(
+			resolveInboxAttention({
+				summary: {
+					organizationId: "org",
+					totalUnreadCount: unread,
+					unresolvedActionCount: actions,
+					unreadUrgentUpdateCount: urgent,
+				},
+				pending: false,
+				unavailable: false,
+			})
+		).toMatchObject({ indicatorTone, tabLabel });
+	});
+	it.each([
 		[0, 0, 0, null],
 		[0, 3, 3, "warning"],
 		[2, 0, 2, "danger"],
@@ -44,7 +64,14 @@ describe("Inbox attention", () => {
 				pending: true,
 				unavailable: false,
 			})
-		).toEqual({ count: null, tone: null, label: "Inbox", status: null });
+		).toMatchObject({
+			count: null,
+			tone: null,
+			label: "Inbox",
+			status: null,
+			indicatorTone: null,
+			tabLabel: null,
+		});
 	});
 	it("keeps the last confirmed count while refreshing", () => {
 		expect(

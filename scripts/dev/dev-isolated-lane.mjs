@@ -5,9 +5,11 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { readListeningTcpPortOwners } from "./dev-port-owners.mjs";
 import { readProcessRows } from "./process-rows.mjs";
@@ -542,7 +544,7 @@ export async function withRegistryLock(input, callback) {
       }
       if (Date.now() >= timeoutAt) {
         throw new Error(
-          "Timed out waiting for the isolated dev lane registry lock. No process was stopped."
+          `Timed out waiting for the isolated dev lane registry lock ${input.lockPath}. No process was stopped.${legacyRecoveryDirectory(input.lockPath) ? ` Legacy recovery directory ${input.lockPath}.reclaim has no owner identity; inspect its originating processes before removing it.` : ""}`
         );
       }
       await sleep(REGISTRY_LOCK_RETRY_MS);
@@ -557,28 +559,37 @@ export async function withRegistryLock(input, callback) {
 }
 
 function reclaimRegistryLock(lockPath, isPidAlive) {
-  // Serialize stale-lock recovery as well as normal acquisition. Otherwise two
-  // reclaimers can both observe a dead owner and one can delete the other's
-  // newly acquired lock. A crashed recovery fails closed instead of unlocking
-  // an owner whose identity cannot be proved.
+  // SQLite's OS lock is released even after SIGKILL. Keep its file permanently:
+  // unlinking it would let contenders lock different inodes. Using the old
+  // guard path also prevents older worktrees from concurrently reclaiming.
   const recoveryPath = `${lockPath}.reclaim`;
-  try {
-    mkdirSync(recoveryPath);
-  } catch (error) {
-    if (isAlreadyExistsError(error)) {
-      return false;
-    }
-    throw error;
+  if (legacyRecoveryDirectory(lockPath)) {
+    return false;
   }
+  let database;
   try {
+    database = new DatabaseSync(recoveryPath, { timeout: 0 });
+    database.exec("BEGIN EXCLUSIVE");
     if (!canReclaimRegistryLock(lockPath, isPidAlive)) {
       return false;
     }
     rmSync(lockPath, { force: true, recursive: true });
     return true;
+  } catch (error) {
+    // Do not block the event loop: the owning loop supplies cancellable retries.
+    if (error.errcode === 5 || legacyRecoveryDirectory(lockPath)) {
+      return false;
+    }
+    throw error;
   } finally {
-    rmSync(recoveryPath, { recursive: true, force: true });
+    database?.close();
   }
+}
+
+function legacyRecoveryDirectory(lockPath) {
+  return statSync(`${lockPath}.reclaim`, {
+    throwIfNoEntry: false,
+  })?.isDirectory();
 }
 
 function canReclaimRegistryLock(lockPath, isPidAlive) {

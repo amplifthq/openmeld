@@ -65,7 +65,11 @@ export function SpaceWindowHeader(input: {
 				</div>
 			) : null}
 			<div
-				className="col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden"
+				className={cn(
+					"col-start-2 row-start-1 flex min-h-0 min-w-0 items-center gap-2 overflow-hidden",
+					!(input.leadingControl || hasModuleSidebar) &&
+						"col-span-2 col-start-1"
+				)}
 				data-slot="space-window-header-title"
 			>
 				<h1
@@ -160,6 +164,7 @@ export function SpaceHeader(input: {
 	// surfaces (e.g. the public route) render a plain live dot.
 	liveErrorMessage?: string | null;
 	liveState?: SpaceLiveState;
+	isLoadingMessages?: boolean;
 	managementControl?: ReactNode;
 	menuItems?: readonly SpaceHeaderNavigationMenuItem[];
 	menuLabel?: string;
@@ -287,7 +292,9 @@ export function SpaceHeader(input: {
 				</>
 			}
 			leadingControl={
-				<SpaceHeaderIdentityIcon isDirectMessage={isDirectMessage} />
+				isDirectMessage ? (
+					<SpaceHeaderIdentityIcon isDirectMessage />
+				) : undefined
 			}
 			navigation={input.viewControl}
 			renderFrame={input.renderFrame}
@@ -303,6 +310,7 @@ export function SpaceHeader(input: {
 						? null
 						: renderSpaceAccessModeHeaderLabel(input.status)}
 					<SpaceLiveStatusIndicator
+						isLoadingMessages={input.isLoadingMessages}
 						liveErrorMessage={input.liveErrorMessage ?? null}
 						liveState={input.liveState ?? "connected"}
 						onReconnectNow={input.onReconnectLiveUpdates}
@@ -402,7 +410,8 @@ function resolveLiveStatusSrLabel(liveState: SpaceLiveState): string {
 	}
 }
 
-function SpaceLiveStatusIndicator(input: {
+export function SpaceLiveStatusIndicator(input: {
+	isLoadingMessages?: boolean;
 	liveErrorMessage: string | null;
 	liveState: SpaceLiveState;
 	onReconnectNow?: () => void;
@@ -414,7 +423,10 @@ function SpaceLiveStatusIndicator(input: {
 		"status-dot",
 		resolveStatusToneIndicatorClassName("warning", "solid")
 	);
-	const srLabel = resolveLiveStatusSrLabel(input.liveState);
+	const srLabel =
+		!needsAttention && input.isLoadingMessages
+			? "Loading messages"
+			: resolveLiveStatusSrLabel(input.liveState);
 	// When degraded we expose a manual retry: don't make the user wait out the
 	// (possibly background-throttled) backoff timer.
 	const canRetry = isDegraded && input.onReconnectNow !== undefined;
@@ -471,6 +483,15 @@ function SpaceLiveStatusIndicator(input: {
 					/>
 					<TooltipContent side="bottom">{attentionTooltip}</TooltipContent>
 				</Tooltip>
+			) : null}
+			{!needsAttention && input.isLoadingMessages ? (
+				<span
+					className="flex shrink-0 items-center gap-1.5 text-muted-foreground text-xs"
+					data-testid="space-message-loading"
+				>
+					<span aria-hidden="true" className="status-dot bg-current" />
+					<span aria-hidden="true">Loading</span>
+				</span>
 			) : null}
 		</>
 	);

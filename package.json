@@ -42,7 +42,7 @@
     "dev:raw": "turbo run dev",
     "dev:status": "node scripts/dev/dev-status.mjs",
     "dev:run": "node scripts/dev/run-local-heavy.mjs",
-    "verify:dev-lifecycle": "node --test --test-concurrency=1 scripts/dev/local-resources.test.mjs scripts/dev/process-rows.test.mjs scripts/dev/dev-stop.test.mjs scripts/dev/dev-status.test.mjs",
+    "verify:dev-lifecycle": "node --test --test-concurrency=1 scripts/dev/registry-lock.test.mjs scripts/dev/local-resources.test.mjs scripts/dev/process-rows.test.mjs scripts/dev/dev-stop.test.mjs scripts/dev/dev-status.test.mjs",
     "dev:seed": "python3 scripts/dev/dev-seed.py",
     "dev:account": "python3 scripts/dev/dev-account.py",
     "dev:stop": "node scripts/dev/dev-stop.mjs",

@@ -25,7 +25,7 @@ vi.mock("./space-share-dialog", () => ({
 }));
 
 describe("SpaceHeader Direct Message identity", () => {
-	it("changes the chat icon on conversion without adding Agent type labels", () => {
+	it("removes the chat icon on conversion to a Space without adding Agent type labels", () => {
 		const { container, rerender } = render(
 			createSpaceHeader({
 				memberCount: 2,
@@ -46,9 +46,7 @@ describe("SpaceHeader Direct Message identity", () => {
 		);
 
 		expect(screen.queryByText("Local Agent")).toBeNull();
-		expect(
-			container.querySelector('[data-space-header-icon="channel"]')
-		).toBeTruthy();
+		expect(container.querySelector("[data-space-header-icon]")).toBeNull();
 	});
 });
 

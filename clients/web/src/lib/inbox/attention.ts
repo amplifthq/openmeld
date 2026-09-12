@@ -11,7 +11,7 @@ export function resolveInboxItemIndicator(item: InboxItem) {
 	if (item.readAt !== null) {
 		return null;
 	}
-	if (item.importance === "urgent" && item.resolutionStatus === "open") {
+	if (item.importance === "urgent" && item.resolutionStatus !== "resolved") {
 		return "warning";
 	}
 	return "unread";

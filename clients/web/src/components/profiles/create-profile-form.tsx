@@ -106,6 +106,7 @@ export type AgentProfileLocalAgentEmptyState = {
 		| "checking"
 		| "teammate_local_agents_unavailable";
 	primaryActionHref: string | null;
+	onConnectComputer?: () => void;
 	onRetry?: () => void;
 };
 

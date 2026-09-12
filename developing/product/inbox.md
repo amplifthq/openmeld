@@ -349,6 +349,25 @@ independently of list pagination. Web caps only the displayed sum at `99+`.
 
 An open action makes the badge red; otherwise unread urgent updates make it
 amber. Red means a human action is outstanding, not that every action is urgent.
+Ordinary unread updates show a blue dot on the Inbox entry without contributing
+to the numeric attention count. The bottom-right launcher also shows the same
+highest-priority dot. Browser tabs reuse this exact Inbox summary and priority:
+red for open actions, amber for unread urgent updates, blue for other unread,
+and the original favicon when none remain. The title includes the highest
+priority category and its count, retaining the current route title. Reading an
+action never clears its red indicator; source resolution or recipient Dismiss
+does. Opening the tab or Inbox alone does not clear any indicator.
+
+The authenticated tab observes the existing summary query in the background
+at its existing interval, subject to browser throttling. It does not require
+notification permission, create another unread store, or merge Organizations.
+Workspace changes and logout remove the previous scope's title and icon.
+Unknown summaries use the original icon and an unavailable title instead of
+claiming that the Inbox is clear. Loading starts with the original title/icon.
+Indicator colors come from the same themed UI classes as the Inbox; the tab
+composites a static dot onto the existing logo rather than maintaining logo
+copies. There is no animation or green healthy-connection indicator.
+
 The bottom-right Inbox launcher uses the same tone on its icon and label, with
 no number. Both entry points expose the exact action/urgent-update breakdown in
 their accessible names and hover descriptions. Missing or failed summaries are

@@ -22,7 +22,7 @@ export function resolveAppNavigationItems(input: {
 }): AppNavigationItem[] {
 	const items = [
 		{
-			label: "Center Agent",
+			label: "Desk",
 			section: "home",
 			to: buildOrganizationRootPath(input.orgSlug),
 		},
