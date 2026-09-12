@@ -2381,8 +2381,13 @@ window, retaining the first occurrence, count, duration, affected controller,
 and recovery event. Local diagnostics preserve stable reason codes including
 `process_discovery_timeout`, `controller_check_timeout`,
 `result_ack_timeout`, `socket_close_timeout`, and
-`service_reconnect_exhausted`; immediate reconnect exhaustion remains degraded
-evidence while background reconnect attempts continue.
+`service_reconnecting`; repeated connection failures remain degraded evidence
+while background reconnect attempts continue. An acknowledged Service heartbeat
+resets consecutive retries. The first failed connection clears local online
+status immediately. Disconnect, subsequent connection attempts, and the next
+acknowledged connection share a recovery identifier and elapsed time in the
+existing local lifecycle journal, including while offline. These are observations,
+not another recovery controller or a claim about the original cause of an outage.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.
 A Service advertises it only when it can keep a `post_message` result as an
@@ -2416,9 +2421,11 @@ Lifecycle evidence carries one bounded stop cause:
 `user_stop`, `controlled_service_update`, `service_crash`,
 `network_disconnect`, or `unknown`. A lifecycle command records its explicit
 intent before sending SIGTERM so the Service does not guess that every SIGTERM
-is a deploy. An unexpected process exit is `service_crash`; a lost cloud socket
-without a matching controlled cause is `network_disconnect`; missing evidence
-stays `unknown`. The lifecycle journal, Runtime Transport heartbeat/trace, and
+is a deploy. An unexpected process exit is `service_crash`. Connection-state
+observations keep an unknown stop cause unless an explicit cause is supplied;
+starting, authentication failure, and successful registration must not be
+classified as network disconnects. They identify the actual Service process,
+not a concurrently running CLI lifecycle command. The lifecycle journal, Runtime Transport heartbeat/trace, and
 user-visible failure projection preserve this cause without treating it as
 execution authority. Before an explicit user stop closes its socket, the
 Service sends one final heartbeat with `acceptingDispatches=false` and

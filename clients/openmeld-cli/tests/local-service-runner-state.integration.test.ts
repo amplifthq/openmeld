@@ -660,7 +660,7 @@ describe("local service runner dual-write", () => {
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("records a stable reason when immediate service reconnects are exhausted", async () => {
+  it("records continued recovery after repeated connection failures", async () => {
     vi.useFakeTimers();
     const presenter = {
       view: "agent" as const,
@@ -689,7 +689,7 @@ describe("local service runner dual-write", () => {
     await vi.advanceTimersByTimeAsync(1000);
     await waitForFakeTimerCondition("reconnect exhaustion diagnostic", () =>
       warnSpy.mock.calls.some((call) =>
-        String(call[0]).includes('"reasonCode":"service_reconnect_exhausted"')
+        String(call[0]).includes('"reasonCode":"service_reconnecting"')
       )
     );
     await vi.advanceTimersByTimeAsync(2000);
@@ -699,10 +699,63 @@ describe("local service runner dual-write", () => {
     expect(
       presenter.data.mock.calls.some(
         (call) =>
-          call[0]?.payload?.payload?.reasonCode ===
-          "service_reconnect_exhausted"
+          call[0]?.payload?.payload?.reasonCode === "service_reconnecting"
       )
     ).toBe(true);
+  });
+
+  it("starts each outage at the first retry and correlates its recovery after an acknowledged heartbeat", async () => {
+    vi.useFakeTimers();
+    let sessions = 0;
+    runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
+      sessions += 1;
+      await input.touchRuntimeState({ heartbeatAt: new Date().toISOString() });
+      if (sessions < 3) {
+        throw new Error("socket closed");
+      }
+      process.emit("SIGTERM");
+    });
+    const loop = runDaemonServiceLoop({
+      baseUrl: "http://localhost:8080",
+      heartbeatIntervalMs: 5000,
+      mode: "background",
+      presenter: {
+        view: "agent",
+        event: vi.fn(),
+        line: vi.fn(),
+        data: vi.fn(),
+      },
+    });
+    await waitForFakeTimerCondition("first outage", () => sessions === 1);
+    await vi.advanceTimersByTimeAsync(1000);
+    await waitForFakeTimerCondition("second outage", () => sessions === 2);
+    await vi.advanceTimersByTimeAsync(1000);
+    await loop;
+    expect(
+      runDaemonSocketSessionMock.mock.calls.map(
+        ([input]) => input.reconnectAttempt
+      )
+    ).toEqual([0, 1, 1]);
+    const events = emitDaemonLifecycleEventMock.mock.calls.map(
+      ([event]) => event
+    );
+    const scheduled = events.filter((event) => event.result === "degraded");
+    expect(scheduled).toHaveLength(2);
+    expect(scheduled.map((event) => event.metadata.attempt)).toEqual([1, 1]);
+    expect(
+      new Set(scheduled.map((event) => event.metadata.recoveryId)).size
+    ).toBe(2);
+    for (const event of scheduled) {
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          result: "online",
+          metadata: expect.objectContaining({
+            recoveryId: event.metadata.recoveryId,
+            elapsedMs: 1000,
+          }),
+        })
+      );
+    }
   });
 
   it("persists the first socket heartbeat without waiting for the runtime state throttle", async () => {
