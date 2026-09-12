@@ -1,4 +1,5 @@
 import { isCancel, select } from "@clack/prompts";
+import type { DaemonBackgroundStartFailure } from "../commands/service-start-failure";
 import type { DaemonServiceRuntimeStatus } from "../config/daemon-state";
 import {
   buildDaemonServiceRefreshNextStep,
@@ -19,7 +20,7 @@ export type DaemonStartDecisionChoice =
 export type DaemonStartServiceDecisionOutcome =
   | "started"
   | "failed"
-  | "failed_with_card"
+  | DaemonBackgroundStartFailure
   | "deferred_with_card"
   | "cancelled";
 
@@ -141,7 +142,7 @@ export async function runDaemonStartDecisionPrompt(input: {
   | "not_now"
   | "cancelled"
   | "failed"
-  | "failed_with_card"
+  | DaemonBackgroundStartFailure
   | "deferred_with_card"
 > {
   const decision = await promptForDaemonStartDecision();
@@ -151,8 +152,8 @@ export async function runDaemonStartDecisionPrompt(input: {
       if (result === false || result === "failed") {
         return "failed";
       }
-      if (result === "failed_with_card") {
-        return "failed_with_card";
+      if (typeof result === "object") {
+        return result;
       }
       if (result === "deferred_with_card") {
         return "deferred_with_card";

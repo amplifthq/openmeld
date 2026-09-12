@@ -244,6 +244,50 @@ describe("local service participation gate", () => {
     });
   });
 
+  it.each([
+    true,
+    false,
+  ])("preserves startup evidence for account recovery (autoRepair=%s)", async (autoRepair) => {
+    inspectDaemonServiceInventoryMock.mockResolvedValueOnce(
+      createInventory({ runtimeStatus: "not_running" })
+    );
+    selectPromptMock.mockResolvedValueOnce("start");
+    const failure = {
+      outcome: "failed_with_card",
+      errorMessage:
+        "macOS registered OpenMeld Service but hasn't started it.\nlaunchd job: state=not running, runs=0, pended nondemand spawn=speculative",
+      localMachineIssue: {
+        schemaVersion: 1,
+        code: "local_machine.failure.unknown",
+        operation: "start_background_service",
+        recoveryPolicy: "diagnostics",
+        summary: "macOS registered OpenMeld Service but hasn't started it.",
+        primaryAction: "Run `openmeld service snapshot --view agent`.",
+        diagnostics: {
+          systemCode: "SERVICE_SPAWN_PENDING",
+          detail: "pended nondemand spawn=speculative",
+        },
+      },
+    };
+    runDaemonBackgroundStartForDecisionMock.mockResolvedValueOnce(failure);
+
+    const result = await runDaemonServiceParticipationGate({
+      intent: "start",
+      presenter: createPresenter(),
+      resolvedView: "human",
+      allowPrompt: !autoRepair,
+      autoRepair,
+      forcePrompt: true,
+      view: "human",
+    });
+
+    expect(result).toEqual({
+      status: "needs_attention",
+      errorMessage: failure.errorMessage,
+      localMachineIssue: failure.localMachineIssue,
+    });
+  });
+
   it("auto-refreshes service bundle drift before starting because run would block", async () => {
     inspectDaemonServiceInventoryMock
       .mockResolvedValueOnce(
@@ -1056,8 +1100,9 @@ describe("local service participation gate", () => {
 
     expect(result).toEqual({
       status: "needs_attention",
-      errorMessage:
-        "macOS blocked OpenMeld Service from running in the background.",
+      errorMessage: expect.stringContaining(
+        "pended nondemand spawn=speculative"
+      ),
       localMachineIssue: expect.objectContaining({
         code: "local_machine.background_execution.blocked",
       }),

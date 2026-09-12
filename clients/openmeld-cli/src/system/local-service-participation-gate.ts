@@ -6,6 +6,7 @@ import {
   runDaemonReinstall,
 } from "../commands/service";
 import {
+  buildDaemonBackgroundStartFailure,
   buildSystemServiceStartupFailureReportFromVerdict,
   type SystemServiceStartupFailureVerdict,
 } from "../commands/service-start-failure";
@@ -748,15 +749,11 @@ function renderRefreshStartFailure(input: {
     codePrefix: `${input.codePrefix}.failed`,
     rows: report.rows,
   });
-  if (input.verdict.localMachineIssue) {
-    return {
-      errorMessage: report.summary,
-      localMachineIssue: input.verdict.localMachineIssue,
-      status: "needs_attention",
-    };
-  }
+  const { outcome: _outcome, ...failure } = buildDaemonBackgroundStartFailure(
+    input.verdict
+  );
   return {
-    errorMessage: report.summary,
+    ...failure,
     status: "needs_attention",
   };
 }
@@ -891,19 +888,22 @@ function shouldSuppressHumanInstallOutput(
 }
 
 async function mapDaemonBackgroundStartResult(
-  result:
-    | "started"
-    | "not_now"
-    | "cancelled"
-    | "failed"
-    | "failed_with_card"
-    | "deferred_with_card",
+  result: Awaited<ReturnType<typeof runDaemonStartDecisionPrompt>>,
   input: {
     expectedVersion: string;
     presenter: Presenter;
     codePrefix: string;
   }
 ): Promise<DaemonServiceParticipationGateResult> {
+  if (typeof result === "object") {
+    return {
+      status: "needs_attention",
+      errorMessage: result.errorMessage,
+      ...(result.localMachineIssue
+        ? { localMachineIssue: result.localMachineIssue }
+        : {}),
+    };
+  }
   if (result === "started") {
     const refreshedStatus = await resolveDaemonServiceParticipationStatus({
       expectedVersion: input.expectedVersion,

@@ -77,7 +77,7 @@ export type DaemonServiceJobDiagnostics = {
   lastExitCodeText: string | null;
   /** Numeric last exit code when the raw text is a plain integer. */
   lastExitCode: number | null;
-  /** launchd marker for a spawn held back by the OS (Background Task Management). */
+  /** launchd marker for deferred non-demand startup; not proof of permission denial. */
   pendedNondemandSpawn: string | null;
   /** Job is configured to auto-start and stay alive (keepalive + runatload). */
   keepaliveRunAtLoad: boolean;
@@ -700,7 +700,9 @@ export function isDaemonServiceJobNeverSpawned(
   );
 }
 
-export function isDaemonServiceBackgroundExecutionBlocked(
+// A pending spawn is evidence of deferred startup, not of a denied permission.
+// launchd also reports it when the GUI domain is in on-demand-only mode.
+export function isDaemonServiceJobSpawnPending(
   diagnostics: DaemonServiceJobDiagnostics
 ): boolean {
   return (

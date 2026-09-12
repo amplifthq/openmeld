@@ -29,6 +29,7 @@ import type {
 } from "../src/local-service/lifecycle/daemon-service-manager";
 import { daemonRuntimeContractRepairReportPath } from "../src/local-service/state/runtime-contract-guard";
 import type { CurrentReplyReadinessSnapshot } from "../src/system/current-reply-readiness-snapshot";
+import { createServiceSpawnPendingIssue } from "../src/system/local-machine-recovery";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 
 const HUMAN_PROFILE_ID = "11111111-1111-4111-8111-111111111111";
@@ -901,7 +902,10 @@ describe("openmeld service commands", () => {
     );
   });
 
-  it("does not immediately retry a confirmed local computer blocker", async () => {
+  it.each([
+    "storage",
+    "pending_spawn",
+  ])("does not immediately retry an unresolved %s startup failure", async (failure) => {
     inspectDaemonServiceInventoryMock.mockResolvedValue(
       createAlignedRunningDaemonServiceInventory({
         daemonVersion: "0.2.2",
@@ -914,20 +918,35 @@ describe("openmeld service commands", () => {
       startFailureVerdict: {
         controller: "launchd",
         detail: null,
-        jobDiagnostics: null,
-        localMachineIssue: {
-          schemaVersion: 1,
-          code: "local_machine.storage.exhausted",
-          operation: "start_background_service",
-          recoveryPolicy: "user_action",
-          summary:
-            "Your computer is out of storage space. OpenMeld can't save the local files it needs.",
-          primaryAction: "Free up storage, then try again.",
-          diagnostics: {
-            systemCode: "ENOSPC",
-            detail: "no space left on device",
-          },
-        },
+        jobDiagnostics:
+          failure === "pending_spawn"
+            ? {
+                controller: "launchd",
+                loaded: true,
+                runs: 0,
+                state: "not running",
+                lastExitCodeText: "(never exited)",
+                lastExitCode: null,
+                pendedNondemandSpawn: "speculative",
+                keepaliveRunAtLoad: true,
+              }
+            : null,
+        localMachineIssue:
+          failure === "pending_spawn"
+            ? createServiceSpawnPendingIssue({})
+            : {
+                schemaVersion: 1,
+                code: "local_machine.storage.exhausted",
+                operation: "start_background_service",
+                recoveryPolicy: "user_action",
+                summary:
+                  "Your computer is out of storage space. OpenMeld can't save the local files it needs.",
+                primaryAction: "Free up storage, then try again.",
+                diagnostics: {
+                  systemCode: "ENOSPC",
+                  detail: "no space left on device",
+                },
+              },
         message: "no space left on device",
       },
     });
@@ -963,7 +982,10 @@ describe("openmeld service commands", () => {
       result: "start_failed",
       startFailureVerdict: {
         localMachineIssue: {
-          code: "local_machine.storage.exhausted",
+          code:
+            failure === "pending_spawn"
+              ? "local_machine.failure.unknown"
+              : "local_machine.storage.exhausted",
         },
       },
     });

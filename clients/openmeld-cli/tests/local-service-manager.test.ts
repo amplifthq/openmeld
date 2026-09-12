@@ -11,8 +11,8 @@ import {
   DaemonServiceWaitTimeoutError,
   formatDaemonServiceJobDiagnosticsEvidence,
   installMissingServiceDefinitionFailAtomically,
-  isDaemonServiceBackgroundExecutionBlocked,
   isDaemonServiceJobNeverSpawned,
+  isDaemonServiceJobSpawnPending,
   isDaemonServiceWaitTimeoutError,
   matchesLaunchdServiceStartupPolicy,
   parseLaunchdServiceJobDiagnostics,
@@ -135,17 +135,17 @@ describe("launchd job diagnostics parsing", () => {
       keepaliveRunAtLoad: true,
     });
     expect(isDaemonServiceJobNeverSpawned(diagnostics)).toBe(true);
-    expect(isDaemonServiceBackgroundExecutionBlocked(diagnostics)).toBe(true);
+    expect(isDaemonServiceJobSpawnPending(diagnostics)).toBe(true);
     expect(readDaemonServiceJobCrashExitCode(diagnostics)).toBeNull();
   });
 
-  it("does not call every never-spawned job a macOS background permission block", () => {
+  it("requires the pending marker to classify a deferred spawn", () => {
     const diagnostics = parseLaunchdServiceJobDiagnostics(
       LAUNCHD_PRINT_NEVER_SPAWNED_WITHOUT_BACKGROUND_MARKER_OUTPUT
     );
 
     expect(isDaemonServiceJobNeverSpawned(diagnostics)).toBe(true);
-    expect(isDaemonServiceBackgroundExecutionBlocked(diagnostics)).toBe(false);
+    expect(isDaemonServiceJobSpawnPending(diagnostics)).toBe(false);
   });
 
   it("parses a crash-looping job into a nonzero last exit code", () => {

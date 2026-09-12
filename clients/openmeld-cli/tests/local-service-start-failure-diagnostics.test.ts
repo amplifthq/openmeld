@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  buildDaemonBackgroundStartFailure,
   buildSystemServiceStartupFailureDiagnostics,
   buildSystemServiceStartupFailureReport,
   buildSystemServiceStartupFailureReportFromVerdict,
@@ -43,7 +44,8 @@ const LAUNCHD_EVIDENCE_MESSAGE_PATTERN =
   /launchd job: state=not running, runs=0/;
 
 // Structured form of the production incident: launchd accepted the bootstrap
-// (keepalive|runatload) but Background Task Management held the spawn back.
+// (keepalive|runatload) but deferred the spawn. The same shape was observed with
+// BTM allowed and a GUI domain in on-demand-only mode; it cannot prove denial.
 const NEVER_SPAWNED_JOB_DIAGNOSTICS: DaemonServiceJobDiagnostics = {
   controller: "launchd",
   loaded: true,
@@ -101,18 +103,18 @@ function findRowValue(
 }
 
 describe("system service startup failure diagnostics", () => {
-  it("tells the user macOS blocked the background item when launchd never spawned the job", () => {
+  it("reports the pending spawn without inventing a background permission denial", () => {
     const report = buildSystemServiceStartupFailureReport({
       controller: "launchd",
       error: buildTimeoutError(NEVER_SPAWNED_JOB_DIAGNOSTICS),
     });
 
     expect(report.summary).toBe(
-      "macOS blocked OpenMeld Service from running in the background."
+      "macOS registered OpenMeld Service but hasn't started it."
     );
     const nextStep = findRowValue(report.rows, "Next");
-    expect(nextStep).toContain("Login Items & Extensions");
-    expect(nextStep).toContain("try again");
+    expect(nextStep).toContain("openmeld service snapshot --view agent");
+    expect(nextStep).not.toContain("Login Items");
     expect(nextStep).not.toContain("Path B");
     expect(nextStep).not.toContain("--mode foreground");
     expect(nextStep).not.toContain("repair");
@@ -153,7 +155,7 @@ describe("system service startup failure diagnostics", () => {
     );
   });
 
-  it("builds the never-spawned card directly from a carried verdict", () => {
+  it("preserves an explicitly supplied legacy issue in a carried verdict", () => {
     const report = buildSystemServiceStartupFailureReportFromVerdict(
       {
         controller: "launchd",
@@ -275,8 +277,22 @@ describe("system service startup failure diagnostics", () => {
 
     expect(diagnostics.jobDiagnostics).toEqual(NEVER_SPAWNED_JOB_DIAGNOSTICS);
     expect(diagnostics.localMachineIssue).toMatchObject({
-      code: "local_machine.background_execution.blocked",
+      code: "local_machine.failure.unknown",
+      recoveryPolicy: "diagnostics",
+      diagnostics: { systemCode: "SERVICE_SPAWN_PENDING" },
     });
+    const failure = buildDaemonBackgroundStartFailure(
+      resolveSystemServiceStartupFailureVerdict({
+        controller: "launchd",
+        error: buildTimeoutError(NEVER_SPAWNED_JOB_DIAGNOSTICS),
+      })
+    );
+    expect(failure.localMachineIssue).toEqual(diagnostics.localMachineIssue);
+    expect(failure.errorMessage).toContain("runs=0");
+    expect(failure.errorMessage).toContain(
+      "pended nondemand spawn=speculative"
+    );
+    expect(failure.errorMessage).not.toContain("Login Items");
   });
 
   it("captures job diagnostics from the manager when the startup wait times out", async () => {
