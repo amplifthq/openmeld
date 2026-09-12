@@ -2284,6 +2284,13 @@ pending target inside that lock. It then keeps both, plus one verified rollback
 version. Cleanup failures remain observable but do not undo a durable worker
 handoff.
 
+CLI being current does not prove the Service is aligned. A normal upgrade
+request joins an existing update first; otherwise the Tools update coordinator
+also checks the existing Service alignment decision against the installed CLI.
+The same maintenance operation schedules any remaining Service alignment,
+preserving stopped intent and active-work drain. `upgrade --check` remains
+read-only for Service lifecycle.
+
 Controlled update, reinstall, and repair use a quiesce-and-drain stop. The
 Service first rejects new dispatch admission with `service.draining` while
 preserving dedupe for already-owned work. It keeps the current Runtime
