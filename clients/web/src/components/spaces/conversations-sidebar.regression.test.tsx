@@ -2074,7 +2074,14 @@ describe("ConversationsSidebar", () => {
 			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		await screen.findByText("No conversations yet.");
+		const createSpace = await screen.findByRole("link", {
+			name: "New Space",
+			exact: true,
+		});
+		expect(createSpace.getAttribute("href")).toContain("/new-space");
+		expect(
+			screen.queryByRole("region", { name: "Direct messages" })
+		).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: BROWSE_SPACES_TEXT })
 		).toBeNull();

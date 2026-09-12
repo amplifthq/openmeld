@@ -287,19 +287,9 @@ export function AgentProfileCreationRequestsPanel(input: {
 											{statusLabel(request, localSetupPending)}
 										</Badge>
 										{request.failureMessage ? (
-											<div className="space-y-2">
-												<p className="text-destructive text-xs leading-5">
-													{formatAgentCreationFailure(request.failureMessage)}
-												</p>
-												<details className="text-muted-foreground text-xs">
-													<summary className="cursor-pointer">
-														Technical details
-													</summary>
-													<pre className="mt-2 whitespace-pre-wrap break-all">
-														{request.failureMessage}
-													</pre>
-												</details>
-											</div>
+											<p className="text-destructive text-xs leading-5">
+												{formatAgentCreationFailure(request.failureMessage)}
+											</p>
 										) : null}
 										{localSetupPathMissing ? (
 											<p className="text-muted-foreground text-xs leading-5">

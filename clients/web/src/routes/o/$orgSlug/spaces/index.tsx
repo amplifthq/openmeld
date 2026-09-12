@@ -73,6 +73,9 @@ import {
 } from "#/query/spaces/account-spaces";
 
 export const Route = createFileRoute("/o/$orgSlug/spaces/")({
+	validateSearch: (search: Record<string, unknown>): { view?: "discover" } => ({
+		view: search.view === "discover" ? "discover" : undefined,
+	}),
 	staticData: appShellStaticData.space,
 	pendingComponent: AppSpacesIndexPendingRoute,
 	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
@@ -102,17 +105,20 @@ function AppSpacesIndexPendingRoute() {
 }
 
 function AppSpacesIndexRoute() {
+	const { view } = Route.useSearch();
 	const { orgSlug } = Route.useParams();
 	const { sidebarStates } = Route.useLoaderData();
 	return (
 		<AppSpacesIndexContent
 			initialSidebarStates={sidebarStates}
+			initialView={view}
 			orgSlug={orgSlug}
 		/>
 	);
 }
 
 export function AppSpacesIndexContent(input: {
+	initialView?: "discover";
 	initialSidebarStates?: AppSidebarPersistedStates;
 	orgSlug: string;
 }) {
@@ -307,6 +313,7 @@ export function AppSpacesIndexContent(input: {
 				activeOrganization={activeOrganization}
 				canJoinSpaces={savedViewState.canJoinSpaces}
 				errorMessage={errorMessage}
+				initialView={input.initialView}
 				isMembershipError={savedViewState.isMembershipError}
 				isPending={
 					organizationSpacesQuery.isPending ||
@@ -478,6 +485,7 @@ function AppSpacesIndexEntryShell(input: {
 }
 
 type SpaceIndexContentStateInput = {
+	initialView?: "discover";
 	accountProfiles: readonly AuthProfileView[];
 	accountSpaceItemsById: ReadonlyMap<string, AccountSpaceItem>;
 	activeOrganization: OrganizationSummary | null;
@@ -501,7 +509,9 @@ type SpaceIndexContentStateInput = {
 };
 
 function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
-	const [tab, setTab] = useState(0);
+	const [tab, setTab] = useState(
+		input.initialView === "discover" && !input.isPersonalContext ? 1 : 0
+	);
 	const body = resolveSpaceIndexBody(input, tab);
 
 	return (

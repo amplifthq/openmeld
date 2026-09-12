@@ -23,7 +23,8 @@ import {
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import { WelcomeFirstRun } from "./welcome-first-run";
 
-const { listAccountSpaceItemsMock } = vi.hoisted(() => ({
+const { listAccountSpaceItemsMock, navigateMock } = vi.hoisted(() => ({
+	navigateMock: vi.fn().mockResolvedValue(undefined),
 	listAccountSpaceItemsMock: vi.fn(),
 }));
 const JOIN_CHOICE = /Join a Space/;
@@ -33,7 +34,7 @@ vi.mock("@openmeld/start", () => ({
 }));
 
 vi.mock("@tanstack/react-router", () => ({
-	useNavigate: () => vi.fn().mockResolvedValue(undefined),
+	useNavigate: () => navigateMock,
 }));
 
 vi.mock("#/components/agents/use-local-runtime-queries", () => ({
@@ -148,7 +149,7 @@ describe("WelcomeFirstRun", () => {
 		focusManager.setFocused(undefined);
 	});
 
-	it("keeps cached join choices usable when a foreground refresh fails", async () => {
+	it("opens Discover instead of existing memberships when the account list refresh fails", async () => {
 		listAccountSpaceItemsMock
 			.mockResolvedValueOnce({
 				pinnedItems: [],
@@ -186,6 +187,9 @@ describe("WelcomeFirstRun", () => {
 			screen.queryByText("Couldn't load your spaces — try again")
 		).toBeNull();
 		fireEvent.click(screen.getByRole("button", { name: JOIN_CHOICE }));
-		expect(screen.getByRole("button", { name: "Existing room" })).toBeTruthy();
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/spaces?view=discover",
+		});
+		expect(screen.queryByRole("button", { name: "Existing room" })).toBeNull();
 	});
 });

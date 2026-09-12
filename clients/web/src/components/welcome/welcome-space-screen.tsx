@@ -37,6 +37,7 @@ export type WelcomeJoinableSpace = {
 export type WelcomeJoinableStatus = "loading" | "error" | "ready";
 
 export type WelcomeSpaceScreenProps = {
+	onDiscover?: () => void;
 	contextKind?: "organization" | "personal";
 	computerSetupActions?: {
 		centerAgentPath: string;
@@ -59,10 +60,8 @@ export type WelcomeSpaceScreenProps = {
 
 /**
  * The first-run "where do you want to work?" screen: two choices first (Create
- * a Space / Join a Space), then the chosen path expands in place. The Join
- * choice reflects the joinable-spaces query state — checking, failed (tap to
- * retry), settled-empty (disabled), or ready — so a user is never offered a
- * dead, premature, or fail-silent action.
+ * a Space / Join a Space). Organization joining opens the shared Discover
+ * directory. Personal context retains its existing Space picker.
  */
 type SpaceMode = "choices" | "create" | "join";
 
@@ -99,16 +98,17 @@ export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
 	// Loading and settled-empty are dead ends (disabled); an error is actionable
 	// (clicking retries the query); ready-with-spaces opens the join list.
 	const joinDisabled =
-		props.joinableStatus === "loading" ||
-		(props.joinableStatus === "ready" && !hasJoinableSpaces);
-	const joinDescription = joinDescriptionFor(
-		props.joinableStatus,
-		hasJoinableSpaces
-	);
+		!props.onDiscover &&
+		(props.joinableStatus === "loading" ||
+			(props.joinableStatus === "ready" && !hasJoinableSpaces));
+	const joinDescription = props.onDiscover
+		? "Browse Spaces you can join"
+		: joinDescriptionFor(props.joinableStatus, hasJoinableSpaces);
 	const handleJoinChoice =
-		props.joinableStatus === "error"
+		props.onDiscover ??
+		(props.joinableStatus === "error"
 			? props.onRetryJoinable
-			: () => setMode("join");
+			: () => setMode("join"));
 
 	const showSearch = props.joinableSpaces.length > SEARCH_VISIBLE_THRESHOLD;
 	// Gate the query on `showSearch` so a stale search term can never keep

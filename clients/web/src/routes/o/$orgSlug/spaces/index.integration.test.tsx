@@ -138,6 +138,11 @@ vi.mock("#/components/welcome/welcome-first-run", () => ({
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganizationMock,
+	useOptionalAppOrganization: () => appOrganizationMock,
+}));
+
+vi.mock("#/lib/organizations/space-invitations", () => ({
+	requestSpaceInvitations: async () => [],
 }));
 
 vi.mock("#/lib/organizations/auth-organizations", () => ({
@@ -877,9 +882,8 @@ describe("app spaces index route", () => {
 				})
 			);
 
-		renderSpacesIndex();
+		renderSpacesIndex({ initialView: "discover" });
 
-		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Join Support" })
 		);
@@ -894,6 +898,9 @@ describe("app spaces index route", () => {
 			expect(navigateMock).toHaveBeenCalledWith({
 				to: "/o/acme/spaces/space-support?profileId=selected-human",
 			});
+		});
+		await waitFor(() => {
+			expect(screen.queryByRole("button", { name: "Join Support" })).toBeNull();
 		});
 	});
 
@@ -1116,6 +1123,7 @@ describe("app spaces index route", () => {
 
 function renderSpacesIndex(
 	input: {
+		initialView?: "discover";
 		orgSlug?: string;
 		queryClient?: ReturnType<typeof createTestQueryClient>;
 	} = {}
@@ -1123,7 +1131,10 @@ function renderSpacesIndex(
 	return render(
 		<TestQueryClientProvider queryClient={input.queryClient}>
 			<StartFlowStateProvider storageScope="user-123">
-				<AppSpacesIndexContent orgSlug={input.orgSlug ?? "acme"} />
+				<AppSpacesIndexContent
+					initialView={input.initialView}
+					orgSlug={input.orgSlug ?? "acme"}
+				/>
 			</StartFlowStateProvider>
 		</TestQueryClientProvider>
 	);

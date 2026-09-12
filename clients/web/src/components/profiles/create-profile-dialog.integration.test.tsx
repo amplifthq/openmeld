@@ -793,8 +793,9 @@ describe("CreateProfileDialog", () => {
 	});
 
 	it.each([
-		0, 1, 2,
-	])("shows a computer selector only when needed (%i connected)", async (connectedCount) => {
+		0, 1, 2, 3,
+	])("selects connected computers and same-computer reconnects (scenario %i)", async (scenario) => {
+		const connectedCount = scenario === 3 ? 1 : scenario;
 		const recovery = buildFakeRecovery();
 		const inventory = recovery.localRuntimesQuery.data?.peopleComputers;
 		const computer = inventory?.computers[0];
@@ -884,6 +885,15 @@ describe("CreateProfileDialog", () => {
 			recovery.deviceId = target.deviceId;
 			recovery.runtimeLane = target.runtimeLane;
 		});
+		if (scenario === 3) {
+			inventory.computers = [
+				{
+					...onlineComputer,
+					identityStatus: "enrolled",
+					legacyDeviceIds: [recovery.deviceId ?? "device-123"],
+				},
+			];
+		}
 		renderCurrentCreateProfileDialog({ recovery });
 		if (connectedCount < 2) {
 			expect(screen.queryByRole("combobox", { name: "Computer" })).toBeNull();
@@ -2836,6 +2846,20 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", { name: "Folder source" }).textContent
 			).toContain("Let OpenMeld choose");
 		});
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).not.toBe("Remembered Agent");
+		fireEvent.change(screen.getByLabelText("Profile name"), {
+			target: { value: "Claude Writer" },
+		});
+		fireEvent.click(screen.getByRole("radio", { name: "Codex" }));
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).toBe("Remembered Agent");
+		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));
+		expect(
+			(screen.getByLabelText("Profile name") as HTMLInputElement).value
+		).toBe("Claude Writer");
 	});
 
 	it.each([
@@ -2881,13 +2905,15 @@ describe("CreateProfileDialog", () => {
 		await waitFor(() =>
 			expect(getAgentProfileCreationDefaultsMock).toHaveBeenCalled()
 		);
-		const create = (await screen.findByRole("button", {
-			name: "Create Agent",
+		const primary = (await screen.findByRole("button", {
+			name:
+				savedMode === "codex:fullAccess"
+					? "Create Agent"
+					: "Review permissions",
 		})) as HTMLButtonElement;
-		await waitFor(() =>
-			expect(create.disabled).toBe(savedMode !== "codex:fullAccess")
-		);
+		expect(primary.disabled).toBe(false);
 		if (savedMode !== "codex:fullAccess") {
+			expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
 			fireEvent.click(
 				screen.getByRole("button", { name: "Review permissions" })
 			);
@@ -2896,6 +2922,7 @@ describe("CreateProfileDialog", () => {
 					name: "I understand this permissions mode can run with dangerous full access.",
 				})
 			);
+			fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 			await waitFor(() =>
 				expect(
 					(
@@ -2952,6 +2979,8 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
 		);
+		expect(screen.getByRole("dialog", { name: "Model" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
 		await waitFor(() => {
 			expect(screen.getByLabelText("Agent name")).toBeTruthy();
 			expect(

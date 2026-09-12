@@ -162,7 +162,9 @@ only the signed-in member's connection; organization status includes only the
 shared connection. All members can inspect shared status and permissions;
 only owners and admins can change them. Reuse Fluid Select for permission
 controls and keep account connection controls beside their scoped permissions.
-Loading connection status must not block opening a Plugin's settings.
+Loading connection status must not block opening the catalog or a Plugin's
+settings. Route loaders do not await connection snapshots; the mounted page
+owns loading, cached status, and retry feedback after organization authorization.
 
 ### Collaboration presentation
 
@@ -2072,10 +2074,23 @@ owner grouping and the standalone Agent sidebar are removed.
 The list header exposes **Create Agent** for the signed-in member and
 **Creation history** in Organization contexts. The history uses the shared Fluid
 table to show Agent, result, start date, and actions. Incomplete creation remains
-recoverable against the same Profile. Errors explain the failed step, with raw
-diagnostics collapsed under Technical details. Cross-user requests and approval
+recoverable against the same Profile. Errors briefly explain the failed step and
+next action; raw diagnostics stay in the stored record. Cross-user requests and approval
 remain held behind the shared launch policy. Web never creates a parallel
 request state.
+
+Agent configuration cards reuse Motion Primitives' Morphing Dialog shared-layout
+mechanism to expand into centered dialogs. Base UI owns modal focus, dismissal,
+and scroll locking; the shared primitive also serves Space image previews.
+The closed Fluid cards, shared hover background, and open editor surfaces keep
+their existing appearance. Reduced motion disables shared-layout travel.
+The footer has one primary action: it opens the next required setting, such as
+**Review permissions** or **Choose working folder**, then becomes **Create Agent**
+when ready. A short hint explains the remaining step. Folder choices stay inside
+the Working folder dialog. Folder pickers read the selected
+Service session's advertised controls and send its exact device and lane.
+Reconnect may follow a replacement device ID only within the same enrolled
+physical computer; it must never silently move a draft to another computer.
 
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact

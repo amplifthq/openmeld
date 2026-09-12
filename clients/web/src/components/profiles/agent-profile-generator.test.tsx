@@ -8,6 +8,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { MotionConfig } from "framer-motion";
 import { type FormEvent, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentProfileGenerator } from "./agent-profile-generator";
@@ -183,24 +184,28 @@ describe("AgentProfileGenerator", () => {
 				permissionConfirmed={false}
 			/>
 		);
-		expect(
-			(
-				(await screen.findByRole("button", {
-					name: "Create Agent",
-				})) as HTMLButtonElement
-			).disabled
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		const review = screen.getByRole("button", {
+			name: "Review permissions",
+		}) as HTMLButtonElement;
+		expect(review.disabled).toBe(false);
+		expect(review.type).toBe("button");
 		fireEvent.click(screen.getByRole("button", { name: "Review permissions" }));
 		const confirmation = await screen.findByRole("checkbox", {
 			name: "I understand this permissions mode can run with dangerous full access.",
 		});
 		await waitFor(() => expect(document.activeElement).toBe(confirmation));
+		fireEvent.click(confirmation);
+		fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(
+			screen.queryByRole("button", { name: "Review permissions" })
+		).toBeNull();
 		expect(
 			screen
 				.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
 				.getAttribute("aria-expanded")
 		).toBe("true");
-		fireEvent.click(confirmation);
 		expect(
 			(
 				(await screen.findByRole("button", {
@@ -246,7 +251,7 @@ describe("AgentProfileGenerator", () => {
 		);
 	});
 
-	it("offers working-folder recovery directly beside the blocked action", async () => {
+	it("uses one primary action to open the missing working-folder setting", async () => {
 		const onUseManagedWorkspace = vi.fn();
 		render(
 			<GeneratorHarness
@@ -258,13 +263,15 @@ describe("AgentProfileGenerator", () => {
 				}}
 			/>
 		);
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Use OpenMeld managed folder" })
-		);
-		expect(onUseManagedWorkspace).toHaveBeenCalledOnce();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Choose working folder" })
-		);
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+		).toBeNull();
+		const chooseFolder = screen.getByRole("button", {
+			name: "Choose working folder",
+		}) as HTMLButtonElement;
+		expect(chooseFolder.disabled).toBe(false);
+		fireEvent.click(chooseFolder);
 		expect(await screen.findByText("Project choice")).toBeTruthy();
 		expect(screen.queryByText("Session choice")).toBeNull();
 	});
@@ -426,6 +433,8 @@ function GeneratorHarness(input: {
 		...input.overrides,
 	};
 	return (
-		<AgentProfileGenerator form={form} surface={input.surface ?? "dialog"} />
+		<MotionConfig reducedMotion="always">
+			<AgentProfileGenerator form={form} surface={input.surface ?? "dialog"} />
+		</MotionConfig>
 	);
 }

@@ -13,6 +13,8 @@ export type AgentProfileCreationJourneyDraft = {
 	agentControllerPermissionMode: AgentControllerPermissionMode;
 	agentId: string;
 	modelId: string;
+	profileName?: string;
+	profileNames?: Record<string, string>;
 	openCodePermission: AgentProfileBindingOpenCodePermission | null;
 	reasoningLevel: string;
 	selectedProjectId: string;
@@ -72,6 +74,13 @@ function isAgentProfileCreationJourneyDraft(
 			typeof value.agentControllerCollaborationMode === "string") &&
 		typeof value.agentControllerPermissionMode === "string" &&
 		typeof value.modelId === "string" &&
+		(value.profileNames === undefined ||
+			(isRecord(value.profileNames) &&
+				Object.values(value.profileNames).every(
+					(name) => typeof name === "string"
+				))) &&
+		(value.profileName === undefined ||
+			typeof value.profileName === "string") &&
 		(value.openCodePermission === null ||
 			openCodePermissionConfigSchema.safeParse(value.openCodePermission)
 				.success) &&

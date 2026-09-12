@@ -19,7 +19,7 @@ export function formatAgentCreationFailure(raw: string): string {
 					error.code ===
 						"agent_profile.workspace_change_eligibility_unavailable"
 				) {
-					return "The Agent was created, but its working folder could not be prepared because OpenMeld couldn’t check whether it was busy. Retry setup to finish configuring this Agent.";
+					return "Couldn’t prepare the working folder. Retry setup.";
 				}
 				return error.message;
 			}
