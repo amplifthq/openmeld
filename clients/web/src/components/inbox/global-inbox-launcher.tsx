@@ -13,6 +13,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowsOutSimpleIcon, TrayIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { resolveInboxIndicatorClassName } from "#/lib/inbox/attention";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationInboxPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
@@ -69,6 +70,15 @@ function OrganizationGlobalInboxLauncher(input: {
 			>
 				<TrayIcon aria-hidden="true" className="size-3.5" />
 				<span>Inbox</span>
+				{attention.indicatorTone ? (
+					<span
+						aria-hidden="true"
+						className={cn(
+							"status-dot",
+							resolveInboxIndicatorClassName(attention.tone)
+						)}
+					/>
+				) : null}
 			</Popover.Trigger>
 
 			<Popover.Portal>

@@ -74,6 +74,7 @@ export function AppSidebarHeader({
 						<TrayIcon className="size-5" />
 						<InboxAttentionBadge
 							count={attention.count}
+							indicatorTone={attention.indicatorTone}
 							tone={attention.tone}
 						/>
 					</Link>
