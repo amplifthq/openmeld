@@ -115,7 +115,6 @@ export type AgentProfileLocalAgentEmptyState = {
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
 	computerRecovery?: import("./agent-creation-computer-recovery").AgentCreationComputerRecovery;
-	connectAnotherComputer?: ReactNode;
 	remoteAgentCreation?: {
 		onSubmit: (input: {
 			idempotencyKey: string;

@@ -1945,8 +1945,8 @@ RuntimeCoordinator and native delivery ledgers, not a new execution authority.
 Web opts in with `includeTaskActivity=true`; old callers receive the unchanged
 runtime overview shape. Missing activity uses creation order with an explicit
 notice. Foreground runtime overview refreshes every 30 seconds.
-Agent setup remains a recovery/history surface. Personal lists show Finish setup
-only for unfinished work; Setup history remains a secondary link.
+Agent creation history remains a recovery/history surface. Personal lists show
+Finish setup only for unfinished work; Creation history remains a secondary link.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
@@ -2070,11 +2070,12 @@ surface and return to the person's list. Unknown or mismatched Agent IDs never
 select a different Agent. The list keeps search and availability filtering;
 owner grouping and the standalone Agent sidebar are removed.
 The list header exposes **Create Agent** for the signed-in member and
-**Agent requests** in Organization contexts. Its explanatory
-copy is **Approve requests for Agents you’re being asked to own, and track
-requests you sent.** A pending badge counts only the existing Core-owned Agent
-Profile Creation Request projection; Web never creates a parallel request
-state.
+**Creation history** in Organization contexts. The history uses the shared Fluid
+table to show Agent, result, start date, and actions. Incomplete creation remains
+recoverable against the same Profile. Errors explain the failed step, with raw
+diagnostics collapsed under Technical details. Cross-user requests and approval
+remain held behind the shared launch policy. Web never creates a parallel
+request state.
 
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
@@ -2942,8 +2943,9 @@ Loading or failed capability reads fail closed for Human creation. UI gating is
 presentation only; Auth still rejects direct or stale-client Human creation
 requests.
 
-Person Agent lists have an **Agent requests** header entry in Organization
-contexts. The dedicated Team request page lists
+Person Agent lists have a **Creation history** header entry in Organization
+contexts. The dedicated Team history page lists self-owned creation records.
+The retained teammate implementation, when enabled in an isolated lane, lists
 the current member's incoming and outgoing Agent Profile Creation Requests,
 shows their source and current status, and exposes only the actions the member
 may perform: approve or decline as target owner, cancel as requester, retry a

@@ -1627,7 +1627,8 @@ describe("CreateProfileDialog", () => {
 						"scope-test",
 						"organization-123"
 					),
-				})
+				}),
+				{ cancelRefetch: false }
 			);
 			expect(onAfterJoin).toHaveBeenCalledWith({
 				openMeldProfileId: NEW_AGENT_ID,
@@ -2134,7 +2135,7 @@ describe("CreateProfileDialog", () => {
 			expect(onOpenChange).toHaveBeenCalledWith(false);
 		});
 		expect(toastWarningMock).toHaveBeenCalledWith(
-			"Profile created. Setup is not complete. Open the Agent request to review the issue and retry setup."
+			"Your Agent was created, but setup needs attention. Open Creation history to review the issue and retry setup."
 		);
 		expect(toastSuccessMock).not.toHaveBeenCalled();
 		expect(createStartAgentProfileMock).not.toHaveBeenCalled();
@@ -2907,7 +2908,7 @@ describe("CreateProfileDialog", () => {
 		}
 	});
 
-	it("keeps a restored Agent directly creatable without restoring a disconnected Project", async () => {
+	it("keeps restored settings editable and remembers changes without creating an Agent", async () => {
 		listProjectsMock.mockResolvedValue({ projects: [buildProjectFixture()] });
 		window.localStorage.setItem(
 			"openmeld:agent-profile-creation-journey:organization-123:user-123",
@@ -2943,6 +2944,30 @@ describe("CreateProfileDialog", () => {
 			name: "Create Agent",
 		}) as HTMLButtonElement;
 		await waitFor(() => expect(submitButton.disabled).toBe(false));
+		fireEvent.click(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Edit Model" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Model" }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "GPT-5.4 Mini" })
+		);
+		await waitFor(() => {
+			expect(screen.getByLabelText("Agent name")).toBeTruthy();
+			expect(
+				screen
+					.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_PATTERN })
+					.getAttribute("aria-expanded")
+			).toBe("true");
+			expect(
+				JSON.parse(
+					window.localStorage.getItem(
+						"openmeld:agent-profile-creation-journey:organization-123:user-123"
+					) ?? "null"
+				)
+			).toMatchObject({ agentId: "codex", modelId: "gpt-5.4-mini" });
+		});
+		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		fireEvent.click(submitButton);
 		await waitFor(() =>
 			expect(createAgentProfileCreationRequestMock).toHaveBeenCalledWith(
@@ -2951,10 +2976,19 @@ describe("CreateProfileDialog", () => {
 						agentControllerRef: "builtin:codex",
 						defaultProjectId: null,
 						agentControllerPermissionMode: "codex:askForApproval",
+						modelId: "gpt-5.4-mini",
 					}),
 				})
 			)
 		);
+		await waitFor(() => expect(toastSuccessMock).toHaveBeenCalled());
+		expect(
+			JSON.parse(
+				window.localStorage.getItem(
+					"openmeld:agent-profile-creation-journey:organization-123:user-123"
+				) ?? "null"
+			)
+		).toMatchObject({ agentId: "codex", modelId: "gpt-5.4-mini" });
 	});
 
 	it("does not render Agent Controller Permission Mode for unsupported local controllers", async () => {

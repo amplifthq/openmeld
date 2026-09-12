@@ -78,7 +78,6 @@ import { resolveRememberedAgentProfileCreationDefaults } from "#/lib/profiles/ag
 import {
 	type AgentProfileCreationJourneyDraft,
 	buildAgentProfileCreationJourneyDraftStorageKey,
-	clearAgentProfileCreationJourneyDraft,
 	readAgentProfileCreationJourneyDraft,
 	writeAgentProfileCreationJourneyDraft,
 } from "#/lib/profiles/agent-profile-creation-journey-draft";
@@ -759,6 +758,12 @@ function useCreateProfileDialogController(
 				type: "restore_journey_draft",
 			})
 		: formState;
+	useRestoredCreationForm({
+		restoredJourneyDraft,
+		journeyDraftRestorationDismissedRef,
+		creationDefaultsEditedRef,
+		dispatchForm,
+	});
 	const {
 		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
@@ -815,17 +820,16 @@ function useCreateProfileDialogController(
 			console.error("Could not refresh the computer for Agent creation.", error)
 		);
 	};
-	const { computerRecovery, connectAnotherComputer } =
-		useAgentCreationComputerRecovery({
-			enabled: input.open && ownerMode === "self",
-			orgSlug,
-			recovery,
-			guidance: creationGuidance,
-			hasLocalAgents: ownLocalAgentIds.length > 0,
-			isPending: creationComputerReadiness.isPending,
-			sessionComputerId: sessionPreset?.computerId,
-			onRetry: retryCreationConnection,
-		});
+	const { computerRecovery } = useAgentCreationComputerRecovery({
+		enabled: input.open && ownerMode === "self",
+		orgSlug,
+		recovery,
+		guidance: creationGuidance,
+		hasLocalAgents: ownLocalAgentIds.length > 0,
+		isPending: creationComputerReadiness.isPending,
+		sessionComputerId: sessionPreset?.computerId,
+		onRetry: retryCreationConnection,
+	});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
 			? buildOrganizationCenterAgentChatPath(orgSlug)
@@ -1037,7 +1041,6 @@ function useCreateProfileDialogController(
 			});
 		},
 		onSuccess: async (result) => {
-			clearCreationJourneyDraft(journeyDraftStorageKey);
 			await handleProfileCreationSuccess({
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestCreated: input.onAgentRequestCreated,
@@ -1245,7 +1248,6 @@ function useCreateProfileDialogController(
 		ownerMode === "teammate" ? targetOwnerUserId : currentUserId;
 	const formProps: ComponentProps<typeof CreateProfileForm> = {
 		computerRecovery,
-		connectAnotherComputer,
 		agentComputerSlot:
 			canChooseComputer && computerChoices.length > 1 ? (
 				<div className="grid gap-2 text-sm">
@@ -1332,7 +1334,12 @@ function useCreateProfileDialogController(
 		availableLocalAgentIds,
 		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
-		boundAgentControllerPermissionModeConfirmed,
+		boundAgentControllerPermissionModeConfirmed: isCreationPermissionConfirmed(
+			boundAgentControllerPermissionModeConfirmed,
+			creationDefaultsQuery.data,
+			agentControllerRef,
+			boundAgentControllerPermissionMode
+		),
 		boundAgentId,
 		boundModelId,
 		boundOpenCodePermission,
@@ -1741,6 +1748,39 @@ function resolveAgentProfileProjectSelectionBlockReason(
 	return resolveOwnerProjectSelectionBlockReason(input);
 }
 
+function isCreationPermissionConfirmed(
+	confirmed: boolean,
+	saved: GetAgentProfileCreationDefaultsResponse | undefined,
+	controllerRef: string,
+	permissionMode: AgentControllerPermissionMode
+): boolean {
+	return (
+		confirmed ||
+		(saved?.agentControllerRef === controllerRef &&
+			saved.agentControllerPermissionMode === permissionMode)
+	);
+}
+
+function useRestoredCreationForm(input: {
+	restoredJourneyDraft: AgentProfileCreationJourneyDraft | null;
+	journeyDraftRestorationDismissedRef: { current: boolean };
+	creationDefaultsEditedRef: { current: boolean };
+	dispatchForm: Dispatch<CreateProfileDialogFormAction>;
+}) {
+	useEffect(() => {
+		if (!input.restoredJourneyDraft) {
+			return;
+		}
+		// Restore into editable state so the first edit cannot reveal an empty form.
+		input.journeyDraftRestorationDismissedRef.current = true;
+		input.creationDefaultsEditedRef.current = true;
+		input.dispatchForm({
+			type: "restore_journey_draft",
+			draft: input.restoredJourneyDraft,
+		});
+	}, [input]);
+}
+
 function useAgentProfileCreationJourneyDraft(input: {
 	availableLocalAgentIds: readonly string[];
 	canRestore: boolean;
@@ -1792,6 +1832,9 @@ function useAgentProfileCreationJourneyDraft(input: {
 			lastWrittenDraftRef.current = JSON.stringify(restoredDraft);
 			return;
 		}
+		if (!input.current.agentId) {
+			return;
+		}
 		const serializedDraft = JSON.stringify(input.current);
 		if (lastWrittenDraftRef.current === serializedDraft) {
 			return;
@@ -1822,13 +1865,6 @@ function shouldUseAgentProfileCreationJourneyDraft(input: {
 		Boolean(input.modelCatalog) &&
 		!input.projectsPending
 	);
-}
-
-function clearCreationJourneyDraft(key: string | null): void {
-	clearAgentProfileCreationJourneyDraft({
-		key,
-		storage: window.localStorage,
-	});
 }
 
 function isJourneyDraftAvailable(input: {
@@ -3561,7 +3597,7 @@ function showCreatedAgentRequestToast(input: {
 		case "failed":
 			if (input.request.createdAgentProfileId) {
 				toast.warning(
-					"Profile created. Setup is not complete. Open the Agent request to review the issue and retry setup."
+					"Your Agent was created, but setup needs attention. Open Creation history to review the issue and retry setup."
 				);
 				return;
 			}
@@ -3571,7 +3607,7 @@ function showCreatedAgentRequestToast(input: {
 			toast.info(
 				input.request.createdAgentProfileId
 					? "Agent created. Finishing setup in the background."
-					: "Creating Agent. You can check progress in Agent setup."
+					: "Creating Agent. You can check progress in Creation history."
 			);
 			return;
 		default:

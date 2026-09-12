@@ -43,7 +43,7 @@ describe("Agent creation computer recovery", () => {
 			expect(result.current.computerRecovery?.setup).toBeUndefined();
 		}
 	});
-	it("starts a new connection without reusing the existing computer identity", () => {
+	it("needs no computer setup when the selected computer has local agents", () => {
 		const { result } = renderHook(() =>
 			useAgentCreationComputerRecovery({
 				enabled: true,
@@ -59,16 +59,6 @@ describe("Agent creation computer recovery", () => {
 			})
 		);
 		expect(result.current.computerRecovery).toBeUndefined();
-		const button = result.current.connectAnotherComputer as ReactElement<{
-			onClick: () => void;
-		}>;
-		act(() => button.props.onClick());
-		expect(result.current.computerRecovery?.state).toBe("connect");
-		expect(result.current.computerRecovery?.computerName).toBeUndefined();
-		const provider = result.current.computerRecovery?.setup as ReactElement<{
-			routeIntent: { connectedComputerId?: string };
-		}>;
-		expect(provider.props.routeIntent.connectedComputerId).toBeUndefined();
 	});
 	it("pins recovery to the selected stable computer, then follows its verified new runtime", () => {
 		const onSelect = vi.fn();

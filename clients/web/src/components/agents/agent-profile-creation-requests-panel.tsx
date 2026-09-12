@@ -9,9 +9,18 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@openmeld/ui/components/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
+import { formatAgentCreationFailure } from "#/lib/profiles/agent-creation-failure";
 import {
 	continuePendingAgentProfileCreationLocalSetup,
 	readPendingAgentProfileCreationLocalSetup,
@@ -41,7 +50,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 	storageScope: string;
 }) {
 	const queryClient = useQueryClient();
-	const focusedRequestRef = useRef<HTMLElement | null>(null);
+	const focusedRequestRef = useRef<HTMLTableRowElement | null>(null);
 	const selectedHumanProfileId =
 		input.directory.members.find(
 			(member) => member.userId === input.currentUserId
@@ -54,11 +63,15 @@ export function AgentProfileCreationRequestsPanel(input: {
 	);
 	// Retain the teammate UI for reopening, but also filter stale client caches.
 	const visibleRequests =
-		requestsQuery.data?.requests.filter(
-			(request) =>
-				TEAMMATE_AGENT_REQUESTS_ENABLED ||
-				request.requesterUserId === request.targetOwnerUserId
-		) ?? [];
+		requestsQuery.data?.requests
+			.filter(
+				(request) =>
+					TEAMMATE_AGENT_REQUESTS_ENABLED ||
+					request.requesterUserId === request.targetOwnerUserId
+			)
+			.toSorted((left, right) =>
+				right.createdAt.localeCompare(left.createdAt)
+			) ?? [];
 	const requestCount = visibleRequests.length;
 	const mutation = useMutation({
 		mutationFn: async (action: RequestAction) => {
@@ -192,16 +205,11 @@ export function AgentProfileCreationRequestsPanel(input: {
 						Request Agent for teammate
 					</Button>
 				</div>
-			) : (
-				<p className="text-muted-foreground text-xs">
-					Check the progress of Agents you created and finish any remaining
-					setup.
-				</p>
-			)}
+			) : null}
 
 			{requestsQuery.isPending ? (
 				<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-					Loading Agent setup…
+					Loading Agent creation history…
 				</p>
 			) : null}
 			{requestsQuery.isError ? (
@@ -220,75 +228,112 @@ export function AgentProfileCreationRequestsPanel(input: {
 			) : null}
 			{requestsQuery.data && visibleRequests.length === 0 ? (
 				<p className="rounded-md border border-border border-dashed px-4 py-8 text-center text-muted-foreground text-sm">
-					No Agent setup to show.
+					No Agent creation history yet.
 				</p>
 			) : null}
-			{visibleRequests.map((request) => {
-				const isFocused = request.id === input.focusRequestId;
-				const localSetup =
-					request.status === "completed" && request.createdAgentProfileId
-						? readPendingAgentProfileCreationLocalSetup({
-								organizationId: input.organizationId,
-								requestId: request.id,
-								storageScope: input.storageScope,
-							})
-						: null;
-				const localSetupPending = Boolean(localSetup);
-				const localSetupPathMissing = localSetup?.workspacePath === null;
-				return (
-					<article
-						className={`rounded-md border bg-card px-4 py-3 outline-none ${
-							isFocused ? "border-ring ring-2 ring-ring/20" : "border-border"
-						}`}
-						key={request.id}
-						ref={isFocused ? focusedRequestRef : undefined}
-						tabIndex={isFocused ? -1 : undefined}
-					>
-						<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-							<div className="min-w-0 space-y-1">
-								<div className="flex flex-wrap items-center gap-2">
-									<h2 className="font-medium text-foreground text-sm">
-										{request.profileName}
-									</h2>
-									<Badge
-										variant={statusBadgeVariant(request, localSetupPending)}
-									>
-										{statusLabel(request, localSetupPending)}
-									</Badge>
-								</div>
-								<p className="text-muted-foreground text-xs leading-5">
-									{requestSummary({
-										actorName: profilesById.get(request.actorProfileId) ?? null,
-										currentUserId: input.currentUserId,
-										membersByUserId,
-										request,
-									})}
-								</p>
-								{request.failureMessage ? (
-									<p className="text-destructive text-xs leading-5">
-										{request.failureMessage}
-									</p>
-								) : null}
-								{localSetupPathMissing ? (
-									<p className="text-muted-foreground text-xs leading-5">
-										Choose the custom working folder again in Agent settings on
-										this computer.
-									</p>
-								) : null}
-							</div>
-							<RequestActions
-								currentUserId={input.currentUserId}
-								isPending={mutation.isPending}
-								localSetupPending={localSetupPending}
-								localSetupRetryAvailable={!localSetupPathMissing}
-								onAction={(kind) => mutation.mutate({ kind, request })}
-								onOpenAgent={input.onOpenAgent}
-								request={request}
-							/>
-						</div>
-					</article>
-				);
-			})}
+			{visibleRequests.length > 0 ? (
+				<Table aria-label="Agent creation history">
+					<TableHeader>
+						<TableRow>
+							<TableHead>Agent</TableHead>
+							<TableHead>Result</TableHead>
+							<TableHead>Started</TableHead>
+							<TableHead>Actions</TableHead>
+						</TableRow>
+					</TableHeader>
+					<TableBody>
+						{visibleRequests.map((request, index) => {
+							const isFocused = request.id === input.focusRequestId;
+							const localSetup =
+								request.status === "completed" && request.createdAgentProfileId
+									? readPendingAgentProfileCreationLocalSetup({
+											organizationId: input.organizationId,
+											requestId: request.id,
+											storageScope: input.storageScope,
+										})
+									: null;
+							const localSetupPending = Boolean(localSetup);
+							const localSetupPathMissing = localSetup?.workspacePath === null;
+							return (
+								<TableRow
+									className={`outline-none ${
+										isFocused
+											? "border-ring ring-2 ring-ring/20"
+											: "border-border"
+									}`}
+									index={index}
+									key={request.id}
+									ref={isFocused ? focusedRequestRef : undefined}
+									tabIndex={isFocused ? -1 : undefined}
+								>
+									<TableCell className="max-w-64 whitespace-normal align-top">
+										<h2 className="font-medium text-foreground text-sm">
+											{request.profileName}
+										</h2>
+										<p className="mt-1 text-muted-foreground text-xs leading-5">
+											{requestSummary({
+												actorName:
+													profilesById.get(request.actorProfileId) ?? null,
+												currentUserId: input.currentUserId,
+												membersByUserId,
+												request,
+											})}
+										</p>
+									</TableCell>
+									<TableCell className="max-w-md space-y-2 whitespace-normal align-top">
+										<Badge
+											variant={statusBadgeVariant(request, localSetupPending)}
+										>
+											{statusLabel(request, localSetupPending)}
+										</Badge>
+										{request.failureMessage ? (
+											<div className="space-y-2">
+												<p className="text-destructive text-xs leading-5">
+													{formatAgentCreationFailure(request.failureMessage)}
+												</p>
+												<details className="text-muted-foreground text-xs">
+													<summary className="cursor-pointer">
+														Technical details
+													</summary>
+													<pre className="mt-2 whitespace-pre-wrap break-all">
+														{request.failureMessage}
+													</pre>
+												</details>
+											</div>
+										) : null}
+										{localSetupPathMissing ? (
+											<p className="text-muted-foreground text-xs leading-5">
+												Choose the custom working folder again in Agent settings
+												on this computer.
+											</p>
+										) : null}
+									</TableCell>
+									<TableCell className="align-top text-muted-foreground">
+										<time dateTime={request.createdAt}>
+											{new Date(request.createdAt).toLocaleDateString("en-US", {
+												month: "short",
+												day: "numeric",
+												year: "numeric",
+											})}
+										</time>
+									</TableCell>
+									<TableCell className="align-top">
+										<RequestActions
+											currentUserId={input.currentUserId}
+											isPending={mutation.isPending}
+											localSetupPending={localSetupPending}
+											localSetupRetryAvailable={!localSetupPathMissing}
+											onAction={(kind) => mutation.mutate({ kind, request })}
+											onOpenAgent={input.onOpenAgent}
+											request={request}
+										/>
+									</TableCell>
+								</TableRow>
+							);
+						})}
+					</TableBody>
+				</Table>
+			) : null}
 		</div>
 	);
 }
@@ -417,13 +462,13 @@ function statusLabel(
 	localSetupPending: boolean
 ): string {
 	if (localSetupPending) {
-		return "Profile created, setup incomplete";
+		return "Needs attention";
 	}
 	if (request.status === "approved" && request.createdAgentProfileId) {
 		return "Finishing setup…";
 	}
 	if (request.status === "failed" && request.createdAgentProfileId) {
-		return "Profile created, setup incomplete";
+		return "Needs attention";
 	}
 	if (request.status === "pending") {
 		return "Waiting for approval";
@@ -467,7 +512,7 @@ function requestSummary(input: {
 	request: AgentProfileCreationRequest;
 }): string {
 	if (input.request.requesterUserId === input.request.targetOwnerUserId) {
-		return `Setup started via ${sourceLabel(input.request.source)}.`;
+		return `Started via ${sourceLabel(input.request.source)}.`;
 	}
 	const requester = memberName(
 		input.membersByUserId,

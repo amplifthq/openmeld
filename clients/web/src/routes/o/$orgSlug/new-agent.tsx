@@ -38,9 +38,10 @@ function NewAgentRoute() {
 				onAgentRequestCreated={async (request) => {
 					await navigate({
 						to: agentsPath,
-						search: request.createdAgentProfileId
-							? { profileId: request.createdAgentProfileId }
-							: { view: "requests", requestId: request.id },
+						search:
+							request.status === "completed" && request.createdAgentProfileId
+								? { profileId: request.createdAgentProfileId }
+								: { view: "requests", requestId: request.id },
 					});
 				}}
 				onCancel={() => {

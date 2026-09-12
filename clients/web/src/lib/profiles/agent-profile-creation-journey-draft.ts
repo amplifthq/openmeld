@@ -60,15 +60,6 @@ export function writeAgentProfileCreationJourneyDraft(input: {
 	input.storage.setItem(input.key, JSON.stringify(input.draft));
 }
 
-export function clearAgentProfileCreationJourneyDraft(input: {
-	key: string | null;
-	storage: Pick<Storage, "removeItem">;
-}): void {
-	if (input.key) {
-		input.storage.removeItem(input.key);
-	}
-}
-
 function isAgentProfileCreationJourneyDraft(
 	value: unknown
 ): value is AgentProfileCreationJourneyDraft {

@@ -17,7 +17,7 @@ import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
 
 const AGENT_REQUESTS_DESCRIPTION =
-	"Track Agent creation and finish any remaining setup.";
+	"Review Agents you created and finish any setup that needs attention.";
 
 export type AgentProfilesWorkspaceProps = {
 	directoryProfiles?: OrganizationProfileDirectoryResponse["agentProfiles"];
@@ -154,7 +154,7 @@ function AgentProfilesWorkspaceContent(input: {
 						size="sm"
 						variant="ghost"
 					>
-						Setup history
+						Creation history
 					</Button>
 				)}
 		</div>
@@ -167,7 +167,7 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 			<header className="space-y-1">
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<div className="min-w-0">
-						<h1 className="font-semibold text-xl">Agent setup</h1>
+						<h1 className="font-semibold text-xl">Agent creation history</h1>
 						<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
 							{AGENT_REQUESTS_DESCRIPTION}
 						</p>

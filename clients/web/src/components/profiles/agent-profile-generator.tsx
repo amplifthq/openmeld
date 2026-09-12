@@ -435,7 +435,6 @@ function LocalAgentConfiguration({
 				surface={surface}
 				value={form.agentBindingValue ?? form.boundAgentId}
 			/>
-			{form.connectAnotherComputer}
 			{form.boundAgentId ? (
 				<div className="grid min-w-0 gap-2">
 					<Label htmlFor="create-profile-name-input">Agent name</Label>

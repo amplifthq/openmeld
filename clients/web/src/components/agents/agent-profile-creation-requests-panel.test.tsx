@@ -164,7 +164,9 @@ describe("AgentProfileCreationRequestsPanel", () => {
 				{
 					...BASE_REQUEST,
 					createdAgentProfileId: "agent-created-before-setup-failed",
-					failureMessage: "The selected Computer is no longer reachable.",
+					// Captured production RPC error from the reported creation failure.
+					failureMessage:
+						'HTTP 503: {"ok":false,"error":{"code":"agent_profile.workspace_change_eligibility_unavailable","message":"OpenMeld couldn’t confirm whether this Agent is working, so the working folder is temporarily unavailable. Try again."}}',
 					requesterUserId: "user-felix",
 					status: "failed",
 					statusReason: "profile_created",
@@ -174,8 +176,14 @@ describe("AgentProfileCreationRequestsPanel", () => {
 
 		renderPanel();
 
+		expect(await screen.findByText("Needs attention")).toBeTruthy();
 		expect(
-			await screen.findByText("Profile created, setup incomplete")
+			screen.getByRole("table", { name: "Agent creation history" })
+		).toBeTruthy();
+		expect(
+			screen.getByText(
+				"The Agent was created, but its working folder could not be prepared because OpenMeld couldn’t check whether it was busy. Retry setup to finish configuring this Agent."
+			)
 		).toBeTruthy();
 		expect(screen.getByRole("button", { name: "View Agent" })).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Retry setup" }));
@@ -253,9 +261,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 
 		renderPanel();
 
-		expect(
-			await screen.findByText("Profile created, setup incomplete")
-		).toBeTruthy();
+		expect(await screen.findByText("Needs attention")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Retry setup" }));
 		await waitFor(() => {
 			expect(continueLocalSetupMock).toHaveBeenCalledWith({
@@ -293,9 +299,7 @@ describe("AgentProfileCreationRequestsPanel", () => {
 
 		renderPanel();
 
-		expect(
-			await screen.findByText("Profile created, setup incomplete")
-		).toBeTruthy();
+		expect(await screen.findByText("Needs attention")).toBeTruthy();
 		expect(
 			screen.getByText(
 				"Choose the custom working folder again in Agent settings on this computer."
@@ -353,7 +357,9 @@ describe("AgentProfileCreationRequestsPanel", () => {
 	});
 	it("hides cached teammate requests and approval actions during the launch hold", async () => {
 		renderPanel();
-		expect(await screen.findByText("No Agent setup to show.")).toBeTruthy();
+		expect(
+			await screen.findByText("No Agent creation history yet.")
+		).toBeTruthy();
 		expect(screen.queryByText("Release Reviewer")).toBeNull();
 		expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
 	});
