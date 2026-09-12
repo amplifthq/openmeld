@@ -166,7 +166,7 @@ describe("GlobalInboxLauncher", () => {
 		expect(trigger.className).toContain("hover:bg-muted");
 		expect(trigger.className).toContain("motion-reduce:transition-none");
 		expect(trigger.className).not.toContain("bg-[var(--app-canvas)]");
-		expect(attentionIndicator).toBeNull();
+		expect(attentionIndicator?.className).toContain("bg-destructive");
 		expect(trigger.className).toContain("text-destructive");
 		expect(screen.queryByRole("link", { name: "Inbox" })).toBeNull();
 		fireEvent.click(trigger);

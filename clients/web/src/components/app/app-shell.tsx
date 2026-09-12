@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import { InboxBrowserNotificationListener } from "#/components/inbox/inbox-browser-notification-listener";
 import { InboxBrowserNotificationPrompt } from "#/components/inbox/inbox-browser-notification-prompt";
+import { InboxBrowserTab } from "#/components/inbox/inbox-browser-tab";
 import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visible-conversation";
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
 import { HumanPresenceProvider } from "#/components/profiles/human-presence";
@@ -51,6 +52,10 @@ export function AppShell(input: {
 		<AppShellAccountContext.Provider value={input.account}>
 			<AccountAuthChangeListener />
 			<AppOrganizationProvider scope={input.organizationScope}>
+				<InboxBrowserTab
+					key={`${input.storageScope}:${input.organizationScope.currentOrganization.id}`}
+					organizationId={input.organizationScope.currentOrganization.id}
+				/>
 				<HumanPresenceProvider>
 					<WebMemberActivityReporter
 						currentUserId={input.organizationScope.currentUserId}
