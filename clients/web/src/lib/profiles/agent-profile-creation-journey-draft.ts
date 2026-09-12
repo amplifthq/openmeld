@@ -13,6 +13,8 @@ export type AgentProfileCreationJourneyDraft = {
 	agentControllerPermissionMode: AgentControllerPermissionMode;
 	agentId: string;
 	modelId: string;
+	profileName?: string;
+	profileNames?: Record<string, string>;
 	openCodePermission: AgentProfileBindingOpenCodePermission | null;
 	reasoningLevel: string;
 	selectedProjectId: string;
@@ -60,15 +62,6 @@ export function writeAgentProfileCreationJourneyDraft(input: {
 	input.storage.setItem(input.key, JSON.stringify(input.draft));
 }
 
-export function clearAgentProfileCreationJourneyDraft(input: {
-	key: string | null;
-	storage: Pick<Storage, "removeItem">;
-}): void {
-	if (input.key) {
-		input.storage.removeItem(input.key);
-	}
-}
-
 function isAgentProfileCreationJourneyDraft(
 	value: unknown
 ): value is AgentProfileCreationJourneyDraft {
@@ -81,6 +74,13 @@ function isAgentProfileCreationJourneyDraft(
 			typeof value.agentControllerCollaborationMode === "string") &&
 		typeof value.agentControllerPermissionMode === "string" &&
 		typeof value.modelId === "string" &&
+		(value.profileNames === undefined ||
+			(isRecord(value.profileNames) &&
+				Object.values(value.profileNames).every(
+					(name) => typeof name === "string"
+				))) &&
+		(value.profileName === undefined ||
+			typeof value.profileName === "string") &&
 		(value.openCodePermission === null ||
 			openCodePermissionConfigSchema.safeParse(value.openCodePermission)
 				.success) &&

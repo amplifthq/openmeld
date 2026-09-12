@@ -5,7 +5,17 @@ import { appShellStaticData } from "#/components/app/shell-layout";
 import { OrganizationAccessDeniedPage } from "#/components/organizations/organization-access-denied-page";
 import { organizationScopeQueryOptions } from "#/query/organizations/organization-scope";
 
+const SETTINGS_SECTION_PATTERN = /^[a-z-]{1,40}$/;
 export const Route = createFileRoute("/o/$orgSlug")({
+	validateSearch: (
+		search: Record<string, unknown>
+	): { appSettings?: string } => ({
+		appSettings:
+			typeof search.appSettings === "string" &&
+			SETTINGS_SECTION_PATTERN.test(search.appSettings)
+				? search.appSettings
+				: undefined,
+	}),
 	ssr: "data-only",
 	staticData: appShellStaticData.start,
 	staleTime: 0,

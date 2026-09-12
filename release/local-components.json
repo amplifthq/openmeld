@@ -1,27 +1,27 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-10T12:09:31.086Z",
+  "updatedAt": "2026-09-11T10:49:13.974Z",
   "components": {
     "cli": {
-      "commandContractVersion": "openmeld-cli-command-contract-2026-09-organization-agent-ownership-v1",
-      "packageVersion": "0.3.197",
+      "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
+      "packageVersion": "0.3.199",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands remain compatible; trace guidance now reflects already-supported access and readiness waits without changing requests or recovery authority."
+      "reason": "Plugin commands are additive; existing setup, Wake, and Space commands interoperate with both cloud versions. Deploy plugin receivers before publishing new callers."
     },
     "service": {
-      "bundleHash": "63201b0d948b4faf9f41c0cfba2ab85324d13a4472d47c81431d820ededc0bc7",
-      "bundleVersion": "0.3.197",
-      "runtimeContractEpoch": "runtime-transport-epoch-2026-07-default-project",
-      "serviceContractVersion": "openmeld-service-contract-2026-09-codex-thread-model-v1",
+      "bundleHash": "2b65e05b9c98b1d61879ffe4eecd786782815aed7c7b2db11f68e31d5d194c0a",
+      "bundleVersion": "0.3.199",
+      "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
+      "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Shared schemas add optional channel metadata while existing Service setup, Wake execution, Space actions, and diagnostics remain compatible with old and new cloud."
+      "reason": "Existing Prepare, Runtime Transport, Wake, and reply contracts remain unchanged; both Service versions can safely execute accepted work."
     },
     "skills": {
-      "bundleHash": "83d47e75112123a73fd0379632148d4577081f0b1efd7ac10a1301999fb73d12",
+      "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
       "skillContractVersion": "openmeld-skills-contract-2026-09-explicit-space-recipients-v1",
       "skillIds": ["openmeld-cli"],
       "updatePolicy": "available",
-      "reason": "Command guidance reflects the launch hold without removing supported operations; older skills remain subject to the same server authorization."
+      "reason": "The plugin guide adds optional commands without changing existing Wake or reply instructions; publish after the compatible cloud receivers."
     }
   }
 }

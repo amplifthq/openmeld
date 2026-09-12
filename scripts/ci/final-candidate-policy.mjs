@@ -23,8 +23,6 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/check-candidate-code-quality.test.mjs",
   "scripts/ci/final-candidate-bootstrap.mjs",
   "scripts/ci/final-candidate-bootstrap.test.mjs",
-  "scripts/ci/fast-pr-test-plan.mjs",
-  "scripts/ci/fast-pr-test-plan.test.mjs",
   "scripts/ci/final-candidate-output.mjs",
   "scripts/ci/final-candidate-control-paths.mjs",
   "scripts/ci/final-candidate-policy.mjs",
@@ -51,6 +49,8 @@ const DELIVERY_INFRASTRUCTURE_PATHS = new Set([
   "scripts/ci/trusted-final-candidate.sh",
   "scripts/ci/verify-trusted-candidate-entrypoints.mjs",
   "scripts/ci/verify-trusted-candidate-entrypoints.test.mjs",
+  "scripts/dev/verify-pr.mjs",
+  "scripts/dev/verify-pr.test.mjs",
 ]);
 const REPOSITORY_CONTROL_PREFIXES = [".github/", ".husky/", "scripts/"];
 const REPOSITORY_CONTROL_PATHS = new Set([
@@ -60,15 +60,17 @@ const REPOSITORY_CONTROL_PATHS = new Set([
   "turbo.json",
 ]);
 const BOUNDARY_PREFIXES = [
-  "packages/agent-runtime/",
-  "packages/db/",
-  "packages/schemas/",
+  "packages/",
   "runtime/",
-  "services/auth/",
-  "services/core/",
-  "services/gateway/",
-  "services/remote-agent/",
+  "services/",
+  "clients/openmeld-cli/",
 ];
+const DEPENDENCY_CONTROL_PATHS = new Set([
+  "package.json",
+  "pnpm-lock.yaml",
+  "pnpm-workspace.yaml",
+  "turbo.json",
+]);
 const DATABASE_PREFIXES = ["packages/db/drizzle/", "packages/db/src/"];
 
 const check = (id, command, reason) => ({ command, id, reason });
@@ -120,13 +122,6 @@ export function createFinalCandidatePlan(input) {
     deliveryInfrastructureChange: changedPaths.some(
       isDeliveryInfrastructurePath
     ),
-    deliveryInfrastructureOnly:
-      changedPaths.length > 0 &&
-      changedPaths.some(isDeliveryInfrastructurePath) &&
-      changedPaths.every(
-        (path) =>
-          isDeliveryInfrastructurePath(path) || isDocumentationPath(path)
-      ),
     docsOnly:
       changedPaths.length > 0 && changedPaths.every(isDocumentationPath),
     headSha: input.headSha,
@@ -260,9 +255,7 @@ function selectPrimaryChecks(context, selectedChecks, skippedChecks) {
   skippedChecks.push(
     skipped(
       "affected-checks-and-unit-tests",
-      context.deliveryInfrastructureOnly
-        ? "Delivery infrastructure is covered by its behavioral contract suite during development and review; no product workspace changed."
-        : "Focused and affected behavior validation belongs to development and review; standard Final Candidate does not repeat the broad workspace lane. Use full confidence when that extra repository-wide closeout is worth the latency."
+      "Focused checks run before push. The owner validates affected behavior before marking ready; standard Final Candidate does not repeat broad workspace tests. Use full confidence for remaining broad risk."
     )
   );
 }
@@ -280,9 +273,7 @@ function selectIntegrationCheck(context, skippedChecks) {
   skippedChecks.push(
     skipped(
       "affected-integration-tests",
-      context.boundaryChange
-        ? "Cross-boundary integration validation belongs to development and review; standard Final Candidate does not repeat the broad integration lane. Use full confidence when the exact candidate still needs repository-wide integration coverage."
-        : "No shared, service, runtime, or persistence boundary changed; focused validation remains owned by development and review."
+      "The owner runs integration checks for changed boundaries before marking ready; standard Final Candidate does not repeat them."
     )
   );
 }
@@ -557,7 +548,8 @@ function isRepositoryControlPath(path) {
 function isBoundaryPath(path) {
   return (
     !isEngineeringOnlySchemaPath(path) &&
-    BOUNDARY_PREFIXES.some((prefix) => path.startsWith(prefix))
+    (DEPENDENCY_CONTROL_PATHS.has(path) ||
+      BOUNDARY_PREFIXES.some((prefix) => path.startsWith(prefix)))
   );
 }
 

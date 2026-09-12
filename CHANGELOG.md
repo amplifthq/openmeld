@@ -50,6 +50,46 @@ speaker identities and your preferred message alignment.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
 
+### Continue a conversation with the same Agent
+
+Improved · v0.3.198 · spaces
+
+The main Space composer can suggest the Agent you last woke after it replies.
+Accept the suggestion to add a Wake token, or ignore it to send normally. If
+you forget, click the suggested Agent below your sent message to add its first
+Wake in one step. The original message gains a Wake token and an edited marker
+without being reposted or moved.
+Later edits never start the same work again.
+
+Message editing uses the Composer's member picker and file uploads, keeps long
+messages in place, and preserves attachment previews. Message actions have
+consistent icons, with Pin before Edit and Recall last.
+
+Image and file drafts stay with their conversation when you switch Spaces or
+threads and return. Compact image thumbnails open a larger preview when clicked;
+file names appear on hover, with a remove button always visible.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Coordinate local development across worktrees
+
+Improved · v0.3.198 · developer-workflow
+
+Isolated development servers and broad validation commands now coordinate local
+resource capacity across worktrees. Startup waits when memory is constrained,
+status includes descendant processes and memory usage, and shutdown verifies
+that owned processes exit without stopping another worktree.
+
+The development toolchain includes updated Turbo and Cloudflare plugins, and
+the startup path keeps fewer launcher processes. Install dependencies explicitly
+after a lockfile change; `pnpm check` no longer runs an installation first.
+
+Gateway tests reuse one Workers runtime and module cache while keeping test
+storage isolated. Four sequential test groups bound local connections and
+release cached modules between groups.
+
+Evidence: pr:935, workflow:34519171122
+
 ### Easier mentions and clearer replies
 
 Improved · v0.3.193 · web · chats · spaces
@@ -77,6 +117,19 @@ leave a small notice, and the sender can choose Edit again to bring the last
 saved version back into the composer without sending it automatically.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
+
+### Find Agents by teammate
+
+Improved · v0.3.198 · agents · team
+
+Team now has People and Agents tabs. The Agents tab places your organization's
+Center Agent first, followed by your Agents and other teammates' Agents.
+Personal and team Agent lists share cards, recent activity sorting, multiselect
+Controller and model filters, and optional grouping by Controller or model.
+Search opens from the magnifying glass, and group options appear on hover or
+keyboard focus. People groups also support Computer-status filters.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
 
 ### Find chats and start conversations together
 
@@ -107,6 +160,16 @@ same access rules as Chats and Spaces.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
 
+### Find your Agent's conversations and unread replies
+
+Improved · v0.3.198 · agents · spaces · inbox
+
+Your Agent's detail page shows its conversations beneath its setup, with links
+back to each chat or Space. New replies from your personal Agent also appear
+as unread updates, including when someone else asked it to work.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
 ### Find your place in long conversations
 
 New · v0.3.193 · spaces
@@ -118,6 +181,47 @@ current in history and pinned previews.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
 
+### Investigate Wake failures without a manual report
+
+Improved · v0.3.198 · diagnostics · agents
+
+Developers can list and group automatically recorded Wake failures, including
+reply publication failures, without asking users to send a report. Repeated
+callbacks do not create duplicate records, and expected waiting is excluded.
+Remote Agent completion diagnostics help distinguish empty model output from
+tool use, output limits, and provider errors without logging response content.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891, workflow:34522614437, workflow:34523312980, workflow:34525506615
+
+### Join your team's Spaces without opening them to everyone
+
+Improved · v0.3.198 · spaces · invitations
+
+Organization members can join a Space open to their organization from Discover
+or a shared link, even when its content is limited to Space members. Join
+failures preserve the reason instead of replacing it with a generic error.
+
+Share and Access settings share one compact panel for inviting teammates,
+choosing who can join the Space, and copying its link. New Spaces keep content limited to members. Existing
+external links show their current audience and can be closed by the owner.
+
+Existing invitation links load when sharing opens and remain available after
+collapsing the invitation section or reopening the dialog.
+
+Space navigation stays inside the app. New invitation recipients can join their
+organization and Space in one flow, then keep browsing without setup interrupting
+the same visit.
+
+Owners can invite signed-in external guests to just one Space, without adding
+them to the organization. The sharing confirmation explains what guests can
+read and do; turning off guest access also blocks existing guests.
+
+Spaces support multiple owners. Add another owner before handing off your role
+or leaving the organization, so your team's conversations and files stay with
+the team. The final owner cannot be removed.
+
+Evidence: https://github.com/amplifthq/openmeld/issues/886, pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891, workflow:34522614437, workflow:34523312980, workflow:34525506615
+
 ### Keep Agent replies working when a discussion thread opens
 
 Fixed · v0.3.193 · agents · spaces
@@ -127,6 +231,17 @@ from the original conversation or causes a false latest-message read failure.
 Replies still check for newer messages before appearing.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
+
+### Keep context when replying to Agents
+
+Improved · v0.3.198 · spaces · agents
+
+Agents receive the retained message you quote, including messages outside the
+recent conversation window. Recalled messages are identified without exposing
+their withdrawn text. Threads suggest the Agent most recently explicitly Woken
+by a human, using the existing removable recipient in the message composer.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
 
 ### Keep important Space messages and files in view
 
@@ -167,6 +282,70 @@ with subtle edge fades and response buttons that stay within reach.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
 
+### Keep required-update releases reproducible
+
+Fixed · v0.3.198 · developer-workflow
+
+Release stamping now writes the required CLI version before building the package.
+Required updates retain a matching bundle hash when release checks rebuild them.
+The `stamp` and `require` commands share this path and restore metadata if it fails.
+
+Evidence: pr:936, workflow:34521120546
+
+### Keep shared working files in the conversation
+
+New · v0.3.198 · spaces · files · routines
+
+Agents can discover pinned working files from their Wake context and read the
+current version before using it. Choose who receives a file's update notices,
+or start an ordinary Routine to maintain a text file from confirmed decisions.
+Notifications are off until a human chooses recipients.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Keep Space reading positions tied to saved messages
+
+Fixed · v0.3.198 · spaces
+
+New reading positions saved while a reply is still arriving now stay tied to a
+saved message. Returning to the Space or using Back after browsing its history
+no longer tries to find that temporary reply in message history. Existing
+reading positions are preserved.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Keep typing after sending a message
+
+Fixed · v0.3.198 · spaces
+
+After sending a message or thread reply, you can keep typing without clicking
+the input again. Draft resets preserve the caret, and delayed focus requests
+yield when you move to another input.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Load organization settings without waiting for Agent status
+
+Fixed · v0.3.198 · web · settings
+
+Organization settings, including Invitations, resolve your member role without
+waiting for organization-wide Agent status checks. Slow Agent status reads no
+longer delay the role check needed to display invitation controls and requests.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Load People and Agent card configuration without runtime checks
+
+Improved · v0.3.198 · web · people · agents
+
+People and member profile popovers load Agent Controller and model configuration
+alongside identity data, without requesting organization-wide Agent runtime
+checks. Configuration changes refresh the summaries, and unavailable model
+information is kept distinct from the default model. Wake availability continues
+to use its existing authoritative checks.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
 ### Make Stop easier to spot
 
 Improved · v0.3.193 · spaces · chats · web
@@ -175,6 +354,30 @@ Stop now has a subtle background and border beside the working Agent message,
 making it easier to recognize as a button without using a warning color.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
+
+### Preview links in Space messages
+
+Improved · v0.3.198 · spaces
+
+Links in messages open in a new tab and show compact previews with a title,
+description, and image when available. People and agents share the same cards
+in Spaces and threads.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Preview Local Agent usage from People
+
+Improved · v0.3.198 · people
+
+Human cards now combine Local Agent logos and available usage previews in one
+compact, overlapping dock. Hover over a logo to see reported limits and reset times without
+opening the person's Computer details. Agents without readable usage keep their
+logo without a ring. Different Computers and providers keep separate limits.
+Compact ring tooltips now adapt to screen width across People, Computer, and
+Agent Profile details. Team members can see the same reported capacity from
+each of these views.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
 
 ### React to Space messages
 
@@ -196,6 +399,57 @@ request, making them easier to find. Naming runs while the Agent works and does
 not hold up the task if it fails. Existing session names stay unchanged.
 
 Evidence: pr:870, pr:876, commit:204b0e70b271ab69158f8e14a33d1d97b43cb880, workflow:34434697090
+
+### Reduce repeated reads when loading organization Agent status
+
+Improved · v0.3.198 · web · agents
+
+Organization Agent status uses batched identity and database reads to reduce
+backend round trips for larger teams. Agent ownership, Binding conflicts,
+organization eligibility, and Wake availability checks remain in place.
+Unavailable evidence continues to produce an unavailable result.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### See when people are online
+
+Improved · v0.3.198 · people · spaces
+
+Online and Offline now describe people using OpenMeld, independently of their
+computers. Activity across browser tabs and devices keeps your status current;
+leaving or becoming idle ends online presence. Computer connected and Computer
+disconnected remain separate filters in People.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Show the Center Agent without waiting for Agent status
+
+Fixed · v0.3.198 · web · agents
+
+The Center Agent entry uses the member and Agent identity data already
+loaded by the page. Displaying its name and avatar no longer starts another
+organization-wide Agent status read or waits for that read to finish.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Show the correct GitHub logo during setup
+
+Fixed · v0.3.198 · onboarding
+
+GitHub examples in the setup guide show the GitHub logo consistently when
+other Plugins are added to the catalog.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891
+
+### Simpler emails with a clearer next step
+
+Improved · v0.3.198 · email · invitations · inbox
+
+Verification, sign-in, invitation, and Inbox emails share a quieter layout,
+shorter explanations, and one clear action. Invitation emails keep membership
+details and expiration visible.
+
+Evidence: pr:935, pr:937, commit:0281b7b03c8259608bc1e296e727550ce09bdfa4, workflow:34523839085, workflow:34525984891, workflow:34522614437
 
 ## September 9, 2026
 

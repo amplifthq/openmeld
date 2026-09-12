@@ -2,33 +2,23 @@
 
 import type { SpaceAccessMode } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Dialog,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger,
-} from "@openmeld/ui/components/dialog";
+import { Dialog, DialogTrigger } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
+import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
 import { SettingsNav } from "@openmeld/ui/components/settings-nav";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
-import { DialogContent } from "@openmeld/ui/fluid/dialog";
-import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { CopyIcon, DotsThreeIcon } from "@phosphor-icons/react";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { copyTextToClipboard } from "#/lib/clipboard";
-import {
-	SpaceAccessEditor,
-	type SpaceAccessUpdateInput,
-} from "./space-access-editor";
+import type { SpaceAccessUpdateInput } from "./space-access-editor";
+import { SpaceAccessSettings } from "./space-access-settings";
 import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
-import { SpaceVisibilityEditor } from "./space-visibility-editor";
 
 type SpaceInfoLeaveAction = {
 	errorMessage: string | null;
@@ -45,6 +35,7 @@ export function SpaceSettingsDialog(input: {
 		onSetMode: (input: SpaceAccessUpdateInput) => Promise<void>;
 	};
 	currentProfileName: string | null;
+	openMeldProfileId?: string;
 	deleteAction: {
 		errorMessage: string | null;
 		isPending: boolean;
@@ -104,17 +95,9 @@ export function SpaceSettingsDialog(input: {
 					<TooltipContent side="bottom">Space settings</TooltipContent>
 				</Tooltip>
 			)}
-			<DialogContent
-				className="flex h-[min(36rem,calc(100dvh-2rem))] min-w-0 flex-col gap-0 overflow-hidden p-0 sm:flex-row"
-				size="xl"
-			>
-				<aside className="shrink-0 border-border border-b p-4 sm:w-44 sm:border-r sm:border-b-0">
-					<DialogHeader className="mb-4 pr-6">
-						<DialogTitle>{conversationLabel} settings</DialogTitle>
-						<DialogDescription className="sr-only">
-							Manage this conversation.
-						</DialogDescription>
-					</DialogHeader>
+			<SettingsDialogContent
+				description="Manage this conversation."
+				navigation={
 					<SettingsNav
 						activeSectionId={section}
 						items={[
@@ -126,106 +109,89 @@ export function SpaceSettingsDialog(input: {
 						]}
 						onNavigate={setSection}
 					/>
-				</aside>
-				<ScrollArea
-					className="min-h-0 min-w-0 flex-1"
-					contentClassName="space-y-5 p-5 sm:p-6"
-					data-testid="space-info-dialog-scroll-area"
-					orientation="vertical"
-				>
-					<h2 className="pr-8 font-medium text-base">
-						{
-							{ general: "General", access: "Access", advanced: "Advanced" }[
-								section
-							]
-						}
-					</h2>
-					{section === "advanced" && input.currentProfileName ? (
+				}
+				scrollTestId="space-info-dialog-scroll-area"
+				title={`${conversationLabel} settings`}
+			>
+				<h2 className="pr-8 font-medium text-base">
+					{
+						{ general: "General", access: "Access", advanced: "Advanced" }[
+							section
+						]
+					}
+				</h2>
+				{section === "advanced" && input.currentProfileName ? (
+					<SpaceInfoReadOnlyField
+						label="Joined profile"
+						value={input.currentProfileName}
+					/>
+				) : null}
+				{section === "general" &&
+					(canManageName ? (
+						<SpaceNameEditor
+							currentName={input.name.value}
+							errorMessage={input.name.errorMessage}
+							isPending={input.name.isPending}
+							onSave={input.name.onSave}
+						/>
+					) : (
 						<SpaceInfoReadOnlyField
-							label="Joined profile"
-							value={input.currentProfileName}
+							label={`${conversationLabel} name`}
+							value={input.name.value}
 						/>
-					) : null}
-					{section === "general" &&
-						(canManageName ? (
-							<SpaceNameEditor
-								currentName={input.name.value}
-								errorMessage={input.name.errorMessage}
-								isPending={input.name.isPending}
-								onSave={input.name.onSave}
-							/>
-						) : (
-							<SpaceInfoReadOnlyField
-								label={`${conversationLabel} name`}
-								value={input.name.value}
-							/>
-						))}
-					{section === "advanced" && (
-						<>
+					))}
+				{section === "advanced" && (
+					<>
+						<SpaceInfoCopyField
+							ariaLabel="Copy Space ID"
+							label="Space ID"
+							successMessage="Space ID copied."
+							value={input.spaceId}
+						/>
+						{showSpaceAccessControls ? (
 							<SpaceInfoCopyField
-								ariaLabel="Copy Space ID"
-								label="Space ID"
-								successMessage="Space ID copied."
-								value={input.spaceId}
+								ariaLabel="Copy CLI join command"
+								label="CLI join command"
+								successMessage="CLI command copied."
+								value={cliJoinCommand}
 							/>
-							{showSpaceAccessControls ? (
-								<SpaceInfoCopyField
-									ariaLabel="Copy CLI join command"
-									label="CLI join command"
-									successMessage="CLI command copied."
-									value={cliJoinCommand}
-								/>
-							) : null}
-						</>
-					)}
-					{section === "general" && <SpaceInfoNotificationsSection />}
-					{section === "access" && showSpaceAccessControls ? (
-						<SpaceVisibilityEditor
-							canManage={input.access.canManage}
-							onSave={input.onSetVisibility}
-							value={input.visibility}
-						/>
-					) : null}
-					{section === "access" && showSpaceAccessControls ? (
-						<section className="min-w-0 border-border/60 border-t pt-4">
-							<div className="mb-3 space-y-1">
-								<p className="font-medium text-sm">Link access</p>
-								<p className="text-muted-foreground text-xs/relaxed">
-									Manage how people can view or join this Space from shared
-									links.
-								</p>
-							</div>
-							<SpaceAccessEditor
-								accessMode={input.access.mode}
-								canManageAccess={input.access.canManage}
-								errorMessage={input.access.errorMessage}
-								isPending={input.access.isPending}
-								key={input.access.mode}
-								onSetAccessMode={input.access.onSetMode}
-							/>
-						</section>
-					) : null}
-					{section === "advanced" && showSpaceAccessControls ? (
-						<SpaceInfoLeaveSection
-							action={input.leaveAction}
-							isConfirming={isConfirmingLeave}
-							isSpaceMutationPending={isSpaceMutationPending}
-							onConfirmingChange={setIsConfirmingLeave}
-						/>
-					) : null}
-					{section === "advanced" &&
-					showSpaceAccessControls &&
-					input.deleteAction.isVisible ? (
-						<SpaceInfoDeleteSection
-							deleteSpaceErrorMessage={input.deleteAction.errorMessage}
-							isDeleteSpacePending={input.deleteAction.isPending}
-							isSpaceMutationPending={isSpaceMutationPending}
-							onDeleteSpace={input.deleteAction.onDelete}
-							onStartDeleteConfirmation={() => setIsConfirmingLeave(false)}
-						/>
-					) : null}
-				</ScrollArea>
-			</DialogContent>
+						) : null}
+					</>
+				)}
+				{section === "general" && <SpaceInfoNotificationsSection />}
+				{section === "access" && showSpaceAccessControls ? (
+					<SpaceAccessSettings
+						accessMode={input.access.mode}
+						canManageAccess={input.access.canManage}
+						errorMessage={input.access.errorMessage}
+						isPending={input.access.isPending}
+						onSetAccessMode={input.access.onSetMode}
+						onSetVisibility={input.onSetVisibility}
+						openMeldProfileId={input.openMeldProfileId}
+						spaceId={input.spaceId}
+						visibility={input.visibility}
+					/>
+				) : null}
+				{section === "advanced" && showSpaceAccessControls ? (
+					<SpaceInfoLeaveSection
+						action={input.leaveAction}
+						isConfirming={isConfirmingLeave}
+						isSpaceMutationPending={isSpaceMutationPending}
+						onConfirmingChange={setIsConfirmingLeave}
+					/>
+				) : null}
+				{section === "advanced" &&
+				showSpaceAccessControls &&
+				input.deleteAction.isVisible ? (
+					<SpaceInfoDeleteSection
+						deleteSpaceErrorMessage={input.deleteAction.errorMessage}
+						isDeleteSpacePending={input.deleteAction.isPending}
+						isSpaceMutationPending={isSpaceMutationPending}
+						onDeleteSpace={input.deleteAction.onDelete}
+						onStartDeleteConfirmation={() => setIsConfirmingLeave(false)}
+					/>
+				) : null}
+			</SettingsDialogContent>
 		</Dialog>
 	);
 }

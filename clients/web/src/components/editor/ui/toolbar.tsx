@@ -1,8 +1,12 @@
 "use client";
 
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import * as ToolbarPrimitive from "@radix-ui/react-toolbar";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cva, type VariantProps } from "class-variance-authority";
 import { ChevronDown } from "lucide-react";
 import * as React from "react";
@@ -12,7 +16,6 @@ import {
 	DropdownMenuSeparator,
 } from "#/components/editor/ui/dropdown-menu";
 import { Separator } from "#/components/editor/ui/separator";
-import { Tooltip, TooltipTrigger } from "#/components/editor/ui/tooltip";
 
 export function Toolbar({
 	className,
@@ -313,9 +316,7 @@ function withTooltip<T extends React.ElementType>(Component: T) {
 		if (tooltip && mounted) {
 			return (
 				<Tooltip {...tooltipProps}>
-					<TooltipTrigger asChild {...tooltipTriggerProps}>
-						{component}
-					</TooltipTrigger>
+					<TooltipTrigger render={component} {...tooltipTriggerProps} />
 
 					<TooltipContent {...tooltipContentProps}>{tooltip}</TooltipContent>
 				</Tooltip>
@@ -324,32 +325,6 @@ function withTooltip<T extends React.ElementType>(Component: T) {
 
 		return component;
 	};
-}
-
-function TooltipContent({
-	children,
-	className,
-	// CHANGE
-	sideOffset = 4,
-	...props
-}: React.ComponentProps<typeof TooltipPrimitive.Content>) {
-	return (
-		<TooltipPrimitive.Portal>
-			<TooltipPrimitive.Content
-				className={cn(
-					"z-50 w-fit origin-(--radix-tooltip-content-transform-origin) text-balance rounded-md bg-primary px-3 py-1.5 text-primary-foreground text-xs",
-					className
-				)}
-				data-slot="tooltip-content"
-				sideOffset={sideOffset}
-				{...props}
-			>
-				{children}
-				{/* CHANGE */}
-				{/* <TooltipPrimitive.Arrow className="z-50 size-2.5 translate-y-[calc(-50%_-_2px)] rotate-45 rounded-xs bg-primary fill-primary" /> */}
-			</TooltipPrimitive.Content>
-		</TooltipPrimitive.Portal>
-	);
 }
 
 export function ToolbarMenuGroup({

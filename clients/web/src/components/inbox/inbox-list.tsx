@@ -9,6 +9,7 @@ import {
 	DropdownMenuItem,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	SharedLayoutGroup,
 	SharedLayoutItem,
@@ -26,7 +27,13 @@ import {
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
+import {
+	resolveInboxIndicatorClassName,
+	resolveInboxItemIndicator,
+} from "#/lib/inbox/attention";
+import { isInboxReview } from "#/lib/inbox/review";
 import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
+import { InvitationReview } from "./invitation-review";
 
 const INBOX_SHORT_DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
@@ -98,14 +105,11 @@ function InboxItemRow(input: {
 	) => void;
 	showItemActions: boolean;
 }) {
-	const unread = input.item.readAt === null;
-	const needsAction =
-		input.item.attention === "action_required" &&
+	const inlineInvitation =
+		input.density === "default" &&
+		input.item.sourceTarget.kind === "organization_join_request" &&
 		input.item.resolutionStatus === "open";
-	const showUrgent =
-		input.item.importance === "urgent" &&
-		(input.item.attention !== "action_required" ||
-			input.item.resolutionStatus === "open");
+	const unread = input.item.readAt === null;
 	const sourceNavigation = buildInboxItemSourceNavigation({
 		item: input.item,
 		orgSlug: input.organizationSlug,
@@ -136,7 +140,8 @@ function InboxItemRow(input: {
 						"flex min-w-0 items-start gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
 						input.density === "compact"
 							? "min-h-16 px-3 py-3"
-							: "min-h-20 px-4 py-4 pe-16 sm:gap-4"
+							: "min-h-20 px-4 py-4 pe-16 sm:gap-4",
+						inlineInvitation && "min-h-0 gap-4 pb-1"
 					)}
 					href={sourceNavigation.href}
 					onAuxClick={handleAuxClick}
@@ -149,47 +154,45 @@ function InboxItemRow(input: {
 					<span
 						className={cn(
 							"relative grid shrink-0 place-items-center rounded-md border border-border/70 bg-background text-muted-foreground",
-							input.density === "compact" ? "size-8" : "size-9"
+							input.density === "compact" ? "size-8" : "size-9",
+							inlineInvitation && "size-5 border-0 bg-transparent"
 						)}
 					>
 						<InboxKindIcon item={input.item} />
 					</span>
 
-					<span className="min-w-0 flex-1">
+					<span className="min-w-0 flex-1 ps-3.5">
 						<span className="flex min-w-0 flex-wrap items-center gap-2">
 							<span
 								className={cn(
-									"min-w-0 break-words text-foreground text-sm leading-5",
+									"relative min-w-0 break-words text-foreground text-sm leading-5",
 									unread ? "font-semibold" : "font-medium"
 								)}
 							>
+								<InboxItemStatusDot item={input.item} />
 								{input.item.title}
 							</span>
 							{unread ? <span className="sr-only">Unread.</span> : null}
-							{needsAction && input.item.importance !== "urgent" ? (
-								<Badge
-									className={resolveStatusToneAdvisoryBadgeClassName()}
-									variant="outline"
-								>
-									Needs action
-								</Badge>
-							) : null}
-							{showUrgent ? (
-								<Badge
-									className={resolveStatusToneAdvisoryBadgeClassName()}
-									variant="outline"
-								>
-									Urgent
-								</Badge>
+							<InboxItemBadges item={input.item} />
+							{inlineInvitation ? (
+								<span className="text-muted-foreground text-xs">
+									<InboxTimestamp occurredAt={input.item.occurredAt} />
+								</span>
 							) : null}
 						</span>
-						<span className="mt-1 block break-words text-muted-foreground text-sm leading-5">
+						<span
+							className={cn(
+								"mt-1 block break-words text-muted-foreground text-sm leading-5",
+								inlineInvitation && "hidden"
+							)}
+						>
 							{input.item.preview}
 						</span>
 						<span
 							className={cn(
 								"flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs",
-								input.density === "compact" ? "mt-1" : "mt-2"
+								input.density === "compact" ? "mt-1" : "mt-2",
+								inlineInvitation && "hidden"
 							)}
 						>
 							{input.item.contextLabel ? (
@@ -205,6 +208,16 @@ function InboxItemRow(input: {
 					</span>
 				</InboxItemSourceLink>
 
+				{inlineInvitation &&
+				input.item.sourceTarget.kind === "organization_join_request" ? (
+					<div className="ps-[4.125rem] pe-4 pb-4">
+						<InvitationReview
+							inline
+							onInteract={handleOpen}
+							requestId={input.item.sourceTarget.requestId}
+						/>
+					</div>
+				) : null}
 				{input.showItemActions ? (
 					<InboxItemActions
 						item={input.item}
@@ -215,6 +228,25 @@ function InboxItemRow(input: {
 				) : null}
 			</SharedLayoutItem>
 		</li>
+	);
+}
+
+function InboxItemStatusDot({ item }: { item: InboxItem }) {
+	const indicator = resolveInboxItemIndicator(item);
+	if (!indicator) {
+		return null;
+	}
+	return (
+		<span
+			aria-hidden="true"
+			className={cn(
+				"status-dot absolute -start-3.5 top-[7px]",
+				resolveInboxIndicatorClassName(
+					indicator === "unread" ? null : indicator
+				)
+			)}
+			data-inbox-status-dot={indicator}
+		/>
 	);
 }
 
@@ -324,12 +356,11 @@ function InboxKindIcon(input: { item: InboxItem }): ReactNode {
 function InboxTimestamp(input: { occurredAt: string }) {
 	const date = new Date(input.occurredAt);
 	return (
-		<time
-			dateTime={date.toISOString()}
-			title={INBOX_TIMESTAMP_TITLE_FORMATTER.format(date)}
-		>
-			{formatInboxTimestamp(input.occurredAt)}
-		</time>
+		<TooltipHint content={INBOX_TIMESTAMP_TITLE_FORMATTER.format(date)}>
+			<time dateTime={date.toISOString()}>
+				{formatInboxTimestamp(input.occurredAt)}
+			</time>
+		</TooltipHint>
 	);
 }
 
@@ -356,4 +387,26 @@ function formatInboxTimestamp(occurredAt: string): string {
 
 function assertNever(value: never): never {
 	throw new Error(`Unsupported Inbox item kind: ${String(value)}`);
+}
+function InboxItemBadges({ item }: { item: InboxItem }) {
+	const open =
+		item.attention === "action_required" && item.resolutionStatus === "open";
+	if (
+		item.importance === "urgent" &&
+		(item.attention !== "action_required" || open)
+	) {
+		return (
+			<Badge
+				className={resolveStatusToneAdvisoryBadgeClassName()}
+				variant="outline"
+			>
+				Urgent
+			</Badge>
+		);
+	}
+	return open ? (
+		<span className="text-muted-foreground text-xs">
+			{isInboxReview(item) ? "Needs review" : "Needs action"}
+		</span>
+	) : null;
 }

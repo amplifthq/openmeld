@@ -460,6 +460,7 @@ export type {
 } from "./cli-binary-manifest";
 export type {
   CenterAgentConnectorConnectionSelection,
+  CenterAgentResolveConnectorConnectionBody,
   ConnectorAppCatalogProvider,
   ConnectorAppCatalogResponse,
   ConnectorAppRequest,
@@ -621,6 +622,7 @@ export type {
   OrganizationDirectoryResponse,
   OrganizationMemberWebActivityResponse,
   OrganizationProfileDirectoryAgentProfile,
+  OrganizationProfileDirectoryReadOptions,
   OrganizationProfileDirectoryResponse,
 } from "./organization-directory";
 export type {
@@ -788,6 +790,16 @@ export type {
   PeopleComputersResponse,
   PeopleComputerTarget,
 } from "./people-computers";
+export type * from "./plugin-access";
+export type {
+  PluginActionRequest,
+  PluginActionResponse,
+  PluginActionRpcInput,
+} from "./plugin-actions";
+export type {
+  PluginRuntimeRequest,
+  PluginRuntimeResponse,
+} from "./plugin-runtime";
 export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,

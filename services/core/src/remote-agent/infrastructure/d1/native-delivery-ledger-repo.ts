@@ -22,6 +22,39 @@ export type RemoteAgentNativeDeliveryConversationKind =
   | "message_channel"
   | "slack"
   | "space";
+
+export async function readRemoteAgentTaskActivity(input: {
+  db: D1Database;
+  organizationId: string;
+  authorizedProfileIds: readonly string[];
+  sinceMs: number;
+}): Promise<Map<string, number>> {
+  const activity = new Map<string, number>();
+  for (
+    let offset = 0;
+    offset < input.authorizedProfileIds.length;
+    offset += 80
+  ) {
+    const ids = input.authorizedProfileIds.slice(offset, offset + 80);
+    const rows = await input.db
+      .prepare(`
+      SELECT profile_id AS profileId,
+        MAX(MAX(created_at_ms, COALESCE(accepted_at_ms, 0),
+          COALESCE(execution_evidence_at_ms, 0), COALESCE(completed_at_ms, 0))) AS lastTaskActivityAtMs
+      FROM openMeldRemoteAgent_native_delivery_ledger
+      WHERE organization_id = ? AND profile_id IN (${ids.map(() => "?").join(",")})
+        AND updated_at_ms >= ?
+      GROUP BY profile_id
+      HAVING lastTaskActivityAtMs >= ?
+    `)
+      .bind(input.organizationId, ...ids, input.sinceMs, input.sinceMs)
+      .all<{ profileId: string; lastTaskActivityAtMs: number }>();
+    for (const row of rows.results) {
+      activity.set(row.profileId, row.lastTaskActivityAtMs);
+    }
+  }
+  return activity;
+}
 export type RemoteAgentFinalPublicationState =
   | "claimed"
   | "outcome_unknown"

@@ -63,6 +63,7 @@ export type CenterAgentRoutineFormValues = {
 };
 
 export function CenterAgentRoutineFormDialog(input: {
+	initialValues?: Partial<CenterAgentRoutineFormValues>;
 	errorMessage: string | null;
 	mode: "create" | "edit";
 	onOpenChange: (open: boolean) => void;
@@ -75,9 +76,10 @@ export function CenterAgentRoutineFormDialog(input: {
 	targetSpacePreparation: CenterAgentRoutineTargetSpacePreparation;
 	validateSchedule?: RoutineScheduleValidator;
 }) {
-	const [values, setValues] = useState<CenterAgentRoutineFormValues>(() =>
-		resolveInitialValues(input.routine)
-	);
+	const [values, setValues] = useState<CenterAgentRoutineFormValues>(() => ({
+		...resolveInitialValues(input.routine),
+		...input.initialValues,
+	}));
 	const [repairRequested, setRepairRequested] = useState(false);
 	const scheduleInputRef = useRef<HTMLInputElement>(null);
 	const submissionLatchRef = useRef(false);

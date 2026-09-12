@@ -11,6 +11,7 @@ import {
 import {
 	gatewayErrorEnvelopeSchema,
 	normalizeSpacePasswordText,
+	SPACE_ACCESS_VERSION_HEADER,
 } from "@openmeld/schemas";
 import { SLACK_OAUTH_ORGANIZATION_SLUG_SEARCH_PARAM } from "#/lib/slack-oauth-start";
 import {
@@ -30,6 +31,7 @@ const OPENMELD_SLACK_OAUTH_START_ROUTE = "/slack/oauth/start";
 const OPENMELD_SLACK_IDENTITY_START_ROUTE = "/slack/identity/start";
 const OPENMELD_SPACE_ROUTE_PATTERN = /^\/v1\/spaces\/([^/]+)(?:\/|$)/u;
 const ALLOWED_PROXY_REQUEST_HEADERS = new Set([
+	SPACE_ACCESS_VERSION_HEADER,
 	"accept",
 	"accept-language",
 	"cache-control",

@@ -28,6 +28,10 @@ import { emitCenterAgentPerformanceMilestone } from "./center-agent-performance-
 import { emitRemoteAgentExecutionStageEvidence } from "./cloudflare-runtime-evidence";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
+  projectProviderCompletion,
+  providerCompletionOperation,
+} from "./provider-completion";
+import {
   assertRemoteAgentProviderContextFits,
   measureRemoteAgentProviderContext,
   type RemoteAgentProviderContextCapacity,
@@ -126,6 +130,9 @@ type FetchModelMetadata = (
 
 const modelRuntimeConfigCache = new Map<string, CachedModelRuntimeConfig>();
 type RegisteredRemoteAgentModelCapabilities = {
+  reportCompletion: (
+    completion: ReturnType<typeof projectProviderCompletion>
+  ) => void;
   compat: OpenAICompletionsCompat;
   contextCapacity: RemoteAgentProviderContextCapacity;
   cost?: Model<"openai-completions">["cost"];
@@ -161,6 +168,17 @@ export async function registerRemoteAgentCloudflareProvider(input: {
     (model) => model.id === modelId && model.api === "openai-completions"
   ) as Model<"openai-completions"> | undefined;
   registeredRemoteAgentModelCapabilities.set(providerId, {
+    reportCompletion: (completion) => {
+      console.info(completion);
+      emitRemoteAgentExecutionStageEvidence(input.env, {
+        category: "provider",
+        durationMs: completion.durationMs,
+        operation: providerCompletionOperation(completion),
+        requestId: completion.submissionId,
+        status: completion.terminalEvent === "error" ? "failed" : "succeeded",
+        toolCount: completion.toolCallCount,
+      });
+    },
     compat: {
       supportsDeveloperRole:
         modelId.startsWith("anthropic/") || modelId.startsWith("openai/"),
@@ -706,6 +724,8 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
         model.provider
       );
       const resolvedModel = declareRemoteAgentModelCapabilities(model);
+      const callId = crypto.randomUUID();
+      const submissionId = getRemoteAgentExecutionSubmissionId();
       const resolvedOptions =
         withRemoteAgentProviderObservabilityAndSessionAffinity(
           options,
@@ -713,6 +733,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
           capabilities?.contextCapacity
         );
       return retryCompletedEmptyAssistantStreamOnce({
+        onCompletion: (completion) =>
+          capabilities?.reportCompletion(
+            projectProviderCompletion({ ...completion, callId, submissionId })
+          ),
         createAttempt: () =>
           base.stream(resolvedModel, context, resolvedOptions),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),
@@ -724,6 +748,8 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
         model.provider
       );
       const resolvedModel = declareRemoteAgentModelCapabilities(model);
+      const callId = crypto.randomUUID();
+      const submissionId = getRemoteAgentExecutionSubmissionId();
       const resolvedOptions =
         withRemoteAgentProviderObservabilityAndSessionAffinity(
           options,
@@ -731,6 +757,10 @@ function createRemoteAgentModelCapabilitiesApi(): ReturnType<
           capabilities?.contextCapacity
         );
       return retryCompletedEmptyAssistantStreamOnce({
+        onCompletion: (completion) =>
+          capabilities?.reportCompletion(
+            projectProviderCompletion({ ...completion, callId, submissionId })
+          ),
         createAttempt: () =>
           base.streamSimple(resolvedModel, context, resolvedOptions),
         onRetry: () => logCompletedEmptyProviderRetry(resolvedModel.id),

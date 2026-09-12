@@ -22,14 +22,15 @@ vi.mock("#/components/app/app-shell-account", () => ({
 	}),
 }));
 
-vi.mock("#/components/app/current-computer-toolbar-launcher", () => ({
+vi.mock("#/components/app/current-computer", () => ({
 	CurrentComputerToolbarLauncher: () => null,
+	useCurrentComputer: () => null,
 }));
 
 afterEach(cleanup);
 
 describe("AppFullWidthLayout", () => {
-	it("places profile lists inside the main sidebar without a secondary pane", () => {
+	it("places profile lists in the middle column without duplicating application navigation", () => {
 		render(
 			<AppFullWidthLayout
 				mainSidebarContent={<nav aria-label="People">Members</nav>}
@@ -38,10 +39,10 @@ describe("AppFullWidthLayout", () => {
 			</AppFullWidthLayout>
 		);
 		const list = screen.getByRole("navigation", { name: "People" });
-		expect(list.closest('[data-slot="app-outer-rail"]')).toBeTruthy();
+		expect(list.closest('[data-testid="app-module-sidebar"]')).toBeTruthy();
 		expect(
 			document.querySelector('[data-slot="app-inline-contextual-navigation"]')
-		).toBeNull();
+		).toBeTruthy();
 	});
 	it("renders the outer rail and full-width scroll content without a contextual sidebar", () => {
 		const initialOuterSidebarState = {
@@ -70,9 +71,8 @@ describe("AppFullWidthLayout", () => {
 		);
 		expect(content?.className).toContain("pt-8");
 		expect(document.querySelector('nav[aria-label="Organization"]')).toBeNull();
-		expect(appOuterRailSpy).toHaveBeenCalledWith(
-			expect.objectContaining({ initialState: initialOuterSidebarState })
-		);
+		expect(appOuterRailSpy).toHaveBeenCalled();
+		expect(screen.queryByTestId("app-module-sidebar")).toBeNull();
 	});
 
 	it("supports a resizable contextual sidebar and flush profile content", () => {

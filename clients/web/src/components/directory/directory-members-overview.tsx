@@ -4,7 +4,6 @@ import type {
 	CenterAgentMemberResearchBatch,
 	MessageChannelProvider,
 	ModelCatalog,
-	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 } from "@openmeld/schemas/types";
@@ -143,6 +142,7 @@ type LocalAgentRecoveryController = ReturnType<
 >;
 
 type DirectoryMembersOverviewProps = {
+	presentation?: "page" | "sidebar";
 	account: AppShellAccount;
 	currentOrganization: OrganizationSummary;
 	currentUserId: string;
@@ -153,7 +153,6 @@ type DirectoryMembersOverviewProps = {
 	onCreateProfile: () => void;
 	onFocusConsumed?: () => void;
 	recovery: LocalAgentRecoveryController;
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 	storageScope: string;
 };
 
@@ -167,17 +166,18 @@ type DirectoryInvitationAccess =
 const PROFILE_REPORT_DOCUMENTS_ERROR_MESSAGE =
 	"Report links are unavailable because Documents could not be loaded.";
 
-function useDirectoryMemberResearch(organizationId: string) {
+function useDirectoryMemberResearch(organizationId: string, enabled = true) {
 	const queryClient = useQueryClient();
-	const memberResearchQuery = useQuery(
-		centerAgentMemberResearchStatusQueryOptions({ organizationId })
-	);
+	const memberResearchQuery = useQuery({
+		...centerAgentMemberResearchStatusQueryOptions({ organizationId }),
+		enabled,
+	});
 	const activeResearchBatch = resolveActiveResearchBatch(
 		memberResearchQuery.data?.latestBatch ?? null
 	);
 	const documentsQuery = useQuery({
 		...organizationDocumentsQueryOptions({
-			enabled: true,
+			enabled,
 			organizationId,
 		}),
 		refetchInterval: activeResearchBatch ? 2000 : false,
@@ -277,6 +277,14 @@ function resolveHumanProfilesViewState(input: {
 
 export function DirectoryMembersOverview(input: DirectoryMembersOverviewProps) {
 	const model = useDirectoryMembersOverviewModel(input);
+	if (input.presentation === "sidebar") {
+		return (
+			<DirectoryHumanProfilesWorkspace
+				{...model.workspaceProps}
+				presentation="sidebar"
+			/>
+		);
+	}
 	return <DirectoryMembersOverviewView model={model} />;
 }
 
@@ -357,7 +365,7 @@ function useDirectoryMembersOverviewModel(
 		...messageChannelListQueryOptions({
 			organizationId: input.currentOrganization.id,
 		}),
-		enabled: !isPersonalWorkspace,
+		enabled: !isPersonalWorkspace && input.presentation !== "sidebar",
 	});
 	const disconnectConnectedAccountMutation = useMutation({
 		mutationFn: async (identityLinkId: string) =>
@@ -425,7 +433,10 @@ function useDirectoryMembersOverviewModel(
 		latestResearchBatch,
 		memberResearchQuery,
 		researchMutation,
-	} = useDirectoryMemberResearch(input.currentOrganization.id);
+	} = useDirectoryMemberResearch(
+		input.currentOrganization.id,
+		input.presentation !== "sidebar"
+	);
 	const researchErrors = resolveMemberResearchErrors({
 		mutationError: researchMutation.error,
 		mutationFailed: researchMutation.isError,
@@ -467,7 +478,6 @@ function useDirectoryMembersOverviewModel(
 					members: input.directoryQuery.data?.members ?? [],
 					agentProfiles: input.directoryQuery.data?.agentProfiles ?? [],
 					orgSlug: input.currentOrganization.slug,
-					runtimeOverview: input.runtimeOverview,
 				}).get(input.currentUserId),
 				account: input.account,
 				canCreateHumanProfile,
@@ -493,7 +503,6 @@ function useDirectoryMembersOverviewModel(
 				messageChannelsStatus,
 				members: input.directoryQuery.data?.members ?? [],
 				orgSlug: input.currentOrganization.slug,
-				runtimeOverview: input.runtimeOverview,
 			});
 	const profilesArePending = isPersonalWorkspace
 		? personalProfilesQuery.isPending

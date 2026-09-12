@@ -158,6 +158,18 @@ export {
   saveAccountSidebarBodySchema,
   sidebarSortSchema,
 } from "./schemas/account-sidebar";
+export type {
+  GetSpaceLinkPreviewsResponse,
+  LinkPreview,
+  SpaceMessageLinks,
+} from "./schemas/http/space-link-previews";
+export {
+  getSpaceLinkPreviewsInputSchema,
+  getSpaceLinkPreviewsResponseSchema,
+  linkPreviewSchema,
+  MAX_MESSAGE_LINK_PREVIEWS,
+  spaceMessageLinksSchema,
+} from "./schemas/http/space-link-previews";
 export {
   SPACE_MESSAGE_CHANGED_PURPOSE,
   spaceMessageMutationBodySchema,
@@ -165,6 +177,11 @@ export {
 } from "./schemas/http/space-message-mutation";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
+export {
+  projectLegacySpaceAccessView,
+  SPACE_ACCESS_VERSION,
+  SPACE_ACCESS_VERSION_HEADER,
+} from "./space-access-version";
 export {
   ORGANIZATION_INVITATION_LIFETIME_SECONDS,
   type SpaceInvitation,
@@ -185,6 +202,15 @@ export {
   spaceInvitationRpcResultSchema,
   spaceInvitationSchema,
 } from "./space-invitation";
+export {
+  type SpaceOwnerDepartureInput,
+  type SpaceOwnerDepartureResult,
+  type SpaceOwnerDepartureSpaceInput,
+  type SpaceOwnerDepartureWorker,
+  spaceOwnerDepartureInputSchema,
+  spaceOwnerDepartureResultSchema,
+  spaceOwnerDepartureSpaceInputSchema,
+} from "./space-owner-departure";
 export type * from "./types/index";
 export {
   WEB_APPLICATION_ERROR_MAX_BYTES,

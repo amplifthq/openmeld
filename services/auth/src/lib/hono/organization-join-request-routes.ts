@@ -53,7 +53,7 @@ export function registerOrganizationJoinRequestRoutes(app: Hono<AppContext>) {
       }
       const result = organizationJoinRequestResponseSchema.parse(
         await core.organizationJoinRequest({
-          responseVersion: "2",
+          responseVersion: c.req.query("responseVersion") === "3" ? "3" : "2",
           userId: user.id,
           email: user.email,
           emailVerified: user.emailVerified,
@@ -61,7 +61,8 @@ export function registerOrganizationJoinRequestRoutes(app: Hono<AppContext>) {
         })
       );
       const approved =
-        result.ok && input.data.action === "approve"
+        result.ok &&
+        (input.data.action === "approve" || input.data.action === "retry")
           ? result.requests[0]
           : null;
       if (approved?.status === "approved") {

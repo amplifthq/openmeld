@@ -1878,12 +1878,15 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(editButton.textContent).toBe("");
 
 		fireEvent.mouseEnter(directMessageButton);
+
+		fireEvent.mouseMove(directMessageButton);
 		expect(await screen.findByText("Direct Message")).toBeTruthy();
 		fireEvent.mouseLeave(directMessageButton);
 		await waitFor(() => {
 			expect(screen.queryByText("Direct Message")).toBeNull();
 		});
 		fireEvent.mouseEnter(editButton);
+		fireEvent.mouseMove(editButton);
 		expect(await screen.findByText("Edit Agent")).toBeTruthy();
 		fireEvent.mouseLeave(editButton);
 		await waitFor(() => {

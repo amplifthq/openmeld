@@ -220,8 +220,11 @@ preparation uses the admission idempotency key and still checks current identity
 binding and membership. It cannot authorize ordinary tools or read other releases;
 normal tool calls and activation recording still require an accepted delivery.
 
-Personal Apps use Organization-shared connections only, never the Agent owner's
-personal connection. Existing connector discovery, durable operation records,
+Personal Apps use permitted Organization-shared connections and may use the
+owner's personal connection when that owner enabled personal Remote Agent
+access and is the verified requester or Routine delegate. Another member's
+Wake and an Agent-to-Agent handoff never inherit the owner's private account.
+Existing connector discovery, durable operation records,
 attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.

@@ -127,6 +127,9 @@ type CoreAuthDispatchBindingRpc = {
 };
 
 export type RemoteAgentWorkerBindingRpc = {
+  pluginRuntime?(
+    input: import("@openmeld/schemas/types").PluginRuntimeRequest
+  ): Promise<import("@openmeld/schemas/types").PluginRuntimeResponse>;
   receiveExecutionInput?(
     input: import("@openmeld/schemas/types").RemoteAgentWorkerExecutionInputRequest
   ): Promise<

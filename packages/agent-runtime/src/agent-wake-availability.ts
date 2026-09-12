@@ -388,8 +388,8 @@ const routeCheckingWakeAvailabilityFallbackCopy = {
 
 const routeUnavailableWakeAvailabilityFallbackCopy = {
   badgeLabel: "Unavailable",
-  summary: "This Agent's computer connection is unavailable right now.",
-  tooltip: "Computer connection unavailable",
+  summary: "OpenMeld couldn't check this agent's connection.",
+  tooltip: "Connection check unavailable",
 } as const;
 
 const connectLocalAgentAvailabilityFallbackCopy = {

@@ -30,13 +30,11 @@ allowBuilds:
   workerd: true
 
 catalog:
-  '@cloudflare/workers-types': 5.20260708.1
+  '@cloudflare/workers-types': 5.20260908.1
   wrangler: 4.130.0
 
 minimumReleaseAgeExclude:
-  - '@cloudflare/workers-types@5.20260708.1'
   - miniflare
-  - wrangler@4.108.0
 
 overrides:
   '@aws-sdk/core': 3.974.28

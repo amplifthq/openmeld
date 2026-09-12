@@ -48,17 +48,63 @@ conversation is displayed, view navigation pins its resolved Space ID in the
 URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
-Chats places Center Agent sessions in the Main Sidebar, reusing destination search
-and filters, collapsible groups, group actions and whole-row drag ordering.
-Pinned chats share one top-level group above Chats, including human,
-local Agent, and Center Agent conversations. Pins appear once; unpin restores
-their original group. People and Agents are optional filters, not separate lists.
-Empty built-in
-sections are omitted. User-created groups remain visible with the same compact
-empty-state treatment as Spaces. A New chat entry remains available when no
-sections are visible. The old header New chat/Chats dropdown is removed.
+Web uses three navigation levels: a fixed 76px application rail, a contextual
+list inside the inset surface, and the current work area. Desk,
+Spaces, and Team are the rail's destinations. Four circular controls at the
+top stack Organization switching, search, Inbox, and Create. The Organization
+avatar fills its circular trigger. Create opens New Agent and New Space to the
+right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
+motion opens the choices without travel. Account, theme, and Settings
+remain reachable from the rail. Spaces and its contextual sidebar heading always
+open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
+and Discover, in that order (Discover is absent in personal workspaces).
+Direct messages uses `?view=messages`; the old `/chats` index redirects there.
+Individual chat, profile, thread, and session links retain their existing routes.
+The contextual heading has no aggregate attention dot; the rail and individual
+conversation rows retain their canonical indicators.
+Header actions move into one labeled overflow menu when the contextual list is
+narrow, keeping the title and controls on one row. Both layouts share the same
+creation, view, and filter menu contents.
 
-Selecting only Center Agent in New chat opens a local `?draft=new` composer without creating a session or
+Spaces, direct messages, and Center Agent conversations share the Spaces
+list in the middle column. Team places its member list in that column instead;
+Settings retains its own settings navigation. A page without contextual
+navigation does not create an empty middle column or load the Spaces list.
+The work-area header toggles the middle list without hiding the application
+rail or remounting the conversation. The existing Fluid sidebar engine owns
+resizing and keyboard shortcuts. Dragging the middle column can collapse it,
+and a 32px hover-intent strip along the content edge reveals a floating preview.
+The preview's top Expand sidebar action or the work-area header button restores
+the full column. The existing outer-sidebar cookie
+now stores middle-column geometry, with a 308px default; legacy icon mode maps
+to a collapsed list. Scroll positions are isolated by account, Organization,
+and list family. Mobile presents application and contextual navigation in
+mutually exclusive drawers; a collapsed desktop preference never hides the
+mobile list. Recent is the default conversation view. Grouped offers a
+shared Pinned section, existing personal groups, Spaces, and Direct messages.
+Recent retains the same Pinned section and orders the remaining conversations
+by the latest message timestamp across both kinds. Both views use the same rows,
+previews, identities, indicators, and canonical destinations. The view menu
+changes only the sidebar; the open conversation, draft, and reading position
+remain mounted. View choice is remembered in this browser per account and
+Organization. It does not change another member's layout.
+
+Pinned contains ordinary Spaces, human and Agent direct messages, and Center
+Agent sessions once each. Its shared manual order uses the existing root
+sidebar preference; ordinary pin membership remains Space Index-owned and
+session pins remain in `chats` preferences. Unpin restores the saved group.
+Spaces, People, and Agents are optional filters. The plus menu offers New message
+and New Space. Search conversations filters existing conversations only. When no
+conversations match, Find someone opens the existing organization-wide people
+and Agents picker with the search text prefilled. Browse spaces is a compass icon
+in the Spaces header, before the plus menu, with a tooltip and accessible
+label. It remains visible in both Grouped and Recent, including with collapsed groups,
+filters, or empty results, and opens the existing Your Spaces / Discover page.
+Team remains the member directory; there is no separate Contacts destination.
+Spaces combines the canonical ordinary Space and chat unread aggregates
+and retains chat action/urgent-update priority in its attention indicator.
+
+Selecting only Center Agent in New message opens a local `?draft=new` composer without creating a session or
 waiting for a session-list request. The first send creates the session and
 hands its message to the existing Space composer. Creation identity survives
 uncertain failures and same-tab reloads until navigation succeeds. Draft text
@@ -97,13 +143,38 @@ No local-component floor or runtime contract bump is required.
 ### Plugins
 
 The external-capability catalog is named **Plugins**. Product routes use
-`/center-agent/plugins`; old `/center-agent/apps` links redirect there, including
-service detail links. Web components and navigation helpers use Plugin names.
+`/o/<slug>/plugins`, with one service detail route below it. Plugins is the third
+Team tab after People and Agents. Both catalog and detail pages retain the Team
+header and active Team rail destination, without mounting Center Agent state.
+Old `/center-agent/plugins` and `/center-agent/apps` links redirect there,
+including service detail links. Web components and navigation helpers use Plugin names.
 Vendor terms such as GitHub App and existing connector RPC/tool field names
 remain unchanged: this rename does not migrate connection identities, stored
-credentials, wire discriminants, or authorization policy.
+credentials or existing wire discriminants. Account details show separate
+Center, Local, and personal Remote Agent permissions. Permission saves use a
+server revision check; a conflicting edit must be reloaded, never silently
+overwritten. The server owns management eligibility and execution permission.
+
+The catalog and detail pages show the current organization's actual name first,
+then **Personal**, using the same scope tabs. Organization is the default;
+personal workspaces expose only personal connections. Scope stays in the URL
+when opening a Plugin and returning to the catalog. Personal status includes
+only the signed-in member's connection; organization status includes only the
+shared connection. All members can inspect shared status and permissions;
+only owners and admins can change them. Reuse Fluid Select for permission
+controls and keep account connection controls beside their scoped permissions.
+Loading connection status must not block opening the catalog or a Plugin's
+settings. Route loaders do not await connection snapshots; the mounted page
+owns loading, cached status, and retry feedback after organization authorization.
 
 ### Collaboration presentation
+
+Sending from a conversation or thread Composer returns focus during the send
+gesture, before clearing the submitted draft. Draft replacement preserves the
+caret at the end only while that editor owns focus. Network completion and
+incoming messages do not refocus the Composer, and deferred editor focus is
+canceled when another surface takes focus. Existing mention clearing and
+message-history navigation rules remain unchanged.
 
 OpenMeld Web is the primary browser surface for the user-visible collaboration loop:
 
@@ -324,8 +395,8 @@ authorization.
 
 ### Fixed primary rail
 
-Spaces Sidebar groups default to collapsed on the Spaces directory. Inside a
-Space, its containing group temporarily expands even when the saved choice is
+The shared conversation sidebar defaults its built-in sections to expanded and
+custom groups to collapsed. Inside a Space, its containing group temporarily expands even when the saved choice is
 closed. Manual toggles during that visit take precedence until another Space
 is entered. Returning to the directory restores saved choices. These browser-local
 choices are isolated by profile and Organization; automatic expansion is never
@@ -335,7 +406,7 @@ disclosure remains independent from Sidebar disclosure.
 
 The rail places the current workspace switcher at the top and has no separate
 OpenMeld brand row or outer-rail account entry. Account management stays nested
-inside the workspace switcher. Its first four entries are flat, fixed
+inside the workspace switcher. Its first three entries are flat, fixed
 primary actions and destinations in a flat list:
 
 - **New Agent** — opens `/o/{orgSlug}/new-agent`, a standalone creation page
@@ -344,10 +415,13 @@ primary actions and destinations in a flat list:
   overview. Success opens the new Agent's detail; Cancel returns to Agents.
   Pending teammate requests open Agent requests. Legacy `agents?view=create`
   links redirect to this route before loading the Agents directory.
-- **Home** — directly opens the current Organization's default Center Agent chat.
-- **Spaces** and **Chats** — first-level destinations directly below
-  Home.
+- **Desk** — opens an ordinary Space on the current workspace's canvas.
+- **Spaces** — opens the existing chat directory, with Spaces and private
+  conversations available in its contextual list.
 - **Team** — opens the people directory. Each person's profile owns their Agent list.
+
+The middle column contains the active module's list. Spaces and Direct messages
+are groups within Spaces, rather than duplicate application-rail links.
 
 **Projects**, **Documents**, and **Agent Activity** keep their canonical routes,
 pages, and contextual entry points but are temporarily absent from the primary
@@ -357,25 +431,23 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
-**Chats**, **Team**. The product destinations are:
+The visible destinations resolve in this order: **Desk**, **Spaces**, and
+**Team**, with **New Agent** in the separate Create action. The product destinations are:
 
-1. **Home** — directly renders the existing default Center Agent conversation,
-   keeping Home selected. It shares the complete conversation component,
-   loader, and underlying session with Chats, without an intermediate entry
-   screen or a new conversation. Existing Home session and view selectors
-   remain supported. The default follows the existing production open-or-reuse
-   behavior, rather than switching to the most recently active session.
+1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
+   React Flow canvas. See **Desk and Chats** below for selection, creation,
+   persistence, and viewport behavior. Space interactions use the full Space
+   owner. A bottom-right Add to Desk button opens a categorized widget dialog;
+   shared compact conversations provide Chat windows, including Center Agent.
 2. **Spaces** — the current workspace's Space collaboration surface.
    Spaces, Direct Messages, and People place their contextual lists
-   below the fixed destinations in the Main Sidebar. Only these contextual
-   lists scroll within one Fluid scrolling area; the header, primary entries,
-   and Team link remain fixed. People groups stay inside Team's contextual
+   in the middle column, separate from the fixed application rail. Each list
+   has one Fluid scrolling area. People groups stay inside Team's contextual
    region; a person's Agent list and detail use full-width content. These pages do not
-   mount a secondary sidebar or a second mobile drawer.
+   mount an additional contextual column or simultaneous mobile drawers.
    Existing list grouping, pinning, unread indicators, identities, and status
-   projections are preserved. The former secondary headers and creation/invite
-   actions are omitted; new creation menus are outside this migration.
+   projections are preserved. Spaces owns the shared creation menu and
+   discovery links described above.
    Agent list search and filtering remain available. Settings retains its
    secondary navigation panel.
 3. **Direct Messages** — the current workspace's private one-to-one
@@ -383,9 +455,9 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    `/o/{orgSlug}/direct-messages/{spaceId}`. The Main Sidebar's contextual
    list shows current DM Spaces by the other participant's profile identity;
    selecting one opens the existing Space conversation surface in the content
-   region. Direct Messages are a first-level Web destination, not a child group
-   inside the Spaces sidebar, and this presentation does not create a separate
-   DM data or messaging subsystem. People and Agents entry points navigate
+   region. Direct Messages remain a distinct conversation kind within Spaces;
+   this presentation does not create a separate DM data or messaging subsystem.
+   People and Agents entry points navigate
    straight to this route family after opening or reusing the DM. Its pending
    state uses Direct Messages geometry and never flashes the Spaces sidebar.
    Canonical classification reads the Space status projection; the Account
@@ -403,7 +475,7 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    observer or join affordance.
    The read-only Composer says `Join this conversation to send messages.` in
    its input area once; the action row does not repeat the placeholder.
-   Chats and ordinary Spaces share the Members panel and its People & Agents
+   Direct messages and ordinary Spaces share the Members panel and its People & Agents
    grouping. An Agent owner who has not joined appears as an identity heading
    above their Agents, using the Organization Profile Directory name and avatar.
    This heading does not create membership, count toward Members, or expose
@@ -413,7 +485,7 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    name, and Profile popover without an Agent action label. The timeline carries
    all three existing addressing lists without changing notification or Wake
    semantics.
-   Long message previews share one folding policy across Spaces, Chats, and
+   Long message previews share one folding policy across Spaces, Direct messages, and
    threads: finish the paragraph or Markdown block crossing the soft character
    limit of 2,000 characters, then offer **Show more**. Folded text shares the
    Scroll Area's bottom edge fade; the button stays outside the mask. Expansion
@@ -424,10 +496,11 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    workspace. Its Main Sidebar contextual list shows Human Profiles with search,
    computer-connection filters, personal Starred and named groups. Registered
    Computers alone do not qualify as Connected: use the existing service-state
-   projection. The default Online group contains confirmed connected Computers;
-   Offline contains the other members, preserving unknown and attention details
-   on their rows. Offline and never-connected Computers remain distinguishable in
-   filters. Human
+   projection. The default Online and Offline groups describe Human presence
+   from the independent Core-owned session projection. Unknown Human presence
+   stays unclassified under People. Computer connected, Computer disconnected,
+   and never-connected Computers remain distinguishable in independent filters.
+   Human
    `lastActiveAt` is recent authored activity, not online presence.
    A row's Chat action reuses the existing Direct Message entry point and is
    available only for another active Human Profile.
@@ -440,10 +513,17 @@ The visible entries resolve in this order: **New Agent**, **Home**, **Spaces**,
    Computers. It filters the existing Account Space Index by currently owned
    personal Agents, groups each conversation once, and supports an Agent filter.
    The bounded Fluid Table uses the shared Scroll Area, scrollbar, and edge
-   fades. Links reuse the existing Chats/Spaces viewer identity and access
+   fades. Links reuse the existing Direct messages/Spaces viewer identity and access
    rules; this is not a separate interaction log or an Inbox history. Other
    people's profiles do not show this section, and organization ownership does
    not grant access to managed Center Agent private conversations.
+   An owned Agent's detail page reuses this same **Agent conversations** section
+   below its configuration, scoped to that Agent. It omits the Agent selector
+   and repeated Agent column. Loading, errors, empty states, ordering, and
+   conversation navigation share the Human profile implementation. These rows
+   describe accessible conversations the Agent has joined, with the latest
+   conversation preview; they do not claim a complete execution history or
+   that the latest message was authored by this Agent.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -494,7 +574,7 @@ current Computer exists, it opens the normal setup flow.
 
 The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
-**Skills**, and **Plugins**, in that order. Messages, Graph, and Files preserve the
+**Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
 preserves **Memory** and **Center Agent settings**. The
 conversation variant of that menu also preserves **Conversation information**.
@@ -508,7 +588,7 @@ preview first. The sidebar header alone shows the deduplicated attention count
 without a number. Both consume the same Core summary: red for open actions,
 otherwise amber for unread urgent updates. Unknown summaries never become zero.
 The preview shows unread context and a bounded list of recent
-items grouped as **Needs action**, **Urgent updates**, and **Recent updates**, preserves source
+items grouped as **Needs action**, **Needs review**, **Urgent updates**, and **Recent updates**, preserves source
 navigation and read-on-open behavior, and exposes a clearly labeled maximize
 action to `/o/{orgSlug}/inbox`. One group does not hide the other. Its width and
 height must remain usable in narrow viewports. Ordinary non-urgent unread updates never
@@ -523,20 +603,146 @@ writer owners for that conversation. Inbox and Center Agent
 are separate controls and truths, and at most one compact panel is open at a
 time.
 
-### Home and Chats
+### Desk and Chats
 
-The former Home destination is labeled **Center Agent** in navigation and the
-command palette while Home is redesigned. Its Organization-root URL and
-internal `home` section identity remain unchanged.
+The first Desk release enables adding Spaces and text only. Other widget
+categories remain commented out in the picker, with their implementations and
+existing browser layouts retained. Text is added from the canvas context menu.
+The broader widget behavior described below is implemented but not offered for
+new additions in this release.
 
-The authorized Organization root `/o/{orgSlug}` remains Home and directly
-renders the default Center Agent conversation using the existing production
-open-or-reuse loader. Home stays selected and does not redirect to Chats.
-`/o/{orgSlug}/chats/center-agent` exposes the same complete conversation UI
-inside Chats. Both routes support the existing `session`, `draft`, and view
-selectors and share the underlying conversation without copying history.
+The Add to Desk dialog groups Spaces, Chats, Updates, People, and Computers in
+a sidebar. New accounts do not automatically receive additional widgets.
+Chats reuse the same DirectMessagePicker as the Chats page;
+opening a conversation on Desk changes its presentation, not membership or
+message ownership. Inbox, Center Agent, and Computer cards reuse their existing
+product components. Existing singleton widgets are focused instead of duplicated.
+Window titles, geometry, and text are browser-local per account and Organization.
+Titles sit immediately above their window and move with it. Dragging a title
+moves the window; clicking it enters editing. Text uses the same interaction and
+starts at its content size. New information cards use intrinsic height, while
+conversation windows retain a bounded viewport. Manual resizing remains available.
+Desk Inbox shows the six most recent items, including read records, using the
+shared Inbox list and read mutation. The Toolbar preview remains an attention
+view of unread updates and unresolved requests, with a link to full history.
+People & Agents embeds the Space candidate selector, with independent selection
+of each person or agent. Each selection adds a Profile card instead of a directory
+widget. The card uses the shared Profile identity header and offers a Chat action.
+Visible Profile IDs are the source of truth for the picker's checked, disabled
+state; closing the card makes that identity selectable again. Selection does not
+add anyone to a Space or implicitly select an agent's owner. Profile cards read
+current readiness and operational status from the authorized directory, including
+reported queue counts; they do not infer activity from presence or local sessions.
+Closing a window removes only its Desk placement. It does not delete its source.
+Text is a canvas tool available from the context menu, not a widget category;
+users edit it directly and resize it. Layout changes can be undone locally.
 
-Chats at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
+Active agents reads the existing authorized active-Wake summaries for accessible
+Spaces and chats. Reads run four at a time and refresh every minute while the
+widget is mounted and the browser is active. They do not infer execution from
+presence or expose local coding-session observation. Partial read failures are
+visible and never reported as an empty work list. This first version is an
+active-work view, not a history or an organization-wide private-conversation feed.
+Each row identifies the Agent, its owner when available, its Space, and progress.
+No membership, Wakeability, execution, or permission owner changes are introduced.
+
+The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
+its visible Space windows in this browser per account and Organization. Without a
+selection it reuses a marked Welcome Space (or an existing joined `Welcome Space`),
+or creates a private, members-only `Welcome Space` through the ordinary creation
+flow when none exists. It never selects an unrelated ordinary Space by default.
+An old automatically selected ordinary window is replaced by Welcome; other
+saved windows and user-created layouts remain intact.
+There is no special Space kind or membership policy. A browser lock prevents
+concurrent tabs from creating duplicates; a pending marker prevents blind
+retries after an uncertain creation result. This is not cross-device atomic
+provisioning. A confirmed deleted Space is removed from Desk and is not recreated.
+
+Welcome tutorial identity is browser-local, keyed by account scope and Space ID,
+independent of the editable name. The shared Space page and directory read this
+same marker. Creation adds only the acting human. The first Welcome member picker
+opening recommends and preselects the designated Center Agent, without adding it
+until Add selected. Deselecting or closing does not reapply that default. Ordinary
+Spaces never preselect it. Its shared picker description explains its workspace
+role. The guide reuses the existing setup card and member dialog;
+ordinary Spaces keep their existing setup guidance. Welcome Spaces show one
+centered dashed action card, first **Add your first agent**, opening the shared
+member selector. Welcome empty content uses the shared panel's start alignment
+so the action is visible in the initial Desk viewport; ordinary empty Spaces
+retain centered alignment. Center Agent can complete the same path as any other
+Agent; existing Welcome members are preserved and can start the conversation.
+Confirmed member additions
+prepare an editable draft only when the Composer has no text, files, or reply.
+Agents receive Wake mentions; people receive ordinary mentions. Nothing is sent
+automatically. The introductory message greets the added members and asks for
+a brief introduction; it does not invent a business task. Clearing
+the draft exposes **Start a conversation** in the same card. Its saved recipient
+IDs are draft intent only and are reconciled against active Space members before
+restoring a draft, using current names. Existing text, files, and replies are
+preserved. There is no separate Center Agent sample-task shortcut.
+The action card appears only in an empty conversation. Once conversation entries
+exist, it stays out of the timeline's top overlay, including while an Agent is
+working. A real final reply from an added Agent to a newly sent user message completes
+the guide, which then disappears. No skip, resume, or replay controls are exposed.
+Legacy paused progress resumes from its saved step. This guide does not change permissions,
+Wakeability, execution ownership, or server-side Space semantics, and does not
+sync its progress across devices.
+
+Desk Space windows use React Flow's native edge and corner resizing, bounded to
+720–2400 canvas pixels wide and 480–1800 high. Window dimensions are remembered
+per window, account, and organization in this browser, independently of the viewport.
+Resizing changes only the canvas container, not the shared Space implementation.
+New windows fit the Desk's available width and height with 32px canvas margins,
+within the existing size limits. Small viewports zoom out enough to show the full window.
+Desk conversation rails fill the available width up to the shared centered-page maximum
+(`--space-conversation-centered-max-width`),
+with 24px inline padding, reduced to 16px in narrow containers. Wider windows
+add outer whitespace rather than lengthening text lines. Appearance's centered/full-width preference applies
+only to page surfaces. Desk passes its measured width into the shared Space so
+the Members side-panel breakpoint follows the window rather than the browser.
+Local development lanes expose Reset Welcome Space at the top-left of Desk.
+The greeting is selectable and resizable; selection reveals its border and close
+button. Its geometry shares the Desk layout storage. Closing it persists an
+account-and-organization-scoped browser preference, with no restore action.
+Dismissed greetings skip the greeting entrance even when the viewport is reset.
+It creates a new private ordinary Space with only the acting human, initializes
+Welcome guidance, and clears the current Desk window and viewport preferences.
+Existing Spaces and their messages remain intact. Production builds omit this action.
+
+Desk and Space Graph share `WorkspaceCanvas`, with independent React Flow
+providers. Desk mounts the same full `SpaceLanding` as the Space route, including
+setup guidance, Messages, Graph, Files, members, sharing, and threads. The same
+responsive rules determine the member surface. The mounted Space survives
+panning and zooming; no preview copy or parallel conversation state exists.
+The maximize link opens its canonical route. The shared member selector uses
+the workspace directory in both Personal and Organization contexts, including
+the workspace's own Center Agent under the existing membership authorization.
+
+The first visit starts with a blank canvas, reveals the centered greeting with
+a subtle scale-in, then the arrow, then the Space. The viewport pans down to
+center the complete Space, including the Composer. Pointer, wheel, or keyboard
+input interrupts the entrance and reveals all content. Reduced motion shows
+the final view immediately. The viewport is remembered locally; Reset view restores
+the fitted Space view. Scrolling a clipped Space reveals its lower content
+before the ordinary conversation scrolls. Embedded Graphs own their wheel input.
+Bottom-left controls collapse to a Canvas tools button and expand on mouse hover,
+keyboard focus, or tap; leaving waits briefly before closing. Their opacity-only
+transition is disabled under reduced motion. The canvas context menu offers
+Add Space, Reset view, and Reset layout. Add Space searches existing joined Spaces
+in the current organization, marks displayed windows On Desk, and links to the
+standard Create Space route. Empty Desk also exposes Add Space. Closing a window
+only removes it from the persisted Desk layout; the Space remains in Spaces and
+can be added again. Confirmed deleted Spaces are removed from every Desk window.
+Reset layout restores
+the greeting and Space positions and default dimensions, clears the saved size,
+and resets the viewport without remounting the Space. Context menus inside the
+Space remain owned by the shared Space interface.
+
+`/o/{orgSlug}/chats/center-agent` remains the canonical full Center Agent page.
+Explicit legacy `session`, `draft`, focused-signal and view selectors on the
+Organization root redirect there, preserving their intent.
+
+Direct messages at `/o/{orgSlug}/chats` replaces the Messages navigation destination.
 It stays on a conversation directory, sharing sidebar grouping, sort order,
 previews, and unread projections. Loading never presents a false empty state
 or automatically opens a conversation. A genuinely empty list offers New chat.
@@ -547,24 +753,40 @@ Space creation and directory membership APIs. A successfully created Space is
 retained while retrying failed member additions. Selecting an agent alone does
 not implicitly turn the new chat into a group; ordinary Space membership still
 applies the server-owned agent-owner admission rules.
-Chats sidebar disclosure shares the Spaces policy: directory groups default to
-collapsed, entering a conversation reveals its group, and manual choices persist.
-New chat and participant filters
-live in the Chats destination action slot. Selected destinations keep their
-actions visible; Search manually inside filters reveals contextual search.
+In the shared conversation sidebar, Pinned, Spaces, and Direct messages start
+expanded unless the viewer has saved a manual choice. Custom groups start
+collapsed. Entering a conversation reveals its group; switching views preserves
+both families' existing disclosure choices. Search temporarily reveals matching
+groups without writing disclosure preferences. Creation, view selection,
+filters, and search live in the Spaces header.
 Ordinary private conversations use `/chats/{spaceId}`. The old
 `/direct-messages` routes only redirect and preserve supported search fields.
 Team's Center Agent entry opens the canonical Center Agent chat.
 
-The shared Chats sidebar merges People, Local, Remote, and Center Agent
-conversations by Space identity before grouping and sorting. All chats appear
-together by default; People and Agents are optional multi-select filters using
-the same selection and removable badges as Spaces group filters. Selecting
-both includes both kinds; clearing all selections restores all chats. Priority is the
-default and uses the same attention, unread, working, and message-activity
-ordering as Spaces. Recent activity uses the last real message, not creation
-time or a separately sorted runtime family. Pinned and manual order remain
-explicit user choices. Existing `messages` and `chats` preferences are merged
+The shared sidebar deduplicates ordinary Spaces, People, Local, Remote, and
+Center Agent conversations by Space identity. Ordinary Space rows come from
+the current Organization's authorized Account Space Index; direct messages
+reuse the existing peer/title resolution and paged Center Agent session list.
+The global command center uses these same titles and exact destinations,
+including the Center Agent session selector. Space-name search remains bounded
+by the existing 500-item Account Space Index query; this UI change does not
+introduce a server search endpoint or claim unbounded history coverage.
+
+Grouped retains existing per-section Priority and manual sorting. Both views use
+the existing fixed status slot so revealing or focusing row actions cannot move
+or cover activity indicators. Priority sections wait for their first activity
+snapshot before showing an idle ordering; manual pins and Recent remain usable
+while that evidence loads. Full names and attributed activity remain available
+through the shared tooltips. Ordinary Space rows read Index previews without
+creating per-Space message-preview observers. Recent uses
+only message time, with an empty conversation at zero and Space ID as a stable
+tie-breaker; unread, visit time, and running progress do not promote it. Recent
+does not permit manual row ordering outside Pinned. Space and direct-message
+custom groups retain their existing preference owners; cross-kind moves are
+rejected before any pin or preference write. Rename and archive remain direct-
+message actions and are never offered on ordinary Space rows.
+
+Existing `messages` and `chats` preferences are merged
 without losing pinned items, custom groups, titles, or archived conversations;
 the next write stores the unified `chats` preferences and retires `messages`.
 Ordinary DM pin membership remains Space Index-owned and uses the same pin
@@ -580,15 +802,15 @@ archive filter, title editing, previews, and drag ordering remain available.
 
 The full Center Agent page, header, starter cards, composer, and all capability
 surfaces reuse their existing components. Messages, Graph, Files,
-Routines, Skills, Plugins, Channels, Memory, settings, and conversation
+Routines, Skills, Channels, Memory, settings, and conversation
 information remain available. Capability routes stay under `/center-agent/*`
-and highlight Chats. The starter cards continue scrolling with the conversation.
+and highlight Direct messages. The starter cards continue scrolling with the conversation.
 No second conversation controller or message store is introduced.
 
 ### Inbox
 
 The canonical route is `/o/{orgSlug}/inbox`. The bare authorized Organization
-route renders **Home** after current membership and Organization identity are
+route renders **Desk** after current membership and Organization identity are
 resolved. Inbox remains a lower-priority global utility reached from its
 bottom-right launcher; it must not become the default authenticated or
 post-onboarding destination. Inbox uses the full-width inset app surface without
@@ -599,8 +821,8 @@ maximize action. The compact launcher preview reads the same Core list and
 summary, uses the same structured source mapping and read mutation, and owns no
 parallel unread state.
 
-The page provides **All**, **Unread**, and **Needs action** filters, a compact
-high-attention summary, an explicit **Mark all as read** action, and a
+The page provides **All**, **Unread**, **Needs action**, and permission-gated
+**Needs review** filters, an explicit **Mark all as read** action, and a
 chronological Fluid item list. Opening an item starts its idempotent mark-read
 mutation as part of the same in-app navigation to the structured source target;
 the mutation survives the source route change. Hover, viewport exposure, tab
@@ -681,6 +903,26 @@ CLI controls.
 
 ### Settings structure
 
+The application rail keeps Settings and theme controls visible above the account
+trigger. Their hit areas and keyboard order are stable; footer hover does not
+reveal, hide, or move them.
+
+Normal Settings entry points open the global **App settings** dialog over the
+current organization page. The `appSettings` search parameter owns the selected
+section; opening preserves the background path and search, section switches
+replace that parameter, and closing removes only that parameter. The existing
+standalone `/o/{orgSlug}/settings/*` routes remain available for direct links,
+but normal utility, account-menu, command-menu, and review-history entries use
+the dialog. Notification-settings Inbox sources open it over Inbox.
+
+Both presentations use `SettingsPage`, the same section registry, grouped
+navigation, capability checks, and section components. The dialog reuses the
+existing contextual sidebar item primitives, including icons and selected
+states. `SettingsDialogContent` supplies the shared Space/App dialog shell;
+App settings uses its larger 1024px by 42rem variant, constrained to the viewport.
+Navigation and content scroll independently. Section components and their
+mutations do not fork by presentation.
+
 The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
@@ -703,20 +945,34 @@ The Settings secondary sidebar always shows these two groups:
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
-  label also displays the current `member`, `admin`, or `owner` role badge.
+  label shows only its name and collapse control, without organization or role
+  badges. Roles remain visible in Members.
 
-Invitation review lives at `/o/{orgSlug}/settings/invitations?requestId={id}`
-inside the app shell. Email and Inbox use the same destination; a focused request
-scrolls into view. The legacy external request URL redirects current organization
-reviewers here while preserving the external applicant status surface. An approved
-applicant enters the organization or invited Space after Auth confirms joining.
-Invite members and Invite link appear first. Needs review and Awaiting acceptance
-follow only when populated; neither renders an empty-state panel. The account
-avatar's Invite people menu opens a dialog that reuses the Settings invitation
-controls, including role-gated email invitations and links. A Core-owned actionable request count
-drives the amber Invitations badge and the outer Settings dot; it is not an unread
-count. Approval, delivery, and membership remain separate facts. Clients refresh
-the shared request, invitation, and Inbox projections after a decision.
+Invitation review lives at `/o/{orgSlug}/inbox?requestId={id}`. Open invitation
+items expose source-owned approval controls directly in the full Inbox list.
+Email and legacy Settings links reach the same Inbox detail; the applicant
+status surface stays separate. Pending decisions appear under **Needs review**.
+Approved incomplete invitations appear under **Needs action**, with a recovery
+action rather than another decision. Visibility follows current source permission.
+
+Settings → Invitations retains invite controls and one **Invitation records**
+table, reusing `@openmeld/ui/components/table`. Its five columns are recipient,
+decision, reviewer, invitation status, and actions. Requests and native invitations
+are grouped by recipient, preserving every source record without inventing a
+request-to-invitation ID association. Repeat requests retain separate decision
+rows; invitation status belongs to the recipient group. Direct invitations also
+appear in this table. Status is concise, review dates omit the time of day, and
+exact timestamps remain in request details and date titles. Approve, decline,
+and cancel use visible buttons in the actions column; unavailable actions show
+a dash. Current admins share the same
+records; ordinary members see their own requests. Pending requests sort first,
+including across pages, with direct approve/decline controls for current admins.
+Inbox remains the primary review destination. Both surfaces reuse the same
+source mutation and invalidate the same Inbox and request queries. Pagination
+uses the pending group, created time, and id. Settings has no invitation attention badge.
+The avatar's Invite people dialog continues to reuse the invitation controls.
+Approval, delivery, and membership remain separate facts. Decisions and retries
+refresh shared request, invitation, and Inbox projections.
 
 **Settings → Personal → Appearance** owns the browser-local interface corner
 style. The two current choices are **Square** and **Rounded**. Rounded is the
@@ -1150,7 +1406,7 @@ this order:
    identical, remove personal-only route redirects, and close remaining
    content-level parity gaps.
 6. **W-NAV6 — Center Agent progressive disclosure.** Remove the contextual
-   sidebar; keep Routines, Skills, and Plugins in the conversation header;
+   sidebar; keep Routines, Skills, and Channels in the conversation header;
    keep Memory and Center Agent settings in the header menu; and
    retire the redundant About surface and Slack shortcut.
 
@@ -1483,7 +1739,7 @@ the provider-private proof remains the authority.
 
 ### Center Agent App connections
 
-**Center Agent → Plugins** is separate from
+**Plugins** is separate from
 Channels because Plugins grant scoped tool access rather than a conversation
 result surface. It is the single App catalog and management surface in every
 workspace and shows both the current member's private access and
@@ -1573,7 +1829,7 @@ as the OpenMeld bot; personal access is described as explicit-task access for
 the current member's identity or personal repositories.
 
 Disconnect controls come from Core's `canDisconnect` projection. Members manage
-their own connection under Center Agent → Plugins. Organization owners and admins
+their own connection under Plugins. Organization owners and admins
 manage shared Organization access on the same page; regular members see shared
 status read-only. Disconnect opens a modal confirmation before any mutation.
 The modal explains that the operation removes this OpenMeld Organization's
@@ -1684,15 +1940,20 @@ tooltips. Local Agent identity
 uses the same catalog-owned logo and name as Computer detail; Web never creates
 a second name or logo map for People.
 
-People reads the lightweight Profile Directory first and renders member and
-Agent identity without waiting for the Agent Runtime Overview. It loads that
-overview independently to add the permission-scoped Controller and model
-summary to Agent cards when known. Unavailable Runtime Transport cannot blank
-member identity or delay the People workspace.
+People and Human Profile popovers read the lightweight Profile Directory with
+`includeModelSelection=true` for member identity and member-visible Agent
+Controller/model configuration. They do not request the Agent Runtime Overview
+to render these cards. An omitted model selection is unknown, not the default
+model; null with a Controller means its default model, while no Controller and
+null model selection mean no primary Binding. Binding changes invalidate the
+lightweight directory through the existing readiness refresh path, including
+cross-tab invalidations. These are configured values, not evidence that an Agent
+can Wake or that a particular model executed work. Agent pages retain their
+Core-owned runtime overview and Wakeability checks.
 
 Last-seen time comes only from the Core-owned, Organization-scoped Human activity
 projection. Web explicitly reports entry, return to the foreground, and a
-bounded visible-session heartbeat; Core re-verifies the active member and that
+bounded actual-interaction report; Core re-verifies the active member and that
 member's current active Human Profile before advancing the projection. CLI use,
 Auth session refreshes, Computer heartbeats, and Agent Activity are not
 substitutes. Undefined activity is omitted instead of rendering a placeholder,
@@ -1704,21 +1965,60 @@ socket reconnects do not count as visits. Directory reads refresh on foreground
 return and every five visible minutes; Space member elapsed-time labels are
 formatted from `lastSeenAt` against the current clock, never a cached label.
 
-The sidebar places the designated **Center Agent** in its own first group,
-linking its actual profile name to the canonical Center Agent chat. Starred and user-defined
-groups follow, then **Online** and **Offline**, whose hover and keyboard tooltips
-say **Computer online** and **Computer offline**. The signed-in member follows
+The People sidebar contains Human Profiles. Starred and user-defined groups
+precede **Online** and **Offline**, based only on Core's Human presence projection.
+Unknown presence stays in an unclassified **People** group. Computer connection
+remains an independent filter in both the Team toolbar and each section. Both
+surfaces use **Computer connected** and **Computer disconnected**; Online and
+Offline refer only to Humans. Toolbar filters apply across sections and combine
+with the selected Human groups and per-section filters. The designated Center Agent lives in the Agents
+directory, outside Human presence counts. The signed-in member follows
 ordinary placement unless a saved star or custom group applies. The signed-in
 member always appears first within that group, regardless of sort or manual order;
 the remaining members retain the selected ordering. Explicit
 unstar and custom placement persist; deleting a group returns its members to
-ordinary placement. Computer online requires the existing connected Computer
-projection, not registration or recent Human activity. Other resolved states go
-under Offline. Rows show the avatar, name, Computer status icon, Human last-seen
+ordinary placement. Online requires an unexpired Core presence lease with Human
+interaction within five minutes. Any active page keeps the Human Online. Computer connections,
+Agent work, and historical activity never establish Human presence.
+Rows show the avatar, name, Computer status icon, Human last-seen
 time when known, and enabled local-agent icons. Computer explanations remain in
 the icon tooltip and accessible name; Channel identities and email are omitted.
-Pending checks retain the loading state. Sorting and drag placement
-remain personal preferences; dragging cannot change Computer connection state.
+Pending Computer checks stay on their rows without delaying Human grouping. Sorting and drag placement
+remain personal preferences; dragging cannot change Human presence.
+
+People and Space member/profile avatars show a small inset green dot only when
+the Human is Online. Offline and unknown states have no visible marker; accessible
+Online, Offline, or Online status unavailable labels remain available. One app-shell
+reader refreshes the authorized batch every 30 visible seconds and on foreground
+return. Failed or stale reads remain unknown. Active pages renew a 90-second lease
+every 30 seconds; trusted pointer movement, clicks, keyboard, wheel and touch input
+reset the five-minute idle limit. Brief focus or visibility loss pauses renewals
+and lets the existing server lease expire naturally, instead of immediately
+declaring the Human offline. Space navigation preserves the Organization session;
+page departure and account/Organization exit end only that page's lease. Historical Web
+activity advances only on actual interaction, with its existing five-minute
+throttle; presence renewals do not advance it. Space-local Here … ago remains a
+separate historical fact. No system-wide activity or interaction contents are collected.
+
+Human cards combine enabled Local Agent logos and provider Usage in one compact, overlapping
+dock. Each controller appears once. A small ring overlays the logo's upper-right
+corner when the existing authorized Computer projection has quantified evidence;
+otherwise only the logo appears. The ring previews the first reported Computer/provider
+source, using the existing most-constrained-window summary. Additional sources
+appear only in the tooltip, never as an averaged or pooled quota. Hover previews every
+Computer, provider and window with remaining capacity, status, reset and observation
+times through the shared Computer Usage components. The compact sidebar logo strip
+keeps its existing sizing. This preview does not add permissions, collection or Wake policy.
+
+Agent Profile detail pages and Space profile previews read the same team-visible
+Computer Usage projection, matched to the Profile's current route Computer,
+owner, and controller. They never borrow a quota from another Computer or infer
+Wakeability from it. Human card docks align to the card's vertical center.
+Usage tooltips share compact remaining-capacity rings: up to three columns on
+wide screens and one column on narrow screens, with separate Computer/provider
+groups, reset times, and explicit non-available states. Stale evidence retains
+its observation time. Local presentation fixtures enter through the shared
+Computer reader so card previews and detail routes show the same evidence.
 
 Team opens a compact member overview at `/o/:orgSlug/people`, with the same
 grouping and ordering as its sidebar. The overview and sidebar share the member
@@ -1731,7 +2031,7 @@ Sidebar groups start collapsed, using
 the same disclosure behavior as Spaces. Entering a person opens their group for
 that visit; explicit expand/collapse choices are remembered per viewer and
 Organization independently of Spaces. The overview remains expanded.
-The overview uses the shared window header with Members navigation and the
+The overview uses the shared window header with People (default) and Agents tabs and the
 existing permission-gated invitation dialog. Its directory toolbar shows member
 counts, name search, and group filters with the same gutters as Spaces.
 Shared window headers and Team/Spaces directory content use
@@ -1743,6 +2043,38 @@ saved preferences have no provenance marker, so Web must not guess which saved
 stars were automatic. An absent preference never creates a self star.
 The Human Profile page omits the entire Advanced details section, including
 Profile ID and copying it; underlying identity and diagnostic contracts remain.
+
+The Agents tab at `/o/:orgSlug/agents` starts with the Organization's actual name
+and its designated Center Agent, which opens the canonical Center Agent chat.
+Human groups show the person's avatar and name. The viewer's group comes first,
+then other groups by their most recent Agent task activity, with creation time
+and stable identity as tie-breakers. Search matches people and Agents.
+Personal full lists and Team groups reuse the same cards and list controls.
+Center Agent and ordinary Agent lists share the Agent card presentation: a
+96px action area, 56px avatar, persistent card background, and readable name.
+Only the Center Agent supplies the upper-right role badge. Team and personal
+Agent lists use the People page's full-width gutters and responsive card grid.
+People and Agent lists share a compact search control that expands on demand.
+Agent view options live in an icon menu. Per-group tools appear on hover or
+keyboard focus and stay visible while their menu is open; touch users always
+see them. People groups also offer local Computer-status filters. Agent owner
+headers reuse the Human Profile avatar renderer, including its generated avatar.
+Filters support multiple selections: OR within a facet, AND across Controller
+and model. Each selection has a removable chip. Settings menus are capped at
+384px or the available viewport height and scroll internally.
+Page filters apply across groups; a group's controls further narrow its list.
+Optional Controller or model subgroups preserve the outer person grouping.
+
+Recent ordering uses the newer of creation and task activity from the existing
+30-day Wake evidence window. Generic profile edits and last-used timestamps do
+not count as work. The personal detail preview uses the same default ordering.
+Task activity is a Core read projection over authorized profile IDs in the
+RuntimeCoordinator and native delivery ledgers, not a new execution authority.
+Web opts in with `includeTaskActivity=true`; old callers receive the unchanged
+runtime overview shape. Missing activity uses creation order with an explicit
+notice. Foreground runtime overview refreshes every 30 seconds.
+Agent creation history remains a recovery/history surface. Personal lists show
+Finish setup only for unfinished work; Creation history remains a secondary link.
 
 Selecting a Human Profile sidebar item replaces the main content without
 opening a right drawer. The route preserves the selected `profileId`, so reload,
@@ -1866,11 +2198,25 @@ surface and return to the person's list. Unknown or mismatched Agent IDs never
 select a different Agent. The list keeps search and availability filtering;
 owner grouping and the standalone Agent sidebar are removed.
 The list header exposes **Create Agent** for the signed-in member and
-**Agent requests** in Organization contexts. Its explanatory
-copy is **Approve requests for Agents you’re being asked to own, and track
-requests you sent.** A pending badge counts only the existing Core-owned Agent
-Profile Creation Request projection; Web never creates a parallel request
-state.
+**Creation history** in Organization contexts. The history uses the shared Fluid
+table to show Agent, result, start date, and actions. Incomplete creation remains
+recoverable against the same Profile. Errors briefly explain the failed step and
+next action; raw diagnostics stay in the stored record. Cross-user requests and approval
+remain held behind the shared launch policy. Web never creates a parallel
+request state.
+
+Agent configuration cards reuse Motion Primitives' Morphing Dialog shared-layout
+mechanism to expand into centered dialogs. Base UI owns modal focus, dismissal,
+and scroll locking; the shared primitive also serves Space image previews.
+The closed Fluid cards, shared hover background, and open editor surfaces keep
+their existing appearance. Reduced motion disables shared-layout travel.
+The footer has one primary action: it opens the next required setting, such as
+**Review permissions** or **Choose working folder**, then becomes **Create Agent**
+when ready. A short hint explains the remaining step. Folder choices stay inside
+the Working folder dialog. Folder pickers read the selected
+Service session's advertised controls and send its exact device and lane.
+Reconnect may follow a replacement device ID only within the same enrolled
+physical computer; it must never silently move a draft to another computer.
 
 **Create Agent** opens the full-width `/o/:orgSlug/new-agent` view so reload,
 back, and forward preserve the user's location. Space, People, and other compact
@@ -1920,8 +2266,8 @@ to the new `profileId`. The existing page stays in its checking state while the
 independent runtime overview catches up; it must not flash **Agent not found**
 or reuse a stale unavailable verdict for the new identity.
 
-Legacy `/agents`, `/agents?profileId=...`, and `/agents/new` links redirect to
-the owner's list, the exact Agent child page, and the new creation page.
+`/agents` is the Team Agent directory. Legacy `/agents?profileId=...` and
+`/agents/new` links redirect to the exact Agent child page and the creation page.
 Agent request links resolve to `/people/agent-requests`.
 Checking readiness and Wakeability never count as work activity. Each card shows the
 Agent avatar, name, a compact Controller and friendly model summary when known,
@@ -2285,7 +2631,7 @@ must preserve `authorizedActions` when supplied; silently dropping that field
 would create a Routine that cannot fulfill its visible document-maintenance or
 team-report promise.
 
-### Home first paint
+### Desk first paint
 
 The deferred proposal for replacing the current aggregate Space bootstrap with
 a bounded, versioned entry read model is tracked in
@@ -2293,17 +2639,17 @@ a bounded, versioned entry read model is tracked in
 production behavior and does not authorize implementation before its trigger
 and consumer-inventory gates are satisfied.
 
-The Organization index renders the canonical Center Agent conversation as Home
-at `/o/{orgSlug}` after its route guard confirms current Organization access.
+The Organization index renders Desk at `/o/{orgSlug}` after its
+route guard confirms current Organization access.
 Ordinary Organization selection, creation, invitation acceptance, and
 onboarding completion all use this same default path. An explicit intent, such
 as continuing Slack installation, may still enter its named destination
 directly.
 
-The Center Agent pathless layout branch owns both Home Chat and its explicit
-capability routes with outer app rail + full-width content and no secondary
-sidebar. That branch owns its pending component; the global router does not
-infer Center Agent pending UI from a pathname. The outer rail derives its
+The Center Agent pathless route branch renders Desk without the Center Agent
+conversation layout. Explicit Center Agent capability routes retain their
+existing layout. That branch owns its pending component; the global router does
+not infer Center Agent pending UI from a pathname. The outer rail derives its
 selected destination from route matches instead of page props or
 navigation-intent state.
 
@@ -2352,6 +2698,24 @@ the exact Query key and lets that query's `staleTime`, in-flight deduplication,
 and invalidation state decide whether a server read is needed. The Router must
 not add a second freshness clock over Query-backed loaders.
 
+Returning-conversation intent preload reads one contiguous updates page into the
+existing history Query instead of skipping warm history or replacing its tail
+with a recent bootstrap window. The mounted feed shares in-flight updates reads
+by Space, acting Profile, and anchor; completed updates reads remain stale so
+the subscription acknowledgement still closes the read/live gap. Successful
+intent preloads are reusable for five seconds through Query freshness alone.
+
+The Messenger sidebar also warms up to five cached unread conversations, newest
+unread activity first, with at most two background jobs. It uses the existing
+Organization unread summary and confirmed conversation Profile choices, excludes
+the selected conversation, and does not hydrate cold saved Spaces in bulk.
+An unchanged unread revision does not start another background read. Changes
+during a read receive a trailing read. Hidden/offline pages stop queued work;
+scope changes and unmount dispose the owner. Removed history queries cannot be
+resurrected by late reads. Speculation never writes read cursors, scrolling,
+Composer drafts, permissions, or Wake state. Failed prefetch keeps saved content
+and leaves normal entry/reconnect recovery intact; it adds no polling or retries.
+
 The Center Agent conversation is the deliberate exception to route-loader
 intent preload. Opening or ensuring its DM is activation-only, and a read-only
 preload must not return a different loader result that navigation could render.
@@ -2391,8 +2755,14 @@ allowed acceleration layers.
 TanStack Router owns the browser's coarse scroll-coordinate fallback. Its
 restoration key is the route pathname rather than the individual
 browser-history entry, and the Space message viewport has a stable id derived
-from the Space id. The conversation also records the first visible message and
-its viewport offset during scrolling and on departure. That account-and-Space-
+from the Space id. The conversation records a persisted signal and its viewport
+offset during scrolling and on departure. Reading-position restore and the
+history rail's Back action share this anchor selection. Optimistic sends, live
+reply projections, and transient activity rows retain their display identities
+but cannot become history anchors. Prefer the first visible recorded signal;
+when transient content fills the viewport, retain a nearby recorded signal and
+its offset instead. Existing stored positions are not migrated or invalidated.
+That account-and-Space-
 scoped semantic anchor is restored after history arrives, loading earlier pages
 if needed. A remembered position disables the MessageScroller's initial
 end jump and automatic following. Resize observation preserves the same message
@@ -2408,6 +2778,16 @@ belong in the IndexedDB Query cache and is never message, read-cursor, or access
 authority.
 
 ### Browser read-cache persistence
+
+Confirmed reaction updates also replace the reaction snapshot on the matching
+cached main-timeline message, within its existing Space and acting-Profile scope.
+This includes mutation responses and refreshes after live reaction invalidation.
+The bounded history persists and restores message text and reactions together;
+the standalone reaction query is not a separate persistence family. Reaction
+versions prevent older responses from undoing newer additions or removals. A
+late response cannot recreate an evicted history or add a Thread reply to the
+main timeline. A missing reaction snapshot is unknown and may fetch; a confirmed
+empty snapshot is not mistaken for missing data.
 
 OpenMeld Web may retain a narrowly approved subset of bounded display queries
 in IndexedDB so a confirmed returning account can see useful route content
@@ -2704,8 +3084,9 @@ Loading or failed capability reads fail closed for Human creation. UI gating is
 presentation only; Auth still rejects direct or stale-client Human creation
 requests.
 
-Person Agent lists have an **Agent requests** header entry in Organization
-contexts. The dedicated Team request page lists
+Person Agent lists have a **Creation history** header entry in Organization
+contexts. The dedicated Team history page lists self-owned creation records.
+The retained teammate implementation, when enabled in an isolated lane, lists
 the current member's incoming and outgoing Agent Profile Creation Requests,
 shows their source and current status, and exposes only the actions the member
 may perform: approve or decline as target owner, cancel as requester, retry a
@@ -2833,11 +3214,40 @@ Auth, or hide the unfinished choice behind a completed badge.
 
 Web presents a Space as a collaboration room and visible outcome surface.
 
+The Space and DM title never shows a green live-connection dot: a healthy
+message stream says nothing about Human presence or Agent Wakeability. Initial
+connection and healthy live updates have no visible status indicator. Only
+interrupted updates show an amber `Reconnecting…` indicator with manual retry;
+catching up on missed messages shows amber `Syncing…`. The accessible live
+region continues to announce connection changes. These states do not derive
+Computer connectivity or override Core-owned Agent readiness.
+
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Access, and Advanced sections. General contains the canonical name and
-the existing global browser-notification control. Access separates organization
-directory listing from link access; changing either never implicitly changes the
-other. Advanced contains Space ID, CLI join command, joined profile, and existing
+the existing global browser-notification control. Access owns the Fluid Select
+for who can join, guest-access enablement, and member ownership management.
+Share groups invitations as "Invite people by email" and "Invite people by link", with
+guest invitations through one Teammate/Guest selector. Choosing Guest prompts
+Owners for confirmation when guest access is off; it does not require a trip to
+Settings. Share shows the current audience without membership or role editors.
+Copy Space link does not grant access; teammate invitation links
+explicitly describe Organization admission. Both surfaces reuse the same access
+facts and invitation components rather than defining separate permission rules.
+Pending invitations use progressive disclosure.
+Opening Share prepares the first invitation link through Auth's idempotent POST
+endpoint. A single conditional insert checks link history: reopening reuses an
+active link and never recreates an expired or revoked one. Renew explicitly
+replaces a link; Revoke, Renew, and Copy stay right-aligned. Access settings keeps
+Copy Space link beside the audience heading, above the member list, and presents
+guest access as a Switch with confirmation before enabling it.
+Invitation links are read from Auth when the panel opens, scoped to the account,
+Organization, optional Space, and direct/request mode. A mutation response is
+not the only way to display an existing link. Failed reads offer retry rather
+than presenting the absence of a link.
+New Web Spaces use members-only access; General access selects only invited
+people or everyone at the Organization. Existing external link modes remain
+visible and editable under a separate disclosure, without changing either
+policy implicitly. Advanced contains Space ID, CLI join command, joined profile, and existing
 confirmed leave/delete actions. **Chat settings** shares the same composition but
 omits Access, CLI join, and lifecycle mutations while the conversation is a DM.
 The creator profile,
@@ -2878,11 +3288,18 @@ that saved pair keep the ordinary entry gate. Explicit rejection removes the
 saved view; transient failures retain it with retry. The Web entry gate consumes that
 resolution as the only routing decision: it opens the member experience, opens
 the public read-only experience, asks for sign-in or a protected-Space password,
-shows the same-Organization membership block with the safe Space name and owner,
+offers Join for an Organization-public Space before loading its private content,
+shows the private Space membership block with the safe Space name and owner,
 or shows a non-disclosing unavailable state. Web does not reconstruct access
 from status, the Account Space Index, or a failed conversation request. A
 transient resolver failure keeps the target and offers retry; it is not treated
 as denied access.
+
+Organization-scoped routes retain the App shell for permitted public reads and
+membership gates. Tenant-neutral links resolve to the Organization App route
+before mounting a public viewer when Core supplies the caller's Organization
+slug. A stale or foreign Profile selector is replaced with the current account's
+Human Profile inside the App; it is never used to authorize another account.
 
 The entry target may include one Signal and one Thread root Signal. Web carries
 both selectors through sign-in, member/public route reconciliation, and
@@ -3005,20 +3422,28 @@ users receive the final layout without spatial motion.
 
 Members header descriptions own a full-width row below the title and actions.
 The header Add People or Agents action and the one-member empty-state card both
-open the same Add People or Agents dialog. New Agent is a compact primary action
-below the dialog description; the title row is reserved for the title and close
-action. Invite sits beside New Agent for organization members and stays stable
+open the same Add People or Agents dialog. Empty-Space setup and Welcome Space
+actions open that dialog directly without expanding Members. Closing the dialog
+preserves whether the user had already opened Members. New Agent is a compact
+primary action at the right of the current user's People row, including when
+they have no Agents. The title row is reserved for the title and close action.
+Invite remains below the description for organization members and stays stable
 while role information loads; an unresolved role cannot enable a direct invitation.
 New Agent replaces the content inside this same dialog, with Back returning to
-the picker and preserving selection. Creation does not grant Space membership:
+the picker and preserving selection. Connect Computer inside creation opens the
+shared ComputerSetupFlow in the same dialog and keeps the creation controller
+mounted. Back and verified completion return to that creation step without route
+navigation. The standalone Connect route retains its existing return target.
+Creation does not grant Space membership:
 the new Agent returns selected in the picker, and the user can create another
 before the final Add selected operation. Pending teammate requests are not presented
 as created Agents. Only the final membership operation closes the picker.
 The picker presents People as the primary hierarchy, expanded by default, with
 each person's addable Agent Profiles indented below their People row. A person
-who is already in the Space remains visible when one of their Agents can still
-be added. Center Agent remains Organization-owned, appears first in a separate
-Organization group, and carries a compact Remote badge. The hierarchy uses
+who is already in the Space remains visible even without Agents, labeled
+In this Space. Center Agent remains Organization-owned, appears first in a separate
+Organization group, and carries a compact Remote badge with a cloud icon and
+shared surface background and shadow tokens. The hierarchy uses
 spacing, avatars, and typography rather than nested cards or borders. Selecting
 an ordinary Agent explains and counts
 the Core-owned owner-Human participation effect without submitting a duplicate
@@ -3080,16 +3505,15 @@ failure, and request id. A staged upload is not listed in Files. The file tray
 keeps compact fixed-width cards in one horizontal row and scrolls horizontally
 when they exceed the available composer width. The visual scrollbar stays
 hidden so it does not consume Composer height, while pointer, touch, and
-keyboard scrolling remain available. Each card keeps the file name
-above its status and truncates an overlong name; hovering the name reveals the
-complete value in a tooltip without hiding upload progress, failure copy, or
-the remove action. Sending waits
-for in-progress staging, publishes each ready upload as a canonical root-level
-Space File, and allows a file-only message without invented caption text. A
-failed stage or publication is excluded while the member's text and other
-successful files continue. Web explains that the failed files will not be sent;
-if every publication fails and there is no text, it keeps the Composer open
-instead of posting an empty message.
+keyboard scrolling remain available. Image thumbnails open the shared preview;
+filenames appear in tooltips and removal remains visible. Normal upload progress
+and Ready labels are hidden, while failures stay explicit. Send immediately
+stages the outgoing message and frees the Composer. Its captured attachment batch
+finishes staging and publishes canonical Space Files in the background before
+the message is formally posted. File-only messages need no invented caption.
+Failed attachments are never silently omitted, and publication failure preserves
+the entire message for retry with the same upload identities, including files
+that already published. Navigation preserves each conversation's attachment draft.
 
 After publication, Web submits only server-returned Space File references. A pending
 outgoing message may use a local image preview until the canonical signal with
@@ -3124,9 +3548,19 @@ Web renders trusted Agent-authored message bodies as safe Markdown in ordinary
 Spaces, Direct Messages, and threads. This presentation rule is independent of
 whether the message is a durable final Agent reply: the final-reply marker
 continues to gate execution-outcome presentation such as Navigation Actions and
-durable Agent work details. Human-authored message bodies remain plain text.
+durable Agent work details. Human-authored message bodies retain plain-text
+formatting while recognizing bare URLs and labeled Markdown links. External
+HTTP(S) and email links open separately with `noopener noreferrer`; code and raw
+HTML never become automatic link previews.
 The shared safe Markdown renderer strips raw HTML, does not render Markdown
 images, and applies the existing link and internal Space-reference policy.
+
+Durable, unrecalled Space messages share the same link-preview presenter across
+senders and threads. It renders compact cards below the body, enriches visible
+messages asynchronously, and initially shows at most three cards. Missing
+metadata leaves a usable domain link. Editing uses the new message revision;
+recalling removes the previews. Shared `LinkPreviewCard` owns presentation,
+while Web owns message lookup, access context, query caching, and disclosure.
 
 Web owns content typography separately from rendering semantics. The local
 shadcn Typeset stylesheet supplies element rhythm for rendered HTML, while
@@ -3485,9 +3919,13 @@ preserves the draft and never confirms access locally.
 
 The `@` picker optimizes for the common user action:
 selecting an Agent Profile authors Wake by default only when the current
-Core-owned Wakeability projection is `ready`, while keeping the visible composer
+Core-owned Wakeability projection is `ready`, or the canonical member projection
+provides an eligible offline waiting target, while keeping the visible composer
 text as a plain `@Name` mention. An unavailable or checking Agent defaults to
-Reference. The same picker surface exposes the other allowed relation without a
+Reference unless explicit waiting is supported. Eligible offline Wake uses
+`Wake when online` in the picker, token and relation menu. An offline state alone
+does not promise waiting: it also requires the current server-projected target.
+The same picker surface exposes the other allowed relation without a
 required second dialog: Wake uses `@`, and Reference uses a link-style symbol.
 Selecting a Human Profile creates a fixed Human Mention mark; people never
 receive an Agent relation selector.
@@ -3522,6 +3960,22 @@ precedes this check. Rejection restores the submitted draft if no next draft
 exists; otherwise it preserves the next draft and marks the local message as
 unsent. The Composer stays editable, and Reference authoring and ordinary text
 input remain available.
+
+Missing member data is separate from failed member loading. A draft containing
+structured mentions keeps its text and tokens while the initial snapshot loads;
+its send control waits and the Composer shows a muted loading hint. A failed read
+offers Retry. Ordinary text is not blocked by missing mention data. Composer
+feedback stays inside the input surface without a separate bordered warning box.
+
+Space live events refresh Space members in a bounded window, with one follow-up
+when an event arrives during the read. The app-shell listener alone refreshes
+shared Agent caches from account/organization-scoped browser invalidations.
+Invalidation versions are compared within their Space. Owner-only readiness
+reads never include another owner's Agent; those updates use the authorized
+organization overview. Partial overview updates are tied to their live Query
+instance and cannot overwrite a newer full response or a recreated cache.
+The send-time fresh members read is admission evidence, not another display-cache
+writer. Existing page freshness and bounded recovery timers remain unchanged.
 
 The Composer member picker reuses the shared Fluid layout indicator for its
 active row. Pointer hover and combobox keyboard navigation update that one
@@ -3620,9 +4074,9 @@ directly to that recorded result; Graph must not preserve a redundant
 `Replied`, `Failed`, or `Completed` Wake node between them. Structured statuses
 and system notices keep their recorded event semantics.
 
-The Space header presents those views in a stable two-row hierarchy. The first
+At the latest messages, the Space header presents a two-row hierarchy. The first
 row contains the Space name, access mode, live connection indicator, and
-right-aligned actions. The second row contains Messages and Graph below the
+right-aligned actions. The second row contains Messages and Files below the
 Space name. Those view labels align with the Space name and use a flat active
 underline that overlays the header divider. The Members action shows the active
 member total from the Space member projection. The header and Space sidebar do
@@ -3632,8 +4086,47 @@ in the Members surface. When dismissed contextual setup remains recallable,
 **Get set up** appears in the right-aligned action group immediately before
 **Members**. On compact screens only, the same recall control may move to the
 trailing edge of the second header row so the Space name remains identifiable;
-it stays visually separate from the **Messages** and **Graph** view control and
+it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
+
+While reading earlier messages in a Space, a small scroll switches the header
+fully into one compact row. Messages and Files move upward between the sidebar
+toggle and the title, separated from the title by a vertical divider. There is
+no scroll-progress interpolation and no diagonal travel. The same layout applies
+inside Desk windows; width checks use layout coordinates, unaffected by canvas
+zoom. Long titles truncate. Insufficient width and mobile setup recall retain
+the complete two-row layout. Direct messages retain their existing headers.
+Messages and Files share the same expanded/compact preference per Organization,
+Profile, and Space. Returning to the latest messages expands the header. A new
+preference starts expanded; obsolete intermediate-position preferences are not
+reused. Files does not drive compaction. A short vertical entrance runs once
+per collapse, with no travel under reduced motion.
+Latest-message observations update the read-through scheduler directly rather
+than publishing React state through the Space controller. Scrolling away cancels
+the pending read immediately without rerendering the transcript. Space/Profile
+changes require a fresh latest-message measurement; document visibility, access
+confirmation, and the normal read debounce still gate persistence.
+Scroll events only check distance from the latest messages. Layout and preference
+writes happen at the endpoint change, never per animation frame. The viewport
+height changes once with a matching scroll offset to preserve the reading anchor.
+A 4px collapse threshold and 1px expansion threshold avoid boundary oscillation.
+Geometry is observed only on resize; there is no animation-frame loop or subtree
+mutation observer.
+
+Messages and files share one pinned-item preview with previous/next navigation.
+The preview's X dismisses all pins for the reader; the original pinner gets a
+Fluid dropdown with Dismiss and Unpin message/file. A Pinned action immediately
+before Members restores the preview. Dismissal is saved per Organization,
+Human Profile, and Space in this browser, without changing shared pin state.
+
+Appearance includes Toolbar shortcuts for Computer, Center Agent, and Inbox.
+Each bottom shortcut also exposes a compact hide control on hover or keyboard
+focus, with Undo. Touch users customize shortcuts in Appearance. Browser-wide
+preferences apply on first paint; hiding all shortcuts removes the reserved
+bottom row while retaining the normal page inset and the Sidebar footer.
+Computer stays in the account menu above Settings. Its warning/danger avatar
+and menu indicators consume the same shared current-Computer presentation as
+the optional toolbar shortcut; hiding a shortcut does not clear attention.
 
 Selecting a Human or Agent identity in a Space opens one compact profile
 popover rather than a table-style details dialog. A Human popover shows the
@@ -3709,8 +4202,9 @@ They must show evidence as evidence: queued, routed, delivered, running,
 replied, failed, missing, pending, or degraded.
 
 Offline computer waiting uses progressive disclosure in both composers:
-**Send and wait** appears only for one current offline/reconnecting target, with
-a fixed 24-hour explanation. The current Agent Binding supplies the computer;
+**Send and wait** replaces the primary send button for one current eligible
+offline/reconnecting target, retaining the send icon and a compact 24-hour
+explanation to its left inside the Composer. The current Agent Binding supplies the computer;
 there is no device or deadline form. The deadline starts when the action is
 clicked. Current admission still rechecks the frozen selector before publication.
 Ordinary online Send and Reference-only authoring retain their existing meaning.

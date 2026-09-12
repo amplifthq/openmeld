@@ -41,7 +41,10 @@ vi.mock("framer-motion", async (importOriginal) => {
 
 vi.mock("@xyflow/react", async () => {
 	const React = await import("react");
+	const actual =
+		await vi.importActual<typeof import("@xyflow/react")>("@xyflow/react");
 	return {
+		ReactFlowProvider: actual.ReactFlowProvider,
 		Background: (props: Record<string, unknown>) => {
 			reactFlowState.backgroundProps = props;
 			return null;

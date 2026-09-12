@@ -615,7 +615,7 @@ test("stamp --next writes the shared channel decision into the package and manif
   }
 });
 
-test("stamp restores the package version when a versioned build fails", async () => {
+test("stamp restores the package version and required floor when a build fails", async () => {
   const repoRoot = await createFixtureRepo();
   const packageJsonPath = join(repoRoot, "clients/openmeld-cli/package.json");
   try {
@@ -634,7 +634,7 @@ test("stamp restores the package version when a versioned build fails", async ()
           "--version",
           "1.2.4",
           "--cli",
-          "available",
+          "required",
           "--service",
           "available",
           "--skills",
@@ -1222,54 +1222,68 @@ test("collects the published CLI required floor without leaking it into the mani
   }
 });
 
-test("stamp projects the CLI floor for required releases and carries it forward", async () => {
-  const repoRoot = await createFixtureRepo();
-  const packageJsonPath = join(repoRoot, "clients/openmeld-cli/package.json");
-  try {
-    await initFixtureGitRepo(repoRoot);
-    const base = await readGitHead(repoRoot);
-    const dependencies = FIXTURE_STAMP_DEPENDENCIES;
-    await runLocalComponentsReleaseTool(
-      [
-        "stamp",
-        "--repo-root",
-        repoRoot,
-        "--base",
-        base,
-        "--cli",
-        "required",
-        "--reason",
-        "CLI command contract bump",
-        "--now",
-        "2026-06-01T00:00:00.000Z",
-      ],
-      dependencies
-    );
-    const stamped = JSON.parse(await readFile(packageJsonPath, "utf8"));
-    assert.equal(stamped.openmeld.minRequiredCliVersion, "1.2.3");
+for (const command of [
+  ["stamp", "--cli", "required"],
+  ["require", "cli"],
+]) {
+  test(`${command[0]} builds with the required CLI floor and carries it forward`, async () => {
+    const repoRoot = await createFixtureRepo();
+    const packageJsonPath = join(repoRoot, "clients/openmeld-cli/package.json");
+    try {
+      await initFixtureGitRepo(repoRoot);
+      const base = await readGitHead(repoRoot);
+      const dependencies = {
+        buildPackagedOpenMeldCli: async () => {
+          const packageJson = JSON.parse(
+            await readFile(packageJsonPath, "utf8")
+          );
+          assert.equal(
+            packageJson.openmeld?.minRequiredCliVersion,
+            "1.2.3",
+            "the bundle must be built from the package that will be published"
+          );
+        },
+      };
+      await runLocalComponentsReleaseTool(
+        [
+          ...command,
+          "--repo-root",
+          repoRoot,
+          "--base",
+          base,
+          "--reason",
+          "CLI command contract bump",
+          "--now",
+          "2026-06-01T00:00:00.000Z",
+        ],
+        dependencies
+      );
+      const stamped = JSON.parse(await readFile(packageJsonPath, "utf8"));
+      assert.equal(stamped.openmeld.minRequiredCliVersion, "1.2.3");
 
-    await runLocalComponentsReleaseTool(
-      [
-        "stamp",
-        "--repo-root",
-        repoRoot,
-        "--base",
-        base,
-        "--cli",
-        "available",
-        "--reason",
-        "Advisory fix",
-        "--now",
-        "2026-06-02T00:00:00.000Z",
-      ],
-      dependencies
-    );
-    const carried = JSON.parse(await readFile(packageJsonPath, "utf8"));
-    assert.equal(carried.openmeld.minRequiredCliVersion, "1.2.3");
-  } finally {
-    await rm(repoRoot, { recursive: true, force: true });
-  }
-});
+      await runLocalComponentsReleaseTool(
+        [
+          "stamp",
+          "--repo-root",
+          repoRoot,
+          "--base",
+          base,
+          "--cli",
+          "available",
+          "--reason",
+          "Advisory fix",
+          "--now",
+          "2026-06-02T00:00:00.000Z",
+        ],
+        dependencies
+      );
+      const carried = JSON.parse(await readFile(packageJsonPath, "utf8"));
+      assert.equal(carried.openmeld.minRequiredCliVersion, "1.2.3");
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+}
 
 test("flags a CLI floor that drifts from the required policy", () => {
   const facts = createFacts();

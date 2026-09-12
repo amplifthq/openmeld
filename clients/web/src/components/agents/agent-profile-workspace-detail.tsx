@@ -13,6 +13,7 @@ import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import { Card, CardContent, CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	resolveStatusToneBadgeClassName,
@@ -26,7 +27,6 @@ import {
 	CheckCircleIcon,
 	ClockCountdownIcon,
 	DesktopTowerIcon,
-	HashIcon,
 	PencilSimpleIcon,
 	ProhibitIcon,
 	WarningCircleIcon,
@@ -38,6 +38,8 @@ import type {
 } from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
+import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
@@ -63,6 +65,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	overflowActions: ReactNode;
 	profile: AuthProfileView;
 	supportingContent?: ReactNode;
+	conversationViewerProfileId?: string | null;
 	wakeAvailability: AgentWakeAvailability | null;
 	wakeAvailabilityCheckedAt: string | null;
 	wakeAvailabilityErrorMessage: string | null;
@@ -119,7 +122,7 @@ export function AgentProfileWorkspaceDetail(input: {
 						size={96}
 						working={input.operationalContext?.status === "working"}
 					/>
-					<div className="flex @[42rem]/agent-detail:h-24 min-w-0 flex-1 flex-col pt-1">
+					<div className="flex @[42rem]/agent-detail:min-h-24 min-w-0 flex-1 flex-col pt-1">
 						<div className="flex min-w-0 items-center gap-2">
 							<AgentProfileNameEditor
 								adornment={
@@ -165,6 +168,7 @@ export function AgentProfileWorkspaceDetail(input: {
 					</div>
 				</div>
 			</div>
+			<AgentProfileUsage profileId={input.profile.openMeldProfileId} />
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
 				currentSession={input.currentSession}
@@ -175,6 +179,17 @@ export function AgentProfileWorkspaceDetail(input: {
 			{input.configurationContent}
 			{input.supportingContent ? (
 				<div className="max-w-3xl">{input.supportingContent}</div>
+			) : null}
+			{showOwnerOperationalContext && input.conversationViewerProfileId ? (
+				<AgentProfileConversationsSection
+					agent={{
+						id: input.profile.openMeldProfileId,
+						name: input.profile.profileName,
+						agentControllerRef: input.agentControllerRef,
+					}}
+					key={input.profile.openMeldProfileId}
+					viewerProfileId={input.conversationViewerProfileId}
+				/>
 			) : null}
 		</div>
 	);
@@ -232,45 +247,49 @@ function AgentProfilePresence(input: {
 		</span>
 	);
 	return (
-		<div
-			aria-live="polite"
-			className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
-			data-agent-presence-status={presentation.status}
-			data-testid="agent-profile-presence"
-			title={presentation.tooltip}
-		>
-			{presenceIcon}
-			{presenceLabel}
-			{checkedAt ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					· {checkedAt}
-				</span>
-			) : null}
-			{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					Refreshing…
-				</span>
-			) : null}
-			{presentation.reason ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					{presentation.reason}
-				</span>
-			) : null}
-			{input.headerRecoveryActions ? (
-				<div
-					className="flex max-w-full flex-wrap items-center gap-2"
-					data-testid="agent-profile-header-recovery-actions"
-				>
-					{input.headerRecoveryActions}
-				</div>
-			) : null}
-			{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
-				<span className="text-muted-foreground text-xs" role="alert">
-					Couldn’t refresh availability.
-					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
-				</span>
-			) : null}
-		</div>
+		<TooltipHint content={presentation.tooltip}>
+			<div
+				aria-live="polite"
+				className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+				data-agent-presence-status={presentation.status}
+				data-testid="agent-profile-presence"
+			>
+				{presenceIcon}
+				{presenceLabel}
+				{checkedAt ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						· {checkedAt}
+					</span>
+				) : null}
+				{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						Refreshing…
+					</span>
+				) : null}
+				{presentation.reason ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						{presentation.reason}
+					</span>
+				) : null}
+				{input.headerRecoveryActions ? (
+					<div
+						className="flex max-w-full flex-wrap items-center gap-2"
+						data-testid="agent-profile-header-recovery-actions"
+					>
+						{input.headerRecoveryActions}
+					</div>
+				) : null}
+				{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
+					<span className="text-muted-foreground text-xs" role="alert">
+						Couldn’t refresh availability.
+						<span className="sr-only">
+							{" "}
+							{input.wakeAvailabilityErrorMessage}
+						</span>
+					</span>
+				) : null}
+			</div>
+		</TooltipHint>
 	);
 }
 
@@ -642,9 +661,10 @@ function ActivityDestinationLink(input: {
 		resolveActivitySourceLabel(input.destination.source);
 	const isInterrupted = input.state === "interrupted";
 	let icon = <DesktopTowerIcon aria-hidden="true" className="size-4" />;
-	if (input.destination.source === "space") {
-		icon = <HashIcon aria-hidden="true" className="size-4" />;
-	} else if (input.destination.source === "direct_message") {
+	if (
+		input.destination.source === "space" ||
+		input.destination.source === "direct_message"
+	) {
 		icon = <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 	}
 	return (

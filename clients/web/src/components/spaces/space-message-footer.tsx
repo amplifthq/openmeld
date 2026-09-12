@@ -20,10 +20,13 @@ import {
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowBendUpLeftIcon,
+	ArrowUUpLeftIcon,
 	ChatCircleIcon,
 	CopyIcon,
 	DotsThreeIcon,
+	PencilSimpleIcon,
 	PushPinIcon,
+	SmileyIcon,
 	TargetIcon,
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
@@ -36,7 +39,6 @@ import {
 	MessageDetailsActionButton,
 } from "./space-message-actions";
 import { useSpaceMessageEditing } from "./space-message-editing";
-import { useSpaceMessagePinAction } from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
 	MessageReactionIcon,
@@ -46,6 +48,8 @@ import {
 	type useMessageReactions,
 	useMessageReactionsContext,
 } from "./space-message-reactions";
+import { useSpaceMessagePinAction } from "./space-pins";
+import { SpaceMessageWakeRecommendation } from "./space-wake-recommendation";
 
 export type SpaceMessageFooterAddressingTarget = {
 	agentControllerRef: string | null;
@@ -137,19 +141,37 @@ export function SpaceMessageFooter(
 		input.item.deliveryState === "sent"
 			? input.item
 			: null;
-	if (
-		input.item?.recalledAt ||
-		(input.item?.id && editing?.edit?.id === input.item.id)
-	) {
+	if (input.item?.recalledAt) {
 		return null;
 	}
+	if (input.item?.id && editing?.edit?.id === input.item.id) {
+		return (
+			<div
+				className="w-full min-w-0"
+				data-slot="message-edit-actions"
+				ref={editing.setActionContainer}
+			/>
+		);
+	}
 	return (
-		<SpaceMessageFooterContent
-			{...input}
-			onEdit={editableItem ? () => editing?.beginEdit(editableItem) : undefined}
-			onRecall={editableItem ? () => editing?.recall(editableItem) : undefined}
-			reaction={reaction}
-		/>
+		<>
+			{editableItem ? (
+				<SpaceMessageWakeRecommendation
+					align={input.align}
+					item={editableItem}
+				/>
+			) : null}
+			<SpaceMessageFooterContent
+				{...input}
+				onEdit={
+					editableItem ? () => editing?.beginEdit(editableItem) : undefined
+				}
+				onRecall={
+					editableItem ? () => editing?.recall(editableItem) : undefined
+				}
+				reaction={reaction}
+			/>
+		</>
 	);
 }
 
@@ -433,6 +455,15 @@ function MessageFooterMoreMenu(input: {
 	reply?: SpaceMessageFooterAction;
 	thread?: SpaceMessageFooterAction;
 }) {
+	const actionIds = [
+		input.edit && "edit",
+		input.pin && "pin",
+		input.onViewReactions && "reactions",
+		input.onCopy && "copy",
+		input.reply && "reply",
+		input.thread && "thread",
+		input.recall && "recall",
+	].filter(Boolean);
 	return (
 		<DropdownMenu onOpenChange={input.onOpenChange} open={input.open}>
 			<MessageActionTooltip label="More actions">
@@ -452,39 +483,37 @@ function MessageFooterMoreMenu(input: {
 					{input.edit ? (
 						<FluidDropdownMenuItem
 							className="w-full"
-							index={0}
+							index={actionIds.indexOf("edit")}
 							onClick={input.edit}
 						>
+							<PencilSimpleIcon aria-hidden="true" />
 							Edit message
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.recall ? (
-						<FluidDropdownMenuItem
-							className="w-full"
-							index={1}
-							onClick={input.recall}
-							variant="destructive"
-						>
-							Recall message
-						</FluidDropdownMenuItem>
-					) : null}
-					{input.onViewReactions ? (
-						<FluidDropdownMenuItem index={2} onClick={input.onViewReactions}>
-							View reactions
 						</FluidDropdownMenuItem>
 					) : null}
 					{input.pin ? (
 						<FluidDropdownMenuItem
 							disabled={input.pin.disabled}
-							index={0}
+							index={actionIds.indexOf("pin")}
 							onClick={input.pin.onSelect}
 						>
 							<PushPinIcon aria-hidden="true" />
 							{input.pin.label}
 						</FluidDropdownMenuItem>
 					) : null}
+					{input.onViewReactions ? (
+						<FluidDropdownMenuItem
+							index={actionIds.indexOf("reactions")}
+							onClick={input.onViewReactions}
+						>
+							<SmileyIcon aria-hidden="true" />
+							View reactions
+						</FluidDropdownMenuItem>
+					) : null}
 					{input.onCopy ? (
-						<FluidDropdownMenuItem index={1} onClick={input.onCopy}>
+						<FluidDropdownMenuItem
+							index={actionIds.indexOf("copy")}
+							onClick={input.onCopy}
+						>
 							<CopyIcon aria-hidden="true" />
 							Copy message
 						</FluidDropdownMenuItem>
@@ -492,7 +521,7 @@ function MessageFooterMoreMenu(input: {
 					{input.reply ? (
 						<FluidDropdownMenuItem
 							disabled={input.reply.disabled}
-							index={2}
+							index={actionIds.indexOf("reply")}
 							onClick={input.reply.onSelect}
 						>
 							<ArrowBendUpLeftIcon aria-hidden="true" />
@@ -502,7 +531,7 @@ function MessageFooterMoreMenu(input: {
 					{input.thread ? (
 						<FluidDropdownMenuItem
 							disabled={input.thread.disabled}
-							index={3}
+							index={actionIds.indexOf("thread")}
 							onClick={input.thread.onSelect}
 						>
 							<ChatCircleIcon aria-hidden="true" />
@@ -521,6 +550,17 @@ function MessageFooterMoreMenu(input: {
 								/>
 							</DropdownMenuSubContent>
 						</DropdownMenuSub>
+					) : null}
+					{input.recall ? (
+						<FluidDropdownMenuItem
+							className="w-full"
+							index={actionIds.indexOf("recall")}
+							onClick={input.recall}
+							variant="destructive"
+						>
+							<ArrowUUpLeftIcon aria-hidden="true" />
+							Recall message
+						</FluidDropdownMenuItem>
 					) : null}
 				</DropdownMenuGroup>
 			</FluidDropdownMenuContent>

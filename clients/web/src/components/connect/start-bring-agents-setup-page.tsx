@@ -156,6 +156,7 @@ export type StartBringAgentsSetupPageProps = {
 };
 
 type ComputerSetupFlowProps = StartBringAgentsSetupPageProps & {
+	onContinue?: () => void;
 	onCompleted?: (snapshot: PrepareSessionSnapshot) => void;
 	onNavigationActionAlreadyStarted?: () => void;
 	preferExistingConnection?: boolean;
@@ -598,6 +599,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 					copyCommand={prepareSession.copyCommand}
 					copyStatus={prepareSession.copyStatus}
 					isRefreshingCommand={prepareSession.isRefreshingCommand}
+					onContinue={input.onContinue}
 					onStartOver={prepareSession.startOver}
 					opaqueTokenExpiresAt={prepareSession.commandExpiresAt}
 					presentation={input.presentation}
@@ -786,6 +788,7 @@ function EmbeddedSetupError(input: {
 }
 
 function PrepareSessionTimeline(input: {
+	onContinue?: () => void;
 	command: string | null;
 	commandPlatform: WebSetupCommandPlatform;
 	completionTarget: string;
@@ -899,11 +902,12 @@ function PrepareSessionTimeline(input: {
 							<ServiceUpdateVerificationNotice
 								verification={input.serviceUpdateVerification}
 							/>
-							{input.presentation !== "embedded" ? (
+							{input.presentation !== "embedded" || input.onContinue ? (
 								<PrepareReadyActions
 									completionReadiness={completionReadiness}
 									completionTarget={input.completionTarget}
 									completionVerified={step.state === "complete"}
+									onContinue={input.onContinue}
 									onStartOver={input.onStartOver}
 									presentation={input.presentation}
 									routeIntent={input.setup.routeIntent}
@@ -947,6 +951,7 @@ function ServiceUpdateVerificationNotice(input: {
 }
 
 function PrepareReadyActions(input: {
+	onContinue?: () => void;
 	completionReadiness: PrepareCompletionReadinessState;
 	completionTarget: string;
 	completionVerified: boolean;
@@ -980,7 +985,12 @@ function PrepareReadyActions(input: {
 					>
 						Set up again
 					</Button>
-					{input.completionVerified && input.presentation === "page" ? (
+					{input.completionVerified && input.onContinue ? (
+						<Button onClick={input.onContinue}>{continueLabel}</Button>
+					) : null}
+					{input.completionVerified &&
+					!input.onContinue &&
+					input.presentation === "page" ? (
 						<Link className={buttonVariants()} to={input.completionTarget}>
 							{continueLabel}
 						</Link>

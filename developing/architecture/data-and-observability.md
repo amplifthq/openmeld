@@ -20,6 +20,42 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Human Presence
+
+Core owns Organization-scoped Human presence independently of Computer connection,
+Agent Activity, Wakeability, and historical member activity. Authenticated Web
+pages report their own random session ID and increasing sequence through
+`/v1/organizations/current/member-presence`; Core re-verifies the current member
+and active Human Profile and assigns all timestamps. One active session makes
+the member Online. A departing page affects only itself. Older or duplicate
+reports cannot renew a lease or overwrite a newer departure.
+
+Active foreground pages renew every 30 seconds. A lease expires after 90 seconds,
+and five minutes without a Human interaction independently ends online presence.
+Heartbeat-only sessions cannot establish presence. A temporary loss of focus or
+hidden tab stops renewals without sending a departure; the existing 90-second
+server lease bounds this grace period. Returning to the foreground resumes the
+same session. Space navigation within one Organization does not recreate it.
+Page departure or account/Organization exit ends its lease;
+missing departure delivery relies on expiry. Expired records retain ordering and
+are pruned on the member's next write after 24 hours; they are not an activity log.
+Reads re-check current Organization membership and current active profile identity.
+Clients consume one authorized batch projection, never Computer state or
+`lastActiveAt` to determine Online. Errors or missing evidence remain unknown.
+
+Historical activity stays in `organization_member_activity`. Web entry, foreground
+return, and actual interaction may advance it through its existing bounded writer;
+presence renewals alone do not. Accepted Human messages retain their historical
+activity semantics and do not claim sustained online presence. Space visit time
+keeps its own scope. No system-wide input or interaction contents are collected.
+
+The new endpoint and table are additive. Existing directory and activity payloads
+are unchanged for older CLI, Service, Skills, and cloud clients. Deployment order
+is additive database migration, Core, Gateway, then Web. New Web against an older
+receiver displays unknown presence; it never falls back to Computer connection.
+Setup, Wake, Space actions, and diagnostics remain interoperable without a local
+component contract bump. Rollback may retain the additive table.
+
 ## Space pin ownership
 
 Space Durable Object SQLite owns message and file pins, in separate
@@ -182,7 +218,12 @@ Auth also owns `account_sidebar_preferences`, keyed by account user ID and
 Organization ID. It stores personal group names, opaque Space IDs, section sort
 modes, and manual ordering. Membership gates reads and writes; revision-checked
 updates reject stale devices instead of overwriting newer preferences. These
-preferences never grant Space access, write pins, or change Space membership.
+preferences never grant Space access, write ordinary Space/DM pin membership,
+or change Space membership. The shared Conversations Pinned section reads its
+manual order from the existing root `pinned.spaceIds`; ordinary pin membership
+continues to come from Space Index. Center Agent session pins remain in the
+existing `chats` preferences. Grouped and Recent are two Web presentations of
+these same owners, with no new conversation store or execution authority.
 The Web renders only Spaces returned by the existing authorized Space Index.
 Deleting a personal group removes its presentation association only.
 
@@ -400,6 +441,32 @@ preparation failure or exact completed replay does not create a misleading
 audit row.
 
 ## Connector Connection Data Boundary
+
+Connection access policy and revision live on `connector_connections`.
+`connector_access_events` records the actor, prior and next policies, and the
+new revision in the same D1 transaction as a conditional policy update. These
+records contain no provider credentials. Core owns this policy for Center,
+Local, and personal Remote Agent consumers.
+
+Local plugin calls reuse `center_agent_connector_action_operations` and the
+existing audit journal; its historical physical name does not restrict its
+consumer. A claim freezes the authenticated Agent, represented member, selected
+connection, input signature, and operation ID. An exact replay returns that
+record, including after revocation, and never starts a second provider call.
+New operations recheck access immediately before claiming. A revocation blocks
+new admission; it does not cancel a provider action already admitted.
+Unknown provider outcomes remain unknown and require investigation rather than
+automatic resubmission. Provider response data is returned to the caller but
+is not copied into the operation ledger.
+
+`plugin_action_confirmations` stores short-lived, exact-request confirmations
+bound to the organization, Agent, signature (including operation ID), and access
+revision. The operation ledger fences duplicate execution. Expired confirmation
+rows are removed when issuing new confirmations. The existing Remote Agent
+worker hosts the credential-bearing executor through an internal service
+binding, independently of any conversation or LLM. It rechecks provider action
+metadata against the admitted effect before execution. No broad runtime token
+or provider credential is returned to a CLI.
 
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,
@@ -974,6 +1041,14 @@ hierarchy, current placement, revision sequence, Trash state, and actor
 attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
+
+The same Space owns `space_file_update_settings` and
+`space_file_update_outbox`. The file revision transaction enqueues notification
+intent only when a human has configured recipients; the deterministic identity
+is the file id plus revision. Alarm recovery publishes through the ordinary
+Space message, Inbox projection, and dispatch outbox paths, rechecking current
+consent and access. Retry state stores its last error and next attempt locally.
+These rows do not own Wake execution or claim that recipients read the file.
 
 Private immutable revision bytes live in the Space file R2 binding under the
 shared key constructor:
@@ -2932,6 +3007,57 @@ their words must never be searched for fragments such as `publication` or
 CLI trace is a user-operable diagnostic surface. Operator shortcuts may wrap it,
 but they must stay thin wrappers and must not become direct D1 readers or a
 second trace system.
+
+### Automatic Wake failure discovery
+
+`pnpm ops:wake-failures` is the privileged developer failure list. It discovers
+automatically retained failure facts without a user submitting Send report.
+Dispatch attempts own execution/admission failure evidence; RuntimeCoordinator
+execution events own workstation reply-publication failure evidence. The list
+is a read projection of these existing records, not a new report table, writer,
+notification queue, or execution authority. Unlike trace wrappers, this bounded
+discovery command may read these D1 projections using operator credentials.
+Detailed investigation still uses the authorized Space trace and Cloudflare
+selectors returned in each record. Discovery does not grant Space membership.
+
+The default interval is 24 hours; a request is limited to 30 days and 200 rows.
+The cursor uses the observation timestamp plus the source record ID, and callers
+reuse the returned interval for later pages. Group counts cover only the current
+page. Attempt observation uses its first recorded finish time, falling back to
+creation time only for older rows without a finish timestamp. Existing evidence
+retention applies; missing or delayed projection writes
+are not inferred as successful executions. A missing correlation row preserves
+the failure with null pointers instead of silently dropping it.
+
+Repeated lifecycle callbacks update one attempt primary key; publication events
+use their existing idempotency key. Independent failed attempts remain auditable
+even after a later successful attempt. Groups separate attempt failures from
+publication failures and preserve the structured reason code. Retryable failures
+are not represented as final Wake outcomes. The exact admission reasons
+`runtime_coordinator.device_waiting` and
+`runtime_coordinator.agent_profile_execution_active` describe expected waiting
+and are excluded only on retryable attempts. Terminal failures remain visible
+even if they reuse one of those reason codes. User cancellation, running work,
+and success are not failures.
+No failure produces a new message, GitHub Issue, or human Diagnostic Report.
+The command selects identifiers, statuses, timestamps, and reason codes only;
+it never selects prompts, result bodies, raw error messages, or event payloads.
+
+Remote Agent observes each provider stream's terminal `done` or `error` event
+before empty-response retry suppression and token-usage merging. The shared
+`remoteAgentProviderCompletionSchema` bounds the structured completion log:
+submission ID, call ID, provider attempt number, response ID, stop reason,
+allowlisted raw stop reason, trimmed text/thinking lengths, tool count, and
+numeric usage. It excludes text, reasoning, tool arguments, and error bodies.
+The existing Analytics Engine execution-stage event also records the content
+kind and stop reason, for example `provider.completed_empty_stop`. A completed
+provider stream is not proof of a successful Wake or published reply.
+
+Completion observation adds no retry, per-token logging, execution timeout, or
+cross-service payload field. Reporter failure cannot interrupt stream delivery.
+These completion logs follow Workers log retention/access and Analytics Engine
+sampling; they are supporting evidence, not an unsampled durable failure ledger.
+An absent terminal event remains an evidence gap, not proof of an empty response.
 
 `EvidenceSyncHealth` is an owner-only diagnostic read model for explaining
 whether the evidence channels behind Wakeability were read, missing,

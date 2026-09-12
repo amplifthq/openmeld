@@ -2170,6 +2170,10 @@ describe("OpenMeld Core", () => {
 
   it("keeps an Agent owner read-only until they explicitly join and convert the Direct Message", async () => {
     const organizationId = "org-agent-owner-observer";
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: "owner-dm-participant",
+    });
     const participantProfileId = SECOND_HUMAN_PROFILE_ID;
     const agentProfileId = "agt_55555555-5555-4555-8555-555555555555";
     const ownerHumanProfileId = THIRD_HUMAN_PROFILE_ID;
@@ -2406,6 +2410,10 @@ describe("OpenMeld Core", () => {
 
   it("reconciles an existing Agent owner after another member converts the Direct Message", async () => {
     const organizationId = "org-agent-owner-member-conversion";
+    await ensureTestOrganizationMembership({
+      organizationId,
+      userId: "owner-member-conversion-participant",
+    });
     const participantProfileId = SECOND_HUMAN_PROFILE_ID;
     const agentProfileId = "agt_58585858-5858-4585-8585-585858585858";
     const ownerHumanProfileId = THIRD_HUMAN_PROFILE_ID;
@@ -2935,7 +2943,7 @@ describe("OpenMeld Core", () => {
     );
   });
 
-  it("rejects member removal from humans outside the creator account", async () => {
+  it("rejects member removal by a human who is not a Space owner", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
       profileKind: "human",
@@ -2997,11 +3005,11 @@ describe("OpenMeld Core", () => {
     };
     expect(removePayload.code).toBe("space.forbidden");
     expect(removePayload.message).toBe(
-      "member removal is only allowed for the creator account human"
+      "Only a Space owner can manage members."
     );
   });
 
-  it("rejects removing the active creator through POST /members/remove", async () => {
+  it("rejects removing an active owner through POST /members/remove", async () => {
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
       profileKind: "human",
@@ -3061,8 +3069,8 @@ describe("OpenMeld Core", () => {
       code?: string;
       message?: string;
     };
-    expect(removePayload.code).toBe("space.members.creator_forbidden");
-    expect(removePayload.message).toContain("space creator");
+    expect(removePayload.code).toBe("space.members.owner_forbidden");
+    expect(removePayload.message).toContain("owner");
   });
 
   it("enforces space password on http routes and websocket stream", async () => {
@@ -3883,7 +3891,7 @@ describe("OpenMeld Core", () => {
     expect(payload.message).toBe("space not found");
   });
 
-  it("rejects delete for non-creator profile", async () => {
+  it("rejects deletion by a profile without Space ownership", async () => {
     const creatorProfileId = "hum-space-owner-1";
     const spaceId = await createSpace(
       { name: "owner-only-delete" },
@@ -3913,7 +3921,7 @@ describe("OpenMeld Core", () => {
       message?: string;
     };
     expect(payload.code).toBe("space.forbidden");
-    expect(payload.message).toBe("only space creator can delete this space");
+    expect(payload.message).toBe("Only a Space owner can delete this Space.");
   });
 
   it("requires human confirmation for agent-created space deletion", async () => {
@@ -3946,9 +3954,7 @@ describe("OpenMeld Core", () => {
       message?: string;
     };
     expect(payload.code).toBe("space.human_confirmation_required");
-    expect(payload.message).toBe(
-      "agent-created spaces require owner human confirmation"
-    );
+    expect(payload.message).toBe("A Space owner must confirm deletion.");
   });
 
   it("allows owner human to delete agent-created space", async () => {
@@ -4015,9 +4021,7 @@ describe("OpenMeld Core", () => {
       message?: string;
     };
     expect(payload.code).toBe("space.forbidden");
-    expect(payload.message).toBe(
-      "only owner human can delete this agent-created space"
-    );
+    expect(payload.message).toBe("Only a Space owner can delete this Space.");
   });
 
   it("rejects unauthenticated signals requests with 401", async () => {
@@ -4651,7 +4655,7 @@ describe("OpenMeld Core", () => {
     await expect(patchPurposeResponse.json()).resolves.toMatchObject({
       code: "space.forbidden",
       message:
-        "Space purpose is system-managed and cannot be changed through metadata updates.",
+        "Space purpose and creator attribution cannot be changed through metadata updates.",
     });
   });
 
@@ -7792,6 +7796,10 @@ describe("OpenMeld Core", () => {
 
   it("translates legacy Human References from OpenMeld Service replies", async () => {
     const spaceId = await createSpace();
+    await ensureTestOrganizationMembership({
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      userId: "owner-legacy-service-agent",
+    });
     const agentProfileId = `agt_${randomUUID()}`;
     const addResponse = await fetchWithOpenMeldAuth(
       `${BASE_URL}/v1/spaces/${spaceId}/members`,
@@ -8326,6 +8334,10 @@ describe("OpenMeld Core", () => {
   });
 
   it("supports direct DO rpc methods and applies space ref per request", async () => {
+    await ensureTestOrganizationMembership({
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      userId: "rpc-direct-owner",
+    });
     const spaceId = await createSpace({
       name: `rpc-direct-${Date.now()}`,
       guide: "direct-rpc guideline",
@@ -8440,7 +8452,12 @@ describe("OpenMeld Core", () => {
     const patchedMeta = await stub.rpcPatchMeta({
       spaceId,
       guide: "direct-rpc guideline updated",
-      context: rpcContext,
+      context: createRpcContext({
+        requestId: "rpc-direct-owner-update",
+        profileId: DEFAULT_HUMAN_PROFILE_ID,
+        profileKind: "human",
+        ownerUserId: "owner-test-default",
+      }),
     });
     expect(patchedMeta.guide).toBe("direct-rpc guideline updated");
 
@@ -8978,6 +8995,10 @@ describe("OpenMeld Core", () => {
   });
 
   it("persists the authenticated agent's Space member name instead of a requested profile display", async () => {
+    await ensureTestOrganizationMembership({
+      organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+      userId: "owner-author-name-agent",
+    });
     const creatorProfile: Partial<TestAuthProfile> = {
       profileId: SECOND_HUMAN_PROFILE_ID,
       profileKind: "human",
@@ -11463,7 +11484,7 @@ describe("OpenMeld Core", () => {
         profileId: FOURTH_HUMAN_PROFILE_ID,
         profileKind: "human",
         profileName: "Leaving Human",
-        ownerUserId: "owner-index-degraded-2",
+        ownerUserId: "owner-index-degraded-leaver",
         openMeldProfileId: FOURTH_HUMAN_PROFILE_ID,
       };
       const spaceId = await createSpace(
@@ -11565,6 +11586,10 @@ function isTextSignalEnvelope(
   return value?.type === "signal.text";
 }
 it("enforces message pin ownership through the authorized Space RPC", async () => {
+  await ensureTestOrganizationMembership({
+    organizationId: DEFAULT_TEST_ORGANIZATION_ID,
+    userId: "other-pin-owner",
+  });
   const spaceId = await createSpace();
   const signal = await postTextSignal(
     spaceId,

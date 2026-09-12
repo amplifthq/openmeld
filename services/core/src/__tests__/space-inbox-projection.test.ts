@@ -49,6 +49,90 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it.each([
+    true,
+    false,
+  ])("notifies the replying Agent's absent owner in DM=%s even without a human requester", async (directMessage) => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("agent", "owner", "agent"),
+        member("other-agent", "other-owner", "agent"),
+      ],
+      directMessage,
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Design review",
+      signal: textSignal({
+        authorKind: "agent",
+        authorName: "Design Agent",
+        authorProfileId: "agent",
+        text: "The review is ready.",
+      }),
+    });
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "owner",
+        kind: "agent_reply",
+        importance: "normal",
+        sourceTarget: expect.objectContaining({
+          agentOwnerActivity: true,
+          directMessage,
+          signalId: "signal-1",
+        }),
+      }),
+    ]);
+    expect(
+      await selectSpaceInboxRecipients(
+        record?.candidates ?? [],
+        async () => false
+      )
+    ).toEqual([]);
+  });
+
+  it.each([
+    "owner",
+    "requester",
+  ])("keeps one owner reply item when %s Wakes the Agent", async (wakeRequesterUserId) => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("owner-human", "owner", "human"),
+        member("requester-human", "requester", "human"),
+        member("agent", "owner", "agent"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Review",
+      wakeRequesterUserId,
+      signal: textSignal({
+        authorKind: "agent",
+        authorName: "Design Agent",
+        authorProfileId: "agent",
+        text: "Done.",
+      }),
+      signalContext: {
+        threadContext: { rootSignalId: "thread-root", threadId: "thread-1" },
+        threadPlacement: "thread",
+      },
+    });
+    const candidates = await selectSpaceInboxRecipients(
+      record?.candidates ?? [],
+      async () => true
+    );
+    expect(
+      candidates.filter((item) => item.recipientUserId === "owner")
+    ).toEqual([
+      expect.objectContaining({
+        kind: "agent_reply",
+        importance: "normal",
+        sourceTarget: expect.objectContaining({
+          threadRootSignalId: "thread-root",
+        }),
+      }),
+    ]);
+    expect(candidates.map((item) => item.recipientUserId).sort()).toEqual(
+      wakeRequesterUserId === "owner" ? ["owner"] : ["owner", "requester"]
+    );
+  });
   it("notifies an absent personal Agent owner once and preserves normal recipients for managed Agents", async () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
@@ -295,7 +379,7 @@ describe("Space Inbox projection", () => {
     ).toBe(false);
   });
 
-  it("classifies a final agent message as an agent reply only for the exact requester", () => {
+  it("keeps a managed Agent reply scoped to the requester after owner eligibility is checked", async () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [
         member("profile-human", "user-human", "human"),
@@ -315,7 +399,12 @@ describe("Space Inbox projection", () => {
       wakeRequesterUserId: "user-human",
     });
 
-    expect(record?.candidates).toEqual([
+    expect(
+      await selectSpaceInboxRecipients(
+        record?.candidates ?? [],
+        async () => false
+      )
+    ).toEqual([
       expect.objectContaining({
         kind: "agent_reply",
         recipientUserId: "user-human",
@@ -367,6 +456,11 @@ describe("Space Inbox projection", () => {
       expect.objectContaining({
         kind: "agent_reply",
         recipientUserId: "user-thread-author",
+      }),
+      expect.objectContaining({
+        kind: "agent_reply",
+        recipientUserId: "user-agent-owner",
+        sourceTarget: expect.objectContaining({ agentOwnerActivity: true }),
       }),
     ]);
     expect(
@@ -784,7 +878,12 @@ describe("Space Inbox projection", () => {
         text: "Here is the result.",
       }),
     };
-    expect(buildSpaceInboxProjectionOutboxRecord(input)).toBeNull();
+    expect(buildSpaceInboxProjectionOutboxRecord(input)?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "owner",
+        kind: "agent_reply",
+      }),
+    ]);
     const record = buildSpaceInboxProjectionOutboxRecord({
       ...input,
       directMessage: true,
@@ -795,6 +894,11 @@ describe("Space Inbox projection", () => {
         kind: "agent_reply",
         importance: "normal",
         sourceTarget: expect.objectContaining({ directMessage: true }),
+      }),
+      expect.objectContaining({
+        recipientUserId: "owner",
+        kind: "agent_reply",
+        importance: "normal",
       }),
     ]);
   });

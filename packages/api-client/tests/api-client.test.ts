@@ -502,6 +502,48 @@ describe("@openmeld/api-client", () => {
     });
   });
 
+  it.each([
+    "timeout",
+    "caller",
+  ] as const)("keeps %s cancellation active after headers while the body is incomplete", async (source) => {
+    const caller = new AbortController();
+    const deadline = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(deadline.signal);
+    try {
+      const transport = createFetchTransport({
+        fetch: (async (_url, init) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"partial":'));
+                init?.signal?.addEventListener(
+                  "abort",
+                  () => controller.error(init.signal?.reason),
+                  { once: true }
+                );
+              },
+            })
+          )) as typeof fetch,
+      });
+      const response = await transport({
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/status",
+        operation: "space.status.read",
+        init: { signal: caller.signal },
+        timeoutMs: 15_000,
+      });
+      const body = response.json();
+      const rejection = expect(body).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      (source === "timeout" ? deadline : caller).abort();
+      await rejection;
+    } finally {
+      timeoutSpy.mockRestore();
+    }
+  });
+
   it("annotates non-timeout network failures with the request target", async () => {
     const transport = createFetchTransport({
       fetch: vi.fn(() =>

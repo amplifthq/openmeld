@@ -23,6 +23,7 @@ export function isCurrentSpaceAccessRejection(
 ): boolean {
 	return (
 		isProtectedSpaceFailure(error) ||
+		error?.code === "space.membership_required" ||
 		error?.code === "space.forbidden" ||
 		error?.code === "space.not_found"
 	);

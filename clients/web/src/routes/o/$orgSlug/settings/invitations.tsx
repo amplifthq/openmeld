@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { SettingsPage } from "#/components/settings/settings-page";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
@@ -9,6 +9,16 @@ export const Route = createFileRoute("/o/$orgSlug/settings/invitations")({
 		requestId:
 			typeof search.requestId === "string" ? search.requestId : undefined,
 	}),
+	beforeLoad: ({ search, params }) => {
+		if (search.requestId) {
+			throw redirect({
+				to: "/o/$orgSlug/inbox",
+				params,
+				search: { requestId: search.requestId },
+				replace: true,
+			});
+		}
+	},
 	loader: async () => ({
 		sidebarStates: await getAppSidebarStatesForRoute("settings"),
 	}),

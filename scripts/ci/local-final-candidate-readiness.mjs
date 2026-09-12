@@ -23,7 +23,8 @@ export function evaluateLocalCandidateReadiness(input) {
   const constrained =
     !blocked &&
     (input.availableBytes < CONSTRAINED_DISK_FLOOR_BYTES ||
-      otherActiveProcessCount > 0);
+      otherActiveProcessCount > 0 ||
+      input.memory?.pressure === "constrained");
   let state = "available";
   if (blocked) {
     state = "blocked";
@@ -36,6 +37,7 @@ export function evaluateLocalCandidateReadiness(input) {
     candidateRoot: path.resolve(input.candidateRoot),
     otherActiveProcessCount,
     otherActiveStacks,
+    memory: input.memory ?? null,
     state,
   };
 }
@@ -46,6 +48,7 @@ export function renderLocalCandidateReadiness(readiness) {
     `Candidate root: ${readiness.candidateRoot}`,
     `State: ${readiness.state}`,
     `Available disk: ${(readiness.availableBytes / GIBIBYTE).toFixed(1)} GiB`,
+    `Available memory: ${readiness.memory ? `${(readiness.memory.availableBytes / GIBIBYTE).toFixed(1)} GiB (${readiness.memory.pressure}; ${readiness.memory.source})` : "unknown"}`,
     `Other active dev stacks: ${String(readiness.otherActiveStacks.length)} (${String(readiness.otherActiveProcessCount)} processes)`,
   ];
   if (readiness.blocked) {
@@ -73,6 +76,7 @@ export function runLocalFinalCandidateReadiness(input = {}) {
     activeStacks: snapshot.activeStacks,
     availableBytes: snapshot.availableBytes,
     candidateRoot,
+    memory: snapshot.memory,
   });
   (input.write ?? ((value) => process.stdout.write(value)))(
     renderLocalCandidateReadiness(readiness)
