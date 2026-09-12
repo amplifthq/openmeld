@@ -210,6 +210,19 @@ their resource reservations. Hard-killing an owner cannot execute its cleanup;
 inspect and stop confirmed worktree leftovers before starting again. Preserve
 lane-specific secrets, state directories and `OPENMELD_HOME` across this work.
 
+Registry recovery uses Node 24's built-in SQLite OS lock at the permanent
+`<registry>.lock.reclaim` file. A process exit releases the OS lock; the file
+itself is not a stale lock and must not be removed while worktrees are running.
+Registry JSON and live-owner PID checks remain unchanged. Older worktrees can
+still acquire a free registry lock, but need the updated recovery code to reclaim
+a dead owner after this file exists.
+
+An old `.reclaim` **directory** has no owner identity. Startup waits for it and
+reports its exact path on timeout instead of deleting a possibly active guard.
+Before removing an old empty directory, verify the originating development
+processes have exited; age alone and the main lock's PID do not prove that its
+recovery process has exited. Do not reset the registry or stop unrelated lanes.
+
 Run `pnpm verify:dev-lifecycle` after changing these contracts. The narrow
 `Dev lifecycle` PR workflow exercises disposable subprocess trees on macOS,
 Linux and Windows without installing dependencies or starting cloud services.
