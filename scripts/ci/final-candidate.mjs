@@ -352,7 +352,7 @@ async function prepareLocalPublication(context, requireCurrentBase = true) {
     headSha: context.plan.headSha,
     branchName: context.state.pullRequest.head.ref,
   });
-  assertLiveCandidate(context, requireCurrentBase);
+  assertLiveCandidate(context, { requireCurrentBase });
   context.localPublicationReady = true;
 }
 
@@ -377,7 +377,9 @@ function executePreparedCandidate(context) {
     );
   }
 
-  assertLiveCandidate(context, context.candidateKind === "merge-group");
+  assertLiveCandidate(context, {
+    requireCurrentBase: context.candidateKind === "merge-group",
+  });
 
   return createEvidence({
     conclusion: "success",
@@ -393,7 +395,7 @@ function executePreparedCandidate(context) {
   });
 }
 
-function assertLiveCandidate(context, requireCurrentBase) {
+function assertLiveCandidate(context, { requireCurrentBase }) {
   const stateInput = {
     cwd: context.candidateRoot,
     expectedBaseSha: context.plan.baseSha,
