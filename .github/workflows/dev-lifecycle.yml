@@ -32,4 +32,4 @@ jobs:
           package-manager-cache: false
       # Real disposable process trees and arbitration; no install, cloud
       # credentials, app data, or complete dev stack required.
-      - run: node --test --test-concurrency=1 scripts/dev/local-resources.test.mjs scripts/dev/process-rows.test.mjs scripts/dev/dev-stop.test.mjs scripts/dev/dev-status.test.mjs
+      - run: node --test --test-concurrency=1 scripts/dev/registry-lock.test.mjs scripts/dev/local-resources.test.mjs scripts/dev/process-rows.test.mjs scripts/dev/dev-stop.test.mjs scripts/dev/dev-status.test.mjs

@@ -166,6 +166,13 @@ This lane fetches live `main`, reads the live PR, executes trusted current-main
 control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
+Before local checks and again before final publication, it cancels active hosted
+FC runs owned by this PR and exact head, then waits for the entire workflow,
+including its publisher, to complete. Cancellation acceptance is not completion.
+An unverifiable owner, API failure, or three-minute handoff timeout blocks local
+publication. This prevents an older hosted failure from overwriting local
+certification without hiding failures or trusting a previous green status.
+Later explicit hosted requests are new validations, not permanently suppressed.
 The first hop fetches depth-one main metadata into an isolated temporary Git
 repository, using blob filtering and a sparse checkout of `scripts/` to load
 control code on demand. It does not import shallow boundaries or sparse settings
