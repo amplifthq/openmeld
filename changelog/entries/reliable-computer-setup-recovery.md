@@ -17,3 +17,6 @@ the new managed OpenMeld binary.
 
 Web onboarding keeps an active Terminal connection flow in place while computer
 status refreshes, so a successful connection can finish in the same flow.
+
+On macOS, starting a stopped Service also re-enables its automatic update worker
+before registering it, avoiding a startup failure caused by its disabled state.

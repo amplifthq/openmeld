@@ -40,6 +40,7 @@ import {
 import { buildDaemonSystemServiceCommandSpec } from "./daemon-service-command-spec";
 import {
   resolveDaemonServiceManager,
+  startLaunchdService,
   waitForLaunchdJobUnloaded,
 } from "./daemon-service-manager";
 import {
@@ -71,10 +72,15 @@ type RunCommandResult = {
 
 export async function ensureDaemonServiceMaintenanceInstalled(): Promise<void> {
   // The pending update owns its executor until verification and rollback finish.
-  if (
-    (await readPendingDaemonServiceUpdate()) ||
-    (await hasIndependentMaintenanceRegistration())
-  ) {
+  if (await readPendingDaemonServiceUpdate()) {
+    return;
+  }
+  if (await hasIndependentMaintenanceRegistration()) {
+    // A saved definition can survive a failed bootstrap. On macOS, converge
+    // the actual job too, preserving any running maintenance process.
+    if (process.platform === "darwin") {
+      await startDaemonServiceUpdateWorker();
+    }
     return;
   }
   const preparedBundle = await readDaemonActiveBundleState();
@@ -137,13 +143,15 @@ export async function registerDaemonServiceUpdateWorker(
       args: ["bootout", serviceKey],
     });
     await waitForLaunchdJobUnloaded(serviceKey);
-    await requireSuccessfulCommand({
-      command: "launchctl",
-      args: ["bootstrap", guiDomain, plistPath],
-    });
+    // Stop/uninstall leaves a persistent disabled override. Clear it before
+    // bootstrap, otherwise launchd rejects reinstall with an opaque EIO.
     await requireSuccessfulCommand({
       command: "launchctl",
       args: ["enable", serviceKey],
+    });
+    await requireSuccessfulCommand({
+      command: "launchctl",
+      args: ["bootstrap", guiDomain, plistPath],
     });
     return;
   }
@@ -286,9 +294,10 @@ export async function startDaemonServiceUpdateWorker(
     const guiDomain =
       process.getuid === undefined ? "gui/501" : `gui/${process.getuid()}`;
     const serviceKey = `${guiDomain}/${identity.launchdLabel}`;
-    await requireSuccessfulCommand({
-      command: "launchctl",
-      args: ["kickstart", serviceKey],
+    await startLaunchdService({
+      guiDomain,
+      serviceKey,
+      plistPath: resolveDaemonServiceUpdateWorkerLaunchdPlistPath(pathInput),
     });
     return;
   }
