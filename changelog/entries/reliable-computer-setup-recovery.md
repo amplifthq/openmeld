@@ -17,7 +17,9 @@ the new managed OpenMeld binary.
 
 When setup starts a background Service update, it waits for that operation and
 continues automatically instead of asking you to run setup a second time.
-It verifies the running Service before continuing.
+It verifies the running Service before continuing. If Terminal closes after the
+update begins, the background worker finishes the same setup and Web updates
+automatically when the computer is connected.
 
 Web onboarding keeps an active Terminal connection flow in place while computer
 status refreshes, so a successful connection can finish in the same flow.

@@ -24,6 +24,81 @@ import { withTempHome } from "./helpers/fs";
 const BEARER_PREFIX_PATTERN = /^Bearer /u;
 
 describe("auth session transition integrity", () => {
+  it.each([
+    "completed",
+    "not_completed",
+  ] as const)("preserves an interrupted setup and settles %s with one worker", async (outcome) => {
+    await withTempHome(async (home) => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await setAuthSession({
+        accessToken: "previous-token",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+        user: { id: "previous-owner" },
+      });
+      const { authSessionModuleUrl, tsxLoaderPath } =
+        resolveAuthSessionFixture();
+      const creator = spawnAuthSessionFixture({
+        tsxLoaderPath,
+        script: `
+        const { beginAuthSessionTransition } = await import(${JSON.stringify(authSessionModuleUrl)});
+        await beginAuthSessionTransition({ accessToken: "candidate-token", authBaseUrl: "https://auth.openmeld.invalid", clientId: "openmeld-cli", user: { id: "candidate-owner" } }, {
+          computerHandoff: { gatewayUrl: "https://gateway.openmeld.invalid", prepareContinuation: { prepareSessionId: "same-prepare-session" } }
+        });
+        process.stdout.write(JSON.stringify({ status: "success", userId: "candidate-owner" }));
+      `,
+      });
+      expect((await creator.result).status).toBe("success");
+      // An ordinary reader must preserve the committed account and the pending
+      // intent; it must neither adopt the candidate nor roll the setup back.
+      expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
+        "previous-owner"
+      );
+      const executionsPath = join(home, "setup-executions");
+      // A worker can also disappear after taking ownership. The next process
+      // must adopt the same journal instead of leaving setup stuck forever.
+      const interruptedWorker = spawnAuthSessionFixture({
+        tsxLoaderPath,
+        script: `
+          const { resumeInterruptedComputerSetup } = await import(${JSON.stringify(authSessionModuleUrl)});
+          await resumeInterruptedComputerSetup(async () => {
+            process.stdout.write(JSON.stringify({ status: "success", userId: "interrupted-worker" }));
+            process.exit(0);
+          });
+        `,
+      });
+      expect((await interruptedWorker.result).userId).toBe(
+        "interrupted-worker"
+      );
+      const workerScript = `
+        import { appendFile } from "node:fs/promises";
+        const { resumeInterruptedComputerSetup, getAuthSessionState } = await import(${JSON.stringify(authSessionModuleUrl)});
+        const resumed = await resumeInterruptedComputerSetup(async intent => {
+          if (intent.prepareSessionId !== "same-prepare-session") throw new Error("wrong session");
+          const auth = await getAuthSessionState({ validateRemote: false });
+          if (auth.session?.user?.id !== "candidate-owner") throw new Error("wrong account");
+          await appendFile(${JSON.stringify(executionsPath)}, "completed\\n");
+          return ${JSON.stringify(outcome)};
+        });
+        process.stdout.write(JSON.stringify({ status: "success", userId: resumed ? "resumed" : "idle" }));
+      `;
+      const results = await Promise.all([
+        spawnAuthSessionFixture({ script: workerScript, tsxLoaderPath }).result,
+        spawnAuthSessionFixture({ script: workerScript, tsxLoaderPath }).result,
+      ]);
+      expect(results.map((result) => result.userId).sort()).toEqual([
+        "idle",
+        "resumed",
+      ]);
+      expect(await readFile(executionsPath, "utf8")).toBe("completed\n");
+      expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
+        outcome === "completed" ? "candidate-owner" : "previous-owner"
+      );
+      expect(await authSessionTransitionJournalExists(home)).toBe(
+        outcome !== "completed"
+      );
+    });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     Reflect.deleteProperty(

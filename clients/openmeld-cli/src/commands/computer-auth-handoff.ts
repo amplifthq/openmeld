@@ -1,3 +1,4 @@
+import type { PrepareSessionContinuation } from "@openmeld/schemas/types";
 import {
   AuthSessionChangedBeforeTransitionError,
   type AuthSessionMetadata,
@@ -153,6 +154,12 @@ async function runPreparedComputerAuthHandoff(
       candidate,
       expectedPreviousSession: currentSession,
       gatewayUrl,
+      prepareContinuation: {
+        prepareSessionId: initialSnapshot.prepareSessionId,
+        ...(input.localAgentSelection
+          ? { localAgentSelection: input.localAgentSelection }
+          : {}),
+      },
     });
 
     try {
@@ -283,10 +290,14 @@ async function beginComputerSessionTransition(input: {
   candidate: PreparedAuthSession;
   expectedPreviousSession: AuthSessionMetadata | null;
   gatewayUrl: string;
+  prepareContinuation: PrepareSessionContinuation;
 }): Promise<Awaited<ReturnType<typeof beginAuthSessionTransition>>> {
   try {
     return await beginAuthSessionTransition(input.candidate, {
-      computerHandoff: { gatewayUrl: input.gatewayUrl },
+      computerHandoff: {
+        gatewayUrl: input.gatewayUrl,
+        prepareContinuation: input.prepareContinuation,
+      },
       expectedPreviousSession: input.expectedPreviousSession,
     });
   } catch (error) {

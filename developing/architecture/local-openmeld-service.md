@@ -1048,9 +1048,13 @@ that decision.
   same OpenMeld user. The CLI must validate Prepare ownership before changing
   the active local session. A failed or cancelled handoff restores the previous
   session and Service account alignment. That pending session transition is
-  durable: after Terminal exits, process failure, or machine restart, the next
-  CLI or Service auth read restores the previous session before proceeding; a
-  first connection clears its incomplete candidate. A committed transition is
+  durable. A Web setup journal includes its non-secret Prepare continuation;
+  after its exact owner process exits, the OS maintenance worker may adopt that
+  same journal and resume the same Core Prepare session using a freshly minted
+  owner-authenticated token. Ordinary auth reads preserve the committed account
+  and must not roll back this continuation. A failed or cancelled continuation
+  uses the existing previous-account recovery. Older journals without this
+  intent retain their rollback-on-read behavior. A committed transition is
   never recovered backward. A cross-account switch requires explicit
   interactive confirmation bound to the stable identity of the exact committed
   session the user reviewed. The transition lock compares that identity before
@@ -2119,6 +2123,15 @@ and account alignment before continuing. Missing completion evidence, a replaced
 operation, rollback, or failure must not be presented as successful setup. The
 observer does not acquire update ownership or start another update.
 
+The update worker also finishes the associated setup if Terminal exits. The
+existing auth transition journal owns that intent and process-identity-fenced
+adoption; Core Prepare still owns setup completion. An updated job remains at
+its existing OS-watched path until setup and account settlement finish, allowing
+the same worker to resume after a crash without reinstalling the Service. The
+setup observer may consume that operation's verified `updated` result while
+other account handoffs continue waiting for settlement. No browser success
+override or second update/setup state machine is involved.
+
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
 the opaque operation id, request source, target version, urgency, and
@@ -2278,9 +2291,12 @@ registered carrier nor the replacement target can be removed while the handoff
 is recoverable. Migration may likewise protect a legacy worker's pinned managed
 version in addition to the current and rollback versions.
 
-An installation without independent maintenance must copy and verify its worker
-and establish the OS registration before publishing the initial pending job.
-An existing independent worker stays in place until the target Service is verified.
+A CLI scheduling a new job first copies the verified worker and establishes its
+OS registration, even when an older independent worker was installed. A saved
+definition does not prove that its executor supports the new setup contract.
+An already pending update retains its executor ownership. A maintenance child
+must not unload its own OS-owned parent before publishing its job; that existing
+worker replaces its carrier only after Service verification as described above.
 
 Package version alone does not prove that the installed OS startup policy is
 current. Service inventory observes the owned macOS scheduling policy, and

@@ -20,6 +20,7 @@ export async function waitForOpenMeldToolsUpdateCompletion(
 ): Promise<OpenMeldToolsUpdateOperation | null> {
   let operationId = input.operationId ?? null;
   await waitForExternalOpenMeldToolsUpdate({
+    completedServiceUpdateIsIdle: true,
     pollIntervalMs: input.pollIntervalMs,
     onWaiting: async (operation) => {
       if (operationId !== null && operationId !== operation.operationId) {
@@ -46,6 +47,7 @@ export async function waitForOpenMeldToolsUpdateCompletion(
 export async function resolveExternalOpenMeldToolsUpdate(
   input: OpenMeldPathResolutionInput & {
     currentOperationId?: string | null;
+    completedServiceUpdateIsIdle?: boolean;
   } = {}
 ): Promise<OpenMeldToolsUpdateOperation | null> {
   // The coordinator persists the Service job before discarding the tools
@@ -53,7 +55,11 @@ export async function resolveExternalOpenMeldToolsUpdate(
   // gap while ownership moves from the CLI download to the Service worker.
   const toolsAttempt = await readPendingOpenMeldToolsUpdateAttempt(input);
   const serviceJob = await readPendingDaemonServiceUpdate(input);
-  if (serviceJob && serviceJob.jobId !== (input.currentOperationId ?? null)) {
+  if (
+    serviceJob &&
+    serviceJob.jobId !== (input.currentOperationId ?? null) &&
+    !(input.completedServiceUpdateIsIdle && serviceJob.phase === "updated")
+  ) {
     return {
       operationId: serviceJob.jobId,
       phase: serviceJob.phase,
@@ -76,6 +82,7 @@ export async function resolveExternalOpenMeldToolsUpdate(
 export async function waitForExternalOpenMeldToolsUpdate(
   input: OpenMeldPathResolutionInput & {
     currentOperationId?: string | null;
+    completedServiceUpdateIsIdle?: boolean;
     onWaiting?: (
       operation: OpenMeldToolsUpdateOperation
     ) => Promise<void> | void;

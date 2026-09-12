@@ -1,5 +1,6 @@
 import {
   prepareSessionResponseSchema,
+  prepareSessionWithTokenResponseSchema,
   prepareSetupBootstrapWriteSchema,
 } from "@openmeld/schemas";
 import type {
@@ -9,6 +10,19 @@ import type {
 import { createCliApiClientFoundation } from "../space/api-client-foundation";
 import { resolveOpenMeldProfile } from "./openmeld-profiles-api";
 import { buildOpenMeldRequestContextFromProfile } from "./openmeld-request-context";
+
+export async function mintPrepareSessionReconnectToken(input: {
+  baseUrl: string;
+  prepareSessionId: string;
+}) {
+  return await createCliApiClientFoundation(input.baseUrl).requestJson({
+    method: "POST",
+    operation: "prepare.session.token.mint",
+    schema: prepareSessionWithTokenResponseSchema,
+    invalidMessage: "Invalid prepare session reconnect response.",
+    url: `/v1/prepare/sessions/${encodeURIComponent(input.prepareSessionId)}/token`,
+  });
+}
 
 export async function writePrepareSessionSetupBootstrapResult(input: {
   baseUrl: string;
