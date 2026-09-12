@@ -207,7 +207,8 @@ installation, never the account's previously selected Computer.
 
 One run verifies the focused update safety contracts, connects a temporary
 Canary Computer, publishes a newer prerelease only to the Staging CLI channel,
-waits for automatic update to start, sends a manual Update through the same
+advances the existing hourly OS maintenance tick after startup settles, waits
+for that worker to discover and start the automatic update, sends a manual Update through the same
 authenticated explicit-Computer API used by Web, and requires both requests to
 return one operation ID. It then verifies the managed CLI, restarted Service,
 and Staging Core all report the new version. Success output is a short list of
