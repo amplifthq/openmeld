@@ -2123,6 +2123,11 @@ and account alignment before continuing. Missing completion evidence, a replaced
 operation, rollback, or failure must not be presented as successful setup. The
 observer does not acquire update ownership or start another update.
 
+An explicit new setup first joins outstanding updates, then recovers any dead
+handoff left without an executor before requesting a new account transition.
+This keeps an early Terminal exit or an explicit Service stop from permanently
+blocking the next setup.
+
 The update worker also finishes the associated setup if Terminal exits. The
 existing auth transition journal owns that intent and process-identity-fenced
 adoption; Core Prepare still owns setup completion. An updated job remains at

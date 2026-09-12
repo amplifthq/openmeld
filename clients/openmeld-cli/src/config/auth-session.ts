@@ -905,7 +905,25 @@ async function readOwnedPendingAuthSessionTransition(
 export async function getInterruptedComputerAuthSessionRecovery(): Promise<InterruptedComputerAuthSessionRecovery | null> {
   return await withAuthSessionTransitionMutationLock(async () => {
     await recoverInterruptedAuthSessionTransitionWithOwnership();
-    const journal = await readAuthSessionTransitionJournal();
+    let journal = await readAuthSessionTransitionJournal();
+    // Explicit handoff recovery runs only after joining outstanding updates.
+    // A Terminal may have exited before publishing any durable update, or an
+    // explicit Service stop may have removed its executor. Do not let that
+    // abandoned intent permanently prevent the next user-initiated setup.
+    if (
+      journal?.state === "pending" &&
+      journal.computerHandoff?.prepareContinuation &&
+      !isProcessIdentityAlive({
+        ownerPid: journal.ownerPid,
+        ownerProcessStartedAt: journal.ownerProcessStartedAt,
+      })
+    ) {
+      await restoreTransitionPreviousPayload(journal);
+      stopRegisteredCandidateService(journal);
+      const recovery = { ...journal, state: "recovery_required" as const };
+      await writeAuthSessionTransitionJournalIfOwned(journal, recovery);
+      journal = recovery;
+    }
     if (!(journal?.state === "recovery_required" && journal.computerHandoff)) {
       return null;
     }

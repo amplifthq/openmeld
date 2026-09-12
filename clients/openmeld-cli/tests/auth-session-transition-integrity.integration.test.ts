@@ -27,6 +27,7 @@ describe("auth session transition integrity", () => {
   it.each([
     "completed",
     "not_completed",
+    "abandoned",
   ] as const)("preserves an interrupted setup and settles %s with one worker", async (outcome) => {
     await withTempHome(async (home) => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
@@ -54,6 +55,21 @@ describe("auth session transition integrity", () => {
       expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
         "previous-owner"
       );
+      if (outcome === "abandoned") {
+        const recovery = spawnAuthSessionFixture({
+          tsxLoaderPath,
+          script: `
+            const { getInterruptedComputerAuthSessionRecovery } = await import(${JSON.stringify(authSessionModuleUrl)});
+            const recovery = await getInterruptedComputerAuthSessionRecovery();
+            process.stdout.write(JSON.stringify({ status: "success", userId: recovery?.previousSession?.user?.id }));
+          `,
+        });
+        expect((await recovery.result).userId).toBe("previous-owner");
+        expect((await spawnOrdinaryAuthSessionRead().result).userId).toBe(
+          "previous-owner"
+        );
+        return;
+      }
       const executionsPath = join(home, "setup-executions");
       // A worker can also disappear after taking ownership. The next process
       // must adopt the same journal instead of leaving setup stuck forever.

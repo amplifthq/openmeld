@@ -18,7 +18,6 @@ import {
   emitUnusedSetupSessionCleanupWarning,
   formatComputerAuthCleanupFailureSuffix,
   recoverInterruptedComputerAuthHandoff,
-  waitForOpenMeldToolsUpdateBeforeComputerHandoff,
 } from "./computer-auth-handoff-recovery";
 import {
   exchangeComputerAuthorizationGrant,
@@ -91,9 +90,6 @@ async function runPreparedComputerAuthHandoff(
   let executorStarted = false;
   let failureReported = false;
   try {
-    await waitForOpenMeldToolsUpdateBeforeComputerHandoff({
-      presenter: input.presenter,
-    });
     const recoveryOutcome = await recoverInterruptedComputerAuthHandoff({
       presenter: input.presenter,
       runtime: input.runtime,
