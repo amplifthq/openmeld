@@ -1,16 +1,13 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
-import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	prefetchAgentsRouteIdentityData,
-	prefetchAppDetailRouteData,
 	prefetchCenterAgentConversationData,
 	prefetchKnownSpaceConversationData,
-	prefetchPluginCatalogRouteData,
 	prefetchSpaceConversationRouteData,
 	prefetchSpacesRouteData,
 	restoreSpaceConversationRouteData,
@@ -27,10 +24,6 @@ const listSignalEnvelopesMock = vi.hoisted(() => vi.fn());
 const createWebSpaceApiMock = vi.hoisted(() => vi.fn());
 const openCurrentCenterAgentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentDirectMessageSpaceProjectionMock = vi.hoisted(() =>
-	vi.fn()
-);
-const listCurrentOrganizationAppConnectionsMock = vi.hoisted(() => vi.fn());
-const listCurrentOrganizationConnectorConnectionsMock = vi.hoisted(() =>
 	vi.fn()
 );
 let queryPersistence: BrowserQueryPersistenceController;
@@ -51,13 +44,6 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 
 vi.mock("#/lib/organizations/organization-spaces", () => ({
 	listCurrentOrganizationSpaces: listOrganizationSpacesMock,
-}));
-
-vi.mock("#/lib/organizations/connector-connections", () => ({
-	listCurrentOrganizationAppConnections:
-		listCurrentOrganizationAppConnectionsMock,
-	listCurrentOrganizationConnectorConnections:
-		listCurrentOrganizationConnectorConnectionsMock,
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -168,49 +154,7 @@ describe("organization app route prefetch", () => {
 			getStatus: getStatusMock,
 			listSignalEnvelopes: listSignalEnvelopesMock,
 		});
-		listCurrentOrganizationAppConnectionsMock.mockResolvedValue(
-			createConnectorResponse()
-		);
-		listCurrentOrganizationConnectorConnectionsMock.mockResolvedValue(
-			createConnectorResponse()
-		);
 		queryPersistence = createQueryPersistenceMock();
-	});
-
-	it("warms the Plugin Catalog connection snapshot", async () => {
-		const queryClient = createQueryClient();
-
-		await prefetchPluginCatalogRouteData({
-			organizationSlug: "acme",
-			queryClient,
-			queryPersistence,
-			routeFamily: "/o/acme/center-agent/plugins",
-		});
-
-		expect(
-			queryClient.getQueryData(
-				organizationPluginConnectionQueryKeys.catalog("org-acme")
-			)
-		).toEqual(createConnectorResponse());
-	});
-
-	it("warms one Plugin detail connection snapshot without loading the full Catalog", async () => {
-		const queryClient = createQueryClient();
-
-		await prefetchAppDetailRouteData({
-			organizationSlug: "acme",
-			queryClient,
-			queryPersistence,
-			routeFamily: "/o/acme/center-agent/plugins/github",
-			service: "github",
-		});
-
-		expect(
-			queryClient.getQueryData(
-				organizationPluginConnectionQueryKeys.service("org-acme", "github")
-			)
-		).toEqual(createConnectorResponse());
-		expect(listCurrentOrganizationAppConnectionsMock).not.toHaveBeenCalled();
 	});
 
 	it("warms Agent identities without blocking navigation on runtime status", async () => {
@@ -486,13 +430,5 @@ function createBootstrapResponse() {
 			spaceId: "space-1",
 		},
 		threads: { previews: [], threads: [] },
-	};
-}
-
-function createConnectorResponse() {
-	return {
-		connections: [],
-		currentUserId: "user-1",
-		organizationId: "org-acme",
 	};
 }

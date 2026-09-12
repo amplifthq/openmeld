@@ -1072,10 +1072,11 @@ describe("SpaceMessageBody", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Open photo.jpg" }));
 
-		expect(screen.getByRole("dialog")).toBeTruthy();
 		expect(
-			screen.getAllByRole("img", { name: "photo.jpg" }).length
-		).toBeGreaterThan(1);
+			within(screen.getByRole("dialog", { name: "photo.jpg" }))
+				.getByRole("img", { name: "photo.jpg" })
+				.getAttribute("src")
+		).toBe("blob:photo-preview");
 		const originalLink = screen.getByRole("link", { name: "Open original" });
 		expect(originalLink.getAttribute("href")).toBe(
 			"/v1/spaces/space-123/attachments/attachment-photo?__openmeld_organization_slug=acme"

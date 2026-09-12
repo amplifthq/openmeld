@@ -76,6 +76,49 @@ import { useConversations } from "./use-conversations";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
 import { useUnreadHistoryPrefetch } from "./use-unread-history-prefetch";
 
+function isSpaceEmptyStateVisible(
+	view: string,
+	unavailable: boolean,
+	conversations: Conversation[]
+) {
+	return (
+		view === "grouped" &&
+		!unavailable &&
+		!conversations.some((item) => item.kind === "space")
+	);
+}
+
+function SpaceSidebarEmptyState({
+	visible,
+	sectionId,
+	orgSlug,
+	onNavigate,
+}: {
+	visible: boolean;
+	sectionId: string;
+	orgSlug: string;
+	onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+	if (!visible || sectionId !== "spaces") {
+		return null;
+	}
+	return (
+		<div className="mx-1 flex min-h-24 items-center justify-center rounded-md border border-border/70 border-dashed bg-card/25 px-3 py-5">
+			<Link
+				className={buttonVariants({
+					size: "sm",
+					variant: "outline",
+				})}
+				onClick={onNavigate}
+				to={buildOrganizationNewSpacePath(orgSlug)}
+			>
+				<PlusIcon aria-hidden="true" />
+				New Space
+			</Link>
+		</div>
+	);
+}
+
 export function ConversationsSidebar(
 	input: { currentProfileId?: string; currentSpaceId?: string } = {}
 ) {
@@ -189,14 +232,16 @@ export function ConversationsSidebar(
 				(dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0),
 			0
 		);
+	const hasFilters = Boolean(
+		search.trim() || filter.active || kinds.selected.length > 0 || archived
+	);
 	const visible = sections.filter(
 		(section) =>
 			rows(section).length > 0 ||
 			(view === "grouped" &&
 				section.id !== "pinned" &&
-				!search.trim() &&
-				!filter.active &&
-				!archived)
+				section.id !== "chats" &&
+				!hasFilters)
 	);
 	const pending =
 		dm.store.isPending ||
@@ -209,6 +254,11 @@ export function ConversationsSidebar(
 		dm.spaces.isError ||
 		dm.sessions.isError ||
 		dm.directory.isError;
+	const showSpaceEmptyState = isSpaceEmptyStateVisible(
+		view,
+		pending || failed || hasFilters,
+		model.conversations
+	);
 	const move = (sectionId: string, id: string, beforeId?: string) => {
 		const target = model.sections.find((section) => section.id === sectionId);
 		if (!target) {
@@ -467,10 +517,12 @@ export function ConversationsSidebar(
 					showPreview
 				/>
 			)}
-			{!(pending || failed) && filtered.length === 0 && (
+			{[pending, failed, showSpaceEmptyState, filtered.length > 0].every(
+				(value) => !value
+			) && (
 				<div className="p-2 text-muted-foreground text-xs">
 					<p>
-						{search.trim() || filter.active || archived
+						{hasFilters
 							? "No conversations match your search or filters."
 							: "No conversations yet."}
 					</p>
@@ -590,6 +642,12 @@ export function ConversationsSidebar(
 									ids={rows(section).map((item) => item.spaceId)}
 									section={section.id}
 								>
+									<SpaceSidebarEmptyState
+										onNavigate={onNavigate}
+										orgSlug={dm.org.slug}
+										sectionId={section.id}
+										visible={showSpaceEmptyState}
+									/>
 									<FluidNavMenu
 										activeLayoutId="conversation-selection"
 										activeValue={model.selected}

@@ -3,8 +3,6 @@
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
-import { Input } from "@openmeld/ui/components/input";
-import { Label } from "@openmeld/ui/components/label";
 import {
 	Tooltip,
 	TooltipContent,
@@ -15,6 +13,7 @@ import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { useSurface } from "@openmeld/ui/lib/surface-context";
 import {
+	ArrowLeftIcon,
 	CaretDownIcon,
 	CloudIcon,
 	DesktopTowerIcon,
@@ -27,6 +26,7 @@ import {
 	AgentCreationComputerRecoveryPanel,
 	agentCreationComputerActionLabel,
 } from "./agent-creation-computer-recovery";
+import { AgentNameEditor } from "./agent-name-editor";
 import {
 	AgentProfileConfigurationCards,
 	CreateProfileErrorNotice,
@@ -108,9 +108,21 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 				>
 					{input.surface === "page" ? (
 						<div className="grid gap-2">
-							<h1 className="font-medium text-2xl tracking-tight">
-								Create Agent
-							</h1>
+							<div className="-ml-2 flex items-center gap-4">
+								<Button
+									aria-label="Back to Team"
+									onClick={input.onCancel}
+									size="icon-sm"
+									title="Back to Team"
+									type="button"
+									variant="ghost"
+								>
+									<ArrowLeftIcon aria-hidden="true" />
+								</Button>
+								<h1 className="font-medium text-2xl tracking-tight">
+									Create Agent
+								</h1>
+							</div>
 							<p className="text-muted-foreground text-sm">
 								Choose where your Agent runs.
 							</p>
@@ -158,7 +170,7 @@ function AgentProfileGeneratorForm(input: AgentProfileGeneratorProps) {
 						disabled={form.isSubmitting}
 						onClick={input.onCancel}
 						type="button"
-						variant="ghost"
+						variant="secondary"
 					>
 						Cancel
 					</Button>
@@ -200,12 +212,12 @@ function AgentRuntimeTabs(input: {
 		<TabsList
 			aria-label="Agent runtime"
 			background={false}
-			className="grid grid-cols-2 items-stretch gap-2"
+			className="grid w-full max-w-3xl grid-cols-2 items-stretch gap-2"
 		>
 			<TabItem
-				className="h-auto items-start gap-3 border border-border p-3 text-left"
+				className="h-auto items-start gap-3 rounded-md border border-border border-dashed p-3 text-left aria-selected:border-transparent aria-selected:border-solid"
 				disabled={input.isSubmitting}
-				label="Local Agent"
+				label="Choose a Local Agent"
 				value="local"
 			>
 				<DesktopTowerIcon
@@ -214,7 +226,7 @@ function AgentRuntimeTabs(input: {
 				/>
 				<span className="grid gap-1">
 					<span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-						<span className="font-medium text-sm">Local Agent</span>
+						<span className="font-medium text-sm">Choose a Local Agent</span>
 						<LocalAgentLogoStack compact />
 					</span>
 					<span className="text-muted-foreground text-xs">
@@ -223,7 +235,7 @@ function AgentRuntimeTabs(input: {
 				</span>
 			</TabItem>
 			<TabItem
-				className="h-auto items-start gap-3 border border-border p-3 text-left data-[disabled]:opacity-50"
+				className="h-auto items-start gap-3 rounded-md border border-border border-dashed p-3 text-left aria-selected:border-transparent aria-selected:border-solid data-[disabled]:opacity-50"
 				disabled={input.isSubmitting || !input.remoteAvailable}
 				label="Remote Agent"
 				value="remote"
@@ -233,7 +245,10 @@ function AgentRuntimeTabs(input: {
 					<span className="flex items-center gap-2">
 						<span className="font-medium text-sm">Remote Agent</span>
 						<Tooltip>
-							<TooltipTrigger render={<span />}>
+							<TooltipTrigger
+								className="inline-flex items-center"
+								render={<span />}
+							>
 								<RuntimeBetaBadge />
 							</TooltipTrigger>
 							<TooltipContent>
@@ -268,13 +283,18 @@ function RuntimeBetaBadge() {
 }
 
 function useRemoteAgentDraft(form: CreateProfileFormProps) {
-	const [editedRemoteName, setRemoteName] = useState<string | null>(null);
+	const [editedRemoteName, setUncontrolledRemoteName] = useState<string | null>(
+		null
+	);
+	const setRemoteName =
+		form.onChangeRemoteProfileName ?? setUncontrolledRemoteName;
 	const ownerName = form.agentOwnershipSummary?.trim();
 	const defaultRemoteName =
 		ownerName && ownerName !== "You"
 			? `${ownerName}’s Remote Agent`
 			: "Your Remote Agent";
-	const remoteName = editedRemoteName ?? defaultRemoteName;
+	const remoteName =
+		form.remoteProfileName ?? editedRemoteName ?? defaultRemoteName;
 	const [remoteModel, setRemoteModel] = useState("");
 	const intent = useRef<{ fingerprint: string; key: string } | null>(null);
 	const catalog = form.modelCatalog?.agentControllers["center-agent"];
@@ -333,11 +353,15 @@ function AdvancedSetup(input: {
 
 	const summaries = resolveAgentProfileConfigurationSummaries(input.form);
 	const disclosureSummary = [
-		summaries.session,
-		summaries.workingFolder,
+		input.form.agentOwnershipSlot ? summaries.owner : null,
 		summaries.model,
 		summaries.permission,
-	].join(" · ");
+		input.form.agentSessionSlot ? summaries.session : null,
+		summaries.workingFolder,
+		summaries.collaboration,
+	]
+		.filter(Boolean)
+		.join(" · ");
 
 	return (
 		<Collapsible.Root
@@ -346,18 +370,18 @@ function AdvancedSetup(input: {
 			open={input.expanded}
 		>
 			<Collapsible.Trigger className="group/agent-configuration-trigger flex min-h-9 w-full min-w-0 items-center gap-3 border-border border-b pb-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/70">
+				<span
+					className="min-w-0 flex-1 truncate text-muted-foreground text-xs"
+					title={disclosureSummary}
+				>
+					{disclosureSummary}
+				</span>
 				<SlidersHorizontalIcon
 					aria-hidden="true"
 					className="size-4 shrink-0 text-muted-foreground"
 				/>
 				<span className="shrink-0 font-medium text-sm">
 					Advanced Agent Settings
-				</span>
-				<span
-					className="min-w-0 flex-1 truncate text-right text-muted-foreground text-xs"
-					title={disclosureSummary}
-				>
-					{disclosureSummary}
 				</span>
 				<CaretDownIcon
 					aria-hidden="true"
@@ -435,22 +459,12 @@ function LocalAgentConfiguration({
 				surface={surface}
 				value={form.agentBindingValue ?? form.boundAgentId}
 			/>
-			{form.connectAnotherComputer}
 			{form.boundAgentId ? (
-				<div className="grid min-w-0 gap-2">
-					<Label htmlFor="create-profile-name-input">Agent name</Label>
-					<Input
-						autoComplete="off"
-						disabled={form.isSubmitting}
-						id="create-profile-name-input"
-						onChange={(event) => form.onChangeProfileName(event.target.value)}
-						placeholder="Agent name"
-						value={form.profileName}
-					/>
-					<p className="text-muted-foreground text-xs leading-5">
-						You can rename this Agent now or later.
-					</p>
-				</div>
+				<AgentNameEditor
+					disabled={form.isSubmitting}
+					onChange={form.onChangeProfileName}
+					value={form.profileName}
+				/>
 			) : null}
 			<AdvancedSetup
 				expanded={configurationExpanded}
@@ -479,6 +493,7 @@ function AgentCreationSubmitActions({
 	openConfigurationSection: (section: AgentProfileConfigurationSection) => void;
 }) {
 	const submitBlockReason = submitBlock?.message;
+	const nextAction = remote ? undefined : submitBlock?.action;
 	return (
 		<div className="grid justify-items-stretch gap-2 sm:justify-items-end">
 			{submitBlockReason ? (
@@ -489,43 +504,22 @@ function AgentCreationSubmitActions({
 					{submitBlockReason}
 				</output>
 			) : null}
-			{submitBlock?.action ? (
-				<div className="flex flex-wrap justify-end gap-2">
-					{submitBlock.action.section === "working-folder" &&
-					form.onUseManagedWorkspace ? (
-						<Button
-							disabled={form.isSubmitting}
-							onClick={form.onUseManagedWorkspace}
-							type="button"
-							variant="outline"
-						>
-							Use OpenMeld managed folder
-						</Button>
-					) : null}
-					<Button
-						disabled={form.isSubmitting}
-						onClick={() => {
-							if (submitBlock.action) {
-								openConfigurationSection(submitBlock.action.section);
-							}
-						}}
-						type="button"
-						variant="outline"
-					>
-						{submitBlock.action.label}
-					</Button>
-				</div>
-			) : null}
 			<SpinnerButton
 				aria-describedby={submitBlockReason ? submitBlockReasonId : undefined}
 				buttonState={form.isSubmitting ? "loading" : "idle"}
 				disabled={
-					form.isSubmitting || (remote ? !remoteReady : submitBlock !== null)
+					form.isSubmitting ||
+					(remote ? !remoteReady : submitBlock !== null && !nextAction)
 				}
 				loadingLabel={form.submittingLabel ?? "Creating Agent…"}
-				type="submit"
+				onClick={
+					nextAction
+						? () => openConfigurationSection(nextAction.section)
+						: undefined
+				}
+				type={nextAction ? "button" : "submit"}
 			>
-				{form.submitLabel ?? "Create Agent"}
+				{nextAction?.label ?? form.submitLabel ?? "Create Agent"}
 			</SpinnerButton>
 		</div>
 	);

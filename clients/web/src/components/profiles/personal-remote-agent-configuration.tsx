@@ -1,7 +1,5 @@
 "use client";
 
-import { Input } from "@openmeld/ui/components/input";
-import { Label } from "@openmeld/ui/components/label";
 import {
 	Select,
 	SelectContent,
@@ -9,12 +7,12 @@ import {
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
 import { BrainIcon, CheckIcon } from "@phosphor-icons/react";
-import { useId } from "react";
 import { RemoteAgentAvatar } from "#/components/agents/remote-agent-avatar";
 import {
 	AgentConfigurationCard,
 	AgentConfigurationGrid,
 } from "./agent-configuration-card";
+import { AgentNameEditor } from "./agent-name-editor";
 import type { CreateProfileFormProps } from "./create-profile-form";
 
 export function PersonalRemoteAgentConfiguration(input: {
@@ -24,7 +22,6 @@ export function PersonalRemoteAgentConfiguration(input: {
 	onNameChange: (name: string) => void;
 	onModelChange: (model: string) => void;
 }) {
-	const nameId = useId();
 	const catalog = input.form.modelCatalog?.agentControllers["center-agent"];
 	const models =
 		catalog?.models.filter(
@@ -54,21 +51,13 @@ export function PersonalRemoteAgentConfiguration(input: {
 				</div>
 				<span className="font-medium text-xs">OpenMeld Remote Agent</span>
 			</div>
-			<div className="grid min-w-0 gap-2">
-				<Label htmlFor={nameId}>Agent name</Label>
-				<Input
-					autoComplete="off"
-					disabled={input.form.isSubmitting}
-					id={nameId}
-					maxLength={80}
-					onChange={(event) => input.onNameChange(event.target.value)}
-					value={input.name}
-				/>
-				<p className="text-muted-foreground text-xs leading-5">
-					You can rename this Agent now or later.
-				</p>
-			</div>
-			<AgentConfigurationGrid>
+			<AgentNameEditor
+				disabled={input.form.isSubmitting}
+				maxLength={80}
+				onChange={input.onNameChange}
+				value={input.name}
+			/>
+			<AgentConfigurationGrid className="@min-[64rem]/agent-creation:grid-cols-3">
 				<AgentConfigurationCard
 					description="Choose the model this Agent uses."
 					disabled={input.form.isSubmitting || !catalog}

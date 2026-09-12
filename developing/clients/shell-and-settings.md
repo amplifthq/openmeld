@@ -274,7 +274,9 @@ The Web shell is a stable two-layer composition built from the shared
   surface, and owned only by route families that need contextual navigation.
   Spaces, Direct Messages, and Center Agent conversations share the Spaces
   list in the middle column, with Spaces and Direct messages as groups. Team
-  uses its member list instead, and Settings retains its own contextual navigation.
+  uses the same member list across People, Agents, and Plugins, and Settings
+  retains its own contextual navigation. Team tab content uses the shared page
+  inline padding, including the Plugins catalog and detail pages.
   The middle column can be resized or collapsed while the application rail and
   current work remain mounted. Existing outer-sidebar persistence stores its
   geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal

@@ -152,7 +152,7 @@ export function PeopleAndAgentsPage(input: {
 		});
 	};
 	const handleAgentRequestCreated = (request: AgentProfileCreationRequest) => {
-		if (request.createdAgentProfileId) {
+		if (request.status === "completed" && request.createdAgentProfileId) {
 			navigate({
 				search: {
 					profileId: request.createdAgentProfileId,
@@ -561,13 +561,13 @@ function AgentsWorkspaceHome(input: {
 		requestPanel = (
 			<p className="rounded-md border border-destructive/30 px-4 py-4 text-destructive text-sm">
 				{input.profileDirectoryQuery.error?.message ??
-					"Couldn’t load Agent setup."}
+					"Couldn’t load Agent creation history."}
 			</p>
 		);
 	} else if (input.isOrganizationContext) {
 		requestPanel = (
 			<p className="rounded-md border border-border/70 px-4 py-6 text-muted-foreground text-sm">
-				Loading Agent setup…
+				Loading Agent creation history…
 			</p>
 		);
 	}
