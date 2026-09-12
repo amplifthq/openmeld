@@ -184,6 +184,16 @@ materialized as resident memory. macOS also blocks new work while the OS
 reports memory pressure. These checks reduce overlapping peaks; they are not
 OS-enforced memory caps and cannot prevent another application from growing.
 
+After the Worker stack's existing readiness probes pass, its reservation keeps
+growth room of 25% of current process-tree RSS (at least 1 GiB), instead of
+reserving the unused startup budget indefinitely. Machine headroom and OS
+pressure checks still apply. Unready or older stacks retain the full startup
+budget; missing process metrics do not release it. Web retains its startup
+budget because compilation is request-driven. Restart owned environments with
+the updated launchers to benefit; never rewrite another task's reservation.
+Waiting messages show available memory, machine headroom, new startup budget,
+and existing growth reservations separately.
+
 `pnpm dev:status` reports process trees, summed RSS and machine memory
 separately from disk space. RSS can count shared pages more than once. macOS
 memory availability includes free, inactive and speculative pages and is
