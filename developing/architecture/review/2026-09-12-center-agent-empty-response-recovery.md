@@ -1,6 +1,16 @@
 # Center Agent empty-response recovery
 
-Status: research and proposed implementation scope, September 12, 2026. No production policy, configuration, or implementation was changed.
+## Agent Context
+
+- Purpose: Record the incident evidence and bounded reply-recovery implementation.
+- Read this when: Reviewing Center Agent empty-response recovery for issue #923.
+- Update this when: Implementation or validation changes the supported recovery behavior.
+- Do not use this for: Production execution truth or release authorization.
+- Source of truth: Runtime traces establish the incident; the Remote Agent runtime owner document defines shipped contracts.
+
+Status: implementation in progress, September 13, 2026. Nothing has been deployed.
+
+Remove this document after recovery is delivered and its lasting contracts and evidence are retained in owner documents and the pull request.
 
 ## Product result and responsibility
 
