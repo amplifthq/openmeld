@@ -603,6 +603,7 @@ const REMOTE_AGENT_MESSAGE_CHANNEL_PUBLICATION_NOT_READY_REASON_CODE =
 const HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT = [
   "OpenMeld execution recovery.",
   "Continue this exact hosted controller conversation.",
+  "Recover the answer to the original request identified below, even if newer messages exist in this conversation.",
   "Do not redo the task, call tools, edit files, or perform external actions.",
   "Return the best faithful final answer you can recover from this conversation.",
   "Your answer is content only. OpenMeld decides recovery status from the typed provider outcome, never from words in your answer.",
@@ -1938,7 +1939,14 @@ export async function submitRemoteAgentExecutionRecoveryTurn(input: {
     input.action === "resume_controller_conversation"
       ? [
           {
-            content: HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT,
+            content: [
+              HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT,
+              JSON.stringify({
+                originalSubmissionId: input.originalDelivery.submissionId,
+                originalMessageId: input.originalDelivery.triggerMessageId,
+                originalRequestText: input.originalDelivery.triggerText,
+              }),
+            ].join("\n\n"),
             role: "user" as const,
           },
         ]

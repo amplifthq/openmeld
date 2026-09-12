@@ -6746,6 +6746,14 @@ describe("Remote Agent native delivery callback service", () => {
           replyRecovery: expect.objectContaining({
             originalDispatchId: originalDelivery.dispatchId,
           }),
+          messages: [
+            expect.objectContaining({
+              role: "user",
+              content: expect.stringContaining(
+                originalDelivery.triggerMessageId
+              ),
+            }),
+          ],
         })
       );
       if (conversationKind === "space") {
