@@ -69,6 +69,19 @@ test(
     const lockPath = join(directory, "resources.lock");
     const recovery = child(t, "recovery", lockPath);
     await recovery.wait("recovering");
+    // Even a dead registry owner cannot be removed while recovery is active.
+    await assert.rejects(
+      withRegistryLock(
+        {
+          lockPath,
+          lockPid: process.pid,
+          isPidAlive: () => false,
+          timeoutMs: 30,
+        },
+        () => assert.fail("overlapping recovery")
+      ),
+      TIMEOUT
+    );
     recovery.process.kill("SIGKILL");
     await recovery.exited;
 

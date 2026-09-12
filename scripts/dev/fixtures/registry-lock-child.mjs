@@ -9,8 +9,11 @@ if (mode === "recovery") {
   const database = new DatabaseSync(`${lockPath}.reclaim`, { timeout: 0 });
   database.exec("BEGIN EXCLUSIVE");
   process.send("recovering");
-  process.on("message", () => {
-    // Stay alive until the parent interrupts this recovery process.
+  process.on("message", (message) => {
+    // Retain the connection until the parent interrupts this process.
+    if (message === "release") {
+      database.close();
+    }
   });
 } else {
   process.send("attempting");
