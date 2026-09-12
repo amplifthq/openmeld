@@ -2350,6 +2350,20 @@ the socket. If the socket disappears during that wait, unacknowledged results
 remain in the same durable outbox for the next Service session; lifecycle code
 must not create a second result store.
 
+On a new registered connection generation, the same result outbox immediately
+replays each unacknowledged, non-terminal result once rather than waiting for
+the previous connection's acknowledgement backoff. Subsequent attempts on that
+connection retain the existing backoff. Original execution identity and tokens
+remain unchanged; only Core's receipt settles the result. Dispatch journal
+delivery evidence records time in the outbox separately from connection recovery.
+
+If the first reply proposal cannot refresh Space context, preserve that proposal
+in the same result outbox using the original Wake's source cursor, rather than
+turning a temporary read failure into a failed task. This does not assert that
+context is current: Space's atomic publication guard must validate the cursor
+and require the existing reply-review continuation when context changed. A
+failed explicit review cannot be replaced with a fabricated current observation.
+
 The active-work drain has no fixed wall-clock deadline while execution remains
 live. Once active work has drained, result-receipt and WebSocket-close waits are
 bounded: an unacknowledged durable result remains available for replay, and a
