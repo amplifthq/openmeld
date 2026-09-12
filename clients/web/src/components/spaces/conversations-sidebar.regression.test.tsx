@@ -2076,7 +2076,6 @@ describe("ConversationsSidebar", () => {
 
 		const createSpace = await screen.findByRole("link", {
 			name: "New Space",
-			exact: true,
 		});
 		expect(createSpace.getAttribute("href")).toContain("/new-space");
 		expect(
