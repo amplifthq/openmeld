@@ -38,10 +38,20 @@ export function useDeskSpace(input: {
 			}
 			return await navigator.locks.request(key, async () => {
 				const saved = localStorage.getItem(key);
+				const replacedDefaultSpaceId =
+					saved &&
+					saved !== "creating" &&
+					!readWelcomeSpace(input.storageScope, saved)
+						? saved
+						: undefined;
 				const sections = await listAccountSpaceItems({
 					profileId: profile.openMeldProfileId,
 				});
-				if (saved && saved !== "creating") {
+				if (
+					saved &&
+					saved !== "creating" &&
+					readWelcomeSpace(input.storageScope, saved)
+				) {
 					prepareWelcome(saved);
 					return {
 						spaceId: saved,
@@ -51,6 +61,8 @@ export function useDeskSpace(input: {
 				const existing = [...sections.pinnedItems, ...sections.spaceItems].find(
 					(item) =>
 						item.organizationId === input.organizationId &&
+						(readWelcomeSpace(input.storageScope, item.spaceId) !== null ||
+							item.spaceName === "Welcome Space") &&
 						!item.directMessageProfileIds &&
 						item.joinedProfiles.some(
 							(joined) => joined.profileId === profile.openMeldProfileId
@@ -58,8 +70,13 @@ export function useDeskSpace(input: {
 				);
 				if (existing) {
 					localStorage.setItem(key, existing.spaceId);
+					if (!readWelcomeSpace(input.storageScope, existing.spaceId)) {
+						saveWelcomeSpace(input.storageScope, existing.spaceId, "add");
+					}
+					prepareWelcome(existing.spaceId);
 					return {
 						spaceId: existing.spaceId,
+						replacedDefaultSpaceId,
 						profileId: profile.openMeldProfileId,
 					};
 				}
@@ -84,6 +101,7 @@ export function useDeskSpace(input: {
 				await client.invalidateQueries({ queryKey: accountSpaceQueryKeys.all });
 				return {
 					spaceId: created.spaceId,
+					replacedDefaultSpaceId,
 					profileId: profile.openMeldProfileId,
 				};
 			});
@@ -92,6 +110,7 @@ export function useDeskSpace(input: {
 	return {
 		spaceId: query.data?.spaceId,
 		profileId: query.data?.profileId,
+		replacedDefaultSpaceId: query.data?.replacedDefaultSpaceId,
 		ready: query.isSuccess,
 		error: query.error?.message,
 		retry: () => {

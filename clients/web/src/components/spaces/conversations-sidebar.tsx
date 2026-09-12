@@ -1,4 +1,3 @@
-import type { SpaceInboxSummaryResponse } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -27,12 +26,17 @@ import {
 } from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
 import {
+	ArchiveIcon,
 	ChatCircleTextIcon,
+	ClockIcon,
 	CompassIcon,
 	DotsThreeIcon,
+	FolderIcon,
 	FunnelSimpleIcon,
 	ListIcon,
 	PlusIcon,
+	RobotIcon,
+	UsersIcon,
 } from "@phosphor-icons/react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
@@ -43,14 +47,9 @@ import {
 	useState,
 } from "react";
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
-import {
-	resolveInboxAttentionLabel,
-	resolveInboxAttentionTone,
-	resolveInboxIndicatorClassName,
-} from "#/lib/inbox/attention";
+import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
-	buildOrganizationDirectMessagesPath,
 	buildOrganizationNewSpacePath,
 	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
@@ -155,9 +154,9 @@ export function ConversationsSidebar(
 	const navigate = useNavigate();
 	const kinds = useSidebarFilter(
 		[
-			{ id: "space", label: "Spaces" },
-			{ id: "human", label: "People" },
-			{ id: "agent", label: "Agents" },
+			{ id: "space", label: "Spaces", icon: ChatCircleTextIcon },
+			{ id: "human", label: "People", icon: UsersIcon },
+			{ id: "agent", label: "Agents", icon: RobotIcon },
 		],
 		"All conversations"
 	);
@@ -288,6 +287,7 @@ export function ConversationsSidebar(
 	const creationMenu = (
 		<>
 			<DropdownMenuItem onClick={() => newMessage()}>
+				<ChatCircleTextIcon />
 				New message
 			</DropdownMenuItem>
 			<DropdownMenuItem
@@ -298,7 +298,7 @@ export function ConversationsSidebar(
 					/>
 				}
 			>
-				New Space
+				<PlusIcon /> New Space
 			</DropdownMenuItem>
 		</>
 	);
@@ -313,10 +313,10 @@ export function ConversationsSidebar(
 				value={view}
 			>
 				<DropdownMenuRadioItem closeOnClick value="grouped">
-					Grouped
+					<FolderIcon /> Grouped
 				</DropdownMenuRadioItem>
 				<DropdownMenuRadioItem closeOnClick value="recent">
-					Recent
+					<ClockIcon /> Recent
 				</DropdownMenuRadioItem>
 			</DropdownMenuRadioGroup>
 		</>
@@ -331,7 +331,7 @@ export function ConversationsSidebar(
 				checked={archived}
 				onCheckedChange={setArchived}
 			>
-				Archived direct messages
+				<ArchiveIcon /> Archived direct messages
 			</DropdownMenuCheckboxItem>
 		</>
 	);
@@ -344,7 +344,6 @@ export function ConversationsSidebar(
 				>
 					<div className="shrink-0" ref={titleRef}>
 						<SpacesDirectoryLink
-							inbox={dm.inbox.data}
 							onNavigate={onNavigate}
 							orgSlug={dm.org.slug}
 						/>
@@ -806,49 +805,24 @@ export function ConversationsSidebar(
 }
 
 function SpacesDirectoryLink({
-	inbox,
 	onNavigate,
 	orgSlug,
 }: {
-	inbox: SpaceInboxSummaryResponse | undefined;
 	onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
 	orgSlug: string;
 }) {
-	const unreadCount =
-		Math.max(0, inbox?.ordinarySpaceUnreadCount ?? 0) +
-		Math.max(0, inbox?.chatUnreadCount ?? 0);
-	const tone = resolveInboxAttentionTone({
-		unresolvedActionCount: inbox?.chatUnresolvedActionCount,
-		unreadUrgentUpdateCount: inbox?.chatUnreadUrgentUpdateCount,
-	});
-	const label = [
-		"Spaces",
-		resolveInboxAttentionLabel(tone),
-		unreadCount > 0
-			? `${unreadCount} unread ${unreadCount === 1 ? "message" : "messages"}`
-			: null,
-	]
-		.filter(Boolean)
-		.join(", ");
 	return (
 		<Link
-			aria-label={label}
+			aria-label="Spaces"
 			className="flex min-w-20 flex-1 items-center gap-2 rounded-sm font-medium text-sm focus-visible:outline-2"
 			onClick={onNavigate}
-			to={buildOrganizationDirectMessagesPath(orgSlug)}
+			to={buildOrganizationSpacesPath(orgSlug)}
 		>
 			<ChatCircleTextIcon
 				aria-hidden="true"
 				className="size-4 shrink-0 text-muted-foreground"
 			/>
 			<span className="truncate">Spaces</span>
-			{unreadCount > 0 || tone ? (
-				<span
-					aria-hidden="true"
-					className={`size-2 shrink-0 rounded-full ${resolveInboxIndicatorClassName(tone)}`}
-					data-app-rail-status-indicator="chats-unread"
-				/>
-			) : null}
 		</Link>
 	);
 }

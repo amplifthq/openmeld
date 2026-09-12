@@ -92,6 +92,8 @@ async function selectView(name: "Grouped" | "Recent") {
 
 it("shows Spaces and Direct messages together and keeps the current draft when switching", async () => {
 	mount();
+	expect(screen.getByRole("region", { name: "Recent" })).toBeTruthy();
+	await selectView("Grouped");
 	expect(screen.getByRole("region", { name: "Spaces" })).toBeTruthy();
 	expect(screen.getByRole("region", { name: "Direct messages" })).toBeTruthy();
 	const pinned = screen.getByRole("region", { name: "Pinned" });
@@ -146,7 +148,7 @@ it("keeps discovery visible in both views and carries an unmatched search into t
 	mount();
 	expect(
 		screen.getByRole("link", { name: "Spaces" }).getAttribute("href")
-	).toBe("/o/test/chats");
+	).toBe("/o/test/spaces");
 	for (const view of ["Grouped", "Recent"] as const) {
 		await selectView(view);
 		expect(

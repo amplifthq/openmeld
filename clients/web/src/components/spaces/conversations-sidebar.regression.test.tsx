@@ -314,6 +314,10 @@ describe("ConversationsSidebar", () => {
 		// Row-action tests exercise a user's explicitly expanded sidebar.
 		for (const organization of ["org-acme", "org-personal"]) {
 			localStorage.setItem(
+				`openmeld:conversation-view:user-1:${organization}`,
+				"grouped"
+			);
+			localStorage.setItem(
 				`openmeld:space-sidebar-disclosure:human-1:${organization}`,
 				JSON.stringify({ pinned: true, spaces: true })
 			);

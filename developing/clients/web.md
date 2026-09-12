@@ -55,12 +55,13 @@ top stack Organization switching, search, Inbox, and Create. The Organization
 avatar fills its circular trigger. Create opens New Agent and New Space to the
 right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
 motion opens the choices without travel. Account, theme, and Settings
-remain reachable from the rail. Spaces opens `/o/{orgSlug}/chats`, whose
-directory content remains the member's direct messages. After visiting Spaces,
-the application-rail entry returns to its last location in this tab, preserving
-profile, thread, and session selectors. This navigation memory is scoped to the
-account, Organization, and default Human Profile; it never opens a location from
-another Organization. The Spaces heading still opens the directory explicitly.
+remain reachable from the rail. Spaces and its contextual sidebar heading always
+open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
+and Discover, in that order (Discover is absent in personal workspaces).
+Direct messages uses `?view=messages`; the old `/chats` index redirects there.
+Individual chat, profile, thread, and session links retain their existing routes.
+The contextual heading has no aggregate attention dot; the rail and individual
+conversation rows retain their canonical indicators.
 Header actions move into one labeled overflow menu when the contextual list is
 narrow, keeping the title and controls on one row. Both layouts share the same
 creation, view, and filter menu contents.
@@ -79,7 +80,7 @@ now stores middle-column geometry, with a 308px default; legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in
 mutually exclusive drawers; a collapsed desktop preference never hides the
-mobile list. Grouped is the default conversation view, with a
+mobile list. Recent is the default conversation view. Grouped offers a
 shared Pinned section, existing personal groups, Spaces, and Direct messages.
 Recent retains the same Pinned section and orders the remaining conversations
 by the latest message timestamp across both kinds. Both views use the same rows,
@@ -647,8 +648,11 @@ No membership, Wakeability, execution, or permission owner changes are introduce
 
 The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
 its visible Space windows in this browser per account and Organization. Without a
-selection it uses an existing ordinary Space, or creates a private, members-only
-`Welcome Space` through the ordinary creation flow when none exists.
+selection it reuses a marked Welcome Space (or an existing joined `Welcome Space`),
+or creates a private, members-only `Welcome Space` through the ordinary creation
+flow when none exists. It never selects an unrelated ordinary Space by default.
+An old automatically selected ordinary window is replaced by Welcome; other
+saved windows and user-created layouts remain intact.
 There is no special Space kind or membership policy. A browser lock prevents
 concurrent tabs from creating duplicates; a pending marker prevents blind
 retries after an uncertain creation result. This is not cross-device atomic

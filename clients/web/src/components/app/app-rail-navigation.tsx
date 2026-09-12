@@ -38,9 +38,9 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import {
-	buildOrganizationDirectMessagesPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationRootPath,
+	buildOrganizationSpacesPath,
 } from "#/lib/organizations/organization-routes";
 import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 
@@ -64,7 +64,6 @@ type AppRailGroup = {
 };
 
 export function buildAppRailGroups(input: {
-	conversationPath?: string;
 	chatUnreadCount?: number;
 	chatAttentionTone?: "danger" | "warning" | null;
 	orgSlug: string;
@@ -88,9 +87,7 @@ export function buildAppRailGroups(input: {
 					label: "Spaces",
 					unreadCount: input.spacesUnreadCount + (input.chatUnreadCount ?? 0),
 					attentionTone: input.chatAttentionTone,
-					to:
-						input.conversationPath ??
-						buildOrganizationDirectMessagesPath(input.orgSlug),
+					to: buildOrganizationSpacesPath(input.orgSlug),
 					icon: <ChatCircleTextIcon aria-hidden="true" className="size-5" />,
 				},
 				{

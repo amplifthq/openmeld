@@ -228,9 +228,9 @@ export function SpaceDirectory(input: {
 	return (
 		<div
 			aria-label={discovering ? "Discover" : "Your Spaces"}
-			aria-labelledby={`spaces-directory-tab-${input.tab}`}
+			aria-labelledby={`spaces-directory-tab-${input.tab === 1 ? 2 : 0}`}
 			className="flex h-full min-h-0 flex-col"
-			id={`spaces-directory-panel-${input.tab}`}
+			id={`spaces-directory-panel-${input.tab === 1 ? 2 : 0}`}
 			role="tabpanel"
 		>
 			<div className="flex h-16 shrink-0 items-center justify-end gap-3 px-[var(--app-page-inline-padding)]">

@@ -328,6 +328,17 @@ describe("app spaces index route", () => {
 				.getAttribute("aria-selected")
 		).toBe("true");
 		expect(screen.getByRole("tab", { name: "Discover" })).toBeTruthy();
+		expect(screen.getAllByRole("tab")).toEqual(
+			["Your Spaces", "Direct messages", "Discover"].map((name) =>
+				screen.getByRole("tab", { name })
+			)
+		);
+		fireEvent.click(screen.getByRole("tab", { name: "Direct messages" }));
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/o/$orgSlug/spaces",
+			params: { orgSlug: "acme" },
+			search: { view: "messages" },
+		});
 		expect(screen.queryByRole("searchbox")).toBeNull();
 		expect(
 			screen.getByRole("link", { name: PLANNING_ROW }).getAttribute("href")
