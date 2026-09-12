@@ -389,6 +389,8 @@ function useActiveWakeTargetProfileIds(
 }
 
 type SpaceLandingInput = {
+	/** Embedded conversations only advance read state while actively being read. */
+	readingEnabled?: boolean;
 	isGuest?: boolean;
 	conversationTitle?: string;
 	conversationTitleAction?: (title: string) => ReactNode;
@@ -494,8 +496,11 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		centerAgentProfileId: currentSpaceIsCenterAgentDirectMessage
 			? centerAgentState.centerAgentProfileId
 			: null,
-		onViewedThroughTs: (throughOccurredAtMs) =>
-			spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
+		onViewedThroughTs:
+			input.readingEnabled === false
+				? undefined
+				: (throughOccurredAtMs) =>
+						spaceInboxReadPosition.markReadThrough(throughOccurredAtMs),
 		unreadStateReady: spaceInboxReadPosition.isReady,
 		unreadTargets: spaceInboxReadPosition.targets,
 		onInitialPendingMessageConsumed: input.onInitialPendingMessageConsumed,
@@ -504,7 +509,9 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 		organizationId,
 	});
 	usePublishInboxVisibleConversation(
-		controller.mode === "ready" && spaceView === "messages"
+		input.readingEnabled !== false &&
+			controller.mode === "ready" &&
+			spaceView === "messages"
 			? {
 					kind: "space",
 					spaceId: input.spaceId,
@@ -2720,15 +2727,19 @@ function SpaceLandingSecondaryPanels({
 				onReportMessage={controller.onReportMessage}
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
-				onViewedThroughTs={async (throughOccurredAtMs) => {
-					const rootSignalId = controller.activeThread?.rootSignalId;
-					if (rootSignalId) {
-						await spaceInboxReadPosition.markReadThrough(
-							throughOccurredAtMs,
-							rootSignalId
-						);
-					}
-				}}
+				onViewedThroughTs={
+					input.readingEnabled === false
+						? undefined
+						: async (throughOccurredAtMs) => {
+								const rootSignalId = controller.activeThread?.rootSignalId;
+								if (rootSignalId) {
+									await spaceInboxReadPosition.markReadThrough(
+										throughOccurredAtMs,
+										rootSignalId
+									);
+								}
+							}
+				}
 				onWakeStopRequest={controller.onWakeStopRequest}
 				orgSlug={input.orgSlug}
 				pendingActionSurface={pendingActionSurface}

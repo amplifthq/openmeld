@@ -1020,15 +1020,17 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
-	it("keeps a lower unread target inside the conversation viewport", async () => {
+	it.each([
+		0.5, 0.8, 1,
+	])("keeps a lower unread target inside the conversation viewport at %s scale", async (scale) => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
 				if (this.getAttribute("role") === "log") {
-					return domRect({ bottom: 500, top: 0 });
+					return domRect({ bottom: 500 * scale, top: 0 });
 				}
 				if (this.hasAttribute("data-signal-id")) {
-					return domRect({ bottom: 760, top: 700 });
+					return domRect({ bottom: 760 * scale, top: 700 * scale });
 				}
 				return domRect({ bottom: 0, top: 0 });
 			});
@@ -1047,6 +1049,10 @@ describe("SpaceConversationPanel", () => {
 			name: "Conversation history",
 		});
 		conversation.scrollTop = 0;
+		Object.defineProperty(conversation, "offsetHeight", {
+			configurable: true,
+			value: 500,
+		});
 		fireEvent.click(
 			await screen.findByRole("button", {
 				name: "1 new message. Jump to the nearest new message",

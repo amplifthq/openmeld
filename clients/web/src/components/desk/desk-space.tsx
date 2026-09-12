@@ -17,6 +17,9 @@ export function DeskSpace(input: {
 	onViewChange?: (view: SpaceView) => void;
 	initialView?: SpaceView;
 	compact?: boolean;
+	readingEnabled?: boolean;
+	focusSignalId?: string;
+	focusThreadRootSignalId?: string;
 }) {
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -36,12 +39,15 @@ export function DeskSpace(input: {
 					>
 						<SpaceLanding
 							accountProfiles={input.accountProfiles}
+							initialFocusSignalId={input.focusSignalId}
+							initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
 							initialSpaceView={input.initialView}
 							membersPresentation="inline"
 							onSpaceViewCommitted={input.onViewChange}
 							orgSlug={input.orgSlug}
 							presentation={input.compact ? "compact" : "full"}
 							profileId={input.profileId}
+							readingEnabled={input.readingEnabled}
 							spaceId={input.spaceId}
 						/>
 					</Suspense>

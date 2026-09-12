@@ -2002,7 +2002,11 @@ function scrollMessageIntoConversationViewport(input: {
 		const viewportRect = input.scrollElement.getBoundingClientRect();
 		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
 		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
-		input.scrollElement.scrollTop += messageCenter - viewportCenter;
+		// Canvas transforms scale viewport coordinates, while scrollTop uses CSS pixels.
+		const scale = viewportRect.height / input.scrollElement.offsetHeight;
+		if (scale > 0) {
+			input.scrollElement.scrollTop += (messageCenter - viewportCenter) / scale;
+		}
 	};
 	alignMessage();
 	window.requestAnimationFrame(() => {

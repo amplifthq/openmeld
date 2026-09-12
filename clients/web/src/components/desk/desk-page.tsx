@@ -1,11 +1,22 @@
+import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ContextMenu,
 	ContextMenuContent,
 	ContextMenuItem,
+	ContextMenuSeparator,
 	ContextMenuTrigger,
 } from "@openmeld/ui/components/context-menu";
-import { ArrowsOutSimpleIcon, PlusIcon, XIcon } from "@phosphor-icons/react";
+import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
+import {
+	ArrowCounterClockwiseIcon,
+	ArrowsOutSimpleIcon,
+	CornersOutIcon,
+	LayoutIcon,
+	PlusIcon,
+	TextTIcon,
+	XIcon,
+} from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
@@ -49,6 +60,11 @@ import { DeskEditableLabel } from "./desk-editable-label";
 import { findDeskPlacement } from "./desk-placement";
 import { DeskSpace } from "./desk-space";
 import { DeskTools } from "./desk-tools";
+import {
+	DeskReadingProvider,
+	DeskUnreadNavigation,
+	useDeskReading,
+} from "./desk-unread";
 import {
 	type DeskWidget,
 	type DeskWidgetKind,
@@ -152,6 +168,7 @@ function Desk() {
 	const { selectedHumanProfile, profilesQuery } = useSelectedHumanProfile({
 		selectDefaultWhenMissing: true,
 	});
+	const profileId = selectedHumanProfile?.openMeldProfileId ?? "";
 	const space = useDeskSpace({
 		profile: selectedHumanProfile,
 		organizationId: currentOrganization.id,
@@ -166,7 +183,7 @@ function Desk() {
 	const index = useQuery(
 		accountSpaceItemsQueryOptions({
 			enabled: !!selectedHumanProfile,
-			profileId: selectedHumanProfile?.openMeldProfileId ?? "",
+			profileId,
 		})
 	);
 	const deletedIds = useMemo(
@@ -695,9 +712,13 @@ function Desk() {
 	return (
 		<AppFullWidthLayout contentLayout="flush" scroll={false}>
 			<header className="flex items-center gap-3 border-b px-4 py-3">
-				<h1 className="truncate font-medium text-base">
-					Desk <span aria-hidden="true" className="mx-2 border-l" />{" "}
-					{currentOrganization.name}
+				<h1 className="flex min-w-0 items-center gap-2 font-medium text-base">
+					<span className="shrink-0">Desk</span>
+					<Badge className={surfaceClasses(2)} variant="secondary">
+						Beta
+					</Badge>
+					<span aria-hidden="true" className="mx-1 h-5 shrink-0 border-l" />
+					<span className="truncate">{currentOrganization.name}</span>
 				</h1>
 			</header>
 			<ContextMenu>
@@ -776,64 +797,66 @@ function Desk() {
 					)}
 					{!(space.error || profilesQuery.isError) && loaded && space.ready && (
 						<DeskContext value={context}>
-							<WorkspaceCanvas<DeskNode>
-								controls={
-									<>
-										{import.meta.env.DEV &&
-											location.hostname.endsWith(".localhost") && (
-												<Panel position="top-left">
-													<Button
-														disabled={resetWelcome.isPending}
-														onClick={() => resetWelcome.mutate()}
-														size="sm"
-														variant="outline"
-													>
-														{resetWelcome.isPending
-															? "Resetting…"
-															: "Reset Welcome Space (Dev)"}
-													</Button>
-													{resetWelcome.error && (
-														<p
-															className="max-w-xs text-destructive text-xs"
-															role="alert"
+							<DeskReadingProvider organizationId={currentOrganization.id}>
+								<WorkspaceCanvas<DeskNode>
+									controls={
+										<>
+											<DeskUnreadNavigation />
+											{import.meta.env.DEV &&
+												location.hostname.endsWith(".localhost") && (
+													<Panel position="top-left">
+														<Button
+															disabled={resetWelcome.isPending}
+															onClick={() => resetWelcome.mutate()}
+															size="sm"
+															variant="outline"
 														>
-															{resetWelcome.error.message}
-														</p>
-													)}
-												</Panel>
-											)}
-										<Panel position="bottom-right">
-											<Button
-												aria-label="Add to Desk"
-												onClick={() => setAddOpen(true)}
-												size="icon"
-												variant="outline"
-											>
-												<PlusIcon />
-											</Button>
-										</Panel>
-										<Panel position="bottom-left">
-											<DeskTools
-												onAdd={() => setAddOpen(true)}
-												onReset={reset}
-												onZoomIn={() => flow.current?.zoomIn()}
-												onZoomOut={() => flow.current?.zoomOut()}
-											/>
-										</Panel>
-									</>
-								}
-								defaultViewport={savedViewport ?? { x: 32, y: 24, zoom: 1 }}
-								edges={edges}
-								nodes={nodes}
-								nodeTypes={nodeTypes}
-								onInit={initialize}
-								onlyRenderVisibleElements={false}
-								onMoveEnd={(_, viewport) => onMoveEnd(viewport)}
-								onNodesChange={(changes) =>
-									setNodes((current) => applyNodeChanges(changes, current))
-								}
-								zoomOnDoubleClick={false}
-							/>
+															{resetWelcome.isPending
+																? "Resetting…"
+																: "Reset Welcome Space (Dev)"}
+														</Button>
+														{resetWelcome.error && (
+															<p
+																className="max-w-xs text-destructive text-xs"
+																role="alert"
+															>
+																{resetWelcome.error.message}
+															</p>
+														)}
+													</Panel>
+												)}
+											<Panel position="bottom-right">
+												<Button
+													aria-label="Add to Desk"
+													onClick={() => setAddOpen(true)}
+													size="icon"
+													variant="outline"
+												>
+													<PlusIcon />
+												</Button>
+											</Panel>
+											<Panel position="bottom-left">
+												<DeskTools
+													onReset={reset}
+													onZoomIn={() => flow.current?.zoomIn()}
+													onZoomOut={() => flow.current?.zoomOut()}
+												/>
+											</Panel>
+										</>
+									}
+									defaultViewport={savedViewport ?? { x: 32, y: 24, zoom: 1 }}
+									edges={edges}
+									nodes={nodes}
+									nodeTypes={nodeTypes}
+									onInit={initialize}
+									onlyRenderVisibleElements={false}
+									onMoveEnd={(_, viewport) => onMoveEnd(viewport)}
+									onNodesChange={(changes) =>
+										setNodes((current) => applyNodeChanges(changes, current))
+									}
+									zoomOnDoubleClick={false}
+								/>
+							</DeskReadingProvider>
 						</DeskContext>
 					)}
 					{!(
@@ -855,17 +878,31 @@ function Desk() {
 					)}
 				</ContextMenuTrigger>
 				<ContextMenuContent>
+					<ContextMenuItem
+						disabled={undoStack.current.length === 0}
+						onClick={undoLayout}
+					>
+						<ArrowCounterClockwiseIcon aria-hidden="true" />
+						Undo
+					</ContextMenuItem>
+					<ContextMenuSeparator />
 					<ContextMenuItem onClick={() => setAddOpen(true)}>
+						<PlusIcon aria-hidden="true" />
 						Add to Desk
 					</ContextMenuItem>
 					<ContextMenuItem onClick={() => addWidget("text")}>
+						<TextTIcon aria-hidden="true" />
 						Add text
 					</ContextMenuItem>
-					<ContextMenuItem onClick={reset}>Reset view</ContextMenuItem>
-					<ContextMenuItem onClick={undoLayout}>
-						Undo layout change
+					<ContextMenuSeparator />
+					<ContextMenuItem onClick={reset}>
+						<CornersOutIcon aria-hidden="true" />
+						Restore default view
 					</ContextMenuItem>
-					<ContextMenuItem onClick={resetLayout}>Reset layout</ContextMenuItem>
+					<ContextMenuItem onClick={resetLayout}>
+						<LayoutIcon aria-hidden="true" />
+						Reset positions and sizes
+					</ContextMenuItem>
 				</ContextMenuContent>
 			</ContextMenu>
 			<DeskAddDialog
@@ -881,6 +918,7 @@ function Desk() {
 				onWidget={addWidget}
 				open={addOpen}
 				orgSlug={currentOrganization.slug}
+				profileId={profileId}
 				shownIds={(windows ?? []).map((item) => item.spaceId)}
 				shownProfileIds={nodes.flatMap((n) =>
 					n.data.kind === "people" && n.data.targetProfileId
@@ -904,6 +942,7 @@ function DeskWindow({
 	const [view, setView] = useState<SpaceView>("messages");
 	const spaceId = data.spaceId ?? context?.spaceId ?? "";
 	const profileId = data.profileId ?? context?.profileId ?? "";
+	const reading = useDeskReading(data.spaceId);
 	if (!context) {
 		return null;
 	}
@@ -997,6 +1036,13 @@ function DeskWindow({
 				lineStyle={{ borderColor: "transparent", borderWidth: 4 }}
 			/>
 			<div className="desk-title absolute inset-x-0 bottom-full flex min-h-9 cursor-grab items-center gap-2 pb-1 text-sm">
+				{reading.unreadCount > 0 && (
+					<span
+						aria-label={`${reading.unreadCount} unread messages`}
+						className="size-1.5 shrink-0 rounded-full bg-unread"
+						role="img"
+					/>
+				)}
 				<DeskEditableLabel
 					label={`Rename ${label} on Desk`}
 					onChange={(title) => reactFlow.updateNodeData(id, { title })}
@@ -1032,16 +1078,25 @@ function DeskWindow({
 				aria-label={`Desk ${label}`}
 				className="flex h-full cursor-default flex-col overflow-hidden rounded-lg border bg-background"
 				data-desk-space-window=""
+				style={reading.borderStyle}
 			>
-				<div className="nodrag nopan nowheel flex min-h-0 flex-1 select-text flex-col">
+				<div
+					className="nodrag nopan nowheel flex min-h-0 flex-1 select-text flex-col"
+					onFocusCapture={reading.activate}
+					onPointerDownCapture={reading.activate}
+					ref={reading.ref}
+				>
 					{isSpace || data.kind === "chat" ? (
 						<DeskSpace
 							accountProfiles={context.profiles}
 							compact={data.kind === "chat"}
+							focusSignalId={reading.focusSignalId}
+							focusThreadRootSignalId={reading.focusThreadRootSignalId}
 							initialView={view}
 							onViewChange={setView}
 							orgSlug={context.orgSlug}
 							profileId={profileId}
+							readingEnabled={reading.readable}
 							spaceId={spaceId}
 						/>
 					) : (

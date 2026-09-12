@@ -24,11 +24,9 @@ import {
 } from "@openmeld/ui/components/table";
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
-import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
-	LockKeyIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
@@ -54,7 +52,9 @@ import {
 	type SpaceSidebarActiveWakeSummary,
 } from "./space-active-wake-presentation";
 import { SpaceAgentOrb } from "./space-agent-orb";
+import { spaceDirectoryGroups } from "./space-directory-groups";
 import { SpaceDirectoryPreview } from "./space-directory-preview";
+import { SpaceDirectorySummary } from "./space-directory-summary";
 import {
 	resolveSpaceMemberAppearances,
 	type SpaceMemberAppearance,
@@ -153,14 +153,7 @@ export function SpaceDirectory(input: {
 			.filter(([, value]) => value.activeWakeCount > 0)
 			.map(([id]) => id)
 	);
-	const groups = [
-		{ id: "pinned", label: "Pinned" },
-		...(preferences?.groups ?? []).map((group) => ({
-			id: group.id,
-			label: group.name,
-		})),
-		{ id: "spaces", label: "Spaces" },
-	];
+	const groups = spaceDirectoryGroups(items, preferences);
 	const grouped =
 		(preferences?.groups.length ?? 0) > 0 || sections.pinnedItems.length > 0;
 	const groupFilter = useSpaceDirectoryFilters(groups, () =>
@@ -176,9 +169,6 @@ export function SpaceDirectory(input: {
 			space.name.toLowerCase().includes(searchTerm) &&
 			statusFilters.length === 0
 	);
-	const groupedIds = new Set(
-		preferences?.groups.flatMap((group) => group.spaceIds)
-	);
 	const matches = (item: AccountSpaceItem) =>
 		item.spaceName.toLowerCase().includes(searchTerm) &&
 		groupFilter.matchesStatus(
@@ -187,26 +177,13 @@ export function SpaceDirectory(input: {
 		);
 	const entries = groups
 		.map((group) => {
-			const section =
-				group.id === "pinned" || group.id === "spaces"
-					? preferences?.[group.id]
-					: preferences?.groups.find((entry) => entry.id === group.id);
-			let members = sections.pinnedItems;
-			if (group.id === "spaces") {
-				members = sections.spaceItems.filter(
-					(item) => !groupedIds.has(item.spaceId)
-				);
-			} else if (group.id !== "pinned") {
-				members = sections.spaceItems.filter((item) =>
-					section?.spaceIds.includes(item.spaceId)
-				);
-			}
+			const { section } = group;
 			return {
 				...group,
 				section,
 				unindexed: group.id === "spaces" ? unindexed : [],
 				items: sortSidebarSpaces(
-					members.filter(matches),
+					group.items.filter(matches),
 					section ?? { sort: "priority", spaceIds: [] },
 					attention,
 					unreadActivity,
@@ -610,27 +587,11 @@ function JoinedRow(input: {
 					className="block min-w-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
 					to={href}
 				>
-					<span
-						className={cn(
-							"flex items-center gap-2 text-sm",
-							input.unread ? "font-semibold text-foreground" : "font-medium"
-						)}
-					>
-						<ChatCircleTextIcon className="size-4 shrink-0 text-muted-foreground" />
-						<span className="truncate">{item.spaceName}</span>
-						<WelcomeSpaceLabel spaceId={item.spaceId} />
-						{item.visibility === "private" && (
-							<LockKeyIcon
-								aria-label="Invite-only in this organization"
-								className="size-3 shrink-0 text-muted-foreground"
-							/>
-						)}
-					</span>
-					<span className="mt-1 block truncate pl-6 text-muted-foreground text-xs">
-						{input.preview === undefined
-							? "Message preview unavailable"
-							: (input.preview?.text ?? item.spacePurpose ?? "No messages yet")}
-					</span>
+					<SpaceDirectorySummary
+						item={item}
+						preview={input.preview}
+						unread={input.unread > 0}
+					/>
 				</Link>
 				<div className="mt-1 pl-6 lg:hidden">
 					<RowStatus href={href} status={status} unread={input.unread} />
