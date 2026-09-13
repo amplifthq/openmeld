@@ -74,15 +74,8 @@ async function forwardCloud(
       status: 403,
     });
   }
-  const origin = request.headers.get("origin");
-  const referer = request.headers.get("referer");
-  if (
-    origin
-      ? origin !== DESKTOP_APP_ORIGIN
-      : !referer?.startsWith(`${DESKTOP_APP_ORIGIN}/`)
-  ) {
-    return new Response("Unknown Desktop request source", { status: 403 });
-  }
+  // The owning Session admits only the current native main frame before this
+  // handler runs. Electron custom-protocol requests omit HTTP source metadata.
   const headers = new Headers();
   for (const [name, value] of request.headers) {
     if (FORWARDED_HEADERS.has(name)) {

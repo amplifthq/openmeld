@@ -92,6 +92,7 @@ function createMainWindow(
     backgroundColor: WINDOW_BACKGROUND,
     titleBarStyle: "hiddenInset",
     webPreferences: {
+      ...(pilot ? { session: pilot.getSession() } : {}),
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -709,6 +710,7 @@ function createWindowIpcHandlers(
 }
 
 app.on("will-quit", () => {
+  pilot?.dispose();
   ipcDisposer?.();
   ipcDisposer = null;
   ipcMain.removeHandler(WINDOW_IPC.enterApp);

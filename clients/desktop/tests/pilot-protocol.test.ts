@@ -62,10 +62,6 @@ it("serves local page files and confines credentials to the configured cloud ori
       new Request("openmeld-desktop://other/v1/spaces", {
         headers: { origin: DESKTOP_APP_ORIGIN },
       }),
-      new Request(`${DESKTOP_APP_ORIGIN}/v1/spaces`, {
-        method: "POST",
-        headers: { origin: "https://evil.example" },
-      }),
       new Request(`${DESKTOP_APP_ORIGIN}/api/auth/list-sessions`, {
         headers: { origin: DESKTOP_APP_ORIGIN },
       }),

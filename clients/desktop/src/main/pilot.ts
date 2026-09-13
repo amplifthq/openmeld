@@ -12,6 +12,8 @@ import {
   type IpcMainInvokeEvent,
   ipcMain,
   protocol,
+  type Session,
+  session,
   type WebContents,
 } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
@@ -21,8 +23,8 @@ import {
 } from "./desktop-environment";
 import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
-import { createPilotProtocol } from "./pilot-protocol";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
+import { installPilotTransport } from "./pilot-transport";
 import { configurePilotUserData } from "./pilot-user-data";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
@@ -93,8 +95,19 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       );
     }
   }
+  let transportSession: Session | undefined;
+  let disposeTransport: (() => void) | undefined;
   return {
     auth,
+    getSession() {
+      if (!transportSession) {
+        throw new Error("Desktop transport is not installed");
+      }
+      return transportSession;
+    },
+    dispose() {
+      disposeTransport?.();
+    },
     observeWindow(contents: WebContents) {
       if (!app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1") {
         observePilotWindow(contents);
@@ -102,9 +115,13 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     },
     rendererUrl: `${DESKTOP_APP_ORIGIN}/${sharedAssets ? "desktop-shell" : "pilot.html"}`,
     install(authorize: (event: IpcMainInvokeEvent) => void) {
-      protocol.handle(
-        "openmeld-desktop",
-        createPilotProtocol({
+      transportSession = session.fromPartition("openmeld-desktop-pilot", {
+        cache: false,
+      });
+      disposeTransport = installPilotTransport(
+        transportSession,
+        () => getWindow()?.webContents ?? null,
+        {
           assets: sharedAssets
             ? resolve(sharedAssets)
             : join(import.meta.dirname, "../renderer"),
@@ -112,7 +129,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           webBuild: platform.webBuild,
           cookie: auth.cookie,
           fetch,
-        })
+        }
       );
       const handlers = {
         [PILOT_IPC.platform]: () => platform,
