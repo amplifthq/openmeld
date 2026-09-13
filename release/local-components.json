@@ -1,16 +1,16 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-13T12:04:40.249Z",
+  "updatedAt": "2026-09-13T15:17:24.471Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.202",
+      "packageVersion": "0.3.203",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands and cloud contracts remain compatible; this release corrects installed artifact selection without changing command eligibility."
+      "reason": "Conversation-independent CLI repair selection and hosted Profile diagnostics remain compatible with existing cloud and Service contracts; setup, Wake and Space actions are unchanged."
     },
     "service": {
-      "bundleHash": "35356c676636a27129557a90717e8eb4848302f045d8b608de9a6d2aca886855",
-      "bundleVersion": "0.3.202",
+      "bundleHash": "b9dbd1082b6cad1487184a6a6e5a8911e886474caca50edcecac68a4f189f652",
+      "bundleVersion": "0.3.203",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
