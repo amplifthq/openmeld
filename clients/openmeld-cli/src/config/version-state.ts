@@ -54,6 +54,7 @@ export type PackageVersionMetadata = {
 export type PackageLatestInfo = {
   version: string;
   minRequiredCliVersion: string | null;
+  serviceVersion?: string;
 };
 
 export type CliBinaryReleaseInfo = PackageLatestInfo &
@@ -358,6 +359,7 @@ async function requestLatestPackageInfoFromCliManifest(): Promise<PackageLatestI
   return {
     version: manifest.version,
     minRequiredCliVersion: manifest.minRequiredCliVersion,
+    ...(manifest.service ? { serviceVersion: manifest.service.version } : {}),
   };
 }
 

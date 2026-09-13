@@ -12,7 +12,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveDaemonServiceUpdateWorkerRegistrationPath } from "../src/config/daemon-service-update-worker-registration";
 import { daemonServiceActiveBundleStatePath } from "../src/config/daemon-state";
 import {
@@ -23,6 +23,7 @@ import {
   withManagedInstallTransaction,
 } from "../src/local-components/managed-install";
 import { persistPendingDaemonServiceUpdate } from "../src/local-service/lifecycle/daemon-service-update-state";
+import { resolveMaintenanceCliInstallation } from "../src/local-service/maintenance/openmeld-tools-upgrade-process";
 
 const PLATFORM_TOKEN_REGEX = /^[a-z0-9]+-[a-z0-9]+$/;
 
@@ -85,6 +86,25 @@ describe("managed install (install-self)", () => {
 
     expect(outcome.result).toBe("noop_same_version");
     expect(outcome.previousVersion).toBe(resolveCliSelfVersion());
+  });
+
+  it("lets an older maintenance carrier use the installed CLI and recover when it is missing", async () => {
+    await installNewerVersion("999.0.0");
+    vi.stubGlobal("__OPENMELD_DISTRIBUTION__", "binary");
+    try {
+      const binaryPath = path.join(home, "versions", "999.0.0", "openmeld");
+      await expect(resolveMaintenanceCliInstallation()).resolves.toEqual({
+        version: "999.0.0",
+        binaryPath,
+      });
+      await rm(binaryPath);
+      await expect(resolveMaintenanceCliInstallation()).resolves.toEqual({
+        version: resolveCliSelfVersion(),
+        binaryPath: process.execPath,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("retains the active Service across CLI cleanup and releases it after replacement", async () => {

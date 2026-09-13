@@ -136,6 +136,11 @@ const binaryPlatformsSchema = z
     message: "at least one platform is required",
   });
 
+export const cliBinaryServiceReleaseSchema = z.object({
+  platforms: binaryPlatformsSchema,
+  version: z.string().trim().min(1),
+});
+
 export const cliBinaryManifestSchema = z.object({
   channels: z.object({
     stable: z
@@ -145,12 +150,7 @@ export const cliBinaryManifestSchema = z.object({
         // Omitted by legacy channels whose CLI binary also supplies the Service.
         // A selected Service release has its own immutable artifact metadata;
         // a version number alone cannot safely select or verify an executable.
-        service: z
-          .object({
-            platforms: binaryPlatformsSchema,
-            version: z.string().trim().min(1),
-          })
-          .optional(),
+        service: cliBinaryServiceReleaseSchema.optional(),
         version: z.string().trim().min(1),
       })
       .superRefine((stable, context) => {

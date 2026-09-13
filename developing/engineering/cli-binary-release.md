@@ -376,7 +376,15 @@ node scripts/release/upload-cli-binary.mjs
   the CLI artifact integrity/signature/transport schema and must cover every
   advertised CLI platform. Legacy manifests omit it. CLI release acquisition
   preserves the selected Service metadata separately from the CLI artifact.
-  This is receiver preparation only: publishers must not emit an independent
+  A binary CLI can embed that same selection in package metadata at
+  `openmeld.service`, so setup and repair retain their release target without
+  consulting a mutable local version cache. Preparing a selected artifact uses
+  the existing verified downloader and Service bundle directory; it does not
+  run `install-self` or move the user's CLI pointer. Maintenance checks the
+  installed managed CLI version rather than treating its own retained carrier
+  version as the current CLI. The carrier remains available to repair a missing
+  managed CLI.
+  Publication is still gated: publishers must not emit an independent
   target until installation, repair, maintenance, and channel verification all
   support it. Deploy Web manifest readers before publishing the field; older
   Web readers strip unknown metadata. Current coupled-release guards remain.

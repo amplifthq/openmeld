@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,11 +9,15 @@ vi.mock("../src/runtime/distribution", () => ({
 }));
 
 import type { DaemonStatus } from "../src/config/daemon-state";
-import type { OpenMeldPathResolutionInput } from "../src/config/paths";
+import {
+  type OpenMeldPathResolutionInput,
+  openMeldManagedBinaryPath,
+} from "../src/config/paths";
 import { resolveCliSelfVersion } from "../src/local-components/managed-install";
 import {
   daemonServiceActiveBundlePath,
   daemonServiceBinaryExecutablePath,
+  prepareDaemonServiceBundle,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { inspectDaemonServiceInventory } from "../src/local-service/lifecycle/daemon-service-inventory";
 import type {
@@ -84,6 +88,63 @@ async function writeLaunchdDefinition(commandPath: string): Promise<string> {
 }
 
 describe("binary local service inventory", () => {
+  it("stages a separately selected Service without replacing the CLI or active Service", async () => {
+    await withTempHome(async () => {
+      const contents = Buffer.from("selected Service release");
+      const sha256 = createHash("sha256").update(contents).digest("hex");
+      const fetchMock = vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(new Response(contents));
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        const bundle = await prepareDaemonServiceBundle({
+          activate: false,
+          daemonVersion: "0.0.1",
+          binaryRelease: {
+            version: "0.0.1",
+            minRequiredCliVersion: null,
+            platform: "darwin-arm64",
+            url: "https://example.com/openmeld-cli-darwin-arm64-0.0.1",
+            sha256,
+            sizeBytes: contents.length,
+          },
+        });
+        expect(bundle.daemonVersion).toBe("0.0.1");
+        expect(bundle.sourceDistFingerprint).toBe(sha256);
+        await expect(readFile(bundle.sourceEntryScriptPath)).resolves.toEqual(
+          contents
+        );
+        await expect(
+          readFile(daemonServiceActiveBundlePath())
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          readFile(daemonServiceBinaryExecutablePath())
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await expect(
+          readFile(openMeldManagedBinaryPath())
+        ).rejects.toMatchObject({ code: "ENOENT" });
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
+  it("rejects a different Service target before installing the invoking CLI", async () => {
+    await withTempHome(async () => {
+      await expect(
+        prepareDaemonServiceBundle({ daemonVersion: "0.0.1" })
+      ).rejects.toThrow("Acquire the selected Service release");
+      await expect(
+        readFile(daemonServiceActiveBundlePath())
+      ).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      await expect(
+        readFile(daemonServiceBinaryExecutablePath())
+      ).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+    });
+  });
   it("detects changed Service bytes independently of the invoking CLI", async () => {
     await withTempHome(async () => {
       const version = resolveCliSelfVersion();

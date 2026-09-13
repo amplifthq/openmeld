@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmod,
@@ -17,6 +18,7 @@ import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { readDaemonRuntimeLease } from "../../config/daemon-runtime-lease";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import { readDaemonServiceUpdateWorkerProtectedBundleIds } from "../../config/daemon-service-update-worker-registration";
@@ -40,7 +42,17 @@ import {
   type OpenMeldPathResolutionInput,
   resolveOpenMeldEnvPreset,
 } from "../../config/paths";
-import { performManagedInstall } from "../../local-components/managed-install";
+import { resolveBundledServiceRelease } from "../../config/service-release";
+import type { CliBinaryReleaseInfo } from "../../config/version-state";
+import {
+  performManagedInstall,
+  resolveCliSelfVersion,
+} from "../../local-components/managed-install";
+import {
+  downloadCliBinaryUpdateArtifact,
+  resolveCliBinaryUpdatePlan,
+  verifyCliBinaryCodeSignature,
+} from "../../runtime/cli-binary-update-artifact";
 import {
   isBinaryDistribution,
   type OpenMeldDistribution,
@@ -369,9 +381,10 @@ export async function prepareDaemonServiceBundle(input: {
   activate?: boolean;
   daemonVersion: string;
   cliScriptPath?: string;
+  binaryRelease?: CliBinaryReleaseInfo;
 }): Promise<DaemonActiveBundleState> {
   const preparedBundle = isBinaryDistribution()
-    ? await prepareBinaryDaemonServiceBundle()
+    ? await prepareBinaryDaemonServiceBundle(input)
     : await prepareNodeDaemonServiceBundle(input);
   if (input.activate !== false) {
     await activateDaemonServiceBundle(preparedBundle);
@@ -460,7 +473,23 @@ async function prepareNodeDaemonServiceBundle(input: {
 // to the managed install (versions/<version>/openmeld) and record a binary_v1
 // active-bundle state (path fields kept non-empty for the read whitelist). No
 // launcher/wrapper is generated; command-spec points straight at the binary.
-async function prepareBinaryDaemonServiceBundle(): Promise<DaemonActiveBundleState> {
+async function prepareBinaryDaemonServiceBundle(input: {
+  daemonVersion: string;
+  binaryRelease?: CliBinaryReleaseInfo;
+}): Promise<DaemonActiveBundleState> {
+  const { daemonVersion } = input;
+  const binaryRelease = input.binaryRelease ?? resolveBundledServiceRelease();
+  if (binaryRelease) {
+    return await prepareSelectedBinaryDaemonServiceBundle({
+      daemonVersion,
+      release: binaryRelease,
+    });
+  }
+  if (daemonVersion !== resolveCliSelfVersion()) {
+    throw new Error(
+      `Cannot prepare OpenMeld Service ${daemonVersion} from CLI ${resolveCliSelfVersion()}. Acquire the selected Service release before preparing the update.`
+    );
+  }
   const outcome = await performManagedInstall();
   const managedBinaryPath = outcome.managedBinaryPath;
   if (!(await pathExists(managedBinaryPath))) {
@@ -487,15 +516,76 @@ async function prepareBinaryDaemonServiceBundle(): Promise<DaemonActiveBundleSta
     sourceEntryScriptPath: managedBinaryPath,
     sourcePackageRootPath: managedVersionDir,
     sourceDistRootPath: managedVersionDir,
-    sourceDistFingerprint: await hashDaemonBinaryFile(managedBinaryPath).catch(
-      () => null
-    ),
+    sourceDistFingerprint: await hashDaemonBinaryFile(managedBinaryPath),
     sourceKind: DAEMON_BUNDLE_SOURCE_KIND_PACKAGE_INSTALL,
     createdAt: now,
     updatedAt: now,
   };
 
   return nextState;
+}
+
+async function prepareSelectedBinaryDaemonServiceBundle(input: {
+  daemonVersion: string;
+  release: CliBinaryReleaseInfo;
+}): Promise<DaemonActiveBundleState> {
+  if (input.release.version !== input.daemonVersion) {
+    throw new Error(
+      "The selected Service artifact does not match the update target."
+    );
+  }
+  const bundleId = createBundleId(input.daemonVersion);
+  const bundleRootPath = resolveDaemonBundleRootPath(bundleId);
+  const executablePath = join(bundleRootPath, "openmeld");
+  const onDeltaFallback = (error: Error): void => {
+    console.warn("[openmeld.service.artifact_delta_fallback]", error.message);
+  };
+  const plan = await resolveCliBinaryUpdatePlan({
+    baseBinaryPath: process.execPath,
+    currentVersion: resolveCliSelfVersion(),
+    onDeltaFallback,
+    release: input.release,
+  });
+  const bytes = await downloadCliBinaryUpdateArtifact({
+    downloadTimeoutMs: 60_000,
+    fetchImpl: fetch,
+    onDeltaFallback,
+    plan,
+    release: input.release,
+  });
+  await mkdir(bundleRootPath, { recursive: true });
+  try {
+    await writeFile(executablePath, bytes, { mode: 0o755 });
+    await verifyCliBinaryCodeSignature({
+      artifactPath: executablePath,
+      release: input.release,
+      runCommand: async (command, args) => {
+        const result = await promisify(execFile)(command, args, {
+          encoding: "utf8",
+        });
+        return { code: 0, stdout: result.stdout, stderr: result.stderr };
+      },
+    });
+  } catch (error) {
+    await rm(bundleRootPath, { recursive: true, force: true });
+    throw error;
+  }
+  const now = new Date().toISOString();
+  return {
+    v: 2,
+    schema: DAEMON_ACTIVE_BUNDLE_SCHEMA,
+    bundleId,
+    daemonVersion: input.daemonVersion,
+    entryScriptRelativePath: "openmeld",
+    bundleFormat: "binary_v1",
+    sourceEntryScriptPath: executablePath,
+    sourcePackageRootPath: bundleRootPath,
+    sourceDistRootPath: bundleRootPath,
+    sourceDistFingerprint: input.release.sha256.toLowerCase(),
+    sourceKind: DAEMON_BUNDLE_SOURCE_KIND_PACKAGE_INSTALL,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 export async function activateDaemonServiceBundle(
@@ -515,7 +605,7 @@ export async function activateDaemonServiceBundle(
 export async function discardPreparedDaemonServiceBundle(
   preparedBundle: DaemonActiveBundleState
 ): Promise<void> {
-  if (preparedBundle.bundleFormat !== "self_contained_v1") {
+  if (preparedBundle.bundleFormat === "legacy_linked_v1") {
     return;
   }
   const activeBundle = await readDaemonActiveBundleState();

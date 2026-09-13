@@ -115,7 +115,26 @@ async function readCurrentPointerVersion(
     ? target
     : path.resolve(path.dirname(pointerPath), target);
   const version = path.basename(path.dirname(resolved));
-  return version.length > 0 ? version : null;
+  return version.length > 0 &&
+    path.resolve(resolved) ===
+      openMeldManagedVersionBinaryPath(version, pathInput)
+    ? version
+    : null;
+}
+
+export async function readManagedCliInstallation(): Promise<{
+  version: string;
+  binaryPath: string;
+} | null> {
+  const version = await readCurrentPointerVersion();
+  if (!version) {
+    return null;
+  }
+  const binaryPath = openMeldManagedVersionBinaryPath(version);
+  if (!(await isUsableManagedBinary(binaryPath))) {
+    return null;
+  }
+  return { version, binaryPath };
 }
 
 /**

@@ -12,6 +12,7 @@ function createDependencies(input?: {
   automaticUpdatesEnabled?: boolean;
   updateAvailable?: boolean;
   serviceNeedsAlignment?: boolean;
+  serviceVersion?: string;
   upgradeExitCode?: number;
   serviceJobAfterUpgrade?: DaemonServiceUpdateJob | null;
 }) {
@@ -29,6 +30,7 @@ function createDependencies(input?: {
     requiredFloor: null,
     updateAvailable: input?.updateAvailable !== false,
     floorBreached: false,
+    ...(input?.serviceVersion ? { serviceVersion: input.serviceVersion } : {}),
   }));
 
   return {
@@ -225,10 +227,14 @@ describe("OpenMeld Tools update coordinator", () => {
     });
   });
 
-  it("aligns the Service through the same operation when the CLI is already current", async () => {
+  it.each([
+    undefined,
+    "0.3.100",
+  ])("aligns the selected Service through the same operation when the CLI is current (target=%s)", async (serviceVersion) => {
     const dependencies = createDependencies({
       updateAvailable: false,
       serviceNeedsAlignment: true,
+      serviceVersion,
     });
     const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies, {
       executeUpdates: false,
@@ -237,13 +243,19 @@ describe("OpenMeld Tools update coordinator", () => {
     const second = await coordinator.requestUpdate({ requestSource: "web" });
     expect(first).toMatchObject({
       status: "started",
-      operation: { operationId: "update-1", targetVersion: "0.3.104" },
+      operation: {
+        operationId: "update-1",
+        targetVersion: serviceVersion ?? "0.3.104",
+      },
     });
     expect(second).toMatchObject({
       status: "already_running",
       operation: { operationId: "update-1" },
     });
     expect(dependencies.persistAttempt).toHaveBeenCalledOnce();
+    expect(dependencies.serviceNeedsAlignment).toHaveBeenCalledWith(
+      serviceVersion ?? "0.3.104"
+    );
     expect(dependencies.runUpgrade).not.toHaveBeenCalled();
   });
 

@@ -33,6 +33,7 @@ import {
 import type { OpenMeldToolsUpdateContext } from "./openmeld-tools-update-context";
 import {
   type OpenMeldToolsUpgradeProcessResult,
+  resolveMaintenanceCliInstallation,
   runOpenMeldToolsUpgradeProcess,
 } from "./openmeld-tools-upgrade-process";
 
@@ -158,10 +159,12 @@ export function createOpenMeldToolsUpdateCoordinator(
     if (!(assessment.checked && assessment.latestVersion)) {
       return { status: "unavailable" };
     }
+    const serviceVersion =
+      assessment.serviceVersion ?? assessment.currentVersion;
     if (
       !(
         assessment.updateAvailable ||
-        (await deps.serviceNeedsAlignment(assessment.currentVersion))
+        (await deps.serviceNeedsAlignment(serviceVersion))
       )
     ) {
       return {
@@ -182,7 +185,7 @@ export function createOpenMeldToolsUpdateCoordinator(
         requestedAt: now,
         targetVersion: assessment.updateAvailable
           ? assessment.latestVersion
-          : assessment.currentVersion,
+          : serviceVersion,
         updatedAt: now,
         urgency: assessment.floorBreached
           ? "required"
@@ -277,6 +280,7 @@ function resolveDependencies(
         await assessCliUpdate({
           environmentTarget: await resolveOpenMeldEnvironmentTarget(),
           forceRefresh: true,
+          currentVersion: (await resolveMaintenanceCliInstallation()).version,
         })),
     completeAttempt:
       overrides.completeAttempt ?? completeOpenMeldToolsUpdateAttempt,
