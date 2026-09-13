@@ -19,6 +19,7 @@ import {
   resolveDesktopWebUrl,
 } from "./desktop-environment";
 import { createPilotAuth } from "./pilot-auth";
+import { observePilotWindow } from "./pilot-diagnostics";
 import { createPilotProtocol } from "./pilot-protocol";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
 import { configurePilotUserData } from "./pilot-user-data";
@@ -89,6 +90,11 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
   }
   return {
     auth,
+    observeWindow(contents: WebContents) {
+      if (!app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1") {
+        observePilotWindow(contents);
+      }
+    },
     rendererUrl: `${DESKTOP_APP_ORIGIN}/${sharedAssets ? "desktop-shell" : "pilot.html"}`,
     install(authorize: (event: IpcMainInvokeEvent) => void) {
       protocol.handle(

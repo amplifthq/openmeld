@@ -103,6 +103,7 @@ function createMainWindow(
   }
 
   const window = new BrowserWindow(options);
+  pilot?.observeWindow(window.webContents);
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {
