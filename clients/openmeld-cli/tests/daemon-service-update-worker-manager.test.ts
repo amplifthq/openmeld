@@ -1,10 +1,32 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const spawnMock = vi.hoisted(() => vi.fn());
 const pruneManagedInstallVersionsMock = vi.hoisted(() => vi.fn());
+const hasIndependentMaintenanceRegistrationMock = vi.hoisted(() => vi.fn());
+const readPendingDaemonServiceUpdateMock = vi.hoisted(() => vi.fn());
+
+vi.mock(
+  "../src/config/daemon-service-update-worker-registration",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/config/daemon-service-update-worker-registration")
+    >()),
+    hasIndependentMaintenanceRegistration:
+      hasIndependentMaintenanceRegistrationMock,
+  })
+);
+vi.mock(
+  "../src/local-service/lifecycle/daemon-service-update-state",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../src/local-service/lifecycle/daemon-service-update-state")
+    >()),
+    readPendingDaemonServiceUpdate: readPendingDaemonServiceUpdateMock,
+  })
+);
 
 vi.mock("node:child_process", () => ({
   spawn: (...args: unknown[]) => spawnMock(...args),
@@ -22,9 +44,11 @@ vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
   ensureDaemonServiceUpdateWorkerBinaryExecutable: vi.fn(),
   readDaemonActiveBundleState: vi.fn(),
   resolveDaemonBundleEntryPathFromState: vi.fn(),
+  verifyDaemonActiveBundleIntegrity: vi.fn(),
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
   resolveDaemonServiceManager: vi.fn(),
+  startLaunchdService: vi.fn().mockResolvedValue(undefined),
   waitForLaunchdJobUnloaded: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../src/local-components/managed-install", () => ({
@@ -36,15 +60,20 @@ import {
   ensureDaemonServiceUpdateWorkerBinaryExecutable,
   readDaemonActiveBundleState,
   resolveDaemonBundleEntryPathFromState,
+  verifyDaemonActiveBundleIntegrity,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { buildDaemonSystemServiceCommandSpec } from "../src/local-service/lifecycle/daemon-service-command-spec";
-import { resolveDaemonServiceManager } from "../src/local-service/lifecycle/daemon-service-manager";
+import {
+  resolveDaemonServiceManager,
+  startLaunchdService,
+} from "../src/local-service/lifecycle/daemon-service-manager";
 import type { DaemonServiceUpdateJob } from "../src/local-service/lifecycle/daemon-service-update-state";
 import {
   buildDaemonServiceUpdateWorkerSpec,
   buildLaunchdServiceUpdateWorkerPlist,
   buildSystemdServiceUpdateWorkerPathUnit,
   buildSystemdServiceUpdateWorkerUnit,
+  ensureDaemonServiceMaintenanceInstalled,
   installDaemonServiceUpdateWorker,
   pruneDaemonServiceUpdateWorkerManagedVersions,
 } from "../src/local-service/lifecycle/daemon-service-update-worker-manager";
@@ -68,11 +97,62 @@ describe("daemon service update worker manager", () => {
 
   afterEach(() => {
     spawnMock.mockReset();
+    hasIndependentMaintenanceRegistrationMock.mockReset();
+    readPendingDaemonServiceUpdateMock.mockReset();
+    vi.mocked(startLaunchdService).mockReset();
+    vi.unstubAllEnvs();
     pruneManagedInstallVersionsMock.mockReset();
     vi.mocked(readDaemonActiveBundleState).mockReset();
+    vi.mocked(verifyDaemonActiveBundleIntegrity).mockReset();
     vi.mocked(ensureDaemonServiceUpdateWorkerBinaryExecutable).mockReset();
     if (originalPlatformDescriptor) {
       Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
+  });
+
+  it.each([
+    false,
+    true,
+  ])("converges a saved macOS maintenance definition unless an update owns it: pending=%s", async (pending) => {
+    const root = await mkdtemp(`${tmpdir()}/openmeld-maintenance-resume-`);
+    vi.stubEnv("OPENMELD_HOME", root);
+    vi.stubEnv("OPENMELD_ENV_PRESET", "dev-local");
+    Object.defineProperty(process, "platform", {
+      configurable: true,
+      value: "darwin",
+    });
+    hasIndependentMaintenanceRegistrationMock.mockResolvedValue(true);
+    vi.mocked(resolveDaemonServiceManager).mockResolvedValue({
+      controller: "launchd",
+    } as never);
+    vi.mocked(buildDaemonSystemServiceCommandSpec).mockReturnValue(SPEC);
+    readPendingDaemonServiceUpdateMock.mockResolvedValue(
+      pending ? createBinaryUpdateJob() : null
+    );
+    vi.mocked(readDaemonActiveBundleState).mockResolvedValue(
+      createBinaryUpdateJob().preparedBundle
+    );
+    // A newly prepared binary can coexist with the previous Service carrier.
+    // Maintenance verifies its own source/carrier, not that older executable.
+    vi.mocked(verifyDaemonActiveBundleIntegrity).mockResolvedValue(false);
+    const worker = `${root}/worker`;
+    vi.mocked(
+      ensureDaemonServiceUpdateWorkerBinaryExecutable
+    ).mockImplementation(async () => {
+      await writeFile(worker, "verified worker");
+      return worker;
+    });
+    vi.mocked(startLaunchdService).mockImplementation(async () => {
+      // launchd cannot run a saved definition whose executable disappeared.
+      expect(await readFile(worker, "utf8")).toBe("verified worker");
+    });
+    try {
+      await ensureDaemonServiceMaintenanceInstalled();
+      // A definition left by failed bootstrap is not proof of a loaded job.
+      // The shared launchd boundary restores missing/disabled jobs without -k.
+      expect(startLaunchdService).toHaveBeenCalledTimes(pending ? 0 : 1);
+    } finally {
+      await rm(root, { force: true, recursive: true });
     }
   });
 
@@ -168,7 +248,10 @@ describe("daemon service update worker manager", () => {
     expect(pathUnit).toContain("WantedBy=default.target");
   });
 
-  it("registers the stable worker without pruning versioned binaries", async () => {
+  it.each([
+    false,
+    true,
+  ])("registers the stable worker without pruning versioned binaries when disabled=%s", async (initiallyDisabled) => {
     const homeDir = await mkdtemp(
       `${tmpdir()}/openmeld-update-worker-registration-`
     );
@@ -176,14 +259,30 @@ describe("daemon service update worker manager", () => {
       configurable: true,
       value: "darwin",
     });
-    spawnMock.mockImplementation(() => {
+    let disabled = initiallyDisabled;
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
       const child = new EventEmitter() as EventEmitter & {
         stderr: EventEmitter;
         stdout: EventEmitter;
       };
       child.stderr = new EventEmitter();
       child.stdout = new EventEmitter();
-      queueMicrotask(() => child.emit("close", 0));
+      queueMicrotask(() => {
+        if (args[0] === "enable") {
+          disabled = false;
+        }
+        // Captured from a real macOS stop/start smoke on 2026-09-12:
+        // bootout does not clear disable, and bootstrap then fails with EIO.
+        if (args[0] === "bootstrap" && disabled) {
+          child.stderr.emit(
+            "data",
+            Buffer.from("Bootstrap failed: 5: Input/output error")
+          );
+          child.emit("close", 5);
+          return;
+        }
+        child.emit("close", 0);
+      });
       return child;
     });
     vi.mocked(readDaemonActiveBundleState).mockResolvedValue({
@@ -205,6 +304,7 @@ describe("daemon service update worker manager", () => {
       env: {
         ...process.env,
         OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: homeDir,
       },
       homeDir,
     };

@@ -100,6 +100,7 @@ import {
   waitForDaemonSystemServiceToStop,
 } from "./daemon-service-runtime";
 import { forceKillStalledDaemonAfterStopTimeout } from "./daemon-service-stalled-force-kill";
+import { startDaemonSystemServiceWithAutoRepair } from "./daemon-service-start-recovery";
 import {
   isSystemServiceStartupTimeoutError,
   waitForSystemServiceStartup,
@@ -696,10 +697,10 @@ async function executeDaemonServiceLifecycle(input: {
     if (input.context.shouldStartAfterLifecycle) {
       input.state.failureStage = "start_if_desired";
       await input.emitPhase("start_if_desired");
-      await startLifecycleServiceWithRetry({
+      await startDaemonSystemServiceWithAutoRepair({
         distribution: serviceDistribution,
         serviceCommandSpec,
-        serviceManager: input.context.serviceManager,
+        systemManager: input.context.serviceManager,
       });
 
       input.state.failureStage = "wait_running";
@@ -2114,29 +2115,6 @@ function readDaemonServiceInventoryAnomalyCodes(
   return inventory.anomalies.map((anomaly) => anomaly.code);
 }
 
-async function startLifecycleServiceWithRetry(input: {
-  distribution: OpenMeldDistribution;
-  serviceCommandSpec: ReturnType<typeof buildDaemonSystemServiceCommandSpec>;
-  serviceManager: DaemonServiceManager;
-}): Promise<void> {
-  try {
-    await input.serviceManager.start();
-    return;
-  } catch (error) {
-    if (!isLaunchdBootstrapIoError(input.serviceManager, error)) {
-      throw error;
-    }
-  }
-  await input.serviceManager.uninstall();
-  await input.serviceManager.waitUntilAbsent();
-  await installDaemonSystemServiceRegistration({
-    distribution: input.distribution,
-    serviceCommandSpec: input.serviceCommandSpec,
-    serviceManager: input.serviceManager,
-  });
-  await input.serviceManager.start();
-}
-
 async function installDaemonSystemServiceRegistration(input: {
   distribution: OpenMeldDistribution;
   serviceCommandSpec: ReturnType<typeof buildDaemonSystemServiceCommandSpec>;
@@ -2467,20 +2445,6 @@ async function waitForProcessToExit(
     await sleep(STRICT_TEARDOWN_VERIFY_POLL_MS);
   }
   return !isPidAlive(pid);
-}
-
-function isLaunchdBootstrapIoError(
-  serviceManager: DaemonServiceManager,
-  error: unknown
-): boolean {
-  if (serviceManager.controller !== "launchd") {
-    return false;
-  }
-  const message = toErrorMessage(error).toLowerCase();
-  return (
-    message.includes("bootstrap failed") &&
-    message.includes("input/output error")
-  );
 }
 
 async function writeLifecycleEvidenceEvent(input: {

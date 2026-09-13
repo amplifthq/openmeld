@@ -9,6 +9,13 @@ const mocks = vi.hoisted(() => ({
   schedule: vi.fn(),
   runPending: vi.fn(),
   refreshCarrier: vi.fn(),
+  finishSetup: vi.fn(),
+  completePending: vi.fn(),
+}));
+
+vi.mock("../src/commands/computer-setup-continuation", () => ({
+  finishComputerSetupAfterBackgroundUpdate: mocks.finishSetup,
+  recoverComputerSetupAfterBackgroundUpdate: async () => undefined,
 }));
 
 vi.mock("../src/config/lock", () => ({
@@ -40,6 +47,7 @@ vi.mock("../src/local-service/lifecycle/daemon-service-manager", () => ({
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
   readPendingDaemonServiceUpdate: mocks.pending,
+  completePendingDaemonServiceUpdate: mocks.completePending,
 }));
 vi.mock(
   "../src/local-service/lifecycle/daemon-service-update-coordinator",
@@ -133,11 +141,22 @@ describe("maintenance of the installed Service scheduling policy", () => {
   });
 
   it("finishes an existing update and refreshes its recovery carrier without adding another job", async () => {
-    mocks.pending.mockResolvedValue({ jobId: "already-scheduled" });
-    const result = { phase: "updated", targetVersion: "0.2.3" };
+    const result = {
+      jobId: "already-scheduled",
+      phase: "updated",
+      targetVersion: "0.2.3",
+    };
+    mocks.pending.mockResolvedValue(result);
     mocks.runPending.mockResolvedValue(result);
+    mocks.finishSetup.mockImplementation(() => {
+      // The OS must still see durable work until setup has finished. Deleting
+      // it earlier would strand the continuation after a worker crash.
+      expect(mocks.completePending).not.toHaveBeenCalled();
+      return Promise.resolve();
+    });
     await runOpenMeldMaintenanceWorker();
     expect(mocks.schedule).not.toHaveBeenCalled();
     expect(mocks.refreshCarrier).toHaveBeenCalledExactlyOnceWith(result);
+    expect(mocks.completePending).toHaveBeenCalledExactlyOnceWith(result);
   });
 });

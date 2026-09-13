@@ -76,7 +76,9 @@ node scripts/release/build-cli-binary.mjs
   package before `openmeld setup` can report completion. It installs the exact
   version declared by the downloaded binary manifest, then verifies that the
   current terminal's `openmeld --version` reaches that version. A failed or
-  ineffective npm update stops the bootstrap with explicit recovery guidance;
+  ineffective npm update is reported but does not block the verified binary's
+  setup. Follow-up commands name the managed binary path, so they remain usable
+  even when the current terminal still resolves the older npm command;
   an already-authoritative command adds no npm install or network round trip.
 
 ### Local Web Setup Download Smoke

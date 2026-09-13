@@ -200,14 +200,16 @@ when both Canary launchd labels are free, then restores that exact directory
 after the run. The temporary smoke home uses private file token storage so the
 packaged CLI and the source API helper share one disposable Staging credential;
 the runner deletes that home before restoring the previous Canary state.
-After the local process starts, the runner waits for Core's current-device
-projection to observe the Service connection before it sends maintenance or
-update commands.
+After the local process starts, the runner reads the validated local Service
+contract and waits for Core's projection of that device and lane to observe
+the connection. Checks, maintenance, updates, and cleanup target this isolated
+installation, never the account's previously selected Computer.
 
 One run verifies the focused update safety contracts, connects a temporary
 Canary Computer, publishes a newer prerelease only to the Staging CLI channel,
-waits for automatic update to start, sends a manual Update through the same
-authenticated current-Computer API used by Web, and requires both requests to
+advances the existing hourly OS maintenance tick after startup settles, waits
+for that worker to discover and start the automatic update, sends a manual Update through the same
+authenticated explicit-Computer API used by Web, and requires both requests to
 return one operation ID. It then verifies the managed CLI, restarted Service,
 and Staging Core all report the new version. Success output is a short list of
 `PASS` lines. Failure output includes the failed step; cleanup failures preserve

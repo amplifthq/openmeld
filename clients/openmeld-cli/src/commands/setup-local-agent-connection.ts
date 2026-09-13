@@ -669,12 +669,11 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
         `OpenMeld Service refresh did not complete: ${refreshOutcome.result}`
       );
     }
-    if (refreshOutcome.result === "scheduled") {
-      throw new Error(
-        "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes."
-      );
-    }
-    await assertSetupServiceUpdateComplete();
+    await assertSetupServiceUpdateComplete(
+      refreshOutcome.result === "scheduled"
+        ? { operationId: refreshOutcome.jobId }
+        : {}
+    );
     return "completed";
   }
 

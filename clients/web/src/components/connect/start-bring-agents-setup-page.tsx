@@ -252,6 +252,11 @@ function ExistingComputerConnectionGate(input: {
 		input.bringAgentsSetup
 	);
 
+	// This gate only chooses whether setup is needed. Once started, the session
+	// owns completion; inventory refreshes must not unmount its Terminal handoff.
+	if (!setupRequested && connectionState.kind === "setup_required") {
+		setSetupRequested(true);
+	}
 	if (setupRequested) {
 		return <ComputerSetupSessionFlow {...input.input} />;
 	}

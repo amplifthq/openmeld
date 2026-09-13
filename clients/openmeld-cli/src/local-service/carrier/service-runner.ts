@@ -628,7 +628,17 @@ export const runDaemonServiceLoop = async (
     initialState: daemonRuntimeState,
     leaseDescriptor: runtimeLeaseDescriptor,
   });
-  const connectionState = createRunLoopConnectionStateTracker(input.presenter);
+  // Correlation only: the existing connection tracker and retry counter still
+  // own connection facts and policy. No recovery intent is persisted here.
+  let recovery: { recoveryId: string; disconnectedAt: number } | null = null;
+  const recoveryMetadata = () => ({
+    ...describeConnectionRecovery(recovery),
+    attempt: reconnectAttempt,
+  });
+  const connectionState = createRunLoopConnectionStateTracker(
+    input.presenter,
+    recoveryMetadata
+  );
 
   const localAdapterContainer = createLocalAdapterContainer(
     createLocalAdapterEntries({
@@ -1126,13 +1136,14 @@ export const runDaemonServiceLoop = async (
             touchRuntimeState: async (updates) => {
               if (typeof updates.heartbeatAt === "string") {
                 connectionState.set("online");
+                reconnectAttempt = 0;
+                recovery = null;
               }
               await runtimeStateTracker.touchRuntimeState(updates);
             },
           },
         });
 
-        reconnectAttempt = 0;
         activeSocket = null;
         if (currentSocketRef.socket === ws) {
           currentSocketRef.socket = null;
@@ -1147,6 +1158,7 @@ export const runDaemonServiceLoop = async (
         if (stopRequested) {
           break;
         }
+        recovery ??= { recoveryId: randomUUID(), disconnectedAt: Date.now() };
         reconnectAttempt += 1;
         const backoffMs = noteRunLoopReconnectScheduled({
           connectionState,
@@ -1583,8 +1595,21 @@ function summarizeLocalControlSyncSkippedProfiles(
   )})`;
 }
 
+function describeConnectionRecovery(
+  recovery: { recoveryId: string; disconnectedAt: number } | null
+): Record<string, unknown> {
+  return recovery
+    ? {
+        recoveryId: recovery.recoveryId,
+        disconnectedAt: new Date(recovery.disconnectedAt).toISOString(),
+        elapsedMs: Math.max(0, Date.now() - recovery.disconnectedAt),
+      }
+    : {};
+}
+
 function createRunLoopConnectionStateTracker(
-  presenter: DaemonServiceRunInput["presenter"]
+  presenter: DaemonServiceRunInput["presenter"],
+  recoveryMetadata: () => Record<string, unknown>
 ) {
   return createServiceConnectionStateTracker({
     onTransition: (next) => {
@@ -1607,6 +1632,7 @@ function createRunLoopConnectionStateTracker(
         type: "connection.state",
         result: next.state,
         metadata: {
+          ...recoveryMetadata(),
           authState: next.authState,
           detail: next.detail,
           reason: next.reason,
@@ -1641,7 +1667,6 @@ function noteRunLoopReconnectScheduled(input: {
     connectionState: input.connectionState,
     errorMessage,
     failureReason,
-    reconnectAttempt: input.reconnectAttempt,
   });
   const reconcileDecision = resolveRouteRegistrationReconcileDecision({
     driftDetected: true,
@@ -1679,16 +1704,15 @@ function noteRunLoopReconnectScheduled(input: {
       backoffMs,
       error: errorMessage,
       reason: failureReason,
-      reasonCode:
-        input.reconnectAttempt >= 2 ? "service_reconnect_exhausted" : null,
+      reasonCode: input.reconnectAttempt >= 2 ? "service_reconnecting" : null,
     },
   });
   if (input.reconnectAttempt === 2) {
-    warnDaemonEvent("[openmeld.daemon.stream_reconnect_exhausted]", {
+    warnDaemonEvent("[openmeld.daemon.stream_reconnecting]", {
       automaticRetryContinues: true,
       error: errorMessage,
       reason: failureReason,
-      reasonCode: "service_reconnect_exhausted",
+      reasonCode: "service_reconnecting",
       retryAfterMs: backoffMs,
     });
   }
@@ -1700,7 +1724,6 @@ function noteReconnectFailureState(input: {
   connectionState: ReturnType<typeof createServiceConnectionStateTracker>;
   errorMessage: string;
   failureReason: ServiceConnectionDegradedReason;
-  reconnectAttempt: number;
 }): void {
   if (input.failureReason === "auth_rejected") {
     input.connectionState.set("authentication_required", {
@@ -1708,9 +1731,6 @@ function noteReconnectFailureState(input: {
       detail: input.errorMessage,
       reason: "auth_rejected",
     });
-    return;
-  }
-  if (input.reconnectAttempt < 2) {
     return;
   }
   input.connectionState.set("degraded", {

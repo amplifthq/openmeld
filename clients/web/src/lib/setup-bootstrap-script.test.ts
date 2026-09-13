@@ -562,7 +562,7 @@ describe("setup-bootstrap-script", () => {
 	);
 
 	it(
-		"stops binary setup when the older npm CLI cannot be updated",
+		"completes binary setup when the older npm CLI cannot be updated",
 		() => {
 			const tempDir = mkdtempSync(join(tmpdir(), "openmeld-setup-bootstrap-"));
 			const binDir = join(tempDir, "bin");
@@ -606,12 +606,14 @@ describe("setup-bootstrap-script", () => {
 					}
 				);
 
-				expect(result.status).toBe(1);
+				expect(result.status).toBe(0);
 				expect(result.stdout).toContain(
-					"OpenMeld could not update the older global CLI before setup."
+					"Setup will continue with the new OpenMeld binary."
 				);
-				expect(result.stdout).not.toContain('"code":"setup.complete"');
-				expect(readFileSync(callsPath, "utf8")).toBe("install-self\n");
+				expect(result.stdout).toContain('"code":"setup.complete"');
+				expect(readFileSync(callsPath, "utf8")).toBe(
+					"install-self\nsetup --start-session preptok_demo --ott ott_demo --view agent\n"
+				);
 			} finally {
 				rmSync(tempDir, { force: true, recursive: true });
 			}
