@@ -1,4 +1,8 @@
-import type { DesktopPlatform, DesktopSession } from "@openmeld/schemas";
+import type {
+  DesktopPlatform,
+  DesktopSession,
+  DesktopSpaceStreamBridge,
+} from "@openmeld/schemas";
 
 declare global {
   // biome-ignore lint/style/useConsistentTypeDefinitions: Window requires interface merging.
@@ -12,8 +16,12 @@ export const PILOT_IPC = {
   session: "desktop:session",
   signIn: "desktop:sign-in",
   signOut: "desktop:sign-out",
+  spaceStreamOpen: "desktop:space-stream-open",
+  spaceStreamClose: "desktop:space-stream-close",
+  spaceStreamPing: "desktop:space-stream-ping",
+  spaceStreamEvent: "desktop:space-stream-event",
 } as const;
-export type DesktopPilotBridge = {
+export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
   platform(): Promise<DesktopPlatform>;
   session(): Promise<DesktopSession>;
   signIn(): Promise<void>;

@@ -15,6 +15,7 @@ it("serves local page files and confines credentials to the configured cloud ori
           headers: {
             "set-cookie": "credential=secret",
             "content-type": "text/plain",
+            "x-tss-serialized": "true",
           },
         })
     );
@@ -39,6 +40,7 @@ it("serves local page files and confines credentials to the configured cloud ori
     );
     expect(await result.text()).toBe("cloud result");
     expect(result.headers.has("set-cookie")).toBe(false);
+    expect(result.headers.get("x-tss-serialized")).toBe("true");
     const [target, options] = fetchCloud.mock.calls[0] ?? [];
     expect(String(target)).toBe("https://web.example/v1/spaces");
     expect(new Headers(options?.headers).get("cookie")).toBe(

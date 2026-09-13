@@ -59,6 +59,9 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
 - Renderer interface: `src/shared/pilot-bridge.ts`, exposed as
   `window.openmeldDesktop`: platform, session, browser sign-in, Desktop sign-out.
   The response schemas and origin constants live in `packages/schemas`.
+  Its Space stream methods open a subscription by ID/Space/Profile, send only
+  the existing keepalive ping, close it, and deliver transport events. No URL,
+  credentials, or business-write frames are accepted.
 - Existing `window.openmeld` remains the CLI-backed local control interface.
   Every channel validates the owning WebContents, top frame, and local document
   before invoking a handler. Other windows, frames, and remote documents fail.
@@ -98,6 +101,15 @@ setup remains the normal Web/CLI onboarding path, not a completed Desktop flow.
 - Main attaches its cookie only to the configured Web endpoint. It does not
   accept arbitrary URLs, credentials, file paths, shell commands, or redirects.
   Response cookie headers do not enter the renderer.
+- Space live streams use the same fixed Web `/v1/spaces/:spaceId/stream`
+  endpoint through native `ws`, with the main-owned cookie and build header.
+  Redirects are refused. The preload sends only validated subscription events.
+  Reload, renderer loss, native sign-in/sign-out, and GUI exit close native
+  sockets; none of these operations stop the Service or a Wake.
+  `clients/web/src/lib/spaces/live-transport.ts` adapts this transport to the
+  existing Space feed listener contract. That shared feed still owns hello
+  acknowledgement, keepalive, reconnect, invalidation and snapshot refresh.
+  It does not replace global WebSocket or add a Desktop live-state system.
 - The app origin is explicitly allowed by the development Auth configuration and
   pilot Web CSRF policy. CSRF is not disabled; Origin alone grants no authority.
 - The Web server compares a content fingerprint from
@@ -105,6 +117,8 @@ setup remains the normal Web/CLI onboarding path, not a completed Desktop flow.
   A mismatch returns HTTP 409 before the operation. The fingerprint covers Web,
   shared packages, lockfile, and the fingerprint helper, excluding generated
   route-tree output.
+  Ordinary Web development/builds do not compute a pilot fingerprint. An
+  unstaged deletion and the same staged deletion produce the same identity.
 
 This is **not a production Desktop/Web compatibility contract**. Pilot renderer
 and Web server must be production-mode builds of matching source; Vite's dev

@@ -25,11 +25,18 @@ export function desktopWebBuildIdentity(root) {
     .sort();
   const hash = createHash("sha256");
   for (const file of new Set(files)) {
-    hash
-      .update(file)
-      .update("\0")
-      .update(readFileSync(path.join(root, file)))
-      .update("\0");
+    let content;
+    try {
+      content = readFileSync(path.join(root, file));
+    } catch (error) {
+      // A working-tree deletion and a staged deletion describe the same build.
+      // Other read failures must still stop identity generation.
+      if (error?.code === "ENOENT") {
+        continue;
+      }
+      throw error;
+    }
+    hash.update(file).update("\0").update(content).update("\0");
   }
   return hash.digest("hex");
 }

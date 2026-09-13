@@ -10,6 +10,7 @@ import {
   type IpcMainInvokeEvent,
   ipcMain,
   protocol,
+  type WebContents,
 } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
 import {
@@ -18,6 +19,7 @@ import {
 } from "./desktop-environment";
 import { createPilotAuth } from "./pilot-auth";
 import { createPilotProtocol } from "./pilot-protocol";
+import { createPilotSpaceStreams } from "./pilot-space-stream";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
 
@@ -58,6 +60,11 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     },
   ]);
   const auth = createPilotAuth(webOrigin, getWindow);
+  const streams = createPilotSpaceStreams({
+    webOrigin,
+    webBuild: platform.webBuild,
+    cookie: auth.cookie,
+  });
   const sharedAssets = process.env.OPENMELD_DESKTOP_RENDERER_DIR;
   if (sharedAssets) {
     const rendererBuild = desktopWebBuildSchema.parse(
@@ -90,8 +97,14 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       const handlers = {
         [PILOT_IPC.platform]: () => platform,
         [PILOT_IPC.session]: auth.session,
-        [PILOT_IPC.signIn]: auth.signIn,
-        [PILOT_IPC.signOut]: auth.signOut,
+        [PILOT_IPC.signIn]: () => {
+          streams.closeAll();
+          return auth.signIn();
+        },
+        [PILOT_IPC.signOut]: () => {
+          streams.closeAll();
+          return auth.signOut();
+        },
       };
       for (const [channel, handler] of Object.entries(handlers)) {
         ipcMain.handle(channel, (event) => {
@@ -99,6 +112,35 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           return handler();
         });
       }
+      const observedOwners = new WeakSet<WebContents>();
+      ipcMain.handle(PILOT_IPC.spaceStreamOpen, (event, raw: unknown) => {
+        authorize(event);
+        const owner = event.sender;
+        const frame = event.senderFrame;
+        if (!observedOwners.has(owner)) {
+          observedOwners.add(owner);
+          owner.once("destroyed", streams.closeAll);
+          owner.on("did-navigate", streams.closeAll);
+          owner.on("render-process-gone", streams.closeAll);
+        }
+        streams.open(raw, (value) => {
+          if (
+            !owner.isDestroyed() &&
+            getWindow()?.webContents === owner &&
+            owner.mainFrame === frame
+          ) {
+            owner.send(PILOT_IPC.spaceStreamEvent, value);
+          }
+        });
+      });
+      ipcMain.handle(PILOT_IPC.spaceStreamClose, (event, raw: unknown) => {
+        authorize(event);
+        streams.close(raw);
+      });
+      ipcMain.handle(PILOT_IPC.spaceStreamPing, (event, raw: unknown) => {
+        authorize(event);
+        streams.ping(raw);
+      });
     },
   };
 }
