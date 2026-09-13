@@ -65,9 +65,11 @@ import {
 } from "./center-agent-tasks.schema.ts";
 import { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 import {
+  connectorAccessEvents,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
+  pluginActionConfirmations,
 } from "./connector-connection.schema.ts";
 import { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 import { evalReports } from "./eval-report.schema.ts";
@@ -102,7 +104,10 @@ import { organizationDocumentFolders } from "./organization-document-folder.sche
 import { centerAgentOrganizationDocumentOperations } from "./organization-document-operation.schema.ts";
 import { organizationInformationProtectionPolicies } from "./organization-information-protection.schema.ts";
 import { organizationJoinRequests } from "./organization-join-request.schema.ts";
-import { organizationMemberActivity } from "./organization-member-activity.schema.ts";
+import {
+  organizationMemberActivity,
+  organizationMemberPresenceSessions,
+} from "./organization-member-activity.schema.ts";
 import {
   centerAgentOrganizationSkillOperations,
   organizationSkillActivations,
@@ -133,6 +138,7 @@ import {
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
 } from "./space-index.schema.ts";
 import { spaceInvitations } from "./space-invitation.schema.ts";
 
@@ -478,6 +484,11 @@ export const openMeldRemoteAgentNativeDeliveryLedger = sqliteTable(
     ),
     index("idx_openMeldRemoteAgent_native_delivery_routine_run").on(
       table.routineRunId
+    ),
+    index("idx_openMeldRemoteAgent_native_delivery_org_profile_updated").on(
+      table.organizationId,
+      table.profileId,
+      desc(table.updatedAtMs)
     ),
     index("idx_openMeldRemoteAgent_native_delivery_space_trigger").on(
       table.spaceId,
@@ -1522,6 +1533,10 @@ export const openMeldDaemonRuntimeCoordinatorExecutions = sqliteTable(
       table.status,
       desc(table.updatedAtMs)
     ),
+    index("idx_openMeldDaemon_rce_profile_updated").on(
+      table.targetProfileId,
+      desc(table.updatedAtMs)
+    ),
     index("idx_openMeldDaemon_rce_space_status_updated").on(
       table.spaceId,
       table.status,
@@ -1666,6 +1681,8 @@ export const coreSchema = {
   projects,
   routines,
   routineRuns,
+  connectorAccessEvents,
+  pluginActionConfirmations,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
@@ -1686,6 +1703,7 @@ export const coreSchema = {
   centerAgentOrganizationSkillOperations,
   organizationInformationProtectionPolicies,
   organizationMemberActivity,
+  organizationMemberPresenceSessions,
   organizationOpportunities,
   organizationWorkingLanguagePreferences,
   centerAgentDesignations,
@@ -1761,6 +1779,7 @@ export const coreSchema = {
   openMeldDaemonPrepareSessionEvents,
   spaceAttachments,
   spaceIndexSpaces,
+  spaceOwnerMemberReferences,
   spaceIndexMemberships,
   spaceIndexProjectionEvents,
 } as const;

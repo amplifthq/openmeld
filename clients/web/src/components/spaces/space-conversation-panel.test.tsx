@@ -224,7 +224,7 @@ describe("SpaceConversationPanel", () => {
 		expect(graphMessage.closest(".group")?.className).toContain("ring-2");
 	});
 
-	it("renders the earlier-history loading indicator outside the conversation log", () => {
+	it("keeps earlier-history loading out of the conversation while marking it busy", () => {
 		renderSpaceConversationPanel({
 			isLoadingEarlierHistory: true,
 			timelineItems: [createTimelineItem()],
@@ -233,9 +233,8 @@ describe("SpaceConversationPanel", () => {
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
-		const loadingText = screen.getByText("Loading earlier messages...");
-
-		expect(conversationLog.contains(loadingText)).toBe(false);
+		expect(screen.queryByText("Loading earlier messages...")).toBeNull();
+		expect(conversationLog.getAttribute("aria-busy")).toBe("true");
 	});
 
 	it("places setup guidance over the Messages scroller instead of above it", () => {
@@ -707,26 +706,6 @@ describe("SpaceConversationPanel", () => {
 		).toBe(true);
 	});
 
-	it("anchors the earlier-history loading header to the conversation content rail", () => {
-		renderSpaceConversationPanel({
-			isLoadingEarlierHistory: true,
-			timelineItems: [createTimelineItem()],
-		});
-
-		const loadingText = screen.getByText("Loading earlier messages...");
-		const messageScroller = loadingText.closest(
-			"[data-slot='message-scroller']"
-		);
-		const conversationContentRail = loadingText.closest(
-			"[data-space-conversation-content-width]"
-		);
-
-		expect(messageScroller).not.toBeNull();
-		expect(messageScroller?.contains(loadingText)).toBe(true);
-		expect(conversationContentRail).not.toBeNull();
-		expect(messageScroller?.contains(conversationContentRail)).toBe(true);
-	});
-
 	it("gives each Space conversation a stable scroll restoration identity", () => {
 		renderSpaceConversationPanel({
 			spaceId: "space-1",
@@ -1020,15 +999,17 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
-	it("keeps a lower unread target inside the conversation viewport", async () => {
+	it.each([
+		0.5, 0.8, 1,
+	])("keeps a lower unread target inside the conversation viewport at %s scale", async (scale) => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
 				if (this.getAttribute("role") === "log") {
-					return domRect({ bottom: 500, top: 0 });
+					return domRect({ bottom: 500 * scale, top: 0 });
 				}
 				if (this.hasAttribute("data-signal-id")) {
-					return domRect({ bottom: 760, top: 700 });
+					return domRect({ bottom: 760 * scale, top: 700 * scale });
 				}
 				return domRect({ bottom: 0, top: 0 });
 			});
@@ -1047,6 +1028,10 @@ describe("SpaceConversationPanel", () => {
 			name: "Conversation history",
 		});
 		conversation.scrollTop = 0;
+		Object.defineProperty(conversation, "offsetHeight", {
+			configurable: true,
+			value: 500,
+		});
 		fireEvent.click(
 			await screen.findByRole("button", {
 				name: "1 new message. Jump to the nearest new message",
@@ -1731,12 +1716,26 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("lets long unbroken message text wrap inside the message bubble", () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				observe = vi.fn();
+				disconnect = vi.fn();
+				unobserve = vi.fn();
+			}
+		);
 		const longMessage = `wake ${"x".repeat(160)} https://example.com/${"y".repeat(160)}`;
 		renderSpaceConversationPanel({
 			timelineItems: [createTimelineItem({ text: longMessage })],
 		});
 
-		const messageText = screen.getByText(longMessage);
+		const messageText = screen.getByText(
+			(_, element) =>
+				element?.textContent === longMessage &&
+				![...element.children].some(
+					(child) => child.textContent === longMessage
+				)
+		);
 		const messageBubble = messageText.closest("[data-signal-id]");
 
 		expect(messageBubble?.className).not.toContain("min-w-[16rem]");
@@ -1864,64 +1863,6 @@ describe("SpaceConversationPanel", () => {
 			"signal-self"
 		);
 		expect(selfScrollerItem?.getAttribute("data-scroll-anchor")).toBe("false");
-	});
-
-	it("renders stable message footers below bubbles without absolute overlays", () => {
-		renderSpaceConversationPanel({
-			readOnly: false,
-			timelineItems: [
-				createTimelineItem({
-					actorName: "Runner",
-					actorProfileId: "agent-profile-1",
-					actorProfileKind: "agent",
-					actorProfileName: "Runner",
-					id: "signal-agent",
-					text: "Agent reply",
-				}),
-				createTimelineItem({
-					id: "signal-self",
-					text: "Self message",
-				}),
-			],
-		});
-
-		for (const [messageText, expectedAlignment] of [
-			["Agent reply", "justify-start"],
-			["Self message", "self-end"],
-		] as const) {
-			const message = screen.getByText(messageText).closest("[data-signal-id]");
-			const row = message?.closest("[data-message-row-id]");
-			const bubble = message?.closest("[data-slot='bubble']");
-			const footer = row?.querySelector('[data-slot="message-footer"]');
-			const actions = footer?.querySelector(
-				'[data-slot="message-footer-primary-actions"]'
-			);
-
-			expect(row).not.toBeNull();
-			expect(footer).not.toBeNull();
-			expect(row?.contains(footer ?? null)).toBe(true);
-			expect(bubble?.contains(footer ?? null)).toBe(false);
-			expect(footer?.className).toContain("min-h-7");
-			expect(footer?.className).toContain(expectedAlignment);
-			expect(actions?.className).toContain("opacity-0");
-			expect(actions?.className).toContain(
-				"group-hover/message-row:opacity-100"
-			);
-			expect(actions?.className).toContain(
-				"group-focus-within/message-row:opacity-100"
-			);
-			expect(
-				row?.querySelector("[data-slot='message-hover-actions']")
-			).toBeNull();
-
-			for (const button of within(footer as HTMLElement).getAllByRole(
-				"button"
-			)) {
-				expect(button.className).toContain("size-7");
-				expect(button.className).toContain("border-0");
-				expect(button.className).toContain("bg-transparent");
-			}
-		}
 	});
 
 	it("shows every grouped message's own timestamp in its reserved footer", () => {
@@ -2059,12 +2000,12 @@ describe("SpaceConversationPanel", () => {
 		const recovery = screen.queryByRole("link", { name: "Reconnect Computer" });
 		if (relation === "wake") {
 			expect(recovery?.getAttribute("href")).toBe("/o/acme/connect");
-			expect(screen.getByText("Computer not connected")).toBeTruthy();
+			expect(screen.queryByText("Computer not connected")).toBeNull();
 			expect(
 				screen
 					.getByRole("button", { name: "Send message" })
 					.hasAttribute("disabled")
-			).toBe(true);
+			).toBe(false);
 		} else {
 			expect(recovery).toBeNull();
 			expect(screen.queryByText("Computer not connected")).toBeNull();
@@ -2122,7 +2063,7 @@ describe("SpaceConversationPanel", () => {
 			readOnly: false,
 		});
 
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(screen.queryByText("1 file ready to send")).toBeNull();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
 		expect(sendButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(sendButton);
@@ -2130,7 +2071,7 @@ describe("SpaceConversationPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends the text while excluding a failed file", async () => {
+	it("preserves the message until a failed file is removed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderSpaceConversationPanel({
 			allowedActions: ["post_message"],
@@ -2141,12 +2082,12 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send message" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("opens an upward Files menu from the composer plus button", async () => {
@@ -2900,6 +2841,11 @@ describe("SpaceConversationPanel", () => {
 
 		expect(screen.queryByText("Sending...")).toBeNull();
 		expect(
+			document
+				.querySelector('[data-signal-id="pending:client-message-1"]')
+				?.hasAttribute("data-history-signal-id")
+		).toBe(false);
+		expect(
 			document.querySelector("[data-space-message-delivery-status]")
 		).toBeNull();
 		expect(screen.queryByText(FAILED_TEXT_PATTERN)).toBeNull();
@@ -3126,6 +3072,9 @@ describe("SpaceConversationPanel", () => {
 			'[data-message-id^="active-wake:"]'
 		);
 		expect(updatedOptimisticReply).toBe(optimisticReply);
+		expect(
+			updatedOptimisticReply?.querySelector("[data-history-signal-id]")
+		).toBeNull();
 		expect(
 			within(updatedOptimisticReply as HTMLElement).getByTestId(
 				"space-message-progress-control-slot"
@@ -3490,6 +3439,33 @@ describe("SpaceConversationPanel", () => {
 		expect(messageBubble?.getAttribute("data-signal-id")).toBe(
 			"stream:submission-1"
 		);
+		expect(messageBubble?.hasAttribute("data-history-signal-id")).toBe(false);
+	});
+
+	it.each([
+		"failed",
+		"stopped",
+		"completed_but_publish_failed",
+	] as const)("does not use an unpublished %s reply as a history anchor", (status) => {
+		renderSpaceConversationPanel({
+			timelineItems: [
+				createTimelineItem({
+					id: "stream:unpublished-reply",
+					text: "Partial reply retained for diagnosis",
+					agentStreamState: {
+						streamId: "stream:unpublished-reply",
+						sequence: 3,
+						status,
+						reasonCode: null,
+					},
+				}),
+			],
+		});
+		const reply = document.querySelector(
+			'[data-signal-id="stream:unpublished-reply"]'
+		);
+		expect(reply).not.toBeNull();
+		expect(reply?.hasAttribute("data-history-signal-id")).toBe(false);
 	});
 
 	it("does not render an empty progress inset for a completed reply", () => {
@@ -3510,6 +3486,11 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			document.querySelector('[data-slot="space-message-row-progress-inset"]')
 		).toBeNull();
+		expect(
+			document
+				.querySelector('[data-signal-id="signal:completed-reply"]')
+				?.getAttribute("data-history-signal-id")
+		).toBe("signal:completed-reply");
 	});
 
 	it("opens the durable source message details from live Agent work", () => {
@@ -4002,8 +3983,7 @@ describe("SpaceConversationPanel", () => {
 			.getByText("@Runner(wake) please investigate")
 			.closest("[data-message-row-id='sig-wake']");
 		const footer = row?.querySelector("[data-slot='message-footer']");
-		// The footer aligns with the self bubble; reactions start at its left edge.
-		expect(footer?.className).toContain("self-end");
+		expect(footer?.className).toContain("justify-end");
 		expect(footer?.className).not.toContain("justify-start");
 		expect(row?.querySelector("[data-testid='space-outcome-row']")).toBeNull();
 	});

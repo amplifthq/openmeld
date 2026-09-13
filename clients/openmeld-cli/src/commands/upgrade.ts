@@ -258,6 +258,10 @@ async function runUpgradeWithRuntime(
       upgradeStatus,
     })
   ) {
+    await alignServiceWithCurrentCli({
+      presenter,
+      resolvedView: runtime.resolvedView,
+    });
     return;
   }
 
@@ -314,6 +318,19 @@ async function runUpgradeWithRuntime(
     resolvedView: runtime.resolvedView,
     currentVersion,
     presenter,
+  });
+}
+
+async function alignServiceWithCurrentCli(input: {
+  presenter: ReturnType<typeof createPresenter>;
+  resolvedView: "human" | "agent";
+}): Promise<void> {
+  await runInternalUpgradeServiceAlignment({
+    ...input,
+    daemonVersion: OPENMELD_VERSION,
+    ...(process.argv[1] && !isBinaryDistribution()
+      ? { cliScriptPath: process.argv[1] }
+      : {}),
   });
 }
 

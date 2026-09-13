@@ -11,6 +11,8 @@ import {
 	connectorCredentialConnectResponseSchema,
 	connectorDisconnectResponseSchema,
 	ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE,
+	pluginAccessListResponseSchema,
+	pluginAccessSchema,
 } from "@openmeld/schemas";
 import type {
 	ConnectorAppCatalogResponse,
@@ -23,11 +25,52 @@ import type {
 	ConnectorDisconnectResponse,
 	ConnectorService,
 	CreateConnectorAppRequestBody,
+	PluginAccessUpdateBody,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 
 const CONNECTOR_ORGANIZATION_CONTEXT_CHANGED_CODE =
 	"connector.organization_context_changed";
+
+export async function listPluginAccess(input: {
+	organizationId: string;
+	service: ConnectorService;
+	signal?: AbortSignal;
+}) {
+	const response = await createConnectorApiFoundation(
+		input.organizationId
+	).requestJson({
+		invalidMessage: "Invalid plugin access response.",
+		method: "GET",
+		operation: "plugin.access.list",
+		schema: pluginAccessListResponseSchema,
+		signal: input.signal,
+		url: buildConnectorOrganizationUrl(
+			buildConnectorPath(input.service, "access"),
+			input.organizationId
+		),
+	});
+	requireMatchingOrganization(response.organizationId, input.organizationId);
+	return response;
+}
+
+export async function updatePluginAccess(input: {
+	organizationId: string;
+	service: ConnectorService;
+	body: PluginAccessUpdateBody;
+}) {
+	return await createConnectorApiFoundation(input.organizationId).requestJson({
+		invalidMessage: "Invalid plugin access response.",
+		method: "PUT",
+		operation: "plugin.access.update",
+		schema: pluginAccessSchema,
+		body: JSON.stringify(input.body),
+		url: buildConnectorOrganizationUrl(
+			buildConnectorPath(input.service, "access"),
+			input.organizationId
+		),
+	});
+}
 
 export async function listCurrentOrganizationConnectorConnections(input: {
 	organizationId: string;

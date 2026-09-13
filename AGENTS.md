@@ -105,7 +105,7 @@ Use these owner documents:
 | OpenMeld Changelog authoring, publication, historical backfill, generated projections, and GitHub release-note handoff | `developing/engineering/changelog.md`, then `.agents/skills/openmeld-changelog/SKILL.md` |
 | Environment variables, Doppler local development, secret ownership, contributor onboarding, and production secret readiness | `developing/engineering/environment-and-secrets.md` |
 | Internal staging scope, isolation, guarded deployment, and staging evidence | `developing/engineering/staging-environment.md` |
-| Parallel-agent worktree ownership, agent-chosen OpenMeld development Spaces, coordination, unattended execution, local lanes, validation gates, contract rollouts, `OPENMELD_HOME`, real-user smoke, local component releases, DB workflow, Fresh Web Start | `developing/engineering/development-workflow.md` |
+| Dev Server setup, resource budgets, status and shutdown; parallel-agent worktree ownership, OpenMeld development Spaces, local lanes, validation gates, contract rollouts, `OPENMELD_HOME`, real-user smoke, local component releases, DB workflow, Fresh Web Start | `developing/engineering/development-workflow.md` |
 | Code style, lint, and formatting standards (Ultracite/Biome) | `developing/engineering/code-standards.md` |
 | Repo-specific anti-patterns for tests, mocks, status logic, timeouts, keepalive | `developing/engineering/anti-patterns.md` |
 | Blessed example files to copy for routes, services, DO alarms, CLI commands, queries, mocks, logging | `developing/engineering/exemplars.md` |
@@ -218,11 +218,13 @@ change must leave those signals cleaner and less ambiguous.
   in `developing/engineering/agent-native-delivery.md`: fix a high-value,
   coherent finding when practical, and preserve separable follow-ups without
   reopening the candidate.
-- Standard Final Candidate is lightweight exact-candidate certification. It
-  must not repeat `verify:pr`, `verify:pr:full`, or
-  `test:integration:affected`; run the smallest useful focused or affected
-  validation during development and review. Use explicit full confidence only
-  when the remaining risk makes a repository-wide rerun worth its latency.
+- Commit hooks check staged files; development push hooks must pass focused
+  checks on the exact clean commit. Do not bypass failures. Keep PRs draft while
+  developing; mark ready only after risk-appropriate behavior validation.
+- Standard Final Candidate certifies identity, trusted control, repository
+  contracts, and path-owned database/release readiness; it does not repeat broad
+  workspace tests. The commands, rationale, and batch flow live only in
+  [Agent-Native Delivery](developing/engineering/agent-native-delivery.md#daily-workflow).
 - Before declaring a user-, operator-, integrator-, or contributor-visible
   change done, decide whether it needs an OpenMeld Changelog entry and, when it
   does, follow `.agents/skills/openmeld-changelog/SKILL.md`.

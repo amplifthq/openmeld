@@ -13,10 +13,12 @@ export {
   type SpaceAccessProof,
   toSpaceAccessAuditFields,
 } from "./access/space-access-context";
+export { resolveSpaceAccess } from "./access/space-access-policy";
 export {
   buildPublicSpaceEntryPath,
   buildPublicSpaceEntryUrl,
 } from "./access/space-entry-link";
+export { changeSpaceOwners, isSpaceOwner } from "./access/space-ownership";
 export { updateAuthoredMentionRanges } from "./authoring/authored-mention-ranges";
 export type {
   SpaceAuthoredMentionInTextOrder,
@@ -64,6 +66,7 @@ export {
   type SpaceSendTargetProjectionEntry,
   type SpaceSendTargetWakeAvailability,
 } from "./authoring/send-target-projection";
+export { applyAutomaticThreadWake } from "./authoring/thread-wake";
 export {
   buildSpaceProfileAddPlan,
   getSpaceProfileAddModeProfileKinds,
@@ -122,6 +125,10 @@ export {
   SPACE_DISPATCH_HISTORY_STATES,
   type SpaceDispatchHistoryState,
 } from "./read-projection/dispatch-history";
+export {
+  buildDispatchQuotedMessage,
+  renderDispatchSourceText,
+} from "./read-projection/dispatch-source-context";
 export { buildSpaceMemberDirectoryFromIdentityDirectory } from "./read-projection/member-directory";
 export {
   createSpaceMemberIdentityIndex,
@@ -156,6 +163,10 @@ export {
   type SpaceRoundReadTargetRelation,
   type SpaceRoundSignalPublication,
 } from "./read-projection/round-read-projection";
+export {
+  resolveThreadAutomaticWakeTarget,
+  resolveThreadWakeContinuation,
+} from "./read-projection/thread-wake-continuation";
 export {
   buildDispatchResultReplyWorkflowProjection,
   buildSignalReplyWorkflowProjection,

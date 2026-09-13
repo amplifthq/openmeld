@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { prepareSessionContinuationSchema } from "@openmeld/schemas";
+import type { PrepareSessionContinuation } from "@openmeld/schemas/types";
 import {
   DEFAULT_REMOTE_SESSION_TIMEOUT_MS,
   LOOPBACK_REMOTE_SESSION_TIMEOUT_MS,
@@ -61,6 +63,7 @@ type AuthSessionTransitionJournalV1 = {
   candidateServiceProcess?: ProcessIdentity;
   computerHandoff?: {
     gatewayUrl: string;
+    prepareContinuation?: PrepareSessionContinuation;
     serviceReconciledAt?: string;
     remoteSessionRevokedAt?: string;
     lastRecoveryFailure?: {
@@ -198,6 +201,7 @@ export type AuthSessionTransition = {
 export type AuthSessionTransitionContext = {
   computerHandoff?: {
     gatewayUrl: string;
+    prepareContinuation?: PrepareSessionContinuation;
   };
   expectedPreviousSession?: AuthSessionMetadata | null;
 };
@@ -527,7 +531,10 @@ export async function beginAuthSessionTransition(
   if (!clientId) {
     throw new Error("client_id is required");
   }
-
+  const continuation = context.computerHandoff?.prepareContinuation;
+  const prepareContinuation = continuation
+    ? prepareSessionContinuationSchema.parse(continuation)
+    : undefined;
   return await withAuthSessionTransitionMutationLock(async () => {
     await assertAuthSessionMutationAvailableWithOwnership();
     await retryPendingTokenCleanup();
@@ -575,6 +582,7 @@ export async function beginAuthSessionTransition(
         ? {
             computerHandoff: {
               gatewayUrl: context.computerHandoff.gatewayUrl,
+              prepareContinuation,
             },
           }
         : {}),
@@ -626,14 +634,6 @@ export async function beginAuthSessionTransition(
       currentPayload?.v === 1 &&
       buildAuthSessionPayloadKey(currentPayload) ===
         buildAuthSessionPayloadKey(candidatePayload);
-    const assertPreviousSessionCurrent = async () => {
-      const currentPayload = await readSessionPayloadFile();
-      if (!isPreviousSessionCurrent(currentPayload)) {
-        throw new Error(
-          "auth session changed before the setup transition completed"
-        );
-      }
-    };
     const assertTransitionSessionCurrent = async (
       candidatePayload: Partial<AuthSessionV1> = nextPayload
     ) => {
@@ -710,36 +710,8 @@ export async function beginAuthSessionTransition(
               reason: currentJournal.status,
             });
           }
-          const committedPayload = currentJournal.journal.candidatePayload;
-          const committedSession =
-            await readStoredAuthSessionFromPayload(committedPayload);
-          await assertPreviousSessionCurrent();
-          await writeSessionPayloadAtomically(
-            authSessionPath(),
-            committedPayload
-          );
-          cacheAuthSession({
-            payload: committedPayload,
-            session: committedSession,
-          });
-          const committedJournal: AuthSessionTransitionJournalV1 = {
-            ...currentJournal.journal,
-            state: "committed",
-          };
-          await writeAuthSessionTransitionJournalIfOwned(
-            currentJournal.journal,
-            committedJournal
-          );
+          await commitAuthSessionTransitionJournal(currentJournal.journal);
           settlement = "committed";
-          activeAuthSessionTransitionIds.delete(journal.id);
-          await finalizeCommittedAuthSessionTransition(committedJournal).catch(
-            (error: unknown) => {
-              logDeferredAuthSessionTransitionCleanup({
-                error,
-                transitionId: journal.id,
-              });
-            }
-          );
         }),
       rollback: async () =>
         await withAuthSessionTransitionMutationLock(async () => {
@@ -776,6 +748,10 @@ export async function beginAuthSessionTransition(
               {
                 ...currentJournal.journal,
                 state: "recovery_required",
+                computerHandoff: {
+                  ...currentJournal.journal.computerHandoff,
+                  prepareContinuation: undefined,
+                },
               }
             );
             return;
@@ -787,6 +763,135 @@ export async function beginAuthSessionTransition(
         }),
     };
   });
+}
+
+async function commitAuthSessionTransitionJournal(
+  journal: AuthSessionTransitionJournalV1
+): Promise<void> {
+  const currentPayload = await readSessionPayloadFile();
+  const previousIsCurrent = journal.previousPayload
+    ? currentPayload?.v === 1 &&
+      buildAuthSessionPayloadKey(currentPayload) ===
+        buildAuthSessionPayloadKey(journal.previousPayload)
+    : currentPayload === null;
+  const candidateIsCurrent =
+    currentPayload?.v === 1 &&
+    buildAuthSessionPayloadKey(currentPayload) ===
+      buildAuthSessionPayloadKey(journal.candidatePayload);
+  if (!(previousIsCurrent || candidateIsCurrent)) {
+    throw new Error(
+      "auth session changed before the setup transition completed"
+    );
+  }
+  const payload = journal.candidatePayload;
+  const session = await readStoredAuthSessionFromPayload(payload);
+  await writeSessionPayloadAtomically(authSessionPath(), payload);
+  cacheAuthSession({ payload, session });
+  const committed: AuthSessionTransitionJournalV1 = {
+    ...journal,
+    state: "committed",
+  };
+  await writeAuthSessionTransitionJournalIfOwned(journal, committed);
+  activeAuthSessionTransitionIds.delete(journal.id);
+  await finalizeCommittedAuthSessionTransition(committed).catch(
+    (error: unknown) => {
+      logDeferredAuthSessionTransitionCleanup({
+        error,
+        transitionId: journal.id,
+      });
+    }
+  );
+}
+
+export async function hasPendingComputerSetupContinuation(): Promise<boolean> {
+  const journal = await readAuthSessionTransitionJournal();
+  return (
+    (journal?.state === "pending" || journal?.state === "recovery_required") &&
+    Boolean(journal.computerHandoff?.prepareContinuation)
+  );
+}
+
+// The OS worker may adopt the existing journal only after its exact owner
+// process exits. Its id, account and Prepare session remain unchanged.
+export async function resumeInterruptedComputerSetup(
+  run: (
+    input: PrepareSessionContinuation & { gatewayUrl: string }
+  ) => Promise<"completed" | "not_completed">
+): Promise<boolean> {
+  const claimed = await withAuthSessionTransitionMutationLock(async () => {
+    const journal = await readAuthSessionTransitionJournal();
+    if (
+      !(
+        (journal?.state === "pending" ||
+          journal?.state === "recovery_required") &&
+        journal.computerHandoff?.prepareContinuation
+      ) ||
+      isProcessIdentityAlive({
+        ownerPid: journal.ownerPid,
+        ownerProcessStartedAt: journal.ownerProcessStartedAt,
+      })
+    ) {
+      return null;
+    }
+    const next = {
+      ...journal,
+      // Older auth readers roll a dead Terminal back without understanding its
+      // continuation. Keep that original intent until Core confirms completion
+      // or cancellation; current cancellation writers explicitly remove it.
+      state: "pending" as const,
+      ownerPid: process.pid,
+      ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
+    };
+    // Ownership transfer is performed only here, under the existing mutation
+    // lock, after proving the old owner is dead. Ordinary writes remain fenced.
+    await writeJsonAtomically(authSessionTransitionPath(), next);
+    activeAuthSessionTransitionIds.add(next.id);
+    return {
+      journal: next,
+      continuation: journal.computerHandoff.prepareContinuation,
+      gatewayUrl: journal.computerHandoff.gatewayUrl,
+    };
+  });
+  if (!claimed) {
+    return false;
+  }
+  try {
+    const outcome = await run({
+      ...claimed.continuation,
+      gatewayUrl: claimed.gatewayUrl,
+    });
+    await withAuthSessionTransitionMutationLock(async () => {
+      const current = await readOwnedPendingAuthSessionTransition(
+        claimed.journal
+      );
+      if (current.status !== "current") {
+        throw new AuthSessionTransitionConflictError({
+          previousOwnerRestored: false,
+          reason:
+            current.status === "missing" ? "journal_missing" : current.status,
+        });
+      }
+      if (outcome === "completed") {
+        await commitAuthSessionTransitionJournal(current.journal);
+      } else {
+        await restoreTransitionPreviousPayload(current.journal);
+        stopRegisteredCandidateService(current.journal);
+        await writeAuthSessionTransitionJournalIfOwned(current.journal, {
+          ...current.journal,
+          state: "recovery_required",
+          computerHandoff: {
+            ...current.journal.computerHandoff,
+            gatewayUrl: claimed.gatewayUrl,
+            prepareContinuation: undefined,
+          },
+        });
+      }
+    });
+    return true;
+  } finally {
+    activeAuthSessionTransitionIds.delete(claimed.journal.id);
+    cachedAuthSession = null;
+  }
 }
 
 type OwnedPendingAuthSessionTransition =
@@ -814,7 +919,33 @@ async function readOwnedPendingAuthSessionTransition(
 export async function getInterruptedComputerAuthSessionRecovery(): Promise<InterruptedComputerAuthSessionRecovery | null> {
   return await withAuthSessionTransitionMutationLock(async () => {
     await recoverInterruptedAuthSessionTransitionWithOwnership();
-    const journal = await readAuthSessionTransitionJournal();
+    let journal = await readAuthSessionTransitionJournal();
+    // Explicit handoff recovery runs only after joining outstanding updates.
+    // A Terminal may have exited before publishing any durable update, or an
+    // explicit Service stop may have removed its executor. Do not let that
+    // abandoned intent permanently prevent the next user-initiated setup.
+    if (
+      (journal?.state === "pending" ||
+        journal?.state === "recovery_required") &&
+      journal.computerHandoff?.prepareContinuation &&
+      !isProcessIdentityAlive({
+        ownerPid: journal.ownerPid,
+        ownerProcessStartedAt: journal.ownerProcessStartedAt,
+      })
+    ) {
+      await restoreTransitionPreviousPayload(journal);
+      stopRegisteredCandidateService(journal);
+      const recovery = {
+        ...journal,
+        state: "recovery_required" as const,
+        computerHandoff: {
+          ...journal.computerHandoff,
+          prepareContinuation: undefined,
+        },
+      };
+      await writeAuthSessionTransitionJournalIfOwned(journal, recovery);
+      journal = recovery;
+    }
     if (!(journal?.state === "recovery_required" && journal.computerHandoff)) {
       return null;
     }
@@ -1882,6 +2013,13 @@ async function recoverInterruptedAuthSessionTransitionWithOwnership(): Promise<v
   }
 
   if (journal.state === "pending") {
+    // A durable setup is still intended after its Terminal exits. The existing
+    // maintenance worker resumes this Prepare session; reads must not roll back
+    // its account or kill the Service that is completing the update.
+    if (journal.computerHandoff?.prepareContinuation) {
+      await registerCurrentCandidateServiceProcess(journal);
+      return;
+    }
     await restoreTransitionPreviousPayload(journal);
     stopRegisteredCandidateService(journal);
     if (journal.computerHandoff) {
@@ -1896,6 +2034,9 @@ async function recoverInterruptedAuthSessionTransitionWithOwnership(): Promise<v
     return;
   }
   if (journal.state === "recovery_required") {
+    if (journal.computerHandoff?.prepareContinuation) {
+      return;
+    }
     stopRegisteredCandidateService(journal);
     return;
   }
@@ -2249,6 +2390,9 @@ function isOptionalComputerHandoffRecovery(value: unknown): boolean {
     return false;
   }
   return (
+    (value.prepareContinuation === undefined ||
+      prepareSessionContinuationSchema.safeParse(value.prepareContinuation)
+        .success) &&
     (value.serviceReconciledAt === undefined ||
       typeof value.serviceReconciledAt === "string") &&
     (value.remoteSessionRevokedAt === undefined ||

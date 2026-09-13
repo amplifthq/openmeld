@@ -113,6 +113,42 @@ const LOCKED_TERMINAL_STATUSES = new Set<RuntimeCoordinatorExecutionStatus>([
   "reply_published",
 ]);
 
+// Historical discovery only. Delivery retries and token/connection diagnostics
+// do not advance activity; these rows never determine current execution state.
+export async function readRuntimeCoordinatorTaskActivity(input: {
+  db: D1Database;
+  authorizedProfileIds: readonly string[];
+  sinceMs: number;
+}): Promise<Map<string, number>> {
+  const activity = new Map<string, number>();
+  for (
+    let offset = 0;
+    offset < input.authorizedProfileIds.length;
+    offset += 80
+  ) {
+    const ids = input.authorizedProfileIds.slice(offset, offset + 80);
+    const rows = await input.db
+      .prepare(`
+      SELECT target_profile_id AS profileId,
+        MAX(MAX(created_at_ms, CASE WHEN status IN (
+          'accepted_local', 'running', 'completed_local', 'result_received',
+          'result_accepted', 'reply_published', 'cancelled', 'failed_terminal'
+        ) THEN updated_at_ms ELSE created_at_ms END)) AS lastTaskActivityAtMs
+      FROM openMeldDaemon_runtime_coordinator_executions
+      WHERE target_profile_id IN (${ids.map(() => "?").join(",")})
+        AND updated_at_ms >= ?
+      GROUP BY target_profile_id
+      HAVING lastTaskActivityAtMs >= ?
+    `)
+      .bind(...ids, input.sinceMs, input.sinceMs)
+      .all<{ profileId: string; lastTaskActivityAtMs: number }>();
+    for (const row of rows.results) {
+      activity.set(row.profileId, row.lastTaskActivityAtMs);
+    }
+  }
+  return activity;
+}
+
 const ACTIVE_WAKE_PROGRESS_STATUSES: readonly RuntimeCoordinatorExecutionStatus[] =
   [
     "created",

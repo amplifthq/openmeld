@@ -482,9 +482,8 @@ const PUBLIC_AGENT_AVAILABILITY_ONLY_COPY_BY_CODE: readonly PublicAgentAvailabil
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary:
-        "This Agent's computer connection is unavailable right now.",
-      availabilityTooltip: "Computer connection unavailable",
+      availabilitySummary: "OpenMeld couldn't check this agent's connection.",
+      availabilityTooltip: "Connection check unavailable",
       patterns: ["=wake_route.registration_unavailable"],
     },
     {
@@ -1138,11 +1137,10 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
     },
     {
       availabilityBadgeLabel: "Unavailable",
-      availabilitySummary:
-        "This Agent's computer connection is unavailable right now.",
-      availabilityTooltip: "Computer connection unavailable",
+      availabilitySummary: "OpenMeld couldn't check this agent's connection.",
+      availabilityTooltip: "Connection check unavailable",
       body: (targetName) =>
-        `${targetName} is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.`,
+        `OpenMeld couldn't check ${targetName}'s connection. Try again.`,
       kind: "local_service",
       patterns: ["=agent_execution.route_unavailable", "=route.unavailable"],
       primaryActionId: "check_status",

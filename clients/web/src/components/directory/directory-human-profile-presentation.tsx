@@ -3,6 +3,7 @@ import type { ModelCatalog } from "@openmeld/schemas/types";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
@@ -419,17 +420,20 @@ export function DirectoryIdentityAccountSummary(input: {
 				size={input.context === "card" ? "sm" : "md"}
 			/>
 			{label ? (
-				<span
-					className={cn(
-						"min-w-0 text-muted-foreground",
-						input.context === "detail" ? "select-text break-all text-sm" : null,
-						input.context === "card" ? "select-text break-all text-xs" : null,
-						input.context === "sidebar" ? "truncate text-xs" : null
-					)}
-					title={input.context === "sidebar" ? label : undefined}
-				>
-					{label}
-				</span>
+				<TooltipHint content={input.context === "sidebar" ? label : undefined}>
+					<span
+						className={cn(
+							"min-w-0 text-muted-foreground",
+							input.context === "detail"
+								? "select-text break-all text-sm"
+								: null,
+							input.context === "card" ? "select-text break-all text-xs" : null,
+							input.context === "sidebar" ? "truncate text-xs" : null
+						)}
+					>
+						{label}
+					</span>
+				</TooltipHint>
 			) : null}
 		</span>
 	);

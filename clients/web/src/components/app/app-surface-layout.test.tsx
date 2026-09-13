@@ -87,9 +87,9 @@ describe("AppSurfaceLayout", () => {
 		expect(frame?.getAttribute("aria-busy")).toBe("true");
 		expect(surface?.children).toHaveLength(2);
 		expect(surfaceBody?.children).toHaveLength(1);
-		expect(surfaceBody?.firstElementChild?.getAttribute("data-slot")).toBe(
-			"test-main-content"
-		);
+		expect(
+			surfaceBody?.querySelector('[data-slot="test-main-content"]')
+		).toBeTruthy();
 	});
 
 	it("keeps primary navigation reachable from the narrow app header", () => {

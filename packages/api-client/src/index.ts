@@ -255,6 +255,7 @@ export type {
   OrganizationUsageApi,
   OrganizationUsageRequestInput,
 } from "./organization-usage/types";
+export { createPluginsApi } from "./plugins/api";
 export { createPrepareReadinessApi } from "./prepare-readiness/api";
 export type {
   CreatePrepareReadinessApi,

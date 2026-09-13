@@ -67,6 +67,45 @@
       "body": "Messages from other people and Agents now use a subtle neutral background,\nwhile your own messages use a soft blue tint. The surfaces help separate\nmessages in busy conversations in light and dark mode, while preserving\nspeaker identities and your preferred message alignment."
     },
     {
+      "id": "continue-space-conversations-with-wake",
+      "title": "Continue a conversation with the same Agent",
+      "kind": "improved",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "The main Space composer can suggest the Agent you last woke after it replies.\nAccept the suggestion to add a Wake token, or ignore it to send normally. If\nyou forget, click the suggested Agent below your sent message to add its first\nWake in one step. The original message gains a Wake token and an edited marker\nwithout being reposted or moved.\nLater edits never start the same work again.\n\nMessage editing uses the Composer's member picker and file uploads, keeps long\nmessages in place, and preserves attachment previews. Message actions have\nconsistent icons, with Pin before Edit and Recall last.\n\nImage and file drafts stay with their conversation when you switch Spaces or\nthreads and return. Compact image thumbnails open a larger preview when clicked;\nfile names appear on hover, with a remove button always visible."
+    },
+    {
+      "id": "bounded-local-development",
+      "title": "Coordinate local development across worktrees",
+      "kind": "improved",
+      "areas": [
+        "developer-workflow"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "workflow:34519171122"
+      ],
+      "body": "Isolated development servers and broad validation commands now coordinate local\nresource capacity across worktrees. Startup waits when memory is constrained,\nstatus includes descendant processes and memory usage, and shutdown verifies\nthat owned processes exit without stopping another worktree.\n\nThe development toolchain includes updated Turbo and Cloudflare plugins, and\nthe startup path keeps fewer launcher processes. Install dependencies explicitly\nafter a lockfile change; `pnpm check` no longer runs an installation first.\n\nGateway tests reuse one Workers runtime and module cache while keeping test\nstorage isolated. Four sequential test groups bound local connections and\nrelease cached modules between groups."
+    },
+    {
       "id": "mention-dismissal-and-compact-replies",
       "title": "Easier mentions and clearer replies",
       "kind": "improved",
@@ -108,6 +147,28 @@
         "workflow:34434697090"
       ],
       "body": "Edit your sent messages directly in the conversation, or recall them for everyone\nin the Space. Clearing all content asks you to confirm recall. Recalled messages\nleave a small notice, and the sender can choose Edit again to bring the last\nsaved version back into the composer without sending it automatically."
+    },
+    {
+      "id": "team-agent-directory",
+      "title": "Find Agents by teammate",
+      "kind": "improved",
+      "areas": [
+        "agents",
+        "team"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Team now has People and Agents tabs. The Agents tab places your organization's\nCenter Agent first, followed by your Agents and other teammates' Agents.\nPersonal and team Agent lists share cards, recent activity sorting, multiselect\nController and model filters, and optional grouping by Controller or model.\nSearch opens from the magnifying glass, and group options appear on hover or\nkeyboard focus. People groups also support Computer-status filters."
     },
     {
       "id": "chats-directory-and-participant-picker",
@@ -153,6 +214,29 @@
       "body": "Your profile now lists conversations involving your personal Agents, with the\npeople involved, recent messages, and an Agent filter. Open the existing\nconversation directly without joining it just to read. The list uses the\nsame access rules as Chats and Spaces."
     },
     {
+      "id": "agent-conversations-and-reply-unread",
+      "title": "Find your Agent's conversations and unread replies",
+      "kind": "improved",
+      "areas": [
+        "agents",
+        "spaces",
+        "inbox"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Your Agent's detail page shows its conversations beneath its setup, with links\nback to each chat or Space. New replies from your personal Agent also appear\nas unread updates, including when someone else asked it to work."
+    },
+    {
       "id": "space-history-navigation",
       "title": "Find your place in long conversations",
       "kind": "new",
@@ -171,6 +255,58 @@
         "workflow:34434697090"
       ],
       "body": "Browse compact previews of a long Space conversation and jump directly to an\nearlier message. Read nearby history, return to the latest messages, and open\npinned messages without losing your draft. Edited and recalled messages stay\ncurrent in history and pinned previews."
+    },
+    {
+      "id": "automatic-wake-failure-discovery",
+      "title": "Investigate Wake failures without a manual report",
+      "kind": "improved",
+      "areas": [
+        "diagnostics",
+        "agents"
+      ],
+      "audiences": [
+        "operators"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891",
+        "workflow:34522614437",
+        "workflow:34523312980",
+        "workflow:34525506615"
+      ],
+      "body": "Developers can list and group automatically recorded Wake failures, including\nreply publication failures, without asking users to send a report. Repeated\ncallbacks do not create duplicate records, and expected waiting is excluded.\nRemote Agent completion diagnostics help distinguish empty model output from\ntool use, output limits, and provider errors without logging response content."
+    },
+    {
+      "id": "space-colleague-access",
+      "title": "Join your team's Spaces without opening them to everyone",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "invitations"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "https://github.com/amplifthq/openmeld/issues/886",
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891",
+        "workflow:34522614437",
+        "workflow:34523312980",
+        "workflow:34525506615"
+      ],
+      "body": "Organization members can join a Space open to their organization from Discover\nor a shared link, even when its content is limited to Space members. Join\nfailures preserve the reason instead of replacing it with a generic error.\n\nShare and Access settings share one compact panel for inviting teammates,\nchoosing who can join the Space, and copying its link. New Spaces keep content limited to members. Existing\nexternal links show their current audience and can be closed by the owner.\n\nExisting invitation links load when sharing opens and remain available after\ncollapsing the invitation section or reopening the dialog.\n\nSpace navigation stays inside the app. New invitation recipients can join their\norganization and Space in one flow, then keep browsing without setup interrupting\nthe same visit.\n\nOwners can invite signed-in external guests to just one Space, without adding\nthem to the organization. The sharing confirmation explains what guests can\nread and do; turning off guest access also blocks existing guests.\n\nSpaces support multiple owners. Add another owner before handing off your role\nor leaving the organization, so your team's conversations and files stay with\nthe team. The final owner cannot be removed."
     },
     {
       "id": "wake-reply-thread-root-validation",
@@ -192,6 +328,28 @@
         "workflow:34434697090"
       ],
       "body": "Opening a discussion thread under a running Wake no longer moves its reply away\nfrom the original conversation or causes a false latest-message read failure.\nReplies still check for newer messages before appearing."
+    },
+    {
+      "id": "thread-quoted-context-and-continuation",
+      "title": "Keep context when replying to Agents",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Agents receive the retained message you quote, including messages outside the\nrecent conversation window. Recalled messages are identified without exposing\ntheir withdrawn text. Threads suggest the Agent most recently explicitly Woken\nby a human, using the existing removable recipient in the message composer."
     },
     {
       "id": "pinned-space-messages",
@@ -257,6 +415,136 @@
       "body": "Agent owners can handle pending permissions, questions, and plan reviews from a\nquiet action surface above the currently visible Space or Thread composer, so\nrequired input no longer gets buried in message history or behind an open Thread.\n\nThe action strip now sits against the composer and expands into a consistent\ncard for plans, questions, and permissions. Long details scroll within the card,\nwith subtle edge fades and response buttons that stay within reach."
     },
     {
+      "id": "required-release-stamp-consistency",
+      "title": "Keep required-update releases reproducible",
+      "kind": "fixed",
+      "areas": [
+        "developer-workflow"
+      ],
+      "audiences": [
+        "contributors"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:936",
+        "workflow:34521120546"
+      ],
+      "body": "Release stamping now writes the required CLI version before building the package.\nRequired updates retain a matching bundle hash when release checks rebuild them.\nThe `stamp` and `require` commands share this path and restore metadata if it fails."
+    },
+    {
+      "id": "space-file-working-context",
+      "title": "Keep shared working files in the conversation",
+      "kind": "new",
+      "areas": [
+        "spaces",
+        "files",
+        "routines"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Agents can discover pinned working files from their Wake context and read the\ncurrent version before using it. Choose who receives a file's update notices,\nor start an ordinary Routine to maintain a text file from confirmed decisions.\nNotifications are off until a human chooses recipients."
+    },
+    {
+      "id": "space-durable-reading-positions",
+      "title": "Keep Space reading positions tied to saved messages",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "New reading positions saved while a reply is still arriving now stay tied to a\nsaved message. Returning to the Space or using Back after browsing its history\nno longer tries to find that temporary reply in message history. Existing\nreading positions are preserved."
+    },
+    {
+      "id": "composer-send-focus",
+      "title": "Keep typing after sending a message",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "After sending a message or thread reply, you can keep typing without clicking\nthe input again. Draft resets preserve the caret, and delayed focus requests\nyield when you move to another input."
+    },
+    {
+      "id": "settings-role-loading",
+      "title": "Load organization settings without waiting for Agent status",
+      "kind": "fixed",
+      "areas": [
+        "web",
+        "settings"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Organization settings, including Invitations, resolve your member role without\nwaiting for organization-wide Agent status checks. Slow Agent status reads no\nlonger delay the role check needed to display invitation controls and requests."
+    },
+    {
+      "id": "people-lightweight-agent-configuration",
+      "title": "Load People and Agent card configuration without runtime checks",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "people",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "People and member profile popovers load Agent Controller and model configuration\nalongside identity data, without requesting organization-wide Agent runtime\nchecks. Configuration changes refresh the summaries, and unavailable model\ninformation is kept distinct from the default model. Wake availability continues\nto use its existing authoritative checks."
+    },
+    {
       "id": "visible-wake-stop-button",
       "title": "Make Stop easier to spot",
       "kind": "improved",
@@ -277,6 +565,48 @@
         "workflow:34434697090"
       ],
       "body": "Stop now has a subtle background and border beside the working Agent message,\nmaking it easier to recognize as a button without using a warning color."
+    },
+    {
+      "id": "space-message-link-previews",
+      "title": "Preview links in Space messages",
+      "kind": "improved",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Links in messages open in a new tab and show compact previews with a title,\ndescription, and image when available. People and agents share the same cards\nin Spaces and threads."
+    },
+    {
+      "id": "people-local-agent-usage-preview",
+      "title": "Preview Local Agent usage from People",
+      "kind": "improved",
+      "areas": [
+        "people"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Human cards now combine Local Agent logos and available usage previews in one\ncompact, overlapping dock. Hover over a logo to see reported limits and reset times without\nopening the person's Computer details. Agents without readable usage keep their\nlogo without a ring. Different Computers and providers keep separate limits.\nCompact ring tooltips now adapt to screen width across People, Computer, and\nAgent Profile details. Team members can see the same reported capacity from\neach of these views."
     },
     {
       "id": "space-message-reactions",
@@ -322,6 +652,118 @@
         "workflow:34434697090"
       ],
       "body": "New Codex sessions started by a Wake get a short name based on the Agent and\nrequest, making them easier to find. Naming runs while the Agent works and does\nnot hold up the task if it fails. Existing session names stay unchanged."
+    },
+    {
+      "id": "organization-agent-readiness-batch-reads",
+      "title": "Reduce repeated reads when loading organization Agent status",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "agents"
+      ],
+      "audiences": [
+        "users",
+        "admins"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Organization Agent status uses batched identity and database reads to reduce\nbackend round trips for larger teams. Agent ownership, Binding conflicts,\norganization eligibility, and Wake availability checks remain in place.\nUnavailable evidence continues to produce an unavailable result."
+    },
+    {
+      "id": "human-online-presence",
+      "title": "See when people are online",
+      "kind": "improved",
+      "areas": [
+        "people",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "Online and Offline now describe people using OpenMeld, independently of their\ncomputers. Activity across browser tabs and devices keeps your status current;\nleaving or becoming idle ends online presence. Computer connected and Computer\ndisconnected remain separate filters in People."
+    },
+    {
+      "id": "people-center-agent-loading",
+      "title": "Show the Center Agent without waiting for Agent status",
+      "kind": "fixed",
+      "areas": [
+        "web",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "The Center Agent entry uses the member and Agent identity data already\nloaded by the page. Displaying its name and avatar no longer starts another\norganization-wide Agent status read or waits for that read to finish."
+    },
+    {
+      "id": "github-onboarding-logo",
+      "title": "Show the correct GitHub logo during setup",
+      "kind": "fixed",
+      "areas": [
+        "onboarding"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891"
+      ],
+      "body": "GitHub examples in the setup guide show the GitHub logo consistently when\nother Plugins are added to the catalog."
+    },
+    {
+      "id": "clearer-transactional-emails",
+      "title": "Simpler emails with a clearer next step",
+      "kind": "improved",
+      "areas": [
+        "email",
+        "invitations",
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-10",
+      "release": "v0.3.198",
+      "evidence": [
+        "pr:935",
+        "pr:937",
+        "commit:0281b7b03c8259608bc1e296e727550ce09bdfa4",
+        "workflow:34523839085",
+        "workflow:34525984891",
+        "workflow:34522614437"
+      ],
+      "body": "Verification, sign-in, invitation, and Inbox emails share a quieter layout,\nshorter explanations, and one clear action. Invitation emails keep membership\ndetails and expiration visible."
     },
     {
       "id": "keep-agent-picker-open-in-members-drawer",

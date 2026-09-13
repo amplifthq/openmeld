@@ -333,7 +333,8 @@ export const createAgentProfileBindingApi: CreateAgentProfileBindingApi = (
       });
     },
     getExecutionReadinessBatch: async (input) => {
-      const request = requireValidExecutionReadinessBatchInput(input);
+      const { signal, ...body } = input;
+      const request = requireValidExecutionReadinessBatchInput(body);
 
       return await client.requestJson({
         body: JSON.stringify({
@@ -348,6 +349,7 @@ export const createAgentProfileBindingApi: CreateAgentProfileBindingApi = (
         invalidMessage: "Invalid Agent Execution Readiness batch response.",
         method: "POST",
         operation: "agent_execution_readiness.batch_read",
+        signal,
         requestContext: request.requestContext,
         schema: getAgentExecutionReadinessBatchResponseSchema,
         url: buildAgentExecutionReadinessBatchRoute(),

@@ -41,6 +41,15 @@ import {
 } from "@testing-library/react";
 import { type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// These submission tests start with an empty draft store; browser reload
+// persistence is outside this component/API integration boundary.
+vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	readComposerFileDrafts: async () => [],
+	removeComposerFileDraft: async () => undefined,
+	saveComposerFileDraft: async () => undefined,
+}));
+
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import type { AccountSpaceSections } from "#/lib/spaces/account-spaces";
@@ -1518,7 +1527,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("closes Add People or Agents when profile history refresh fails after the membership write", async () => {
+	it("closes Add People or Agents when directory refresh fails after the membership write", async () => {
 		const addMembersMock = vi.fn().mockResolvedValue({
 			addedMemberIds: [SECOND_AGENT_PROFILE_ID],
 			alreadyMemberIds: [],
@@ -1527,13 +1536,14 @@ describe("SpaceLanding", () => {
 		const consoleWarnMock = vi
 			.spyOn(console, "warn")
 			.mockImplementation(() => undefined);
-		upsertProfileSpaceHistoryMock.mockImplementation((input: unknown) =>
-			JSON.stringify(input).includes(SECOND_AGENT_PROFILE_ID)
-				? Promise.reject(new Error("history write failed"))
-				: Promise.resolve([])
-		);
+		useQueryClientMock.mockReturnValue({
+			invalidateQueries: vi
+				.fn()
+				.mockRejectedValue(new Error("Directory refresh failed")),
+			setQueryData: vi.fn(),
+		});
 		createWebSpaceApiMock.mockReturnValue({
-			addMembers: addMembersMock,
+			addOrganizationDirectoryProfilesToSpace: addMembersMock,
 			deleteSpace: vi.fn().mockResolvedValue({
 				deleted: true,
 				spaceId: "space-123",
@@ -1557,6 +1567,7 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			organizationDirectory: createPersonalScoutDirectoryFixture(),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -1605,12 +1616,8 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(addMembersMock).toHaveBeenCalledWith({
-				memberProfileIds: [SECOND_AGENT_PROFILE_ID],
-				requestContext: expect.objectContaining({
-					actorContext: expect.objectContaining({
-						openMeldProfileId: DEFAULT_SPACE_PROFILE_ID,
-					}),
-				}),
+				directoryProfileIds: [SECOND_AGENT_PROFILE_ID],
+				expectedCenterAgentProfileId: SECOND_AGENT_PROFILE_ID,
 				spaceId: "space-123",
 			});
 			expect(
@@ -1621,12 +1628,14 @@ describe("SpaceLanding", () => {
 		});
 		expect(screen.queryByText("Member added to this Space.")).toBeNull();
 		expect(screen.queryByText("history write failed")).toBeNull();
-		expect(consoleWarnMock).toHaveBeenCalledWith(
-			"OpenMeld added Space members but could not update history.",
-			expect.objectContaining({
-				profileIds: [SECOND_AGENT_PROFILE_ID],
-				spaceId: "space-123",
-			})
+		await waitFor(() =>
+			expect(consoleWarnMock).toHaveBeenCalledWith(
+				"OpenMeld added Organization Directory profiles but could not refresh Space data.",
+				expect.objectContaining({
+					directoryProfileIds: [SECOND_AGENT_PROFILE_ID],
+					spaceId: "space-123",
+				})
+			)
 		);
 	});
 
@@ -1644,7 +1653,7 @@ describe("SpaceLanding", () => {
 			setQueryData: vi.fn(),
 		});
 		createWebSpaceApiMock.mockReturnValue({
-			addMembers: addMembersMock,
+			addOrganizationDirectoryProfilesToSpace: addMembersMock,
 			deleteSpace: vi.fn().mockResolvedValue({
 				deleted: true,
 				spaceId: "space-123",
@@ -1668,6 +1677,7 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
+			organizationDirectory: createPersonalScoutDirectoryFixture(),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -2390,9 +2400,12 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 	});
 
-	it("hides cached private history when the current Space status denies access", async () => {
+	it.each([
+		"space.forbidden",
+		"space.membership_required",
+	])("hides cached private history when the current Space status denies access with %s", async (code) => {
 		const accessDeniedFailure = {
-			code: "space.forbidden",
+			code,
 			message: "You no longer have access to this space.",
 			requestId: "req-status-refresh-403",
 			status: 403,
@@ -9731,9 +9744,13 @@ describe("SpaceLanding", () => {
 			name: "Change relation for Runner",
 		});
 		fireEvent.click(relationControl);
-		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			})
+		);
 		await waitFor(() => {
-			expect(relationControl.textContent).toBe("Reference");
+			expect(relationControl.textContent).toBe("Mention only");
 		});
 		await appendComposerText(textarea, "for context", "@Runner for context");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
@@ -9792,7 +9809,11 @@ describe("SpaceLanding", () => {
 				name: "Change relation for Runner",
 			})
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Reference" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			})
+		);
 		await appendComposerText(
 			textarea,
 			"for context, then ",
@@ -9806,7 +9827,7 @@ describe("SpaceLanding", () => {
 			const tokens = screen.getAllByTestId("space-composer-profile-token");
 			expect(tokens).toHaveLength(2);
 			expect(
-				within(tokens[1] as HTMLElement).getByText("Reference")
+				within(tokens[1] as HTMLElement).getByText("Mention only")
 			).toBeTruthy();
 		});
 		await appendComposerText(
@@ -13307,6 +13328,8 @@ describe("SpaceLanding", () => {
 				bytes: expect.any(File),
 				mimeType: "image/png",
 				name: "picnic.png",
+				onProgress: expect.any(Function),
+				signal: expect.any(AbortSignal),
 				spaceId: "space-123",
 				uploadId: expect.any(String),
 			});
@@ -17888,13 +17911,13 @@ function expectSpaceAgentAvailabilityIndicator(
 		const labelMatches = candidate.getAttribute("aria-label") === input.label;
 		const tooltipMatches =
 			input.tooltip === undefined ||
-			candidate.getAttribute("title") === input.tooltip;
+			candidate.getAttribute("aria-description") === input.tooltip;
 		return labelMatches && tooltipMatches;
 	});
 	if (!indicator) {
 		const actual = indicators.map((candidate) => ({
 			label: candidate.getAttribute("aria-label"),
-			tooltip: candidate.getAttribute("title"),
+			tooltip: candidate.getAttribute("aria-description"),
 		}));
 		throw new Error(
 			`Expected space agent availability indicator ${input.label}; received ${JSON.stringify(actual)}`
@@ -17922,7 +17945,7 @@ function expectSpaceAgentAvailabilityIndicator(
 		);
 	}
 	if (input.tooltip !== undefined) {
-		const actualTooltip = indicator.getAttribute("title");
+		const actualTooltip = indicator.getAttribute("aria-description");
 		if (actualTooltip !== input.tooltip) {
 			throw new Error(
 				`Expected space agent availability tooltip ${input.tooltip}, got ${actualTooltip}`
@@ -17957,7 +17980,7 @@ function expectNoSpaceAgentAvailabilityIndicator(
 		const labelMatches = candidate.getAttribute("aria-label") === input.label;
 		const tooltipMatches =
 			input.tooltip === undefined ||
-			candidate.getAttribute("title") === input.tooltip;
+			candidate.getAttribute("aria-description") === input.tooltip;
 		return labelMatches && tooltipMatches;
 	});
 	if (indicator) {
@@ -18699,6 +18722,20 @@ function createOrganizationScope(
 		currentUserId: "user-mira",
 		organizations: [currentOrganization],
 		storageScope: "user-mira",
+	};
+}
+
+function createPersonalScoutDirectoryFixture(): OrganizationSpaceProfileCandidates {
+	const directory = createOrganizationDirectoryFixture({
+		centerAgentProfileId: SECOND_AGENT_PROFILE_ID,
+		humanProfileId: DEFAULT_SPACE_PROFILE_ID,
+	});
+	return {
+		...directory,
+		agentProfiles: directory.agentProfiles.map((agent) => ({
+			...agent,
+			profileName: "Scout",
+		})),
 	};
 }
 

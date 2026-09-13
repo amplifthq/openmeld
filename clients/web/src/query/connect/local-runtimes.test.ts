@@ -147,38 +147,29 @@ describe("boundedCurrentLocalRuntimeReplyReadinessRefetchInterval", () => {
 		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
 			REFRESH_INTERVAL_MS
 		);
+		query.state.dataUpdateCount += 1;
 		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
 			4000
 		);
 	});
 
-	it("polls while blocked with continuous exponential backoff", () => {
+	it("backs off only after settled reads, independently of observer evaluations", () => {
 		const query = buildQuery(buildReadiness());
-
-		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
-			REFRESH_INTERVAL_MS
-		);
-		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
-			4000
-		);
-		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
-			8000
-		);
-		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
-			16_000
-		);
-		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
-			30_000
-		);
-		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
-			30_000
-		);
+		for (const delay of [2000, 4000, 8000, 16_000, 30_000, 30_000]) {
+			for (let observer = 0; observer < 5; observer += 1) {
+				expect(
+					boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)
+				).toBe(delay);
+			}
+			query.state.dataUpdateCount += 1;
+		}
 	});
 
 	it("resets backoff when server evidence changes", () => {
 		const query = buildQuery(buildReadiness());
 
 		boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query);
+		query.state.dataUpdateCount += 1;
 		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
 			4000
 		);
@@ -195,6 +186,7 @@ describe("boundedCurrentLocalRuntimeReplyReadinessRefetchInterval", () => {
 		const query = buildQuery(buildReadiness());
 
 		boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query);
+		query.state.dataUpdateCount += 1;
 		expect(boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(query)).toBe(
 			4000
 		);

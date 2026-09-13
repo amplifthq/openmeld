@@ -749,7 +749,10 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("injects current Space meta without inspecting the Service installation", async () => {
+  it.each([
+    false,
+    true,
+  ])("preserves the reply proposal without inspecting Service installation (observation unavailable: %s)", async (observationUnavailable) => {
     await withTempHome(async () => {
       const serviceInventory = await import(
         "../src/local-service/lifecycle/daemon-service-inventory"
@@ -763,6 +766,11 @@ describe("dispatch result outbox around preview teardown", () => {
         ledgerPaths,
         presenter,
       });
+      if (observationUnavailable) {
+        fetchSpaceUpdatesMock.mockRejectedValue(
+          new Error("space.updates.read request timed out after 10000ms")
+        );
+      }
       const socket = settlementSocket as never;
       const runtimeContext = {
         providerRuntimeWorkingDirectory: process.cwd(),
@@ -826,6 +834,17 @@ describe("dispatch result outbox around preview teardown", () => {
       });
       expect(fetchSpaceMetaMock).toHaveBeenCalledTimes(1);
       expect(inspectInstallation).not.toHaveBeenCalled();
+      expect(runRuntimeTaskMock).toHaveBeenCalledOnce();
+      const proposal = settlementSocket.send.mock.calls
+        .map(([raw]) => JSON.parse(raw))
+        .find((frame) => frame.code === "daemon.dispatch.result");
+      expect(proposal.payload.taskResult.payload).toMatchObject({
+        status: "success",
+        spaceAction: {
+          type: "post_message",
+          observedThroughSignalId: "signal-1",
+        },
+      });
     });
   });
 

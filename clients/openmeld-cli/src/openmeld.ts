@@ -83,7 +83,6 @@ import {
   runComputerList,
   runComputerRename,
 } from "./commands/computer";
-import { recoverInterruptedComputerAuthHandoff } from "./commands/computer-auth-handoff-recovery";
 import { runDoctor } from "./commands/doctor";
 import { runFeedback } from "./commands/feedback";
 import { runInstallSelf } from "./commands/install-self";
@@ -1636,6 +1635,16 @@ const skillsCmd = program
   .command("skills")
   .description("Read and load Organization Skills.")
   .option("--json", "Print one machine-readable JSON envelope.", false);
+
+registerPluginCommands(program, {
+  view: getGlobalViewOption,
+  run: (routeTokens, run) =>
+    runCommandWithEntryChecks({
+      routeTokens,
+      view: getGlobalViewOption(),
+      run,
+    }),
+});
 
 skillsCmd.action(async (opts: { json?: boolean }) => {
   const view = getGlobalViewOption();
@@ -5479,25 +5488,9 @@ async function runLocalCli(argv: string[]): Promise<void> {
       return;
     }
     await ensureSystemLayout();
-    const [startupCommand, startupSubcommand] =
-      parseLeadingCommandTokensFromArgv(argv, 2);
-    if (
-      !(
-        isPassiveCliQueryArgv(argv) ||
-        (startupCommand === "service" && startupSubcommand === "run")
-      )
-    ) {
-      const recoveryRuntime = {
-        interactive: false,
-        resolvedView: "agent",
-        viewMode: "agent",
-      } as const;
-      await recoverInterruptedComputerAuthHandoff({
-        presenter: createSilentPresenter("agent"),
-        runtime: recoveryRuntime,
-        view: "agent",
-      });
-    }
+    // Account handoff owns Service recovery. Generic commands must remain
+    // usable when that Service cannot start, especially install-self, upgrade
+    // and diagnostics. Auth storage still isolates uncommitted credentials.
 
     const removedCcInputMessage = getRemovedCcCliInputMessage(argv);
     if (removedCcInputMessage) {
@@ -5718,3 +5711,5 @@ main().catch((error: unknown) => {
   errLine(message);
   process.exitCode = 1;
 });
+
+import { registerPluginCommands } from "./plugins/registration";

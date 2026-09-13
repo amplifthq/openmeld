@@ -129,7 +129,7 @@ describe("SpaceHeader", () => {
 		);
 	});
 
-	it("aligns the Space view control with the leading icon below the title", () => {
+	it("aligns the Space view control with the title without reserving an icon column", () => {
 		render(
 			createSpaceHeader({
 				viewControl: <div data-testid="space-view-control">Views</div>,
@@ -161,11 +161,47 @@ describe("SpaceHeader", () => {
 		);
 		expect(secondaryRow?.className).toContain("col-start-1");
 		expect(titleRow).not.toBeNull();
-		expect(titleRow?.className).toContain("col-start-2");
+		expect(titleRow?.className).toContain("col-start-1");
 		expect(within(titleRow as HTMLElement).getByText("Public")).toBeTruthy();
 		expect(
-			within(titleRow as HTMLElement).getByTestId("space-live-status")
-		).toBeTruthy();
+			within(titleRow as HTMLElement).queryByTestId("space-live-status")
+		).toBeNull();
+	});
+
+	it("shows loading in the header, gives connection recovery priority, and clears when idle", () => {
+		const onReconnectLiveUpdates = vi.fn();
+		const view = render(
+			createSpaceHeader({ liveState: "connecting", onReconnectLiveUpdates })
+		);
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
+		view.rerender(
+			createSpaceHeader({ liveState: "connected", isLoadingMessages: true })
+		);
+		expect(screen.getByText("Loading")).toBeTruthy();
+		view.rerender(
+			createSpaceHeader({
+				liveState: "degraded",
+				isLoadingMessages: true,
+				onReconnectLiveUpdates,
+			})
+		);
+		expect(screen.getByText("Reconnecting…")).toBeTruthy();
+		expect(screen.queryByText("Loading")).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Reconnect live updates now" })
+		);
+		expect(onReconnectLiveUpdates).toHaveBeenCalledOnce();
+		view.rerender(
+			createSpaceHeader({ liveState: "stale", onReconnectLiveUpdates })
+		);
+		expect(screen.getByText("Syncing…")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Reconnect live updates now" })
+		).toBeNull();
+		view.rerender(
+			createSpaceHeader({ liveState: "connected", onReconnectLiveUpdates })
+		);
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
 	});
 
 	it("renders space actions without the old app navigation tabs", () => {
@@ -303,6 +339,7 @@ describe("SpaceHeader", () => {
 		);
 
 		fireEvent.mouseEnter(publicAccessWarning);
+		fireEvent.mouseMove(publicAccessWarning);
 
 		await waitFor(() => {
 			expect(
@@ -319,13 +356,13 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByText("1 other profile also joined")).toBeNull();
 	});
 
-	it("uses a decorative Space icon instead of a redundant back control", () => {
+	it("keeps the Space title free of a redundant icon or back control", () => {
 		const { container } = render(createSpaceHeader());
 
 		expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
 		expect(
 			container.querySelector('[data-space-header-icon="channel"]')
-		).toBeTruthy();
+		).toBeNull();
 	});
 
 	it("opens space information with the space id and CLI join command", () => {
@@ -355,12 +392,9 @@ describe("SpaceHeader", () => {
 			screen.queryByRole("button", { name: "Copy Space ID" })
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Manage link access" }));
 		expect(screen.getByRole("heading", { name: "Access" })).toBeTruthy();
-		expect(
-			screen.getByText(
-				"Manage how people can view or join this Space from shared links."
-			)
-		).toBeTruthy();
+		expect(screen.getByText("Link access is enabled")).toBeTruthy();
 		expect(
 			screen.getAllByText(PUBLIC_SPACE_ACCESS_DESCRIPTION).length
 		).toBeGreaterThan(0);
@@ -460,7 +494,7 @@ describe("SpaceHeader", () => {
 		expect(within(dialog).queryByLabelText("Space name")).toBeNull();
 	});
 
-	it("opens the public read-only share link dialog", async () => {
+	it("copies a destination link without changing the existing access policy", async () => {
 		render(createSpaceHeader());
 
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
@@ -477,22 +511,20 @@ describe("SpaceHeader", () => {
 				.getByTestId("space-share-dialog-scroll-area")
 				.querySelector('[data-slot="scroll-area-viewport"]')
 		).toBeTruthy();
-		expect(within(dialog).getByText("Share Space")).toBeTruthy();
+		expect(within(dialog).getByText("Share Design Room")).toBeTruthy();
 		expect(
-			within(dialog).getByRole("radio", { name: SHARE_PUBLIC_MODE_LABEL_TEXT })
+			within(dialog).getByText(
+				"Anyone with the link can view and join this Space."
+			)
 		).toBeTruthy();
-		expect(
-			within(dialog).getAllByText(PUBLIC_SPACE_ACCESS_DESCRIPTION).length
-		).toBeGreaterThan(0);
-		expect(within(dialog).getByText(expectedShareUrl)).toBeTruthy();
-
+		expect(within(dialog).queryByRole("radio")).toBeNull();
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Copy share link" })
+			within(dialog).getByRole("button", { name: "Copy Space link" })
 		);
 
 		await waitFor(() => {
 			expect(clipboardWriteTextMock).toHaveBeenCalledWith(expectedShareUrl);
-			expect(toastMock.success).toHaveBeenCalledWith("Share link copied.");
+			expect(toastMock.success).toHaveBeenCalledWith("Space link copied.");
 		});
 	});
 
@@ -503,11 +535,11 @@ describe("SpaceHeader", () => {
 
 		const dialog = screen.getByRole("dialog");
 		expect(
-			within(dialog).getByRole("radio", { name: "Password protected" })
+			within(dialog).getByText(
+				"People with the password can view and join this Space."
+			)
 		).toBeTruthy();
-		expect(
-			within(dialog).getAllByText("Password to view and join.").length
-		).toBeGreaterThan(0);
+		expect(within(dialog).queryByRole("radio")).toBeNull();
 	});
 
 	it("shows the public view and password-gated join share mode", () => {
@@ -518,21 +550,23 @@ describe("SpaceHeader", () => {
 
 		const dialog = screen.getByRole("dialog");
 		expect(
-			within(dialog).getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
+			within(dialog).getByText(
+				"Anyone with the link can view. People outside the organization need a password to join."
+			)
 		).toBeTruthy();
-		expect(
-			within(dialog).getAllByText("Password to join.").length
-		).toBeGreaterThan(0);
+		expect(within(dialog).queryByRole("radio")).toBeNull();
 	});
 
-	it("lets the Space owner require a password to join from the share dialog", async () => {
+	it("lets the Space owner require a password to join from access settings", async () => {
 		const onSetAccessMode = vi.fn(async () => undefined);
 		render(createSpaceHeader({ onSetAccessMode }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -564,6 +598,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -603,6 +640,11 @@ describe("SpaceHeader", () => {
 			name: "Space settings",
 		});
 
+		fireEvent.click(
+			within(spaceInfoDialog).getByRole("button", {
+				name: "Manage link access",
+			})
+		);
 		fireEvent.click(
 			within(spaceInfoDialog).getByRole("radio", {
 				name: SHARE_PUBLIC_MODE_LABEL_TEXT,
@@ -654,8 +696,12 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -689,8 +735,12 @@ describe("SpaceHeader", () => {
 			})
 		);
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
@@ -724,6 +774,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 
 		expect(
 			within(dialog).getByRole("heading", { name: "Access" })
@@ -789,8 +842,12 @@ describe("SpaceHeader", () => {
 	it("does not treat a hidden password draft as a public access change", () => {
 		render(createSpaceHeader());
 
-		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Manage link access" })
+		);
 		fireEvent.click(
 			within(dialog).getByRole("radio", {
 				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
@@ -991,6 +1048,9 @@ describe("SpaceHeader", () => {
 function createSpaceHeader(
 	input: {
 		accessMode?: SpaceAccessMode;
+		liveState?: ComponentProps<typeof SpaceHeader>["liveState"];
+		isLoadingMessages?: boolean;
+		onReconnectLiveUpdates?: () => void;
 		currentProfileName?: string | null;
 		directMessageOwnerVisibilityLabel?: string | null;
 		onSetAccessMode?: (input: {
@@ -1031,8 +1091,10 @@ function createSpaceHeader(
 					isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 					isDeleteSpacePending={false}
 					isLeaveSpacePending={false}
+					isLoadingMessages={input.isLoadingMessages}
 					isSpaceNamePending={false}
 					leaveSpaceErrorMessage={null}
+					liveState={input.liveState}
 					membersControl={
 						input.membersControl === undefined ? (
 							<button type="button">Members</button>
@@ -1045,6 +1107,7 @@ function createSpaceHeader(
 					notificationControl={<button type="button">Notifications</button>}
 					onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 					onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
+					onReconnectLiveUpdates={input.onReconnectLiveUpdates}
 					onSetAccessMode={
 						input.onSetAccessMode ?? vi.fn(async () => undefined)
 					}

@@ -212,8 +212,10 @@ describe("api-client agent profile binding api", () => {
       })
     );
 
+    const controller = new AbortController();
     const result = await api.getExecutionReadinessBatch({
       agentProfileIds: [AGENT_PROFILE_ID],
+      signal: controller.signal,
     });
 
     expect(result.items).toHaveLength(1);
@@ -230,6 +232,8 @@ describe("api-client agent profile binding api", () => {
         url: "https://gateway.openmeld.invalid/v1/agent-profiles/execution-readiness/batch",
       })
     );
+    controller.abort();
+    expect(transport.mock.calls[0]?.[0].init?.signal?.aborted).toBe(true);
   });
 
   it("ensures primary Binding without caller-provided owner identity", async () => {

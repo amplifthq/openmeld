@@ -33,12 +33,10 @@ describe("organization scope resolution", () => {
 	it("keeps provider names out of the public login URL for Plugin detail routes", () => {
 		expect(
 			resolvePublicLoginRedirectTarget("/o/acme/center-agent/plugins/gmail")
-		).toBe("/o/acme/center-agent/plugins");
+		).toBe("/o/acme/plugins");
 		expect(
-			resolvePublicLoginRedirectTarget(
-				"/o/acme/center-agent/plugins/googledrive"
-			)
-		).toBe("/o/acme/center-agent/plugins");
+			resolvePublicLoginRedirectTarget("/o/acme/plugins/googledrive")
+		).toBe("/o/acme/plugins");
 	});
 
 	it("preserves non-Plugin organization deep links during login", () => {

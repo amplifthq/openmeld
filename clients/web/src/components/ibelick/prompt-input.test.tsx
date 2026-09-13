@@ -6,6 +6,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PromptInput, PromptInputTextarea } from "./prompt-input";
 
@@ -106,6 +107,28 @@ describe("PromptInput", () => {
 		fireEvent.pointerDown(screen.getByTestId("action-icon"), { button: 0 });
 
 		expect(document.activeElement).toBe(action);
+	});
+
+	it("does not steal focus or cancel pointer events from a portaled preview", () => {
+		render(
+			<PromptInput>
+				<PromptInputTextarea aria-label="Message" />
+				{createPortal(
+					<div data-testid="preview-backdrop">
+						<button type="button">Close preview</button>
+					</div>,
+					document.body
+				)}
+			</PromptInput>
+		);
+		const close = screen.getByRole("button", { name: "Close preview" });
+		close.focus();
+		expect(
+			fireEvent.pointerDown(screen.getByTestId("preview-backdrop"), {
+				button: 0,
+			})
+		).toBe(true);
+		expect(document.activeElement).toBe(close);
 	});
 });
 

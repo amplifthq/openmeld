@@ -4,3 +4,4 @@ set -e
 push_updates=$(cat)
 
 printf '%s\n' "$push_updates" | node scripts/release/pre-push-release-ready.mjs
+printf '%s\n' "$push_updates" | node scripts/dev/pre-push.mjs

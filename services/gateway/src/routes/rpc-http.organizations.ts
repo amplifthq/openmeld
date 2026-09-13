@@ -2,6 +2,8 @@ import {
   ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER,
   ORGANIZATION_DIRECTORY_INCLUDE_MEMBER_LAST_ACTIVE_AT_QUERY_PARAMETER,
+  ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER,
+  ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER,
 } from "@openmeld/gateway-contract";
 import {
   agentProfileCreationRequestMutationResponseSchema,
@@ -19,6 +21,9 @@ import {
   organizationDirectoryResponseSchema,
   organizationInformationProtectionPolicyResponseSchema,
   organizationMemberOpenMeldServiceStatusesResponseSchema,
+  organizationMemberPresenceBodySchema,
+  organizationMemberPresenceResponseSchema,
+  organizationMemberPresenceWriteResponseSchema,
   organizationMemberWebActivityResponseSchema,
   organizationProfileDirectoryResponseSchema,
   organizationSpaceDirectoryResponseSchema,
@@ -347,6 +352,10 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
   });
 
   app.get(CURRENT_ORGANIZATION_PROFILE_DIRECTORY_ROUTE, (c) => {
+    const includeModelSelection =
+      c.req.query(
+        ORGANIZATION_PROFILE_DIRECTORY_INCLUDE_MODEL_SELECTION_QUERY_PARAMETER
+      ) === "true";
     const includeHumanProfileLastUsedAt =
       c.req.query(
         ORGANIZATION_DIRECTORY_INCLUDE_HUMAN_PROFILE_LAST_USED_AT_QUERY_PARAMETER
@@ -361,6 +370,12 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationProfileDirectory({
           context: buildCoreRpcContext(c),
+          ...(includeModelSelection ? { includeModelSelection: true } : {}),
+          ...(c.req.query(
+            ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER
+          ) === "true"
+            ? { includeTaskActivity: true }
+            : {}),
           ...(includeMemberLastActiveAt
             ? { includeMemberLastActiveAt: true }
             : {}),
@@ -368,6 +383,7 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       resolveSuccessPayload: (result) =>
         projectOrganizationProfileDirectoryResponse({
+          includeModelSelection,
           includeHumanProfileLastUsedAt,
           includeMemberLastActiveAt,
           result,
@@ -388,6 +404,11 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationAgentRuntimeOverview({
+          ...(c.req.query(
+            ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER
+          ) === "true"
+            ? { includeTaskActivity: true }
+            : {}),
           ...(agentProfileWorkRecoveryVersion
             ? { agentProfileWorkRecoveryVersion }
             : {}),
@@ -396,6 +417,45 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       method: "GET",
       responseSchema: organizationAgentRuntimeOverviewResponseSchema,
       route: CURRENT_ORGANIZATION_AGENT_RUNTIME_OVERVIEW_ROUTE,
+    });
+  });
+
+  app.get("/v1/organizations/current/member-presence", (c) =>
+    executeRpcRoute({
+      c,
+      route: "/v1/organizations/current/member-presence",
+      method: "GET",
+      responseSchema: organizationMemberPresenceResponseSchema,
+      execute: () =>
+        c.var.coreRpc.getCurrentOrganizationMemberPresence({
+          context: buildCoreRpcContext(c),
+        }),
+    })
+  );
+  app.post("/v1/organizations/current/member-presence", async (c) => {
+    const body = await readJsonRequestBody(c.req.raw);
+    const report = organizationMemberPresenceBodySchema.safeParse(
+      body.ok ? body.value : undefined
+    );
+    if (!report.success) {
+      return respondBadRequest({
+        c,
+        code: body.ok ? "invalid_payload" : "invalid_json",
+        message: "Invalid member presence report.",
+        method: "POST",
+        route: "/v1/organizations/current/member-presence",
+      });
+    }
+    return executeRpcRoute({
+      c,
+      route: "/v1/organizations/current/member-presence",
+      method: "POST",
+      responseSchema: organizationMemberPresenceWriteResponseSchema,
+      execute: () =>
+        c.var.coreRpc.recordCurrentOrganizationMemberPresence({
+          context: buildCoreRpcContext(c),
+          report: report.data,
+        }),
     });
   });
 
@@ -786,6 +846,7 @@ function projectOrganizationDirectoryResponse(input: {
 }
 
 function projectOrganizationProfileDirectoryResponse(input: {
+  includeModelSelection: boolean;
   includeHumanProfileLastUsedAt: boolean;
   includeMemberLastActiveAt: boolean;
   result: unknown;
@@ -798,6 +859,14 @@ function projectOrganizationProfileDirectoryResponse(input: {
   }
   return {
     ...parsed.data,
+    agentProfiles: parsed.data.agentProfiles.map(
+      ({ modelSelection, ...profile }) => ({
+        ...profile,
+        ...(input.includeModelSelection && modelSelection !== undefined
+          ? { modelSelection }
+          : {}),
+      })
+    ),
     members: parsed.data.members.map((member) =>
       projectOrganizationDirectoryMember({ ...input, member })
     ),

@@ -10,9 +10,7 @@ import type {
 	SpaceThreadPreview,
 } from "@openmeld/schemas/types";
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
-import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
-import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowUpIcon,
@@ -22,14 +20,6 @@ import {
 	XIcon,
 } from "@phosphor-icons/react";
 import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
-import {
-	AnimatePresence,
-	domAnimation,
-	LazyMotion,
-	MotionConfig,
-	m,
-	useReducedMotion,
-} from "motion/react";
 import {
 	Fragment,
 	memo,
@@ -45,6 +35,7 @@ import {
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
 import {
 	buildActiveWakeConversationItems,
 	hasActiveWakeReplyForSource,
@@ -123,6 +114,7 @@ import {
 import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
+	type SpaceComposerProps,
 } from "./space-composer";
 import {
 	resolveSpaceComposerConversationKind,
@@ -182,10 +174,6 @@ import {
 	SpaceMessageFooter,
 } from "./space-message-footer";
 import { SpaceMessageInteractionSource } from "./space-message-interaction-source";
-import {
-	SpacePinnedFileBar,
-	SpacePinnedMessageBar,
-} from "./space-message-pins";
 import { SpaceMessageProfileAvatar } from "./space-message-profile-avatar";
 import {
 	buildSpaceMessageProfileMentionProfiles,
@@ -215,8 +203,11 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import { SpacePinnedItemsBar } from "./space-pins";
+import { useSpaceReadingHeader } from "./space-reading-header";
 import { getSpaceViewIndex, type SpaceView } from "./space-view";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
+import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -234,7 +225,6 @@ import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popov
 
 type SpaceConversationPanelResolvedProps = {
 	historyNavigation?: SpaceHistoryNavigationController;
-	pinnedMessageProvider?: (children: ReactNode) => ReactNode;
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -245,6 +235,7 @@ type SpaceConversationPanelResolvedProps = {
 	className?: string;
 	composerPrimaryAction?: ReactNode;
 	composerErrorMessage: string | null;
+	composerMembers?: SpaceComposerProps["members"];
 	composerFiles: readonly SpaceComposerFile[];
 	composerFileLimitReached: boolean;
 	composerAddressingTargets?: readonly SpaceComposerAddressingTarget[];
@@ -266,6 +257,7 @@ type SpaceConversationPanelResolvedProps = {
 		SpaceWakeStopRequestStatus
 	>;
 	emptyStateDescription?: string | null;
+	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
@@ -472,6 +464,7 @@ export function SpaceConversationPanel(
 						publicInput.composerFiles.length ||
 						publicInput.composerReplyToSignalId
 				)}
+				mentionPickerItems={publicInput.composerMentionPickerItems}
 				onRestore={async (message, canReplaceDraft) => {
 					const target = await readRecalledReplyTarget(
 						message,
@@ -489,29 +482,36 @@ export function SpaceConversationPanel(
 						publicInput.onClearComposerReplyTo();
 					}
 				}}
+				orgSlug={publicInput.orgSlug}
 				readOnly={publicInput.viewState.readOnly}
 				selfProfileId={publicInput.selfProfileId}
 			>
-				<SpaceDeviceWaitOutcomeScope
-					onComposeAgain={
-						publicInput.viewState.readOnly
-							? undefined
-							: publicInput.onComposeExpiredDeviceWait
-					}
+				<SpaceWakeRecommendationScope
+					items={publicInput.timelineItems}
+					orgSlug={publicInput.orgSlug}
+					selfProfileId={publicInput.selfProfileId}
+					spaceId={publicInput.spaceId}
 				>
-					<SpaceConversationPanelContent {...publicInput} />
-				</SpaceDeviceWaitOutcomeScope>
+					<SpaceDeviceWaitOutcomeScope
+						onComposeAgain={
+							publicInput.viewState.readOnly
+								? undefined
+								: publicInput.onComposeExpiredDeviceWait
+						}
+					>
+						<SpaceConversationPanelContent {...publicInput} />
+					</SpaceDeviceWaitOutcomeScope>
+				</SpaceWakeRecommendationScope>
 			</SpaceMessageEditingScope>
 		</SpaceWakeStopScope>
 	);
-	return publicInput.pinnedMessageProvider
-		? publicInput.pinnedMessageProvider(content)
-		: content;
+	return content;
 }
 
 function SpaceConversationPanelContent(
 	publicInput: SpaceConversationPanelProps
 ) {
+	const readingHeader = useSpaceReadingHeader();
 	const { viewState, ...props } = publicInput;
 	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
 	const input: SpaceConversationPanelResolvedProps = {
@@ -544,7 +544,6 @@ function SpaceConversationPanelContent(
 		setDismissedUnreadTargetKeys,
 		setMessageDetailsItem,
 		showComposer,
-		showEarlierHistoryLoadingIndicator,
 		spaceGraph,
 		spaceGraphFocusRequest,
 		spaceGraphLayout,
@@ -594,6 +593,13 @@ function SpaceConversationPanelContent(
 		threadFocusStatusMessage,
 		unreadNavigation,
 	} = navigation;
+	const registerReadingScrollElement = useCallback(
+		(element: HTMLDivElement | null) => {
+			registerConversationScrollElement(element);
+			readingHeader?.setScrollElement(element);
+		},
+		[readingHeader, registerConversationScrollElement]
+	);
 	const showHistoryRail =
 		(input.historyNavigation?.directory?.total ?? 0) >
 		SPACE_INITIAL_HISTORY_MAX_MESSAGES;
@@ -634,10 +640,10 @@ function SpaceConversationPanelContent(
 				threadMessage: threadFocusStatusMessage,
 			})}
 			{input.activeSpaceView === "messages" ? (
-				<>
-					<SpacePinnedFileBar onOpen={input.onOpenSpaceFile} />
-					<SpacePinnedMessageBar onJump={navigation.onJumpToPinnedMessage} />
-				</>
+				<SpacePinnedItemsBar
+					onJump={navigation.onJumpToPinnedMessage}
+					onOpen={input.onOpenSpaceFile}
+				/>
 			) : null}
 
 			<SpacePrimaryView
@@ -719,9 +725,6 @@ function SpaceConversationPanelContent(
 							<SpaceConversationTopOverlay
 								overlayRef={setConversationTopOverlayElement}
 							>
-								<EarlierHistoryLoadingIndicator
-									visible={showEarlierHistoryLoadingIndicator}
-								/>
 								{setupGuidance.banner}
 							</SpaceConversationTopOverlay>
 							<MessageScrollerViewport
@@ -752,7 +755,7 @@ function SpaceConversationPanelContent(
 								onScrollEnd={(event) => {
 									onConversationScrollEnd(event.currentTarget);
 								}}
-								ref={registerConversationScrollElement}
+								ref={registerReadingScrollElement}
 								role="log"
 							>
 								<SpaceConversationStickyDate
@@ -898,6 +901,7 @@ function renderPanelConversationBody(input: {
 		currentOwnerUserId: panel.currentOwnerUserId,
 		emptyStateActions: input.emptyStateActions,
 		emptyStateDescription: panel.emptyStateDescription,
+		emptyStateAlignment: panel.emptyStateAlignment,
 		emptyStateTitle: panel.emptyStateTitle,
 		entries: presentation.entries,
 		ephemeralActivityItems: panel.ephemeralActivityItems,
@@ -1123,8 +1127,6 @@ function useSpaceConversationPresentationController(
 	);
 	const composerContext = resolveConversationComposerContext(input);
 	const composerTargetName = resolveDirectMessageTargetName(input);
-	const showEarlierHistoryLoadingIndicator =
-		mainTimelineItems.length > 0 && input.isLoadingEarlierHistory;
 	const loadedMainTimelineSignalIds = useMemo(
 		() => new Set(mainTimelineItems.map((item) => item.id)),
 		[mainTimelineItems]
@@ -1227,7 +1229,6 @@ function useSpaceConversationPresentationController(
 		setMessageDetailsItem,
 		setStarterComputerSetupOpen,
 		showComposer,
-		showEarlierHistoryLoadingIndicator,
 		spaceGraph,
 		spaceGraphFocusRequest,
 		spaceGraphLayout,
@@ -1984,7 +1985,11 @@ function scrollMessageIntoConversationViewport(input: {
 		const viewportRect = input.scrollElement.getBoundingClientRect();
 		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
 		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
-		input.scrollElement.scrollTop += messageCenter - viewportCenter;
+		// Canvas transforms scale viewport coordinates, while scrollTop uses CSS pixels.
+		const scale = viewportRect.height / input.scrollElement.offsetHeight;
+		if (scale > 0) {
+			input.scrollElement.scrollTop += (messageCenter - viewportCenter) / scale;
+		}
 	};
 	alignMessage();
 	window.requestAnimationFrame(() => {
@@ -2008,47 +2013,6 @@ function mergeUnreadTargetKeys(
 	targetKeys: readonly string[]
 ): Set<string> {
 	return new Set([...current, ...targetKeys]);
-}
-
-function EarlierHistoryLoadingIndicator(input: { visible: boolean }) {
-	const shouldReduceMotion = useReducedMotion();
-	const hiddenFrame = shouldReduceMotion
-		? { opacity: 0 }
-		: { opacity: 0, transform: "translateY(-4px)" };
-	const visibleFrame = shouldReduceMotion
-		? { opacity: 1 }
-		: { opacity: 1, transform: "translateY(0px)" };
-
-	return (
-		<MotionConfig reducedMotion="user">
-			<LazyMotion features={domAnimation} strict>
-				<AnimatePresence initial={false}>
-					{input.visible ? (
-						<m.div
-							animate={visibleFrame}
-							className="pointer-events-none h-16 shrink-0"
-							data-slot="earlier-history-loading"
-							exit={hiddenFrame}
-							initial={hiddenFrame}
-							key="earlier-history-loading"
-							transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-						>
-							<div
-								className="relative mx-auto flex h-full items-center justify-center"
-								data-space-conversation-content-width=""
-							>
-								<ProgressiveBlur blurAmount="6px" height="100%" />
-								<output className="relative z-10 inline-flex max-w-full items-center gap-2 overflow-hidden px-3 text-muted-foreground text-xs">
-									<Bars aria-hidden="true" className="h-3 w-5 shrink-0" />
-									<span className="truncate">Loading earlier messages...</span>
-								</output>
-							</div>
-						</m.div>
-					) : null}
-				</AnimatePresence>
-			</LazyMotion>
-		</MotionConfig>
-	);
 }
 
 function SpaceConversationTopOverlay(input: {
@@ -2122,7 +2086,7 @@ function SpaceComposerSection(input: {
 							: undefined,
 						targetName: input.composerTargetName,
 					}}
-					presentation={{ errorClassName: "mt-3" }}
+					members={panel.composerMembers}
 					recovery={{
 						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
 						agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
@@ -2211,9 +2175,9 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 		return null;
 	}
 	return (
-		<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-			<p>{panel.composerErrorMessage}</p>
-		</div>
+		<p className="text-destructive text-sm" role="alert">
+			{panel.composerErrorMessage}
+		</p>
 	);
 }
 
@@ -2231,6 +2195,7 @@ function renderConversationBody(input: {
 	currentOwnerUserId: string | null;
 	emptyStateActions?: ReactNode;
 	emptyStateDescription?: string | null;
+	emptyStateAlignment?: "start" | "center";
 	emptyStateTitle?: string;
 	entries: ReturnType<typeof buildSpaceConversationEntries>;
 	ephemeralActivityItems: readonly SpaceEphemeralActivityItem[];
@@ -2345,7 +2310,14 @@ function renderConversationBody(input: {
 				className="flex flex-1 [content-visibility:visible]"
 				messageId="space-conversation-empty"
 			>
-				<div className="flex min-h-56 w-full flex-1 items-center justify-center px-6 py-8">
+				<div
+					className={cn(
+						"flex min-h-56 w-full flex-1 justify-center px-6 py-8",
+						input.emptyStateAlignment === "start"
+							? "items-start"
+							: "items-center"
+					)}
+				>
 					<div className="flex w-full max-w-2xl flex-col items-center gap-6 text-center">
 						<div className="grid max-w-xl gap-2">
 							<h2 className="font-medium text-xl">
@@ -2660,6 +2632,9 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 						<MessageScrollerItem key={item.id} messageId={item.id}>
 							<div
 								className="flex flex-col items-center gap-1 py-2"
+								data-history-signal-id={getSpaceConversationHistorySignalId(
+									item
+								)}
 								data-signal-id={item.id}
 								ref={(element) =>
 									input.registerMessageElement(item.id, element)
@@ -2953,6 +2928,7 @@ function ConversationBubbleContent(input: {
 				input.bubblePresentationClass
 			)}
 			data-highlighted={input.isHighlighted ? "true" : undefined}
+			data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 			data-signal-id={input.item.id}
 			ref={(element) => {
 				parent.registerMessageElement(input.item.id, element);
@@ -3730,6 +3706,7 @@ function SystemEventRow(input: {
 				data-highlighted={
 					input.highlightedSignalId === input.item.id ? "true" : undefined
 				}
+				data-history-signal-id={getSpaceConversationHistorySignalId(input.item)}
 				data-signal-id={input.item.id}
 				ref={(element) => {
 					input.registerMessageElement(input.item.id, element);
@@ -3780,6 +3757,9 @@ function SystemEventRow(input: {
 					data-highlighted={
 						input.highlightedSignalId === input.item.id ? "true" : undefined
 					}
+					data-history-signal-id={getSpaceConversationHistorySignalId(
+						input.item
+					)}
 					data-signal-id={input.item.id}
 					ref={(element) => {
 						input.registerMessageElement(input.item.id, element);
@@ -3798,6 +3778,9 @@ function SystemEventRow(input: {
 					data-highlighted={
 						input.highlightedSignalId === input.item.id ? "true" : undefined
 					}
+					data-history-signal-id={getSpaceConversationHistorySignalId(
+						input.item
+					)}
 					data-signal-id={input.item.id}
 					onClick={() => input.onOpenMessageDetails(input.item)}
 					ref={(element) => {

@@ -4,10 +4,20 @@ import { cn } from "@openmeld/ui/lib/utils";
 export function InboxAttentionBadge({
 	count,
 	tone,
+	indicatorTone,
 }: {
 	count: number | null;
 	tone: "danger" | "warning" | null;
+	indicatorTone?: "danger" | "warning" | "unread" | null;
 }) {
+	if (indicatorTone === "unread") {
+		return (
+			<span
+				aria-hidden="true"
+				className="status-dot pointer-events-none absolute end-0 top-0 bg-unread"
+			/>
+		);
+	}
 	if (count === null || count === 0) {
 		return null;
 	}

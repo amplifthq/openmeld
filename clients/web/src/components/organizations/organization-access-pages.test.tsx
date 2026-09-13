@@ -17,6 +17,8 @@ import {
 import { OrganizationMessageChannelsPage } from "./organization-message-channels-page";
 import { OrganizationPluginsPage } from "./organization-plugins-page";
 
+vi.mock("./plugin-scope-tabs", () => ({ PluginScopeTabs: () => null }));
+
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentDesignationMock = vi.hoisted(() => vi.fn());
 const listCurrentOrganizationMessageChannelsMock = vi.hoisted(() => vi.fn());
@@ -123,10 +125,6 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	}),
 }));
 
-vi.mock("./center-agent-route-state", () => ({
-	useCenterAgentRouteState: () => ({ pluginsSelectedService }),
-}));
-
 vi.mock("./center-agent-github-connection-card", () => ({
 	CenterAgentGitHubConnectionCard: ({
 		canManage,
@@ -143,12 +141,8 @@ vi.mock("./center-agent-github-connection-card", () => ({
 	),
 }));
 
-vi.mock("./center-agent-plugins-catalog-panel", () => ({
-	CenterAgentPluginsCatalogPanel: ({
-		organizationSlug,
-	}: {
-		organizationSlug: string;
-	}) => (
+vi.mock("./plugins-catalog-panel", () => ({
+	PluginsCatalogPanel: ({ organizationSlug }: { organizationSlug: string }) => (
 		<div data-organization-slug={organizationSlug} data-testid="apps-catalog" />
 	),
 }));
@@ -248,7 +242,7 @@ describe("organization access management pages", () => {
 			screen.getByRole("heading", { level: 1, name: "Channels" })
 		).toBeTruthy();
 		const description = screen.getByText(
-			"Connect Slack, Lark, or Feishu so people in Acme can message the same Center Agent and receive replies in the same conversation."
+			"Channels let you choose where to talk to your Agent."
 		);
 		expect(description).toBeTruthy();
 		expect(description.classList.contains("max-w-none")).toBe(true);
@@ -262,7 +256,7 @@ describe("organization access management pages", () => {
 		pluginsSelectedService = "github";
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 
@@ -280,7 +274,7 @@ describe("organization access management pages", () => {
 		pluginsSelectedService = "github";
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 
@@ -293,7 +287,7 @@ describe("organization access management pages", () => {
 	it("shows the Plugin catalog without waiting for role access", () => {
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 
@@ -311,7 +305,7 @@ describe("organization access management pages", () => {
 		};
 		render(
 			<TestQueryClientProvider>
-				<OrganizationPluginsPage />
+				<OrganizationPluginsPage selectedService={pluginsSelectedService} />
 			</TestQueryClientProvider>
 		);
 
@@ -362,9 +356,7 @@ describe("organization access management pages", () => {
 		).not.toHaveBeenCalled();
 		expect(screen.getByText("Personal workspace")).toBeTruthy();
 		expect(
-			screen.getByText(
-				"Your Personal Workspace is only for you. Create an organization to connect Slack, Lark, or Feishu for your teammates."
-			)
+			screen.getByText("Channels let you choose where to talk to your Agent.")
 		).toBeTruthy();
 		expect(
 			screen.getByRole("heading", {

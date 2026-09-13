@@ -39,5 +39,6 @@ runs:
           pnpm --dir "$SETUP_CONTROL_DIRECTORY" install \
             --frozen-lockfile \
             --filter @openmeld/schemas \
+            --prod \
             --ignore-scripts
         fi

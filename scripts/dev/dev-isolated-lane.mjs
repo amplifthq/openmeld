@@ -5,12 +5,15 @@ import {
   readFileSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { readListeningTcpPortOwners } from "./dev-port-owners.mjs";
 import { readProcessRows } from "./process-rows.mjs";
+import { sameProcess } from "./process-tree.mjs";
 
 const REGISTRY_VERSION = 1;
 const REGISTRY_DIRECTORY_NAME = "openmeld-dev";
@@ -43,6 +46,12 @@ export async function reserveIsolatedDevLane(options = {}) {
   const repoRoot = resolve(String(options.repoRoot ?? process.cwd()));
   const pid = normalizePid(options.pid ?? process.pid);
   const kind = normalizeRole(options.kind);
+  const startedAt =
+    pid === process.pid
+      ? readProcessRows({ repoRoot, includeMetrics: true }).find(
+          (row) => row.pid === pid
+        )?.startedAt
+      : undefined;
   const isPidAlive = options.isPidAlive ?? defaultIsPidAlive;
   const gitCommonDir = resolveGitCommonDirectory({
     gitCommonDir: options.gitCommonDir,
@@ -73,6 +82,7 @@ export async function reserveIsolatedDevLane(options = {}) {
           repoRoot,
           stackStartCommand: options.stackStartCommand ?? "pnpm dev:isolated",
         });
+        attached.webStartedAt = startedAt;
         writeRegistry(registryPaths.registryPath, {
           ...registry,
           lanes: {
@@ -124,6 +134,7 @@ export async function reserveIsolatedDevLane(options = {}) {
         ports,
         repoRoot,
       });
+      lane.stackStartedAt = startedAt;
 
       writeRegistry(registryPaths.registryPath, {
         ...registry,
@@ -240,6 +251,26 @@ export function readCurrentIsolatedDevLane(repoRoot) {
     );
   }
   return lane;
+}
+
+export function readIsolatedDevOwners(repoRoot, rows, gitCommonDir) {
+  const registry = readRegistry(
+    buildRegistryPaths(gitCommonDir ?? resolveGitCommonDirectory({ repoRoot }))
+      .registryPath
+  );
+  const lane = registry.lanes[buildLaneId(repoRoot)];
+  if (!lane || lane.repoRoot !== resolve(repoRoot)) {
+    return [];
+  }
+  return ["stack", "web"].flatMap((kind) => {
+    const row = rows.find((item) => item.pid === lane[`${kind}Pid`]);
+    return sameProcess(
+      { pid: lane[`${kind}Pid`], startedAt: lane[`${kind}StartedAt`] },
+      row
+    )
+      ? [row]
+      : [];
+  });
 }
 
 function attachWebProcess(input) {
@@ -491,11 +522,12 @@ function ensureLaneDirectories(lane) {
   mkdirSync(lane.wranglerStateDirectory, { recursive: true });
 }
 
-async function withRegistryLock(input, callback) {
-  const timeoutAt = Date.now() + REGISTRY_LOCK_TIMEOUT_MS;
+export async function withRegistryLock(input, callback) {
+  const timeoutAt = Date.now() + (input.timeoutMs ?? REGISTRY_LOCK_TIMEOUT_MS);
   mkdirSync(dirname(input.lockPath), { recursive: true });
 
   while (true) {
+    input.signal?.throwIfAborted();
     try {
       writeFileSync(
         input.lockPath,
@@ -507,13 +539,12 @@ async function withRegistryLock(input, callback) {
       if (!isAlreadyExistsError(error)) {
         throw error;
       }
-      if (canReclaimRegistryLock(input.lockPath, input.isPidAlive)) {
-        rmSync(input.lockPath, { force: true, recursive: true });
+      if (reclaimRegistryLock(input.lockPath, input.isPidAlive)) {
         continue;
       }
       if (Date.now() >= timeoutAt) {
         throw new Error(
-          "Timed out waiting for the isolated dev lane registry lock. No process was stopped."
+          `Timed out waiting for the isolated dev lane registry lock ${input.lockPath}. No process was stopped.${legacyRecoveryDirectory(input.lockPath) ? ` Legacy recovery directory ${input.lockPath}.reclaim has no owner identity; inspect its originating processes before removing it.` : ""}`
         );
       }
       await sleep(REGISTRY_LOCK_RETRY_MS);
@@ -525,6 +556,40 @@ async function withRegistryLock(input, callback) {
   } finally {
     rmSync(input.lockPath, { force: true, recursive: true });
   }
+}
+
+function reclaimRegistryLock(lockPath, isPidAlive) {
+  // SQLite's OS lock is released even after SIGKILL. Keep its file permanently:
+  // unlinking it would let contenders lock different inodes. Using the old
+  // guard path also prevents older worktrees from concurrently reclaiming.
+  const recoveryPath = `${lockPath}.reclaim`;
+  if (legacyRecoveryDirectory(lockPath)) {
+    return false;
+  }
+  let database;
+  try {
+    database = new DatabaseSync(recoveryPath, { timeout: 0 });
+    database.exec("BEGIN EXCLUSIVE");
+    if (!canReclaimRegistryLock(lockPath, isPidAlive)) {
+      return false;
+    }
+    rmSync(lockPath, { force: true, recursive: true });
+    return true;
+  } catch (error) {
+    // Do not block the event loop: the owning loop supplies cancellable retries.
+    if (error.errcode === 5 || legacyRecoveryDirectory(lockPath)) {
+      return false;
+    }
+    throw error;
+  } finally {
+    database?.close();
+  }
+}
+
+function legacyRecoveryDirectory(lockPath) {
+  return statSync(`${lockPath}.reclaim`, {
+    throwIfNoEntry: false,
+  })?.isDirectory();
 }
 
 function canReclaimRegistryLock(lockPath, isPidAlive) {
@@ -561,7 +626,7 @@ function buildRegistryPaths(gitCommonDir) {
   };
 }
 
-function resolveGitCommonDirectory(options) {
+export function resolveGitCommonDirectory(options) {
   if (options.gitCommonDir) {
     return resolve(String(options.gitCommonDir));
   }

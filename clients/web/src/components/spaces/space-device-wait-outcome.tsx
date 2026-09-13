@@ -1,4 +1,5 @@
 import { Button } from "@openmeld/ui/components/button";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { createContext, type ReactNode, useContext } from "react";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 
@@ -42,20 +43,21 @@ export function SpaceDeviceWaitOutcome(input: {
 		<div className="flex min-w-0 flex-wrap items-center gap-2 text-muted-foreground text-xs">
 			<span>Wait expired. Task did not run.</span>
 			{composeAgain ? (
-				<Button
-					onClick={() =>
-						composeAgain({
-							sourceSignalId: input.sourceItem.id,
-							targetProfileId,
-						})
-					}
-					size="xs"
-					title="Review and send a new task"
-					type="button"
-					variant="ghost"
-				>
-					Send again
-				</Button>
+				<TooltipHint content="Review and send a new task">
+					<Button
+						onClick={() =>
+							composeAgain({
+								sourceSignalId: input.sourceItem.id,
+								targetProfileId,
+							})
+						}
+						size="xs"
+						type="button"
+						variant="ghost"
+					>
+						Send again
+					</Button>
+				</TooltipHint>
 			) : null}
 		</div>
 	);

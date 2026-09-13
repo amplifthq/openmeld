@@ -1,0 +1,35 @@
+name: Dev lifecycle
+
+on:
+  pull_request:
+    paths:
+      - scripts/dev/**
+      - .github/workflows/dev-lifecycle.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-lifecycle-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      # Real disposable process trees and arbitration; no install, cloud
+      # credentials, app data, or complete dev stack required.
+      - run: node --test --test-concurrency=1 scripts/dev/registry-lock.test.mjs scripts/dev/local-resources.test.mjs scripts/dev/process-rows.test.mjs scripts/dev/dev-stop.test.mjs scripts/dev/dev-status.test.mjs

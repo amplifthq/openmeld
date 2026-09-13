@@ -354,6 +354,18 @@ describe("rpc-http parsers", () => {
   });
 
   it("returns stable errors for patch meta when supported fields are missing or invalid", () => {
+    expect(
+      parsePatchSpaceMetaBody({
+        ownership: { userId: "successor", role: "owner" },
+      })
+    ).toEqual({
+      ok: true,
+      value: { ownership: { userId: "successor", role: "owner" } },
+    });
+    expect(parsePatchSpaceMetaBody({ allowGuests: true })).toEqual({
+      ok: true,
+      value: { allowGuests: true },
+    });
     expect(parsePatchSpaceMetaBody({})).toEqual({
       ok: false,
       message: "Expected name, purpose, guide or visibility",

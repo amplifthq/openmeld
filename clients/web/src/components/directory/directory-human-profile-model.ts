@@ -5,12 +5,12 @@ import type {
 	ListOrganizationDocumentsResponse,
 	MessageChannelConnectionListResponse,
 	MessageChannelConnectionProjection,
-	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	OrganizationProfileDirectoryResponse,
 	ProfileDetailsSnapshot,
 } from "@openmeld/schemas/types";
+import { compareAgentListRecency } from "#/components/agents/agent-list-model";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
@@ -102,6 +102,7 @@ export type DirectoryProfileReport =
 	| { state: "unavailable" };
 
 export type DirectoryHumanProfileRow = {
+	presence?: "online" | "offline" | "unknown";
 	agentProfiles: readonly DirectoryAgentProfileSummary[];
 	agentProfilesPath: string;
 	avatarImageUrl: string | null;
@@ -140,14 +141,12 @@ export function buildOrganizationHumanProfileRows(input: {
 	messageChannelsStatus: DirectoryProjectionStatus;
 	members: OrganizationProfileDirectoryResponse["members"];
 	orgSlug: string;
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }): DirectoryHumanProfileRow[] {
 	const reportsBySubject = indexProfileReportDocuments(input.documents);
 	const agentProfilesByOwner = buildDirectoryAgentProfilesByOwner({
 		members: input.members,
 		agentProfiles: input.agentProfiles,
 		orgSlug: input.orgSlug,
-		runtimeOverview: input.runtimeOverview,
 	});
 	return input.members
 		.map((member) => {
@@ -355,21 +354,38 @@ function buildPersonalAgentProfileSummaries(input: {
 					}),
 		});
 	}
-	return sortAgentProfileSummaries(agentProfiles);
+	const profileById = new Map(
+		input.profiles.map((profile) => [profile.openMeldProfileId, profile])
+	);
+	const summaryOrder = new Map(
+		input.summaries?.map((summary, index) => [summary.id, index])
+	);
+	return agentProfiles.sort((left, right) => {
+		const leftIndex = summaryOrder.get(left.id);
+		const rightIndex = summaryOrder.get(right.id);
+		if (leftIndex !== undefined && rightIndex !== undefined) {
+			return leftIndex - rightIndex;
+		}
+		const leftProfile = profileById.get(left.id);
+		const rightProfile = profileById.get(right.id);
+		return (
+			(leftProfile && rightProfile
+				? compareAgentListRecency(leftProfile, rightProfile)
+				: 0) ||
+			left.name.localeCompare(right.name, "en", {
+				numeric: true,
+				sensitivity: "base",
+			}) ||
+			left.id.localeCompare(right.id)
+		);
+	});
 }
 
 export function buildDirectoryAgentProfilesByOwner(input: {
 	members: OrganizationProfileDirectoryResponse["members"];
 	agentProfiles: readonly DirectoryAgentProfileSource[];
 	orgSlug: string;
-	runtimeOverview?: OrganizationAgentRuntimeOverviewResponse;
 }): ReadonlyMap<string, readonly DirectoryAgentProfileSummary[]> {
-	const readinessByProfileId = new Map(
-		(input.runtimeOverview?.agentProfiles ?? []).map((profile) => [
-			profile.profileId,
-			profile.readiness,
-		])
-	);
 	const sourcesByOwner = new Map<string, DirectoryAgentProfileSource[]>();
 	for (const profile of input.agentProfiles) {
 		if (profile.isCenterAgent === true || !profile.ownerUserId) {
@@ -391,29 +407,38 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 			? (owner.humanProfile?.profileId ?? `member:${owner.memberId}`)
 			: null;
 		const profiles = [...sources]
-			.sort(compareAgentProfileSourceRecency)
+			.sort(
+				(left, right) =>
+					compareAgentListRecency(left, right) ||
+					left.profileName.localeCompare(right.profileName, "en", {
+						numeric: true,
+						sensitivity: "base",
+					}) ||
+					left.profileId.localeCompare(right.profileId)
+			)
 			.map((profile) => {
-				const directoryReadiness =
-					"readiness" in profile ? profile.readiness : null;
-				const readiness =
-					readinessByProfileId.get(profile.profileId) ?? directoryReadiness;
-				const lightweightAgentControllerRef =
-					"agentControllerRef" in profile ? profile.agentControllerRef : null;
+				const readiness = "readiness" in profile ? profile.readiness : null;
 				const agentControllerRef =
-					lightweightAgentControllerRef ??
-					readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
-					readiness?.publicProfileConfiguration?.agentControllerRef ??
-					readiness?.agentControllerRef ??
-					null;
+					"agentControllerRef" in profile
+						? profile.agentControllerRef
+						: (readiness?.primaryBinding?.executionTarget?.agentControllerRef ??
+							readiness?.publicProfileConfiguration?.agentControllerRef ??
+							readiness?.agentControllerRef ??
+							null);
 				return {
 					agentControllerRef,
 					avatarImageUrl: profile.avatarUrl ?? null,
 					id: profile.profileId,
 					modelSelection:
-						readiness?.primaryBinding?.modelSelection ??
-						readiness?.publicProfileConfiguration?.modelSelection ??
-						null,
-					modelSelectionIsKnown: readiness !== null,
+						"agentControllerRef" in profile
+							? (profile.modelSelection ?? null)
+							: (readiness?.primaryBinding?.modelSelection ??
+								readiness?.publicProfileConfiguration?.modelSelection ??
+								null),
+					modelSelectionIsKnown:
+						"agentControllerRef" in profile
+							? profile.modelSelection !== undefined
+							: readiness !== null,
 					name: profile.profileName,
 					path: personId
 						? buildOrganizationPersonAgentPath({
@@ -430,61 +455,6 @@ export function buildDirectoryAgentProfilesByOwner(input: {
 		profilesByOwner.set(ownerUserId, profiles);
 	}
 	return profilesByOwner;
-}
-
-function compareAgentProfileSourceRecency(
-	left: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt"> & {
-		profileId: string;
-		profileName: string;
-	},
-	right: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt"> & {
-		profileId: string;
-		profileName: string;
-	}
-): number {
-	const leftActivityAt = resolveAgentProfileActivityTime(left);
-	const rightActivityAt = resolveAgentProfileActivityTime(right);
-	const recencyComparison = rightActivityAt - leftActivityAt;
-	if (recencyComparison !== 0) {
-		return recencyComparison;
-	}
-	const nameComparison = left.profileName.localeCompare(
-		right.profileName,
-		"en",
-		{
-			numeric: true,
-			sensitivity: "base",
-		}
-	);
-	return nameComparison === 0
-		? left.profileId.localeCompare(right.profileId)
-		: nameComparison;
-}
-
-function resolveAgentProfileActivityTime(
-	profile: Pick<DirectoryAgentProfileSource, "createdAt" | "lastUsedAt">
-): number {
-	return Math.max(
-		...[profile.createdAt, profile.lastUsedAt]
-			.filter((value): value is string => Boolean(value))
-			.map((value) => Date.parse(value))
-			.filter((value) => !Number.isNaN(value)),
-		0
-	);
-}
-
-function sortAgentProfileSummaries(
-	profiles: DirectoryAgentProfileSummary[]
-): DirectoryAgentProfileSummary[] {
-	return profiles.sort((left, right) => {
-		const nameComparison = left.name.localeCompare(right.name, "en", {
-			numeric: true,
-			sensitivity: "base",
-		});
-		return nameComparison === 0
-			? left.id.localeCompare(right.id)
-			: nameComparison;
-	});
 }
 
 function resolveAgentProfilesPath(input: {

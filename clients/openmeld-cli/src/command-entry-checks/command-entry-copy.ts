@@ -307,6 +307,21 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "listing Organization Skills",
     profileAction: null,
   },
+  "plugins.list": {
+    ...DEFAULT_COPY,
+    signInAction: "listing available plugin accounts",
+    profileAction: null,
+  },
+  "plugins.actions": {
+    ...DEFAULT_COPY,
+    signInAction: "discovering plugin actions",
+    profileAction: null,
+  },
+  "plugins.call": {
+    ...DEFAULT_COPY,
+    signInAction: "running a plugin action",
+    profileAction: null,
+  },
   "skills.show": {
     ...DEFAULT_COPY,
     signInAction: "reading an Organization Skill",

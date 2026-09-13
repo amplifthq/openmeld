@@ -120,6 +120,7 @@ import {
 } from "../routing/resolve-controller-support";
 import { createLedgerIo } from "../state/ledger-io";
 import {
+  attachAgentReplyObservation,
   coordinateDispatchAgentReply,
   type DispatchAgentReplyObservation,
   readDispatchAgentReplyObservation,
@@ -2529,6 +2530,7 @@ function buildDispatchRuntimePrompt(input: {
   shouldInjectBootstrap: boolean;
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
+    callerContext: input.parsedTask.callerContext,
     shouldInjectBootstrap: input.shouldInjectBootstrap,
     shouldInjectCenterAgentRoleTemplate:
       input.parsedTask.targetProfileIsCenterAgent,
@@ -3600,10 +3602,36 @@ async function coordinateConcurrentAgentReply(input: {
       });
     }
   };
-  const observation = await readObservation(
-    normalizeOptionalText(input.agentReplyObservationCursor) ??
-      input.parsedTask.sourceEventId
-  );
+  let observation: DispatchAgentReplyObservation;
+  try {
+    observation = await readObservation(
+      normalizeOptionalText(input.agentReplyObservationCursor) ??
+        input.parsedTask.sourceEventId
+    );
+  } catch (error) {
+    if (input.agentReplyObservationCursor) {
+      throw error;
+    }
+    // Preserve the first proposal using only the context actually delivered
+    // with the Wake. Space's atomic publication guard still checks this cursor
+    // after durable replay and can require review before publishing anything.
+    const action = attachAgentReplyObservation({
+      action: input.resolvedSpaceAction,
+      observedThroughSignalId: input.parsedTask.sourceEventId,
+    });
+    return {
+      resolvedSpaceAction: action,
+      resolvedSpaceActionProvenance: input.resolvedSpaceActionProvenance,
+      runtimeResult: applyStructuredSpaceActionResolutionToRuntimePayload({
+        resolution: {
+          action,
+          parseError: null,
+          spaceActionProvenance: input.resolvedSpaceActionProvenance,
+        },
+        runtimeResult: input.runtimeResult,
+      }),
+    };
+  }
 
   const coordinated = await coordinateDispatchAgentReply({
     action: input.resolvedSpaceAction,

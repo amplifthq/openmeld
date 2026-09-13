@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { OpenMeldToolsUpdateRequestSource } from "@openmeld/schemas/types";
 import { sleep, toErrorMessage } from "@openmeld/utils";
+import { hasPendingComputerSetupContinuation } from "../../config/auth-session";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import { hasIndependentMaintenanceRegistration } from "../../config/daemon-service-update-worker-registration";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
@@ -163,11 +164,13 @@ async function reschedulePendingDaemonServiceUpdate(input: {
   pending: DaemonServiceUpdateJob;
   request: ScheduleDaemonServiceUpdateInput;
 }): Promise<ScheduleDaemonServiceUpdateResult> {
-  const replaceTarget = isNewerTargetVersion(
-    input.request.targetVersion,
-    input.pending.targetVersion
-  );
+  const replaceTarget =
+    isNewerTargetVersion(
+      input.request.targetVersion,
+      input.pending.targetVersion
+    ) && input.pending.phase !== "updated";
   const escalateUrgency =
+    input.pending.phase !== "updated" &&
     input.request.urgency === "required" &&
     input.pending.urgency === "available";
   const retained: DaemonServiceUpdateJob =
@@ -238,6 +241,9 @@ export async function runPendingDaemonServiceUpdate(
   if (!pending) {
     return null;
   }
+  if (pending.phase === "updated") {
+    return pending;
+  }
   if (pending.urgency === "available") {
     try {
       await deps.waitUntilSafeToSwitch(pending);
@@ -267,6 +273,9 @@ async function preparePendingUpdateForSwitch(
   const pending = await deps.readPendingJob();
   if (!pending) {
     return null;
+  }
+  if (pending.phase === "updated") {
+    return pending;
   }
   if (pending.urgency === "available") {
     const waiting: DaemonServiceUpdateJob = {
@@ -317,6 +326,9 @@ async function runPreparedPendingUpdate(
   const pending = await deps.readPendingJob();
   if (!pending) {
     return null;
+  }
+  if (pending.phase === "updated") {
+    return pending;
   }
 
   const running: DaemonServiceUpdateJob = {
@@ -391,17 +403,28 @@ function resolveWorkerInstallation(useDefaultLock: boolean) {
   if (!useDefaultLock) {
     return { install: installDaemonServiceUpdateWorker, prepare: noOperation };
   }
+  if (process.env.OPENMELD_INTERNAL_MAINTENANCE_WORKER === "1") {
+    // A maintenance child must not boot out its own OS-owned parent before
+    // publishing the job. That worker already owns this update operation.
+    return {
+      install: async (job: DaemonServiceUpdateJob) => {
+        if (!(await hasIndependentMaintenanceRegistration())) {
+          await registerDaemonServiceUpdateWorker(job);
+        }
+      },
+      prepare: async (job: DaemonServiceUpdateJob) => {
+        if (!(await hasIndependentMaintenanceRegistration())) {
+          await prepareDaemonServiceUpdateWorkerCarrier(job);
+        }
+      },
+    };
+  }
   return {
-    install: async (job: DaemonServiceUpdateJob) => {
-      if (!(await hasIndependentMaintenanceRegistration())) {
-        await registerDaemonServiceUpdateWorker(job);
-      }
-    },
-    prepare: async (job: DaemonServiceUpdateJob) => {
-      if (!(await hasIndependentMaintenanceRegistration())) {
-        await prepareDaemonServiceUpdateWorkerCarrier(job);
-      }
-    },
+    // No Service update has been published yet. Refresh the executor from the
+    // verified CLI artifact before accepting work that relies on its contract.
+    // A pre-existing definition is not proof that its process runs this code.
+    install: registerDaemonServiceUpdateWorker,
+    prepare: prepareDaemonServiceUpdateWorkerCarrier,
   };
 }
 
@@ -445,7 +468,14 @@ function resolveRunDependencies(
 ): RunPendingDaemonServiceUpdateDependencies {
   return {
     completePendingJob:
-      overrides.completePendingJob ?? completePendingDaemonServiceUpdate,
+      overrides.completePendingJob ??
+      (async (job) =>
+        await completePendingDaemonServiceUpdate(
+          job,
+          {},
+          job.phase === "updated" &&
+            (await hasPendingComputerSetupContinuation())
+        )),
     now: overrides.now ?? (() => new Date().toISOString()),
     persistPendingJob:
       overrides.persistPendingJob ?? persistPendingDaemonServiceUpdate,

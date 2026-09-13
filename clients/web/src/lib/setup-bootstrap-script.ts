@@ -731,13 +731,15 @@ maybe_update_old_global_openmeld_cli_for_binary_setup() {
   say "OpenMeld found an older global CLI: v$OPENMELD_SETUP_GLOBAL_VERSION."
   say "Updating it to v$OPENMELD_SETUP_BINARY_VERSION so openmeld uses the same version in this Terminal..."
   if ! run_package_command npm install -g "$OPENMELD_SETUP_BINARY_PACKAGE_SPEC"; then
-    die "OpenMeld could not update the older global CLI before setup. Fix the npm error above, then run this setup command again."
+    say "The older npm installation could not be updated. Setup will continue with the new OpenMeld binary. Use the commands shown below in this Terminal."
+    return 0
   fi
 
   hash -r 2>/dev/null || true
   OPENMELD_SETUP_UPDATED_COMMAND_VERSION="$(read_user_facing_openmeld_version || true)"
   if [ "$OPENMELD_SETUP_UPDATED_COMMAND_VERSION" != "$OPENMELD_SETUP_BINARY_VERSION" ]; then
-    die "OpenMeld updated the global package, but openmeld still reports v\${OPENMELD_SETUP_UPDATED_COMMAND_VERSION:-unknown} instead of v$OPENMELD_SETUP_BINARY_VERSION. Open a new Terminal, then run this setup command again."
+    say "This Terminal still finds an older openmeld command. Setup will continue with the new OpenMeld binary. Use the commands shown below in this Terminal."
+    return 0
   fi
   OPENMELD_SETUP_GLOBAL_CLI_READY=1
 }

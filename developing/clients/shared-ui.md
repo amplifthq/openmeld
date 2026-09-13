@@ -34,6 +34,12 @@ This package owns UI mechanics and visual primitives only. It does not own
 product copy, business rules, readiness, Wake state, setup state, Space truth,
 or client routing.
 
+`SettingsDialogContent` is the shared presentational shell for Space settings
+and App settings: Fluid dialog behavior, a navigation slot, and independently
+scrolling content. The default keeps the Space dialog dimensions; the spacious
+variant scales width and height together for App settings. Navigation models,
+section selection, permissions, and URL state remain in the consuming client.
+
 Prefer existing Fluid components whenever the required primitive is available,
 including dropdowns, selects, and action menus. Do not reconstruct menus from
 generic Popover and Button components; reuse Fluid interaction behavior and the
@@ -42,12 +48,30 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
 
+`fluid/tooltip` adapts Fluid Functionalism's Base UI Tooltip registry. The
+existing `components/tooltip` import forwards to this single implementation;
+editor toolbars, sidebar controls, and former native-title hints all reuse it.
+Hover waits 500ms, including standalone instances and adjacent triggers.
+Keyboard focus remains immediate. Fluid shape, typography, spacing, and the
+shared fast spring apply globally; reduced motion keeps the fade without travel.
+Base UI owns placement, dismissal, and portal lifetime. Product code uses
+`TooltipHint` for a single renderable child or the compound slots for composition.
+Native iframe titles retain their accessibility meaning.
+
+`components/link-preview-card` owns compact link metadata presentation only:
+site, title, bounded description, and optional bounded image. It accepts
+validated data from its consumer and performs no metadata requests or Space
+authorization. Message-specific extraction, caching, and disclosure stay in Web.
+
 `fluid/dialog` adapts the official Fluid Functionalism Base UI Dialog registry
 (September 9, 2026). It owns the small/large/extra-large width ladder and elevated
 surface, while reusing `components/dialog` for portal, focus, dismissal, and CSS
 motion. It does not add a second state or animation engine. Reduced motion
 removes panel animation. Product settings compose the existing `SettingsNav`
 and `ScrollArea`; product sections and mutation rules remain Web-owned.
+Dialogs use the fixed level-2 surface (`#1e1e1e` in dark mode) with level-4
+shadow depth. Nested dialogs keep this same background rather than progressively
+brightening with their parent's surface. Child controls inherit level 2.
 
 ### Scroll ownership
 
@@ -61,6 +85,8 @@ across pointer modes, preserving focus and scroll position.
 Base UI owns overflow measurement. A 12px content mask appears only on edges
 with hidden content, without guessing the parent surface color. Vertical areas
 constrain intrinsic content width; horizontal areas keep intrinsic measurement.
+The mask's four `--fluid-fade-*` properties do not inherit: an edge change must
+not invalidate styles throughout a long transcript beneath the viewport.
 `viewportRef` and `viewportProps` target the actual scrolling element.
 
 Use `ScrollArea` for ordinary panes, directories, settings, card details,

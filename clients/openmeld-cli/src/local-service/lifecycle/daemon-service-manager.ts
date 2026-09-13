@@ -35,7 +35,7 @@ export type RunCommandResult = {
   stderr: string;
 };
 
-type RunCommandOptions = {
+export type RunCommandOptions = {
   args: string[];
   command: string;
   env?: NodeJS.ProcessEnv;
@@ -77,7 +77,7 @@ export type DaemonServiceJobDiagnostics = {
   lastExitCodeText: string | null;
   /** Numeric last exit code when the raw text is a plain integer. */
   lastExitCode: number | null;
-  /** launchd marker for a spawn held back by the OS (Background Task Management). */
+  /** launchd marker for deferred non-demand startup; not proof of permission denial. */
   pendedNondemandSpawn: string | null;
   /** Job is configured to auto-start and stay alive (keepalive + runatload). */
   keepaliveRunAtLoad: boolean;
@@ -221,6 +221,52 @@ const SYSTEMD_CONTROLLER: DaemonServiceController = "systemd";
 const LAUNCHD_CONTROLLER: DaemonServiceController = "launchd";
 const WINDOWS_CONTROLLER: DaemonServiceController = "windows-service";
 const DAEMON_SERVICE_RESTART_BACKOFF_SECONDS = 60;
+
+export async function startLaunchdService(input: {
+  serviceKey: string;
+  guiDomain: string;
+  plistPath: string;
+  run?: (options: RunCommandOptions) => Promise<RunCommandResult>;
+}): Promise<void> {
+  const run = input.run ?? runCommand;
+  const observed = await run({
+    command: "launchctl",
+    args: ["print", input.serviceKey],
+    throwOnError: false,
+  });
+  if (observed.exitCode !== 0 && !isLaunchdServiceMissing(observed)) {
+    throw buildServiceManagerProbeError("launchctl print", observed);
+  }
+  await run({
+    command: "launchctl",
+    args: ["enable", input.serviceKey],
+    throwOnError: true,
+  });
+  // A loaded job must not be bootstrapped again: launchd can report EIO for
+  // that case, which is not evidence that its registration needs replacing.
+  if (observed.exitCode !== 0) {
+    const bootstrap = await run({
+      command: "launchctl",
+      args: ["bootstrap", input.guiDomain, input.plistPath],
+      throwOnError: false,
+    });
+    if (
+      bootstrap.exitCode !== 0 &&
+      !LAUNCHD_ALREADY_PATTERN.test(bootstrap.stderr)
+    ) {
+      throw new Error(
+        `failed to start launchd service: ${bootstrap.stderr.trim() || bootstrap.stdout.trim()}`
+      );
+    }
+  }
+  // Registration/KeepAlive is not a demand start. Never use -k: an existing
+  // healthy instance must survive repeated setup/start requests.
+  await run({
+    command: "launchctl",
+    args: ["kickstart", input.serviceKey],
+    throwOnError: true,
+  });
+}
 
 async function runCommand(input: RunCommandOptions): Promise<RunCommandResult> {
   return await new Promise((resolve, reject) => {
@@ -654,7 +700,9 @@ export function isDaemonServiceJobNeverSpawned(
   );
 }
 
-export function isDaemonServiceBackgroundExecutionBlocked(
+// A pending spawn is evidence of deferred startup, not of a denied permission.
+// launchd also reports it when the GUI domain is in on-demand-only mode.
+export function isDaemonServiceJobSpawnPending(
   diagnostics: DaemonServiceJobDiagnostics
 ): boolean {
   return (
@@ -1102,28 +1150,10 @@ function buildLaunchdManager(
       });
     },
     start: async () => {
-      await runCommand({
-        command: "launchctl",
-        args: ["enable", launchdServiceKey],
-        throwOnError: false,
-      });
-      const bootstrap = await runCommand({
-        command: "launchctl",
-        args: ["bootstrap", guiDomain, plistPath],
-        throwOnError: false,
-      });
-      if (
-        bootstrap.exitCode !== 0 &&
-        !LAUNCHD_ALREADY_PATTERN.test(bootstrap.stderr)
-      ) {
-        throw new Error(
-          `failed to start launchd service: ${bootstrap.stderr.trim() || bootstrap.stdout.trim()}`
-        );
-      }
-      await runCommand({
-        command: "launchctl",
-        args: ["enable", launchdServiceKey],
-        throwOnError: false,
+      await startLaunchdService({
+        serviceKey: launchdServiceKey,
+        guiDomain,
+        plistPath,
       });
     },
     stop: async () => {

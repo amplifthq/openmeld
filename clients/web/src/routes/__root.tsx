@@ -20,6 +20,8 @@ import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { Toaster } from "#/components/ui/sonner";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
+import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
+import { FAVICON_32_URL, FAVICON_VERSION } from "#/lib/favicon";
 import {
 	summarizeApplicationError,
 	WEB_ERROR_BUILD,
@@ -42,7 +44,6 @@ const FONT_PRELOAD_LINKS = [
 	"/fonts/GeistPixel-Square.woff2",
 	"/fonts/GeistPixel-Line.woff2",
 ] as const;
-const FAVICON_VERSION = "20260705a";
 const DARK_THEME_COLOR = "#111110";
 const LIGHT_THEME_COLOR = "#ffffff";
 const THEME_STORAGE_KEY = "theme";
@@ -125,7 +126,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 					rel: "icon",
 					type: "image/png",
 					sizes: "32x32",
-					href: `/favicon-32x32.png?v=${FAVICON_VERSION}`,
+					href: FAVICON_32_URL,
 				},
 				{
 					rel: "icon",
@@ -177,6 +178,12 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 				<script
 					dangerouslySetInnerHTML={{
 						__html: SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT,
+					}}
+					suppressHydrationWarning
+				/>
+				<script
+					dangerouslySetInnerHTML={{
+						__html: TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT,
 					}}
 					suppressHydrationWarning
 				/>

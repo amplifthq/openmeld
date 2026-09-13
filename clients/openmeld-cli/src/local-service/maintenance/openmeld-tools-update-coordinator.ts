@@ -13,6 +13,11 @@ import {
 import { resolveServiceUpdateUrgency } from "../../command-entry-checks/service-update-urgency";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import { resolveOpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
+import {
+  buildDaemonServiceTargetSpec,
+  resolveDaemonServiceAlignmentDecision,
+} from "../lifecycle/daemon-service-alignment-target";
+import { inspectDaemonServiceInventory } from "../lifecycle/daemon-service-inventory";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
 import { startDaemonServiceUpdateWorker } from "../lifecycle/daemon-service-update-worker-manager";
 import {
@@ -37,6 +42,7 @@ type OpenMeldToolsUpdateCoordinatorDependencies = {
   assessUpdate: (input: {
     forceRefresh: boolean;
   }) => Promise<CliUpdateAssessment>;
+  serviceNeedsAlignment: (version: string) => Promise<boolean>;
   completeAttempt: (attempt: OpenMeldToolsUpdateAttempt) => Promise<void>;
   createOperationId: () => string;
   discardPendingAttempt: () => Promise<void>;
@@ -152,7 +158,12 @@ export function createOpenMeldToolsUpdateCoordinator(
     if (!(assessment.checked && assessment.latestVersion)) {
       return { status: "unavailable" };
     }
-    if (!assessment.updateAvailable) {
+    if (
+      !(
+        assessment.updateAvailable ||
+        (await deps.serviceNeedsAlignment(assessment.currentVersion))
+      )
+    ) {
       return {
         currentVersion: assessment.currentVersion,
         status: "current",
@@ -169,7 +180,9 @@ export function createOpenMeldToolsUpdateCoordinator(
         phase: "updating",
         requestSource,
         requestedAt: now,
-        targetVersion: assessment.latestVersion,
+        targetVersion: assessment.updateAvailable
+          ? assessment.latestVersion
+          : assessment.currentVersion,
         updatedAt: now,
         urgency: assessment.floorBreached
           ? "required"
@@ -267,6 +280,23 @@ function resolveDependencies(
         })),
     completeAttempt:
       overrides.completeAttempt ?? completeOpenMeldToolsUpdateAttempt,
+    serviceNeedsAlignment:
+      overrides.serviceNeedsAlignment ??
+      (async (daemonVersion) => {
+        const inventory = await inspectDaemonServiceInventory({
+          expectedVersion: daemonVersion,
+          intendedMode: "background",
+          intent: "upgrade_reconcile",
+        });
+        const decision = resolveDaemonServiceAlignmentDecision({
+          inventory,
+          target: buildDaemonServiceTargetSpec({ daemonVersion }),
+        });
+        return (
+          decision.status !== "already_aligned" &&
+          decision.status !== "not_installed"
+        );
+      }),
     createOperationId: overrides.createOperationId ?? randomUUID,
     discardPendingAttempt:
       overrides.discardPendingAttempt ??

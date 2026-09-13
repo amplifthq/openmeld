@@ -1,5 +1,5 @@
+import { digestCanonicalJson } from "@openmeld/utils";
 import type { RemoteAgentStorage } from "./callback-context";
-import { digestCanonicalJson } from "./canonical-json";
 
 const REMOTE_AGENT_TOOL_PROGRESS_PREFIX =
   "openmeld:remote-agent:tool-progress:";

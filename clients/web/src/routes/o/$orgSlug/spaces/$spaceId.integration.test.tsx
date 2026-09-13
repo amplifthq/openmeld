@@ -719,7 +719,7 @@ describe("app space entry route", () => {
 		expect(spaceLandingMock).not.toHaveBeenCalled();
 	});
 
-	it("moves a public-only profile view to the public route without losing its message target", async () => {
+	it("keeps an allowed public view in the App with its message target", async () => {
 		resolveSpaceEntryMock.mockResolvedValue({
 			participation: { state: "self_join_available" },
 			recovery: null,
@@ -744,21 +744,18 @@ describe("app space entry route", () => {
 			spaceId: "space-public",
 		});
 
-		await waitFor(() => {
-			expect(navigateMock).toHaveBeenCalledWith({
-				params: { spaceId: "space-public" },
-				replace: true,
-				search: {
-					signalId: "signal-123",
-					threadRootSignalId: "thread-root-123",
-				},
-				to: "/spaces/$spaceId",
-			});
-		});
-		expect(spaceLandingMock).not.toHaveBeenCalled();
+		await waitFor(() => expect(spaceLandingMock).toHaveBeenCalled());
+		expect(spaceLandingMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				initialFocusSignalId: "signal-123",
+				initialFocusThreadRootSignalId: "thread-root-123",
+			}),
+			undefined
+		);
+		expect(navigateMock).not.toHaveBeenCalled();
 	});
 
-	it("redirects to the public Space viewer when profileId is not in the current account", async () => {
+	it("replaces a foreign profile with the current Human inside the App", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "current-human",
@@ -775,9 +772,10 @@ describe("app space entry route", () => {
 
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
-				params: { spaceId: "space-123" },
+				params: { orgSlug: "acme", spaceId: "space-123" },
 				replace: true,
-				to: "/spaces/$spaceId",
+				search: { profileId: "current-human" },
+				to: "/o/$orgSlug/spaces/$spaceId",
 			});
 		});
 		expect(
@@ -786,7 +784,7 @@ describe("app space entry route", () => {
 			})
 		).toBeNull();
 		expect(spaceLandingMock).not.toHaveBeenCalled();
-		expect(appSpaceShellMock).not.toHaveBeenCalled();
+		expect(appSpaceShellMock).toHaveBeenCalled();
 	});
 });
 

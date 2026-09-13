@@ -137,12 +137,16 @@ describe("local service start decision", () => {
 
   it("passes through failed_with_card when start already handled the failure UI", async () => {
     selectMock.mockResolvedValueOnce("start");
+    const failure = {
+      outcome: "failed_with_card",
+      errorMessage: "launchd job: state=not running, runs=0",
+    };
 
     const result = await runDaemonStartDecisionPrompt({
-      startService: vi.fn().mockResolvedValue("failed_with_card"),
+      startService: vi.fn().mockResolvedValue(failure),
     });
 
-    expect(result).toBe("failed_with_card");
+    expect(result).toEqual(failure);
   });
 
   it("passes through deferred_with_card when cleanup guidance already handled the UI", async () => {

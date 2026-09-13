@@ -1,10 +1,17 @@
-import { openCodePermissionConfigSchema } from "@openmeld/schemas";
-import type { OpenCodePermissionConfig } from "@openmeld/schemas/types";
+import {
+  agentProfileBindingModelSelectionSchema,
+  openCodePermissionConfigSchema,
+} from "@openmeld/schemas";
+import type {
+  AgentProfileBindingModelSelection,
+  OpenCodePermissionConfig,
+} from "@openmeld/schemas/types";
 import {
   type AgentActivitySessionResumeEligibility,
   buildAgentActivitySessionResumeEligibilityQuery,
   canResumeAgentActivitySessionSelection,
 } from "../../../agent-activity/activity-session-inventory-repository";
+import type { D1ReadBatch } from "../../../lib/d1-read-batch";
 import type {
   AgentProfileBindingAgentControllerCollaborationModePatch,
   AgentProfileBindingAgentControllerPermissionModePatch,
@@ -872,8 +879,9 @@ export async function readPrimaryAgentProfileBindingRecord(input: {
   agentProfileId: string;
   db: D1Database;
   owner: AgentProfileBindingOwner;
+  readBatch?: D1ReadBatch;
 }): Promise<AgentProfileBindingRecord | null> {
-  const row = await input.db
+  const statement = input.db
     .prepare(
       `
         SELECT
@@ -906,16 +914,24 @@ export async function readPrimaryAgentProfileBindingRecord(input: {
         LIMIT 1
       `
     )
-    .bind(input.owner.kind, input.owner.id, input.agentProfileId)
-    .first<AgentProfileBindingRow>();
+    .bind(input.owner.kind, input.owner.id, input.agentProfileId);
+  const row = input.readBatch
+    ? await input.readBatch.first<AgentProfileBindingRow>(input.db, statement)
+    : await statement.first<AgentProfileBindingRow>();
 
   return row ? mapAgentProfileBindingRow(row) : null;
 }
 
-const PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE = 49;
+// Two parameters per exact Profile/owner pair stay below D1's 100-parameter cap.
+const PRIMARY_AGENT_PROFILE_CONFIGURATION_LIST_BATCH_SIZE = 49;
 
-/** Public branding only. Callers must first authorize the exact Profile/owner pairs. */
-export async function listPrimaryAgentProfileControllerRefs(input: {
+type PrimaryAgentProfileConfiguration = {
+  agentControllerRef: string;
+  modelSelection?: AgentProfileBindingModelSelection | null;
+};
+
+/** Member-visible configuration only. Authorize exact Profile/owner pairs first. */
+export async function listPrimaryAgentProfileConfigurations(input: {
   profiles: readonly {
     profileId: string;
     ownerUserId: string | null;
@@ -923,56 +939,100 @@ export async function listPrimaryAgentProfileControllerRefs(input: {
     managedRole?: string | null;
   }[];
   db: D1Database;
-}): Promise<ReadonlyMap<string, string>> {
+  includeModelSelection?: boolean;
+}): Promise<ReadonlyMap<string, PrimaryAgentProfileConfiguration>> {
   const profiles = [
     ...new Map(
       input.profiles.map((profile) => [profile.profileId, profile])
     ).values(),
   ];
-  const refs = new Map<string, string>();
+  const configurations = new Map<string, PrimaryAgentProfileConfiguration>();
   for (
     let start = 0;
     start < profiles.length;
-    start += PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE
+    start += PRIMARY_AGENT_PROFILE_CONFIGURATION_LIST_BATCH_SIZE
   ) {
     const batch = profiles.slice(
       start,
-      start + PRIMARY_AGENT_PROFILE_CONTROLLER_LIST_BATCH_SIZE
+      start + PRIMARY_AGENT_PROFILE_CONFIGURATION_LIST_BATCH_SIZE
     );
-    const selectors = batch
-      .map(() => "(agent_profile_id = ? AND owner_kind = ? AND owner_id = ?)")
-      .join(" OR ");
+    const selectors = batch.map((profile) => {
+      if (
+        profile.managedRole === "center_agent" &&
+        !profile.ownerUserId &&
+        profile.organizationId
+      ) {
+        return {
+          predicate:
+            "(agent_profile_id = ? AND owner_kind = 'organization' AND owner_id = ?)",
+          params: [profile.profileId, profile.organizationId],
+        };
+      }
+      if (!profile.ownerUserId) {
+        throw new Error("Agent Profile owner is missing");
+      }
+      return {
+        predicate:
+          "(agent_profile_id = ? AND owner_kind = 'owner_account' AND owner_id = ?)",
+        params: [profile.profileId, profile.ownerUserId],
+      };
+    });
     const result = await input.db
       .prepare(
         `
-          SELECT agent_profile_id, agent_controller_ref
+          SELECT agent_profile_id, agent_controller_ref${input.includeModelSelection ? ", model_id, reasoning_level" : ""}
           FROM openMeldDaemon_agent_profile_bindings
-          WHERE (${selectors})
+          WHERE (${selectors.map((selector) => selector.predicate).join(" OR ")})
             AND binding_state = 'enabled_primary'
           ORDER BY agent_profile_id ASC, binding_id ASC
         `
       )
-      .bind(
-        ...batch.flatMap((profile) => {
-          if (
-            profile.managedRole === "center_agent" &&
-            !profile.ownerUserId &&
-            profile.organizationId
-          ) {
-            return [profile.profileId, "organization", profile.organizationId];
-          }
-          if (!profile.ownerUserId) {
-            throw new Error("Agent Profile owner is missing");
-          }
-          return [profile.profileId, "owner_account", profile.ownerUserId];
-        })
-      )
-      .all<{ agent_profile_id: string; agent_controller_ref: string }>();
-    for (const row of result.results ?? []) {
-      refs.set(row.agent_profile_id, row.agent_controller_ref);
+      .bind(...selectors.flatMap((selector) => selector.params))
+      .all<{
+        agent_profile_id: string;
+        agent_controller_ref: string;
+        model_id?: string | null;
+        reasoning_level?: string | null;
+      }>();
+    if (!(result.success && Array.isArray(result.results))) {
+      throw new Error("Incomplete primary Binding configuration result.");
+    }
+    for (const row of result.results) {
+      const configuration: PrimaryAgentProfileConfiguration = {
+        agentControllerRef: row.agent_controller_ref,
+      };
+      if (input.includeModelSelection) {
+        configuration.modelSelection = readPrimaryBindingModelSelection(row);
+      }
+      configurations.set(row.agent_profile_id, configuration);
     }
   }
-  return refs;
+  return configurations;
+}
+
+function readPrimaryBindingModelSelection(row: {
+  model_id?: string | null;
+  reasoning_level?: string | null;
+}): AgentProfileBindingModelSelection | null {
+  if (
+    !(Object.hasOwn(row, "model_id") && Object.hasOwn(row, "reasoning_level"))
+  ) {
+    throw new Error("Incomplete primary Binding model selection.");
+  }
+  const parsed = agentProfileBindingModelSelectionSchema.nullable().safeParse(
+    row.model_id
+      ? {
+          modelId: row.model_id,
+          ...(row.reasoning_level
+            ? { reasoningLevel: row.reasoning_level }
+            : {}),
+        }
+      : null
+  );
+  if (!parsed.success) {
+    throw new Error("Invalid primary Binding model selection.");
+  }
+  return parsed.data;
 }
 
 export async function listEnabledPrimaryAgentProfileBindingRecordsForProfile(input: {
@@ -1182,6 +1242,7 @@ export async function readPrimaryAgentProfileBindingRecordByControllerConversati
   db: D1Database;
   excludeAgentProfileId?: string | null;
   owner: AgentProfileBindingOwner;
+  readBatch?: D1ReadBatch;
 }): Promise<AgentProfileBindingRecord | null> {
   const agentControllerConversationId = normalizeNullableText(
     input.agentControllerConversationId
@@ -1190,7 +1251,7 @@ export async function readPrimaryAgentProfileBindingRecordByControllerConversati
     return null;
   }
 
-  const row = await input.db
+  const statement = input.db
     .prepare(
       `
         SELECT
@@ -1232,8 +1293,10 @@ export async function readPrimaryAgentProfileBindingRecordByControllerConversati
       input.agentControllerRef,
       agentControllerConversationId,
       input.excludeAgentProfileId ?? ""
-    )
-    .first<AgentProfileBindingRow>();
+    );
+  const row = input.readBatch
+    ? await input.readBatch.first<AgentProfileBindingRow>(input.db, statement)
+    : await statement.first<AgentProfileBindingRow>();
 
   return row ? mapAgentProfileBindingRow(row) : null;
 }

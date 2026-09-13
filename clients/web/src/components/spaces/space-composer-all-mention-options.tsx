@@ -47,13 +47,12 @@ export function SpaceComposerAllMentionOptions({
 			>
 				<UsersIcon className="mr-2" />
 				<span className="flex-1 font-medium">@all</span>
-				<span className="text-muted-foreground text-xs">Choose who</span>
 			</InlineComboboxItem>
 		);
 	}
 	return (
 		<InlineComboboxGroup>
-			<InlineComboboxGroupLabel>@all · Choose who</InlineComboboxGroupLabel>
+			<InlineComboboxGroupLabel>@all</InlineComboboxGroupLabel>
 			{AUDIENCES.map(({ label, action, value }) => {
 				const mentions = buildSpaceAudienceMentions({
 					audience: value,

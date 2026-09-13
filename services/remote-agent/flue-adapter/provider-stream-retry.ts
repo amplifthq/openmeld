@@ -14,6 +14,14 @@ type ForwardedAttempt =
   | { kind: "completed_empty"; attempt: CompletedEmptyAttempt }
   | { kind: "forwarded" };
 
+export type ProviderAttemptCompletion = {
+  attemptNo: 1 | 2;
+  durationMs: number;
+  event: Extract<AssistantMessageEvent, { type: "done" | "error" }>;
+};
+
+type CompletionObserver = (completion: ProviderAttemptCompletion) => void;
+
 /**
  * Retries once only when a complete provider event stream proves that the model
  * produced no observable content or tool action. Any intermediate event is
@@ -22,8 +30,10 @@ type ForwardedAttempt =
 export function retryCompletedEmptyAssistantStreamOnce(input: {
   createAttempt: () => AssistantMessageEventStream;
   onRetry?: () => void;
+  onCompletion?: CompletionObserver;
   signal?: AbortSignal;
 }): AssistantMessageEventStream {
+  const startedAtMs = Date.now();
   const firstAttempt = input.createAttempt();
   const output = createAssistantMessageEventStream();
   // biome-ignore lint/complexity/noVoid: Provider failures arrive as terminal events on the returned stream; this task only pumps events into it.
@@ -31,6 +41,7 @@ export function retryCompletedEmptyAssistantStreamOnce(input: {
     ...input,
     firstAttempt,
     output,
+    startedAtMs,
   });
   return output;
 }
@@ -39,11 +50,16 @@ async function forwardCompletedEmptyAssistantRetry(input: {
   createAttempt: () => AssistantMessageEventStream;
   firstAttempt: AssistantMessageEventStream;
   onRetry?: () => void;
+  onCompletion?: CompletionObserver;
   output: AssistantMessageEventStream;
   signal?: AbortSignal;
+  startedAtMs: number;
 }): Promise<void> {
   const first = await forwardProviderAttempt({
     allowCompletedEmptyRetry: true,
+    attemptNo: 1,
+    onCompletion: input.onCompletion,
+    startedAtMs: input.startedAtMs,
     output: input.output,
     stream: input.firstAttempt,
   });
@@ -57,8 +73,12 @@ async function forwardCompletedEmptyAssistantRetry(input: {
     return;
   }
   input.onRetry?.();
+  const startedAtMs = Date.now();
   await forwardProviderAttempt({
     allowCompletedEmptyRetry: false,
+    attemptNo: 2,
+    onCompletion: input.onCompletion,
+    startedAtMs,
     discardedUsage: first.attempt.message.usage,
     output: input.output,
     stream: input.createAttempt(),
@@ -67,6 +87,9 @@ async function forwardCompletedEmptyAssistantRetry(input: {
 
 async function forwardProviderAttempt(input: {
   allowCompletedEmptyRetry: boolean;
+  attemptNo: 1 | 2;
+  onCompletion?: CompletionObserver;
+  startedAtMs: number;
   discardedUsage?: AssistantMessage["usage"];
   output: AssistantMessageEventStream;
   stream: AssistantMessageEventStream;
@@ -75,6 +98,15 @@ async function forwardProviderAttempt(input: {
   let eventCount = 0;
   for await (const sourceEvent of input.stream) {
     eventCount += 1;
+    // Observe the source terminal event before retry suppression or usage merging.
+    // Reporting cannot prevent a reply or turn a success into a Wake failure.
+    if (sourceEvent.type === "done" || sourceEvent.type === "error") {
+      observeCompletion(input.onCompletion, {
+        attemptNo: input.attemptNo,
+        durationMs: Math.max(0, Date.now() - input.startedAtMs),
+        event: sourceEvent,
+      });
+    }
     if (
       input.allowCompletedEmptyRetry &&
       eventCount === 1 &&
@@ -113,6 +145,17 @@ async function forwardProviderAttempt(input: {
     input.output.push(bufferedStart);
   }
   return { kind: "forwarded" };
+}
+
+function observeCompletion(
+  observer: CompletionObserver | undefined,
+  completion: ProviderAttemptCompletion
+): void {
+  try {
+    observer?.(completion);
+  } catch {
+    console.error("[remote_agent.provider.completion_observation_failed]");
+  }
 }
 
 function isProvablyCompletedEmptyAssistantEvent(

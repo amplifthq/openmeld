@@ -4,11 +4,14 @@ export default defineWorkersConfig({
   test: {
     exclude: ["tests/local-smoke/**/*.test.ts"],
     include: ["tests/**/*.test.ts"],
-    // Each test file uses a Workers runtime. Keep the root test lane from
-    // exhausting loopback sockets while other packages test in parallel.
-    maxWorkers: 4,
+    unstubGlobals: true,
+    unstubEnvs: true,
     poolOptions: {
       workers: {
+        // This Workers pool starts a runtime per file despite Vitest's worker
+        // limits. Share one runtime and module cache to bound loopback imports;
+        // isolated storage remains enabled between tests.
+        singleWorker: true,
         wrangler: {
           configPath: "./wrangler.test.jsonc",
         },

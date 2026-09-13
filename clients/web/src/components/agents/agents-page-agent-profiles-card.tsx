@@ -51,6 +51,7 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import {
@@ -2765,30 +2766,33 @@ function AgentProfileFooterAvailabilityBadge(input: {
 		input.nowMs
 	);
 	const statusText = (
-		<span
-			className={cn(
-				"block min-w-0 truncate font-medium text-xs",
-				input.className
-			)}
-			data-availability-action={input.availabilityAction ?? undefined}
-			data-availability-phase={input.availabilityPhase ?? undefined}
-			data-availability-reason-code={input.availabilityReasonCode ?? undefined}
-			data-testid="agent-profile-row-availability-badge"
-			title={input.tooltip}
-		>
-			{input.label}
-			{checkedAt ? ` · ${checkedAt}` : ""}
-			{input.isRefreshing ? (
-				<span className="text-muted-foreground"> · Refreshing…</span>
-			) : null}
-			{input.errorMessage ? (
-				<span className="text-muted-foreground" role="alert">
-					{" · "}
-					Couldn’t refresh availability.
-					<span className="sr-only"> {input.errorMessage}</span>
-				</span>
-			) : null}
-		</span>
+		<TooltipHint content={input.tooltip}>
+			<span
+				className={cn(
+					"block min-w-0 truncate font-medium text-xs",
+					input.className
+				)}
+				data-availability-action={input.availabilityAction ?? undefined}
+				data-availability-phase={input.availabilityPhase ?? undefined}
+				data-availability-reason-code={
+					input.availabilityReasonCode ?? undefined
+				}
+				data-testid="agent-profile-row-availability-badge"
+			>
+				{input.label}
+				{checkedAt ? ` · ${checkedAt}` : ""}
+				{input.isRefreshing ? (
+					<span className="text-muted-foreground"> · Refreshing…</span>
+				) : null}
+				{input.errorMessage ? (
+					<span className="text-muted-foreground" role="alert">
+						{" · "}
+						Couldn’t refresh availability.
+						<span className="sr-only"> {input.errorMessage}</span>
+					</span>
+				) : null}
+			</span>
+		</TooltipHint>
 	);
 
 	return (
@@ -3756,6 +3760,7 @@ function AgentProfileWorkspacePresentation(input: {
 					)
 				}
 				controllerModelSummary={controllerModelSummary}
+				conversationViewerProfileId={input.input.actorProfileId}
 				currentSession={input.currentSession}
 				details={input.input.details}
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}

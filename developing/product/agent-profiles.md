@@ -180,7 +180,7 @@ Inbox hides this source consistently in lists, counts, and email eligibility;
 new approval notifications are not projected.
 
 Self-owned Local and Remote Agent creation, progress, cancellation, and recovery
-remain available. Web calls that progress surface **Agent setup**, not a
+remain available. Web calls that progress surface **Agent creation history**, not a
 teammate request product. Organization-owned Center Agent creation and lifecycle
 are outside this hold. Agent actors representing a verified member remain able
 to create for that same represented member.
@@ -828,11 +828,21 @@ the current local-agent catalog, model catalog, permission options, and Project
 list; otherwise it discards the stale draft and uses current defaults. A restored
 new-session draft uses Let OpenMeld choose because the stored Project id cannot
 confirm a current local connection. A
-successful creation clears the journey draft. Restoring or abandoning this
+successful creation retains these latest selections for the next creation, just
+as leaving without creating does. Restore the validated draft once into the
+editable form state; edits must not remove the selected Agent or collapse its
+settings. Restoring or abandoning this
 browser draft never writes or replaces the Core-owned remembered creation
 defaults. Once the member changes the selected local Agent or execution target,
 that direct choice ends draft restoration for the current open creation flow;
 later renders must not restore an older choice over the member's input.
+
+The creation history uses the shared Fluid table used by Invitation records.
+It shows the Agent, creation result, and recovery actions without implying that
+self-owned creation needs approval. Transport envelopes remain diagnostic
+evidence, not the primary error text. With a usable computer, creation offers no
+connect-another-computer action; a computer selector appears only when multiple
+eligible computers are available. Missing connections retain inline setup.
 
 The Center Agent can read every saved controller-specific row for the
 represented member before creating a local Agent Profile. These values are

@@ -97,6 +97,15 @@ export function useProjectDiscovery(input: {
 		: resolveProjectControlSelection(localRuntimesQuery.data);
 	const computer = selection?.computer ?? null;
 	const target = selection?.target ?? null;
+	const selectedSession = localRuntimesQuery.data?.peopleComputers.computers
+		.find(
+			(entry) => target && peopleComputerContainsDevice(entry, target.deviceId)
+		)
+		?.connection.sessions.find(
+			(entry) =>
+				entry.deviceId === target?.deviceId &&
+				entry.runtimeLane === target?.runtimeLane
+		);
 	const serviceState = input.target
 		? resolveExplicitProjectControlServiceState({
 				target: input.target,
@@ -233,6 +242,10 @@ export function useProjectDiscovery(input: {
 				: null,
 		serviceState,
 		target,
+		folderPickerTarget:
+			selectedSession?.controls?.localFolderPicker?.selectFolders === true
+				? target
+				: null,
 	};
 }
 

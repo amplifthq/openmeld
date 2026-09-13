@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
+          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --prod --ignore-scripts
 
       - name: Install merge-group dependencies without repository scripts
         env:

@@ -1,6 +1,15 @@
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
+import {
+	MorphingDialog,
+	MorphingDialogClose,
+	MorphingDialogContainer,
+	MorphingDialogContent,
+	MorphingDialogSubtitle,
+	MorphingDialogTitle,
+	MorphingDialogTrigger,
+} from "@openmeld/ui/components/morphing-dialog";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import { surfaceClasses } from "@openmeld/ui/lib/surface-classes";
 import { SurfaceProvider, useSurface } from "@openmeld/ui/lib/surface-context";
@@ -98,15 +107,16 @@ export function AgentConfigurationCard(input: {
 					</span>
 					{resolveConfigurationStatus(input.status)}
 				</span>
-				<span
-					className={cn(
-						"mt-1 block break-words font-medium text-sm leading-5",
-						input.summaryClassName
-					)}
-					title={input.summaryTitle}
-				>
-					{input.summary}
-				</span>
+				<TooltipHint content={input.summaryTitle}>
+					<span
+						className={cn(
+							"mt-1 block break-words font-medium text-sm leading-5",
+							input.summaryClassName
+						)}
+					>
+						{input.summary}
+					</span>
+				</TooltipHint>
 				{input.description ? (
 					<span className="mt-1 block text-muted-foreground text-xs leading-4.5">
 						{input.description}
@@ -149,74 +159,69 @@ export function AgentConfigurationCard(input: {
 	}
 
 	return (
-		<Popover.Root onOpenChange={input.onOpenChange} open={input.open}>
-			<AgentConfigurationSurface itemId={input.itemId}>
-				<Popover.Trigger
+		<MorphingDialog onOpenChange={input.onOpenChange} open={input.open}>
+			<AgentConfigurationSurface
+				className="has-[[data-popup-open]]:opacity-0"
+				itemId={input.itemId}
+			>
+				<MorphingDialogTrigger
+					aria-label={input.actionLabel ?? `Edit ${input.label}`}
+					className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
 					disabled={input.disabled}
-					render={
-						<button
-							aria-label={input.actionLabel ?? `Edit ${input.label}`}
-							className="h-full w-full min-w-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-							type="button"
-						/>
-					}
+					type="button"
 				>
 					{card}
-				</Popover.Trigger>
+				</MorphingDialogTrigger>
 			</AgentConfigurationSurface>
-			<Popover.Portal>
-				<Popover.Positioner
-					align="start"
-					className="z-50"
-					collisionAvoidance={{
-						align: "shift",
-						fallbackAxisSide: "end",
-						side: "flip",
-					}}
-					collisionPadding={12}
-					side="bottom"
-					sideOffset={8}
+			<MorphingDialogContainer>
+				<MorphingDialogContent
+					className={cn(
+						surfaceClasses(surface + 1),
+						"w-full max-w-md rounded-md p-4 text-popover-foreground"
+					)}
+					initialFocus={input.initialFocus}
 				>
-					<Popover.Popup
-						className={cn(
-							surfaceClasses(surface + 1),
-							"w-[min(25rem,calc(100vw-1.5rem))] origin-[var(--transform-origin)] rounded-md p-4 text-popover-foreground outline-none transition-[opacity,transform] duration-180 ease-[cubic-bezier(0.19,1,0.22,1)] data-[starting-style]:scale-[0.98] data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 data-[ending-style]:duration-100 motion-reduce:transform-none motion-reduce:transition-opacity"
-						)}
-						finalFocus={false}
-						initialFocus={input.initialFocus}
-					>
-						<SurfaceProvider value={surface + 1}>
-							<div className="mb-4 flex items-start gap-3">
-								<span className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground [&_svg]:size-4">
-									{input.icon}
-								</span>
-								<div className="min-w-0">
-									<p className="font-medium text-sm">{input.label}</p>
-									{input.description ? (
-										<p className="mt-0.5 text-muted-foreground text-xs leading-4.5">
-											{input.description}
-										</p>
-									) : null}
-								</div>
+					<SurfaceProvider value={surface + 1}>
+						<div className="mb-4 flex items-start gap-3 pr-8">
+							<span className="grid size-8 shrink-0 place-items-center rounded-md text-muted-foreground [&_svg]:size-4">
+								{input.icon}
+							</span>
+							<div className="min-w-0">
+								<MorphingDialogTitle className="font-medium text-sm">
+									{input.label}
+								</MorphingDialogTitle>
+								{input.description ? (
+									<MorphingDialogSubtitle className="mt-0.5 text-muted-foreground text-xs leading-4.5">
+										{input.description}
+									</MorphingDialogSubtitle>
+								) : null}
 							</div>
+						</div>
+						<div className="max-h-[calc(100dvh-10rem)] overflow-y-auto">
 							{input.children}
-						</SurfaceProvider>
-					</Popover.Popup>
-				</Popover.Positioner>
-			</Popover.Portal>
-		</Popover.Root>
+						</div>
+						<MorphingDialogClose />
+					</SurfaceProvider>
+				</MorphingDialogContent>
+			</MorphingDialogContainer>
+		</MorphingDialog>
 	);
 }
 
 function AgentConfigurationSurface(input: {
 	itemId: string;
 	children: ReactNode;
+	className?: string;
 }) {
 	const surface = useSurface() + 2;
 	return (
 		<SurfaceProvider value={surface}>
 			<FluidCardItem
-				className={cn("w-full rounded-md", surfaceClasses(surface))}
+				className={cn(
+					"w-full rounded-md",
+					surfaceClasses(surface),
+					input.className
+				)}
 				indicatorClassName="rounded-md bg-interaction-hover"
 				itemId={input.itemId}
 			>

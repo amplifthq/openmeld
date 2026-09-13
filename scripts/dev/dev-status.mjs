@@ -5,8 +5,12 @@ import { statfsSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-
+import {
+  readIsolatedDevOwners,
+  resolveGitCommonDirectory,
+} from "./dev-isolated-lane.mjs";
 import { collectTargetProcesses } from "./dev-stop.mjs";
+import { readMachineMemory } from "./machine-memory.mjs";
 import { buildProcessMatcherContext } from "./process-matchers.mjs";
 import { readProcessRows } from "./process-rows.mjs";
 
@@ -19,6 +23,7 @@ export function buildDevMachineSnapshot(input) {
     const processes = collectTargetProcesses(input.processRows, {
       currentPid: input.currentPid,
       matcherContext: buildProcessMatcherContext(repoRoot),
+      roots: input.ownersByRoot?.[repoRoot] ?? [],
     });
     if (processes.length === 0) {
       continue;
@@ -28,6 +33,9 @@ export function buildDevMachineSnapshot(input) {
         (processRow) => processRow.kind === "coordinator"
       ).length,
       processCount: processes.length,
+      rssBytes: processes.every((row) => Number.isFinite(row.rssBytes))
+        ? processes.reduce((sum, row) => sum + row.rssBytes, 0)
+        : null,
       repoRoot,
       workerCount: processes.filter(
         (processRow) => processRow.kind === "worker"
@@ -46,6 +54,7 @@ export function buildDevMachineSnapshot(input) {
     repoRoot: input.repoRoot,
     totalBytes: input.totalBytes,
     worktreeCount: input.worktreeRoots.length,
+    memory: input.memory ?? null,
   };
 }
 
@@ -58,10 +67,19 @@ export function readDevMachineSnapshot(input = {}) {
   );
   const filesystem = statfsSync(repoRoot, { bigint: true });
   const worktreeRoots = readWorktreeRoots(repoRoot);
+  const gitCommonDir = resolveGitCommonDirectory({ repoRoot });
+  const processRows = readProcessRows({ repoRoot, includeMetrics: true });
   return buildDevMachineSnapshot({
     availableBytes: Number(filesystem.bavail * filesystem.bsize),
     currentPid: input.currentPid ?? process.pid,
-    processRows: readProcessRows({ repoRoot }),
+    processRows,
+    ownersByRoot: Object.fromEntries(
+      worktreeRoots.map((root) => [
+        root,
+        readIsolatedDevOwners(root, processRows, gitCommonDir),
+      ])
+    ),
+    memory: readMachineMemory(),
     repoRoot,
     totalBytes: Number(filesystem.blocks * filesystem.bsize),
     worktreeRoots,
@@ -74,11 +92,12 @@ export function renderDevMachineSnapshot(snapshot) {
     `Current worktree: ${snapshot.repoRoot}`,
     `Registered worktrees: ${String(snapshot.worktreeCount)}`,
     `Available disk: ${formatGibibytes(snapshot.availableBytes)}`,
+    `Available memory: ${snapshot.memory ? `${formatGibibytes(snapshot.memory.availableBytes)} (${snapshot.memory.pressure}; ${snapshot.memory.source})` : "unknown"}`,
     `Active dev stacks: ${String(snapshot.activeStacks.length)} (${String(snapshot.activeProcessCount)} processes)`,
   ];
   for (const stack of snapshot.activeStacks.slice(0, 8)) {
     lines.push(
-      `- ${path.basename(stack.repoRoot)}: ${String(stack.processCount)} processes (${String(stack.coordinatorCount)} coordinators, ${String(stack.workerCount)} workers)`
+      `- ${path.basename(stack.repoRoot)}: ${String(stack.processCount)} processes (${String(stack.coordinatorCount)} coordinators, ${String(stack.workerCount)} workers), RSS ${stack.rssBytes === null ? "unknown" : formatGibibytes(stack.rssBytes)}`
     );
   }
   if (snapshot.activeStacks.length > 8) {

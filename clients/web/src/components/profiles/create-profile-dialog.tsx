@@ -31,6 +31,7 @@ import type {
 	OrganizationComputersResponse,
 	OrganizationDirectoryResponse,
 	PeopleComputer,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
@@ -67,6 +68,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { AgentCreationComputerSetup } from "#/components/connect/agent-creation-computer-setup";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
@@ -78,7 +80,6 @@ import { resolveRememberedAgentProfileCreationDefaults } from "#/lib/profiles/ag
 import {
 	type AgentProfileCreationJourneyDraft,
 	buildAgentProfileCreationJourneyDraftStorageKey,
-	clearAgentProfileCreationJourneyDraft,
 	readAgentProfileCreationJourneyDraft,
 	writeAgentProfileCreationJourneyDraft,
 } from "#/lib/profiles/agent-profile-creation-journey-draft";
@@ -185,6 +186,7 @@ type CreateProfileDialogFormState = {
 	profileKind: NewProfileKind | null;
 	profileName: string;
 	profileNameEdited: boolean;
+	profileNames: Record<string, string>;
 	projectFolderPath: string;
 	projectWorkspaceFallback: "advanced" | "managed" | "project" | null;
 	selectedProjectBindingGeneration: string | null;
@@ -216,6 +218,11 @@ function reduceCreateProfileDialogFormState(
 		return action.state;
 	}
 	if (action.type === "restore_journey_draft") {
+		const profileNames =
+			action.draft.profileNames ??
+			(action.draft.profileName === undefined
+				? {}
+				: { [action.draft.agentId]: action.draft.profileName });
 		return {
 			...state,
 			boundAgentControllerCollaborationMode:
@@ -230,13 +237,27 @@ function reduceCreateProfileDialogFormState(
 			boundModelId: action.draft.modelId,
 			boundOpenCodePermission: action.draft.openCodePermission,
 			boundReasoningLevel: action.draft.reasoningLevel,
+			profileNames,
+			profileName: profileNames[action.draft.agentId] ?? "",
+			profileNameEdited: profileNames[action.draft.agentId] !== undefined,
 			projectWorkspaceFallback: "managed",
 			selectedProjectId: "",
 			selectedProjectBindingGeneration: null,
 			projectFolderPath: "",
 		};
 	}
-	return { ...state, ...action.patch };
+	const next = { ...state, ...action.patch };
+	if (next.boundAgentId !== state.boundAgentId && state.boundAgentId) {
+		next.profileName = state.profileNames[next.boundAgentId] ?? "";
+		next.profileNameEdited =
+			state.profileNames[next.boundAgentId] !== undefined;
+	} else if (action.patch.profileName !== undefined && state.boundAgentId) {
+		next.profileNames = {
+			...state.profileNames,
+			[state.boundAgentId]: action.patch.profileName,
+		};
+	}
+	return next;
 }
 
 function createInitialCreateProfileDialogFormState(input: {
@@ -265,6 +286,7 @@ function createInitialCreateProfileDialogFormState(input: {
 		profileKind: input.initialProfileKind,
 		profileName: resolveSessionPresetProfileName(input.initialSessionPreset),
 		profileNameEdited: false,
+		profileNames: {},
 		projectFolderPath: "",
 		projectWorkspaceFallback: null,
 		selectedProjectBindingGeneration: null,
@@ -454,6 +476,7 @@ export function CreateProfileDialogStep(
 		onBusyChange: (busy: boolean) => void;
 	}
 ) {
+	const [connectingComputer, setConnectingComputer] = useState(false);
 	const view = useCreateProfileDialogController(input, {
 		agentOnly: true,
 		templateNaming: true,
@@ -462,6 +485,23 @@ export function CreateProfileDialogStep(
 		input.onBusyChange(view.formProps.isSubmitting);
 		return () => input.onBusyChange(false);
 	}, [input.onBusyChange, view.formProps.isSubmitting]);
+	if (connectingComputer && input.orgSlug) {
+		return (
+			<AgentCreationComputerSetup
+				onBack={() => setConnectingComputer(false)}
+				orgSlug={input.orgSlug}
+			/>
+		);
+	}
+	const formProps = {
+		...view.formProps,
+		localAgentEmptyState: view.formProps.localAgentEmptyState && {
+			...view.formProps.localAgentEmptyState,
+			onConnectComputer: input.orgSlug
+				? () => setConnectingComputer(true)
+				: undefined,
+		},
+	};
 	return (
 		<>
 			<Button
@@ -477,7 +517,7 @@ export function CreateProfileDialogStep(
 			<DialogHeader>
 				<DialogTitle>{view.title}</DialogTitle>
 			</DialogHeader>
-			<AgentProfileGenerator form={view.formProps} surface="dialog" />
+			<AgentProfileGenerator form={formProps} surface="dialog" />
 		</>
 	);
 }
@@ -496,8 +536,8 @@ export function CreateAgentProfilePage(
 		{ agentOnly: true, templateNaming: true }
 	);
 	return (
-		<div className="flex min-h-0 min-w-0 flex-1 flex-col px-5 py-8 sm:px-8 lg:px-12">
-			<div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-6">
+		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+			<div className="@container/agent-creation mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-6 px-4 pt-10 pb-6 sm:px-6 lg:px-8">
 				<AgentProfileGenerator
 					form={view.formProps}
 					onCancel={input.onCancel}
@@ -628,6 +668,7 @@ function useCreateProfileDialogController(
 			organizationId,
 			userId: currentUserId,
 		});
+	const remoteNameDraft = useRemoteNameDraft(journeyDraftStorageKey);
 	const dialogTitle = resolveCreateProfileDialogTitle({
 		additionalHumanProfileCreationEnabled,
 	});
@@ -736,6 +777,7 @@ function useCreateProfileDialogController(
 			agentControllerPermissionMode: rawBoundAgentControllerPermissionMode,
 			agentId: rawBoundAgentId,
 			modelId: rawBoundModelId,
+			profileNames: formState.profileNames,
 			openCodePermission: rawBoundOpenCodePermission,
 			reasoningLevel: rawBoundReasoningLevel,
 			selectedProjectId: rawSelectedProjectId,
@@ -759,6 +801,12 @@ function useCreateProfileDialogController(
 				type: "restore_journey_draft",
 			})
 		: formState;
+	useRestoredCreationForm({
+		restoredJourneyDraft,
+		journeyDraftRestorationDismissedRef,
+		creationDefaultsEditedRef,
+		dispatchForm,
+	});
 	const {
 		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
@@ -815,17 +863,16 @@ function useCreateProfileDialogController(
 			console.error("Could not refresh the computer for Agent creation.", error)
 		);
 	};
-	const { computerRecovery, connectAnotherComputer } =
-		useAgentCreationComputerRecovery({
-			enabled: input.open && ownerMode === "self",
-			orgSlug,
-			recovery,
-			guidance: creationGuidance,
-			hasLocalAgents: ownLocalAgentIds.length > 0,
-			isPending: creationComputerReadiness.isPending,
-			sessionComputerId: sessionPreset?.computerId,
-			onRetry: retryCreationConnection,
-		});
+	const { computerRecovery } = useAgentCreationComputerRecovery({
+		enabled: input.open && ownerMode === "self",
+		orgSlug,
+		recovery,
+		guidance: creationGuidance,
+		hasLocalAgents: ownLocalAgentIds.length > 0,
+		isPending: creationComputerReadiness.isPending,
+		sessionComputerId: sessionPreset?.computerId,
+		onRetry: retryCreationConnection,
+	});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
 			? buildOrganizationCenterAgentChatPath(orgSlug)
@@ -1037,7 +1084,6 @@ function useCreateProfileDialogController(
 			});
 		},
 		onSuccess: async (result) => {
-			clearCreationJourneyDraft(journeyDraftStorageKey);
 			await handleProfileCreationSuccess({
 				onAfterJoin: input.onAfterJoin,
 				onAgentRequestCreated: input.onAgentRequestCreated,
@@ -1083,6 +1129,12 @@ function useCreateProfileDialogController(
 		});
 	};
 	const projectSelectionSlot = renderProjectSelectionSlot({
+		target: bindingTarget
+			? {
+					deviceId: bindingTarget.deviceId,
+					runtimeLane: bindingTarget.runtimeLane,
+				}
+			: undefined,
 		onUseManagedWorkingFolder: handleUseManagedWorkingFolder,
 		creationDefaultsEditedRef,
 		disabled:
@@ -1244,8 +1296,9 @@ function useCreateProfileDialogController(
 	const agentOwnerUserId =
 		ownerMode === "teammate" ? targetOwnerUserId : currentUserId;
 	const formProps: ComponentProps<typeof CreateProfileForm> = {
+		remoteProfileName: remoteNameDraft.name,
+		onChangeRemoteProfileName: remoteNameDraft.update,
 		computerRecovery,
-		connectAnotherComputer,
 		agentComputerSlot:
 			canChooseComputer && computerChoices.length > 1 ? (
 				<div className="grid gap-2 text-sm">
@@ -1332,7 +1385,12 @@ function useCreateProfileDialogController(
 		availableLocalAgentIds,
 		boundAgentControllerCollaborationMode,
 		boundAgentControllerPermissionMode,
-		boundAgentControllerPermissionModeConfirmed,
+		boundAgentControllerPermissionModeConfirmed: isCreationPermissionConfirmed(
+			boundAgentControllerPermissionModeConfirmed,
+			creationDefaultsQuery.data,
+			agentControllerRef,
+			boundAgentControllerPermissionMode
+		),
 		boundAgentId,
 		boundModelId,
 		boundOpenCodePermission,
@@ -1741,6 +1799,61 @@ function resolveAgentProfileProjectSelectionBlockReason(
 	return resolveOwnerProjectSelectionBlockReason(input);
 }
 
+function isCreationPermissionConfirmed(
+	confirmed: boolean,
+	saved: GetAgentProfileCreationDefaultsResponse | undefined,
+	controllerRef: string,
+	permissionMode: AgentControllerPermissionMode
+): boolean {
+	return (
+		confirmed ||
+		(saved?.agentControllerRef === controllerRef &&
+			saved.agentControllerPermissionMode === permissionMode)
+	);
+}
+
+function useRestoredCreationForm(input: {
+	restoredJourneyDraft: AgentProfileCreationJourneyDraft | null;
+	journeyDraftRestorationDismissedRef: { current: boolean };
+	creationDefaultsEditedRef: { current: boolean };
+	dispatchForm: Dispatch<CreateProfileDialogFormAction>;
+}) {
+	useEffect(() => {
+		if (!input.restoredJourneyDraft) {
+			return;
+		}
+		// Restore into editable state so the first edit cannot reveal an empty form.
+		input.journeyDraftRestorationDismissedRef.current = true;
+		input.creationDefaultsEditedRef.current = true;
+		input.dispatchForm({
+			type: "restore_journey_draft",
+			draft: input.restoredJourneyDraft,
+		});
+	}, [input]);
+}
+
+function useRemoteNameDraft(scope: string | null) {
+	const key = scope ? `${scope}:remote-name` : null;
+	const [draft, setDraft] = useState<{ key: string | null; name?: string }>({
+		key: null,
+	});
+	useEffect(() => {
+		setDraft({
+			key,
+			name: key ? (window.localStorage.getItem(key) ?? undefined) : undefined,
+		});
+	}, [key]);
+	return {
+		name: draft.key === key ? draft.name : undefined,
+		update: (name: string) => {
+			setDraft({ key, name });
+			if (key) {
+				window.localStorage.setItem(key, name);
+			}
+		},
+	};
+}
+
 function useAgentProfileCreationJourneyDraft(input: {
 	availableLocalAgentIds: readonly string[];
 	canRestore: boolean;
@@ -1792,6 +1905,9 @@ function useAgentProfileCreationJourneyDraft(input: {
 			lastWrittenDraftRef.current = JSON.stringify(restoredDraft);
 			return;
 		}
+		if (!input.current.agentId) {
+			return;
+		}
 		const serializedDraft = JSON.stringify(input.current);
 		if (lastWrittenDraftRef.current === serializedDraft) {
 			return;
@@ -1822,13 +1938,6 @@ function shouldUseAgentProfileCreationJourneyDraft(input: {
 		Boolean(input.modelCatalog) &&
 		!input.projectsPending
 	);
-}
-
-function clearCreationJourneyDraft(key: string | null): void {
-	clearAgentProfileCreationJourneyDraft({
-		key,
-		storage: window.localStorage,
-	});
 }
 
 function isJourneyDraftAvailable(input: {
@@ -2377,14 +2486,18 @@ function useOnlyCreationComputer(input: {
 		) {
 			return;
 		}
-		// A selected enrolled computer going offline must not silently move the
-		// user's draft to the only other online computer.
+		// Preserve the selected physical computer. A reconnect can replace its
+		// legacy device ID; use its sole current session, never another computer.
 		if (
 			input.recovery.localRuntimesQuery.data?.peopleComputers.computers.some(
 				(computer) =>
 					computer.identityStatus === "enrolled" &&
 					(computer.deviceId === input.recovery.deviceId ||
-						computer.legacyDeviceIds?.includes(input.recovery.deviceId ?? ""))
+						computer.legacyDeviceIds?.includes(
+							input.recovery.deviceId ?? ""
+						)) &&
+					computer.deviceId !== target.deviceId &&
+					!computer.legacyDeviceIds?.includes(target.deviceId)
 			)
 		) {
 			return;
@@ -2781,6 +2894,7 @@ function useRememberedCreationDefaults(input: {
 }
 
 function renderProjectSelectionSlot(input: {
+	target?: PeopleComputerTarget;
 	onUseManagedWorkingFolder: () => void;
 	creationDefaultsEditedRef: { current: boolean };
 	disabled: boolean;
@@ -2875,6 +2989,7 @@ function renderProjectSelectionSlot(input: {
 			projectId={input.selectedProjectId}
 			projects={input.projects?.projects ?? []}
 			selectedBindingGeneration={input.selectedProjectBindingGeneration}
+			target={input.target}
 			workspaceFallbackMode={input.projectWorkspaceFallback}
 		/>
 	);
@@ -3561,7 +3676,7 @@ function showCreatedAgentRequestToast(input: {
 		case "failed":
 			if (input.request.createdAgentProfileId) {
 				toast.warning(
-					"Profile created. Setup is not complete. Open the Agent request to review the issue and retry setup."
+					"Your Agent was created, but setup needs attention. Open Creation history to review the issue and retry setup."
 				);
 				return;
 			}
@@ -3571,7 +3686,7 @@ function showCreatedAgentRequestToast(input: {
 			toast.info(
 				input.request.createdAgentProfileId
 					? "Agent created. Finishing setup in the background."
-					: "Creating Agent. You can check progress in Agent setup."
+					: "Creating Agent. You can check progress in Creation history."
 			);
 			return;
 		default:

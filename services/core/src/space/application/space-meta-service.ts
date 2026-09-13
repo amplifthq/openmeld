@@ -20,19 +20,19 @@ type PasswordTooShortResponseFactory = (requestId: string) => Response;
 type SpaceMetaWriter = {
   initializeSpaceMetaRecordIfAbsent: (
     record: SpaceMetaRecord
-  ) => SpaceMetaRecord;
+  ) => SpaceMetaRecord | Promise<SpaceMetaRecord>;
   readSpaceMetaRecord: () => SpaceMetaRecord | null;
   upsertSpaceMetaRecord: (record: SpaceMetaRecord) => void;
 };
 
-export function handlePatchMetaUseCase(input: {
+export async function handlePatchMetaUseCase(input: {
   body: unknown;
   initializeIfAbsent?: boolean;
   spaceId: string;
   toPublicSpaceMeta: (meta: SpaceMetaRecord) => SpaceMeta;
   writer: SpaceMetaWriter;
   nowIso?: string;
-}): Response {
+}): Promise<Response> {
   if (!(input.body && typeof input.body === "object")) {
     return new Response("Invalid JSON", { status: 400 });
   }
@@ -58,7 +58,8 @@ export function handlePatchMetaUseCase(input: {
       spaceId: input.spaceId,
       now,
     });
-    const current = input.writer.initializeSpaceMetaRecordIfAbsent(initialized);
+    const current =
+      await input.writer.initializeSpaceMetaRecordIfAbsent(initialized);
 
     return Response.json(input.toPublicSpaceMeta(current));
   }
@@ -127,7 +128,7 @@ export async function handlePatchMetaWithPasswordAtomicUseCase(input: {
     spaceId: input.spaceId,
     now,
   });
-  const current = input.writer.initializeSpaceMetaRecordIfAbsent({
+  const current = await input.writer.initializeSpaceMetaRecordIfAbsent({
     ...initialized,
     accessMode: parsed.accessMode,
     passwordProof: proof,
@@ -172,6 +173,10 @@ export function buildNextSpaceMetaRecord(input: {
     ...(name ? { name } : {}),
     ...(purpose ? { purpose } : {}),
     ...(creator ? { creator } : {}),
+    ...(input.existing?.ownerUserIds
+      ? { ownerUserIds: input.existing.ownerUserIds }
+      : {}),
+    allowGuests: input.existing?.allowGuests === true,
     ...(guide ? { guide } : {}),
     ...(input.existing?.directMessage
       ? { directMessage: input.existing.directMessage }

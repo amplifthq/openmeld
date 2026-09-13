@@ -11,7 +11,7 @@ const OTHER_HUMAN_PROFILE_ID = "22222222-2222-4222-8222-222222222222";
 const AGENT_CREATOR_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 
 describe("space delete action visibility", () => {
-  it("shows delete for a human-created space only to the creator profile", () => {
+  it("shows delete to current human owners, independently of the creator profile", () => {
     const snapshot = createSpaceMembersSnapshot({
       humans: [
         createSpaceMemberHumanSnapshot({
@@ -33,23 +33,25 @@ describe("space delete action visibility", () => {
       resolveSpaceDeleteActionVisibility({
         currentProfileId: HUMAN_CREATOR_PROFILE_ID,
         membersSnapshot: snapshot,
+        ownerUserIds: ["owner-1"],
       })
     ).toEqual({
-      reason: "human_creator_profile",
+      reason: "space_owner",
       visible: true,
     });
     expect(
       resolveSpaceDeleteActionVisibility({
         currentProfileId: OTHER_HUMAN_PROFILE_ID,
         membersSnapshot: snapshot,
+        ownerUserIds: ["successor"],
       })
     ).toEqual({
-      reason: "not_creator_or_owner",
+      reason: "not_space_owner",
       visible: false,
     });
   });
 
-  it("shows delete for an agent-created space only to a human profile from the same owner", () => {
+  it("requires an explicit current ownership grant and a human profile", () => {
     const snapshot = createSpaceMembersSnapshot({
       agents: [
         createSpaceMemberAgentSnapshot({
@@ -79,18 +81,20 @@ describe("space delete action visibility", () => {
       resolveSpaceDeleteActionVisibility({
         currentProfileId: HUMAN_CREATOR_PROFILE_ID,
         membersSnapshot: snapshot,
+        ownerUserIds: ["owner-1"],
       })
     ).toEqual({
-      reason: "agent_creator_owner_human_profile",
+      reason: "space_owner",
       visible: true,
     });
     expect(
       resolveSpaceDeleteActionVisibility({
         currentProfileId: AGENT_CREATOR_PROFILE_ID,
         membersSnapshot: snapshot,
+        ownerUserIds: ["owner-1"],
       })
     ).toEqual({
-      reason: "not_creator_or_owner",
+      reason: "not_space_owner",
       visible: false,
     });
     expect(
@@ -99,7 +103,7 @@ describe("space delete action visibility", () => {
         membersSnapshot: snapshot,
       })
     ).toEqual({
-      reason: "not_creator_or_owner",
+      reason: "not_space_owner",
       visible: false,
     });
   });

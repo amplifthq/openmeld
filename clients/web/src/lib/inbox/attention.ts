@@ -1,4 +1,21 @@
+import type { InboxItem } from "@openmeld/schemas/types";
 import { resolveStatusToneIndicatorClassName } from "@openmeld/ui/lib/status-tone";
+
+export function resolveInboxItemIndicator(item: InboxItem) {
+	if (
+		item.attention === "action_required" &&
+		item.resolutionStatus === "open"
+	) {
+		return "danger";
+	}
+	if (item.readAt !== null) {
+		return null;
+	}
+	if (item.importance === "urgent" && item.resolutionStatus !== "resolved") {
+		return "warning";
+	}
+	return "unread";
+}
 
 export function resolveInboxAttentionLabel(
 	tone: "danger" | "warning" | null | undefined

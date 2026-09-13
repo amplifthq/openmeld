@@ -1572,7 +1572,7 @@ describe("local setup executor", () => {
     expect(runDaemonRunMock).not.toHaveBeenCalled();
   });
 
-  it("hands healthy version drift to the background worker without reporting setup complete", async () => {
+  it("does not complete setup when a scheduled update loses its completion evidence", async () => {
     resolveRuntimeContextMock.mockResolvedValue({
       resolvedView: "human",
       viewMode: "human",
@@ -1628,7 +1628,7 @@ describe("local setup executor", () => {
         view: "human",
       })
     ).rejects.toThrow(
-      "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes."
+      "OpenMeld update update-1 did not finish successfully (completion evidence unavailable)."
     );
 
     expect(runDaemonReinstallMock).toHaveBeenCalledWith(

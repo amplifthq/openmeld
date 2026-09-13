@@ -98,6 +98,7 @@ function resolveWelcomeBackHandler(
 }
 
 function renderWelcomeSpaceStep(input: {
+	onDiscover?: () => void;
 	accountSpacesIsError: boolean;
 	accountSpacesIsSuccess: boolean;
 	contextKind: "organization" | "personal";
@@ -142,6 +143,7 @@ function renderWelcomeSpaceStep(input: {
 			)}
 			onBack={resolveWelcomeBackHandler(input.showBack, input.handleBack)}
 			onCreate={input.createSpace.mutate}
+			onDiscover={input.onDiscover}
 			onJoin={input.onJoin}
 			onRetryJoinable={input.onRetryJoinable}
 		/>
@@ -312,6 +314,14 @@ export function WelcomeFirstRun(input: { showBack?: boolean } = {}) {
 
 	if (screen === "space") {
 		return renderWelcomeSpaceStep({
+			onDiscover:
+				currentOrganization.isPersonal === true
+					? undefined
+					: () => {
+							navigate({
+								to: `${buildOrganizationSpacesPath(orgSlug)}?view=discover`,
+							}).catch(console.error);
+						},
 			accountSpacesIsError:
 				accountSpacesIsError && accountSpaceSections === undefined,
 			accountSpacesIsSuccess:

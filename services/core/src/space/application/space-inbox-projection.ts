@@ -264,9 +264,6 @@ function resolveAudience(input: {
     if (wakeRequesterUserId) {
       recipientUserIds.add(wakeRequesterUserId);
     }
-    if (recipientUserIds.size === 0) {
-      return null;
-    }
     return {
       allowedRecipientUserIds: recipientUserIds,
       kind: "agent_reply",
@@ -414,51 +411,65 @@ function buildAgentOwnerCandidates(
     preview,
     focusSignalId,
   } = context;
+  if (signal.type !== "signal.text") {
+    return [];
+  }
+  const isAgentReply = signal.profile.kind === "agent";
+  if (!(isAgentReply || (signal.profile.kind === "human" && authorUserId))) {
+    return [];
+  }
+  let title = input.directMessage
+    ? `${actorName} messaged your agent`
+    : `${actorName} posted in your agent's Space`;
+  if (isAgentReply) {
+    title = `${actorName} replied in ${spaceLabel}`;
+  }
   const candidates: InboxSourceCandidate[] = [];
   // Candidate eligibility is resolved against current Agent identity before delivery.
   // Keep ordinary recipients too; the outbox selects one item per recipient.
-  if (
-    signal.type === "signal.text" &&
-    signal.profile.kind === "human" &&
-    authorUserId
-  ) {
-    const ownerIds = new Set(activeAgentOwnerIds(input.activeMemberRecords));
+  const ownerIds = new Set(
+    activeAgentOwnerIds(
+      isAgentReply
+        ? input.activeMemberRecords.filter(
+            (member) =>
+              member.profileId ===
+              resolveFormalSpaceUpdateActorProfileId(signal)
+          )
+        : input.activeMemberRecords
+    )
+  );
+  if (authorUserId) {
     ownerIds.delete(authorUserId);
-    for (const recipientUserId of ownerIds) {
-      candidates.push(
-        inboxSourceCandidateSchema.parse({
-          attention: "update",
-          importance: "urgent",
-          kind: "space_message",
-          contextLabel: spaceLabel,
-          organizationId: input.organizationId,
-          recipientUserId,
-          sourceKey: signal.id,
-          sourceKind: "space_signal",
-          occurredAtMs: Math.max(0, signal.ts),
-          preview,
-          title: truncateInboxText(
-            input.directMessage
-              ? `${actorName} messaged your agent`
-              : `${actorName} posted in your agent's Space`,
-            INBOX_TITLE_MAX_CHARS
-          ),
-          sourceTarget: {
-            kind: "space",
-            agentOwnerActivity: true,
-            spaceId: signal.spaceId,
-            signalId: focusSignalId,
-            directMessage: input.directMessage,
-            ...(input.signalContext?.threadContext?.rootSignalId
-              ? {
-                  threadRootSignalId:
-                    input.signalContext.threadContext.rootSignalId,
-                }
-              : {}),
-          },
-        })
-      );
-    }
+  }
+  for (const recipientUserId of ownerIds) {
+    candidates.push(
+      inboxSourceCandidateSchema.parse({
+        attention: "update",
+        importance: isAgentReply ? "normal" : "urgent",
+        kind: isAgentReply ? "agent_reply" : "space_message",
+        contextLabel: spaceLabel,
+        organizationId: input.organizationId,
+        recipientUserId,
+        sourceKey: signal.id,
+        sourceKind: "space_signal",
+        occurredAtMs: Math.max(0, signal.ts),
+        preview,
+        title: truncateInboxText(title, INBOX_TITLE_MAX_CHARS),
+        sourceTarget: {
+          kind: "space",
+          agentOwnerActivity: true,
+          spaceId: signal.spaceId,
+          signalId: focusSignalId,
+          directMessage: input.directMessage,
+          ...(input.signalContext?.threadContext?.rootSignalId
+            ? {
+                threadRootSignalId:
+                  input.signalContext.threadContext.rootSignalId,
+              }
+            : {}),
+        },
+      })
+    );
   }
   return candidates;
 }

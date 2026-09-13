@@ -146,16 +146,31 @@ beforeEach(() => {
 	} satisfies OpenDirectMessageSpaceResponse);
 });
 afterEach(cleanup);
-async function openPicker() {
+async function openPicker(initialQuery?: string) {
 	const closed = vi.fn();
 	render(
 		<TestQueryClientProvider queryClient={createTestQueryClient()}>
-			<NewChatDialog onOpenChange={closed} open />
+			<NewChatDialog initialQuery={initialQuery} onOpenChange={closed} open />
 		</TestQueryClientProvider>
 	);
 	await screen.findByRole("checkbox", { name: "Mira Agent" });
 	return closed;
 }
+it("finds a person from the organization directory with a prefilled query, without prior chat history", async () => {
+	await openPicker("Mira");
+	expect(
+		screen.getByRole("searchbox", { name: "Search people and agents" })
+	).toHaveProperty("value", "Mira");
+	expect(screen.queryByRole("checkbox", { name: "Center Agent" })).toBeNull();
+	fireEvent.click(screen.getByRole("checkbox", { name: "Mira" }));
+	fireEvent.click(screen.getByRole("button", { name: "Start chat" }));
+	await waitFor(() =>
+		expect(mocks.dm).toHaveBeenCalledWith({
+			organizationId: "org",
+			targetProfileId: miraId,
+		})
+	);
+});
 it("opens a private chat for one explicit Agent without selecting its owner", async () => {
 	await openPicker();
 	fireEvent.click(screen.getByRole("checkbox", { name: "Mira Agent" }));

@@ -41,7 +41,7 @@ type OrganizationSessionLike = {
 };
 
 const ORGANIZATION_APP_DETAIL_PATH_PATTERN =
-	/^\/o\/([^/]+)\/center-agent\/plugins\/[^/]+$/u;
+	/^\/o\/([^/]+)\/(?:center-agent\/)?plugins\/[^/]+$/u;
 
 export function resolvePublicLoginRedirectTarget(routeFamily: string): string {
 	const match = ORGANIZATION_APP_DETAIL_PATH_PATTERN.exec(routeFamily);
