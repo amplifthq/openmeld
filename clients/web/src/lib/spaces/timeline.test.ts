@@ -273,7 +273,7 @@ describe("space timeline helpers", () => {
 			systemNoticeDispatchId: "failed-dispatch",
 			systemNoticeTargetProfileId: "agt_123",
 			isAgentFinalReply: false,
-			text: "Couldn't complete this reply. Your message is saved.",
+			text: "Center Agent couldn't generate a reply. Your message is saved.",
 		});
 	});
 

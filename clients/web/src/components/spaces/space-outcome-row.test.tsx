@@ -180,20 +180,6 @@ describe("SpaceOutcomeRow", () => {
 		).toBeTruthy();
 	});
 
-	it("wraps the notice on phones and keeps the compact desktop row", () => {
-		render(
-			<SpaceOutcomeRow
-				onOpenDetails={null}
-				text="This agent could not reply."
-				tone="destructive"
-			/>
-		);
-
-		const textSpan = screen.getByText("This agent could not reply.");
-		expect(textSpan.className).toContain("max-sm:break-words");
-		expect(textSpan.className).toContain("sm:truncate");
-	});
-
 	it("colors the destructive tone without a full-width danger block", () => {
 		render(
 			<SpaceOutcomeRow
@@ -209,21 +195,6 @@ describe("SpaceOutcomeRow", () => {
 		expect(marker?.className).toContain("text-destructive");
 		expect(marker?.className).not.toContain("bg-destructive");
 		expect(marker?.className).not.toContain("border-destructive");
-	});
-
-	it("keeps a Wake outcome attached to its message without a system divider", () => {
-		render(
-			<SpaceOutcomeRow
-				onOpenDetails={null}
-				text="This agent could not reply."
-				tone="destructive"
-			/>
-		);
-
-		const divider = screen
-			.getByText("This agent could not reply.")
-			.closest("[data-slot='space-system-divider']");
-		expect(divider).toBeNull();
 	});
 
 	it("colors the warning tone amber for a publication-stage failure", () => {
@@ -244,23 +215,6 @@ describe("SpaceOutcomeRow", () => {
 		expect(marker?.className).toContain("dark:text-amber-400");
 	});
 
-	it("vertically centers the icon with the outcome message", () => {
-		render(
-			<SpaceOutcomeRow
-				onOpenDetails={null}
-				text="This Agent Profile belongs to another workspace."
-				tone="destructive"
-			/>
-		);
-
-		const marker = screen
-			.getByText("This Agent Profile belongs to another workspace.")
-			.closest("[data-slot='marker']");
-		const icon = marker?.querySelector("[data-slot='marker-icon']");
-		expect(marker?.className).toContain("items-center");
-		expect(icon?.className).not.toContain("mt-0.5");
-	});
-
 	it("colors the muted tone for a stopped Wake instead of red", () => {
 		render(
 			<SpaceOutcomeRow
@@ -277,7 +231,7 @@ describe("SpaceOutcomeRow", () => {
 		expect(marker?.className).not.toContain("text-destructive");
 	});
 
-	it("renders the whole row as a button and calls back when clicked", () => {
+	it("opens details from the outcome text", () => {
 		const onOpenDetails = vi.fn();
 		render(
 			<SpaceOutcomeRow
@@ -292,9 +246,6 @@ describe("SpaceOutcomeRow", () => {
 		});
 		expect(detailsButton.className).toContain("touch-manipulation");
 		expect(detailsButton.className).toContain("max-lg:min-h-11");
-		const detailsText = screen.getByText("This agent could not reply.");
-		expect(detailsText.className).toContain("max-sm:break-words");
-		expect(detailsText.className).toContain("sm:truncate");
 		fireEvent.click(detailsButton);
 		expect(onOpenDetails).toHaveBeenCalledOnce();
 	});
@@ -312,20 +263,6 @@ describe("SpaceOutcomeRow", () => {
 		expect(
 			screen.queryByRole("button", { name: "Open message details" })
 		).toBeNull();
-	});
-
-	it("right-aligns the row when align is end", () => {
-		render(
-			<SpaceOutcomeRow
-				align="end"
-				onOpenDetails={null}
-				text="This agent could not reply."
-				tone="destructive"
-			/>
-		);
-
-		const row = screen.getByTestId("space-outcome-row");
-		expect(row.className).toContain("justify-end");
 	});
 
 	it("keeps reply recovery inline while preserving its explanation for assistive technology", async () => {

@@ -274,7 +274,8 @@ describe("remote agent callback context", () => {
     });
 
     expect(callback).toMatchObject({
-      failureMessage: "Couldn't complete this reply. Your message is saved.",
+      failureMessage:
+        "Center Agent couldn't generate a reply. Your message is saved.",
       status: "failed",
     });
     expect(JSON.stringify(callback)).not.toContain("Remote Agent");

@@ -14,6 +14,22 @@ Remove this document after recovery is delivered and its lasting contracts and e
 
 ## Product result and responsibility
 
+### Error presentation review
+
+GitHub's [Copilot troubleshooting guidance](https://docs.github.com/en/enterprise-cloud@latest/copilot/how-tos/troubleshoot-copilot/troubleshoot-common-issues?tool=webui)
+places resubmission under the affected chat response. Claude's
+[error guidance](https://support.claude.com/en/articles/12466728-troubleshoot-claude-error-messages)
+distinguishes capacity, usage limits, and input length with cause-specific next
+steps. These are documented behaviors, not a visual audit of those products.
+
+OpenMeld keeps recovery beside the affected request and uses the existing Local
+Wake system Marker divider for system outcome rows. A runtime failure must not
+impersonate an Agent reply. Actual Agent-authored failure explanations keep the
+normal speaker and bubble; text matching never determines message provenance.
+The empty-reply notice names Center Agent and preserves the saved-message fact,
+without asserting an unproven provider outage. Recovery eligibility and its
+action remain Core-owned; changing presentation does not authorize another Wake.
+
 A member should send a request once and receive a useful answer or a clear account of what completed and what could not. Recoverable model failures should normally be absorbed within that request. Members should not have to interpret an empty model completion, find diagnostics, or repeatedly resend the same message.
 
 The originating fault and product responsibility are separate. The current incident does not establish whether a serving provider, OpenRouter, or OpenMeld's model adapter lost the answer. OpenMeld nevertheless owns recovery, model integration, default-model quality, request preservation, truthful presentation, and operational detection.

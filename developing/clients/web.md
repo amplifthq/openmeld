@@ -3771,10 +3771,16 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
-Wake outcomes retain their message-scoped placement. Stopped outcomes reuse the
-shared Marker separator presentation: centered muted text between divider lines,
-without an Agent avatar or stop icon. The text still opens Message details when
-available. Failures and failure footers keep their compact non-divider treatment.
+Wake outcomes retain their message-scoped placement. System outcome rows reuse
+the shared Marker separator presentation: centered text between neutral divider
+lines, without an Agent avatar. Stops use muted text; execution failures use red
+and publication failures use amber. The text still opens Message details when
+available, and an authorized recovery action stays beside it. Source-message
+failure footers remain compact request status rather than separate messages.
+An Agent-authored explanation of a failed task remains an ordinary Agent reply,
+with its speaker and message body. Never classify it by matching words in the
+reply. Runtime-generated empty-reply notices are system outcomes, even when an
+older envelope used an Agent author; their explicit metadata identifies them.
 This presentation does not create another system notice or change cancellation.
 Message details labels the persisted notice text as **Recorded outcome** and preserves
 its full public explanation, including unfamiliar failure codes. Current
