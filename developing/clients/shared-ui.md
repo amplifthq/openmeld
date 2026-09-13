@@ -58,6 +58,11 @@ Base UI owns placement, dismissal, and portal lifetime. Product code uses
 `TooltipHint` for a single renderable child or the compound slots for composition.
 Native iframe titles retain their accessibility meaning.
 
+Repeated message actions use Base UI's native typed tooltip handle with the
+same Fluid content. Detached triggers pass an explicit 500ms delay and share
+the content's accessible description ID. One conversation owns the handle;
+it is never a global cross-conversation popup or a second positioning system.
+
 `components/link-preview-card` owns compact link metadata presentation only:
 site, title, bounded description, and optional bounded image. It accepts
 validated data from its consumer and performs no metadata requests or Space
