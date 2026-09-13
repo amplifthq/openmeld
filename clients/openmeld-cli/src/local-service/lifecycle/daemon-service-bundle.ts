@@ -288,10 +288,11 @@ export async function resolveAlignedDaemonActiveBundleEntryPath(
     serviceContract?.daemonVersion !== input.expectedVersion
       ? null
       : serviceContract;
-  const currentSourceDistFingerprint =
-    await resolveInstalledDaemonBundleFingerprint(state);
   const activeBundleEntryPath =
     await resolveDaemonBundleEntryPathFromState(state);
+  const installedBundleFingerprint = activeBundleEntryPath
+    ? await resolveInstalledDaemonBundleFingerprint(state)
+    : null;
   const activeBundleSourceAvailable =
     state && state.bundleFormat === "legacy_linked_v1"
       ? await pathExists(state.sourcePackageRootPath).catch(() => null)
@@ -303,7 +304,7 @@ export async function resolveAlignedDaemonActiveBundleEntryPath(
     activeBundle: state,
     activeBundleSourceAvailable,
     activeBundleEntryPath,
-    currentSourceDistFingerprint,
+    installedBundleFingerprint,
   });
   return artifact.resolvedEntryPath;
 }
@@ -959,20 +960,6 @@ async function resolveDaemonBundleSourceProvenance(
     sourcePackageRootPath,
     sourceKind: inferDaemonBundleSourceKind(sourcePackageRootPath),
   };
-}
-
-export async function resolveCurrentDaemonSourceDistFingerprint(
-  input: { cliScriptPath?: string } = {}
-): Promise<string | null> {
-  const sourceProvenance = await resolveDaemonBundleSourceProvenance(
-    input.cliScriptPath
-  ).catch(() => null);
-  if (!sourceProvenance) {
-    return null;
-  }
-  return await computeDaemonSourceDistFingerprint(
-    sourceProvenance.sourceDistRootPath
-  ).catch(() => null);
 }
 
 async function resolveCliScriptPath(explicitPath?: string): Promise<string> {

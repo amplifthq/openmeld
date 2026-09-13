@@ -110,7 +110,6 @@ export async function inspectDaemonServiceInventory(input: {
   expectedVersion: string;
   intendedMode?: DaemonRunMode;
   intent?: DaemonLifecycleIntent;
-  cliScriptPath?: string;
   readDaemonStatus?: typeof getDaemonStatus;
   resolveServiceManager?: typeof resolveDaemonServiceManager;
   listOwnedProcesses?: typeof listDaemonOwnedProcesses;
@@ -166,8 +165,9 @@ export async function inspectDaemonServiceInventory(input: {
   const runtimeCommandPathExists = runtimeCommandEntryPath
     ? await pathExists(runtimeCommandEntryPath).catch(() => null)
     : null;
-  const currentSourceDistFingerprint =
-    await resolveInstalledDaemonBundleFingerprint(activeBundle);
+  const installedBundleFingerprint = activeBundleEntryPath
+    ? await resolveInstalledDaemonBundleFingerprint(activeBundle)
+    : null;
   const resolvedArtifact = resolveDaemonServiceArtifact({
     expectedVersion: input.expectedVersion,
     installStatus,
@@ -175,7 +175,7 @@ export async function inspectDaemonServiceInventory(input: {
     activeBundle,
     activeBundleSourceAvailable,
     activeBundleEntryPath,
-    currentSourceDistFingerprint,
+    installedBundleFingerprint,
   });
   const mergedOwnedProcesses = mergeOwnedProcesses(
     ownedProcesses,
@@ -631,7 +631,7 @@ function buildBundleAnomaly(input: {
       return {
         code: "bundle_content_drift",
         message:
-          "OpenMeld Service is using older local service files than this lane expects, so OpenMeld needs to update the service.",
+          "OpenMeld could not verify the installed Service files. The Service needs repair.",
       };
     case "bundle_lane_drift":
       return {

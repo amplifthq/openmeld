@@ -2293,6 +2293,21 @@ the current version is left in an explicit stopped-safe state; the system must
 not create a process that appears healthy locally but is known to be rejected
 by Core.
 
+Installed artifact integrity and release freshness are different facts. A
+self-contained Service is verified against its own copied files and recorded
+fingerprint, never against the invoking CLI's current build directory. Binary
+inventory verifies the selected Service executable in the same way as startup
+and rollback. A CLI source change or removal cannot make a valid copied Service
+corrupt; a changed installed artifact still requires repair. Read errors remain
+errors rather than being accepted as a successful integrity check. Existing
+version, lane, owner, and runtime-contract checks remain independent.
+
+Managed CLI cleanup retains the active binary Service's source version in
+addition to the CLI current and rollback versions and pending update/worker
+references. Retention ends when the active Service no longer references that
+version. This does not change the current coupled release target or authorize
+skipping a Service update selected by the release policy.
+
 The binary update worker runs from a stable lane-owned carrier, not from a
 version directory. A self-contained npm update worker uses a stable lane-owned
 launcher that imports one verified bundle. Successful Service verification may
