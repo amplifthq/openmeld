@@ -26,6 +26,8 @@ import { toast } from "sonner";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAppSettings } from "#/components/settings/use-app-settings";
+import { DesktopSignOutMenuItem } from "#/desktop/desktop-account-actions";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
 import {
 	AccountsSwitcherView,
@@ -62,10 +64,14 @@ export function AppSidebarFooter({
 	const openSettings = useAppSettings();
 	const { dismiss, presentation } = useAppNavigationPresentation();
 	const logout = useLogoutAction();
+	const desktop = getDesktopPlatform();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const invitationEntry = useOrganizationInviteEntry(() => setMenuOpen(false));
 	const [showAccounts, setShowAccounts] = useState(false);
-	const accounts = useAccountSwitcher(account, menuOpen && showAccounts);
+	const accounts = useAccountSwitcher(
+		account,
+		!desktop && menuOpen && showAccounts
+	);
 	const { resolvedTheme, setTheme } = useTheme();
 	const dark = resolvedTheme === "dark";
 	const openAccount = () => {
@@ -143,7 +149,7 @@ export function AppSidebarFooter({
 				className={iconOnly ? "w-9" : "min-w-0 flex-1"}
 				iconOnly={iconOnly}
 				menu={
-					showAccounts ? (
+					showAccounts && !desktop ? (
 						<AccountsSwitcherView
 							{...accounts}
 							account={account}
@@ -164,7 +170,9 @@ export function AppSidebarFooter({
 								className="gap-2 py-2"
 								closeOnClick={false}
 								index={0}
-								onClick={() => setShowAccounts(true)}
+								onClick={() =>
+									desktop ? openAccount() : setShowAccounts(true)
+								}
 							>
 								{avatar}
 								<span className="min-w-0 flex-1 text-left">
@@ -194,22 +202,28 @@ export function AppSidebarFooter({
 								<GearSixIcon />
 								Settings
 							</FluidDropdownMenuItem>
-							<FluidDropdownMenuItem
-								disabled={logout.isPending}
-								index={invitationEntry.nextMenuIndex + 2}
-								onClick={() => {
-									logout.mutate(undefined, {
-										onSuccess: () => window.location.assign("/"),
-										onError: (error) =>
-											toast.error(
-												error.message || "Unable to log out. Try again."
-											),
-									});
-								}}
-							>
-								<SignOutIcon />
-								Log out
-							</FluidDropdownMenuItem>
+							{desktop ? (
+								<DesktopSignOutMenuItem
+									index={invitationEntry.nextMenuIndex + 2}
+								/>
+							) : (
+								<FluidDropdownMenuItem
+									disabled={logout.isPending}
+									index={invitationEntry.nextMenuIndex + 2}
+									onClick={() => {
+										logout.mutate(undefined, {
+											onSuccess: () => window.location.assign("/"),
+											onError: (error) =>
+												toast.error(
+													error.message || "Unable to log out. Try again."
+												),
+										});
+									}}
+								>
+									<SignOutIcon />
+									Log out
+								</FluidDropdownMenuItem>
+							)}
 						</>
 					)
 				}

@@ -17,6 +17,7 @@ import type {
 	AccountAvatarResponse,
 	UpdateAccountDisplayNameResponse,
 } from "@openmeld/schemas/types";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { openMeldAuthClient } from "#/lib/auth-client";
 import type {
 	AuthAccount,
@@ -27,6 +28,7 @@ import type {
 	AuthSessionRecord,
 } from "#/lib/auth-client-types";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
+import { getSession as getServerSession } from "#/lib/auth-session";
 import { requestAuthEndpoint, resolveClientResult } from "#/lib/auth-transport";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import {
@@ -94,6 +96,15 @@ function throwAuthError(
 }
 
 export async function getSession(): Promise<AuthSession | null> {
+	if (getDesktopPlatform()) {
+		return getServerSession({
+			data: {
+				routeFamily: "desktop-session",
+				currentUserSessionExpectation: "optional",
+				sessionCacheMode: "bypass",
+			},
+		});
+	}
 	const response = await resolveClientResult<AuthSession | null>(
 		() =>
 			openMeldAuthClient.getSession({
