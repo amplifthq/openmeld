@@ -33,7 +33,11 @@ export function useSpaceHistoryNavigation(input: {
 			const anchor = input.liveEnvelopes.findIndex(
 				(item) => item.id === saved?.anchorSignalId
 			);
-			if (anchor >= 0 && anchor < input.liveEnvelopes.length - 60) {
+			if (
+				window?.identity !== identity &&
+				anchor >= 0 &&
+				anchor < input.liveEnvelopes.length - 60
+			) {
 				setWindow({
 					identity,
 					envelopes: input.liveEnvelopes.slice(
@@ -44,7 +48,7 @@ export function useSpaceHistoryNavigation(input: {
 					hasBefore: true,
 					hasAfter: true,
 				});
-			} else {
+			} else if (window?.identity !== identity) {
 				setWindow(null);
 			}
 		}
