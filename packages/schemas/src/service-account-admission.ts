@@ -1,5 +1,8 @@
 import * as z from "zod/v4";
 
+export const SERVICE_ACCOUNT_STOP_REFUSED_CODE =
+  "service.account_admission.stop_refused" as const;
+
 export const serviceAccountControlRequestSchema = z.strictObject({
   operation: z.enum(["start", "stop"]),
   expectedAccount: z.string().trim().min(1),
@@ -32,6 +35,12 @@ export const serviceAccountAdmissionSchema = z.strictObject({
   requester: processIdentitySchema,
   target: processIdentitySchema.optional(),
   carrier: processIdentitySchema.optional(),
+  startupReceipt: z
+    .strictObject({
+      id: z.uuid(),
+      contractBinding: z.string().regex(/^[a-f0-9]{64}$/),
+    })
+    .optional(),
 });
 
 export type ServiceAccountAdmissionIdentity = z.infer<

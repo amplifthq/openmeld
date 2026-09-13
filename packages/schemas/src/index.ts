@@ -194,6 +194,7 @@ export {
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
+  SERVICE_ACCOUNT_STOP_REFUSED_CODE,
   type ServiceAccountAdmission,
   type ServiceAccountAdmissionIdentity,
   type ServiceAccountControlRequest,

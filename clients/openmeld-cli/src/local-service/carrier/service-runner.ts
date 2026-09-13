@@ -54,6 +54,7 @@ import {
   resolveOpenMeldProfileOrNull,
 } from "../../config/resolve-openmeld-profile";
 import { getConfiguredDaemonDispatchLimits } from "../../config/runtime-config";
+import { ServiceAccountAdmissionError } from "../../config/service-account-admission";
 import type { Presenter } from "../../runtime/presenter";
 import type { WsClient } from "../../transport/ws";
 import { connectWebSocket } from "../../transport/ws";
@@ -475,60 +476,95 @@ export function createControlledShutdownCoordinator(input: {
       gracePeriodMs: number;
       mode: "force" | "graceful";
     }> {
-      const stopCause = await resolveRecentDaemonSignalStopCause();
-      if (shutdownAttempt) {
-        const existingAttempt = shutdownAttempt;
-        await payload.onAdmission?.(() => undefined);
-        await existingAttempt.promise;
-      } else if (activeSessionShutdownResolver) {
-        const currentAttempt = Promise.withResolvers<void>();
-        const resolver = activeSessionShutdownResolver;
-        const commit = () => {
-          if (shutdownAttempt || activeSessionShutdownResolver !== resolver) {
-            throw new Error("Service session changed before Stop admission.");
+      return await withControlledStopRefusalProof({
+        guarded: payload.onAdmission !== undefined,
+        isStopping: () => shutdownAttempt !== null || input.isStopRequested(),
+        run: async (markCommitted) => {
+          const stopCause = await resolveRecentDaemonSignalStopCause();
+          if (shutdownAttempt) {
+            markCommitted();
+            const existingAttempt = shutdownAttempt;
+            await payload.onAdmission?.(() => undefined);
+            await existingAttempt.promise;
+          } else if (activeSessionShutdownResolver) {
+            const currentAttempt = Promise.withResolvers<void>();
+            const clearAttempt = () => {
+              if (shutdownAttempt === currentAttempt) {
+                shutdownAttempt = null;
+              }
+            };
+            // Admission acknowledgement can fail after commit. The original
+            // drain still owns completion and must retain its rejection handler.
+            currentAttempt.promise.then(clearAttempt, clearAttempt);
+            const resolver = activeSessionShutdownResolver;
+            const commit = () => {
+              if (
+                shutdownAttempt ||
+                activeSessionShutdownResolver !== resolver
+              ) {
+                throw new Error(
+                  "Service session changed before Stop admission."
+                );
+              }
+              markCommitted();
+              shutdownAttempt = currentAttempt;
+              resolver(stopCause);
+            };
+            await (payload.onAdmission ?? commitControlledStop)(commit);
+            await currentAttempt.promise;
+          } else {
+            if (input.hasUndrainedWork()) {
+              throw new DaemonServiceRunError({
+                code: "daemon.control.shutdown_drain_unavailable",
+                message:
+                  "controlled shutdown cannot verify active local work without a connected runtime session",
+              });
+            }
+            const commit = () => {
+              if (activeSessionShutdownResolver || input.hasUndrainedWork()) {
+                throw new Error("Service work changed before Stop admission.");
+              }
+              markCommitted();
+              requestServiceStop(stopCause);
+            };
+            await (payload.onAdmission ?? commitControlledStop)(commit);
           }
-          shutdownAttempt = currentAttempt;
-          resolver(stopCause);
-        };
-        if (payload.onAdmission) {
-          await payload.onAdmission(commit);
-        } else {
-          commit();
-        }
-        try {
-          await currentAttempt.promise;
-        } finally {
-          if (shutdownAttempt === currentAttempt) {
-            shutdownAttempt = null;
-          }
-        }
-      } else {
-        if (input.hasUndrainedWork()) {
-          throw new DaemonServiceRunError({
-            code: "daemon.control.shutdown_drain_unavailable",
-            message:
-              "controlled shutdown cannot verify active local work without a connected runtime session",
-          });
-        }
-        const commit = () => {
-          if (activeSessionShutdownResolver || input.hasUndrainedWork()) {
-            throw new Error("Service work changed before Stop admission.");
-          }
-          requestServiceStop(stopCause);
-        };
-        if (payload.onAdmission) {
-          await payload.onAdmission(commit);
-        } else {
-          commit();
-        }
-      }
-      return {
-        accepted: true,
-        gracePeriodMs: payload.gracePeriodMs,
-        mode: payload.mode,
-      };
+          return {
+            accepted: true as const,
+            gracePeriodMs: payload.gracePeriodMs,
+            mode: payload.mode,
+          };
+        },
+      });
     },
   };
+}
+
+function commitControlledStop(commit: () => void): void {
+  commit();
+}
+
+async function withControlledStopRefusalProof<T>(input: {
+  guarded: boolean;
+  isStopping: () => boolean;
+  run: (markCommitted: () => void) => Promise<T>;
+}): Promise<T> {
+  let committed = input.isStopping();
+  try {
+    return await input.run(() => {
+      committed = true;
+    });
+  } catch (error) {
+    // Only the existing stop coordinator can prove that its commit never
+    // happened. A missing acknowledgement or a pending disk record cannot.
+    if (input.guarded && !committed && !input.isStopping()) {
+      throw new ServiceAccountAdmissionError(
+        "stop_refused",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    throw error;
+  }
 }
 
 function hasUndrainedLocalWork(input: {

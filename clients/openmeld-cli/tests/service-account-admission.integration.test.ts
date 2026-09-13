@@ -1,9 +1,14 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { once } from "node:events";
+import { chmodSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { runServiceAccountControl } from "../src/commands/service-account-control";
+import {
+  requestAccountCheckedServiceStop,
+  runServiceAccountControl,
+} from "../src/commands/service-account-control";
 import {
   clearAuthSession,
   getAuthSession,
@@ -15,6 +20,8 @@ import {
   readDaemonServiceContract,
   upsertDaemonServiceContract,
 } from "../src/config/daemon-service-contract";
+import { ensureDaemonControlPlaneToken } from "../src/config/daemon-state";
+import { openMeldRootDir } from "../src/config/paths";
 import { buildRequestAuthHeaders } from "../src/config/request-headers";
 import {
   cancelServiceAccountAdmission,
@@ -22,6 +29,7 @@ import {
   reserveServiceAccountAdmission,
 } from "../src/config/service-account-admission";
 import { createControlledShutdownCoordinator } from "../src/local-service/carrier/service-runner";
+import { startLocalDaemonControlPlaneServer } from "../src/local-service/control-plane/server";
 import {
   admitServiceAccountStop,
   resolveServiceAccountIdentity,
@@ -49,6 +57,33 @@ const admissionModule = new URL(
   "../src/config/service-account-admission.ts",
   import.meta.url
 ).href;
+
+async function launchCarrier(
+  id: string,
+  loseAcknowledgement = false
+): Promise<string> {
+  const result = await promisify(execFile)(
+    process.execPath,
+    [
+      "--import",
+      loader,
+      "--input-type=module",
+      "--eval",
+      `
+    import { runServiceAccountCarrier } from ${JSON.stringify(new URL("../src/local-service/lifecycle/service-account-authorization.ts", import.meta.url).href)};
+    import { getAuthSession } from ${JSON.stringify(authModule)};
+    try {
+      await runServiceAccountCarrier(${JSON.stringify(id)}, async () => {
+        if (${String(loseAcknowledgement)}) process.exit(42);
+        console.log((await getAuthSession()).user.id);
+      });
+    } catch (error) { console.log(error.code ?? error.message); }
+  `,
+    ],
+    { env: process.env, timeout: 10_000 }
+  );
+  return result.stdout.trim();
+}
 
 async function signIn(account: string): Promise<void> {
   await setAuthSession({
@@ -118,6 +153,208 @@ function launch(script: string) {
 }
 
 describe("Service account admission across processes", () => {
+  it.each([
+    false,
+    true,
+  ])("retains a bounded restart receipt across a cancelled Stop (lost acknowledgement: %s)", async (lostAck) => {
+    await withTempHome(async () => {
+      const connected = await connectedService();
+      const contract = await upsertDaemonServiceContract({
+        ...connected.contract,
+        desiredState: "background",
+      });
+      const identity = await resolveServiceAccountIdentity(
+        connected.session,
+        contract
+      );
+      const start = await withAuthSessionTransitionMutationLock(() =>
+        reserveServiceAccountAdmission({ operation: "start", identity })
+      );
+      if (lostAck) {
+        await expect(launchCarrier(start.id, true)).rejects.toMatchObject({
+          code: 42,
+        });
+      } else {
+        expect(await launchCarrier(start.id)).toBe("A");
+      }
+      const receipt = (await readServiceAccountAdmission())?.startupReceipt;
+      expect(receipt?.id).toBe(start.id);
+      const stop = await withAuthSessionTransitionMutationLock(() =>
+        reserveServiceAccountAdmission({ operation: "stop", identity })
+      );
+      await cancelServiceAccountAdmission(stop.id);
+      expect((await readServiceAccountAdmission())?.startupReceipt).toEqual(
+        receipt
+      );
+      expect(await launchCarrier(start.id)).toBe("A");
+      expect((await readServiceAccountAdmission())?.id).toBe(stop.id);
+      await signIn("B");
+      expect(await launchCarrier(start.id)).toBe(
+        "service.account_admission.ownership_mismatch"
+      );
+      await signIn("A");
+      await upsertDaemonServiceContract({
+        ...contract,
+        heartbeatMs: contract.heartbeatMs + 1,
+      });
+      expect(await launchCarrier(start.id)).toBe(
+        "service.account_admission.cancelled"
+      );
+      const current = await readDaemonServiceContract();
+      if (!current) {
+        throw new Error("missing fixture contract");
+      }
+      const pending = await withAuthSessionTransitionMutationLock(async () =>
+        reserveServiceAccountAdmission({
+          operation: "start",
+          identity: await resolveServiceAccountIdentity(
+            connected.session,
+            current
+          ),
+        })
+      );
+      await cancelServiceAccountAdmission(pending.id);
+      expect(await launchCarrier(pending.id)).toBe(
+        "service.account_admission.cancelled"
+      );
+    });
+  });
+
+  it.each([
+    "refused",
+    "commit_write_failure",
+    "drain_failure",
+  ] as const)("restores autostart only on positive Stop refusal: %s", async (outcome) => {
+    await withTempHome(async () => {
+      const connected = await connectedService();
+      const contract = await upsertDaemonServiceContract({
+        ...connected.contract,
+        desiredState: "background",
+      });
+      const identity = await resolveServiceAccountIdentity(
+        connected.session,
+        contract
+      );
+      const start = await withAuthSessionTransitionMutationLock(() =>
+        reserveServiceAccountAdmission({ operation: "start", identity })
+      );
+      expect(await launchCarrier(start.id)).toBe("A");
+      await writeDaemonRuntimeLease({
+        schema: "openmeld-daemon-runtime-lease-v1",
+        v: 1,
+        generation: contract.generation,
+        bundleId: contract.bundleId,
+        pid: process.pid,
+        mode: "background",
+        startedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        heartbeatAt: null,
+        serviceController: "legacy-detached",
+        managedBySystemService: false,
+      });
+      const stop = await withAuthSessionTransitionMutationLock(() =>
+        reserveServiceAccountAdmission({
+          operation: "stop",
+          identity,
+          target: {
+            ownerPid: process.pid,
+            ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
+          },
+        })
+      );
+      let stopping = false;
+      let committed = false;
+      let enabled = true;
+      const authDirectory = join(openMeldRootDir(), "auth");
+      const coordinator = createControlledShutdownCoordinator({
+        hasUndrainedWork: () => false,
+        isStopRequested: () => stopping,
+        markStopping: () => {
+          committed = true;
+          stopping = true;
+          chmodSync(authDirectory, 0o500);
+        },
+      });
+      if (outcome === "drain_failure") {
+        coordinator.attachSession(() => {
+          committed = true;
+          queueMicrotask(() =>
+            coordinator.handleSessionFailure(
+              new Error("drain failed after commit")
+            )
+          );
+        });
+      }
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: await ensureDaemonControlPlaneToken(),
+        getContext: () => ({
+          healthPayload: {
+            checkedAt: new Date().toISOString(),
+            reasonCode: "ok",
+            runtimeState: "healthy",
+            state: "ok",
+          },
+          historyEntries: [],
+          statusPayload: {
+            checkedAt: new Date().toISOString(),
+            daemonVersion: "0.3.203",
+            installed: true,
+            running: true,
+            runtimeRoot: openMeldRootDir(),
+          },
+          shutdownHandler: (payload) =>
+            coordinator.request({
+              ...payload,
+              onAdmission: (commit) =>
+                admitServiceAccountStop({
+                  id: payload.accountAdmissionId ?? "",
+                  ownerUserId: outcome === "refused" ? "B" : "A",
+                  deviceId: contract.deviceId,
+                  contractGeneration: contract.generation,
+                  commit,
+                }),
+            }),
+        }),
+      });
+      try {
+        await expect(
+          requestAccountCheckedServiceStop({
+            id: stop.id,
+            manager: {
+              status: () =>
+                Promise.resolve({ installed: true, running: true, enabled }),
+              disableAutostart: () => {
+                enabled = false;
+                return Promise.resolve();
+              },
+              enableAutostart: () => {
+                enabled = true;
+                return Promise.resolve();
+              },
+            },
+          })
+        ).rejects.toMatchObject({
+          code:
+            outcome === "refused"
+              ? "service.account_admission.stop_refused"
+              : "service.account_admission.stop_unconfirmed",
+        });
+        expect(enabled).toBe(outcome === "refused");
+        expect(committed).toBe(outcome !== "refused");
+        expect(stopping).toBe(outcome === "commit_write_failure");
+        expect((await readServiceAccountAdmission())?.state).toBe(
+          outcome === "drain_failure" ? "admitted" : "pending"
+        );
+      } finally {
+        chmodSync(authDirectory, 0o700);
+        await server.close();
+      }
+      await cancelServiceAccountAdmission(stop.id);
+      if (outcome === "refused") {
+        expect(await launchCarrier(start.id)).toBe("A");
+      }
+    });
+  });
   async function connectedService() {
     process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
     process.env.OPENMELD_ENV_PRESET = "dev-local";

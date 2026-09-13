@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 import {
+  SERVICE_ACCOUNT_STOP_REFUSED_CODE,
   type ServiceAccountControlRequest,
   serviceAccountControlRequestSchema,
 } from "@openmeld/schemas";
@@ -22,10 +23,16 @@ import {
   reserveServiceAccountAdmission,
   ServiceAccountAdmissionError,
 } from "../config/service-account-admission";
-import { requestLocalDaemonShutdown } from "../local-service/control-plane/client";
+import {
+  LocalDaemonControlPlaneClientError,
+  requestLocalDaemonShutdown,
+} from "../local-service/control-plane/client";
 import { CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS } from "../local-service/core/constants";
 import { buildDaemonSystemServiceCommandSpec } from "../local-service/lifecycle/daemon-service-command-spec";
-import { resolveDaemonServiceManager } from "../local-service/lifecycle/daemon-service-manager";
+import {
+  type DaemonServiceManager,
+  resolveDaemonServiceManager,
+} from "../local-service/lifecycle/daemon-service-manager";
 import { readCurrentDaemonRuntimeContext } from "../local-service/lifecycle/daemon-service-runtime";
 import { resolveServiceAccountIdentity } from "../local-service/lifecycle/service-account-authorization";
 import { resolveRuntimeContext } from "../runtime/context";
@@ -251,39 +258,7 @@ async function stopReservedService(
     contract.serviceController === "legacy-detached"
       ? null
       : await resolveDaemonServiceManager(contract.serviceController);
-  const wasEnabled = manager ? (await manager.status()).enabled : false;
-  if (manager) {
-    await manager.disableAutostart();
-  }
-  // No compatibility fallback: only the verified carrier may admit this stop.
-  try {
-    await requestLocalDaemonShutdown({
-      payload: {
-        accountAdmissionId: id,
-        mode: "graceful",
-        gracePeriodMs: 2000,
-      },
-      timeoutMs: CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS,
-    });
-  } catch (error) {
-    const admission = await readServiceAccountAdmission();
-    if (
-      manager &&
-      wasEnabled &&
-      admission?.id === id &&
-      admission.state === "pending"
-    ) {
-      try {
-        await manager.enableAutostart();
-      } catch (restoreError) {
-        throw new AggregateError(
-          [error, restoreError],
-          "Stop was refused and its previous autostart setting could not be restored."
-        );
-      }
-    }
-    throw error;
-  }
+  await requestAccountCheckedServiceStop({ id, manager });
   const admitted = await readServiceAccountAdmission();
   if (
     admitted?.id !== id ||
@@ -303,4 +278,60 @@ async function stopReservedService(
     );
   }
   await runDaemonStop({ json: true, view: "agent" });
+}
+
+export async function requestAccountCheckedServiceStop({
+  id,
+  manager,
+}: {
+  id: string;
+  manager: Pick<
+    DaemonServiceManager,
+    "status" | "disableAutostart" | "enableAutostart"
+  > | null;
+}): Promise<void> {
+  const wasEnabled = manager ? (await manager.status()).enabled : false;
+  if (manager) {
+    await manager.disableAutostart();
+  }
+  // No compatibility fallback: only the verified carrier may admit this stop.
+  try {
+    await requestLocalDaemonShutdown({
+      payload: {
+        accountAdmissionId: id,
+        mode: "graceful",
+        gracePeriodMs: 2000,
+      },
+      timeoutMs: CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS,
+    });
+  } catch (error) {
+    if (
+      manager &&
+      wasEnabled &&
+      error instanceof LocalDaemonControlPlaneClientError &&
+      error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE
+    ) {
+      try {
+        await manager.enableAutostart();
+      } catch (restoreError) {
+        throw new AggregateError(
+          [error, restoreError],
+          "Stop was refused and its previous autostart setting could not be restored."
+        );
+      }
+    }
+    if (
+      !(
+        error instanceof LocalDaemonControlPlaneClientError &&
+        error.code === SERVICE_ACCOUNT_STOP_REFUSED_CODE
+      )
+    ) {
+      const detail = error instanceof Error ? error.message : String(error);
+      refused(
+        "stop_unconfirmed",
+        `Stop may already be in progress. ${manager ? "Autostart remains disabled. " : ""}Check Service status before trying again. ${detail}`
+      );
+    }
+    throw error;
+  }
 }

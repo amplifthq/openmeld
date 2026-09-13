@@ -45,15 +45,30 @@ existing paths; the pilot cannot target production or a Vite dev registry.
 `packages/schemas/src/service-account-admission.ts` owns the expected-account
 request and local admission record. The authenticated local shutdown payload
 has an optional `accountAdmissionId`; ordinary shutdown requests are unchanged.
+The unpublished admission shape contains one current command and at most one
+accepted-start receipt referencing current canonical facts. Later reservations
+preserve that receipt. The established strict Service v1 file stays unchanged,
+so its older readers do not interpret a new field as a missing contract.
 The Service contract, Gateway transport, Prepare, Wake dispatch, Space actions,
 status, and trace schemas are unchanged. New CLI/carrier pairs support the
 opt-in operation; older carriers reject its unknown startup argument or strict
 shutdown field. Callers must surface that refusal and must not retry unguarded.
 
-This additive capability does not require a cloud deployment or force existing
-Services to update. Existing cloud/local setup and Wake work can continue in
-either version direction. A later Desktop caller must require the capable CLI
-and carrier before exposing controls. The pilot gate remains closed. The
+Cloud-facing contracts are unchanged in both directions. Updated local writers
+honor the pending reservation; older CLI writers do not implement that guard.
+The updated carrier's final auth-mutex identity check still refuses a mismatched
+account before admission. Older CLIs/carriers do not implement the new guarded
+operation and cannot be treated as capable from a preceding status read. The
+updated Service also binds credentials for ordinary carrier execution, not only
+opt-in commands; same-account renewal and setup candidate visibility retain
+their existing owners.
+
+Only an explicit pre-commit coordinator refusal permits Stop autostart rollback.
+Generic transport/persistence errors, including unsupported-carrier errors,
+remain uncertain and keep autostart disabled. The CLI reports that partial
+outcome. A later Desktop caller must require the capable CLI and carrier before
+exposing controls. No cloud deployment or global local-file-reader floor is
+introduced for this opt-in capability. The pilot gate remains closed. The
 release is deferred to the normal clean-main local-component release; no
 contract epoch, command-contract floor, or feature-branch manifest stamp is
 introduced. See the

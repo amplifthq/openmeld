@@ -64,7 +64,7 @@ export async function runServiceAccountCarrier<T>(
   const session = await withAuthSessionTransitionMutationLock(async () => {
     const local = await readServiceAdmissionSessionWithOwnership();
     const contract = await readDaemonServiceContract();
-    if (!contract) {
+    if (!contract || contract.desiredState !== "background") {
       refused(
         "cancelled",
         "This Service startup is no longer authorized. Start the Service again from the matching account."

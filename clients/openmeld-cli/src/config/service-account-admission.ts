@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -88,6 +88,7 @@ export async function reserveServiceAccountAdmission(input: {
   target?: ServiceAccountAdmission["target"];
 }): Promise<ServiceAccountAdmission> {
   await assertServiceAccountAdmissionMutationAvailable();
+  const previous = await readServiceAccountAdmission();
   if (!CURRENT_PROCESS_START_IDENTITY.startsWith("ps:")) {
     throw new ServiceAccountAdmissionError(
       "unknown",
@@ -105,6 +106,9 @@ export async function reserveServiceAccountAdmission(input: {
       ownerPid: process.pid,
       ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
     },
+    ...(previous?.startupReceipt
+      ? { startupReceipt: previous.startupReceipt }
+      : {}),
   };
   await writeAdmission(reservation);
   return reservation;
@@ -127,19 +131,24 @@ export async function admitServiceAccountOperation(input: {
   commit?: () => void;
 }): Promise<void> {
   const current = await readServiceAccountAdmission();
-  const restartingAdmittedCarrier =
-    current?.operation === "start" &&
-    current.state === "admitted" &&
-    current.carrier &&
-    !isProcessIdentityAlive(current.carrier);
+  const contractBinding = bindServiceAccountIdentity(input.identity);
+  if (
+    input.operation === "start" &&
+    current?.startupReceipt?.id === input.id &&
+    current.startupReceipt.contractBinding === contractBinding
+  ) {
+    // A receipt never changes the latest command or its auth reservation.
+    // Current contract identity is checked by the carrier before this call;
+    // ordinary runtime ownership still prevents two active Service instances.
+    return;
+  }
   if (
     !current ||
     current.id !== input.id ||
     current.operation !== input.operation ||
-    (!restartingAdmittedCarrier &&
-      (current.state !== "pending" ||
-        readProcessStartIdentity(current.requester.ownerPid) !==
-          current.requester.ownerProcessStartedAt)) ||
+    current.state !== "pending" ||
+    readProcessStartIdentity(current.requester.ownerPid) !==
+      current.requester.ownerProcessStartedAt ||
     (current.target !== undefined &&
       (current.target.ownerPid !== process.pid ||
         current.target.ownerProcessStartedAt !==
@@ -159,5 +168,26 @@ export async function admitServiceAccountOperation(input: {
       ownerPid: process.pid,
       ownerProcessStartedAt: CURRENT_PROCESS_START_IDENTITY,
     },
+    ...(input.operation === "start"
+      ? { startupReceipt: { id: input.id, contractBinding } }
+      : {}),
   });
+}
+
+function bindServiceAccountIdentity(
+  identity: ServiceAccountAdmissionIdentity
+): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify([
+        identity.accountId,
+        identity.authBaseUrl,
+        identity.clientId,
+        identity.gatewayUrl,
+        identity.lane,
+        identity.deviceId,
+        identity.contractGeneration,
+      ])
+    )
+    .digest("hex");
 }

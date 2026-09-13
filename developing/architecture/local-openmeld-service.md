@@ -1913,18 +1913,43 @@ connected-computer ownership, and contract generation under the auth mutation
 mutex. The lock order is lifecycle then auth; no OS command, startup wait, or
 work drain holds the auth mutex.
 
-The auth-owned `auth/service-account-admission.json` record reserves that short
-admission interval. Credential writers and transition recovery reject a live
-pending reservation. Dead requesters produce a durable cancelled generation,
-never deletion that could authorize a delayed carrier. Startup passes only the
-record ID in argv; the carrier checks its actual identity and generation before
-running and binds its credential context. Stop uses the existing authenticated
-shutdown payload and releases auth protection when the exact carrier accepts
-the existing controlled stop. Its original response still waits for drain.
+The auth-owned `auth/service-account-admission.json` file contains the current
+command reservation/outcome and at most one receipt of an accepted Start.
+Updated credential writers and transition recovery reject a live pending
+reservation. Dead requesters produce a durable cancelled command, never deletion
+that could authorize a delayed child. Reserving or cancelling another command
+preserves the accepted-start receipt. Only successful Start admission replaces
+it, atomically with its outcome under the same auth mutex.
+
+The receipt contains the immutable Start ID and a digest binding it to the
+canonical account, Auth authority/client, Gateway, lane, device, and Service
+contract generation. It is evidence of past authorization, not an identity
+store or current Service state. Startup passes its ID in argv. The carrier must
+match the current auth and canonical Service facts, including background desired
+state, before using that receipt. Existing runtime ownership still prevents two
+active Services. Changed canonical facts invalidate the receipt on read, without
+requiring older contract writers to maintain it. A cancelled or unadmitted Start
+ID never receives restart permission. A later refused/cancelled Stop cannot erase
+an earlier accepted Start; a lost startup acknowledgement can recover from its
+durable receipt. Supervisor disabled state and normal stopped desired state
+continue to prevent a stopped Service from restarting.
+
+Stop uses the existing authenticated shutdown payload and releases auth
+protection when the exact carrier accepts the existing controlled stop. Its
+original response still waits for drain. Commit can precede outcome persistence:
+a pending record therefore does not prove refusal. Only the coordinator's
+explicit `service.account_admission.stop_refused` response proves pre-commit
+refusal and permits restoring the previous autostart preference. Once commit
+has been reached, a persistence, drain, or transport failure is uncertain;
+autostart remains disabled and the CLI reports `stop_unconfirmed` with the
+underlying diagnostic. The existing coordinator retains drain completion/error
+handling even if admission acknowledgement fails. No separate Stop machine is
+introduced.
 The CLI keeps lifecycle ownership through completion; it never falls back to
 unverified stop or another PID. Account changes after admission cannot retarget
-accepted work. A cancelled, replaced, corrupt, or unsupported generation fails
-closed. An older carrier rejects the new argv or shutdown field.
+accepted work. A cancelled unadmitted ID, mismatched binding, corrupt record,
+or unsupported carrier fails closed. An older carrier rejects the new argv or
+shutdown field; that is not a positive coordinator refusal receipt.
 
 This record owns only local operation admission. It adds no Wakeability,
 RuntimeCoordinator, dispatch, Binding, or final-outcome authority. The persisted
