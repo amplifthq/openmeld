@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-13T04:15:40.204Z",
+  "updatedAt": "2026-09-13T12:04:40.249Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.201",
+      "packageVersion": "0.3.202",
       "updatePolicy": "available",
-      "reason": "Hosted reply recovery preserves existing CLI setup, Wake, Space action and diagnostic commands across both cloud versions."
+      "reason": "Existing CLI commands and cloud contracts remain compatible; this release corrects installed artifact selection without changing command eligibility."
     },
     "service": {
-      "bundleHash": "78f11342a03454477f0c3438d11680523aad78c661137aa72d379f4fdfac1cb1",
-      "bundleVersion": "0.3.201",
+      "bundleHash": "35356c676636a27129557a90717e8eb4848302f045d8b608de9a6d2aca886855",
+      "bundleVersion": "0.3.202",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Shared schemas change the bundle fingerprint without changing Runtime Transport or execution leases; existing Services remain compatible with old and new cloud deployments."
+      "reason": "Existing Services can safely continue Wake execution with old and new cloud code; artifact integrity and update ownership improve without changing Runtime Transport or execution authority."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
