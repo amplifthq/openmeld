@@ -22,6 +22,61 @@ const TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const OTHER_TARGET_PROFILE_ID = "agt_44444444-4444-4444-8444-444444444444";
 
 describe("Wake progress projection", () => {
+  it.each([
+    AGENT_REPLYING_PURPOSE,
+    AGENT_REPLY_PREVIEW_PURPOSE,
+  ])("keeps Core Stop eligibility while applying %s presentation updates", (purpose) => {
+    const current = createWakeProgressItem({
+      clientMessageId: "client-message-1",
+      dispatchId: "dispatch-1",
+      phase: "running",
+      sourceSignalId: "sig-source-1",
+      targetLabel: "Center Agent",
+      targetProfileId: TARGET_PROFILE_ID,
+      updatedAtMs: 10,
+      wakeStopEligibility: {
+        controlMode: "cancel",
+        reasonCode: null,
+        reliability: "native_cancel",
+        status: "eligible",
+      },
+    });
+    const signal = createTextSignal({
+      id: "progress-1",
+      ts: 20,
+      text: "Working",
+      meta: {
+        dispatchId: "dispatch-1",
+        purpose,
+        sourceClientMessageId: "client-message-1",
+        sourceEventId: "sig-source-1",
+        targetProfileId: TARGET_PROFILE_ID,
+        transient: true,
+      },
+    });
+    const items = applyWakeProgressSignals({
+      currentItems: [current],
+      signals: [signal],
+    });
+    expect(items[0]?.wakeStopEligibility).toEqual(current.wakeStopEligibility);
+    expect(
+      applyWakeProgressSignals({ currentItems: [], signals: [signal] })[0]
+        ?.wakeStopEligibility
+    ).toBeUndefined();
+    const revoked = mergeWakeProgressItems({
+      currentItems: items,
+      incomingItems: [
+        { ...current, updatedAtMs: 30, wakeStopEligibility: null },
+      ],
+    });
+    expect(
+      applyWakeProgressSignals({
+        currentItems: revoked,
+        signals: [{ ...signal, ts: 40 }],
+      })[0]?.wakeStopEligibility
+    ).toBeNull();
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(1000);

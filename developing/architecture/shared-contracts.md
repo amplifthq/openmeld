@@ -4662,6 +4662,12 @@ Wake appear stoppable only when Core can project one of four control modes:
 - Remote Agent native-delivery Stop, for one active hosted submission whose
   durable execution identity can be cancelled through the Remote Agent worker.
 
+Transient thinking and preview signals update presentation only. They preserve
+an already-read viewer-scoped Stop projection for the same active dispatch and
+target; they never create eligibility or carry it to another execution. A full
+Core snapshot still replaces the projection, including null or omitted
+eligibility. The Stop mutation always rechecks current authorization and control.
+
 Pre-agent and Remote Agent native-delivery Stop responses may succeed without a
 `runtimeCoordinatorExecutionId`; the response must still carry an explicit
 `stopMode`, and stopped progress must come from Core/RuntimeCoordinator or the
