@@ -1,5 +1,10 @@
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
+import type { IpcMainInvokeEvent } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
+
+vi.mock("../src/main/pilot", () => ({ initializeDesktopPilot: () => null }));
 
 const electronMock = vi.hoisted(() => {
   const desktopVersion = "0.1.0-preview.0";
@@ -16,6 +21,8 @@ const electronMock = vi.hoisted(() => {
     options: Record<string, unknown> | undefined;
     setSize: ReturnType<typeof vi.fn>;
     webContents: {
+      mainFrame: { url: string };
+      isDestroyed: () => boolean;
       on: ReturnType<typeof vi.fn>;
       send: ReturnType<typeof vi.fn>;
       setWindowOpenHandler: ReturnType<typeof vi.fn>;
@@ -25,6 +32,12 @@ const electronMock = vi.hoisted(() => {
 
   class MockBrowserWindow {
     webContents = {
+      mainFrame: {
+        url: pathToFileURL(
+          resolve(import.meta.dirname, "../src/renderer/index.html")
+        ).href,
+      },
+      isDestroyed: () => false,
       on: vi.fn(),
       send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
@@ -40,7 +53,10 @@ const electronMock = vi.hoisted(() => {
     focus = vi.fn();
     hide = vi.fn();
     loadFile = vi.fn(() => Promise.resolve());
-    loadURL = vi.fn(() => Promise.resolve());
+    loadURL = vi.fn((url: string) => {
+      this.webContents.mainFrame.url = url;
+      return Promise.resolve();
+    });
     options: Record<string, unknown> | undefined;
 
     constructor(options?: Record<string, unknown>) {
@@ -258,6 +274,7 @@ beforeEach(() => {
   electronMock.app.setAboutPanelOptions.mockClear();
   electronMock.app.setName.mockClear();
   electronMock.app.whenReady.mockClear();
+  electronMock.ipcMain.handle.mockClear();
   electronMock.dialog.showErrorBox.mockClear();
   electronMock.dialog.showMessageBox.mockClear();
   electronMock.dialog.showMessageBox.mockResolvedValue({ response: 1 });
@@ -668,11 +685,22 @@ describe("main tray behavior", () => {
 
     const quitHandler = electronMock.ipcMain.handle.mock.calls.find(
       ([channel]) => channel === "window:quit-desktop"
-    )?.[1] as (() => void) | undefined;
+    )?.[1] as ((event: IpcMainInvokeEvent) => void) | undefined;
 
     expect(quitHandler).toBeDefined();
 
-    quitHandler?.();
+    const sender = electronMock.windowInstances[0]?.webContents;
+    expect(() =>
+      quitHandler?.({
+        sender,
+        senderFrame: null,
+      } as unknown as IpcMainInvokeEvent)
+    ).toThrow();
+    expect(electronMock.app.quit).not.toHaveBeenCalled();
+    quitHandler?.({
+      sender,
+      senderFrame: sender?.mainFrame,
+    } as unknown as IpcMainInvokeEvent);
 
     expect(electronMock.app.quit).toHaveBeenCalledTimes(1);
   });

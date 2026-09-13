@@ -23,6 +23,8 @@ import { AppearanceShapeProvider } from "#/components/appearance/appearance-shap
 import { GlobalThemeShortcut } from "#/components/global-theme-shortcut";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { Toaster } from "#/components/ui/sonner";
+import { beforeDesktopLoad } from "#/desktop/auth-boundary";
+import { DesktopFrame } from "#/desktop/desktop-frame";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
@@ -71,6 +73,8 @@ const THEME_BOOTSTRAP_SCRIPT = `(() => {
 const NOT_FOUND_LOGO_SCALE = 0.72;
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+	beforeLoad: ({ location, context }) =>
+		beforeDesktopLoad(location.pathname, location.href, context.queryClient),
 	headers: () => ({
 		"Cache-Control": "no-cache",
 	}),
@@ -208,7 +212,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 						<GlobalThemeShortcut />
 						<TooltipProvider>
 							<NuqsAdapter>
-								<ClientVersionRecovery>{children}</ClientVersionRecovery>
+								<DesktopFrame>
+									<ClientVersionRecovery>{children}</ClientVersionRecovery>
+								</DesktopFrame>
 							</NuqsAdapter>
 						</TooltipProvider>
 						<Toaster position="bottom-right" />

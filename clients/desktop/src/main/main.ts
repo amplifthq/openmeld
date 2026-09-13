@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   ArrowClockwiseIcon,
   DesktopIcon,
@@ -14,6 +15,7 @@ import {
   BrowserWindow,
   type BrowserWindowConstructorOptions,
   dialog,
+  type IpcMainInvokeEvent,
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
@@ -30,7 +32,10 @@ import {
 import type { CliProblem, ServiceView } from "../shared/view-types";
 import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
+import { initializeDesktopPilot } from "./pilot";
+import { readOnlyPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
+import { assertTrustedRenderer } from "./renderer-trust";
 import { readDesktopUpdateStatus } from "./update/desktop-update";
 
 // Keep the native window at the full Desktop workspace size from launch so the
@@ -58,6 +63,7 @@ let handlers: DesktopHandlers;
 let ipcDisposer: (() => void) | null = null;
 let isQuitting = false;
 let mainWindow: BrowserWindow | null = null;
+const pilot = initializeDesktopPilot(() => mainWindow);
 let tray: Tray | null = null;
 let latestServiceView: ServiceView | null = null;
 
@@ -86,6 +92,7 @@ function createMainWindow(
     backgroundColor: WINDOW_BACKGROUND,
     titleBarStyle: "hiddenInset",
     webPreferences: {
+      ...(pilot ? { session: pilot.getSession() } : {}),
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -97,6 +104,7 @@ function createMainWindow(
   }
 
   const window = new BrowserWindow(options);
+  pilot?.observeWindow(window.webContents);
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {
@@ -206,6 +214,26 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       ],
     }
   );
+  if (pilot?.diagnosticsEnabled) {
+    template.push({
+      label: "Developer",
+      submenu: [
+        {
+          label: "Reopen Developer Tools",
+          accelerator: "Alt+CommandOrControl+I",
+          click: () => {
+            const contents = mainWindow?.webContents;
+            if (!contents || contents.isDestroyed()) {
+              return;
+            }
+            // Recreate a closed/minimized inspector without reloading the app.
+            contents.closeDevTools();
+            contents.openDevTools({ mode: "detach", activate: true });
+          },
+        },
+      ],
+    });
+  }
   return template;
 }
 
@@ -215,12 +243,26 @@ function createAppIcon() {
 }
 
 async function loadRenderer(window: BrowserWindow): Promise<void> {
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  if (!app.isPackaged && rendererUrl) {
-    await window.loadURL(rendererUrl);
-    return;
+  await window.loadURL(resolveRendererUrl());
+}
+
+function resolveRendererUrl(): string {
+  if (pilot) {
+    return pilot.rendererUrl;
   }
-  await window.loadFile(join(import.meta.dirname, "../renderer/index.html"));
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+    return process.env.ELECTRON_RENDERER_URL;
+  }
+  return pathToFileURL(join(import.meta.dirname, "../renderer/index.html"))
+    .href;
+}
+
+function authorizeRenderer(event: IpcMainInvokeEvent): void {
+  assertTrustedRenderer(
+    event,
+    mainWindow?.webContents ?? null,
+    resolveRendererUrl()
+  );
 }
 
 function showStatusWindow(): void {
@@ -317,6 +359,9 @@ function updateTrayMenu(): void {
  * mirrors the GUI's per-state screens — we never show both Start and Stop.
  */
 function serviceMenuItems(): MenuItemConstructorOptions[] {
+  if (pilot) {
+    return [];
+  }
   const setupItem: MenuItemConstructorOptions = {
     icon: createTrayMenuIcon("setup"),
     label: resolveSetupComputerLabel(),
@@ -578,6 +623,7 @@ if (hasSingleInstanceLock) {
 function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
+      pilot?.install(authorizeRenderer);
       handlers = createDesktopHandlers({
         openExternal: shell.openExternal,
         desktopSettings: {
@@ -600,17 +646,23 @@ function bootstrapApp(): void {
         },
       });
       configureAppIdentity();
+      if (pilot) {
+        handlers = readOnlyPilotServiceHandlers(handlers);
+      }
       ipcDisposer = registerOpenMeldIpcHandlers(
-        createWindowIpcHandlers(handlers)
+        createWindowIpcHandlers(handlers),
+        authorizeRenderer
       );
       ipcMain.handle(WINDOW_IPC.enterApp, (event) => {
+        authorizeRenderer(event);
         const window = BrowserWindow.fromWebContents(event.sender);
         if (window && !window.isDestroyed()) {
           window.setSize(APP_WIDTH, APP_HEIGHT, true);
           window.center();
         }
       });
-      ipcMain.handle(WINDOW_IPC.quitDesktop, () => {
+      ipcMain.handle(WINDOW_IPC.quitDesktop, (event) => {
+        authorizeRenderer(event);
         quitDesktop();
       });
       createTray();
@@ -678,6 +730,7 @@ function createWindowIpcHandlers(
 }
 
 app.on("will-quit", () => {
+  pilot?.dispose();
   ipcDisposer?.();
   ipcDisposer = null;
   ipcMain.removeHandler(WINDOW_IPC.enterApp);

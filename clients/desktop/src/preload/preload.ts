@@ -1,3 +1,4 @@
+import { desktopSpaceStreamEventSchema } from "@openmeld/schemas";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import {
   type DesktopWindowDestination,
@@ -5,6 +6,7 @@ import {
   type OpenMeldBridge,
   WINDOW_IPC,
 } from "../shared/ipc-contract";
+import { type DesktopPilotBridge, PILOT_IPC } from "../shared/pilot-bridge";
 
 const openMeldBridge: OpenMeldBridge = {
   getAuthStatus: () => ipcRenderer.invoke(OPENMELD_IPC.getAuthStatus),
@@ -48,6 +50,32 @@ const openMeldBridge: OpenMeldBridge = {
 };
 
 contextBridge.exposeInMainWorld("openmeld", openMeldBridge);
+contextBridge.exposeInMainWorld("openmeldDesktop", {
+  platform: () => ipcRenderer.invoke(PILOT_IPC.platform),
+  session: () => ipcRenderer.invoke(PILOT_IPC.session),
+  signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),
+  signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
+  onSessionChanged: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on(PILOT_IPC.sessionChanged, listener);
+    return () => ipcRenderer.removeListener(PILOT_IPC.sessionChanged, listener);
+  },
+  spaceStreamOpen: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.spaceStreamOpen, input),
+  spaceStreamClose: (id) => ipcRenderer.invoke(PILOT_IPC.spaceStreamClose, id),
+  spaceStreamPing: (id) => ipcRenderer.invoke(PILOT_IPC.spaceStreamPing, id),
+  onSpaceStream: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const result = desktopSpaceStreamEventSchema.safeParse(value);
+      if (result.success) {
+        handler(result.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.spaceStreamEvent, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.spaceStreamEvent, listener);
+  },
+} satisfies DesktopPilotBridge);
 
 function isDesktopWindowDestination(
   value: unknown

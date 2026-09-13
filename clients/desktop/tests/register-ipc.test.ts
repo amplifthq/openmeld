@@ -40,28 +40,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     } satisfies AuthSignOutView;
     const signOutOnThisMac = vi.fn(() => Promise.resolve(signOutView));
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac,
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac,
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const signOutHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.signOutOnThisMac
@@ -80,28 +83,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     const updateService = vi.fn();
     const upgradeCli = vi.fn();
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli,
-      updateService,
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli,
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli,
+        updateService,
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli,
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const updateServiceHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.updateService
@@ -128,28 +134,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     );
     const openNodeDownloadPage = vi.fn(() => Promise.resolve());
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage,
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage,
+      },
+      vi.fn()
+    );
 
     const openHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.openNodeDownloadPage
@@ -166,28 +175,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     );
     const openWeb = vi.fn(() => Promise.resolve());
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb,
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb,
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const openHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.openWeb
@@ -226,28 +238,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     );
     const openDesktopDownloadPage = vi.fn(() => Promise.resolve());
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus,
-      openDesktopDownloadPage,
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus,
+        openDesktopDownloadPage,
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const statusHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.getDesktopUpdateStatus
@@ -269,28 +284,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     );
     const setAgentEnabled = vi.fn();
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled,
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled,
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const toggleHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.setAgentEnabled
@@ -321,28 +339,31 @@ describe("registerOpenMeldIpcHandlers", () => {
       Promise.resolve({ agents: [], problem: null })
     );
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled,
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled,
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const toggleHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.setAgentEnabled
@@ -365,28 +386,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     );
     const setOpenAtLogin = vi.fn();
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart: vi.fn(),
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin,
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart: vi.fn(),
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin,
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const settingsHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.setOpenAtLogin
@@ -407,28 +431,31 @@ describe("registerOpenMeldIpcHandlers", () => {
     );
     const setServiceAutoStart = vi.fn();
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart,
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart,
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const settingsHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.setServiceAutoStart
@@ -460,28 +487,31 @@ describe("registerOpenMeldIpcHandlers", () => {
       Promise.resolve({ service: serviceView, problem: null })
     );
 
-    registerOpenMeldIpcHandlers({
-      getAuthStatus: vi.fn(),
-      signIn: vi.fn(),
-      signOutOnThisMac: vi.fn(),
-      getServiceStatus: vi.fn(),
-      installService: vi.fn(),
-      installCli: vi.fn(),
-      updateService: vi.fn(),
-      startService: vi.fn(),
-      stopService: vi.fn(),
-      upgradeCli: vi.fn(),
-      setServiceAutoStart,
-      setupComputer: vi.fn(),
-      getAgents: vi.fn(),
-      setAgentEnabled: vi.fn(),
-      openWeb: vi.fn(),
-      getDesktopSettings: vi.fn(),
-      setOpenAtLogin: vi.fn(),
-      getDesktopUpdateStatus: vi.fn(),
-      openDesktopDownloadPage: vi.fn(),
-      openNodeDownloadPage: vi.fn(),
-    });
+    registerOpenMeldIpcHandlers(
+      {
+        getAuthStatus: vi.fn(),
+        signIn: vi.fn(),
+        signOutOnThisMac: vi.fn(),
+        getServiceStatus: vi.fn(),
+        installService: vi.fn(),
+        installCli: vi.fn(),
+        updateService: vi.fn(),
+        startService: vi.fn(),
+        stopService: vi.fn(),
+        upgradeCli: vi.fn(),
+        setServiceAutoStart,
+        setupComputer: vi.fn(),
+        getAgents: vi.fn(),
+        setAgentEnabled: vi.fn(),
+        openWeb: vi.fn(),
+        getDesktopSettings: vi.fn(),
+        setOpenAtLogin: vi.fn(),
+        getDesktopUpdateStatus: vi.fn(),
+        openDesktopDownloadPage: vi.fn(),
+        openNodeDownloadPage: vi.fn(),
+      },
+      vi.fn()
+    );
 
     const settingsHandler = handle.mock.calls.find(
       ([channel]) => channel === OPENMELD_IPC.setServiceAutoStart

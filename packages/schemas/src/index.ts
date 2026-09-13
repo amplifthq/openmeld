@@ -70,6 +70,22 @@ export {
 } from "./compatibility/legacy-space-addressing-wire";
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
+  DESKTOP_APP_ORIGIN,
+  DESKTOP_AUTH_SCHEME,
+  DESKTOP_WEB_BUILD_HEADER,
+  type DesktopPlatform,
+  type DesktopSession,
+  type DesktopSpaceStreamBridge,
+  type DesktopSpaceStreamEvent,
+  type DesktopSpaceStreamInput,
+  desktopPlatformSchema,
+  desktopSessionSchema,
+  desktopSpaceStreamEventSchema,
+  desktopSpaceStreamIdSchema,
+  desktopSpaceStreamInputSchema,
+  desktopWebBuildSchema,
+} from "./desktop-client";
+export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
   buildOrganizationPluginPath,
