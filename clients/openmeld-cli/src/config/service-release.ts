@@ -3,6 +3,8 @@ import packageJson from "../../package.json";
 import { isBinaryDistribution } from "../runtime/distribution";
 import type { CliBinaryReleaseInfo } from "./version-state";
 
+declare const __OPENMELD_SERVICE_RELEASE__: unknown;
+
 // The release embeds its selected Service artifact so setup and repair use the
 // same target offline, without a second mutable version cache. Legacy releases
 // continue to use their own CLI binary as the Service carrier.
@@ -13,12 +15,14 @@ export function resolveBundledServiceRelease():
     return undefined;
   }
   const metadata = packageJson as { openmeld?: { service?: unknown } };
-  if (metadata.openmeld?.service === undefined) {
+  const selection =
+    typeof __OPENMELD_SERVICE_RELEASE__ === "undefined"
+      ? metadata.openmeld?.service
+      : __OPENMELD_SERVICE_RELEASE__;
+  if (selection === undefined) {
     return undefined;
   }
-  const parsed = cliBinaryServiceReleaseSchema.safeParse(
-    metadata.openmeld.service
-  );
+  const parsed = cliBinaryServiceReleaseSchema.safeParse(selection);
   if (!parsed.success) {
     throw new Error(
       "The installed CLI contains invalid Service release metadata."
