@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import type { CliBinaryManifest } from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { withTempHome } from "./helpers/fs";
 
@@ -207,7 +208,10 @@ describe("version state", () => {
     );
   });
 
-  it("reads binary release artifact metadata from the CLI manifest route", async () => {
+  it.each([
+    false,
+    true,
+  ])("reads binary release artifact metadata with an independent Service target: %s", async (independentService) => {
     vi.resetModules();
     vi.stubEnv(
       "OPENMELD_CLI_BINARY_MANIFEST_URL",
@@ -215,23 +219,21 @@ describe("version state", () => {
     );
 
     const manifestRaw = await readFile(CLI_BINARY_MANIFEST_FIXTURE_URL, "utf8");
-    const manifest = JSON.parse(manifestRaw) as {
-      channels: {
-        stable: {
-          version: string;
-          minRequiredCliVersion: string;
-          platforms: {
-            "darwin-arm64": {
-              url: string;
-              sha256: string;
-              sizeBytes: number;
-            };
-          };
-        };
+    const manifest = JSON.parse(manifestRaw) as CliBinaryManifest;
+    if (independentService) {
+      manifest.channels.stable.service = {
+        version: "0.3.1",
+        platforms: {
+          "darwin-arm64": {
+            ...manifest.channels.stable.platforms["darwin-arm64"],
+            sha256: "b".repeat(64),
+            url: "https://dev.openmeld.test/cli/download/openmeld-cli-darwin-arm64-0.3.1",
+          },
+        },
       };
-    };
+    }
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(manifestRaw, {
+      new Response(JSON.stringify(manifest), {
         status: 200,
         headers: { "content-type": "application/json; charset=utf-8" },
       })
@@ -249,6 +251,15 @@ describe("version state", () => {
       minRequiredCliVersion: manifest.channels.stable.minRequiredCliVersion,
       platform: "darwin-arm64",
       ...manifest.channels.stable.platforms["darwin-arm64"],
+      ...(independentService
+        ? {
+            service: {
+              ...manifest.channels.stable.service?.platforms["darwin-arm64"],
+              version: "0.3.1",
+              platform: "darwin-arm64",
+            },
+          }
+        : {}),
     });
     expect(fetchMock).toHaveBeenCalledWith(
       "https://dev.openmeld.test/cli/manifest.json",

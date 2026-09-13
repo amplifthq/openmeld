@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import {
+  type CliBinaryManifest,
   type CliBinaryRelease,
   cliBinaryManifestSchema,
 } from "@openmeld/schemas";
@@ -58,6 +59,7 @@ export type PackageLatestInfo = {
 export type CliBinaryReleaseInfo = PackageLatestInfo &
   CliBinaryRelease & {
     platform: string;
+    service?: CliBinaryRelease & { version: string; platform: string };
   };
 
 export function versionStatePath(): string {
@@ -251,6 +253,15 @@ export async function fetchLatestCliBinaryRelease(input?: {
     minRequiredCliVersion: manifest.minRequiredCliVersion,
     platform,
     ...release,
+    ...(manifest.service
+      ? {
+          service: {
+            ...manifest.service.platforms[platform],
+            version: manifest.service.version,
+            platform,
+          },
+        }
+      : {}),
   };
 }
 
@@ -349,10 +360,8 @@ async function requestLatestPackageInfoFromCliManifest(): Promise<PackageLatestI
   };
 }
 
-type ParsedCliBinaryManifest = {
-  version: string;
+type ParsedCliBinaryManifest = CliBinaryManifest["channels"]["stable"] & {
   minRequiredCliVersion: string | null;
-  platforms: Record<string, CliBinaryRelease>;
 };
 
 async function requestCliBinaryManifest(): Promise<ParsedCliBinaryManifest> {
@@ -380,9 +389,8 @@ function parseCliBinaryManifest(raw: string): ParsedCliBinaryManifest {
   }
   const stable = parsed.data.channels.stable;
   return {
-    version: stable.version,
+    ...stable,
     minRequiredCliVersion: stable.minRequiredCliVersion ?? null,
-    platforms: stable.platforms,
   };
 }
 

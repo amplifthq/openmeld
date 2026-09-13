@@ -371,6 +371,15 @@ node scripts/release/upload-cli-binary.mjs
   must expose the exact same floor after publication. A compatibility-floor
   raise targets the first proven-safe CLI, not automatically the latest CLI.
 - The public Web routes are `/cli/manifest.json` and `/cli/download/<artifact>`.
+- The shared manifest reader accepts an optional `channels.stable.service`
+  selection containing its version and immutable platform artifacts. It reuses
+  the CLI artifact integrity/signature/transport schema and must cover every
+  advertised CLI platform. Legacy manifests omit it. CLI release acquisition
+  preserves the selected Service metadata separately from the CLI artifact.
+  This is receiver preparation only: publishers must not emit an independent
+  target until installation, repair, maintenance, and channel verification all
+  support it. Deploy Web manifest readers before publishing the field; older
+  Web readers strip unknown metadata. Current coupled-release guards remain.
 - Each platform record keeps `url`, `sha256`, and `sizeBytes` for the raw
   executable so older clients continue to work. The additive
   `archiveFormat`, `archiveUrl`, `archiveSha256`, and `archiveSizeBytes` fields
