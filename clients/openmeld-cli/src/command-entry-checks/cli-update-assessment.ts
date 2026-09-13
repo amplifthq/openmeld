@@ -31,6 +31,7 @@ export type CliUpdateAssessment = {
   checked: boolean;
   currentVersion: string;
   latestVersion: string | null;
+  serviceVersion?: string;
   requiredFloor: string | null;
   updateAvailable: boolean;
   /**
@@ -91,8 +92,9 @@ export function isCliUpdateCheckApplicable(
 export async function assessCliUpdate(input: {
   environmentTarget: OpenMeldEnvironmentTarget;
   forceRefresh?: boolean;
+  currentVersion?: string;
 }): Promise<CliUpdateAssessment> {
-  const currentVersion = OPENMELD_VERSION;
+  const currentVersion = input.currentVersion ?? OPENMELD_VERSION;
   const unchecked: CliUpdateAssessment = {
     checked: false,
     currentVersion,
@@ -128,6 +130,7 @@ export async function assessCliUpdate(input: {
     checked: true,
     currentVersion,
     latestVersion: info.version,
+    ...(info.serviceVersion ? { serviceVersion: info.serviceVersion } : {}),
     requiredFloor,
     updateAvailable: compareSemver(currentVersion, info.version) < 0,
     floorBreached,

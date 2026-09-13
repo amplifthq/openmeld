@@ -672,7 +672,7 @@ async function resolveWhoamiDaemonServiceContext(input: {
       readCurrentDaemonRuntimeContext(),
       readDaemonServiceContract(),
       inspectDaemonServiceInventory({
-        expectedVersion: resolveCurrentDaemonExpectedVersion(),
+        expectedVersion: await resolveCurrentDaemonExpectedVersion(),
       }),
     ]);
   const serviceContract =

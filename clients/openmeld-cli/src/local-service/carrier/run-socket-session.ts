@@ -55,6 +55,7 @@ import {
   setCustomProfileWorkspace,
 } from "../../profile-workspace/service";
 import type { Presenter } from "../../runtime/presenter/types";
+import { OPENMELD_VERSION } from "../../runtime/version";
 import type { WsClient } from "../../transport/ws";
 import { resolveDaemonCapabilities } from "../adapters/resolve-daemon-capabilities";
 import {
@@ -108,7 +109,6 @@ import {
   consumeArmedAgentControllerInterfaceReprobe,
   resolveNextRuntimeAgentControllerReportSyncAtMs,
 } from "../inventory/agent-controller-interface-keeper";
-import { resolveCurrentDaemonExpectedVersion } from "../lifecycle/current-daemon-version";
 import { handleOpenMeldToolsControlRequest } from "../maintenance/openmeld-tools-control-handler";
 import type { OpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { didLocalProjectConnectionsChange } from "../projects/local-project-activity-sync";
@@ -1090,7 +1090,7 @@ export async function runDaemonSocketSession(input: {
   let hasLoggedWaitingForProfiles =
     (input.isRouteCatalogResolved?.() ?? true) &&
     input.routeCatalogState.profileIds.length === 0;
-  const serviceVersion = resolveCurrentDaemonExpectedVersion();
+  const serviceVersion = OPENMELD_VERSION;
 
   const resolveSessionLocalComponentsStatus =
     async (): Promise<LocalComponentsStatus | null> => {

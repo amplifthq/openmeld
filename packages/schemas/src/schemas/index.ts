@@ -1338,6 +1338,7 @@ export {
   cliBinaryDeltaTransportSchema,
   cliBinaryManifestSchema,
   cliBinaryReleaseSchema,
+  cliBinaryServiceReleaseSchema,
 } from "./http/cli-binary-manifest";
 export {
   buildConnectorAppRequestProviderKey,

@@ -623,7 +623,7 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
   }
 
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intent: "status_cleanup",
   });
   const wakeability = classifyDaemonServiceWakeability({

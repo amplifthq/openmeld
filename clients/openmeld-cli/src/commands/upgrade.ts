@@ -15,6 +15,7 @@ import {
   readVersionState,
   writeVersionState,
 } from "../config/version-state";
+import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import {
   buildDaemonServiceTargetSpec,
   resolveDaemonServiceAlignmentDecision,
@@ -193,7 +194,7 @@ async function runUpgradeWithRuntime(
     await runInternalUpgradeServiceAlignment({
       presenter,
       resolvedView: runtime.resolvedView,
-      daemonVersion: OPENMELD_VERSION,
+      daemonVersion: await resolveCurrentDaemonExpectedVersion(),
       ...(process.argv[1] && !isBinaryDistribution()
         ? { cliScriptPath: process.argv[1] }
         : {}),
@@ -327,7 +328,7 @@ async function alignServiceWithCurrentCli(input: {
 }): Promise<void> {
   await runInternalUpgradeServiceAlignment({
     ...input,
-    daemonVersion: OPENMELD_VERSION,
+    daemonVersion: await resolveCurrentDaemonExpectedVersion(),
     ...(process.argv[1] && !isBinaryDistribution()
       ? { cliScriptPath: process.argv[1] }
       : {}),
@@ -995,13 +996,22 @@ async function runInternalUpgradeServiceAlignment(input: {
   daemonVersion: string;
   cliScriptPath?: string;
 }): Promise<void> {
+  const publishedRelease = isBinaryDistribution()
+    ? await fetchLatestCliBinaryRelease()
+    : null;
+  const binaryRelease = publishedRelease?.service
+    ? { ...publishedRelease.service, minRequiredCliVersion: null }
+    : undefined;
+  const daemonVersion = await resolveCurrentDaemonExpectedVersion(
+    binaryRelease?.version ?? input.daemonVersion
+  );
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: input.daemonVersion,
+    expectedVersion: daemonVersion,
     intendedMode: "background",
     intent: "upgrade_reconcile",
   });
   const target = buildDaemonServiceTargetSpec({
-    daemonVersion: input.daemonVersion,
+    daemonVersion,
   });
   const decision = resolveDaemonServiceAlignmentDecision({
     inventory,
@@ -1012,7 +1022,7 @@ async function runInternalUpgradeServiceAlignment(input: {
     emitUpgradeReconcileAlreadyCurrent({
       presenter: input.presenter,
       resolvedView: input.resolvedView,
-      expectedVersion: input.daemonVersion,
+      expectedVersion: daemonVersion,
     });
     return;
   }
@@ -1043,7 +1053,8 @@ async function runInternalUpgradeServiceAlignment(input: {
   }
 
   const scheduled = await scheduleDaemonServiceUpdate({
-    targetVersion: input.daemonVersion,
+    targetVersion: daemonVersion,
+    ...(binaryRelease?.version === daemonVersion ? { binaryRelease } : {}),
     urgency: await resolveServiceUpdateUrgency(),
     ...(readOpenMeldToolsUpdateContextFromEnv() ?? {}),
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),

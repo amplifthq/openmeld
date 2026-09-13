@@ -63,6 +63,13 @@ reply in the intended Space through the intended local execution path.
 
 ## Ownership Boundary
 
+A retained Service reports the installed managed CLI version, not its own
+carrier version. The CLI installer refreshes the existing local-components
+snapshot atomically. Its CLI command contract is usable only when the snapshot
+version matches the current managed executable. A missing or mismatched receipt
+does not establish the newer CLI's contract; the report fails closed for that
+contract while retaining the observed installed version.
+
 OpenMeld Service may own or report local execution evidence:
 
 - service availability
@@ -2292,6 +2299,29 @@ minimum supported Service version. A rollback below that floor is rejected and
 the current version is left in an explicit stopped-safe state; the system must
 not create a process that appears healthy locally but is known to be rejected
 by Core.
+
+Installed artifact integrity and release freshness are different facts. A
+self-contained Service is verified against its own copied files and recorded
+fingerprint, never against the invoking CLI's current build directory. Binary
+inventory verifies the selected Service executable in the same way as startup
+and rollback. A CLI source change or removal cannot make a valid copied Service
+corrupt; a changed installed artifact still requires repair. Read errors remain
+errors rather than being accepted as a successful integrity check. Existing
+version, lane, owner, and runtime-contract checks remain independent.
+
+Default CLI lifecycle and diagnostic targets preserve a newer installed Service
+version recorded by the service contract. That is target selection only, not
+proof of health: inventory still verifies the selected files, lane, local state,
+and runtime contract. Explicit version requests keep the downgrade guard. A
+binary repair may reuse the retained source executable only when its bytes still
+match the recorded fingerprint and any selected release fingerprint; it does
+not trust the damaged running carrier or relabel the caller's CLI bytes.
+
+Managed CLI cleanup retains the active binary Service's source version in
+addition to the CLI current and rollback versions and pending update/worker
+references. Retention ends when the active Service no longer references that
+version. This does not change the current coupled release target or authorize
+skipping a Service update selected by the release policy.
 
 The binary update worker runs from a stable lane-owned carrier, not from a
 version directory. A self-contained npm update worker uses a stable lane-owned

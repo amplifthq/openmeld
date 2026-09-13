@@ -174,6 +174,28 @@ function createLocalDemand(hasLocalExecutionRoute = true) {
   } as const;
 }
 
+function mockServiceContractAfterReinstall(
+  previous: Partial<DaemonServiceContract>,
+  next: Partial<DaemonServiceContract>
+): void {
+  readDaemonServiceContractMock.mockResolvedValue(
+    createServiceContract(previous)
+  );
+  const reinstall = runDaemonReinstallMock.getMockImplementation();
+  if (!reinstall) {
+    throw new Error(
+      "Expected the successful reinstall fixture to be installed."
+    );
+  }
+  runDaemonReinstallMock.mockImplementationOnce(async (...args) => {
+    const result = await reinstall(...args);
+    readDaemonServiceContractMock.mockResolvedValue(
+      createServiceContract(next)
+    );
+    return result;
+  });
+}
+
 describe("local service participation gate", () => {
   beforeEach(() => {
     inspectDaemonServiceInventoryMock
@@ -638,17 +660,10 @@ describe("local service participation gate", () => {
           runtimeStatus: "running",
         })
       );
-    readDaemonServiceContractMock
-      .mockResolvedValueOnce(
-        createServiceContract({
-          profileId: "human-old",
-        })
-      )
-      .mockResolvedValueOnce(
-        createServiceContract({
-          profileId: "human-new",
-        })
-      );
+    mockServiceContractAfterReinstall(
+      { profileId: "human-old" },
+      { profileId: "human-new" }
+    );
     const presenter = createPresenter();
 
     const result = await runDaemonServiceParticipationGate({
@@ -733,19 +748,10 @@ describe("local service participation gate", () => {
           runtimeStatus: "running",
         })
       );
-    readDaemonServiceContractMock
-      .mockResolvedValueOnce(
-        createServiceContract({
-          ownerUserId: "owner-old",
-          profileId: undefined,
-        })
-      )
-      .mockResolvedValueOnce(
-        createServiceContract({
-          ownerUserId: "owner-new",
-          profileId: "human-new",
-        })
-      );
+    mockServiceContractAfterReinstall(
+      { ownerUserId: "owner-old", profileId: undefined },
+      { ownerUserId: "owner-new", profileId: "human-new" }
+    );
     const presenter = createPresenter();
 
     const result = await runDaemonServiceParticipationGate({
@@ -797,19 +803,10 @@ describe("local service participation gate", () => {
           runtimeStatus: "running",
         })
       );
-    readDaemonServiceContractMock
-      .mockResolvedValueOnce(
-        createServiceContract({
-          ownerUserId: undefined,
-          profileId: undefined,
-        })
-      )
-      .mockResolvedValueOnce(
-        createServiceContract({
-          ownerUserId: "owner-new",
-          profileId: "human-new",
-        })
-      );
+    mockServiceContractAfterReinstall(
+      { ownerUserId: undefined, profileId: undefined },
+      { ownerUserId: "owner-new", profileId: "human-new" }
+    );
     const presenter = createPresenter();
 
     const result = await runDaemonServiceParticipationGate({

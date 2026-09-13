@@ -50,6 +50,9 @@ node scripts/release/build-cli-binary.mjs
   60 MiB Bun runtime embedded in every standalone executable.
 - The iterate build is intentionally unsigned. Production publishing signs and
   notarizes the final executable before calculating the release sha256.
+- Managed installs also retain the active binary Service's source version while
+  it remains referenced, even if several CLI versions have been installed since.
+  Service retention is independent of CLI rollback selection.
 - Managed installs retain the active CLI version and one usable rollback
   version older than the active version. Incomplete and older managed
   semantic-version directories are removed during `install-self`; unrecognized
@@ -368,6 +371,26 @@ node scripts/release/upload-cli-binary.mjs
   must expose the exact same floor after publication. A compatibility-floor
   raise targets the first proven-safe CLI, not automatically the latest CLI.
 - The public Web routes are `/cli/manifest.json` and `/cli/download/<artifact>`.
+- The shared manifest reader accepts an optional `channels.stable.service`
+  selection containing its version and immutable platform artifacts. It reuses
+  the CLI artifact integrity/signature/transport schema and must cover every
+  advertised CLI platform. Legacy manifests omit it. CLI release acquisition
+  preserves the selected Service metadata separately from the CLI artifact.
+  A binary CLI can embed that same selection in package metadata at
+  `openmeld.service`, so setup and repair retain their release target without
+  consulting a mutable local version cache. Preparing a selected artifact uses
+  the existing verified downloader and Service bundle directory; it does not
+  run `install-self` or move the user's CLI pointer. Maintenance checks the
+  installed managed CLI version rather than treating its own retained carrier
+  version as the current CLI. The carrier remains available to repair a missing
+  managed CLI.
+  Binary builds can receive the same immutable selection from the publisher;
+  it is embedded at compile time and written unchanged to the channel manifest.
+  Staging `publish --retain-service` exercises that path against the existing
+  staging-only Service artifact. Production publication is still gated: publishers must not emit an independent
+  target until installation, repair, maintenance, and channel verification all
+  support it. Deploy Web manifest readers before publishing the field; older
+  Web readers strip unknown metadata. Current coupled-release guards remain.
 - Each platform record keeps `url`, `sha256`, and `sizeBytes` for the raw
   executable so older clients continue to work. The additive
   `archiveFormat`, `archiveUrl`, `archiveSha256`, and `archiveSizeBytes` fields
@@ -423,6 +446,10 @@ pnpm run release:deploy:local -- --scope cli
   overwriting immutable artifacts.
 - The default production setup script uses the binary distribution on supported
   macOS computers. Use `?dist=npm` to force the npm lane.
+  The Apple silicon bootstrap uses macOS `plutil` to read the exact stable CLI
+  version and platform artifact paths. It must not search JSON text for field
+  names: a selected Service, another platform, or delta metadata can contain the
+  same names with different values. This does not require Node.js or jq.
 - The dev-local setup script also defaults to binary distribution. Use
   `?dist=npm` to force the npm lane during local testing.
 - Windows setup commands remain on `?dist=npm` until Windows binary artifacts
