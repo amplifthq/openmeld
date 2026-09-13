@@ -135,7 +135,7 @@ export function useChats(input: {
 			spaceMessagePreviewQueryOptions({
 				spaceId: chat.spaceId,
 				viewerProfileId: chat.viewerProfileId ?? profileId,
-				enabled: !!profileId,
+				enabled: !!profileId && spaces.isSuccess,
 			})
 		),
 	});

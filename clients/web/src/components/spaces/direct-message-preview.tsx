@@ -1,5 +1,5 @@
 import { sanitizeSignalTextPreview } from "@openmeld/schemas";
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 
 export function formatDirectMessageTime(
@@ -18,23 +18,6 @@ export function formatDirectMessageTime(
 		});
 	}
 	return days === 1 ? "Yesterday" : `${days} days ago`;
-}
-
-export function useSpaceMessagePreview(input: {
-	spaceId: string;
-	viewerProfileId: string;
-	enabled: boolean;
-	indexedPreview?: { text: string; timestamp: number } | null;
-}) {
-	const query = useQuery(
-		spaceMessagePreviewQueryOptions({
-			...input,
-			enabled: input.enabled && input.indexedPreview === undefined,
-		})
-	);
-	return input.indexedPreview !== undefined
-		? { data: input.indexedPreview, isPending: false, isError: false }
-		: query;
 }
 
 export function spaceMessagePreviewQueryOptions(input: {
