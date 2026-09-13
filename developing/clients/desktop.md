@@ -96,6 +96,23 @@ setup remains the normal Web/CLI onboarding path, not a completed Desktop flow.
 
 `pilot-protocol.ts` owns a fixed-endpoint request adapter:
 
+`pilot-transport.ts` owns one private in-memory Electron Session shared by the
+BrowserWindow and protocol handler. Before the page loads, it installs that
+Session's sole `webRequest.onBeforeRequest` listener. Every local `/v1/` and
+`/_serverFn/` request requires Chromium's current live owner WebContents ID,
+exact main-frame identity, and trusted local document URL. Missing provenance,
+child frames, other windows, remote documents, and top-level API navigations
+are rejected before forwarding. Electron custom-protocol HTTP source headers
+are absent and are not authorization evidence. Renderer headers grant nothing.
+
+Do not attach another before-request listener to this Session: Electron keeps
+only the last listener. The transport is its exclusive owner, rejects duplicate
+installation, and removes the authenticated protocol handler before disposing
+the listener. The ordinary Web/browser and default Electron Session are unchanged.
+Run `pnpm --dir clients/desktop exec node scripts/verify-pilot-transport.mjs`
+for the real Electron admission/zero-upstream regression matrix in disposable
+storage; it never invokes CLI, Service, login, or a real Wake.
+
 - `/v1/*` uses existing shared HTTP APIs through the matching Web gateway proxy.
   Core/Space still authorize every request. This is the portable business seam.
 - Read-only `/_serverFn/*` calls are a bounded pilot compatibility dependency
