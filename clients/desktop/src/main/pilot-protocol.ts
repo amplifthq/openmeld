@@ -128,6 +128,7 @@ async function forwardCloud(
 
 const LEADING_SLASHES = /^\/+/u;
 const INLINE_SCRIPTS = /<script\b[^>]*>([\s\S]*?)<\/script\s*>/giu;
+const HTML_NEWLINES = /\r\n?/gu;
 async function readAsset(
   request: Request,
   url: URL,
@@ -159,7 +160,14 @@ async function readAsset(
             .flatMap((match) =>
               match[1]
                 ? [
-                    `'sha256-${createHash("sha256").update(match[1]).digest("base64")}'`,
+                    `'sha256-${createHash("sha256")
+                      // CSP hashes the HTML parser's script text, not file bytes.
+                      .update(
+                        match[1]
+                          .replace(HTML_NEWLINES, "\n")
+                          .replaceAll("\u0000", "\uFFFD")
+                      )
+                      .digest("base64")}'`,
                   ]
                 : []
             )
