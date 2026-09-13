@@ -3,6 +3,17 @@ import * as z from "zod/v4";
 export const SERVICE_ACCOUNT_STOP_REFUSED_CODE =
   "service.account_admission.stop_refused" as const;
 
+export const serviceControlCapabilitiesSchema = z.strictObject({
+  deviceId: z.string().min(1).nullable(),
+  start: z.boolean(),
+  stop: z.boolean(),
+});
+
+export const serviceControlCarrierCapabilitySchema = z.strictObject({
+  protocol: z.literal("account-checked-service-control-v1"),
+  executable: z.string().min(1),
+});
+
 export const serviceAccountControlRequestSchema = z.strictObject({
   operation: z.enum(["start", "stop"]),
   expectedAccount: z.string().trim().min(1),

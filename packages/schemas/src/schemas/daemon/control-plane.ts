@@ -23,6 +23,7 @@ export const openMeldDaemonControlPlaneCommandSchema = z.enum([
   "set_local_agent_enabled",
   "set_profile_workspace",
   "service_update_readiness",
+  "account_control_capabilities",
   "shutdown",
 ]);
 
@@ -379,6 +380,9 @@ export const openMeldDaemonControlPlaneRequestSchema = z.discriminatedUnion(
   "command",
   [
     openMeldDaemonControlPlaneRequestBaseSchema.extend({
+      command: z.literal("account_control_capabilities"),
+    }),
+    openMeldDaemonControlPlaneRequestBaseSchema.extend({
       command: z.literal("status"),
     }),
     openMeldDaemonControlPlaneRequestBaseSchema.extend({
@@ -572,6 +576,10 @@ export const openMeldDaemonControlPlaneErrorResponseSchema =
 export const openMeldDaemonControlPlaneResponseSchema = z.discriminatedUnion(
   "code",
   [
+    openMeldDaemonControlPlaneResponseBaseSchema.extend({
+      code: z.literal("service.account_control_capabilities"),
+      payload: z.strictObject({ supported: z.boolean() }),
+    }),
     openMeldDaemonStatusResponseSchema,
     openMeldDaemonHealthResponseSchema,
     openMeldDaemonHistoryResponseSchema,

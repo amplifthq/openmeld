@@ -5511,6 +5511,35 @@ async function main() {
     return;
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  // Exact read-only probes precede managed delegation and layout repair. The
+  // carrier probe must describe this executable, not a newer delegated CLI.
+  if (argv.length === 5 && argv[2] === "service" && argv[4] === "--json") {
+    if (argv[3] === "control-carrier-capability") {
+      outLine(
+        JSON.stringify({
+          protocol: "account-checked-service-control-v1",
+          executable: process.execPath,
+        })
+      );
+      return;
+    }
+    if (argv[3] === "control-capabilities") {
+      const { readServiceControlCapabilities } = await import(
+        "./commands/service-control-capabilities"
+      );
+      const capabilities = await readServiceControlCapabilities().catch(() => ({
+        deviceId: null,
+        start: false,
+        stop: false,
+      }));
+      emitCliJsonEnvelope({
+        schemaVersion: 1,
+        type: "service.control_capabilities",
+        ...capabilities,
+      });
+      return;
+    }
+  }
   if (isDispatchSpaceActionToolServerArgv(argv)) {
     await runSpaceActionMcpServer();
     return;

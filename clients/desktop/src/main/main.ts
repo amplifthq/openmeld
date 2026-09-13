@@ -33,7 +33,7 @@ import type { CliProblem, ServiceView } from "../shared/view-types";
 import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
 import { initializeDesktopPilot } from "./pilot";
-import { readOnlyPilotServiceHandlers } from "./pilot-service";
+import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
 import { readDesktopUpdateStatus } from "./update/desktop-update";
@@ -647,7 +647,7 @@ function bootstrapApp(): void {
       });
       configureAppIdentity();
       if (pilot) {
-        handlers = readOnlyPilotServiceHandlers(handlers);
+        handlers = createPilotServiceHandlers(handlers, pilot.auth);
       }
       ipcDisposer = registerOpenMeldIpcHandlers(
         createWindowIpcHandlers(handlers),
@@ -696,13 +696,13 @@ function createWindowIpcHandlers(
       syncTrayServiceView(view, { showProblem: false });
       return view;
     },
-    async startService() {
-      const view = await baseHandlers.startService();
+    async startService(expectedAccount) {
+      const view = await baseHandlers.startService(expectedAccount);
       syncTrayServiceView(view, { showProblem: false });
       return view;
     },
-    async stopService() {
-      const view = await baseHandlers.stopService();
+    async stopService(expectedAccount) {
+      const view = await baseHandlers.stopService(expectedAccount);
       syncTrayServiceView(view, { showProblem: false });
       return view;
     },

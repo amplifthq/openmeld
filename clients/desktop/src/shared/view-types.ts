@@ -4,7 +4,9 @@
 // lifecycle + the agent catalog/enabled set + controller snapshots, not the
 // CLI's full status payload.
 
+import type { serviceControlCapabilitiesSchema } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
+import type { z } from "zod/v4";
 import type { CliFailureKind } from "./types";
 
 /** Coarse service lifecycle the GUI renders. `unknown` = not determinable. */
@@ -48,6 +50,7 @@ export type ServiceSetupGuidanceView = {
 };
 
 export type ServiceView = {
+  controlCapabilities?: z.infer<typeof serviceControlCapabilitiesSchema>;
   lifecycle: ServiceLifecycle;
   /** OpenMeld-recorded daemon install state; null when not determinable. */
   installed: boolean | null;

@@ -68,7 +68,12 @@ Generic transport/persistence errors, including unsupported-carrier errors,
 remain uncertain and keep autostart disabled. The CLI reports that partial
 outcome. A later Desktop caller must require the capable CLI and carrier before
 exposing controls. No cloud deployment or global local-file-reader floor is
-introduced for this opt-in capability. The pilot gate remains closed. The
+introduced for this opt-in capability. The pilot enables only guarded Start/Stop
+after its read-only pair capability query. `serviceControlCapabilitiesSchema`
+owns the separate CLI response; `account_control_capabilities` is an additive
+authenticated control request with explicit carrier support. Older readers keep
+their existing strict status responses; older carriers reject the unknown read
+without lifecycle effects. No existing request starts emitting new status fields. The
 release is deferred to the normal clean-main local-component release; no
 contract epoch, command-contract floor, or feature-branch manifest stamp is
 introduced. See the

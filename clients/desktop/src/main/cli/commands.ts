@@ -50,6 +50,20 @@ export const startService = (deps?: CommandDeps): Promise<CliCommandResult> =>
 export const stopService = (deps?: CommandDeps): Promise<CliCommandResult> =>
   run(["service", "stop"], deps);
 
+export const serviceControlCapabilities = (deps?: CommandDeps) =>
+  run(["service", "control-capabilities"], deps);
+
+export const controlServiceForAccount = (
+  operation: "start" | "stop",
+  expectedAccount: string,
+  deps?: CommandDeps
+) =>
+  run(["service", operation, "--expected-account", expectedAccount], {
+    ...deps,
+    // Controlled Stop owns the drain; a healthy Wake must not be killed by the GUI.
+    timeoutMs: 0,
+  });
+
 export const enableServiceAutoStart = (
   deps?: CommandDeps
 ): Promise<CliCommandResult> => run(["service", "autostart", "enable"], deps);

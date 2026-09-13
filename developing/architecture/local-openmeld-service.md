@@ -1953,8 +1953,18 @@ shutdown field; that is not a positive coordinator refusal receipt.
 
 This record owns only local operation admission. It adds no Wakeability,
 RuntimeCoordinator, dispatch, Binding, or final-outcome authority. The persisted
-Service contract remains unchanged. Desktop's pilot mutation gate remains
-closed until its separate integration is reviewed.
+Service contract remains unchanged. The Desktop pilot exposes only this operation
+after a separate read-only capability query proves its actual local pair.
+
+`service control-capabilities --json` runs before layout repair or managed CLI
+delegation. For the macOS binary pilot, it queries the canonical stable executable
+that guarded Start installs into launchd, without invoking the repairing npm
+launcher. The executable answers `service control-carrier-capability --json`
+before delegation; the caller checks the responding executable path. When running,
+the authenticated `account_control_capabilities` control request must also return
+explicit support from the actual carrier. No status schema, lifecycle mutation,
+startup attempt, shutdown attempt, or compensation is part of the query. Unsupported
+or uncertain pairs return disabled controls. This capability is not Wakeability.
 
 ### Registration reconciliation
 

@@ -201,6 +201,8 @@ export {
   serviceAccountAdmissionIdentitySchema,
   serviceAccountAdmissionSchema,
   serviceAccountControlRequestSchema,
+  serviceControlCapabilitiesSchema,
+  serviceControlCarrierCapabilitySchema,
 } from "./service-account-admission";
 export {
   projectLegacySpaceAccessView,

@@ -14,6 +14,7 @@ import {
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
@@ -105,6 +106,7 @@ export function SelectedComputerPanel(input: {
 		selectedSession.controls.computerFileAccess.updatePolicy === true;
 	return (
 		<div className="flex flex-col gap-4">
+			<DesktopServiceControls deviceId={input.computer.deviceId} />
 			{environments.length > 1 ? (
 				<details
 					className="order-last space-y-3 rounded-md border p-4"

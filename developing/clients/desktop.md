@@ -84,20 +84,25 @@ renderer bridge. Storage is scoped to the configured Web origin.
 
 Desktop sign-out revokes the Desktop session; it does not run CLI logout.
 The pilot exposes the independently read CLI account ID for comparison with its
-cloud session. This comparison is not an atomic authorization fence: a local
-account can change before a separately invoked command. Therefore the pilot
-refuses all local CLI login/logout, installation, Service and agent mutations,
-and hides tray Service controls. It reuses an already configured independent
-Service. Enabling those controls requires an expected-account contract at the
-CLI mutation owner; do not treat a preceding read as that contract. Clean-machine
-setup remains the normal Web/CLI onboarding path, not a completed Desktop flow.
+cloud session. This comparison is display evidence, not the mutation fence.
+The existing Computer surface offers Start/Stop only when the installed CLI and
+actual macOS binary carrier positively advertise account-checked control.
+The renderer sends the displayed account as immutable intent. Main verifies the
+current native session, then passes that same account to the CLI admission owner.
+An account change never retargets an operation. Stop has no GUI execution timeout;
+the existing controlled shutdown owns drain and final completion.
+CLI login/logout, installation, setup, upgrades, autostart and agent mutations
+remain refused, and tray Service controls stay hidden. Clean-machine setup remains
+the normal Web/CLI onboarding path, not a completed Desktop flow.
 
 The CLI prerequisite accepts `service start|stop --json --expected-account <id>`
 for an already connected POSIX Service. Its owning admission contract is in
 [Local OpenMeld Service](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop).
-This does not open the pilot gate or authorize setup, installation, account
-switching, or other local mutations. Desktop integration must pass its live
-signed-in account on each action and handle explicit CLI refusal.
+This authorizes only existing-Service Start/Stop. Main rejects missing, changed,
+unsupported or concurrent intent and preserves explicit CLI refusal or uncertainty.
+`service control-capabilities --json` is a separate read-only query; it does not
+extend the established strict status response. Version strings are not capability
+evidence. Old, npm, non-macOS and unverifiable pairs omit usable controls.
 
 ## Cloud transport and compatibility
 

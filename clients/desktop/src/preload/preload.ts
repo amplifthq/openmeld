@@ -17,8 +17,10 @@ const openMeldBridge: OpenMeldBridge = {
   setupComputer: () => ipcRenderer.invoke(OPENMELD_IPC.setupComputer),
   installService: () => ipcRenderer.invoke(OPENMELD_IPC.installService),
   updateService: () => ipcRenderer.invoke(OPENMELD_IPC.updateService),
-  startService: () => ipcRenderer.invoke(OPENMELD_IPC.startService),
-  stopService: () => ipcRenderer.invoke(OPENMELD_IPC.stopService),
+  startService: (expectedAccount) =>
+    ipcRenderer.invoke(OPENMELD_IPC.startService, expectedAccount),
+  stopService: (expectedAccount) =>
+    ipcRenderer.invoke(OPENMELD_IPC.stopService, expectedAccount),
   updateCli: () => ipcRenderer.invoke(OPENMELD_IPC.updateCli),
   setServiceAutoStart: (enabled) =>
     ipcRenderer.invoke(OPENMELD_IPC.setServiceAutoStart, enabled),

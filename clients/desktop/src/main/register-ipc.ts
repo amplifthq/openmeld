@@ -21,8 +21,12 @@ export function registerOpenMeldIpcHandlers(
   handle(OPENMELD_IPC.setupComputer, () => handlers.setupComputer());
   handle(OPENMELD_IPC.installService, () => handlers.installService());
   handle(OPENMELD_IPC.updateService, () => handlers.updateService());
-  handle(OPENMELD_IPC.startService, () => handlers.startService());
-  handle(OPENMELD_IPC.stopService, () => handlers.stopService());
+  handle(OPENMELD_IPC.startService, (_event, expectedAccount) =>
+    handlers.startService(expectedAccount)
+  );
+  handle(OPENMELD_IPC.stopService, (_event, expectedAccount) =>
+    handlers.stopService(expectedAccount)
+  );
   handle(OPENMELD_IPC.updateCli, () => handlers.upgradeCli());
   handle(OPENMELD_IPC.setServiceAutoStart, (_event, enabled) => {
     const input = validateServiceAutoStartInput(enabled);

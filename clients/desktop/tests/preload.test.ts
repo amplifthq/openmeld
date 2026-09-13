@@ -81,7 +81,7 @@ describe("preload bridge", () => {
       getServiceStatus(): Promise<unknown>;
       installService(): Promise<unknown>;
       installCli(): Promise<unknown>;
-      startService(): Promise<unknown>;
+      startService(expectedAccount?: string): Promise<unknown>;
       updateCli(): Promise<unknown>;
       updateService(): Promise<unknown>;
       getDesktopSettings(): Promise<unknown>;
@@ -100,7 +100,7 @@ describe("preload bridge", () => {
     await openmeld.getServiceStatus();
     await openmeld.installCli();
     await openmeld.installService();
-    await openmeld.startService();
+    await openmeld.startService("account-a");
     await openmeld.updateCli();
     await openmeld.updateService();
     await openmeld.getDesktopSettings();
@@ -119,7 +119,7 @@ describe("preload bridge", () => {
       [OPENMELD_IPC.getServiceStatus],
       [OPENMELD_IPC.installCli],
       [OPENMELD_IPC.installService],
-      [OPENMELD_IPC.startService],
+      [OPENMELD_IPC.startService, "account-a"],
       [OPENMELD_IPC.updateCli],
       [OPENMELD_IPC.updateService],
       [OPENMELD_IPC.getDesktopSettings],

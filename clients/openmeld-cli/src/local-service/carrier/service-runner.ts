@@ -852,6 +852,7 @@ const runAccountBoundDaemonServiceLoop = async (
     // running Service reject every later control request until it restarts.
     resolveExpectedToken: async () => await ensureDaemonControlPlaneToken(),
     getContext: async () => ({
+      accountCheckedServiceControl: process.platform !== "win32",
       healthPayload: {
         checkedAt: nowIsoString(),
         ...toHealthProjection(
