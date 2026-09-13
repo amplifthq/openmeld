@@ -1402,9 +1402,8 @@ function DiagnosticReportSection(input: {
 		<DetailsSection title="Report issue">
 			<div className="flex flex-col items-start gap-3 text-sm">
 				<p className="text-muted-foreground leading-6">
-					OpenMeld will save a diagnostic pointer for this message so you can
-					trace what happened later. The report sends message IDs and system
-					trace pointers, not the message text.
+					Send a report to help investigate this problem. Message text is not
+					included.
 				</p>
 				<Button
 					disabled={input.isPending || input.isSent}
