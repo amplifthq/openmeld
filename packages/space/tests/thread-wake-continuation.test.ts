@@ -11,7 +11,10 @@ function signal(
   targets: string[] = []
 ): SignalEnvelope {
   return {
+    v: 1,
     id: "source",
+    spaceId: "space-thread-continuation",
+    ts: 1,
     type: "signal.text",
     profile: { kind, profileId: "A" },
     data: {
@@ -22,7 +25,7 @@ function signal(
         text: "hello",
       },
     },
-  } as SignalEnvelope;
+  };
 }
 
 describe("thread Wake continuation", () => {

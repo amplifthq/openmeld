@@ -83,6 +83,42 @@ it("uses authorized organization rows, the Human Space viewer, and exact session
 	expect(save).not.toHaveBeenCalled();
 	expect(setPinned).not.toHaveBeenCalled();
 });
+it("uses creation time for empty conversations and keeps real message activity authoritative", () => {
+	directMessages.spaces.data.spaceItems[0] = {
+		...fixtureSpace("release", "Release"),
+		spaceCreatedAt: "2026-09-12T00:00:00.000Z",
+		messagePreview: undefined,
+		openProfileId: "agent-member",
+	};
+	directMessages.previews = [];
+	const { result, rerender } = renderHook(() => useConversations({}));
+	expect(result.current.conversations.map(({ activity }) => activity)).toEqual([
+		Date.parse("2026-09-12T00:00:00.000Z"),
+		Date.parse("2026-09-10"),
+	]);
+	expect(
+		result.current
+			.sort(result.current.conversations, {
+				id: "spaces",
+				sort: "recent",
+				spaceIds: [],
+			})
+			.map(({ spaceId }) => spaceId)
+	).toEqual(["release", "session"]);
+	directMessages.previews = [
+		{ data: { timestamp: Date.parse("2026-09-13"), text: "New reply" } },
+	];
+	rerender();
+	expect(
+		result.current
+			.sort(result.current.conversations, {
+				id: "spaces",
+				sort: "recent",
+				spaceIds: [],
+			})
+			.map(({ spaceId }) => spaceId)
+	).toEqual(["session", "release"]);
+});
 it("does not save a new placement when the canonical pin mutation fails", async () => {
 	setPinned.mockResolvedValue(false);
 	const { result } = renderHook(() => useConversations({}));
