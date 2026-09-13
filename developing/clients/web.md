@@ -624,6 +624,12 @@ time.
 
 ### Desk and Chats
 
+Message action hints share one native Tooltip instance per mounted Space,
+including its Thread panel. Opening or leaving a Desk Space therefore does not
+mount or tear down a separate tooltip root for every message action. Pin
+providers expose the stable mutation function directly so an unchanged pin
+snapshot does not invalidate the message subtree on unrelated parent updates.
+
 The first Desk release enables adding Spaces and text only. Other widget
 categories remain commented out in the picker, with their implementations and
 existing browser layouts retained. Text is added from the canvas context menu.

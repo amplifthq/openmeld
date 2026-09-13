@@ -297,7 +297,7 @@ function SpacePinsProviderContent(
 			}),
 		staleTime: 0,
 	});
-	const fileMutation = useMutation({
+	const { mutate: mutateFilePin, isPending: isFilePinPending } = useMutation({
 		mutationFn: (value: SpaceFilePinMutation) =>
 			readOrUpdateSpaceFilePins(createClient(), {
 				spaceId: input.spaceId,
@@ -318,25 +318,26 @@ function SpacePinsProviderContent(
 	const showPinError = (error: Error) => {
 		toast.error(error.message || "Unable to update the pin. Try again.");
 	};
-	const mutation = useMutation({
-		mutationFn: updateMessagePin,
-		onSuccess: (_data, value) => {
-			if (value.action === "pin") {
-				toast.success("Message pinned", {
-					action: {
-						label: "Undo",
-						onClick: () => {
-							updateMessagePin({
-								signalId: value.signalId,
-								action: "unpin",
-							}).catch(showPinError);
+	const { mutate: mutateMessagePin, isPending: isMessagePinPending } =
+		useMutation({
+			mutationFn: updateMessagePin,
+			onSuccess: (_data, value) => {
+				if (value.action === "pin") {
+					toast.success("Message pinned", {
+						action: {
+							label: "Undo",
+							onClick: () => {
+								updateMessagePin({
+									signalId: value.signalId,
+									action: "unpin",
+								}).catch(showPinError);
+							},
 						},
-					},
-				});
-			}
-		},
-		onError: showPinError,
-	});
+					});
+				}
+			},
+			onError: showPinError,
+		});
 	return (
 		<FilePinsContext.Provider
 			value={{
@@ -345,8 +346,8 @@ function SpacePinsProviderContent(
 				pins: fileQuery.data?.pins ?? [],
 				profileId: input.profileId,
 				canPin: input.canPin && !fileQuery.isError && !fileQuery.isPending,
-				pending: fileMutation.isPending,
-				mutate: (value) => fileMutation.mutate(value),
+				pending: isFilePinPending,
+				mutate: mutateFilePin,
 			}}
 		>
 			<PinsContext.Provider
@@ -354,8 +355,8 @@ function SpacePinsProviderContent(
 					pins: query.data?.pins ?? [],
 					profileId: input.profileId,
 					canPin: input.canPin && !query.isError && !query.isPending,
-					pending: mutation.isPending,
-					mutate: (value) => mutation.mutate(value),
+					pending: isMessagePinPending,
+					mutate: mutateMessagePin,
 				}}
 			>
 				<PinVisibilityContext.Provider
