@@ -25,6 +25,21 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Desktop pilot platform contract
+
+`packages/schemas/src/desktop-client.ts` owns the Desktop origin, build header,
+sanitized session identity, and platform metadata. The native process owns
+credentials; renderer session responses contain no session token. Existing
+CLI, Service, Core, Gateway, Wake, and Space action payloads are unchanged.
+
+The development-only pilot uses matching compiled Web server functions for
+existing reads and shared `/v1` APIs for business writes. A build fingerprint
+mismatch is rejected before handling either. This coupling is an explicit
+pilot limitation, not a durable API contract. See
+[Desktop](../clients/desktop.md#cloud-transport-and-compatibility) for the
+transport and account boundaries. Old production clients remain on their
+existing paths; the pilot cannot target production or a Vite dev registry.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by

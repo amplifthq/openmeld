@@ -97,6 +97,7 @@ export type AgentsView = {
 
 /** Whether the OpenMeld account is signed in on this machine. `null` = unknown. */
 export type AuthView = {
+  accountId?: string | null;
   signedIn: boolean | null;
   /** Account email when signed in, for display. */
   email: string | null;

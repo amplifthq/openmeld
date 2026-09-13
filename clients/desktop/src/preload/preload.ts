@@ -5,6 +5,7 @@ import {
   type OpenMeldBridge,
   WINDOW_IPC,
 } from "../shared/ipc-contract";
+import { type DesktopPilotBridge, PILOT_IPC } from "../shared/pilot-bridge";
 
 const openMeldBridge: OpenMeldBridge = {
   getAuthStatus: () => ipcRenderer.invoke(OPENMELD_IPC.getAuthStatus),
@@ -48,6 +49,12 @@ const openMeldBridge: OpenMeldBridge = {
 };
 
 contextBridge.exposeInMainWorld("openmeld", openMeldBridge);
+contextBridge.exposeInMainWorld("openmeldDesktop", {
+  platform: () => ipcRenderer.invoke(PILOT_IPC.platform),
+  session: () => ipcRenderer.invoke(PILOT_IPC.session),
+  signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),
+  signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
+} satisfies DesktopPilotBridge);
 
 function isDesktopWindowDestination(
   value: unknown
