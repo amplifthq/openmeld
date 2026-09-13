@@ -203,6 +203,8 @@ console error categories. Terminal output excludes console text, URLs, request
 bodies, and credentials. Inspect the full error locally in DevTools. This entry
 requires the validated local pilot and an unpackaged app; it does not expose a
 remote debugging listener or enable diagnostics in packaged builds.
+Use **Developer > Reopen Developer Tools** to recreate a closed or minimized
+inspector without reloading the application; only inspector history is reset.
 The local pilot Web build leaves client JavaScript unminified so DevTools can
 set exact line breakpoints in hydration and application error callbacks. Normal
 Web builds retain their default minification.
