@@ -289,7 +289,7 @@ export async function resolveAlignedDaemonActiveBundleEntryPath(
       ? null
       : serviceContract;
   const currentSourceDistFingerprint =
-    await resolveCurrentDaemonFingerprintForState(state).catch(() => null);
+    await resolveInstalledDaemonBundleFingerprint(state);
   const activeBundleEntryPath =
     await resolveDaemonBundleEntryPathFromState(state);
   const activeBundleSourceAvailable =
@@ -308,14 +308,37 @@ export async function resolveAlignedDaemonActiveBundleEntryPath(
   return artifact.resolvedEntryPath;
 }
 
-async function resolveCurrentDaemonFingerprintForState(
-  state: DaemonActiveBundleState | null
+export async function resolveInstalledDaemonBundleFingerprint(
+  state: DaemonActiveBundleState | null,
+  pathInput: OpenMeldPathResolutionInput = {}
 ): Promise<string | null> {
   if (state?.bundleFormat === "binary_v1") {
-    const entryPath = await resolveDaemonBundleEntryPathFromState(state);
+    const entryPath = await resolveDaemonBundleEntryPathFromState(
+      state,
+      pathInput
+    );
     return entryPath ? await hashDaemonBinaryFile(entryPath) : null;
   }
-  return await resolveCurrentDaemonSourceDistFingerprint();
+  if (state?.bundleFormat === "self_contained_v1") {
+    const bundleRootPath = resolveDaemonBundleRootPath(
+      state.bundleId,
+      pathInput
+    );
+    const distRootPath = join(
+      bundleRootPath,
+      dirname(state.entryScriptRelativePath)
+    );
+    const relativeDistRootPath = relative(bundleRootPath, distRootPath);
+    if (
+      relativeDistRootPath === ".." ||
+      relativeDistRootPath.startsWith(`..${sep}`) ||
+      isAbsolute(relativeDistRootPath)
+    ) {
+      return null;
+    }
+    return await computeDaemonSourceDistFingerprint(distRootPath);
+  }
+  return null;
 }
 
 export async function resolveDaemonBundleEntryPathFromState(
@@ -696,33 +719,12 @@ export async function verifyDaemonActiveBundleIntegrity(
   ) {
     return false;
   }
-  if (activeBundle.bundleFormat === "binary_v1") {
-    const entryPath = await resolveDaemonBundleEntryPathFromState(activeBundle);
-    if (!entryPath) {
-      return false;
-    }
-    return (await hashDaemonBinaryFile(entryPath)) === expectedFingerprint;
-  }
-
-  const bundleRootPath = resolveDaemonBundleRootPath(activeBundle.bundleId);
-  const activeDistRootPath = join(
-    bundleRootPath,
-    dirname(activeBundle.entryScriptRelativePath)
-  );
-  const relativeDistRootPath = relative(bundleRootPath, activeDistRootPath);
-  if (
-    relativeDistRootPath === ".." ||
-    relativeDistRootPath.startsWith(`..${sep}`) ||
-    isAbsolute(relativeDistRootPath)
-  ) {
-    return false;
-  }
   const entryPath = await resolveDaemonBundleEntryPathFromState(activeBundle);
   if (!entryPath) {
     return false;
   }
   return (
-    (await computeDaemonSourceDistFingerprint(activeDistRootPath)) ===
+    (await resolveInstalledDaemonBundleFingerprint(activeBundle)) ===
     expectedFingerprint
   );
 }

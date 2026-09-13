@@ -36,6 +36,7 @@ import {
   resolveCurrentDaemonSourceDistFingerprint,
   resolveDaemonBundleEntryPathFromState,
   resolveDaemonBundleRootPath,
+  resolveInstalledDaemonBundleFingerprint,
   verifyDaemonActiveBundleIntegrity,
   writeDaemonServiceExecutableWrapper,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
@@ -44,6 +45,46 @@ import { persistPendingDaemonServiceUpdate } from "../src/local-service/lifecycl
 import { withTempHome } from "./helpers/fs";
 
 const SHA256_HEX_RE = /^[a-f0-9]{64}$/u;
+
+describe("installed Service artifact independence", () => {
+  it("keeps a copied Service valid after its source CLI changes, but detects installed corruption", async () => {
+    await withTempHome(async () => {
+      const fixture = await createDaemonBundleFixture("package_install");
+      try {
+        await installDaemon({
+          daemonVersion: "1.2.3",
+          source: "daemon.command.install",
+        });
+        const bundle = await prepareDaemonServiceBundle({
+          daemonVersion: "1.2.3",
+          cliScriptPath: fixture.cliScriptPath,
+        });
+        const entry = await resolveDaemonBundleEntryPathFromState(bundle);
+        expect(entry).not.toBeNull();
+        await writeFile(fixture.cliScriptPath, 'console.log("new CLI");\n');
+        await expect(
+          resolveInstalledDaemonBundleFingerprint(bundle)
+        ).resolves.toBe(bundle.sourceDistFingerprint);
+        await expect(
+          resolveAlignedDaemonActiveBundleEntryPath({
+            expectedVersion: "1.2.3",
+          })
+        ).resolves.toBe(entry);
+        await writeFile(entry as string, 'console.log("corrupted Service");\n');
+        await expect(
+          resolveInstalledDaemonBundleFingerprint(bundle)
+        ).resolves.not.toBe(bundle.sourceDistFingerprint);
+        await expect(
+          resolveAlignedDaemonActiveBundleEntryPath({
+            expectedVersion: "1.2.3",
+          })
+        ).resolves.toBeNull();
+      } finally {
+        await fixture.cleanup();
+      }
+    });
+  });
+});
 
 type DaemonBundleFixtureLayout = "workspace" | "package_install";
 

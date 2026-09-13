@@ -22,8 +22,8 @@ import {
 import { resolveDaemonServiceArtifact } from "./daemon-service-artifact";
 import {
   readDaemonActiveBundleState,
-  resolveCurrentDaemonSourceDistFingerprint,
   resolveDaemonBundleEntryPathFromState,
+  resolveInstalledDaemonBundleFingerprint,
 } from "./daemon-service-bundle";
 import { normalizeDaemonCommandPath } from "./daemon-service-command-path";
 import {
@@ -167,11 +167,7 @@ export async function inspectDaemonServiceInventory(input: {
     ? await pathExists(runtimeCommandEntryPath).catch(() => null)
     : null;
   const currentSourceDistFingerprint =
-    activeBundle?.bundleFormat === "self_contained_v1"
-      ? await resolveCurrentDaemonSourceDistFingerprint({
-          cliScriptPath: input.cliScriptPath,
-        }).catch(() => null)
-      : null;
+    await resolveInstalledDaemonBundleFingerprint(activeBundle);
   const resolvedArtifact = resolveDaemonServiceArtifact({
     expectedVersion: input.expectedVersion,
     installStatus,

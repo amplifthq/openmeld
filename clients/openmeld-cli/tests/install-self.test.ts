@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { resolveDaemonServiceUpdateWorkerRegistrationPath } from "../src/config/daemon-service-update-worker-registration";
+import { daemonServiceActiveBundleStatePath } from "../src/config/daemon-state";
 import {
   buildInstallSelfJsonPayload,
   performManagedInstall,
@@ -84,6 +85,47 @@ describe("managed install (install-self)", () => {
 
     expect(outcome.result).toBe("noop_same_version");
     expect(outcome.previousVersion).toBe(resolveCliSelfVersion());
+  });
+
+  it("retains the active Service across CLI cleanup and releases it after replacement", async () => {
+    await performManagedInstall({ sourceBinaryPath: source });
+    for (const version of ["0.1.0", "0.2.0"]) {
+      const versionDir = path.join(home, "versions", version);
+      await mkdir(versionDir, { recursive: true });
+      await writeFile(path.join(versionDir, "openmeld"), version);
+      await chmod(path.join(versionDir, "openmeld"), 0o755);
+    }
+    const statePath = daemonServiceActiveBundleStatePath();
+    await mkdir(path.dirname(statePath), { recursive: true });
+    const serviceRoot = path.join(home, "versions", "0.1.0");
+    await writeFile(
+      statePath,
+      JSON.stringify({
+        v: 2,
+        schema: "openmeld-daemon-active-bundle-v2",
+        bundleId: "active-service",
+        daemonVersion: "0.1.0",
+        entryScriptRelativePath: "openmeld",
+        bundleFormat: "binary_v1",
+        sourceEntryScriptPath: path.join(serviceRoot, "openmeld"),
+        sourcePackageRootPath: serviceRoot,
+        sourceDistRootPath: serviceRoot,
+        sourceKind: "package_install",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+    );
+
+    await pruneManagedInstallVersions({ pathInput: {} });
+    await expect(
+      readFile(path.join(serviceRoot, "openmeld"), "utf8")
+    ).resolves.toBe("0.1.0");
+    await rm(statePath);
+    await pruneManagedInstallVersions({ pathInput: {} });
+    await expect(lstat(serviceRoot)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      lstat(path.join(home, "versions", "0.2.0", "openmeld"))
+    ).resolves.toBeDefined();
   });
 
   it("keeps the managed install valid when two upgrades run together", async () => {
