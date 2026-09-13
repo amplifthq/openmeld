@@ -446,6 +446,10 @@ pnpm run release:deploy:local -- --scope cli
   overwriting immutable artifacts.
 - The default production setup script uses the binary distribution on supported
   macOS computers. Use `?dist=npm` to force the npm lane.
+  The Apple silicon bootstrap uses macOS `plutil` to read the exact stable CLI
+  version and platform artifact paths. It must not search JSON text for field
+  names: a selected Service, another platform, or delta metadata can contain the
+  same names with different values. This does not require Node.js or jq.
 - The dev-local setup script also defaults to binary distribution. Use
   `?dist=npm` to force the npm lane during local testing.
 - Windows setup commands remain on `?dist=npm` until Windows binary artifacts
