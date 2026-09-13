@@ -2788,8 +2788,9 @@ but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
 That account-and-Space-
-scoped semantic anchor is restored after history arrives, loading earlier pages
-if needed. A remembered position disables the MessageScroller's initial
+scoped semantic anchor is restored in the layout effect as soon as history
+mounts, before painting the default start position, loading earlier pages if
+needed. Subsequent resize corrections remain frame-coalesced. A remembered position disables the MessageScroller's initial
 end jump and automatic following. Resize observation preserves the same message
 as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
