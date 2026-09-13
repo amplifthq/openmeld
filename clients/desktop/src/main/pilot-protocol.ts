@@ -108,7 +108,13 @@ async function forwardCloud(
     return new Response("Desktop cloud redirect refused", { status: 502 });
   }
   const responseHeaders = new Headers();
-  for (const name of ["content-type", "cache-control", "x-request-id"]) {
+  for (const name of [
+    "content-type",
+    "cache-control",
+    "x-request-id",
+    "x-tss-serialized",
+    "x-tss-raw",
+  ]) {
     const value = upstream.headers.get(name);
     if (value) {
       responseHeaders.set(name, value);

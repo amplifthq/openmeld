@@ -1,3 +1,4 @@
+import { desktopSpaceStreamEventSchema } from "@openmeld/schemas";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import {
   type DesktopWindowDestination,
@@ -54,6 +55,26 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
   session: () => ipcRenderer.invoke(PILOT_IPC.session),
   signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),
   signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
+  onSessionChanged: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on(PILOT_IPC.sessionChanged, listener);
+    return () => ipcRenderer.removeListener(PILOT_IPC.sessionChanged, listener);
+  },
+  spaceStreamOpen: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.spaceStreamOpen, input),
+  spaceStreamClose: (id) => ipcRenderer.invoke(PILOT_IPC.spaceStreamClose, id),
+  spaceStreamPing: (id) => ipcRenderer.invoke(PILOT_IPC.spaceStreamPing, id),
+  onSpaceStream: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const result = desktopSpaceStreamEventSchema.safeParse(value);
+      if (result.success) {
+        handler(result.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.spaceStreamEvent, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.spaceStreamEvent, listener);
+  },
 } satisfies DesktopPilotBridge);
 
 function isDesktopWindowDestination(

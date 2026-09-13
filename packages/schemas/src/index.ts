@@ -75,8 +75,14 @@ export {
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopPlatform,
   type DesktopSession,
+  type DesktopSpaceStreamBridge,
+  type DesktopSpaceStreamEvent,
+  type DesktopSpaceStreamInput,
   desktopPlatformSchema,
   desktopSessionSchema,
+  desktopSpaceStreamEventSchema,
+  desktopSpaceStreamIdSchema,
+  desktopSpaceStreamInputSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
 export {

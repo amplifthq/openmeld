@@ -59,6 +59,14 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
 - Renderer interface: `src/shared/pilot-bridge.ts`, exposed as
   `window.openmeldDesktop`: platform, session, browser sign-in, Desktop sign-out.
   The response schemas and origin constants live in `packages/schemas`.
+  `onSessionChanged(listener: () => void): () => void` emits only an
+  invalidation and returns its listener cleanup. It runs after the installed
+  Electron plugin persists the successful token exchange cookie, and after
+  owned sign-out clears local credentials. The renderer rereads its existing
+  session query; it does not rely on focus timing or maintain another session.
+  Its Space stream methods open a subscription by ID/Space/Profile, send only
+  the existing keepalive ping, close it, and deliver transport events. No URL,
+  credentials, or business-write frames are accepted.
 - Existing `window.openmeld` remains the CLI-backed local control interface.
   Every channel validates the owning WebContents, top frame, and local document
   before invoking a handler. Other windows, frames, and remote documents fail.
@@ -98,6 +106,15 @@ setup remains the normal Web/CLI onboarding path, not a completed Desktop flow.
 - Main attaches its cookie only to the configured Web endpoint. It does not
   accept arbitrary URLs, credentials, file paths, shell commands, or redirects.
   Response cookie headers do not enter the renderer.
+- Space live streams use the same fixed Web `/v1/spaces/:spaceId/stream`
+  endpoint through native `ws`, with the main-owned cookie and build header.
+  Redirects are refused. The preload sends only validated subscription events.
+  Reload, renderer loss, native sign-in/sign-out, and GUI exit close native
+  sockets; none of these operations stop the Service or a Wake.
+  `clients/web/src/lib/spaces/live-transport.ts` adapts this transport to the
+  existing Space feed listener contract. That shared feed still owns hello
+  acknowledgement, keepalive, reconnect, invalidation and snapshot refresh.
+  It does not replace global WebSocket or add a Desktop live-state system.
 - The app origin is explicitly allowed by the development Auth configuration and
   pilot Web CSRF policy. CSRF is not disabled; Origin alone grants no authority.
 - The Web server compares a content fingerprint from
@@ -105,6 +122,8 @@ setup remains the normal Web/CLI onboarding path, not a completed Desktop flow.
   A mismatch returns HTTP 409 before the operation. The fingerprint covers Web,
   shared packages, lockfile, and the fingerprint helper, excluding generated
   route-tree output.
+  Ordinary Web development/builds do not compute a pilot fingerprint. An
+  unstaged deletion and the same staged deletion produce the same identity.
 
 This is **not a production Desktop/Web compatibility contract**. Pilot renderer
 and Web server must be production-mode builds of matching source; Vite's dev
@@ -134,9 +153,11 @@ different preferences with different writers.
 
 Use repo-root Desktop scripts when interacting with CLI, Service, or Web:
 
-- `pnpm desktop:dev` builds/installs the dev CLI and opens Desktop.
-- `pnpm desktop:start:dev` uses the installed dev wrapper.
-- `pnpm desktop:canary` and `pnpm desktop:start:canary` use the canary lane.
+- `pnpm desktop:dev` and `pnpm desktop:start:dev` build and launch Desktop
+  using this worktree's registered isolated lane and its installed
+  `<OPENMELD_HOME>/bin/openmeld`; they do not install a global CLI.
+- `pnpm desktop:canary` and `pnpm desktop:start:canary` use the same guarded
+  lane resolution with the explicit canary preset.
 - Production reproduction requires explicit authorization for
   `pnpm desktop:start:prod`; it is not a pilot command.
 
@@ -144,6 +165,22 @@ These commands align CLI, home, auth, Gateway, and Web. An isolated worktree mus
 use its actual aligned URLs and OS Service identity, not production state with
 only an overridden home. Follow `development-workflow.md` for lane ownership.
 Do not reset or re-register the user's production Service for tests.
+
+Start the Worker lane with `pnpm dev:worktree` and complete its normal Web setup.
+For the shared Desktop pilot, start Web in another terminal with
+`OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`. This reuses the existing Web
+lane reservation and Doppler owner but builds and serves compiled Web output.
+Stop only that worktree's old Web process first if it is already running.
+The preview listener binds `127.0.0.1` so TanStack can prerender its shell;
+the configured Web/Auth/Gateway URLs still use the worktree hostname and ports.
+Then run `pnpm desktop:start:dev`. Missing/stale lane ownership or a missing
+lane-local executable stops startup without falling back to production/global
+state. Rebuild Web after source changes before relaunching Desktop.
+
+GUI data lives under `<OPENMELD_HOME>/desktop/user-data`. Main sets and verifies
+Electron's `userData` path before Better Auth constructs storage. The launcher
+also passes that directory explicitly to Electron, keeping GUI preferences and
+credentials separate from other worktrees.
 
 Electron 44.3.0 is paired with electron-vite 5.0.0 and Vite 7.3.2. Hydrate the
 native binary with `pnpm --filter @openmeld/desktop exec electron --version`.

@@ -586,17 +586,33 @@ rerun `pnpm dev:desktop`; do not reattach Desktop to root `pnpm dev`.
 
 | Script                          | Lane                                     | Behavior                                                                                                                                     |
 | ------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev:desktop`              | `openmeld-dev` / `~/.openmeld-dev`       | Alias for `pnpm run desktop:dev`; builds and installs the repo-local CLI wrapper, then starts Electron against local Gateway/Auth/Web.       |
-| `pnpm run desktop:dev`          | `openmeld-dev` / `~/.openmeld-dev`       | Builds and installs the repo-local CLI wrapper, then starts Electron against local Gateway/Auth/Web.                                         |
-| `pnpm run desktop:start:dev`    | `openmeld-dev` / `~/.openmeld-dev`       | Starts Electron against an already-installed `openmeld-dev` wrapper.                                                                         |
-| `pnpm run desktop:canary`       | `openmeld-canary` / `~/.openmeld-canary` | Installs the packaged candidate wrapper, then starts Electron against local Gateway/Auth/Web. This can run package release-readiness checks. |
-| `pnpm run desktop:start:canary` | `openmeld-canary` / `~/.openmeld-canary` | Starts Electron against an already-installed `openmeld-canary` wrapper.                                                                      |
+| `pnpm dev:desktop`              | Current registered worktree lane | Alias for `pnpm desktop:start:dev`. |
+| `pnpm run desktop:dev`          | Current registered worktree lane | Builds and launches the Desktop pilot with the lane-local CLI and dev-local preset. |
+| `pnpm run desktop:start:dev`    | Current registered worktree lane | Uses the existing lane CLI, home and endpoints; no global installation or production fallback. |
+| `pnpm run desktop:canary`       | Current registered worktree lane | Alias for `pnpm desktop:start:canary`. |
+| `pnpm run desktop:start:canary` | Current registered worktree lane | Uses the same guarded lane launcher with an explicit canary preset. |
 | `pnpm run desktop:start:prod`   | `openmeld` / `~/.openmeld`               | Starts Electron against the published production lane for explicit production reproduction only.                                             |
 
 These scripts align `OPENMELD_BIN`, `OPENMELD_ENV_PRESET`,
 `OPENMELD_USER_FACING_CLI_COMMAND`, `OPENMELD_GATEWAY_URL`, `OPENMELD_AUTH_URL`, and
 `WEB_APP_URL`. Do not validate Desktop lane behavior with a mixed CLI/Web/Auth
 environment.
+
+The pilot requires an existing Worker lane and the CLI installed through its
+normal Web setup. Its launcher reuses `readCurrentIsolatedDevLane` and
+`buildIsolatedDevEnvironment`; it does not maintain another port map or registry.
+It requires `<OPENMELD_HOME>/bin/openmeld` to be executable and resolve within
+the lane home, and isolates Electron data under `desktop/user-data` there before
+authentication storage initializes.
+
+Serve matching compiled Web assets with
+`OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`, then launch Desktop with
+`pnpm desktop:start:dev`. The Web supervisor retains normal reservation,
+Doppler, and cleanup ownership, but runs build plus Vite preview for this opt-in
+mode. Preview binds loopback for TanStack shell prerender; configured account
+and service endpoints retain the actual worktree hostname and ports. Stop the
+owned old Web process before switching modes. A Vite dev server is not a matching
+Desktop RPC registry. See [Desktop](../clients/desktop.md) for identity checks.
 
 ## `OPENMELD_HOME` And Production-State Safety
 
