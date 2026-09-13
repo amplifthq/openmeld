@@ -122,6 +122,13 @@ describe("remote agent Flue capability inventory", () => {
     expect(tools.map((tool) => tool.name)).toContain("web_fetch");
     expect(tools.map((tool) => tool.name)).toContain("browser_read_page");
     expect(tools.map((tool) => tool.name)).toContain("browser_screenshot");
+    const recoveryTools = await getRemoteAgentFlueTools({
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(turnEnvelope),
+      turnEnvelope,
+      replyRecovery: true,
+    });
+    expect(recoveryTools).toEqual([]);
   });
 
   it("describes every executable capability from the final registered turn catalog", async () => {

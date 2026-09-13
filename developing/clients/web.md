@@ -217,11 +217,30 @@ Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 
 If a page that was already open can no longer load one of those assets, Web
-handles the Vite preload failure before router error rendering and performs at
-most one automatic reload within a bounded retry window. If the current version
-still cannot load, Web stops retrying and presents one explicit refresh action.
-It must never enter a reload loop or expose internal asset URLs as user-facing
-error copy.
+handles the Vite preload failure before router error rendering. The document
+shell synchronously replaces the failed route subtree with the existing page
+loading surface before requesting one automatic reload. This prevents both an
+error-page flash and a second reload from the router's lazy-component recovery.
+The original import rejection and diagnostic report remain intact; canceling
+Vite's event would instead resolve the failed import with an undefined module.
+
+The browser URL remains the navigation owner, including its search and hash.
+Existing Composer draft persistence remains the draft owner. Unsaved-change
+guards and pending Space sends register recovery blockers using their existing
+facts; recovery leaves those surfaces and native navigation warnings mounted
+rather than discarding unsaved work to make a deployment look seamless.
+
+Recovery accepts only module-fetch and CSS-preload failures, not arbitrary
+exceptions from executing a module. Automatic attempts retain a 30-second
+same-tab retry window and coalesce repeated failures within the old document.
+If a replacement page still fails, attempt storage is unavailable, or document
+navigation throws or has not completed after 15 seconds, Web presents one
+explicit refresh action. The navigation deadline bounds only the recovery UI.
+Failure copy describes unavailable page files without claiming that a deployment
+was detected, and internal asset URLs stay out of user-facing error copy.
+Starting another router navigation clears the old recovery surface and its
+navigation deadline, while retaining the same-tab attempt marker. Back and
+ordinary navigation links remain usable exits after a failed recovery.
 
 ## Navigation Topology
 
@@ -3775,10 +3794,16 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
-Wake outcomes retain their message-scoped placement. Stopped outcomes reuse the
-shared Marker separator presentation: centered muted text between divider lines,
-without an Agent avatar or stop icon. The text still opens Message details when
-available. Failures and failure footers keep their compact non-divider treatment.
+Wake outcomes retain their message-scoped placement. System outcome rows reuse
+the shared Marker separator presentation: centered text between neutral divider
+lines, without an Agent avatar. Stops use muted text; execution failures use red
+and publication failures use amber. The text still opens Message details when
+available, and an authorized recovery action stays beside it. Source-message
+failure footers remain compact request status rather than separate messages.
+An Agent-authored explanation of a failed task remains an ordinary Agent reply,
+with its speaker and message body. Never classify it by matching words in the
+reply. Runtime-generated empty-reply notices are system outcomes, even when an
+older envelope used an Agent author; their explicit metadata identifies them.
 This presentation does not create another system notice or change cancellation.
 Message details labels the persisted notice text as **Recorded outcome** and preserves
 its full public explanation, including unfamiliar failure codes. Current
@@ -3807,10 +3832,20 @@ original terminal outcome and its existing Message details remain unchanged.
 When Core instead exposes a verified exact-controller continuation, Web shows
 **Recover reply** and explains that the same Agent conversation will post
 its already-finished reply without running the task again. Web accepts the
-legacy **Continue conversation** projection during mixed-version rollout but
-normalizes it to **Recover reply** for users. It preserves the terminal failure
+**Continue conversation** projection for a hosted empty reply: the saved
+conversation prepares a reply with tools and Computer actions disabled. Web
+uses the Core-provided label and warning. It preserves the terminal failure
 rather than presenting retained evidence as an already-published reply. The
 recovery notice never creates a second terminal outcome row.
+
+While a requested recovery is running, Web shows **Preparing your reply…** and
+polls the existing inspection endpoint. A failed status check retains an honest
+unknown state with **Check status**, which only reads and never executes another
+recovery. An exhausted hosted continuation disables further execution for that
+original failure and explains that the message is saved. Historical
+`remote_agent_failure` text signals with the exact empty-assistant error code
+project as terminal failures, including **Failed** in Message details; their
+stored history is not rewritten. New empty failures use system notices directly.
 
 Message details presents one cause-specific primary action per failed target.
 It must not pair unrelated actions: a Cursor plan limit opens Cursor plan

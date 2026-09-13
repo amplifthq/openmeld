@@ -13,6 +13,7 @@ const recoveryRequest = {
 
 afterEach(() => {
 	cleanup();
+	vi.useRealTimers();
 });
 
 describe("SpaceExecutionRecoveryButton", () => {
@@ -176,7 +177,7 @@ describe("SpaceExecutionRecoveryButton", () => {
 
 	it("names exact-conversation recovery by its user outcome and explains that the task will not rerun", async () => {
 		const warning =
-			"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.";
+			"Continue from the saved conversation. This only prepares a reply; it cannot repeat tools or other actions.";
 		const inspect = vi.fn<SpaceExecutionRecoveryHandler>(async () => ({
 			action: "resume_controller_conversation",
 			label: "Continue conversation",
@@ -192,11 +193,70 @@ describe("SpaceExecutionRecoveryButton", () => {
 		);
 
 		const button = await screen.findByRole("button", {
-			name: "Recover reply",
+			name: "Continue conversation",
 		});
 		const warningElement = screen.getByText(warning);
 		expect(button.getAttribute("aria-describedby")).toBe(warningElement.id);
 		expect(warningElement.className).not.toContain("sr-only");
+	});
+
+	it("checks a pending reply after a connection failure without executing recovery again", async () => {
+		vi.useFakeTimers();
+		const warning =
+			"The reply still couldn't be completed. Your message is saved.";
+		const recover = vi
+			.fn<SpaceExecutionRecoveryHandler>()
+			.mockResolvedValueOnce({
+				action: "resume_controller_conversation",
+				label: "Continue conversation",
+				status: "available",
+				warning: null,
+			})
+			.mockResolvedValueOnce({
+				action: null,
+				label: null,
+				status: "in_progress",
+				warning: null,
+			})
+			.mockRejectedValueOnce(new Error("connection lost"))
+			.mockResolvedValueOnce({
+				action: null,
+				label: null,
+				status: "unavailable",
+				warning,
+			});
+		await act(async () => {
+			render(
+				<SpaceExecutionRecoveryButton
+					onRecoverExecution={recover}
+					request={recoveryRequest}
+				/>
+			);
+			await Promise.resolve();
+		});
+		await act(async () =>
+			screen.getByRole("button", { name: "Continue conversation" }).click()
+		);
+		expect(screen.getByText("Preparing your reply…")).toBeTruthy();
+		await act(async () => vi.advanceTimersByTimeAsync(2000));
+		expect(
+			screen.getByText(
+				"Couldn't confirm whether your reply is ready. Your message is saved."
+			)
+		).toBeTruthy();
+		await act(async () =>
+			screen.getByRole("button", { name: "Check status" }).click()
+		);
+		expect(screen.getByText(warning)).toBeTruthy();
+		expect(screen.queryByRole("button")).toBeNull();
+		expect(
+			recover.mock.calls.filter(([attempt]) => attempt.action !== null)
+		).toHaveLength(1);
+		expect(recover).toHaveBeenLastCalledWith({
+			...recoveryRequest,
+			action: null,
+			operationId: null,
+		});
 	});
 
 	it("inspects once per execution identity even when the handler reference changes", async () => {

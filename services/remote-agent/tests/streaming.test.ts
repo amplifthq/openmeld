@@ -708,6 +708,15 @@ describe("Remote Agent streaming", () => {
     });
 
     expect(isRemoteAgentStreamEligible(spaceContext)).toBe(true);
+    expect(
+      isRemoteAgentStreamEligible({
+        ...spaceContext,
+        replyRecovery: {
+          originalDispatchId: "original",
+          operationId: "recovery",
+        },
+      })
+    ).toBe(false);
     expect(isRemoteAgentStreamEligible(slackContext)).toBe(false);
   });
 });
