@@ -357,6 +357,7 @@ const DAEMON_MENU_COMMANDS = [
 ] as const;
 
 type DaemonRunInput = DaemonBaseInput & {
+  accountAdmissionId?: string;
   deviceId?: string;
   heartbeatMs?: number;
   profile?: string;
@@ -4811,7 +4812,7 @@ type DaemonDetachedLaunchInput = Omit<DaemonRunInput, "profile"> & {
   mode: DaemonRunMode;
 };
 
-async function runDaemonServiceDetached(
+export async function runDaemonServiceDetached(
   input: DaemonDetachedLaunchInput
 ): Promise<DaemonRunResult> {
   const startFailureLogCursor = await captureDaemonStartFailureLogCursor();
@@ -4920,6 +4921,9 @@ function buildDetachedDaemonLaunchSpec(input: DaemonDetachedLaunchInput): {
 } {
   const detachedMode = input.mode === "background" ? "foreground" : input.mode;
   const sharedArgs = [
+    ...(input.accountAdmissionId
+      ? ["--account-admission-id", input.accountAdmissionId]
+      : []),
     ...(input.openMeldProfileId ? ["--profile", input.openMeldProfileId] : []),
     ...(input.deviceId ? ["--device-id", input.deviceId] : []),
     ...(typeof input.heartbeatMs === "number"

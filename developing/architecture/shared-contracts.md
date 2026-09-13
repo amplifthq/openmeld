@@ -40,6 +40,25 @@ pilot limitation, not a durable API contract. See
 transport and account boundaries. Old production clients remain on their
 existing paths; the pilot cannot target production or a Vite dev registry.
 
+## Local Service account admission
+
+`packages/schemas/src/service-account-admission.ts` owns the expected-account
+request and local admission record. The authenticated local shutdown payload
+has an optional `accountAdmissionId`; ordinary shutdown requests are unchanged.
+The Service contract, Gateway transport, Prepare, Wake dispatch, Space actions,
+status, and trace schemas are unchanged. New CLI/carrier pairs support the
+opt-in operation; older carriers reject its unknown startup argument or strict
+shutdown field. Callers must surface that refusal and must not retry unguarded.
+
+This additive capability does not require a cloud deployment or force existing
+Services to update. Existing cloud/local setup and Wake work can continue in
+either version direction. A later Desktop caller must require the capable CLI
+and carrier before exposing controls. The pilot gate remains closed. The
+release is deferred to the normal clean-main local-component release; no
+contract epoch, command-contract floor, or feature-branch manifest stamp is
+introduced. See the
+[owning admission semantics](local-openmeld-service.md#account-checked-service-start-and-stop).
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by

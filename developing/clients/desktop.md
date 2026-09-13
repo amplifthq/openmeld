@@ -92,6 +92,13 @@ Service. Enabling those controls requires an expected-account contract at the
 CLI mutation owner; do not treat a preceding read as that contract. Clean-machine
 setup remains the normal Web/CLI onboarding path, not a completed Desktop flow.
 
+The CLI prerequisite accepts `service start|stop --json --expected-account <id>`
+for an already connected POSIX Service. Its owning admission contract is in
+[Local OpenMeld Service](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop).
+This does not open the pilot gate or authorize setup, installation, account
+switching, or other local mutations. Desktop integration must pass its live
+signed-in account on each action and handle explicit CLI refusal.
+
 ## Cloud transport and compatibility
 
 `pilot-protocol.ts` owns a fixed-endpoint request adapter:

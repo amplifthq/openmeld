@@ -67,6 +67,7 @@ export const openMeldDaemonCancelRequestPayloadSchema = z.strictObject({
 });
 
 export const openMeldDaemonShutdownRequestPayloadSchema = z.strictObject({
+  accountAdmissionId: z.string().uuid().optional(),
   mode: z.enum(["graceful", "force"]).default("graceful"),
   gracePeriodMs: z.number().int().nonnegative().default(5000),
 });

@@ -194,6 +194,14 @@ export {
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
 export {
+  type ServiceAccountAdmission,
+  type ServiceAccountAdmissionIdentity,
+  type ServiceAccountControlRequest,
+  serviceAccountAdmissionIdentitySchema,
+  serviceAccountAdmissionSchema,
+  serviceAccountControlRequestSchema,
+} from "./service-account-admission";
+export {
   projectLegacySpaceAccessView,
   SPACE_ACCESS_VERSION,
   SPACE_ACCESS_VERSION_HEADER,

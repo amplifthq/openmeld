@@ -1499,10 +1499,13 @@ Catalog consumption rules:
 - One catalog load resolves its account context once and reuses it for every
   Profile workspace inspection. It must not fan out identical Keychain reads
   per Profile.
-- One OpenMeld Service process reloads the unchanged local auth session from
-  secure storage once and reuses it while the persisted session payload is
-  unchanged. Clearing, replacing, or editing that payload invalidates the
-  in-process copy; a new Service process reloads it from secure storage. Remote
+- One OpenMeld Service process binds its account principal at startup. It
+  reuses the secure-storage cache and adopts changed credentials only for that
+  same account, Auth authority, and client. Clearing or switching the CLI account
+  cannot make accepted work use another account's credentials. Same-account
+  renewal uses the existing credential writer; an in-memory renewal deferred
+  during admission is persisted on a later read if the local principal still
+  matches. A new Service process resolves its own startup principal. Remote
   authorization checks still decide whether the bearer session is valid.
 - Reading a committed local session does not acquire the account-transition
   mutation lock when no durable transition journal exists. Recovery acquires
@@ -1886,6 +1889,50 @@ Registration repair, install, start, stop, uninstall, alignment,
 auto-heal, and explicit autostart changes all reuse that one
 lock identity. Nested registration work in the same lifecycle command reuses
 the held lock; competing commands or roots cannot enter until it is released.
+On POSIX systems, native commands invoked inside that owner attach a separate,
+owner-scoped entry to the same lock directory before execution. A fixed shell
+handshake waits for attachment, then uses `exec` with structured argv so the
+recorded PID and process-start identity remain the native command's identity.
+EOF or failed attachment before the grant prevents execution. A surviving native
+command retains the fence after its requesting CLI dies. Recovery removes only
+recognized entries whose exact owners are all proven dead; unknown entries and
+unknown process identity fail closed. There is no live-owner timeout. Older
+single-entry readers cannot remove a nonempty multi-owner directory, including
+after their malformed-lock grace period. Read-only probes outside a lifecycle
+operation do not acquire this lock. Windows retains ordinary lifecycle behavior;
+the account-checked control path below is unavailable there.
+
+### Account-checked Service start and stop
+
+`service start|stop --json --expected-account <account-id>` admits one operation
+against an already connected Service. It is not setup, login, installation,
+account takeover, or permission to change another account's Service. The CLI
+verifies the bearer principal through Auth before taking lifecycle ownership,
+then rechecks the local credential snapshot, lane, Auth authority, device,
+connected-computer ownership, and contract generation under the auth mutation
+mutex. The lock order is lifecycle then auth; no OS command, startup wait, or
+work drain holds the auth mutex.
+
+The auth-owned `auth/service-account-admission.json` record reserves that short
+admission interval. Credential writers and transition recovery reject a live
+pending reservation. Dead requesters produce a durable cancelled generation,
+never deletion that could authorize a delayed carrier. Startup passes only the
+record ID in argv; the carrier checks its actual identity and generation before
+running and binds its credential context. Stop uses the existing authenticated
+shutdown payload and releases auth protection when the exact carrier accepts
+the existing controlled stop. Its original response still waits for drain.
+The CLI keeps lifecycle ownership through completion; it never falls back to
+unverified stop or another PID. Account changes after admission cannot retarget
+accepted work. A cancelled, replaced, corrupt, or unsupported generation fails
+closed. An older carrier rejects the new argv or shutdown field.
+
+This record owns only local operation admission. It adds no Wakeability,
+RuntimeCoordinator, dispatch, Binding, or final-outcome authority. The persisted
+Service contract remains unchanged. Desktop's pilot mutation gate remains
+closed until its separate integration is reviewed.
+
+### Registration reconciliation
+
 A successfully confirmed explicit autostart command clears the repair marker
 before releasing the lock. This prevents a later reconcile pass from undoing
 the user's explicit choice. The reconcile pass never boots or starts the job,

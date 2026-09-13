@@ -33,6 +33,7 @@ import {
   type AuthSessionState,
   getAuthSessionState,
   type StoredAuthSession,
+  withAdmittedServiceSession,
 } from "../../config/auth-session";
 import { resolveBaseUrl } from "../../config/base-url";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
@@ -99,6 +100,7 @@ import {
   journalDaemonStopSignalEvidence,
   startDaemonServiceRegistrationReconcileLoop,
 } from "../lifecycle/daemon-service-registration-reconcile";
+import { admitServiceAccountStop } from "../lifecycle/service-account-authorization";
 import { createOpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { syncLocalServiceRuntimeAgentControllerReports } from "../reporting/runtime-agent-controller-report-sync";
 import type { RuntimeReportingAttemptObserver } from "../reporting/runtime-agent-controller-reporting-submission";
@@ -408,7 +410,7 @@ async function buildDaemonStreamRequestHeaders(input: {
       });
 }
 
-function createControlledShutdownCoordinator(input: {
+export function createControlledShutdownCoordinator(input: {
   hasUndrainedWork: () => boolean;
   isStopRequested: () => boolean;
   markStopping: () => void;
@@ -467,6 +469,7 @@ function createControlledShutdownCoordinator(input: {
     async request(payload: {
       gracePeriodMs: number;
       mode: "force" | "graceful";
+      onAdmission?: (commit: () => void) => Promise<void>;
     }): Promise<{
       accepted: true;
       gracePeriodMs: number;
@@ -474,11 +477,24 @@ function createControlledShutdownCoordinator(input: {
     }> {
       const stopCause = await resolveRecentDaemonSignalStopCause();
       if (shutdownAttempt) {
-        await shutdownAttempt.promise;
+        const existingAttempt = shutdownAttempt;
+        await payload.onAdmission?.(() => undefined);
+        await existingAttempt.promise;
       } else if (activeSessionShutdownResolver) {
         const currentAttempt = Promise.withResolvers<void>();
-        shutdownAttempt = currentAttempt;
-        activeSessionShutdownResolver(stopCause);
+        const resolver = activeSessionShutdownResolver;
+        const commit = () => {
+          if (shutdownAttempt || activeSessionShutdownResolver !== resolver) {
+            throw new Error("Service session changed before Stop admission.");
+          }
+          shutdownAttempt = currentAttempt;
+          resolver(stopCause);
+        };
+        if (payload.onAdmission) {
+          await payload.onAdmission(commit);
+        } else {
+          commit();
+        }
         try {
           await currentAttempt.promise;
         } finally {
@@ -494,7 +510,17 @@ function createControlledShutdownCoordinator(input: {
               "controlled shutdown cannot verify active local work without a connected runtime session",
           });
         }
-        requestServiceStop(stopCause);
+        const commit = () => {
+          if (activeSessionShutdownResolver || input.hasUndrainedWork()) {
+            throw new Error("Service work changed before Stop admission.");
+          }
+          requestServiceStop(stopCause);
+        };
+        if (payload.onAdmission) {
+          await payload.onAdmission(commit);
+        } else {
+          commit();
+        }
       }
       return {
         accepted: true,
@@ -538,6 +564,19 @@ async function runSocketSessionWithControlledShutdown(input: {
 }
 
 export const runDaemonServiceLoop = async (
+  input: DaemonServiceRunInput
+): Promise<void> => {
+  const auth = await getAuthSessionState({ refreshExpired: true });
+  if (auth.state !== "valid" || !auth.session?.user?.id) {
+    throw new Error("A valid CLI account is required to start this Service.");
+  }
+  return await withAdmittedServiceSession(
+    auth.session,
+    async () => await runAccountBoundDaemonServiceLoop(input)
+  );
+};
+
+const runAccountBoundDaemonServiceLoop = async (
   input: DaemonServiceRunInput
 ): Promise<void> => {
   await assertDaemonServiceLaunchScope();
@@ -838,7 +877,24 @@ export const runDaemonServiceLoop = async (
           requestActiveRouteCatalogSync,
         });
       },
-      shutdownHandler: controlledShutdown.request,
+      shutdownHandler: async (payload) => {
+        const admissionId = payload.accountAdmissionId;
+        return await controlledShutdown.request({
+          ...payload,
+          ...(admissionId
+            ? {
+                onAdmission: async (commit: () => void) =>
+                  await admitServiceAccountStop({
+                    id: admissionId,
+                    ownerUserId,
+                    deviceId,
+                    contractGeneration: daemonServiceContract?.generation ?? 0,
+                    commit,
+                  }),
+              }
+            : {}),
+        });
+      },
       serviceUpdateReadinessHandler: () => {
         const unacknowledgedResultCount =
           listDispatchResultOutboxPendingAcknowledgementKeys({
