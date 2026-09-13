@@ -217,11 +217,30 @@ Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 
 If a page that was already open can no longer load one of those assets, Web
-handles the Vite preload failure before router error rendering and performs at
-most one automatic reload within a bounded retry window. If the current version
-still cannot load, Web stops retrying and presents one explicit refresh action.
-It must never enter a reload loop or expose internal asset URLs as user-facing
-error copy.
+handles the Vite preload failure before router error rendering. The document
+shell synchronously replaces the failed route subtree with the existing page
+loading surface before requesting one automatic reload. This prevents both an
+error-page flash and a second reload from the router's lazy-component recovery.
+The original import rejection and diagnostic report remain intact; canceling
+Vite's event would instead resolve the failed import with an undefined module.
+
+The browser URL remains the navigation owner, including its search and hash.
+Existing Composer draft persistence remains the draft owner. Unsaved-change
+guards and pending Space sends register recovery blockers using their existing
+facts; recovery leaves those surfaces and native navigation warnings mounted
+rather than discarding unsaved work to make a deployment look seamless.
+
+Recovery accepts only module-fetch and CSS-preload failures, not arbitrary
+exceptions from executing a module. Automatic attempts retain a 30-second
+same-tab retry window and coalesce repeated failures within the old document.
+If a replacement page still fails, attempt storage is unavailable, or document
+navigation throws or has not completed after 15 seconds, Web presents one
+explicit refresh action. The navigation deadline bounds only the recovery UI.
+Failure copy describes unavailable page files without claiming that a deployment
+was detected, and internal asset URLs stay out of user-facing error copy.
+Starting another router navigation clears the old recovery surface and its
+navigation deadline, while retaining the same-tab attempt marker. Back and
+ordinary navigation links remain usable exits after a failed recovery.
 
 ## Navigation Topology
 
