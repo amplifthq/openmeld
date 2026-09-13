@@ -1,5 +1,5 @@
 import { getSetupFlowCopy } from "@openmeld/start";
-import { isLocalWebOrigin } from "./local-web-origin";
+import { isLocalWebOrigin } from "./local-web-origin.ts";
 
 const OPENMELD_SETUP_PACKAGE_NAME = "openmeld";
 const OPENMELD_SETUP_PACKAGE_SPEC = `${OPENMELD_SETUP_PACKAGE_NAME}@latest`;

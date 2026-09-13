@@ -406,6 +406,15 @@ request fails before mutation with Auth's stable capability error. A missing or
 invalid capability response fails closed for Human creation; Auth remains the
 final enforcement boundary for older CLI versions.
 
+Profile inspection reuses the primary Binding to select applicable diagnostics.
+For a hosted Binding, `profiles show` retains Binding information and omits the
+workstation runtime fields (`runtime: {}` in JSON); it does not inspect a
+local workspace or infer hosted Wakeability from local Service state.
+
+`agents repair --agent <id> --install <install-id>` may select another valid
+installation even when the current installation is ready. It uses the existing
+install resolver and preserves enabled state and all selector validation.
+
 `openmeld profiles create` is the one CLI and Local Agent creation entry for
 both self-owned and teammate-owned Agent Profiles. Supplying `--owner` routes
 the intent through the shared Agent Profile Creation Request capability:

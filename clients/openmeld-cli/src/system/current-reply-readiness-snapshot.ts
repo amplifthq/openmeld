@@ -132,6 +132,7 @@ export async function resolveCurrentReplyReadinessSnapshot(
     ownerUserId?: string | null;
     preferActiveServiceRouteCatalog?: boolean;
     profile?: OpenMeldProfile | null;
+    primaryAgentControllerReport?: AgentProfilePrimaryAgentControllerReport | null;
     runtimeProjection?: DeviceRuntimeStateSyncResult | null;
     runtimeWorkdir?: string;
   } = {}
@@ -149,11 +150,13 @@ export async function resolveCurrentReplyReadinessSnapshot(
     ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
   });
   const primaryAgentControllerReportPromise =
-    resolvePrimaryAgentControllerReportForSnapshot({
-      baseUrl: input.baseUrl,
-      bindingReads,
-      profile: input.profile ?? null,
-    });
+    input.primaryAgentControllerReport !== undefined
+      ? Promise.resolve(input.primaryAgentControllerReport)
+      : resolvePrimaryAgentControllerReportForSnapshot({
+          baseUrl: input.baseUrl,
+          bindingReads,
+          profile: input.profile ?? null,
+        });
   const daemonRouteObservationPromise = resolveDaemonRouteObservation({
     baseUrl: input.baseUrl,
     includeDaemonRouteObservation: input.includeDaemonRouteObservation === true,
