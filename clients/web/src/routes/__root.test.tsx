@@ -136,7 +136,9 @@ describe("RootErrorComponent", () => {
 				)
 			);
 			expect(screen.queryByText("This page couldn’t load.")).toBeNull();
-			expect(screen.getByRole("status", { name: "Loading page" })).toBeTruthy();
+			expect(
+				screen.getByRole("status", { name: "Updating this page" })
+			).toBeTruthy();
 			expect(reload).toHaveBeenCalledOnce();
 			if (exit === "navigation") {
 				act(resetClientVersionRecovery);
@@ -153,7 +155,9 @@ describe("RootErrorComponent", () => {
 				expect(screen.getByText("Current page")).toBeTruthy();
 				expect(screen.queryByText("This page couldn’t load.")).toBeNull();
 			}
-			expect(screen.queryByRole("status", { name: "Loading page" })).toBeNull();
+			expect(
+				screen.queryByRole("status", { name: "Updating this page" })
+			).toBeNull();
 			expect(reload).toHaveBeenCalledOnce();
 		} finally {
 			cleanup();
@@ -218,7 +222,7 @@ describe("RootErrorComponent", () => {
 			} else {
 				expect(reload).toHaveBeenCalledOnce();
 				expect(
-					screen.getByRole("status", { name: "Loading page" })
+					screen.getByRole("status", { name: "Updating this page" })
 				).toBeTruthy();
 				expect(screen.queryByText("This page couldn’t load.")).toBeNull();
 			}
@@ -265,7 +269,9 @@ describe("RootErrorComponent", () => {
 				)
 			);
 			expect(screen.getByRole("button", { name: "Refresh page" })).toBeTruthy();
-			expect(screen.queryByRole("status", { name: "Loading page" })).toBeNull();
+			expect(
+				screen.queryByRole("status", { name: "Updating this page" })
+			).toBeNull();
 			expect(reload).toHaveBeenCalledTimes(operation === "reload" ? 1 : 0);
 		} finally {
 			cleanup();

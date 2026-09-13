@@ -252,7 +252,13 @@ export function ClientVersionRecovery({
 }) {
 	const recovery = useClientVersionRecovery();
 	if (recovery.status === "reloading") {
-		return <FullPagePending label="Loading page" />;
+		return (
+			<FullPagePending
+				className="flex-col"
+				label="Updating this page"
+				showLabel
+			/>
+		);
 	}
 	if (recovery.status === "failed") {
 		return <PageError error={recovery.error} />;
