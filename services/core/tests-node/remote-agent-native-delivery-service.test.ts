@@ -16,6 +16,7 @@ import {
   remoteAgentNativeDeliveryDeadlineProbeQueueMessageSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveListSignalsReadQuerySemantics,
+  signalSystemNoticeDataSchema,
   spaceMemberDirectorySchema,
 } from "@openmeld/schemas";
 import type {
@@ -9718,10 +9719,13 @@ function buildEnv(
     rpcPostSignalOnceByClientMessageId: vi.fn(() =>
       createSignalEnvelope(options.postSignalId ?? "signal_reply_1")
     ),
-    rpcPostExecutionRecoveryNoticeSignal: vi.fn(() => ({
-      publishedSignalId: "recovered-signal",
-      status: "published" as const,
-    })),
+    rpcPostExecutionRecoveryNoticeSignal: vi.fn((input) => {
+      signalSystemNoticeDataSchema.parse(input.data);
+      return {
+        publishedSignalId: "recovered-signal",
+        status: "published" as const,
+      };
+    }),
     rpcPostSystemNoticeSignal: vi.fn((input) => {
       if (options.postSignalError) {
         throw typeof options.postSignalError === "string"
