@@ -11637,7 +11637,7 @@ async function publishRemoteAgentRecoveredSpaceReply(input: {
     data: {
       actorProfileId: original.profileId,
       ...(targetProfile.profileName
-        ? { actorProfileName: targetProfile.profileName }
+        ? { actorName: targetProfile.profileName }
         : {}),
       dispatchId: original.dispatchId,
       generatedBy: "openmeld",
