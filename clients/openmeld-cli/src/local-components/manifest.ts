@@ -135,6 +135,15 @@ export async function writeInstalledLocalComponentsSnapshot(input: {
     source: input.source,
     manifest: await buildExpectedLocalComponentsManifest(),
   };
+  const installed = isBinaryDistribution()
+    ? await readManagedCliInstallation()
+    : null;
+  if (installed && installed.version !== OPENMELD_VERSION) {
+    const previous = await readInstalledLocalComponentsSnapshot();
+    if (previous?.manifest.cli.packageVersion === installed.version) {
+      snapshot.manifest.cli = previous.manifest.cli;
+    }
+  }
   const snapshotPath = localComponentsSnapshotPath();
   await mkdir(dirname(snapshotPath), { recursive: true });
   const temporaryPath = `${snapshotPath}.${crypto.randomUUID()}.tmp`;

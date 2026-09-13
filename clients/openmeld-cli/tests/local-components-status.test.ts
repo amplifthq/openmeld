@@ -148,6 +148,9 @@ describe("local components status", () => {
       commandContractVersion: "new-cli-contract",
     };
     await writeFile(snapshotPath, JSON.stringify(snapshot));
+    // Running setup from an older retained carrier must not erase the newer
+    // CLI installer's matching command-contract receipt.
+    await writeInstalledLocalComponentsSnapshot({ source: "setup" });
     const updated = await resolveLocalComponentsStatus({
       latestPackageVersion: "99.0.0",
       requiredCommandContractVersion: "new-cli-contract",
