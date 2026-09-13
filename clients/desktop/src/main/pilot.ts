@@ -97,8 +97,11 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
   }
   let transportSession: Session | undefined;
   let disposeTransport: (() => void) | undefined;
+  const diagnosticsEnabled =
+    !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
     auth,
+    diagnosticsEnabled,
     getSession() {
       if (!transportSession) {
         throw new Error("Desktop transport is not installed");
@@ -109,7 +112,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       disposeTransport?.();
     },
     observeWindow(contents: WebContents) {
-      if (!app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1") {
+      if (diagnosticsEnabled) {
         observePilotWindow(contents);
       }
     },

@@ -214,6 +214,26 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       ],
     }
   );
+  if (pilot?.diagnosticsEnabled) {
+    template.push({
+      label: "Developer",
+      submenu: [
+        {
+          label: "Reopen Developer Tools",
+          accelerator: "Alt+CommandOrControl+I",
+          click: () => {
+            const contents = mainWindow?.webContents;
+            if (!contents || contents.isDestroyed()) {
+              return;
+            }
+            // Recreate a closed/minimized inspector without reloading the app.
+            contents.closeDevTools();
+            contents.openDevTools({ mode: "detach", activate: true });
+          },
+        },
+      ],
+    });
+  }
   return template;
 }
 
