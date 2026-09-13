@@ -62,20 +62,24 @@ function fixture() {
 	};
 }
 
-it("restores after history arrives and keeps the same message when an image changes layout", () => {
+it.each([
+	true,
+	false,
+])("restores before the next frame and preserves image layout changes (history pending: %s)", (historyIsPending) => {
 	const f = fixture();
 	writeSpaceConversationPosition(f.key, {
 		anchorSignalId: "message-a",
 		offsetFromVisibleTop: 20,
 	});
 	const { result, rerender } = renderHook(useSpaceConversationPosition, {
-		initialProps: { ...f.input, historyIsPending: true },
+		initialProps: { ...f.input, historyIsPending },
 	});
 	expect(result.current.defaultScrollPosition).toBe("start");
-	act(() => vi.advanceTimersByTime(40));
-	expect(f.input.viewport.scrollTop).toBe(0);
-	rerender({ ...f.input, historyIsPending: false });
-	act(() => vi.advanceTimersByTime(40));
+	if (historyIsPending) {
+		expect(f.input.viewport.scrollTop).toBe(0);
+		rerender({ ...f.input, historyIsPending: false });
+	}
+	// Cached or newly mounted history must be aligned before a frame can paint.
 	expect(f.input.viewport.scrollTop).toBe(780);
 	f.moveMessage(1100);
 	act(() => {
