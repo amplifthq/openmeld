@@ -303,11 +303,23 @@ export async function runProfileShow(input: {
     resolvedView: runtime.resolvedView,
     action: "show",
   });
+  const primaryBinding = await resolveProfileShowPrimaryBinding(profile).catch(
+    (error: unknown) => {
+      if (runtime.resolvedView !== "human" || input.json === true) {
+        throw error;
+      }
+      console.error(
+        "[openmeld.profile.binding_diagnostics_unavailable]",
+        error instanceof Error ? error.message : String(error)
+      );
+      return null;
+    }
+  );
   const agentRuntimeState = await resolveAgentProfileRuntimeState(profile, {
     includeDaemonRouteObservation: true,
+    primaryBinding,
   });
   if (input.json === true) {
-    const primaryBinding = await resolveProfileShowPrimaryBinding(profile);
     console.log(
       `${JSON.stringify(
         buildProfileShowJsonPayload({
@@ -331,7 +343,6 @@ export async function runProfileShow(input: {
     return;
   }
 
-  const primaryBinding = await resolveProfileShowPrimaryBinding(profile);
   if (input.details !== true) {
     presenter.line({
       code: "profile.show",

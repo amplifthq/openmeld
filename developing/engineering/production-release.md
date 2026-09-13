@@ -176,6 +176,14 @@ Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
 
+When a diff changes the worker schema, native-delivery service, and Center
+Agent receiver together without a recognized directional request owner, the
+planner rejects a combined Core/CLI and Remote Agent release. Review the actual
+contract direction and use explicitly ordered single-side stages. This prevents
+request-only recovery fields from being mistaken for response-only changes;
+adding the bidirectional service to a request allowlist would reverse the bug
+for response changes.
+
 The strict version-4 Center Agent conversation contract is such a request-side
 change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
 it accepts version 4, and deploy Core last so it begins producing version 4.

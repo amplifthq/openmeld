@@ -1,12 +1,23 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildAgentProfileRuntimeRows,
   resolveAgentProfileRuntimeState,
 } from "../src/runtime/agent-profile-state";
 
-const { resolveCurrentReplyReadinessSnapshotMock } = vi.hoisted(() => ({
-  resolveCurrentReplyReadinessSnapshotMock: vi.fn(),
+const { resolveCurrentReplyReadinessSnapshotMock, primaryBindingMock } =
+  vi.hoisted(() => ({
+    resolveCurrentReplyReadinessSnapshotMock: vi.fn(),
+    primaryBindingMock: vi.fn(),
+  }));
+
+vi.mock("../src/system/agent-profile-primary-binding", () => ({
+  resolveAgentProfilePrimaryAgentControllerReport: primaryBindingMock,
 }));
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  primaryBindingMock.mockResolvedValue(null);
+});
 
 vi.mock("../src/system/current-reply-readiness-snapshot", async () => {
   const actual = await vi.importActual<
@@ -20,6 +31,19 @@ vi.mock("../src/system/current-reply-readiness-snapshot", async () => {
 });
 
 describe("agent profile runtime state", () => {
+  it("does not run workstation diagnostics for a hosted Binding", async () => {
+    primaryBindingMock.mockResolvedValue({
+      capabilityKind: "hosted:remote-agent",
+      agentControllerRef: "hosted:remote-agent",
+    });
+    const state = await resolveAgentProfileRuntimeState({
+      openMeldProfileId: "agt_remote",
+      profileKind: "agent",
+    } as never);
+    expect(state).toBeNull();
+    expect(resolveCurrentReplyReadinessSnapshotMock).not.toHaveBeenCalled();
+    expect(buildAgentProfileRuntimeRows(state)).toEqual([]);
+  });
   it("keeps daemon route evidence diagnostic-only when local reply setup is ready", async () => {
     resolveCurrentReplyReadinessSnapshotMock.mockResolvedValueOnce({
       agentReplyReadiness: {

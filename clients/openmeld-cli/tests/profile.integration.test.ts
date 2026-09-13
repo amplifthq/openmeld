@@ -1440,7 +1440,11 @@ describe("profiles", () => {
     });
   });
 
-  it("includes model selection in profile show json binding payload", async () => {
+  it.each([
+    "builtin:codex",
+    "hosted:remote-agent",
+    "hosted:center-agent",
+  ])("preserves Binding data and selects applicable Profile diagnostics (%s)", async (agentControllerRef) => {
     await withTempHome(async () => {
       process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
       await setAuthSession({
@@ -1471,6 +1475,7 @@ describe("profiles", () => {
           return createJsonResponse(
             createPrimaryBindingPayload({
               agentProfileId: "agt_show_json_model",
+              agentControllerRef,
               modelSelection: {
                 modelId: "gpt-5.4-mini",
                 reasoningLevel: "low",
@@ -1499,12 +1504,24 @@ describe("profiles", () => {
       expect(JSON.parse(String(payload))).toMatchObject({
         openMeldProfileId: "agt_show_json_model",
         binding: {
+          agentControllerRef,
           modelSelection: {
             modelId: "gpt-5.4-mini",
             reasoningLevel: "low",
           },
         },
       });
+      const result = JSON.parse(String(payload));
+      if (agentControllerRef === "builtin:codex") {
+        expect(result.runtime).not.toBeNull();
+      } else {
+        expect(result.runtime).toEqual({});
+        expect(
+          fetchMock.mock.calls.filter(([request]) =>
+            String(request).includes("runtime-transport")
+          )
+        ).toHaveLength(0);
+      }
     });
   });
 
