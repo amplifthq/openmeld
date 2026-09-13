@@ -551,7 +551,7 @@ export async function runDaemonInstall(
     text: "Installing OpenMeld Service...",
   });
   const requestedVersion =
-    options.daemonVersion ?? resolveCurrentDaemonExpectedVersion();
+    options.daemonVersion ?? (await resolveCurrentDaemonExpectedVersion());
   const downgradeBlock = await resolveDaemonDowngradeBlock({
     requestedVersion,
   });
@@ -872,7 +872,12 @@ export async function runDaemonReinstall(
           profile: input.profile,
           runtime,
           displayAction,
-          resolved: resolveDaemonReinstallOptions(options),
+          resolved: resolveDaemonReinstallOptions({
+            ...options,
+            daemonVersion:
+              options.daemonVersion ??
+              (await resolveCurrentDaemonExpectedVersion()),
+          }),
         });
         outcome = await attachDaemonReinstallEvidence({
           outcome,
@@ -1409,7 +1414,7 @@ function isDaemonInventoryRunningAndAligned(
 }
 
 function resolveDaemonReinstallOptions(
-  options: DaemonReinstallInternalOptions
+  options: DaemonReinstallInternalOptions & { daemonVersion: string }
 ): {
   drainWaitMs: number;
   daemonVersion: string;
@@ -1426,8 +1431,7 @@ function resolveDaemonReinstallOptions(
   resolveUpdateUrgency: typeof resolveServiceUpdateUrgency;
   scheduleServiceUpdate: typeof scheduleDaemonServiceUpdate;
 } {
-  const daemonVersion =
-    options.daemonVersion ?? resolveCurrentDaemonExpectedVersion();
+  const daemonVersion = options.daemonVersion;
   return {
     drainWaitMs: options.drainWaitMs ?? REINSTALL_DRAIN_WAIT_MS,
     daemonVersion,
@@ -2766,7 +2770,7 @@ export async function runDaemonRun(
   if (!input.mode && canUseInteractivePrompts(runtime)) {
     const preflightResult =
       await runDaemonRunInteractivePreflightBeforeModePrompt({
-        daemonVersion: resolveCurrentDaemonExpectedVersion(),
+        daemonVersion: await resolveCurrentDaemonExpectedVersion(),
         input,
         presenter,
         runtime,
@@ -2801,7 +2805,7 @@ export async function runDaemonRun(
     daemonVersion:
       mode === "foreground"
         ? OPENMELD_VERSION
-        : resolveCurrentDaemonExpectedVersion(),
+        : await resolveCurrentDaemonExpectedVersion(),
     input,
     mode,
     options,
@@ -3026,7 +3030,7 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
   }
 
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intendedMode: "background",
   }).catch(() => null);
   if (!(inventory && shouldBlockDaemonRunFromInventory(inventory))) {
@@ -4897,7 +4901,7 @@ type DetachedDaemonServiceLaunchTarget = {
 
 async function resolveDetachedDaemonServiceLaunchTarget(): Promise<DetachedDaemonServiceLaunchTarget> {
   const entryPath = await resolveAlignedDaemonActiveBundleEntryPath({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
   });
   if (entryPath) {
     if (isBinaryDistribution()) {

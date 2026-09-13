@@ -194,7 +194,7 @@ async function runUpgradeWithRuntime(
     await runInternalUpgradeServiceAlignment({
       presenter,
       resolvedView: runtime.resolvedView,
-      daemonVersion: resolveCurrentDaemonExpectedVersion(),
+      daemonVersion: await resolveCurrentDaemonExpectedVersion(),
       ...(process.argv[1] && !isBinaryDistribution()
         ? { cliScriptPath: process.argv[1] }
         : {}),
@@ -328,7 +328,7 @@ async function alignServiceWithCurrentCli(input: {
 }): Promise<void> {
   await runInternalUpgradeServiceAlignment({
     ...input,
-    daemonVersion: resolveCurrentDaemonExpectedVersion(),
+    daemonVersion: await resolveCurrentDaemonExpectedVersion(),
     ...(process.argv[1] && !isBinaryDistribution()
       ? { cliScriptPath: process.argv[1] }
       : {}),
@@ -1002,7 +1002,9 @@ async function runInternalUpgradeServiceAlignment(input: {
   const binaryRelease = publishedRelease?.service
     ? { ...publishedRelease.service, minRequiredCliVersion: null }
     : undefined;
-  const daemonVersion = binaryRelease?.version ?? input.daemonVersion;
+  const daemonVersion = await resolveCurrentDaemonExpectedVersion(
+    binaryRelease?.version ?? input.daemonVersion
+  );
   const inventory = await inspectDaemonServiceInventory({
     expectedVersion: daemonVersion,
     intendedMode: "background",
@@ -1052,7 +1054,7 @@ async function runInternalUpgradeServiceAlignment(input: {
 
   const scheduled = await scheduleDaemonServiceUpdate({
     targetVersion: daemonVersion,
-    ...(binaryRelease ? { binaryRelease } : {}),
+    ...(binaryRelease?.version === daemonVersion ? { binaryRelease } : {}),
     urgency: await resolveServiceUpdateUrgency(),
     ...(readOpenMeldToolsUpdateContextFromEnv() ?? {}),
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),

@@ -13,6 +13,7 @@ import {
 import { resolveServiceUpdateUrgency } from "../../command-entry-checks/service-update-urgency";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import { resolveOpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
+import { resolveCurrentDaemonExpectedVersion } from "../lifecycle/current-daemon-version";
 import {
   buildDaemonServiceTargetSpec,
   resolveDaemonServiceAlignmentDecision,
@@ -286,7 +287,9 @@ function resolveDependencies(
       overrides.completeAttempt ?? completeOpenMeldToolsUpdateAttempt,
     serviceNeedsAlignment:
       overrides.serviceNeedsAlignment ??
-      (async (daemonVersion) => {
+      (async (selectedVersion) => {
+        const daemonVersion =
+          await resolveCurrentDaemonExpectedVersion(selectedVersion);
         const inventory = await inspectDaemonServiceInventory({
           expectedVersion: daemonVersion,
           intendedMode: "background",

@@ -478,7 +478,25 @@ async function prepareBinaryDaemonServiceBundle(input: {
   binaryRelease?: CliBinaryReleaseInfo;
 }): Promise<DaemonActiveBundleState> {
   const { daemonVersion } = input;
-  const binaryRelease = input.binaryRelease ?? resolveBundledServiceRelease();
+  const bundledRelease = resolveBundledServiceRelease();
+  const binaryRelease =
+    input.binaryRelease ??
+    (bundledRelease?.version === daemonVersion ? bundledRelease : undefined);
+  if (daemonVersion !== resolveCliSelfVersion()) {
+    const active = await readDaemonActiveBundleState();
+    if (
+      active?.bundleFormat === "binary_v1" &&
+      active.daemonVersion === daemonVersion &&
+      active.sourceDistFingerprint &&
+      (!binaryRelease ||
+        binaryRelease.sha256 === active.sourceDistFingerprint) &&
+      (await pathExists(active.sourceEntryScriptPath)) &&
+      (await hashDaemonBinaryFile(active.sourceEntryScriptPath)) ===
+        active.sourceDistFingerprint
+    ) {
+      return active;
+    }
+  }
   if (binaryRelease) {
     return await prepareSelectedBinaryDaemonServiceBundle({
       daemonVersion,

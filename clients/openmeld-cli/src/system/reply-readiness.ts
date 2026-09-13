@@ -818,7 +818,7 @@ async function resolveReplyReadinessInventory(
   _status: DaemonStatus
 ): Promise<DaemonServiceInventory | null> {
   return await inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intent: "status_cleanup",
   }).catch(() => null);
 }

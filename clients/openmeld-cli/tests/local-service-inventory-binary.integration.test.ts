@@ -8,12 +8,14 @@ vi.mock("../src/runtime/distribution", () => ({
   resolveOpenMeldDistribution: () => "binary",
 }));
 
+import { upsertDaemonServiceContract } from "../src/config/daemon-service-contract";
 import type { DaemonStatus } from "../src/config/daemon-state";
 import {
   type OpenMeldPathResolutionInput,
   openMeldManagedBinaryPath,
 } from "../src/config/paths";
 import { resolveCliSelfVersion } from "../src/local-components/managed-install";
+import { resolveCurrentDaemonExpectedVersion } from "../src/local-service/lifecycle/current-daemon-version";
 import {
   daemonServiceActiveBundlePath,
   daemonServiceBinaryExecutablePath,
@@ -88,6 +90,26 @@ async function writeLaunchdDefinition(commandPath: string): Promise<string> {
 }
 
 describe("binary local service inventory", () => {
+  it.each([
+    "0.0.1",
+    "999.0.0",
+  ])("does not select a downgrade for an installed Service (selected=%s)", async (selectedVersion) => {
+    await withTempHome(async () => {
+      await upsertDaemonServiceContract({
+        daemonVersion: "1.0.0",
+        bundleId: "installed-service",
+        desiredState: "stopped",
+        serviceController: "launchd",
+        autoStart: false,
+        gatewayUrl: "http://localhost:8080",
+        deviceId: "service-test-device",
+        heartbeatMs: 25_000,
+      });
+      await expect(
+        resolveCurrentDaemonExpectedVersion(selectedVersion)
+      ).resolves.toBe(selectedVersion === "0.0.1" ? "1.0.0" : "999.0.0");
+    });
+  });
   it("stages a separately selected Service without replacing the CLI or active Service", async () => {
     await withTempHome(async () => {
       const contents = Buffer.from("selected Service release");
@@ -123,6 +145,27 @@ describe("binary local service inventory", () => {
         await expect(
           readFile(openMeldManagedBinaryPath())
         ).rejects.toMatchObject({ code: "ENOENT" });
+        await mkdir(dirname(daemonServiceActiveBundlePath()), {
+          recursive: true,
+        });
+        await writeFile(
+          daemonServiceActiveBundlePath(),
+          JSON.stringify(bundle)
+        );
+        await mkdir(dirname(daemonServiceBinaryExecutablePath()), {
+          recursive: true,
+        });
+        await writeFile(
+          daemonServiceBinaryExecutablePath(),
+          "damaged running carrier"
+        );
+        await expect(
+          prepareDaemonServiceBundle({
+            activate: false,
+            daemonVersion: "0.0.1",
+          })
+        ).resolves.toEqual(bundle);
+        expect(fetchMock).toHaveBeenCalledOnce();
       } finally {
         vi.unstubAllGlobals();
       }

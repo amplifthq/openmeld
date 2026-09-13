@@ -2302,6 +2302,14 @@ corrupt; a changed installed artifact still requires repair. Read errors remain
 errors rather than being accepted as a successful integrity check. Existing
 version, lane, owner, and runtime-contract checks remain independent.
 
+Default CLI lifecycle and diagnostic targets preserve a newer installed Service
+version recorded by the service contract. That is target selection only, not
+proof of health: inventory still verifies the selected files, lane, local state,
+and runtime contract. Explicit version requests keep the downgrade guard. A
+binary repair may reuse the retained source executable only when its bytes still
+match the recorded fingerprint and any selected release fingerprint; it does
+not trust the damaged running carrier or relabel the caller's CLI bytes.
+
 Managed CLI cleanup retains the active binary Service's source version in
 addition to the CLI current and rollback versions and pending update/worker
 references. Retention ends when the active Service no longer references that

@@ -97,7 +97,7 @@ export async function buildExpectedLocalComponentsManifest(): Promise<LocalCompo
       // Expected manifests do not know which daemon bundle is active at runtime.
       // The installed service hash reported to Core comes from active-bundle.json.
       bundleHash: null,
-      bundleVersion: resolveCurrentDaemonExpectedVersion(),
+      bundleVersion: await resolveCurrentDaemonExpectedVersion(),
       runtimeContractEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
       serviceContractVersion: OPENMELD_SERVICE_CONTRACT_VERSION,
     },
@@ -256,7 +256,7 @@ function resolveCliComponentStatus(
 }
 
 async function resolveServiceComponentState(): Promise<ServiceComponentState> {
-  const expectedVersion = resolveCurrentDaemonExpectedVersion();
+  const expectedVersion = await resolveCurrentDaemonExpectedVersion();
   try {
     const [participation, inventory, activeBundle] = await Promise.all([
       resolveDaemonServiceParticipationStatus({ expectedVersion }),
