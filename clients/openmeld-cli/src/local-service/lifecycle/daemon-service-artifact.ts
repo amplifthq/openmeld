@@ -127,7 +127,7 @@ function hasBundleContentDrift(input: {
   installedBundleFingerprint: string | null;
 }): boolean {
   return (
-    input.installedBundleFingerprint !== null &&
+    input.installedBundleFingerprint === null ||
     input.activeBundle.sourceDistFingerprint !==
       input.installedBundleFingerprint
   );

@@ -65,9 +65,11 @@ describe("installed Service artifact independence", () => {
           resolveInstalledDaemonBundleFingerprint(bundle)
         ).resolves.toBe(bundle.sourceDistFingerprint);
         await expect(
-          resolveAlignedDaemonActiveBundleEntryPath({
-            expectedVersion: "1.2.3",
-          })
+          withCliScriptArgv(fixture.cliScriptPath, () =>
+            resolveAlignedDaemonActiveBundleEntryPath({
+              expectedVersion: "1.2.3",
+            })
+          )
         ).resolves.toBe(entry);
         await writeFile(entry as string, 'console.log("corrupted Service");\n');
         await expect(

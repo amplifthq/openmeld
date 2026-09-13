@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -10,7 +11,10 @@ vi.mock("../src/runtime/distribution", () => ({
 import type { DaemonStatus } from "../src/config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../src/config/paths";
 import { resolveCliSelfVersion } from "../src/local-components/managed-install";
-import { daemonServiceBinaryExecutablePath } from "../src/local-service/lifecycle/daemon-service-bundle";
+import {
+  daemonServiceActiveBundlePath,
+  daemonServiceBinaryExecutablePath,
+} from "../src/local-service/lifecycle/daemon-service-bundle";
 import { inspectDaemonServiceInventory } from "../src/local-service/lifecycle/daemon-service-inventory";
 import type {
   DaemonServiceManager,
@@ -80,6 +84,52 @@ async function writeLaunchdDefinition(commandPath: string): Promise<string> {
 }
 
 describe("binary local service inventory", () => {
+  it("detects changed Service bytes independently of the invoking CLI", async () => {
+    await withTempHome(async () => {
+      const version = resolveCliSelfVersion();
+      const executable = daemonServiceBinaryExecutablePath();
+      const contents = "verified Service executable";
+      await mkdir(dirname(executable), { recursive: true });
+      await mkdir(dirname(daemonServiceActiveBundlePath()), {
+        recursive: true,
+      });
+      await writeFile(executable, contents);
+      await writeFile(
+        daemonServiceActiveBundlePath(),
+        JSON.stringify({
+          v: 2,
+          schema: "openmeld-daemon-active-bundle-v2",
+          bundleId: "binary-integrity",
+          daemonVersion: version,
+          entryScriptRelativePath: "openmeld",
+          bundleFormat: "binary_v1",
+          sourceEntryScriptPath: executable,
+          sourcePackageRootPath: dirname(executable),
+          sourceDistRootPath: dirname(executable),
+          sourceDistFingerprint: createHash("sha256")
+            .update(contents)
+            .digest("hex"),
+          sourceKind: "package_install",
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        })
+      );
+      const inspect = () =>
+        inspectDaemonServiceInventory({
+          expectedVersion: version,
+          readDaemonStatus: async () => createInstalledStatus(version),
+          listOwnedProcesses: async () => [],
+          resolveServiceManager: async () => null,
+        });
+      expect((await inspect()).anomalies.map(({ code }) => code)).not.toContain(
+        "bundle_content_drift"
+      );
+      await writeFile(executable, "changed Service executable");
+      expect((await inspect()).anomalies.map(({ code }) => code)).toContain(
+        "bundle_content_drift"
+      );
+    });
+  });
   it("accepts launchd definitions that point at the stable Service executable", async () => {
     await withTempHome(async () => {
       const pathInput = testPathInput();
