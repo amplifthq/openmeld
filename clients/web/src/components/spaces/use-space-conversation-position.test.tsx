@@ -84,8 +84,9 @@ it.each([
 	f.moveMessage(1100);
 	act(() => {
 		notifyResizeObservers(f.message);
-		vi.advanceTimersByTime(40);
 	});
+	// ResizeObserver runs after layout, before paint. Waiting for another frame
+	// exposes the displaced message for one paint when deferred rows expand.
 	expect(f.input.viewport.scrollTop).toBe(1080);
 	// A deliberate user scroll takes ownership back; later layout cannot undo it.
 	fireEvent.wheel(f.input.viewport);

@@ -2790,7 +2790,10 @@ its offset instead. Existing stored positions are not migrated or invalidated.
 That account-and-Space-
 scoped semantic anchor is restored in the layout effect as soon as history
 mounts, before painting the default start position, loading earlier pages if
-needed. Subsequent resize corrections remain frame-coalesced. A remembered position disables the MessageScroller's initial
+needed. Subsequent resize corrections run directly in ResizeObserver's
+before-paint delivery; an extra animation-frame delay would expose the wrong
+position as deferred message layout resolves. The callback adjusts scrolling,
+not observed element sizes. A remembered position disables the MessageScroller's initial
 end jump and automatic following. Resize observation preserves the same message
 as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
