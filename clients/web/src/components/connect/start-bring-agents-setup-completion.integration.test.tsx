@@ -1433,6 +1433,58 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		).toBeNull();
 	});
 
+	it("keeps the active onboarding setup through inventory refresh and Terminal completion", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const routeIntent = {
+			kind: "account_computer_setup",
+			resetThisComputer: false,
+		} as const;
+		const context = createSetupContext(routeIntent, {
+			deviceId: null,
+			runtimeLane: null,
+		});
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_active",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: {
+				...createTerminalDisconnectedSnapshot(),
+				deviceId: null,
+				targetSpaceId: null,
+			},
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(context);
+		const view = render(createEmbeddedOnboardingComputerSetupElement());
+		await screen.findByRole("button", { name: "Copy setup command" });
+		const socket = ControlledMockWebSocket.latest;
+		expect(socket).not.toBeNull();
+
+		useBringAgentsSetupContextMock.mockReturnValue({
+			...context,
+			currentDeviceTargetQuery: {
+				...context.currentDeviceTargetQuery,
+				isFetching: true,
+			},
+		});
+		view.rerender(createEmbeddedOnboardingComputerSetupElement());
+		expect(screen.queryByText("Checking this computer…")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Copy setup command" })
+		).toBeTruthy();
+		act(() => {
+			socket?.emitSnapshot(createReadySnapshot({ targetSpaceId: null }));
+		});
+		await waitFor(() => expect(context.refreshAll).toHaveBeenCalledOnce());
+		useBringAgentsSetupContextMock.mockReturnValue(context);
+		view.rerender(createEmbeddedOnboardingComputerSetupElement());
+		expect(
+			await screen.findByText(
+				"Computer connected. Local agents are syncing in the background."
+			)
+		).toBeTruthy();
+		expect(createPrepareSessionMock).toHaveBeenCalledOnce();
+		expect(readPrepareSessionMock).not.toHaveBeenCalled();
+	});
+
 	it("hands a replayed automatic setup action back to the explicit Continue gate", async () => {
 		const onNavigationActionAlreadyStarted = vi.fn();
 		createPrepareSessionMock.mockRejectedValueOnce({

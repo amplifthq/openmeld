@@ -1048,10 +1048,17 @@ that decision.
   same OpenMeld user. The CLI must validate Prepare ownership before changing
   the active local session. A failed or cancelled handoff restores the previous
   session and Service account alignment. That pending session transition is
-  durable: after Terminal exits, process failure, or machine restart, the next
-  CLI or Service auth read restores the previous session before proceeding; a
-  first connection clears its incomplete candidate. A committed transition is
-  never recovered backward. A cross-account switch requires explicit
+  durable. A Web setup journal includes its non-secret Prepare continuation;
+  after its exact owner process exits, the OS maintenance worker may adopt that
+  same journal and resume the same Core Prepare session using a freshly minted
+  owner-authenticated token. Ordinary auth reads preserve the committed account
+  and must not roll back this continuation. A failed or cancelled continuation
+  uses the existing previous-account recovery. Older journals without this
+  intent retain their rollback-on-read behavior. Older auth readers can mark a dead Terminal for
+  recovery while preserving its continuation field; the new worker may still
+  resume that intent, subject to the same Core Prepare outcome. Current explicit
+  cancellation and abandonment clear the continuation before account recovery.
+  A committed transition is never recovered backward. A cross-account switch requires explicit
   interactive confirmation bound to the stable identity of the exact committed
   session the user reviewed. The transition lock compares that identity before
   accepting the candidate; if it changed, setup requires fresh review. Before
@@ -1343,9 +1350,12 @@ OS service manager job-state evidence (for launchd: `launchctl print` runs,
 state, last exit code, and pended-spawn markers) is startup failure diagnostic
 evidence only. After a startup wait fails it may drive failure cards, the
 lifecycle journal, and Agent View diagnostics — for example distinguishing a
-job macOS never spawned (Login Items blocked) from a crash loop with a nonzero
-exit code. It must never feed service health, Wakeability, readiness, or
-lifecycle decisions. A service-manager `running` state corroborates lifecycle
+job macOS never spawned from a crash loop with a nonzero exit code. Pending
+spawn evidence alone does not prove a denied Login Items permission. It must
+never establish service health, Wakeability, readiness, or permission to replace
+a carrier. After an exhausted startup wait it may suppress an immediate repeated
+start, independently of the user-facing diagnostic wording. A service-manager
+`running` state corroborates lifecycle
 success only when the same full inventory also proves the exact active bundle,
 install state, runtime contract, live managed background runtime lease, and no
 blocking ownership anomaly. Gateway connection and controller catalog loading
@@ -1950,7 +1960,9 @@ global npm `openmeld` copy to the exact
 manifest version when the current terminal still resolves to it, verifies the
 ordinary command, and then runs setup through the managed binary path. The
 Service remains owned by the managed binary; npm reconciliation only closes the
-legacy command-entry gap and must finish before setup can report completion.
+legacy command-entry gap. Failure of that optional npm reconciliation does not
+block setup through the verified managed binary; follow-up commands name that
+binary explicitly.
 
 After reading the manifest, setup first compares the lane-managed executable's
 exact size and sha256 with the published raw executable record. It reuses an
@@ -2009,6 +2021,21 @@ not silently repair, reinstall, stop, start, or mutate runtime state.
 
 Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
+
+On macOS, start inspects the exact lane's launchd job, bootstraps only a missing
+job, and requests a demand start with `kickstart` without `-k`. It does not
+restart an already running job. Bootstrap I/O repair has one owner, waits for
+confirmed removal before reinstalling, and preserves the original and repair
+errors if unsuccessful. Full lifecycle inventory still determines success.
+Outside an active update, maintenance startup also restores its carrier from
+the verified active bundle before trusting a saved OS registration. A plist or
+unit can survive removal of the local executable; registration alone cannot
+prove automatic updates can run. An active update keeps its existing executor.
+
+Interrupted account handoff recovery belongs to the explicit handoff flow.
+Generic command dispatch must leave install, update, and diagnostics usable
+when the previous Service cannot start. Credential transition isolation and
+candidate cleanup remain owned by auth-session storage.
 
 Setup succeeds when the service is aligned for this computer, local
 controllers/capabilities have been detected and reported as far as the local
@@ -2097,6 +2124,25 @@ answer readiness. This does not authorize force-killing a live Service: controll
 drain or verified runtime absence remains required. Setup joins pending updates;
 a newer Setup advances an older waiting job through that same coordinator before
 joining it, so an old worker cannot replace a newly connected Service afterward.
+This also applies to updates scheduled midway through setup. The caller observes
+the same durable operation until it finishes, then rechecks the running Service
+and account alignment before continuing. Missing completion evidence, a replaced
+operation, rollback, or failure must not be presented as successful setup. The
+observer does not acquire update ownership or start another update.
+
+An explicit new setup first joins outstanding updates, then recovers any dead
+handoff left without an executor before requesting a new account transition.
+This keeps an early Terminal exit or an explicit Service stop from permanently
+blocking the next setup.
+
+The update worker also finishes the associated setup if Terminal exits. The
+existing auth transition journal owns that intent and process-identity-fenced
+adoption; Core Prepare still owns setup completion. An updated job remains at
+its existing OS-watched path until setup and account settlement finish, allowing
+the same worker to resume after a crash without reinstalling the Service. The
+setup observer may consume that operation's verified `updated` result while
+other account handoffs continue waiting for settlement. No browser success
+override or second update/setup state machine is involved.
 
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
@@ -2257,9 +2303,15 @@ registered carrier nor the replacement target can be removed while the handoff
 is recoverable. Migration may likewise protect a legacy worker's pinned managed
 version in addition to the current and rollback versions.
 
-An installation without independent maintenance must copy and verify its worker
-and establish the OS registration before publishing the initial pending job.
-An existing independent worker stays in place until the target Service is verified.
+A CLI scheduling a new job first copies the verified worker and establishes its
+OS registration, even when an older independent worker was installed. A saved
+definition does not prove that its executor supports the new setup contract.
+Maintenance repair also compares the saved definition with the current verified
+program and environment. Switching between binary and npm installs must refresh
+the OS command, not merely recreate a carrier the old command never invokes.
+An already pending update retains its executor ownership. A maintenance child
+must not unload its own OS-owned parent before publishing its job; that existing
+worker replaces its carrier only after Service verification as described above.
 
 Package version alone does not prove that the installed OS startup policy is
 current. Service inventory observes the owned macOS scheduling policy, and
@@ -2284,6 +2336,13 @@ pending target inside that lock. It then keeps both, plus one verified rollback
 version. Cleanup failures remain observable but do not undo a durable worker
 handoff.
 
+CLI being current does not prove the Service is aligned. A normal upgrade
+request joins an existing update first; otherwise the Tools update coordinator
+also checks the existing Service alignment decision against the installed CLI.
+The same maintenance operation schedules any remaining Service alignment,
+preserving stopped intent and active-work drain. `upgrade --check` remains
+read-only for Service lifecycle.
+
 Controlled update, reinstall, and repair use a quiesce-and-drain stop. The
 Service first rejects new dispatch admission with `service.draining` while
 preserving dedupe for already-owned work. It keeps the current Runtime
@@ -2293,6 +2352,20 @@ result outbox, and waits for Core's durable-acceptance receipts before closing
 the socket. If the socket disappears during that wait, unacknowledged results
 remain in the same durable outbox for the next Service session; lifecycle code
 must not create a second result store.
+
+On a new registered connection generation, the same result outbox immediately
+replays each unacknowledged, non-terminal result once rather than waiting for
+the previous connection's acknowledgement backoff. Subsequent attempts on that
+connection retain the existing backoff. Original execution identity and tokens
+remain unchanged; only Core's receipt settles the result. Dispatch journal
+delivery evidence records time in the outbox separately from connection recovery.
+
+If the first reply proposal cannot refresh Space context, preserve that proposal
+in the same result outbox using the original Wake's source cursor, rather than
+turning a temporary read failure into a failed task. This does not assert that
+context is current: Space's atomic publication guard must validate the cursor
+and require the existing reply-review continuation when context changed. A
+failed explicit review cannot be replaced with a fabricated current observation.
 
 The active-work drain has no fixed wall-clock deadline while execution remains
 live. Once active work has drained, result-receipt and WebSocket-close waits are
@@ -2308,8 +2381,13 @@ window, retaining the first occurrence, count, duration, affected controller,
 and recovery event. Local diagnostics preserve stable reason codes including
 `process_discovery_timeout`, `controller_check_timeout`,
 `result_ack_timeout`, `socket_close_timeout`, and
-`service_reconnect_exhausted`; immediate reconnect exhaustion remains degraded
-evidence while background reconnect attempts continue.
+`service_reconnecting`; repeated connection failures remain degraded evidence
+while background reconnect attempts continue. An acknowledged Service heartbeat
+resets consecutive retries. The first failed connection clears local online
+status immediately. Disconnect, subsequent connection attempts, and the next
+acknowledged connection share a recovery identifier and elapsed time in the
+existing local lifecycle journal, including while offline. These are observations,
+not another recovery controller or a claim about the original cause of an outage.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.
 A Service advertises it only when it can keep a `post_message` result as an
@@ -2343,9 +2421,11 @@ Lifecycle evidence carries one bounded stop cause:
 `user_stop`, `controlled_service_update`, `service_crash`,
 `network_disconnect`, or `unknown`. A lifecycle command records its explicit
 intent before sending SIGTERM so the Service does not guess that every SIGTERM
-is a deploy. An unexpected process exit is `service_crash`; a lost cloud socket
-without a matching controlled cause is `network_disconnect`; missing evidence
-stays `unknown`. The lifecycle journal, Runtime Transport heartbeat/trace, and
+is a deploy. An unexpected process exit is `service_crash`. Connection-state
+observations keep an unknown stop cause unless an explicit cause is supplied;
+starting, authentication failure, and successful registration must not be
+classified as network disconnects. They identify the actual Service process,
+not a concurrently running CLI lifecycle command. The lifecycle journal, Runtime Transport heartbeat/trace, and
 user-visible failure projection preserve this cause without treating it as
 execution authority. Before an explicit user stop closes its socket, the
 Service sends one final heartbeat with `acceptingDispatches=false` and

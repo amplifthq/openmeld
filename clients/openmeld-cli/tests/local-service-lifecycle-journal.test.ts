@@ -95,6 +95,18 @@ describe("daemon run begin uptime marker", () => {
       result: "failed",
       type: "daemon.crash",
     });
+    for (const result of [
+      "connecting",
+      "online",
+      "degraded",
+      "authentication_required",
+    ]) {
+      await emitDaemonLifecycleEvent({
+        pathInput,
+        result,
+        type: "connection.state",
+      });
+    }
 
     const events = await readRecentDaemonLifecycleEvents({
       maxEntries: 10,
@@ -104,6 +116,10 @@ describe("daemon run begin uptime marker", () => {
       "user_stop",
       "controlled_service_update",
       "service_crash",
+      "unknown",
+      "unknown",
+      "unknown",
+      "unknown",
     ]);
     await expect(
       resolveRecentDaemonSignalStopCause({ pathInput })

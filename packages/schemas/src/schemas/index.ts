@@ -2455,6 +2455,7 @@ export {
   prepareLocalAgentCatalogSchema,
   prepareLocalAgentIdsSchema,
   prepareOpaqueTokenSchema,
+  prepareSessionContinuationSchema,
   prepareSessionEventActorSchema,
   prepareSessionEventSchema,
   prepareSessionEventTypeSchema,

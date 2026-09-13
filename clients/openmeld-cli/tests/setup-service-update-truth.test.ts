@@ -13,8 +13,8 @@ const { inventory, update } = vi.hoisted(() => ({
 vi.mock("../src/local-service/lifecycle/daemon-service-inventory", () => ({
   inspectDaemonServiceInventory: inventory,
 }));
-vi.mock("../src/local-service/lifecycle/daemon-service-update-state", () => ({
-  resolveDaemonServiceUpdateOperation: update,
+vi.mock("../src/local-service/maintenance/openmeld-tools-update-join", () => ({
+  waitForOpenMeldToolsUpdateCompletion: update,
 }));
 
 function operation(
@@ -92,6 +92,7 @@ describe("setup service update truth", () => {
         currentCliVersion: "0.8.0",
         installedServiceVersion: "0.8.0",
         operation: operation("updated"),
+        currentServiceVerified: true,
       })
     ).toEqual({ status: "ready" });
     expect(
@@ -106,6 +107,17 @@ describe("setup service update truth", () => {
         currentCliVersion: "0.8.0",
         installedServiceVersion: "0.7.99",
         operation: operation("updated"),
+      })
+    ).toMatchObject({ status: "verifying" });
+  });
+
+  it("does not finish setup just because updated artifacts are installed", () => {
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.8.0",
+        installedServiceVersion: "0.8.0",
+        operation: operation("updated"),
+        currentServiceVerified: false,
       })
     ).toMatchObject({ status: "verifying" });
   });

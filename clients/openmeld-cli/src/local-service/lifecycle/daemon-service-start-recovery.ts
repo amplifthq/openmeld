@@ -1,3 +1,4 @@
+import type { OpenMeldDistribution } from "../../runtime/distribution";
 import { ensureDaemonSystemServiceCommandFiles } from "./daemon-service-command-spec";
 import type {
   DaemonServiceCommandSpec,
@@ -10,6 +11,7 @@ const ROOT_ERROR_PATTERN =
 export async function startDaemonSystemServiceWithAutoRepair(input: {
   serviceCommandSpec: DaemonServiceCommandSpec;
   systemManager: DaemonServiceManager;
+  distribution?: OpenMeldDistribution;
   onAutoRepairAttempt?: () => Promise<void> | void;
   onAutoRepairRecovered?: () => Promise<void> | void;
 }): Promise<{
@@ -34,9 +36,11 @@ export async function startDaemonSystemServiceWithAutoRepair(input: {
     autoRepairAttempted = true;
     await input.onAutoRepairAttempt?.();
     try {
-      await input.systemManager.uninstall().catch(() => undefined);
+      await input.systemManager.uninstall();
+      await input.systemManager.waitUntilAbsent();
       await ensureDaemonSystemServiceCommandFiles({
         controller: input.systemManager.controller,
+        distribution: input.distribution,
       });
       await input.systemManager.install(input.serviceCommandSpec);
       await input.systemManager.start();

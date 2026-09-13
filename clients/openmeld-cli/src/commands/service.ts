@@ -109,6 +109,7 @@ import {
 } from "../local-service/lifecycle/daemon-service-lifecycle";
 import {
   type DaemonServiceManager,
+  isDaemonServiceJobSpawnPending,
   resolveDaemonServiceManager,
 } from "../local-service/lifecycle/daemon-service-manager";
 import {
@@ -253,9 +254,11 @@ import {
   normalizeDaemonRunReason,
 } from "./service-run-result";
 import {
+  buildDaemonBackgroundStartFailure,
   buildSystemServiceStartupFailureDiagnostics,
   buildSystemServiceStartupFailureMessage,
   buildSystemServiceStartupFailureReport,
+  type DaemonBackgroundStartFailure,
   resolveSystemServiceStartupFailureVerdict,
   type SystemServiceStartupFailureVerdict,
   type SystemServiceStartupRecoveryOutcome,
@@ -1294,8 +1297,12 @@ async function runDaemonAfterReinstallStartWithRetry(input: {
         attempt < REINSTALL_START_RETRY_ATTEMPTS &&
         !(
           result.ok === false &&
-          result.startFailureVerdict?.localMachineIssue?.recoveryPolicy ===
-            "user_action"
+          (result.startFailureVerdict?.localMachineIssue?.recoveryPolicy ===
+            "user_action" ||
+            (result.startFailureVerdict?.jobDiagnostics &&
+              isDaemonServiceJobSpawnPending(
+                result.startFailureVerdict.jobDiagnostics
+              )))
         )
       ) {
         process.exitCode = previousExitCode;
@@ -2955,7 +2962,7 @@ export async function runDaemonBackgroundStartForDecision(input: {
   serviceProgress?: DaemonServiceProgressReporter;
   suppressStartSpinner?: boolean;
 }): Promise<
-  "started" | "failed_with_card" | "deferred_with_card" | "cancelled"
+  "started" | DaemonBackgroundStartFailure | "deferred_with_card" | "cancelled"
 > {
   const repairResult =
     await maybeRunDaemonRepairBeforeBackgroundStartDecision(input);
@@ -2985,13 +2992,19 @@ export async function runDaemonBackgroundStartForDecision(input: {
     process.exitCode = previousExitCode;
     return "cancelled";
   }
-  return "failed_with_card";
+  return buildDaemonBackgroundStartFailure(
+    result.ok ? null : (result.startFailureVerdict ?? null)
+  );
 }
 
 async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
   view?: string;
 }): Promise<
-  "started" | "failed_with_card" | "deferred_with_card" | "cancelled" | null
+  | "started"
+  | DaemonBackgroundStartFailure
+  | "deferred_with_card"
+  | "cancelled"
+  | null
 > {
   const runtime = await resolveRuntimeContext({
     view: input.view,
@@ -3045,7 +3058,11 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
     if (reinstallResult.result === "cancelled") {
       return "cancelled";
     }
-    return "failed_with_card";
+    return buildDaemonBackgroundStartFailure(
+      "startFailureVerdict" in reinstallResult
+        ? (reinstallResult.startFailureVerdict ?? null)
+        : null
+    );
   } catch (error) {
     renderDaemonStartNeedsAttentionCard({
       presenter,
@@ -3053,7 +3070,10 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
       summary: buildDaemonReinstallUnexpectedStartSummary(error),
       nextStep: buildDaemonReinstallUnexpectedStartNextStep(),
     });
-    return "failed_with_card";
+    return {
+      outcome: "failed_with_card",
+      errorMessage: buildDaemonReinstallUnexpectedStartSummary(error),
+    };
   }
 }
 
