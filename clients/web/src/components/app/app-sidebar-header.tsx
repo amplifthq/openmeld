@@ -67,16 +67,18 @@ export function AppSidebarHeader({
 				>
 					<Link
 						aria-label={attention.label}
-						className={cn(actionClass, "relative")}
+						className={actionClass}
 						onClick={dismiss}
 						to={buildOrganizationInboxPath(orgSlug)}
 					>
-						<TrayIcon className="size-5" />
-						<InboxAttentionBadge
-							count={attention.count}
-							indicatorTone={attention.indicatorTone}
-							tone={attention.tone}
-						/>
+						<span className="relative size-5 shrink-0">
+							<TrayIcon className="size-5" />
+							<InboxAttentionBadge
+								count={attention.count}
+								indicatorTone={attention.indicatorTone}
+								tone={attention.tone}
+							/>
+						</span>
 					</Link>
 				</CollapsedRailTooltip>
 				<AppCreateMenu orgSlug={orgSlug} />
