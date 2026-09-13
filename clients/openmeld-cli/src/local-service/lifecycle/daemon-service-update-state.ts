@@ -61,12 +61,19 @@ export async function persistPendingDaemonServiceUpdate(
 
 export async function completePendingDaemonServiceUpdate(
   job: DaemonServiceUpdateJob,
-  pathInput: OpenMeldPathResolutionInput = {}
+  pathInput: OpenMeldPathResolutionInput = {},
+  retainPending = false
 ): Promise<void> {
   await writeUpdateJobAtomically({
     job,
     path: daemonServiceLastUpdatePath(pathInput),
   });
+  if (retainPending) {
+    // Keep the existing OS trigger until Prepare and its auth handoff finish.
+    // The update itself is terminal; this does not schedule another update.
+    await persistPendingDaemonServiceUpdate(job, pathInput);
+    return;
+  }
   await rm(daemonServicePendingUpdatePath(pathInput), { force: true });
 }
 

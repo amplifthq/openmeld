@@ -22,7 +22,8 @@
 
 It brings relevant work from Spaces, Agents, the Center Agent, Documents, and
 system flows into one calm, scannable surface. It does not replace those
-products. Opening an item takes the member to the source that owns the work.
+products. Opening an item exposes the source that owns the work. Invitation
+decisions can be made inside Inbox through the source-owned approval endpoint.
 
 Inbox is not the same concept as a notification:
 
@@ -79,6 +80,23 @@ Every item has two independent classifications:
 `action_required` means the source currently expects a human decision or
 intervention. `urgent` means delaying that attention can block work or cause a
 material failure. An ordinary unread update is not automatically urgent.
+
+**Needs review** contains open document and organization approval requests.
+**Needs action** contains other interventions, including approved invitations
+whose delivery or joining remains incomplete. These views are disjoint.
+`unresolvedActionCount` remains their combined total for compatibility and the
+global attention badge. Reading or dismissing an item never approves it.
+
+Routine invitation reviews have normal importance and retain transactional
+review email independently of urgent-email preferences. The invitation source
+reconciles its projections before Inbox list, item, and summary reads, preserving
+personal read and dismissal state. Current owner/admin permission gates invitation
+item, list, read, dismiss, and count access. Source completion resolves all copies.
+Shared approval history remains available to current admins in Settings even
+when they dismissed their personal Inbox item. Its Fluid Table places pending
+requests before completed records and offers the same approve/decline actions.
+Inbox remains the primary review surface; the Table is an additional entry
+to the same source-owned decision, not a separate queue or approval state.
 
 Phase 1 source kinds are:
 
@@ -184,7 +202,14 @@ The first release creates items for these explicit user-visible events:
    structured Human Mention receiving the more specific source kind.
 2. An Agent or Center Agent reply intended for the member who initiated the
    interaction, a current human member explicitly mentioned by the reply, or
-   the current human author of the target thread.
+   the current human author of the target thread. A personal Agent's published
+   reply also creates an ordinary unread update for its current owner, whether
+   the owner, another person, or an Agent initiated the work. The owner need not
+   have a separate Human membership when the existing personal-Agent access
+   contract grants access. Delivery rechecks the exact replying Agent's current
+   ownership; organization-managed Agents do not notify their administrator as
+   a personal owner. Overlapping recipient roles produce one item per reply.
+   Chats and Spaces reuse the same unread projection and read-through rules.
 3. An Agent Interaction that explicitly requests approval, an answer, plan
    review, or other supported human response.
 4. A Wake requested by the member that reaches a system-owned ending:
@@ -271,13 +296,33 @@ surface is the only durable reminder.
 
 ## Read and attention behavior
 
-Inbox provides **All**, **Unread**, and **Needs action** views. Unread items are
-visually explicit without relying on color alone.
+Inbox provides **All**, **Needs action**, and **Needs review** tabs. An independent
+**Unread only** switch filters any tab and persists as `unread=true` in the URL
+when switching tabs. All retains its nonempty groups under this filter. Unread
+items remain visually explicit without relying on color alone. The existing
+unread query supplies paginated data; filtered tabs continue loading through
+unrelated items before showing an empty state. Legacy `view=unread` links open
+All with the switch enabled.
+
+List titles reserve a 6px status dot with an 8px gap. An unresolved action or
+review uses the existing red attention tone, including after it is read.
+Otherwise, an unread open urgent item uses the yellow urgent tone, and other
+unread items use the blue unread token. Read items without pending work have no
+dot; the reserved space keeps titles aligned. Each item shows at most one dot,
+with action priority above urgency and ordinary unread state. Existing text
+labels and screen-reader unread text remain available. Reading does not resolve
+pending work, and resolving an action removes its red attention treatment.
 
 Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members
 can mark an item unread and can mark all accessible Inbox items read.
+The bulk **Mark all as read** button appears only with **Unread only** enabled,
+immediately to the left of that switch. A compact confirmation explains that
+the action includes items outside the current filter and clears the corresponding
+Space unread indicators in the current organization. Pending actions and reviews
+remain open. Canceling makes no changes; confirming closes the dialog and starts
+the existing optimistic mutation without a blocking wait.
 
 For an external Message Channel source, the same activation contract runs
 before the validated provider permalink opens. Provider read receipts are not
@@ -304,6 +349,25 @@ independently of list pagination. Web caps only the displayed sum at `99+`.
 
 An open action makes the badge red; otherwise unread urgent updates make it
 amber. Red means a human action is outstanding, not that every action is urgent.
+Ordinary unread updates show a blue dot on the Inbox entry without contributing
+to the numeric attention count. The bottom-right launcher also shows the same
+highest-priority dot. Browser tabs reuse this exact Inbox summary and priority:
+red for open actions, amber for unread urgent updates, blue for other unread,
+and the original favicon when none remain. The title includes the highest
+priority category and its count, retaining the current route title. Reading an
+action never clears its red indicator; source resolution or recipient Dismiss
+does. Opening the tab or Inbox alone does not clear any indicator.
+
+The authenticated tab observes the existing summary query in the background
+at its existing interval, subject to browser throttling. It does not require
+notification permission, create another unread store, or merge Organizations.
+Workspace changes and logout remove the previous scope's title and icon.
+Unknown summaries use the original icon and an unavailable title instead of
+claiming that the Inbox is clear. Loading starts with the original title/icon.
+Indicator colors come from the same themed UI classes as the Inbox; the tab
+composites a static dot onto the existing logo rather than maintaining logo
+copies. There is no animation or green healthy-connection indicator.
+
 The bottom-right Inbox launcher uses the same tone on its icon and label, with
 no number. Both entry points expose the exact action/urgent-update breakdown in
 their accessible names and hover descriptions. Missing or failed summaries are
@@ -316,7 +380,7 @@ Failed summaries still expose their unavailable status. Entry activation alone
 never clears an item.
 
 The compact preview uses the same summary breakdown. It separately queries
-**Needs action**, **Urgent updates**, and unread **Recent updates**, in that
+**Needs action**, **Needs review**, **Urgent updates**, and unread **Recent updates**, in that
 order, without duplicating an item across groups. The `urgent_updates` list view
 uses the same predicate as the urgent update count, so older urgent updates
 cannot be displaced by a page of newer ordinary messages. The `recent_updates`
@@ -553,7 +617,7 @@ adapters without changing Inbox truth.
   remains available across the authorized Web shell and shows the
   high-attention count.
 - Activating the launcher opens a responsive compact preview. The preview keeps
-  source navigation and read-on-open behavior, shows **Needs action** and
+  source navigation and read-on-open behavior, shows **Needs action**, **Needs review**, and
   **Recent updates** together when both exist, and its maximize action opens the
   canonical full Inbox page.
 - Unread Center Agent replies show the rail dot in every rail tier and clear

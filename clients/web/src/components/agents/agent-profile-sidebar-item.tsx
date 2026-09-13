@@ -41,6 +41,7 @@ import {
 import { resolveAgentProfileControllerModelDetail } from "#/lib/profiles/agent-profile-model-display";
 import type { useSortableSidebarItem } from "../app/sidebar-drag";
 import { SidebarRowAction } from "../app/sidebar-row-action";
+import { AgentCard } from "./agent-card";
 
 export const AgentProfileSidebarItem = memo(AgentProfileSidebarItemComponent);
 
@@ -93,19 +94,83 @@ export function AgentProfileSidebarItemComponent(input: {
 				? resolveStatusToneTextClassName("warning")
 				: resolveAvailabilityClassName(presentation.availabilityCategory);
 	}
-	const cardStyle = resolveAgentCardStyle(input.variant, input.avatarSize);
 	const hasReducedProminence =
 		presentation.availabilityCategory === "offline" ||
 		presentation.availabilityCategory === "unavailable";
+	const avatarClassName = cn("shrink-0", {
+		"opacity-55 grayscale": hasReducedProminence,
+	});
 	const profileNameClassName = cn(
 		"min-w-0 truncate font-medium text-[13px]",
 		hasReducedProminence ? "text-muted-foreground" : null
 	);
 	const availabilityDescriptionId = `agent-profile-availability-${input.profile.openMeldProfileId}`;
 	const hasActions = Boolean(input.onToggleStar ?? input.onChat);
+	const indicators = (
+		<>
+			<Tooltip>
+				<TooltipTrigger
+					render={
+						<span
+							aria-label={presentation.availabilityAccessibilityLabel}
+							className={cn(
+								"inline-flex shrink-0 items-center",
+								presentation.availabilityClassName
+							)}
+							id={availabilityDescriptionId}
+							role="img"
+						/>
+					}
+				>
+					{presentation.availabilityCategory === "checking" ? (
+						<ThinkingIcon className="size-4" />
+					) : (
+						<span aria-hidden="true" className="status-dot bg-current" />
+					)}
+				</TooltipTrigger>
+				<TooltipContent>{presentation.availabilityTooltip}</TooltipContent>
+			</Tooltip>
+			<RemoteAgentIndicator agentControllerRef={agentControllerRef} />
+			<AgentProfileOperationalStatusIndicator
+				className="shrink-0"
+				operationalContext={input.operationalContext}
+			/>
+		</>
+	);
+	if (input.variant === "card") {
+		return (
+			<FluidNavMenuItem
+				index={input.index}
+				value={input.profile.openMeldProfileId}
+			>
+				<AgentCard
+					describedBy={availabilityDescriptionId}
+					description={presentation.controllerModelSummary}
+					indicators={indicators}
+					name={input.profile.profileName}
+					onClick={() => {
+						input.onSelectProfile(input.profile.openMeldProfileId);
+						dismiss();
+					}}
+					profileId={input.profile.openMeldProfileId}
+					renderAvatar={(size) => (
+						<AgentProfileControllerAvatar
+							agentControllerRef={agentControllerRef}
+							className={avatarClassName}
+							profileId={input.profile.openMeldProfileId}
+							profileName={input.profile.profileName}
+							size={size}
+							working={input.operationalContext?.status === "working"}
+						/>
+					)}
+				/>
+			</FluidNavMenuItem>
+		);
+	}
+
 	return (
 		<FluidNavMenuItem
-			className={cn("relative", cardStyle.frame)}
+			className="relative"
 			index={input.index}
 			ref={input.drag?.ref}
 			style={input.drag?.style}
@@ -122,8 +187,7 @@ export function AgentProfileSidebarItemComponent(input: {
 					"h-auto min-w-0 items-start gap-1.5 py-1 text-left outline-none",
 					APP_NAV_ITEM_TYPOGRAPHY_CLASS_NAME,
 					APP_NAV_ITEM_TONE_CLASS_NAME,
-					input.isActive ? "text-sidebar-accent-foreground" : null,
-					cardStyle.button
+					input.isActive ? "text-sidebar-accent-foreground" : null
 				)}
 				data-profile-id={input.profile.openMeldProfileId}
 				onClick={() => {
@@ -134,13 +198,10 @@ export function AgentProfileSidebarItemComponent(input: {
 			>
 				<AgentProfileControllerAvatar
 					agentControllerRef={agentControllerRef}
-					className={cn(
-						"shrink-0",
-						hasReducedProminence ? "opacity-55 grayscale" : null
-					)}
+					className={avatarClassName}
 					profileId={input.profile.openMeldProfileId}
 					profileName={input.profile.profileName}
-					size={cardStyle.avatarSize}
+					size={input.avatarSize ?? 20}
 					working={input.operationalContext?.status === "working"}
 				/>
 				<span className="flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -151,35 +212,7 @@ export function AgentProfileSidebarItemComponent(input: {
 						<span className={profileNameClassName}>
 							{input.profile.profileName}
 						</span>
-						<Tooltip>
-							<TooltipTrigger
-								render={
-									<span
-										aria-label={presentation.availabilityAccessibilityLabel}
-										className={cn(
-											"inline-flex shrink-0 items-center",
-											presentation.availabilityClassName
-										)}
-										id={availabilityDescriptionId}
-										role="img"
-									/>
-								}
-							>
-								{presentation.availabilityCategory === "checking" ? (
-									<ThinkingIcon className="size-4" />
-								) : (
-									<span aria-hidden="true" className="status-dot bg-current" />
-								)}
-							</TooltipTrigger>
-							<TooltipContent>
-								{presentation.availabilityTooltip}
-							</TooltipContent>
-						</Tooltip>
-						<RemoteAgentIndicator agentControllerRef={agentControllerRef} />
-						<AgentProfileOperationalStatusIndicator
-							className="shrink-0"
-							operationalContext={input.operationalContext}
-						/>
+						{indicators}
 					</span>
 					<span className="truncate text-muted-foreground text-xs">
 						{presentation.controllerModelSummary}
@@ -341,17 +374,4 @@ function resolveAvailabilityClassName(
 		default:
 			return "text-muted-foreground";
 	}
-}
-
-function resolveAgentCardStyle(
-	variant: "sidebar" | "card" | undefined,
-	avatarSize?: number
-) {
-	return variant === "card"
-		? {
-				frame: "rounded-lg border border-border p-2",
-				button: "min-h-16 gap-3 p-2",
-				avatarSize: avatarSize ?? 28,
-			}
-		: { frame: "", button: "", avatarSize: avatarSize ?? 20 };
 }

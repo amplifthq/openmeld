@@ -9,7 +9,7 @@ import { DialogContent as BaseDialogContent } from "#components/dialog";
 import { useShape } from "#lib/shape-context";
 import { surfaceClasses } from "#lib/surface-classes";
 import { cn } from "#lib/utils";
-import { SurfaceProvider, useSurface } from "../lib/surface-context";
+import { SurfaceProvider } from "../lib/surface-context";
 
 export function DialogContent({
   size = "sm",
@@ -17,12 +17,13 @@ export function DialogContent({
   children,
   ...props
 }: ComponentProps<typeof BaseDialogContent> & { size?: "sm" | "lg" | "xl" }) {
-  const level = Math.min(useSurface() + 4, 8);
+  // Portaled dialogs share one calm surface, including nested confirmations.
+  const level = 2;
   const shape = useShape();
   return (
     <BaseDialogContent
       className={cn(
-        surfaceClasses(level),
+        surfaceClasses(level, 4),
         shape.container,
         "motion-reduce:animate-none motion-reduce:duration-0",
         size === "sm" && "sm:max-w-[400px]",

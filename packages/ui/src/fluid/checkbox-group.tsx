@@ -4,7 +4,7 @@ import {
   Indicator as CheckboxIndicator,
   Root as CheckboxRoot,
 } from "@radix-ui/react-checkbox";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   createContext,
   forwardRef,
@@ -45,11 +45,16 @@ function useCheckboxGroup() {
 interface CheckboxGroupProps extends HTMLAttributes<HTMLDivElement> {
   children: ReactNode;
   checkedIndices: Set<number>;
+  mergeSelections?: boolean;
 }
 
 const CheckboxGroup = forwardRef<HTMLDivElement, CheckboxGroupProps>(
-  ({ children, checkedIndices, className, ...props }, ref) => {
+  (
+    { children, checkedIndices, className, mergeSelections = true, ...props },
+    ref
+  ) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const reduceMotion = useReducedMotion();
     const groupIdCounter = useRef(0);
     const prevGroupMap = useRef(new Map<number, number>());
 
@@ -73,7 +78,7 @@ const CheckboxGroup = forwardRef<HTMLDivElement, CheckboxGroupProps>(
     const sortedChecked = [...checkedIndices].sort((a, b) => a - b);
     for (const idx of sortedChecked) {
       const last = runs.at(-1);
-      if (last && idx === last.end + 1) {
+      if (mergeSelections && last && idx === last.end + 1) {
         last.end = idx;
       } else {
         runs.push({ start: idx, end: idx });
@@ -219,7 +224,7 @@ const CheckboxGroup = forwardRef<HTMLDivElement, CheckboxGroupProps>(
                 }}
                 key={sessionRef.current}
                 transition={{
-                  ...springs.fast,
+                  ...(reduceMotion ? { duration: 0 } : springs.fast),
                   opacity: { duration: 0.08 },
                 }}
               />
@@ -240,7 +245,7 @@ const CheckboxGroup = forwardRef<HTMLDivElement, CheckboxGroupProps>(
                 exit={{ opacity: 0, transition: { duration: 0.06 } }}
                 initial={false}
                 transition={{
-                  ...springs.fast,
+                  ...(reduceMotion ? { duration: 0 } : springs.fast),
                   opacity: { duration: 0.08 },
                 }}
               />

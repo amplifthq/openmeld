@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import process from "node:process";
+import { readDaemonServiceContract } from "../../clients/openmeld-cli/src/config/daemon-service-contract.ts";
 import { createCliApiClientFoundation } from "../../clients/openmeld-cli/src/space/api-client-foundation.ts";
 import { createCurrentDeviceApi } from "../../packages/api-client/src/index.ts";
 
@@ -29,17 +30,29 @@ async function main() {
   const api = createCurrentDeviceApi(
     createCliApiClientFoundation(STAGING_GATEWAY_URL)
   );
+  const contract = await readDaemonServiceContract();
+  if (
+    !contract?.deviceId ||
+    contract.lane !== "canary" ||
+    contract.gatewayUrl !== STAGING_GATEWAY_URL
+  ) {
+    throw new Error(
+      "The smoke requires this Canary Service's Staging identity."
+    );
+  }
+  const target = { deviceId: contract.deviceId, runtimeLane: contract.lane };
   let result;
   if (command === "current-readiness") {
-    result = await api.getCurrentLocalRuntimeReplyReadiness();
+    result = await api.getPeopleComputerReplyReadiness(target);
   } else if (command === "enable-automatic-updates") {
-    result = await api.setCurrentOpenMeldToolsMaintenance({
+    result = await api.setPeopleComputerOpenMeldToolsMaintenance({
+      ...target,
       automaticUpdatesEnabled: true,
     });
   } else if (command === "forget-current-computer") {
-    result = await api.forgetCurrentComputer();
+    result = await api.forgetComputer({ deviceId: target.deviceId });
   } else {
-    result = await api.requestCurrentOpenMeldToolsUpdate();
+    result = await api.requestPeopleComputerOpenMeldToolsUpdate(target);
   }
   process.stdout.write(`${JSON.stringify(result)}\n`);
 }

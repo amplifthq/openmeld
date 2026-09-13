@@ -995,7 +995,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "agent_execution.route_unavailable",
-      "Runner is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.",
+      "OpenMeld couldn't check Runner's connection. Try again.",
     ],
     [
       "route.not_registered",
@@ -1007,7 +1007,7 @@ describe("public agent failure reason mapping", () => {
     ],
     [
       "route.unavailable",
-      "Runner is connected, but OpenMeld cannot see an active local Wake route from this computer yet. OpenMeld is checking the route from this computer.",
+      "OpenMeld couldn't check Runner's connection. Try again.",
     ],
     [
       "controller.registry.disabled",

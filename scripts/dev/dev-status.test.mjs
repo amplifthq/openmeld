@@ -39,6 +39,7 @@ test("summarizes active OpenMeld stacks by exact worktree without listing every 
   assert.deepEqual(snapshot.activeStacks[0], {
     coordinatorCount: 1,
     processCount: 2,
+    rssBytes: null,
     repoRoot: peopleRoot,
     workerCount: 1,
   });

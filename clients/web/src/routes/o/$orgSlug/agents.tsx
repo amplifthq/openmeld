@@ -1,8 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, Navigate, redirect } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Navigate,
+	redirect,
+	useNavigate,
+} from "@tanstack/react-router";
 import { z } from "zod/v4";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
+import { PeopleAndAgentsPage } from "#/components/profiles/people-and-agents-page";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentCreationPath,
@@ -11,10 +17,12 @@ import {
 	buildOrganizationPersonAgentPath,
 	buildOrganizationPersonAgentsPath,
 } from "#/lib/organizations/organization-routes";
+import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
 import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
 
 export const Route = createFileRoute("/o/$orgSlug/agents")({
 	staticData: appShellStaticData.people,
+	loader: async () => ({ sidebarStates: await getAppSidebarStatesForRoute() }),
 	validateSearch: z.object({
 		profileId: z.string().optional(),
 		requestId: z.string().optional(),
@@ -37,18 +45,38 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 			});
 		}
 	},
-	component: LegacyAgentsRoute,
+	component: TeamAgentsRoute,
 });
 
-function LegacyAgentsRoute() {
+function TeamAgentsRoute() {
+	const { sidebarStates } = Route.useLoaderData();
 	const { profileId } = Route.useSearch();
 	const { currentOrganization, currentUserId } = useAppOrganization();
+	const navigate = useNavigate();
 	const directory = useQuery(
 		organizationProfileDirectoryQueryOptions({
 			enabled: true,
 			organizationId: currentOrganization.id,
 		})
 	);
+	if (!profileId) {
+		return (
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={null}
+				initialSidebarStates={sidebarStates}
+				onAgentViewChange={(view) => {
+					if (view === "requests") {
+						navigate({
+							to: buildOrganizationAgentCreationRequestsPath({
+								orgSlug: currentOrganization.slug,
+							}),
+						}).catch(console.error);
+					}
+				}}
+			/>
+		);
+	}
 	if (directory.isPending || directory.isError) {
 		return (
 			<AppFullWidthLayout>

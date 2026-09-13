@@ -1,3 +1,4 @@
+import type { PrepareSessionContinuation } from "@openmeld/schemas/types";
 import {
   AuthSessionChangedBeforeTransitionError,
   type AuthSessionMetadata,
@@ -17,7 +18,6 @@ import {
   emitUnusedSetupSessionCleanupWarning,
   formatComputerAuthCleanupFailureSuffix,
   recoverInterruptedComputerAuthHandoff,
-  waitForOpenMeldToolsUpdateBeforeComputerHandoff,
 } from "./computer-auth-handoff-recovery";
 import {
   exchangeComputerAuthorizationGrant,
@@ -90,9 +90,6 @@ async function runPreparedComputerAuthHandoff(
   let executorStarted = false;
   let failureReported = false;
   try {
-    await waitForOpenMeldToolsUpdateBeforeComputerHandoff({
-      presenter: input.presenter,
-    });
     const recoveryOutcome = await recoverInterruptedComputerAuthHandoff({
       presenter: input.presenter,
       runtime: input.runtime,
@@ -153,6 +150,12 @@ async function runPreparedComputerAuthHandoff(
       candidate,
       expectedPreviousSession: currentSession,
       gatewayUrl,
+      prepareContinuation: {
+        prepareSessionId: initialSnapshot.prepareSessionId,
+        ...(input.localAgentSelection
+          ? { localAgentSelection: input.localAgentSelection }
+          : {}),
+      },
     });
 
     try {
@@ -283,10 +286,14 @@ async function beginComputerSessionTransition(input: {
   candidate: PreparedAuthSession;
   expectedPreviousSession: AuthSessionMetadata | null;
   gatewayUrl: string;
+  prepareContinuation: PrepareSessionContinuation;
 }): Promise<Awaited<ReturnType<typeof beginAuthSessionTransition>>> {
   try {
     return await beginAuthSessionTransition(input.candidate, {
-      computerHandoff: { gatewayUrl: input.gatewayUrl },
+      computerHandoff: {
+        gatewayUrl: input.gatewayUrl,
+        prepareContinuation: input.prepareContinuation,
+      },
       expectedPreviousSession: input.expectedPreviousSession,
     });
   } catch (error) {

@@ -24,6 +24,11 @@ const GITHUB_PULL_REQUEST_FIXTURE = path.join(
   "fixtures",
   "github-pull-request-325.json"
 );
+const GITHUB_RUNS_FIXTURE = path.join(
+  SCRIPT_DIR,
+  "fixtures",
+  "github-final-candidate-runs.json"
+);
 const REPOSITORY_LOCAL_GIT_ENV_VARS = [
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
   "GIT_COMMON_DIR",
@@ -49,11 +54,11 @@ const FAILURE_STATUS_PATTERN = /state=failure/u;
 const MAIN_ADVANCED_PATTERN = /Main advanced/u;
 const REMOTE_MODE_PATTERN = /Mode: remote/u;
 const PAID_HOSTED_COST_PATTERN =
-  /Cost: paid GitHub Actions when requested; selected checks may be high latency\./u;
+  /Cost: paid GitHub Actions for ready PRs and explicit retries; selected checks may be high latency\./u;
 const FINAL_CERTIFICATION_PATTERN =
   /Use: final merge certification, not development, debugging, or review discovery\./u;
 const PRACTICAL_TRIGGER_PATTERN =
-  /Practical trigger: request only when a green result means the next action is merge\./u;
+  /Practical trigger: keep development and batch leaves in draft; ready PRs run automatically\. Observe an existing run before requesting a retry\./u;
 const PENDING_STATUS_PATTERN = /state=pending/u;
 const SANDBOX_DENIED_PATTERN = /sandbox denied/u;
 const SUCCESS_STATUS_PATTERN = /state=success/u;
@@ -68,6 +73,23 @@ const ORIGINAL_SELECTED_CHECK_PATTERN = /original selected-check/u;
 const LARGE_STDOUT_LINE = "large-stdout-line";
 const LARGE_STDERR_LINE = "large-stderr-line";
 const FULL_COMMAND_LOGS_PATTERN = /Full command logs:/u;
+
+test("selected commands use the certified base instead of an inherited affected base", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      affectedBase: "0".repeat(40),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.ok(
+      readFileSync(fixture.candidateEnvironmentLogPath, "utf8").includes(
+        `BASE=${fixture.baseSha}`
+      )
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
 
 test(
   "an isolated selected command cannot rewrite trusted control or evidence",
@@ -226,6 +248,64 @@ test("the local fallback publishes shared success for one exact candidate", () =
     assert.match(ghLog, SUCCESS_STATUS_PATTERN);
     assert.match(ghLog, COMMENT_ENDPOINT_PATTERN);
     assert.match(result.stdout, CANDIDATE_EVIDENCE_PATTERN);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("local certification waits for the old hosted publisher before writing status", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, { hostedRunActive: true });
+    assert.equal(result.status, 0, result.stderr);
+    const log = readFileSync(fixture.ghLogPath, "utf8");
+    assert.ok(log.includes("/cancel"));
+    assert.ok(
+      log.indexOf("hosted-final-failure") < log.indexOf("state=pending")
+    );
+    assert.ok(log.indexOf("state=pending") < log.indexOf("state=success"));
+    assert.equal(
+      JSON.parse(readFileSync(fixture.evidencePath, "utf8")).conclusion,
+      "success"
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a failed hosted handoff cannot execute checks or overwrite existing status", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      ghFailureOperations: ["hosted-read"],
+    });
+    assert.equal(result.status, 1);
+    assert.equal(readFileSync(fixture.pnpmLogPath, "utf8"), "");
+    const log = readFileSync(fixture.ghLogPath, "utf8");
+    assert.ok(!log.includes("/statuses/"));
+    assert.equal(
+      JSON.parse(readFileSync(fixture.evidencePath, "utf8")).conclusion,
+      "failure"
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("losing hosted state after checks prevents final publication", () => {
+  const fixture = createCandidateFixture();
+  try {
+    const result = runCandidateFixture(fixture, {
+      ghFailureOperationAttempts: ["hosted-read:2"],
+    });
+    assert.equal(result.status, 1);
+    assert.notEqual(readFileSync(fixture.pnpmLogPath, "utf8"), "");
+    const log = readFileSync(fixture.ghLogPath, "utf8");
+    assert.match(log, PENDING_STATUS_PATTERN);
+    assert.doesNotMatch(log, SUCCESS_STATUS_PATTERN);
+    assert.doesNotMatch(log, FAILURE_STATUS_PATTERN);
+    const evidence = JSON.parse(readFileSync(fixture.evidencePath, "utf8"));
+    assert.equal(evidence.publicationErrors[0].operation, "final-status");
   } finally {
     fixture.cleanup();
   }
@@ -464,7 +544,9 @@ import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 const args = process.argv.slice(2);
 appendFileSync(process.env.TEST_GH_LOG, args.join(" ") + "\\n");
 const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
-const operation = endpoint.endsWith("/comments")
+const operation = endpoint.includes("/actions/workflows/")
+  ? "hosted-read"
+  : endpoint.endsWith("/comments")
   ? "pull-request-comment"
   : endpoint.includes("/statuses/") && args.includes("state=pending")
     ? "pending-status"
@@ -484,7 +566,19 @@ if ((process.env.TEST_GH_PUBLICATION_FAILURE === "1" && (endpoint.includes("/sta
   process.stderr.write("simulated GitHub publication failure\\n");
   process.exit(17);
 }
-if (endpoint.endsWith("/pulls/1")) {
+if (endpoint.includes("/actions/workflows/")) {
+  const captured = JSON.parse(readFileSync(process.env.TEST_GITHUB_RUNS_FIXTURE, "utf8")).response;
+  const run = captured.workflow_runs[0];
+  run.head_sha = process.env.TEST_HEAD_SHA;
+  run.head_branch = "codex/candidate";
+  run.pull_requests = [{ number: 1 }];
+  const cancelling = process.env.TEST_HOSTED_RUN_ACTIVE === "1" && operationCounts["hosted-read"] === 1;
+  run.status = cancelling ? "in_progress" : "completed";
+  if (process.env.TEST_HOSTED_RUN_ACTIVE === "1" && !cancelling) {
+    appendFileSync(process.env.TEST_GH_LOG, "hosted-final-failure\\n");
+  }
+  process.stdout.write(JSON.stringify([captured]));
+} else if (endpoint.endsWith("/pulls/1")) {
   const captured = JSON.parse(readFileSync(process.env.TEST_GITHUB_PULL_REQUEST_FIXTURE, "utf8")).response;
   captured.base.sha = process.env.TEST_BASE_SHA;
   captured.head.ref = "codex/candidate";
@@ -506,7 +600,7 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 appendFileSync(process.env.TEST_PNPM_LOG, process.argv.slice(2).join(" ") + "\\n");
-appendFileSync(process.env.TEST_CANDIDATE_ENV_LOG, "GH_TOKEN=" + (process.env.GH_TOKEN ? "present" : "absent") + " GITHUB_TOKEN=" + (process.env.GITHUB_TOKEN ? "present" : "absent") + "\\n");
+appendFileSync(process.env.TEST_CANDIDATE_ENV_LOG, "GH_TOKEN=" + (process.env.GH_TOKEN ? "present" : "absent") + " GITHUB_TOKEN=" + (process.env.GITHUB_TOKEN ? "present" : "absent") + " BASE=" + process.env.OPENMELD_AFFECTED_BASE + "\\n");
 if (process.env.TEST_ADVANCE_MAIN_DURING_CHECK === "1" && !existsSync(process.env.TEST_MAIN_DRIFT_MARKER)) {
   const maintainer = process.env.TEST_MAINTAINER_PATH;
   execFileSync("git", ["clone", "--quiet", process.env.TEST_REMOTE_PATH, maintainer]);
@@ -588,6 +682,7 @@ function runCandidateFixture(fixture, options = {}) {
       encoding: "utf8",
       env: {
         ...isolatedGitEnvironment(process.env),
+        OPENMELD_AFFECTED_BASE: options.affectedBase ?? "",
         GH_TOKEN: "write-capable-token-must-not-reach-checks",
         GITHUB_TOKEN: "write-capable-token-must-not-reach-checks",
         PATH: `${fixture.binPath}${path.delimiter}${process.env.PATH}`,
@@ -610,6 +705,8 @@ function runCandidateFixture(fixture, options = {}) {
         TEST_GH_LOG: fixture.ghLogPath,
         TEST_GH_OPERATION_COUNTS: fixture.ghOperationCountsPath,
         TEST_GITHUB_PULL_REQUEST_FIXTURE: GITHUB_PULL_REQUEST_FIXTURE,
+        TEST_GITHUB_RUNS_FIXTURE: GITHUB_RUNS_FIXTURE,
+        TEST_HOSTED_RUN_ACTIVE: options.hostedRunActive ? "1" : "0",
         TEST_HEAD_SHA: fixture.headSha,
         TEST_MAIN_DRIFT_MARKER: path.join(fixture.root, "main-drift.marker"),
         TEST_MAINTAINER_PATH: path.join(

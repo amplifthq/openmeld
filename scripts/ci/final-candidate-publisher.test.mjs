@@ -67,6 +67,26 @@ test("omitted or rewritten selected checks cannot publish green", () => {
   );
 });
 
+test("a candidate cannot publish green while required contracts are absent or failed", () => {
+  const missing = createEvidence();
+  missing.selectedChecks = missing.selectedChecks.filter(
+    (check) => check.id !== "repository-contracts"
+  );
+  missing.results = missing.results.filter(
+    (result) => result.id !== "repository-contracts"
+  );
+  assert.throws(() => assertEvidenceMatchesExecution(createInput(missing)));
+
+  const failed = createEvidence();
+  const tests = failed.results.find(
+    (result) => result.id === "repository-contracts"
+  );
+  assert.ok(tests);
+  tests.status = "failed";
+  tests.exitCode = 1;
+  assert.throws(() => assertEvidenceMatchesExecution(createInput(failed)));
+});
+
 function createInput(evidence) {
   return {
     candidateJobResult: "success",

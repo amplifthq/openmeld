@@ -24,7 +24,9 @@ export function SpaceViewTabs(input: {
 			variant="underline"
 		>
 			<TabsSubtleItem index={0} label="Messages" labelClassName="text-sm" />
+			{/* Graph navigation is hidden until a board replaces this view.
 			<TabsSubtleItem index={1} label="Graph" labelClassName="text-sm" />
+			*/}
 			<TabsSubtleItem index={2} label="Files" labelClassName="text-sm" />
 		</TabsSubtle>
 	);

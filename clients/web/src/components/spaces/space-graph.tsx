@@ -1,7 +1,4 @@
 import {
-	Background,
-	BackgroundVariant,
-	Controls,
 	type Edge,
 	Handle,
 	MarkerType,
@@ -10,7 +7,6 @@ import {
 	type NodeChange,
 	type NodeProps,
 	Position,
-	ReactFlow,
 	type ReactFlowInstance,
 	type ReactFlowProps,
 	useNodesState,
@@ -27,6 +23,7 @@ import {
 import { useReducedMotion } from "framer-motion";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useMemo, useRef } from "react";
+import { WorkspaceCanvas } from "#/components/canvas/workspace-canvas";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { OpenMeldSystemIcon } from "./openmeld-system-icon";
 import {
@@ -244,7 +241,7 @@ export function SpaceGraph(input: {
 					/>
 				) : null}
 			</div>
-			<ReactFlow<SpaceFlowNode>
+			<WorkspaceCanvas<SpaceFlowNode>
 				colorMode={
 					resolvedTheme === "light" || resolvedTheme === "dark"
 						? resolvedTheme
@@ -295,13 +292,6 @@ export function SpaceGraph(input: {
 				proOptions={{ hideAttribution: true }}
 				selectionOnDrag={false}
 			>
-				<Background
-					color="color-mix(in oklab, var(--foreground) 18%, transparent)"
-					gap={20}
-					size={1.25}
-					variant={BackgroundVariant.Dots}
-				/>
-				<Controls position="bottom-left" showInteractive={false} />
 				{nodes.length > 6 ? (
 					<MiniMap
 						className="!border !border-border !bg-background/90"
@@ -311,7 +301,7 @@ export function SpaceGraph(input: {
 						zoomable={true}
 					/>
 				) : null}
-			</ReactFlow>
+			</WorkspaceCanvas>
 		</section>
 	);
 }

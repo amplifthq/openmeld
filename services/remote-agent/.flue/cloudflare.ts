@@ -1,4 +1,5 @@
 import { env as workerEnv } from "cloudflare:workers";
+import { executePluginRuntime } from "../connectors/plugin-runtime";
 
 // biome-ignore lint/performance/noBarrelFile: Native browser code execution uses a Durable Object facet.
 export { CodemodeRuntime } from "@cloudflare/codemode";
@@ -37,6 +38,12 @@ import {
 const env = workerEnv as unknown as CloudflareBindings;
 
 export default {
+  async pluginRuntime(input: unknown) {
+    return await executePluginRuntime(input, {
+      baseUrl: env.OPENMELD_CONNECTORS_BASE_URL,
+      runtimeToken: env.OPEN_CONNECTOR_OPENMELD_RUNTIME_TOKEN,
+    });
+  },
   async receiveExecutionInput(input: unknown) {
     const request = remoteAgentWorkerExecutionInputRequestSchema.parse(input);
     return await observeRemoteAgentRpc({

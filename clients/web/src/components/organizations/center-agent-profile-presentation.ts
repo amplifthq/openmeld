@@ -11,10 +11,12 @@ export type CenterAgentConnectionStatus =
 	| "Paused"
 	| "Unavailable";
 
-export function resolveDesignatedCenterAgentProfile(input: {
-	agentProfiles: readonly DirectoryAgentProfile[];
+export function resolveDesignatedCenterAgentProfile<
+	Profile extends { profileId: string },
+>(input: {
+	agentProfiles: readonly Profile[];
 	designation: CenterAgentDesignation | null;
-}): DirectoryAgentProfile | null {
+}): Profile | null {
 	if (!input.designation) {
 		return null;
 	}

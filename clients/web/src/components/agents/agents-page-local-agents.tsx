@@ -38,11 +38,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import { LocalAgentLogo } from "@openmeld/ui/components/local-agent-logo";
-import {
-	MagnifyingDock,
-	MagnifyingDockItem,
-} from "@openmeld/ui/components/magnifying-dock";
 import { SettingsActionMenu } from "@openmeld/ui/components/settings-action-menu";
 import {
 	SettingsLocalAgentAdvisoryBadge,
@@ -56,6 +51,7 @@ import {
 	type SettingsDetailListRow,
 } from "@openmeld/ui/components/settings-detail-list";
 import { Switch } from "@openmeld/ui/components/switch";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -91,7 +87,6 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
-import { LOCAL_AGENT_EXAMPLE_IDS } from "#/components/profiles/local-agent-logo-stack";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
@@ -107,6 +102,7 @@ import {
 	isLocalAgentControlStillRunningError,
 } from "./agents-page-formatters";
 import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
+import { LocalAgentInstallEmptyState } from "./local-agent-install-empty-state";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 type DeviceAgentCatalogEntry =
@@ -1075,60 +1071,30 @@ function LocalAgentCatalogList(input: {
 			input.targetStatus !== "stale" &&
 			input.entries.length > 0 &&
 			input.entries.every((entry) => !entry.detected);
+		if (checkedWithoutAgents) {
+			return (
+				<LocalAgentInstallEmptyState
+					installGuide={
+						input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null
+					}
+				/>
+			);
+		}
 		return (
 			<div
 				className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-md border border-border/70 border-dashed bg-card/25 px-6 py-6 text-center"
 				data-testid="local-agent-catalog-empty"
 			>
-				{checkedWithoutAgents ? null : (
-					<span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-border bg-muted/20 text-muted-foreground">
-						<RobotIcon aria-hidden="true" className="h-4 w-4" />
-					</span>
-				)}
-				<div className="flex w-full min-w-0 flex-col items-center gap-2">
-					<p className="font-medium text-sm">
-						{checkedWithoutAgents
-							? "No supported agents detected"
-							: "Local agents haven’t been checked yet"}
-					</p>
-					<p className="max-w-md text-muted-foreground text-xs leading-5">
-						{checkedWithoutAgents
-							? "Install an agent such as Codex or Claude Code on this computer to get started."
-							: "The list will appear after OpenMeld checks this computer."}
-					</p>
-					{checkedWithoutAgents ? (
-						<MagnifyingDock
-							aria-label="Supported agents"
-							className="max-w-full flex-wrap justify-center gap-x-3 gap-y-4 px-2 pt-3 pb-2"
-						>
-							{input.entries
-								.filter(
-									(entry) =>
-										entry.targetKind === "builtin" &&
-										LOCAL_AGENT_EXAMPLE_IDS.includes(entry.agentId)
-								)
-								.sort(
-									(a, b) =>
-										LOCAL_AGENT_EXAMPLE_IDS.indexOf(a.agentId) -
-										LOCAL_AGENT_EXAMPLE_IDS.indexOf(b.agentId)
-								)
-								.map((entry) => (
-									<MagnifyingDockItem
-										caption={entry.displayName}
-										captionClassName="max-w-none whitespace-nowrap"
-										key={entry.agentId}
-									>
-										<LocalAgentLogo
-											agentId={entry.agentId}
-											className="size-12"
-											variant="tile"
-										/>
-									</MagnifyingDockItem>
-								))}
-						</MagnifyingDock>
-					) : null}
-					{input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null}
-				</div>
+				<span className="grid h-8 w-8 shrink-0 place-items-center rounded-sm border border-border bg-muted/20 text-muted-foreground">
+					<RobotIcon aria-hidden="true" className="h-4 w-4" />
+				</span>
+				<p className="font-medium text-sm">
+					Local agents haven’t been checked yet
+				</p>
+				<p className="max-w-md text-muted-foreground text-xs leading-5">
+					The list will appear after OpenMeld checks this computer.
+				</p>
+				{input.showInstallGuideLink ? <LocalAgentInstallGuideLink /> : null}
 			</div>
 		);
 	}
@@ -2266,34 +2232,39 @@ function AgentControllerAccountEmail(input: {
 
 	return (
 		<LazyMotion features={domAnimation} strict>
-			<m.span
-				animate={{
-					filter: input.revealed ? "blur(0px)" : "blur(3px)",
-					opacity: input.revealed ? 1 : 0.62,
-				}}
-				aria-label={interactive ? "Reveal signed-in account email" : undefined}
-				className={cn(
-					"rounded-md align-baseline",
-					interactive
-						? "cursor-pointer select-none text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-						: "text-current"
-				)}
-				data-revealed={input.revealed ? "true" : "false"}
-				data-testid={`agent-controller-account-email-${input.agentId}-${input.location}`}
-				initial={false}
-				onClick={interactive ? handleClick : undefined}
-				onKeyDown={interactive ? handleKeyDown : undefined}
-				role={interactive ? "button" : undefined}
-				tabIndex={interactive ? 0 : undefined}
-				title={interactive ? "Reveal signed-in account email" : undefined}
-				transition={
-					prefersReducedMotion
-						? { duration: 0 }
-						: { duration: 0.18, ease: "easeOut" }
-				}
+			<TooltipHint
+				content={interactive ? "Reveal signed-in account email" : undefined}
 			>
-				{input.email}
-			</m.span>
+				<m.span
+					animate={{
+						filter: input.revealed ? "blur(0px)" : "blur(3px)",
+						opacity: input.revealed ? 1 : 0.62,
+					}}
+					aria-label={
+						interactive ? "Reveal signed-in account email" : undefined
+					}
+					className={cn(
+						"rounded-md align-baseline",
+						interactive
+							? "cursor-pointer select-none text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+							: "text-current"
+					)}
+					data-revealed={input.revealed ? "true" : "false"}
+					data-testid={`agent-controller-account-email-${input.agentId}-${input.location}`}
+					initial={false}
+					onClick={interactive ? handleClick : undefined}
+					onKeyDown={interactive ? handleKeyDown : undefined}
+					role={interactive ? "button" : undefined}
+					tabIndex={interactive ? 0 : undefined}
+					transition={
+						prefersReducedMotion
+							? { duration: 0 }
+							: { duration: 0.18, ease: "easeOut" }
+					}
+				>
+					{input.email}
+				</m.span>
+			</TooltipHint>
 		</LazyMotion>
 	);
 }

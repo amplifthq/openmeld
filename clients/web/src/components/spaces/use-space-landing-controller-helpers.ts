@@ -147,6 +147,14 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 	return activeAgents.length === 1 ? [activeAgents[0].profileId] : [];
 }
 
+export function readPublishedWakeTargetProfileIds(
+	signal: SignalEnvelope
+): string[] {
+	return signal.type === "signal.text"
+		? (signal.data.messageEnvelope?.activationTargets ?? [])
+		: [];
+}
+
 export function resolveComposerAddressingTargets(input: {
 	addressingTargets: readonly SpaceComposerAddressingTarget[];
 	membersSnapshot: SpaceMembersSnapshot | null;
@@ -720,10 +728,27 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		input.threadContext.threadId,
 		input.openMeldProfileId
 	);
+	const previous =
+		input.queryClient.getQueryData<ListSpaceThreadSignalsResponse>(
+			threadSignalsKey
+		);
+	const introducesAuthor =
+		input.signal.type === "signal.text" &&
+		!input.signal.data.meta?.transient &&
+		!previous?.signals.some(
+			(signal) => signal.profile.profileId === input.signal.profile.profileId
+		);
 	input.queryClient.setQueryData<ListSpaceThreadSignalsResponse>(
 		threadSignalsKey,
 		(current) => mergeThreadSignalsCache(current, input)
 	);
+	if (introducesAuthor) {
+		input.queryClient
+			.invalidateQueries({ queryKey: threadSignalsKey })
+			.catch((error) => {
+				console.error("Could not refresh Thread participants.", error);
+			});
+	}
 
 	const threadsKey = spaceQueryKeys.threads(
 		input.spaceId,
@@ -752,7 +777,7 @@ export function mergeThreadSignalsCache(
 	)
 		? currentPlacements
 		: [...currentPlacements, input.placement].sort(comparePlacementOrder);
-	return { signals, placements };
+	return { ...current, signals, placements };
 }
 
 export function mergeThreadPreviewCache(
@@ -852,10 +877,6 @@ export function comparePlacementOrder(
 export function resolveLeaveSpaceErrorMessage(
 	failure: StructuredApiClientFailure
 ): string {
-	if (failure.code === "space.leave_space.creator_forbidden") {
-		return "The space creator cannot leave this space. Delete the space instead when only you remain.";
-	}
-
 	return failure.message;
 }
 

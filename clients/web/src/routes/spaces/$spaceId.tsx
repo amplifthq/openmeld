@@ -37,11 +37,13 @@ import {
 	APP_PAGE_FRAME_CLASS_NAME,
 	APP_PAGE_FRAME_PADDING_CLASS_NAME,
 } from "#/components/app/shell-layout";
+import { StartFlowStateProvider } from "#/components/app/start-flow-state";
 import type { SpaceComposerInputRef } from "#/components/spaces/space-composer-editor";
 import { SpaceConversationPanel } from "#/components/spaces/space-conversation-panel";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceFilesPanel } from "#/components/spaces/space-files-panel";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
+import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceThreadPanel } from "#/components/spaces/space-thread-panel";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { SpaceViewTabs } from "#/components/spaces/space-view-tabs";
@@ -185,6 +187,7 @@ export function PublicSpacePage(input: {
 	return (
 		<SpaceEntryGate
 			backHref="/"
+			redirectToOrganization
 			renderFrame={(content) => (
 				<PublicSpaceEntryFrame>{content}</PublicSpaceEntryFrame>
 			)}
@@ -195,16 +198,72 @@ export function PublicSpacePage(input: {
 			spaceId={input.spaceId}
 			threadRootSignalId={input.threadRootSignalId}
 		>
-			{(resolution) => (
-				<PublicSpaceResolvedPage
-					entryResolution={resolution}
-					isAuthenticated={input.isAuthenticated}
-					signalId={input.signalId}
-					spaceId={input.spaceId}
-					threadRootSignalId={input.threadRootSignalId}
-				/>
-			)}
+			{(resolution) =>
+				resolution.view.state === "allowed" &&
+				resolution.view.experience === "guest" ? (
+					<GuestSpacePage
+						signalId={input.signalId}
+						spaceId={input.spaceId}
+						threadRootSignalId={input.threadRootSignalId}
+					/>
+				) : (
+					<PublicSpaceResolvedPage
+						entryResolution={resolution}
+						isAuthenticated={input.isAuthenticated}
+						signalId={input.signalId}
+						spaceId={input.spaceId}
+						threadRootSignalId={input.threadRootSignalId}
+					/>
+				)
+			}
 		</SpaceEntryGate>
+	);
+}
+
+function GuestSpacePage(input: {
+	spaceId: string;
+	signalId?: string;
+	threadRootSignalId?: string;
+}) {
+	const profiles = useQuery({
+		queryKey: ["public-space-join-profiles"],
+		queryFn: listStartProfiles,
+	});
+	const human =
+		listActiveProfilesByKind(profiles.data ?? [], "human").find(
+			(profile) => profile.isDefault
+		) ?? listActiveProfilesByKind(profiles.data ?? [], "human")[0];
+	if (profiles.isPending) {
+		return (
+			<PublicSpaceEntryFrame>
+				<p>Loading your Space…</p>
+			</PublicSpaceEntryFrame>
+		);
+	}
+	if (profiles.isError || !human?.ownerUserId) {
+		return (
+			<PublicSpaceEntryFrame>
+				<p role="alert">Couldn't load your account.</p>
+				<Button onClick={() => profiles.refetch()}>Try again</Button>
+			</PublicSpaceEntryFrame>
+		);
+	}
+	return (
+		<StartFlowStateProvider storageScope={human.ownerUserId}>
+			<div className="flex h-dvh min-h-0 flex-col">
+				<SpaceLanding
+					accountProfiles={[human]}
+					conversationControl={
+						<span className="text-muted-foreground text-xs">Guest</span>
+					}
+					initialFocusSignalId={input.signalId}
+					initialFocusThreadRootSignalId={input.threadRootSignalId}
+					isGuest
+					profileId={human.openMeldProfileId}
+					spaceId={input.spaceId}
+				/>
+			</div>
+		</StartFlowStateProvider>
 	);
 }
 

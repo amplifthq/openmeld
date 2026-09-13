@@ -1,13 +1,14 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
-
 import {
   parseTurboAffectedTaskArgs,
   resolveExplicitAffectedPackages,
   resolveTurboAffectedFilters,
   resolveTurboCommandArgs,
 } from "./affected-workspaces.mjs";
+import { acquireLocalResources, RESOURCE_TOKEN } from "./local-resources.mjs";
+import { runOwnedCommand } from "./owned-command.mjs";
 
 const DEFAULT_BASE_REF = "origin/main";
 const LINE_SPLIT_REGEX = /\r?\n/u;
@@ -71,18 +72,44 @@ const turboArgs = resolveTurboCommandArgs({
     ...taskNames,
     ...affectedFilters,
     `--filter=${ROOT_FILTER}`,
+    ...(extraArgs.some(
+      (arg) => arg === "--concurrency" || arg.startsWith("--concurrency=")
+    )
+      ? []
+      : [
+          taskNames.includes("test:integration")
+            ? "--concurrency=1"
+            : "--concurrency=2",
+        ]),
     ...extraArgs,
   ],
 });
-const runResult = spawnSync(pnpmBinary, turboArgs, {
-  stdio: "inherit",
-});
-
-if (runResult.error) {
-  throw runResult.error;
+const controller = new AbortController();
+const cancel = () =>
+  controller.abort(new Error("Affected validation cancelled before launch."));
+process.once("SIGINT", cancel);
+process.once("SIGTERM", cancel);
+let reservation;
+try {
+  if (!process.env.GITHUB_ACTIONS) {
+    reservation = await acquireLocalResources({
+      kind: "heavy",
+      signal: controller.signal,
+    });
+  }
+  process.off("SIGINT", cancel);
+  process.off("SIGTERM", cancel);
+  process.exitCode = await runOwnedCommand(pnpmBinary, turboArgs, {
+    env: {
+      ...process.env,
+      ...(reservation ? { [RESOURCE_TOKEN]: reservation.token } : {}),
+    },
+  });
+} finally {
+  process.off("SIGINT", cancel);
+  process.off("SIGTERM", cancel);
+  await reservation?.release();
 }
-
-process.exit(runResult.status ?? 1);
 
 function resolveChangedPaths() {
   const outputs = [

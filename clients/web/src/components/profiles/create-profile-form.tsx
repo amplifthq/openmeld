@@ -106,6 +106,7 @@ export type AgentProfileLocalAgentEmptyState = {
 		| "checking"
 		| "teammate_local_agents_unavailable";
 	primaryActionHref: string | null;
+	onConnectComputer?: () => void;
 	onRetry?: () => void;
 };
 
@@ -114,6 +115,9 @@ export type AgentProfileLocalAgentEmptyState = {
 // name input, the agent binding radio, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
+	remoteProfileName?: string;
+	onChangeRemoteProfileName?: (name: string) => void;
+	computerRecovery?: import("./agent-creation-computer-recovery").AgentCreationComputerRecovery;
 	remoteAgentCreation?: {
 		onSubmit: (input: {
 			idempotencyKey: string;
@@ -370,7 +374,7 @@ export function AgentProfileConfigurationCards(input: {
 	});
 
 	return (
-		<AgentConfigurationGrid>
+		<AgentConfigurationGrid className="@min-[64rem]/agent-creation:grid-cols-3">
 			{form.agentOwnershipSlot ? (
 				<AgentConfigurationCard
 					description="Who owns and maintains this Agent."
@@ -474,6 +478,11 @@ export function AgentProfileConfigurationCards(input: {
 								value={form.projectFolderPath}
 							/>
 						)}
+						{form.projectSelectionBlockReason ? (
+							<output className="mt-2 block text-muted-foreground text-xs">
+								{form.projectSelectionBlockReason}
+							</output>
+						) : null}
 					</AgentConfigurationCard>
 					{summaries.collaboration ? (
 						<AgentConfigurationCard
@@ -608,11 +617,11 @@ function ProjectFolderField(input: {
 			) : null}
 			{input.pickerDeviceId && !manualPathOpen ? (
 				<Button
-					className="justify-self-start"
+					className="justify-self-end"
 					onClick={() => setManualPathOpen(true)}
 					size="sm"
 					type="button"
-					variant="ghost"
+					variant="secondary"
 				>
 					Enter path manually
 				</Button>

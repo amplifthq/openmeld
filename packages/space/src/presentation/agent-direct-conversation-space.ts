@@ -11,11 +11,7 @@ export type AgentDirectConversationSpaceStateInput = {
 export function isAgentDirectConversationSpace(
   input: AgentDirectConversationSpaceStateInput
 ): boolean {
-  if (
-    input.activeMemberCount !== 2 ||
-    input.humanMemberCount !== 1 ||
-    input.agentMemberCount !== 1
-  ) {
+  if (!isOneHumanAgentConversation(input)) {
     return false;
   }
 
@@ -24,4 +20,16 @@ export function isAgentDirectConversationSpace(
     directMessageConvertedAt: input.directMessageConvertedAt,
     purpose: input.purpose,
   });
+}
+
+export function isOneHumanAgentConversation(input: {
+  activeMemberCount: number | null | undefined;
+  humanMemberCount: number | null | undefined;
+  agentMemberCount: number | null | undefined;
+}): boolean {
+  return (
+    input.activeMemberCount === 2 &&
+    input.humanMemberCount === 1 &&
+    input.agentMemberCount === 1
+  );
 }

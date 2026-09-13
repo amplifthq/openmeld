@@ -7,7 +7,7 @@ import {
 import { resolveOrganizationScope } from "#/lib/organizations/organization-scope";
 import { listStartProfiles } from "#/lib/profiles/existing-profiles";
 import { organizationScopeQueryKeys } from "#/query/organizations/organization-scope";
-import { Route } from "../../routes/o/$orgSlug/_center-agent/index";
+import { Route } from "../../routes/o/$orgSlug/_center-agent/chats.center-agent";
 import {
 	loadCenterAgentDirectMessageRouteData,
 	loadCenterAgentRouteData,

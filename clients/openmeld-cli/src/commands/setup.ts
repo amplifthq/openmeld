@@ -60,6 +60,7 @@ import {
   runSetupLocalAgentConnection,
   type SetupLocalAgentConnectionResult,
 } from "./setup-local-agent-connection";
+import { assertSetupServiceUpdateComplete } from "./setup-service-update-truth";
 import { runSkillsEnsure } from "./skills";
 
 type SetupServiceGuidance = {
@@ -286,6 +287,7 @@ async function runSetupUnlocked(input: {
     );
   }
 
+  await assertSetupServiceUpdateComplete();
   const openMeldServiceRuntimeIdentity =
     await syncLocalSetupCurrentDeviceTargetFromServiceContract({
       gatewayUrl,

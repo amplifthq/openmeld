@@ -784,7 +784,7 @@ describe("Agent Activity pages", () => {
 		).toBeTruthy();
 	});
 
-	it("lets a member request an Agent from a teammate's visible Session", async () => {
+	it("keeps teammate Agent requests hidden during the launch hold", async () => {
 		listProjects.mockResolvedValue({
 			organizationId: "org-acme",
 			projects: [project({ id: "project-active" })],
@@ -802,12 +802,13 @@ describe("Agent Activity pages", () => {
 
 		renderPage("sessions");
 
+		expect(await screen.findByText("Ashley")).toBeTruthy();
 		expect(
-			await screen.findByRole("button", { name: "Request Resume Profile" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Request Resume Profile" })
+		).toBeNull();
 		expect(
-			screen.getByRole("button", { name: "Request Fork Profile" })
-		).toBeTruthy();
+			screen.queryByRole("button", { name: "Request Fork Profile" })
+		).toBeNull();
 	});
 
 	it.each([

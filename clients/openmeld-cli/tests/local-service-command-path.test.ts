@@ -13,7 +13,7 @@ describe("local service command path parsing", () => {
       extractDaemonCommandEntryPath(
         `${entryPath} service run --mode foreground`,
         {
-          env: { ...process.env, OPENMELD_ENV_PRESET: "prod" },
+          env: { OPENMELD_ENV_PRESET: "prod" },
           homeDir: "/Users/dev",
         }
       )
@@ -27,7 +27,7 @@ describe("local service command path parsing", () => {
       extractDaemonCommandEntryPath(
         `${entryPath} service run --mode foreground`,
         {
-          env: { ...process.env, OPENMELD_ENV_PRESET: "dev-local" },
+          env: { OPENMELD_ENV_PRESET: "dev-local" },
           homeDir: "/Users/dev",
         }
       )

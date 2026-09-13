@@ -9,7 +9,11 @@ import type {
 	WakeDeviceWait,
 } from "@openmeld/schemas/types";
 
-export type SpaceComposerSendOptions = { deviceWait?: WakeDeviceWait };
+export type SpaceComposerSendOptions = {
+	deviceWait?: WakeDeviceWait;
+	/** Local UI notification after the exact outgoing message has been staged. */
+	onMessageStaged?: (clientMessageId: string) => void;
+};
 
 type DeviceWaitMember = Pick<
 	SpaceMemberAgentSnapshot,
@@ -69,6 +73,11 @@ export function applyDeviceWaitToSubmission<
 		return submission;
 	}
 	const envelope = submission.messageEnvelope;
+	if (envelope?.referenceTargets.includes(deviceWait.targetProfileId)) {
+		throw new Error(
+			"Choose Wake before sending a task that waits for a computer."
+		);
+	}
 	return {
 		...submission,
 		deviceWait,

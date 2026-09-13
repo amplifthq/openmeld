@@ -33,20 +33,21 @@ active; Desktop placement is decided by [desktop.md](desktop.md).
 ## 1. Goal and current owner
 
 Current Web uses the fixed
-**New Agent / Home / Spaces / Direct Messages / Team** product rail, with
-**Settings** as a separated utility. **Projects**, **Documents**, and **Agent
+76px **Center Agent / Spaces / Team** application rail, with a separate
+**New Agent** creation action and contextual lists in a collapsible middle column.
+**Settings** remains a separated utility. **Projects**, **Documents**, and **Agent
 Activity** retain their routes and product surfaces but are temporarily hidden
 from this rail. The bottom toolbar puts
 the signed-in member's current **Computer** at the far-left edge of the inset
 content column and keeps **Center Agent / Inbox** together at the far-right
 edge, and
 the **Personal / current Organization name** Settings groups defined in
-`developing/clients/web.md`. Center Agent has no secondary sidebar: **Messages /
-Graph / Files / Tasks / Routines / Skills / Plugins** live in its header, while
-**Channels / Memory / Center Agent settings** live in its compact header menu.
+`developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
+Graph / Files / Routines / Skills / Channels** live in its header, while
+**Memory / Center Agent settings** live in its compact header menu.
 
-The Web Main Sidebar header places toggle/back/forward controls beside disabled
-Search and an Inbox page link, above a compact Organization selector. Its
+The Web application rail places the Organization selector above compact history,
+search, and Inbox controls. The work-area header toggles the middle column. Its
 footer uses the Fluid user dropdown with account switching, Settings, and Log out entries,
 plus adjacent Settings and theme controls. Authentication, history, and theme
 ownership remain in the existing Web hooks and router.
@@ -54,13 +55,15 @@ ownership remain in the existing Web hooks and router.
 One shell and one Settings framework let Web and the Electron GUI reuse shared
 pieces without forcing two clients to keep an obsolete route map. Current Web:
 
-- keeps **New Agent / Home / Spaces / Direct Messages / Team** as the fixed
+- keeps **Center Agent / Spaces / Team** as the fixed
   visible product destinations, temporarily omits **Projects / Documents /
   Agent Activity** without relocating them, separates Settings as a utility,
   and opens the current Computer, Center Agent, and Inbox from the app canvas's
   global toolbar;
 - uses one Settings destination with stable **Personal** and dynamically named
   current Organization groups;
+- places **Plugins** after **People** and **Agents** in Team, with separate
+  personal and named Organization configuration;
 - makes Team the people directory, with each person's Computers and Agent list
   reached through their Human Profile detail;
 - keeps Service preferences capability-gated for hosts that can own local-service
@@ -182,6 +185,12 @@ or "Machines" entity.
 
 ## 4. Information architecture
 
+Web's normal Settings utility now opens a global sidebar dialog over the current
+page, as specified in `web.md`. The standalone Settings routes below remain
+supported without normal navigation entry points. Both use the same registry,
+grouped navigation, and section renderers; the presentation does not own another
+copy of settings data or mutation logic.
+
 The routes and destination list in this section are not the current Web target.
 Use `developing/clients/web.md` for current routes and placement. The durable
 guidance retained here is that entity destinations use real routes, Binding is
@@ -191,7 +200,7 @@ gated.
 Each domain is a **real route**, not a scroll anchor. Current Web uses the fixed
 ten-destination product rail, separated Settings utility, and **Personal /
 current Organization name** Settings groups from `developing/clients/web.md`.
-App management exists once under **Center Agent → Plugins** in both personal and
+App management exists once under **Plugins** in both personal and
 multi-member workspaces. Routines is a Center Agent use-and-creation surface,
 not a global Settings page or root product peer.
 
@@ -234,8 +243,8 @@ The Web shell is a stable two-layer composition built from the shared
 - **Outer app rail** — always reachable on Home, Spaces, Direct
   Messages, People, Agents, Projects, Documents, Agent Activity, and
   Settings. The selected workspace switcher is its top identity surface. Home
-  starts with a flat **New Agent** action followed by **Home**, **Spaces**, and
-  **Direct Messages**, and one flat **Team** destination. Team opens People;
+  contains **Center Agent**, **Spaces**, and **Team**, followed by a separate
+  **New Agent** action. Team opens People;
   Agents are reached through each person's profile and nested Agent routes.
   Projects, Documents, and Agent Activity routes
   render the same rail without a matching primary destination while their
@@ -247,11 +256,10 @@ The Web shell is a stable two-layer composition built from the shared
   outer-rail utility. The rail has no
   separate OpenMeld brand row. A nested account row
   in the footer dropdown owns browser-saved account switching, adding, and
-  sign-out without becoming another navigation destination. The rail continues
-  to support resize + collapse.
-  Collapsed state preserves recognizable icons for every fixed destination;
-  expanded state shows the workspace identity, group labels, and destination
-  labels.
+  sign-out without becoming another navigation destination. The application
+  rail stays fixed; resize and collapse belong to the middle contextual column.
+  The desktop rail displays icons with compact labels, while the mobile app
+  drawer displays full-width navigation rows.
 - **Global controls** — a Web-owned toolbar in the bottom canvas gutter outside
   the inset surface. The current Computer sits at the far-left edge next to the
   outer rail. Center Agent and Inbox remain adjacent at the far-right edge.
@@ -264,16 +272,33 @@ The Web shell is a stable two-layer composition built from the shared
   placeholder or dead action.
 - **Inner contextual sidebar** — optional, rendered inside the inset app
   surface, and owned only by route families that need contextual navigation.
-  Center Agent does not own one. Spaces, Direct Messages, and People
-  render their contextual lists in the Main Sidebar below the fixed primary
-  navigation. Only that contextual region scrolls. Space groups appear between
+  Spaces, Direct Messages, and Center Agent conversations share the Spaces
+  list in the middle column, with Spaces and Direct messages as groups. Team
+  uses the same member list across People, Agents, and Plugins, and Settings
+  retains its own contextual navigation. Team tab content uses the shared page
+  inline padding, including the Plugins catalog and detail pages.
+  The middle column can be resized or collapsed while the application rail and
+  current work remain mounted. Existing outer-sidebar persistence stores its
+  geometry; the shared Fluid engine retains resize, keyboard, and edge-reveal
+  behavior. The Spaces heading opens the Space directory, without a duplicate
+  aggregate status dot. Direct messages is a tab after Your Spaces. Its plus
+  menu offers New message and New Space. Browse spaces is visible in both views,
+  and empty search results offer Find someone with the query prefilled in the
+  organization picker. Team remains the member directory, without a separate
+  Contacts destination. Recent is the default unless the user chose Grouped. It keeps the same Pinned rows and
+  orders other conversations by message time. Both views share row presentation
+  and destinations. The view is a browser preference scoped to account and
+  Organization; it neither navigates nor remounts the conversation pane.
+  Only that contextual region scrolls. Space groups appear between
   Pinned and Spaces; their section actions create Spaces/groups and select
-  Priority, Recently added, or Manual order independently. All three section
-  kinds use the same Priority ranking: human input, unread messages, active
+  Priority, Recent activity, or Manual order independently. Unpinned sections
+  use the same Priority ranking: human input, unread messages, active
   work, then idle Spaces, with recent activity breaking ties. Opening a Space must not promote it
-  merely because its visit timestamp changed. Recently added uses pin time for
-  Pinned and creation time for ordinary Spaces. Dragging the whole row changes manual order
-  within or across Pinned, custom groups, and ordinary Spaces. Crossing the
+  merely because its visit timestamp changed. The shared Pinned section keeps
+  manual order across both conversation kinds. Recent uses message time and
+  leaves conversations without messages last. Dragging the whole row changes manual order
+  within Pinned or across groups belonging to the same conversation kind.
+  Crossing the
   Pinned boundary uses the same Account Space pin mutation as the row control;
   a failed pin mutation must not save a new group placement. Custom groups can
   be renamed inline from section settings (Enter or blur saves; Escape cancels).
@@ -633,3 +658,12 @@ gating.
   "agent runtime" (would require amending the shipped `Connect local agent`
   manifest label across owner docs + CLI in the same PR). If B is ever chosen, it
   is a global find/replace + one manifest PR; it changes no other decision here.
+
+## Personal Computer entry
+
+The account dropdown always includes Computer immediately before Settings. It
+uses the same current-account Computer destination and attention projection as
+the optional bottom toolbar shortcut. A shared Web provider owns the query and
+validated reload hint even when the toolbar is hidden. Warning/danger attention
+appears on the account avatar and the Computer menu item; opening the menu does
+not acknowledge or clear it. Ordinary disconnection does not mark the avatar red.

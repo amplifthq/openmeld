@@ -94,6 +94,7 @@ import {
 import {
 	resolveSpaceComposerSendBlocked,
 	SpaceComposer,
+	type SpaceComposerProps,
 } from "./space-composer";
 import {
 	resolveSpaceComposerConversationKind,
@@ -158,6 +159,7 @@ import {
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
+import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
 	SpaceWakeStopControl,
 	type SpaceWakeStopRequestHandler,
@@ -238,6 +240,7 @@ function createThreadExecutionRecoveryHandler(input: {
 }
 
 type SpaceThreadPanelProps = {
+	wakeRecommendationsEnabled?: boolean;
 	activeThread: SpaceThread | null;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentStreams: readonly SpaceConversationVisibleStreamProjection[];
@@ -252,6 +255,7 @@ type SpaceThreadPanelProps = {
 	composerMentionPickerItems?: readonly SpaceMentionPickerItem[];
 	composerBlockedWakeProfileId: string | null;
 	composerErrorMessage: string | null;
+	composerMembers?: SpaceComposerProps["members"];
 	composerHasAuthoredMentions?: boolean;
 	composerText: string;
 	composerFiles: readonly SpaceComposerFile[];
@@ -323,9 +327,11 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 			<SpaceMessageEditingScope
 				draftKey={JSON.stringify([input.composerText, input.composerFiles])}
 				hasDraft={Boolean(input.composerText || input.composerFiles.length)}
+				mentionPickerItems={input.composerMentionPickerItems}
 				onRestore={(message, canReplaceDraft) =>
 					restoreRecalledMessage({ ...input, message, canReplaceDraft })
 				}
+				orgSlug={input.orgSlug}
 				readOnly={input.readOnly}
 				selfProfileId={input.selfProfileId}
 				threadRootSignalId={input.activeThread?.rootSignalId}
@@ -518,83 +524,94 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		input.onWakeStopRequest ?? UNAVAILABLE_SPACE_WAKE_STOP_REQUEST
 	);
 	return (
-		<SpaceInlineSidePanel
-			ariaLabel="Thread"
-			className={input.className}
-			id="space-thread-panel"
-			maxWidth={panelWidth.maxWidth}
-			minWidth={panelWidth.minWidth}
-			onWidthChange={panelWidth.onWidthChange}
-			open={input.activeThread !== null}
-			resizeHandleLabel="Resize Thread panel"
-			width={panelWidth.width}
+		<SpaceWakeRecommendationScope
+			disabled={!input.wakeRecommendationsEnabled}
+			items={rawThreadTimelineItems}
+			orgSlug={input.orgSlug}
+			selfProfileId={input.selfProfileId}
+			spaceId={input.activeThread?.spaceId}
+			threadId={input.activeThread?.threadId}
 		>
-			<ThreadPanelHeader onClose={input.onClose} />
-			{renderThreadFocusStatus(focusStatusMessage)}
-			<ThreadTimeline
-				actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(
-					input.actionableAgentInteractionPlacement
-				)}
-				agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
-				allItems={threadTimelineItems}
-				anchoredOutcomeNoticesBySourceSignalId={
-					anchoredOutcomeNoticesBySourceSignalId
-				}
-				centerAgentProfileId={input.centerAgentProfileId ?? null}
-				computerSetupActionSignalId={computerSetupActionSignalId}
-				computerSetupContext={computerSetupContext}
-				ephemeralActivityItems={scopedActivityItems}
-				errorMessage={input.signalsErrorMessage}
-				firstUnreadSignalId={firstUnreadSignalId}
-				isLoading={input.signalsIsLoading}
-				isPersonalContext={input.isPersonalContext === true}
-				items={threadTimelineItems}
-				latestThreadOccurredAtMs={latestThreadOccurredAtMs}
-				onAgentInteractionResponse={input.onAgentInteractionResponse}
-				onJumpToMessage={jumpToMessage}
-				onOpenMessageDetails={onOpenMessageDetails}
-				onOpenSpaceFile={input.onOpenSpaceFile}
-				onRecoverExecution={messageDetailsItem ? undefined : onRecoverExecution}
-				onViewedThroughTs={input.onViewedThroughTs}
-				onWakeStopRequest={
-					input.onWakeStopRequest ? onWakeStopRequest : undefined
-				}
-				orgSlug={input.orgSlug}
-				prepareSetupHref={input.prepareSetupHref}
-				profilePresentationsById={profilePresentationsById}
-				readOnly={input.readOnly === true}
-				readScopeKey={activeThreadRootSignalId ?? ""}
-				registerMessageElement={registerMessageElement}
-				renderProfileTrigger={
-					profileDetailsDialog.profileDetailsPopoverTriggerById
-				}
-				selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
-				selfProfileId={input.selfProfileId}
-				spaceReferencesById={input.spaceReferencesById}
-				wakeFailureTargetContextsByProfileId={
-					input.wakeFailureTargetContextsByProfileId
-				}
-				wakeOutcomeIndex={wakeOutcomeIndex}
-				wakeStopRequestStatusBySelectorKey={
-					input.wakeStopRequestStatusBySelectorKey
-				}
-				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
-			/>
-			{renderThreadComposer(input)}
-			<ThreadSelectedMessageDetails
-				activeThread={input.activeThread}
-				messageDetailsItem={messageDetailsItem}
-				onClose={closeMessageDetails}
-				onRecoverExecution={onRecoverExecution}
-				onWakeStopRequest={onWakeStopRequest}
-				panelInput={input}
-				profilePresentationsById={profilePresentationsById}
-				replyItems={messageDetailsReplyItems}
-				wakeIssueEntries={messageDetailsWakeProgressState?.issueEntries ?? []}
-				wakeStopTarget={messageDetailsWakeStopTarget}
-				wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
-			/>
-		</SpaceInlineSidePanel>
+			<SpaceInlineSidePanel
+				ariaLabel="Thread"
+				className={input.className}
+				id="space-thread-panel"
+				maxWidth={panelWidth.maxWidth}
+				minWidth={panelWidth.minWidth}
+				onWidthChange={panelWidth.onWidthChange}
+				open={input.activeThread !== null}
+				resizeHandleLabel="Resize Thread panel"
+				width={panelWidth.width}
+			>
+				<ThreadPanelHeader onClose={input.onClose} />
+				{renderThreadFocusStatus(focusStatusMessage)}
+				<ThreadTimeline
+					actionableAgentInteractionPlacement={resolveSpaceAgentInteractionPlacement(
+						input.actionableAgentInteractionPlacement
+					)}
+					agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
+					allItems={threadTimelineItems}
+					anchoredOutcomeNoticesBySourceSignalId={
+						anchoredOutcomeNoticesBySourceSignalId
+					}
+					centerAgentProfileId={input.centerAgentProfileId ?? null}
+					computerSetupActionSignalId={computerSetupActionSignalId}
+					computerSetupContext={computerSetupContext}
+					ephemeralActivityItems={scopedActivityItems}
+					errorMessage={input.signalsErrorMessage}
+					firstUnreadSignalId={firstUnreadSignalId}
+					isLoading={input.signalsIsLoading}
+					isPersonalContext={input.isPersonalContext === true}
+					items={threadTimelineItems}
+					latestThreadOccurredAtMs={latestThreadOccurredAtMs}
+					onAgentInteractionResponse={input.onAgentInteractionResponse}
+					onJumpToMessage={jumpToMessage}
+					onOpenMessageDetails={onOpenMessageDetails}
+					onOpenSpaceFile={input.onOpenSpaceFile}
+					onRecoverExecution={
+						messageDetailsItem ? undefined : onRecoverExecution
+					}
+					onViewedThroughTs={input.onViewedThroughTs}
+					onWakeStopRequest={
+						input.onWakeStopRequest ? onWakeStopRequest : undefined
+					}
+					orgSlug={input.orgSlug}
+					prepareSetupHref={input.prepareSetupHref}
+					profilePresentationsById={profilePresentationsById}
+					readOnly={input.readOnly === true}
+					readScopeKey={activeThreadRootSignalId ?? ""}
+					registerMessageElement={registerMessageElement}
+					renderProfileTrigger={
+						profileDetailsDialog.profileDetailsPopoverTriggerById
+					}
+					selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
+					selfProfileId={input.selfProfileId}
+					spaceReferencesById={input.spaceReferencesById}
+					wakeFailureTargetContextsByProfileId={
+						input.wakeFailureTargetContextsByProfileId
+					}
+					wakeOutcomeIndex={wakeOutcomeIndex}
+					wakeStopRequestStatusBySelectorKey={
+						input.wakeStopRequestStatusBySelectorKey
+					}
+					wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
+				/>
+				{renderThreadComposer(input)}
+				<ThreadSelectedMessageDetails
+					activeThread={input.activeThread}
+					messageDetailsItem={messageDetailsItem}
+					onClose={closeMessageDetails}
+					onRecoverExecution={onRecoverExecution}
+					onWakeStopRequest={onWakeStopRequest}
+					panelInput={input}
+					profilePresentationsById={profilePresentationsById}
+					replyItems={messageDetailsReplyItems}
+					wakeIssueEntries={messageDetailsWakeProgressState?.issueEntries ?? []}
+					wakeStopTarget={messageDetailsWakeStopTarget}
+					wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
+				/>
+			</SpaceInlineSidePanel>
+		</SpaceWakeRecommendationScope>
 	);
 }
 
@@ -865,6 +882,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			composerFileLimitReached={input.composerFileLimitReached}
 			composerFiles={input.composerFiles}
 			composerHasAuthoredMentions={input.composerHasAuthoredMentions}
+			composerMembers={input.composerMembers}
 			composerMentionPickerItems={input.composerMentionPickerItems ?? []}
 			composerText={input.composerText}
 			isAgentRecoveryPending={input.isAgentRecoveryPending}
@@ -1781,6 +1799,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	composerMembers?: SpaceComposerProps["members"];
 	pendingActionSurface?: ReactNode;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
@@ -1863,10 +1882,10 @@ function ThreadComposer(input: {
 				}),
 				placement: "thread",
 			}}
+			members={input.composerMembers}
 			presentation={{
 				className: "px-4 py-4",
 				dataSlot: "thread-composer",
-				errorClassName: "mt-3",
 				maxHeight: 180,
 			}}
 			recovery={{
@@ -1881,9 +1900,9 @@ function ThreadComposer(input: {
 				pendingActionSurface: input.pendingActionSurface,
 				beforePrimaryAction: <SpaceComposerActiveWakes placement="thread" />,
 				error: input.composerErrorMessage ? (
-					<div className="flex flex-col items-start gap-2 rounded-md border border-destructive bg-destructive/10 px-3 py-2 text-destructive text-sm">
-						<p>{input.composerErrorMessage}</p>
-					</div>
+					<p className="text-destructive text-sm" role="alert">
+						{input.composerErrorMessage}
+					</p>
 				) : null,
 				profileControl: input.profileControl,
 			}}

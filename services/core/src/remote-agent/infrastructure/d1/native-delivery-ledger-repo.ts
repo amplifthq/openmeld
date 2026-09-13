@@ -22,6 +22,39 @@ export type RemoteAgentNativeDeliveryConversationKind =
   | "message_channel"
   | "slack"
   | "space";
+
+export async function readRemoteAgentTaskActivity(input: {
+  db: D1Database;
+  organizationId: string;
+  authorizedProfileIds: readonly string[];
+  sinceMs: number;
+}): Promise<Map<string, number>> {
+  const activity = new Map<string, number>();
+  for (
+    let offset = 0;
+    offset < input.authorizedProfileIds.length;
+    offset += 80
+  ) {
+    const ids = input.authorizedProfileIds.slice(offset, offset + 80);
+    const rows = await input.db
+      .prepare(`
+      SELECT profile_id AS profileId,
+        MAX(MAX(created_at_ms, COALESCE(accepted_at_ms, 0),
+          COALESCE(execution_evidence_at_ms, 0), COALESCE(completed_at_ms, 0))) AS lastTaskActivityAtMs
+      FROM openMeldRemoteAgent_native_delivery_ledger
+      WHERE organization_id = ? AND profile_id IN (${ids.map(() => "?").join(",")})
+        AND updated_at_ms >= ?
+      GROUP BY profile_id
+      HAVING lastTaskActivityAtMs >= ?
+    `)
+      .bind(input.organizationId, ...ids, input.sinceMs, input.sinceMs)
+      .all<{ profileId: string; lastTaskActivityAtMs: number }>();
+    for (const row of rows.results) {
+      activity.set(row.profileId, row.lastTaskActivityAtMs);
+    }
+  }
+  return activity;
+}
 export type RemoteAgentFinalPublicationState =
   | "claimed"
   | "outcome_unknown"
@@ -1798,6 +1831,7 @@ function assertRoutineWorkerSubmitRequestMatchesClaim(input: {
 export async function claimRemoteAgentRoutineNativeDelivery(input: {
   bindingId: string;
   conversationKind: RemoteAgentNativeDeliveryConversationKind;
+  messageChannelLocator?: MessageChannelConversationLocator | null;
   db: D1Database;
   nowMs: number;
   onBehalfOfDisplayName: string;
@@ -1821,6 +1855,15 @@ export async function claimRemoteAgentRoutineNativeDelivery(input: {
     }
 > {
   const deliveryId = crypto.randomUUID();
+  const messageChannelStorage = resolveMessageChannelStorage({
+    conversationKind: input.conversationKind,
+    locator: input.messageChannelLocator ?? null,
+    providerPublicationIdempotencyKey:
+      input.conversationKind === "message_channel" ? deliveryId : null,
+    slackChannelId: input.slackChannelId,
+    slackTeamId: input.slackTeamId,
+    slackThreadTs: input.slackThreadTs,
+  });
   const workerSubmitRequest = input.workerSubmitRequest
     ? remoteAgentWorkerSubmitTurnRequestSchema.parse(input.workerSubmitRequest)
     : null;
@@ -1845,7 +1888,7 @@ export async function claimRemoteAgentRoutineNativeDelivery(input: {
         WHERE id = ?
           AND routine_id = ?
           AND organization_id = ?
-          AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot) = ?
+          AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot, json_extract(message_channel_destination_json_snapshot, '$.conversationId')) = ?
           AND status = 'claimed'
           AND native_delivery_id IS NULL
           AND EXISTS (
@@ -1897,12 +1940,16 @@ export async function claimRemoteAgentRoutineNativeDelivery(input: {
           slack_team_id,
           slack_channel_id,
           slack_thread_ts,
+          message_channel_provider,
+          message_channel_connection_id,
+          message_channel_locator_json,
+          provider_publication_idempotency_key,
           created_at_ms,
           updated_at_ms,
           submitted_at_ms
         )
         SELECT ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL, ?,
-          'submitted', NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?
+          'submitted', NULL, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE changes() = 1
       `
     )
@@ -1927,6 +1974,10 @@ export async function claimRemoteAgentRoutineNativeDelivery(input: {
       input.slackTeamId,
       input.slackChannelId,
       input.slackThreadTs,
+      messageChannelStorage.provider,
+      messageChannelStorage.connectionId,
+      messageChannelStorage.locatorJson,
+      messageChannelStorage.providerPublicationIdempotencyKey,
       input.nowMs,
       input.nowMs,
       input.nowMs
@@ -1961,6 +2012,7 @@ export async function claimRemoteAgentRoutineNativeDelivery(input: {
 export async function claimRemoteAgentRoutineAdmissionFailure(input: {
   bindingId: string;
   conversationKind: RemoteAgentNativeDeliveryConversationKind;
+  messageChannelLocator?: MessageChannelConversationLocator | null;
   db: D1Database;
   failureCode: string;
   failureDetail: string;
@@ -1989,6 +2041,15 @@ export async function claimRemoteAgentRoutineAdmissionFailure(input: {
     }
 > {
   const deliveryId = crypto.randomUUID();
+  const messageChannelStorage = resolveMessageChannelStorage({
+    conversationKind: input.conversationKind,
+    locator: input.messageChannelLocator ?? null,
+    providerPublicationIdempotencyKey:
+      input.conversationKind === "message_channel" ? deliveryId : null,
+    slackChannelId: input.slackChannelId,
+    slackTeamId: input.slackTeamId,
+    slackThreadTs: input.slackThreadTs,
+  });
   const failRun = input.db
     .prepare(
       `
@@ -2002,7 +2063,7 @@ export async function claimRemoteAgentRoutineAdmissionFailure(input: {
         WHERE id = ?
           AND routine_id = ?
           AND organization_id = ?
-          AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot) = ?
+          AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot, json_extract(message_channel_destination_json_snapshot, '$.conversationId')) = ?
           AND status = 'claimed'
           AND native_delivery_id IS NULL
           AND EXISTS (
@@ -2057,12 +2118,16 @@ export async function claimRemoteAgentRoutineAdmissionFailure(input: {
           slack_team_id,
           slack_channel_id,
           slack_thread_ts,
+          message_channel_provider,
+          message_channel_connection_id,
+          message_channel_locator_json,
+          provider_publication_idempotency_key,
           created_at_ms,
           updated_at_ms,
           completed_at_ms
         )
         SELECT ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, ?, NULL, ?, ?,
-          ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?
+          ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         WHERE changes() = 1
       `
     )
@@ -2086,6 +2151,10 @@ export async function claimRemoteAgentRoutineAdmissionFailure(input: {
       input.slackTeamId,
       input.slackChannelId,
       input.slackThreadTs,
+      messageChannelStorage.provider,
+      messageChannelStorage.connectionId,
+      messageChannelStorage.locatorJson,
+      messageChannelStorage.providerPublicationIdempotencyKey,
       input.nowMs,
       input.nowMs,
       input.nowMs
@@ -2757,7 +2826,7 @@ export async function blockRemoteAgentRoutineRecoveryForTargetMismatch(input: {
               AND organization_id = ?
               AND native_delivery_id = ?
               AND status = 'submitted'
-              AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot) = ?
+              AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot, json_extract(message_channel_destination_json_snapshot, '$.conversationId')) = ?
           )
       `
     )
@@ -2815,7 +2884,7 @@ export async function claimRemoteAgentRoutineSubmissionRecoveryAttempt(input: {
               AND organization_id = ?
               AND native_delivery_id = ?
               AND status = 'submitted'
-              AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot) = ?
+              AND COALESCE(target_space_id_snapshot, slack_conversation_id_snapshot, json_extract(message_channel_destination_json_snapshot, '$.conversationId')) = ?
           )
       `
     )

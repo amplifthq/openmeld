@@ -11,23 +11,24 @@ import { useCallback } from "react";
 export function DirectorySearch(input: {
 	label: string;
 	value: string;
-	open: boolean;
+	alwaysVisible?: boolean;
+	open?: boolean;
 	onChange: (value: string) => void;
-	onOpenChange: (open: boolean) => void;
+	onOpenChange?: (open: boolean) => void;
 }) {
 	const focusSearch = useCallback(
 		(node: HTMLInputElement | null) => node?.focus(),
 		[]
 	);
-	return input.open || input.value ? (
+	return input.alwaysVisible || input.open || input.value ? (
 		<div className="flex min-w-0 items-center gap-1">
 			<Input
 				aria-label={input.label}
 				className="h-8 w-52 max-w-full"
 				onChange={(event) => input.onChange(event.target.value)}
 				onKeyDown={(event) => {
-					if (event.key === "Escape" && !input.value) {
-						input.onOpenChange(false);
+					if (event.key === "Escape" && !input.value && !input.alwaysVisible) {
+						input.onOpenChange?.(false);
 					}
 				}}
 				placeholder={`${input.label}…`}
@@ -35,17 +36,21 @@ export function DirectorySearch(input: {
 				type="search"
 				value={input.value}
 			/>
-			<Button
-				aria-label="Close search"
-				onClick={() => {
-					input.onChange("");
-					input.onOpenChange(false);
-				}}
-				size="icon-sm"
-				variant="ghost"
-			>
-				<XIcon />
-			</Button>
+			{(!input.alwaysVisible || input.value) && (
+				<Button
+					aria-label={input.alwaysVisible ? "Clear search" : "Close search"}
+					onClick={() => {
+						input.onChange("");
+						if (!input.alwaysVisible) {
+							input.onOpenChange?.(false);
+						}
+					}}
+					size="icon-sm"
+					variant="ghost"
+				>
+					<XIcon />
+				</Button>
+			)}
 		</div>
 	) : (
 		<Tooltip>
@@ -53,7 +58,7 @@ export function DirectorySearch(input: {
 				render={
 					<Button
 						aria-label={input.label}
-						onClick={() => input.onOpenChange(true)}
+						onClick={() => input.onOpenChange?.(true)}
 						size="icon-sm"
 						variant="ghost"
 					/>

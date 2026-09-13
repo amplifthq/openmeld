@@ -6,7 +6,9 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
+import { MotionConfig } from "framer-motion";
 import { type FormEvent, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentProfileGenerator } from "./agent-profile-generator";
@@ -37,6 +39,102 @@ const TEST_MODEL_CATALOG = {
 afterEach(cleanup);
 
 describe("AgentProfileGenerator", () => {
+	it.each([
+		["connect", "Connect Computer"],
+		["reconnect", "Reconnect Computer"],
+		["check_failed", "Try again"],
+		["local_agents", "Check again"],
+	] as const)("replaces stale configuration with an actionable %s state", (state, label) => {
+		const onStart = vi.fn();
+		const onSubmit = vi.fn();
+		render(
+			<GeneratorHarness
+				initialAgentId="codex"
+				onSubmit={onSubmit}
+				overrides={{
+					computerRecovery: { state, computerName: "Office Mac", onStart },
+				}}
+			/>
+		);
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		fireEvent.submit(screen.getByTestId("create-profile-panel"));
+		expect(onSubmit).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: label }));
+		expect(onStart).toHaveBeenCalledOnce();
+		if (state === "local_agents") {
+			expect(
+				screen.getByTestId("local-agent-catalog-empty").className
+			).toContain("border-dashed");
+			for (const name of [
+				"Codex",
+				"Claude Code",
+				"Grok Build",
+				"OpenCode",
+				"Cursor CLI",
+			]) {
+				expect(
+					within(screen.getByTestId("local-agent-catalog-empty")).getByText(
+						name,
+						{ selector: "div" }
+					)
+				).toBeTruthy();
+			}
+			const guide = screen.getByRole("link", {
+				name: "See the install guide (opens in a new tab)",
+			});
+			expect(guide.getAttribute("href")).toBe("/guides/local-agents");
+			expect(guide.getAttribute("target")).toBe("_blank");
+			expect(screen.queryByRole("button", { name: "Copy command" })).toBeNull();
+		}
+	});
+	it("keeps the edited name and expanded settings through disconnect and recovery", () => {
+		const view = render(<GeneratorHarness initialAgentId="codex" />);
+		fireEvent.change(screen.getByRole("textbox", { name: "Agent name" }), {
+			target: { value: "Release helper" },
+		});
+		fireEvent.click(
+			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
+		);
+		view.rerender(
+			<GeneratorHarness
+				initialAgentId="codex"
+				overrides={{
+					computerRecovery: {
+						state: "reconnect",
+						computerName: "Office Mac",
+						onStart: vi.fn(),
+					},
+				}}
+			/>
+		);
+		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
+		view.rerender(<GeneratorHarness initialAgentId="codex" />);
+		expect(
+			(screen.getByRole("textbox", { name: "Agent name" }) as HTMLInputElement)
+				.value
+		).toBe("Release helper");
+		expect(
+			screen
+				.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
+				.getAttribute("aria-expanded")
+		).toBe("true");
+	});
+	it("does not let an offline computer block Remote Agent creation", () => {
+		render(
+			<GeneratorHarness
+				overrides={{
+					computerRecovery: { state: "reconnect", onStart: vi.fn() },
+					remoteAgentCreation: { onSubmit: vi.fn() },
+				}}
+			/>
+		);
+		fireEvent.click(screen.getByRole("tab", { name: REMOTE_AGENT_NAME }));
+		expect(
+			screen.queryByRole("button", { name: "Reconnect Computer" })
+		).toBeNull();
+		expect(screen.getByRole("button", { name: "Create Agent" })).toBeTruthy();
+	});
 	it("opens the owner editor even when no local agent is selected", async () => {
 		render(
 			<GeneratorHarness
@@ -86,24 +184,28 @@ describe("AgentProfileGenerator", () => {
 				permissionConfirmed={false}
 			/>
 		);
-		expect(
-			(
-				(await screen.findByRole("button", {
-					name: "Create Agent",
-				})) as HTMLButtonElement
-			).disabled
-		).toBe(true);
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		const review = screen.getByRole("button", {
+			name: "Review permissions",
+		}) as HTMLButtonElement;
+		expect(review.disabled).toBe(false);
+		expect(review.type).toBe("button");
 		fireEvent.click(screen.getByRole("button", { name: "Review permissions" }));
 		const confirmation = await screen.findByRole("checkbox", {
 			name: "I understand this permissions mode can run with dangerous full access.",
 		});
 		await waitFor(() => expect(document.activeElement).toBe(confirmation));
+		fireEvent.click(confirmation);
+		fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(
+			screen.queryByRole("button", { name: "Review permissions" })
+		).toBeNull();
 		expect(
 			screen
 				.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
 				.getAttribute("aria-expanded")
 		).toBe("true");
-		fireEvent.click(confirmation);
 		expect(
 			(
 				(await screen.findByRole("button", {
@@ -149,7 +251,7 @@ describe("AgentProfileGenerator", () => {
 		);
 	});
 
-	it("offers working-folder recovery directly beside the blocked action", async () => {
+	it("uses one primary action to open the missing working-folder setting", async () => {
 		const onUseManagedWorkspace = vi.fn();
 		render(
 			<GeneratorHarness
@@ -161,13 +263,15 @@ describe("AgentProfileGenerator", () => {
 				}}
 			/>
 		);
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Use OpenMeld managed folder" })
-		);
-		expect(onUseManagedWorkspace).toHaveBeenCalledOnce();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Choose working folder" })
-		);
+		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: "Use OpenMeld managed folder" })
+		).toBeNull();
+		const chooseFolder = screen.getByRole("button", {
+			name: "Choose working folder",
+		}) as HTMLButtonElement;
+		expect(chooseFolder.disabled).toBe(false);
+		fireEvent.click(chooseFolder);
 		expect(await screen.findByText("Project choice")).toBeTruthy();
 		expect(screen.queryByText("Session choice")).toBeNull();
 	});
@@ -224,7 +328,7 @@ describe("AgentProfileGenerator", () => {
 			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
 				.textContent
 		).toContain(
-			"New session · openmeld · GPT-5.6 Sol (default) · Model default · Ask for approval"
+			"GPT-5.6 Sol (default) · Model default · Ask for approval · New session · openmeld · Default"
 		);
 		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
 	});
@@ -329,6 +433,8 @@ function GeneratorHarness(input: {
 		...input.overrides,
 	};
 	return (
-		<AgentProfileGenerator form={form} surface={input.surface ?? "dialog"} />
+		<MotionConfig reducedMotion="always">
+			<AgentProfileGenerator form={form} surface={input.surface ?? "dialog"} />
+		</MotionConfig>
 	);
 }

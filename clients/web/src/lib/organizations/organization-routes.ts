@@ -490,6 +490,13 @@ function resolveProductHomeSwitchPath(input: {
 }): string | null {
 	const [section, subsection] = input.pathSegments;
 	switch (section) {
+		case "plugins":
+			return subsection
+				? buildOrganizationPluginPath({
+						orgSlug: input.nextOrgSlug,
+						service: subsection,
+					})
+				: buildOrganizationPluginsPath(input.nextOrgSlug);
 		case "people":
 			return buildOrganizationPeoplePath(input.nextOrgSlug);
 		case "agents":

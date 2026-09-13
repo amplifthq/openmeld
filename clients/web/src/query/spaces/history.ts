@@ -3,6 +3,7 @@ import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	GetSpaceUpdatesResponse,
 	SignalEnvelope,
+	SpaceMessageReactions,
 } from "@openmeld/schemas/types";
 import {
 	type QueryClient,
@@ -91,6 +92,40 @@ export function writeSpaceHistoryEnvelopesToCache(input: {
 				},
 			})
 	);
+}
+
+export function writeSpaceHistoryReactionsToCache(input: {
+	queryClient: QueryClient;
+	spaceId: string;
+	openMeldProfileId: string;
+	signalId: string;
+	reactions: SpaceMessageReactions;
+}): void {
+	const key = spaceQueryKeys.history(input.spaceId, input.openMeldProfileId);
+	const current = input.queryClient.getQueryData<SpaceHistorySnapshot>(key);
+	// Never recreate content after access revocation, or persist a Thread
+	// reply that was not already part of this main conversation snapshot.
+	if (!current) {
+		return;
+	}
+	let changed = false;
+	const envelopes = current.envelopes.map((message) => {
+		if (
+			message.id !== input.signalId ||
+			message.type !== "signal.text" ||
+			(message.reactions?.version ?? -1) >= input.reactions.version
+		) {
+			return message;
+		}
+		changed = true;
+		return { ...message, reactions: input.reactions };
+	});
+	if (changed) {
+		input.queryClient.setQueryData(key, {
+			...current,
+			envelopes: boundSavedSpaceHistory(envelopes),
+		});
+	}
 }
 
 export async function readSpaceHistory(input: {

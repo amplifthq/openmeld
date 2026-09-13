@@ -220,8 +220,11 @@ preparation uses the admission idempotency key and still checks current identity
 binding and membership. It cannot authorize ordinary tools or read other releases;
 normal tool calls and activation recording still require an accepted delivery.
 
-Personal Apps use Organization-shared connections only, never the Agent owner's
-personal connection. Existing connector discovery, durable operation records,
+Personal Apps use permitted Organization-shared connections and may use the
+owner's personal connection when that owner enabled personal Remote Agent
+access and is the verified requester or Routine delegate. Another member's
+Wake and an Agent-to-Agent handoff never inherit the owner's private account.
+Existing connector discovery, durable operation records,
 attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
@@ -612,6 +615,15 @@ the connected provider API.
    may be visible. The worker places an explicit shortening notice inside the
    product-wide text ceiling if a model result is larger; CardKit itself never
    silently truncates the accepted callback.
+   Signed native controls bind the current card message to the same Native
+   Delivery, connection, app, tenant, chat, and verified requester. Stop requests
+   go to the existing Remote Agent execution owner; a click never marks the
+   ledger completed or stopped. The worker's terminal callback finalizes the
+   card. Completed cards offer a collapsed follow-up form. A submission becomes
+   ordinary user input at the original frozen destination, not a business
+   approval or an authorization grant. Identical submissions on one card reuse
+   one operation identity; controls expire after 24 hours and are checked against
+   the current connection and membership. Stale or mismatched controls fail closed.
    Generated callback attachments are not delivered into Lark/Feishu in the
    first release. Core finalizes the same card or reply with an explicit
    generated-image delivery notice, removes the unsupported attachment
@@ -644,6 +656,13 @@ the connected provider API.
    keeps any longer backoff. Existing stream coalescing remains the normal
    request-rate control; `Retry-After` is explicit provider backpressure, not a
    second scheduler or publication path.
+   Remote Agent admits `message_channel` answer deltas to this existing stream
+   path, alongside Web/Space. It publishes the first text immediately, coalesces
+   subsequent provider snapshots at 350 ms, and flushes remaining text before
+   tools and terminal completion. Thinking stays private; Web-only tool parts
+   are not sent to CardKit or counted as visible progress. Slack retains its
+   own publication path. The same durable card is finalized after the result;
+   streaming is not a second response or an execution-completion signal.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images

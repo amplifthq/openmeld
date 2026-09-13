@@ -14,12 +14,15 @@ import type { DirectoryAgentProfileSummary } from "./directory-human-profile-mod
 
 export type AgentConversation = {
 	space: AccountSpaceItem;
-	agents: readonly DirectoryAgentProfileSummary[];
+	agents: readonly Pick<
+		DirectoryAgentProfileSummary,
+		"id" | "name" | "agentControllerRef"
+	>[];
 };
 
 export function selectAgentConversations(input: {
 	sections: AccountSpaceSections;
-	agents: readonly DirectoryAgentProfileSummary[];
+	agents: AgentConversation["agents"];
 	organizationId: string;
 }): AgentConversation[] {
 	const agentsById = new Map(input.agents.map((agent) => [agent.id, agent]));

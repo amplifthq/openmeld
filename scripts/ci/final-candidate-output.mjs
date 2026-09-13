@@ -27,9 +27,9 @@ export function printPlan(plan, dirtyPaths) {
       `Branch: ${plan.branchName}`,
       `Confidence: ${plan.confidence}`,
       `Risk: ${plan.riskTags.join(", ") || "none"}`,
-      "Cost: paid GitHub Actions when requested; selected checks may be high latency.",
+      "Cost: paid GitHub Actions for ready PRs and explicit retries; selected checks may be high latency.",
       "Use: final merge certification, not development, debugging, or review discovery.",
-      "Practical trigger: request only when a green result means the next action is merge.",
+      "Practical trigger: keep development and batch leaves in draft; ready PRs run automatically. Observe an existing run before requesting a retry.",
       "Changed paths:",
       ...(plan.changedPaths.length > 0
         ? plan.changedPaths.map((candidatePath) => `- ${candidatePath}`)
