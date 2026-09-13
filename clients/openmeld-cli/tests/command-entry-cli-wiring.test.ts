@@ -119,9 +119,11 @@ vi.mock(
       >();
     return {
       ...actual,
-      recoverInterruptedComputerAuthHandoff: vi.fn(async () => ({
-        status: "not_required" as const,
-      })),
+      // Commands still dispatch when an interrupted account's Service cannot
+      // recover. Only the explicit handoff path may request that recovery.
+      recoverInterruptedComputerAuthHandoff: vi.fn(() =>
+        Promise.reject(new Error("Previous Computer Service cannot start"))
+      ),
     };
   }
 );

@@ -71,7 +71,6 @@ export function isCliUpdateCheckApplicable(
   }
   return (
     environmentTarget.preset === "canary" &&
-    environmentTarget.userFacingCommand === "openmeld-canary" &&
     distribution === "binary" &&
     Boolean(manifestUrl)
   );

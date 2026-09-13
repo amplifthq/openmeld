@@ -16,7 +16,7 @@ import {
   formatDaemonServiceJobDiagnosticsEvidence,
   getDaemonServiceLaunchdLabel,
   getDaemonSystemServiceLogPath,
-  isDaemonServiceBackgroundExecutionBlocked,
+  isDaemonServiceJobSpawnPending,
   readDaemonServiceJobCrashExitCode,
 } from "../local-service/lifecycle/daemon-service-manager";
 import {
@@ -31,7 +31,7 @@ import {
 } from "../runtime/cli-entry-command";
 import {
   assessLocalMachineFailure,
-  createBackgroundExecutionBlockedIssue,
+  createServiceSpawnPendingIssue,
 } from "../system/local-machine-recovery";
 import { buildDaemonStartNeedsAttentionCard } from "../system/local-service-start-decision";
 import { sanitizeSystemServiceErrorMessage } from "./service-error-text";
@@ -85,15 +85,47 @@ export type SystemServiceStartupFailureVerdict = {
   detail: string | null;
 };
 
+export type DaemonBackgroundStartFailure = {
+  outcome: "failed_with_card";
+  errorMessage: string;
+  localMachineIssue?: LocalMachineIssue;
+};
+
+// Keep evidence in the returned value even when a caller suppresses output.
+// Account recovery persists this message; printing a card is not propagation.
+export function buildDaemonBackgroundStartFailure(
+  verdict: SystemServiceStartupFailureVerdict | null
+): DaemonBackgroundStartFailure {
+  const report = verdict
+    ? buildSystemServiceStartupFailureReportFromVerdict(verdict)
+    : null;
+  const evidence = verdict?.jobDiagnostics
+    ? formatDaemonServiceJobDiagnosticsEvidence(verdict.jobDiagnostics)
+    : null;
+  return {
+    outcome: "failed_with_card",
+    errorMessage: [
+      report?.summary ?? "OpenMeld could not finish starting OpenMeld Service.",
+      verdict?.message,
+      evidence && !verdict?.message.includes(evidence) ? evidence : null,
+    ]
+      .filter(Boolean)
+      .join("\n"),
+    ...(verdict?.localMachineIssue
+      ? { localMachineIssue: verdict.localMachineIssue }
+      : {}),
+  };
+}
+
 function resolveStartupLocalMachineIssue(input: {
   assessedIssue: LocalMachineIssue;
   jobDiagnostics: DaemonServiceJobDiagnostics | null;
 }): LocalMachineIssue | null {
   if (
     input.jobDiagnostics &&
-    isDaemonServiceBackgroundExecutionBlocked(input.jobDiagnostics)
+    isDaemonServiceJobSpawnPending(input.jobDiagnostics)
   ) {
-    return createBackgroundExecutionBlockedIssue({
+    return createServiceSpawnPendingIssue({
       detail: formatDaemonServiceJobDiagnosticsEvidence(input.jobDiagnostics),
     });
   }
@@ -159,24 +191,6 @@ export function buildSystemServiceStartupFailureReportFromVerdict(
     return {
       title: card.title,
       summary: localMachineIssue.summary,
-      rows: card.rows,
-    };
-  }
-  if (
-    jobDiagnostics &&
-    isDaemonServiceBackgroundExecutionBlocked(jobDiagnostics)
-  ) {
-    const summary = "macOS didn't start OpenMeld Service.";
-    const card = buildDaemonStartNeedsAttentionCard({
-      summary,
-      nextStep: formatInlineOpenMeldCliCommands(
-        "Open System Settings > General > Login Items & Extensions, turn on OpenMeld, then run `openmeld service start` again."
-      ),
-      autoRepairAttempted,
-    });
-    return {
-      title: card.title,
-      summary,
       rows: card.rows,
     };
   }

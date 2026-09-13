@@ -151,11 +151,9 @@ describe("SpaceMessageDetailsDrawer", () => {
 		expect(screen.getByText("hello")).toBeTruthy();
 		expect(screen.queryByText("Message sent")).toBeNull();
 		expect(screen.getByText("Felix")).toBeTruthy();
-		expect(
-			screen.getByRole("time", {
-				name: formatMessageDetailsTestTime(details.message.sentAtMs),
-			})
-		).toBeTruthy();
+		expect(screen.getByRole("time").getAttribute("aria-description")).toBe(
+			formatMessageDetailsTestTime(details.message.sentAtMs)
+		);
 		expect(screen.queryByText("Support details")).toBeNull();
 		expect(screen.getByText(REPORT_POINTER_COPY_PATTERN)).toBeTruthy();
 		expect(getQueryOptions().queryKey).toEqual([

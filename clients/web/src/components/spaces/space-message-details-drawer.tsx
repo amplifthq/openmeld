@@ -9,6 +9,7 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -756,13 +757,16 @@ function ActivityTime(input: { occurredAtMs: number | null }) {
 		return null;
 	}
 	return (
-		<time
-			className="shrink-0 text-muted-foreground text-xs"
-			dateTime={new Date(input.occurredAtMs).toISOString()}
-			title={MESSAGE_DETAILS_TIME_FORMATTER.format(input.occurredAtMs)}
+		<TooltipHint
+			content={MESSAGE_DETAILS_TIME_FORMATTER.format(input.occurredAtMs)}
 		>
-			{MESSAGE_ACTIVITY_TIME_FORMATTER.format(input.occurredAtMs)}
-		</time>
+			<time
+				className="shrink-0 text-muted-foreground text-xs"
+				dateTime={new Date(input.occurredAtMs).toISOString()}
+			>
+				{MESSAGE_ACTIVITY_TIME_FORMATTER.format(input.occurredAtMs)}
+			</time>
+		</TooltipHint>
 	);
 }
 

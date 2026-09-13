@@ -7,7 +7,6 @@ import type {
 } from "@openmeld/schemas/types";
 import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleTextIcon, PlusIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -25,10 +24,12 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
+import { DirectMessagesIndexContent } from "#/components/spaces/direct-messages-index";
 import { SpaceDirectory } from "#/components/spaces/space-directory";
 import { SpaceWindowHeader } from "#/components/spaces/space-header";
 import { SpacePendingInvitations } from "#/components/spaces/space-pending-invitations";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
+import { SpacesDirectoryNavigation } from "#/components/spaces/spaces-directory-navigation";
 import { useAccountSpaceIndicators } from "#/components/spaces/use-account-space-indicators";
 import { useAccountSpacePinMutation } from "#/components/spaces/use-account-space-pin-mutation";
 import {
@@ -73,8 +74,13 @@ import {
 } from "#/query/spaces/account-spaces";
 
 export const Route = createFileRoute("/o/$orgSlug/spaces/")({
-	validateSearch: (search: Record<string, unknown>): { view?: "discover" } => ({
-		view: search.view === "discover" ? "discover" : undefined,
+	validateSearch: (
+		search: Record<string, unknown>
+	): { view?: "discover" | "messages" } => ({
+		view:
+			search.view === "discover" || search.view === "messages"
+				? search.view
+				: undefined,
 	}),
 	staticData: appShellStaticData.space,
 	pendingComponent: AppSpacesIndexPendingRoute,
@@ -108,6 +114,14 @@ function AppSpacesIndexRoute() {
 	const { view } = Route.useSearch();
 	const { orgSlug } = Route.useParams();
 	const { sidebarStates } = Route.useLoaderData();
+	if (view === "messages") {
+		return (
+			<DirectMessagesIndexContent
+				initialSidebarStates={sidebarStates}
+				orgSlug={orgSlug}
+			/>
+		);
+	}
 	return (
 		<AppSpacesIndexContent
 			initialSidebarStates={sidebarStates}
@@ -512,6 +526,11 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 	const [tab, setTab] = useState(
 		input.initialView === "discover" && !input.isPersonalContext ? 1 : 0
 	);
+	useEffect(() => {
+		setTab(
+			input.initialView === "discover" && !input.isPersonalContext ? 1 : 0
+		);
+	}, [input.initialView, input.isPersonalContext]);
 	const body = resolveSpaceIndexBody(input, tab);
 
 	return (
@@ -531,27 +550,10 @@ function SpaceIndexContentState(input: SpaceIndexContentStateInput) {
 						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
 					}
 					navigation={
-						<TabsSubtle
-							aria-label="Spaces view"
-							className="h-full shrink-0 gap-5"
-							idPrefix="spaces-directory"
-							onSelect={setTab}
-							selectedIndex={tab}
-							variant="underline"
-						>
-							<TabsSubtleItem
-								index={0}
-								label="Your Spaces"
-								labelClassName="text-sm"
-							/>
-							{!input.isPersonalContext && (
-								<TabsSubtleItem
-									index={1}
-									label="Discover"
-									labelClassName="text-sm"
-								/>
-							)}
-						</TabsSubtle>
+						<SpacesDirectoryNavigation
+							onSpaceViewChange={(view) => setTab(view === "discover" ? 1 : 0)}
+							view={tab === 1 ? "discover" : undefined}
+						/>
 					}
 					renderFrame={false}
 					title="Spaces"

@@ -12,7 +12,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
@@ -32,19 +31,18 @@ import {
 	resolveInboxAttentionTone,
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
-import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { ChatIcon, resolvePreviewText } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
 import { SidebarConversationTime } from "./sidebar-conversation-time";
 import { SpaceWindowHeader } from "./space-header";
+import { SpacesDirectoryNavigation } from "./spaces-directory-navigation";
 import { useChatFilters } from "./use-chat-filters";
 import { useChats } from "./use-chats";
 
 export function ChatsDirectory() {
 	const [creating, setCreating] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
-	const [tab, setTab] = useState(0);
 	const [search, setSearch] = useState("");
 	const filter = useChatFilters(() => setSearchOpen(true));
 	const model = useChats({
@@ -129,39 +127,11 @@ export function ChatsDirectory() {
 			bodyClassName="px-[var(--app-page-inline-padding)] pb-6"
 			header={
 				<SpaceWindowHeader
-					actions={
-						<div className="flex flex-wrap items-center gap-2">
-							<Button
-								render={
-									<Link to={buildOrganizationSpacesPath(model.org.slug)} />
-								}
-								size="sm"
-								variant="ghost"
-							>
-								Browse spaces
-							</Button>
-							{newChat}
-						</div>
-					}
+					actions={newChat}
 					leadingControl={
 						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
 					}
-					navigation={
-						<TabsSubtle
-							aria-label="Direct messages view"
-							className="h-full shrink-0 gap-5"
-							idPrefix="chats-directory"
-							onSelect={setTab}
-							selectedIndex={tab}
-							variant="underline"
-						>
-							<TabsSubtleItem
-								index={0}
-								label="Your direct messages"
-								labelClassName="text-sm"
-							/>
-						</TabsSubtle>
-					}
+					navigation={<SpacesDirectoryNavigation view="messages" />}
 					renderFrame={false}
 					title="Spaces"
 				/>
@@ -169,8 +139,8 @@ export function ChatsDirectory() {
 			scroll
 		>
 			<div
-				aria-labelledby="chats-directory-tab-0"
-				id="chats-directory-panel-0"
+				aria-labelledby="spaces-directory-tab-1"
+				id="spaces-directory-panel-1"
 				role="tabpanel"
 			>
 				<div className="flex h-16 shrink-0 items-center justify-end gap-3">

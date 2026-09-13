@@ -83,7 +83,6 @@ import {
   runComputerList,
   runComputerRename,
 } from "./commands/computer";
-import { recoverInterruptedComputerAuthHandoff } from "./commands/computer-auth-handoff-recovery";
 import { runDoctor } from "./commands/doctor";
 import { runFeedback } from "./commands/feedback";
 import { runInstallSelf } from "./commands/install-self";
@@ -5489,25 +5488,9 @@ async function runLocalCli(argv: string[]): Promise<void> {
       return;
     }
     await ensureSystemLayout();
-    const [startupCommand, startupSubcommand] =
-      parseLeadingCommandTokensFromArgv(argv, 2);
-    if (
-      !(
-        isPassiveCliQueryArgv(argv) ||
-        (startupCommand === "service" && startupSubcommand === "run")
-      )
-    ) {
-      const recoveryRuntime = {
-        interactive: false,
-        resolvedView: "agent",
-        viewMode: "agent",
-      } as const;
-      await recoverInterruptedComputerAuthHandoff({
-        presenter: createSilentPresenter("agent"),
-        runtime: recoveryRuntime,
-        view: "agent",
-      });
-    }
+    // Account handoff owns Service recovery. Generic commands must remain
+    // usable when that Service cannot start, especially install-self, upgrade
+    // and diagnostics. Auth storage still isolates uncommitted credentials.
 
     const removedCcInputMessage = getRemovedCcCliInputMessage(argv);
     if (removedCcInputMessage) {

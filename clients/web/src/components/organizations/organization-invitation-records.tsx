@@ -8,6 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { Fragment } from "react";
@@ -229,7 +230,11 @@ function InvitationDelivery({
 	]
 		.filter(Boolean)
 		.join(" · ");
-	return <span title={details}>{label}</span>;
+	return (
+		<TooltipHint content={details}>
+			<span>{label}</span>
+		</TooltipHint>
+	);
 }
 function CancelInvitationAction({
 	invitation,
@@ -373,17 +378,18 @@ function RequestReviewCells({
 					<p>{request.reviewedByName ?? "Former member"}</p>
 				) : null}
 				{request?.reviewedAt ? (
-					<time
-						className="mt-1 block text-xs"
-						dateTime={new Date(request.reviewedAt).toISOString()}
-						title={formatInvitationDate(request.reviewedAt)}
-					>
-						{new Intl.DateTimeFormat("en", {
-							month: "short",
-							day: "numeric",
-							year: "numeric",
-						}).format(request.reviewedAt)}
-					</time>
+					<TooltipHint content={formatInvitationDate(request.reviewedAt)}>
+						<time
+							className="mt-1 block text-xs"
+							dateTime={new Date(request.reviewedAt).toISOString()}
+						>
+							{new Intl.DateTimeFormat("en", {
+								month: "short",
+								day: "numeric",
+								year: "numeric",
+							}).format(request.reviewedAt)}
+						</time>
+					</TooltipHint>
 				) : (
 					"—"
 				)}

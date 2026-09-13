@@ -1,8 +1,7 @@
 "use client";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
-import { useMatches, useRouterState } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useMatches } from "@tanstack/react-router";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
@@ -28,35 +27,14 @@ import type {
 import { resolveAppOuterRailDestinationFromMatches } from "./shell-layout";
 import { SidebarDestinationActionsProvider } from "./sidebar-destination-actions";
 
-// Navigation history only. Conversation identity and drafts remain route-owned.
-const conversationLocations = new Map<string, string>();
-
 export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 	const { presentation } = useAppNavigationPresentation();
 	const mode = presentation === "drawer" ? "expanded" : "icon";
 	const activeDestination = useMatches({
 		select: resolveAppOuterRailDestinationFromMatches,
 	});
-	const { currentOrganization, currentUserId } = useAppOrganization();
+	const { currentOrganization } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const location = useRouterState({ select: (state) => state.location });
-	const navigationScope = `${currentUserId}:${currentOrganization.id}:${defaultHumanProfile?.openMeldProfileId ?? ""}`;
-	const currentConversationPath =
-		activeDestination === "spaces" || activeDestination === "directMessages"
-			? `${location.pathname}${location.searchStr}`
-			: undefined;
-	useEffect(() => {
-		if (currentConversationPath) {
-			conversationLocations.set(navigationScope, currentConversationPath);
-		}
-	}, [navigationScope, currentConversationPath]);
-	const rememberedPath =
-		currentConversationPath ?? conversationLocations.get(navigationScope);
-	const conversationPath = rememberedPath?.startsWith(
-		`/o/${currentOrganization.slug}/`
-	)
-		? rememberedPath
-		: undefined;
 	const { data: currentAccountAvatar } = useAccountAvatar();
 	const accountAvatarImage = currentAccountAvatar?.avatar ?? null;
 	const humanProfileAvatar: HumanProfileAvatarIdentity | null =
@@ -103,7 +81,6 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 				>
 					{buildAppRailGroups({
 						orgSlug: currentOrganization.slug,
-						conversationPath,
 						centerAgentUnreadCount: Math.max(0, center.data?.unreadCount ?? 0),
 						spacesUnreadCount: Math.max(
 							0,

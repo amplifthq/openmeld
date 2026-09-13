@@ -23,6 +23,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ArrowRightIcon,
@@ -617,9 +618,9 @@ function HumanProfileDetailsPopoverContent(input: {
 					</div>
 					<div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
 						{input.activityTime ? (
-							<span title="Last activity in this Space">
-								{input.activityTime}
-							</span>
+							<TooltipHint content="Last activity in this Space">
+								<span>{input.activityTime}</span>
+							</TooltipHint>
 						) : null}
 						{input.computer ? (
 							<>
@@ -633,17 +634,18 @@ function HumanProfileDetailsPopoverContent(input: {
 					</div>
 				</div>
 				{input.profileHref ? (
-					<a
-						aria-label={`View ${input.entry.profileName} profile`}
-						className={cn(
-							buttonVariants({ size: "icon-xs", variant: "ghost" }),
-							"shrink-0"
-						)}
-						href={input.profileHref}
-						title="View profile"
-					>
-						<ArrowRightIcon aria-hidden="true" />
-					</a>
+					<TooltipHint content="View profile">
+						<a
+							aria-label={`View ${input.entry.profileName} profile`}
+							className={cn(
+								buttonVariants({ size: "icon-xs", variant: "ghost" }),
+								"shrink-0"
+							)}
+							href={input.profileHref}
+						>
+							<ArrowRightIcon aria-hidden="true" />
+						</a>
+					</TooltipHint>
 				) : null}
 			</div>
 			<AgentProfileDirectMessageAction

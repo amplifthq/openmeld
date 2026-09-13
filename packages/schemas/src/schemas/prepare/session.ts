@@ -12,6 +12,21 @@ import {
 } from "../start/device-projection";
 
 const PREPARE_BOUNDED_ID_SCHEMA = z.string().trim().min(1).max(256);
+// Local continuation intent; Prepare remains the setup state owner. No token is
+// persisted here: the signed-in owner mints a fresh reconnect token when needed.
+export const prepareSessionContinuationSchema = z.strictObject({
+  prepareSessionId: PREPARE_BOUNDED_ID_SCHEMA,
+  localAgentSelection: z
+    .discriminatedUnion("mode", [
+      z.strictObject({ mode: z.literal("all") }),
+      z.strictObject({ mode: z.literal("none") }),
+      z.strictObject({
+        mode: z.literal("specific"),
+        localAgentIds: z.array(PREPARE_BOUNDED_ID_SCHEMA).max(64),
+      }),
+    ])
+    .optional(),
+});
 const PREPARE_REASON_CODE_SCHEMA = z.string().trim().min(1).max(256);
 const PREPARE_USER_MESSAGE_SCHEMA = z.string().trim().min(1).max(512);
 const PREPARE_LONG_TEXT_SCHEMA = z.string().trim().min(1).max(4096);

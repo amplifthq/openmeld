@@ -153,19 +153,19 @@ export function assessLocalMachineFailure(
   };
 }
 
-export function createBackgroundExecutionBlockedIssue(input: {
+export function createServiceSpawnPendingIssue(input: {
   detail?: string | null;
 }): LocalMachineIssue {
   return {
     schemaVersion: 1,
-    code: "local_machine.background_execution.blocked",
+    code: "local_machine.failure.unknown",
     operation: "start_background_service",
-    recoveryPolicy: "user_action",
-    summary: "macOS blocked OpenMeld Service from running in the background.",
+    recoveryPolicy: "diagnostics",
+    summary: "macOS registered OpenMeld Service but hasn't started it.",
     primaryAction:
-      "Open System Settings > General > Login Items & Extensions, enable OpenMeld, then try again.",
+      "Run `openmeld service snapshot --view agent` to collect startup diagnostics.",
     diagnostics: {
-      systemCode: "BACKGROUND_EXECUTION_BLOCKED",
+      systemCode: "SERVICE_SPAWN_PENDING",
       detail: input.detail?.trim().slice(0, 2048) || null,
     },
   };

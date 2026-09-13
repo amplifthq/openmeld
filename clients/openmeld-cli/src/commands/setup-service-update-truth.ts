@@ -1,7 +1,7 @@
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { compareSemver } from "../config/version-state";
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
-import { resolveDaemonServiceUpdateOperation } from "../local-service/lifecycle/daemon-service-update-state";
+import { waitForOpenMeldToolsUpdateCompletion } from "../local-service/maintenance/openmeld-tools-update-join";
 import { OPENMELD_VERSION } from "../runtime/version";
 
 export type SetupServiceUpdateTruth =
@@ -40,7 +40,7 @@ export function resolveSetupServiceUpdateTruth(input: {
   ) {
     return {
       message:
-        "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
+        "OpenMeld Service is updating in the background. Setup will continue automatically when it finishes.",
       status: "updating",
     };
   }
@@ -52,6 +52,7 @@ export function resolveSetupServiceUpdateTruth(input: {
     return { status: "ready" };
   }
   if (
+    input.currentServiceVerified &&
     input.currentCliVersion === operation.targetVersion &&
     input.installedServiceVersion === operation.targetVersion
   ) {
@@ -64,8 +65,10 @@ export function resolveSetupServiceUpdateTruth(input: {
   };
 }
 
-export async function assertSetupServiceUpdateComplete(): Promise<void> {
-  const operation = await resolveDaemonServiceUpdateOperation();
+export async function assertSetupServiceUpdateComplete(
+  input: Parameters<typeof waitForOpenMeldToolsUpdateCompletion>[0] = {}
+): Promise<void> {
+  const operation = await waitForOpenMeldToolsUpdateCompletion(input);
   if (!operation) {
     return;
   }

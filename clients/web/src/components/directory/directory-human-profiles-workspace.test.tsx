@@ -3,13 +3,14 @@ import type {
 	ModelCatalog,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
 	screen,
 	within,
 } from "@testing-library/react";
-import { cloneElement, type ReactElement, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
@@ -116,30 +117,6 @@ vi.mock("@openmeld/ui/components/local-agent-logo", () => ({
 	}) => (
 		<span data-testid={`local-agent-logo-${agentId}`} data-variant={variant} />
 	),
-}));
-
-vi.mock("@openmeld/ui/components/tooltip", () => ({
-	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
-	TooltipContent: ({
-		children,
-		side,
-	}: {
-		children: ReactNode;
-		side?: string;
-	}) => (
-		<span
-			data-side={side}
-			data-testid="sidebar-tooltip-content"
-			data-tooltip-label={String(children)}
-		/>
-	),
-	TooltipTrigger: ({
-		children,
-		render,
-	}: {
-		children: ReactNode;
-		render: ReactElement;
-	}) => cloneElement(render, undefined, children),
 }));
 
 vi.mock("#/components/app/app-contextual-layout", () => ({
@@ -498,7 +475,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toEqual(["Online", "Offline"]);
 	});
 
-	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
+	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-08-28T03:00:00.000Z"));
 		renderWorkspace();
@@ -547,7 +524,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const localAgentTriggers = within(localAgents).getAllByTestId(
 			"human-profile-local-agent"
 		);
+		const tooltipLabels: string[] = [];
 		for (const trigger of localAgentTriggers) {
+			fireEvent.mouseEnter(trigger);
+			fireEvent.mouseMove(trigger);
+			await act(() => vi.advanceTimersByTimeAsync(500));
+			tooltipLabels.push(screen.getByRole("tooltip").textContent ?? "");
+			fireEvent.mouseLeave(trigger);
+			await act(() => vi.advanceTimersByTimeAsync(200));
 			expect(trigger.classList.contains("ring-1")).toBe(false);
 			expect(trigger.classList.contains("border")).toBe(false);
 			const logo = trigger.querySelector(
@@ -571,6 +555,9 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				true
 			);
 		}
+		expect(tooltipLabels).toEqual(
+			expect.arrayContaining(["Claude Code", "Codex", "Cursor", "Grok"])
+		);
 		const overflow = within(localAgents).getByText("+2").parentElement;
 		if (!overflow) {
 			throw new Error("Expected the Local Agent overflow indicator.");
@@ -580,18 +567,9 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(overflow.classList.contains("overflow-hidden")).toBe(true);
 		expect(overflow.classList.contains("ring-1")).toBe(false);
 		expect(overflow.classList.contains("border")).toBe(false);
-		const tooltipLabels = within(felixItem)
-			.getAllByTestId("sidebar-tooltip-content")
-			.map((tooltip) => tooltip.dataset.tooltipLabel);
-		expect(tooltipLabels).toEqual(
-			expect.arrayContaining([
-				"Computer connected",
-				"Claude Code",
-				"Codex",
-				"Cursor",
-				"Grok",
-			])
-		);
+		expect(
+			within(felixItem).getByRole("img", { name: "Computer connected" })
+		).toBeTruthy();
 		const graceItem = screen.getByRole("button", {
 			name: "Open Grace Hopper's profile",
 		});

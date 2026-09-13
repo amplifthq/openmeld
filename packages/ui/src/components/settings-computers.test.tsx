@@ -80,6 +80,7 @@ describe("Settings Local Agent usage limits", () => {
     const trigger = screen.getByTestId("local-agent-usage-dock-OpenCode");
     fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
     fireEvent.mouseEnter(trigger);
+    fireEvent.mouseMove(trigger);
     expect(await screen.findByText("Laptop · OpenCode")).toBeTruthy();
     expect(screen.getByText("Desktop · OpenCode")).toBeTruthy();
     expect(screen.getByText("75%")).toBeTruthy();
@@ -151,6 +152,7 @@ describe("Settings Local Agent usage limits", () => {
 
     fireEvent.pointerEnter(trigger, { pointerType: "mouse" });
     fireEvent.mouseEnter(trigger);
+    fireEvent.mouseMove(trigger);
 
     expect(await screen.findByText("5-hour usage")).toBeTruthy();
     expect(screen.getByText("58%")).toBeTruthy();

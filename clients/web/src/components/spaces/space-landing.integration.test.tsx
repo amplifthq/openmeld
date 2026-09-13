@@ -17911,13 +17911,13 @@ function expectSpaceAgentAvailabilityIndicator(
 		const labelMatches = candidate.getAttribute("aria-label") === input.label;
 		const tooltipMatches =
 			input.tooltip === undefined ||
-			candidate.getAttribute("title") === input.tooltip;
+			candidate.getAttribute("aria-description") === input.tooltip;
 		return labelMatches && tooltipMatches;
 	});
 	if (!indicator) {
 		const actual = indicators.map((candidate) => ({
 			label: candidate.getAttribute("aria-label"),
-			tooltip: candidate.getAttribute("title"),
+			tooltip: candidate.getAttribute("aria-description"),
 		}));
 		throw new Error(
 			`Expected space agent availability indicator ${input.label}; received ${JSON.stringify(actual)}`
@@ -17945,7 +17945,7 @@ function expectSpaceAgentAvailabilityIndicator(
 		);
 	}
 	if (input.tooltip !== undefined) {
-		const actualTooltip = indicator.getAttribute("title");
+		const actualTooltip = indicator.getAttribute("aria-description");
 		if (actualTooltip !== input.tooltip) {
 			throw new Error(
 				`Expected space agent availability tooltip ${input.tooltip}, got ${actualTooltip}`
@@ -17980,7 +17980,7 @@ function expectNoSpaceAgentAvailabilityIndicator(
 		const labelMatches = candidate.getAttribute("aria-label") === input.label;
 		const tooltipMatches =
 			input.tooltip === undefined ||
-			candidate.getAttribute("title") === input.tooltip;
+			candidate.getAttribute("aria-description") === input.tooltip;
 		return labelMatches && tooltipMatches;
 	});
 	if (indicator) {

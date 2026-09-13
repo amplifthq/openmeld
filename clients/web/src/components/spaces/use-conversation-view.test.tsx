@@ -7,22 +7,22 @@ afterEach(() => {
 	cleanup();
 	localStorage.clear();
 });
-it("defaults to Grouped, remembers Recent across mounts, and isolates accounts and organizations", () => {
+it("defaults to Recent, remembers Grouped across mounts, and isolates accounts and organizations", () => {
 	const { result, rerender, unmount } = renderHook(
 		({ user, org }) => useConversationView(user, org),
 		{ initialProps: { user: "one", org: "org" } }
 	);
-	expect(result.current.view).toBe("grouped");
-	act(() => result.current.setView("recent"));
 	expect(result.current.view).toBe("recent");
+	act(() => result.current.setView("grouped"));
+	expect(result.current.view).toBe("grouped");
 	rerender({ user: "two", org: "org" });
-	expect(result.current.view).toBe("grouped");
+	expect(result.current.view).toBe("recent");
 	rerender({ user: "one", org: "another" });
-	expect(result.current.view).toBe("grouped");
+	expect(result.current.view).toBe("recent");
 	unmount();
 	expect(
 		renderHook(() => useConversationView("one", "org")).result.current.view
-	).toBe("recent");
+	).toBe("grouped");
 });
 it("refreshes another mounted view without navigation", () => {
 	const first = renderHook(() => useConversationView("one", "org"));

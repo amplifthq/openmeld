@@ -11,6 +11,7 @@ const NOW = "2026-08-25T08:00:00.000Z";
 function createDependencies(input?: {
   automaticUpdatesEnabled?: boolean;
   updateAvailable?: boolean;
+  serviceNeedsAlignment?: boolean;
   upgradeExitCode?: number;
   serviceJobAfterUpgrade?: DaemonServiceUpdateJob | null;
 }) {
@@ -34,6 +35,9 @@ function createDependencies(input?: {
     withCoordinationLock: async <T>(run: () => Promise<T>) => await run(),
     wakeWorker: vi.fn(async () => undefined),
     assessUpdate,
+    serviceNeedsAlignment: vi.fn(
+      async () => input?.serviceNeedsAlignment ?? false
+    ),
     completeAttempt: vi.fn((attempt: OpenMeldToolsUpdateAttempt) => {
       lastAttempt = attempt;
       pendingAttempt = null;
@@ -219,6 +223,28 @@ describe("OpenMeld Tools update coordinator", () => {
       phase: "needs_help",
       targetVersion: "0.3.105",
     });
+  });
+
+  it("aligns the Service through the same operation when the CLI is already current", async () => {
+    const dependencies = createDependencies({
+      updateAvailable: false,
+      serviceNeedsAlignment: true,
+    });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies, {
+      executeUpdates: false,
+    });
+    const first = await coordinator.requestUpdate({ requestSource: "cli" });
+    const second = await coordinator.requestUpdate({ requestSource: "web" });
+    expect(first).toMatchObject({
+      status: "started",
+      operation: { operationId: "update-1", targetVersion: "0.3.104" },
+    });
+    expect(second).toMatchObject({
+      status: "already_running",
+      operation: { operationId: "update-1" },
+    });
+    expect(dependencies.persistAttempt).toHaveBeenCalledOnce();
+    expect(dependencies.runUpgrade).not.toHaveBeenCalled();
   });
 
   it("stays quiet when this computer already has the latest version", async () => {

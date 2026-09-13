@@ -318,6 +318,7 @@ describe("Computer authorization handoff", () => {
       {
         computerHandoff: {
           gatewayUrl: "https://gateway.openmeld.test",
+          prepareContinuation: { prepareSessionId: "prepare-session" },
         },
         expectedPreviousSession: existingSession,
       }

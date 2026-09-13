@@ -48,6 +48,16 @@ hover or keyboard focus, with open-menu and touch-device visibility preserved.
 
 ## Import Rule
 
+`fluid/tooltip` adapts Fluid Functionalism's Base UI Tooltip registry. The
+existing `components/tooltip` import forwards to this single implementation;
+editor toolbars, sidebar controls, and former native-title hints all reuse it.
+Hover waits 500ms, including standalone instances and adjacent triggers.
+Keyboard focus remains immediate. Fluid shape, typography, spacing, and the
+shared fast spring apply globally; reduced motion keeps the fade without travel.
+Base UI owns placement, dismissal, and portal lifetime. Product code uses
+`TooltipHint` for a single renderable child or the compound slots for composition.
+Native iframe titles retain their accessibility meaning.
+
 `components/link-preview-card` owns compact link metadata presentation only:
 site, title, bounded description, and optional bounded image. It accepts
 validated data from its consumer and performs no metadata requests or Space

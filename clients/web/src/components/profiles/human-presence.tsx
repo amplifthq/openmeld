@@ -2,6 +2,7 @@ import {
 	HUMAN_PRESENCE_HEARTBEAT_MS,
 	HUMAN_PRESENCE_LEASE_MS,
 } from "@openmeld/schemas";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
 	createContext,
@@ -67,14 +68,15 @@ export function HumanPresenceIndicator({
 		return <span className="sr-only">{label}</span>;
 	}
 	return (
-		<span
-			aria-label={label}
-			className={cn(
-				"absolute right-0 bottom-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-background",
-				large && "right-1 bottom-1 size-2"
-			)}
-			role="img"
-			title={label}
-		/>
+		<TooltipHint content={label}>
+			<span
+				aria-label={label}
+				className={cn(
+					"absolute right-0 bottom-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-background",
+					large && "right-1 bottom-1 size-2"
+				)}
+				role="img"
+			/>
+		</TooltipHint>
 	);
 }

@@ -55,12 +55,13 @@ top stack Organization switching, search, Inbox, and Create. The Organization
 avatar fills its circular trigger. Create opens New Agent and New Space to the
 right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
 motion opens the choices without travel. Account, theme, and Settings
-remain reachable from the rail. Spaces opens `/o/{orgSlug}/chats`, whose
-directory content remains the member's direct messages. After visiting Spaces,
-the application-rail entry returns to its last location in this tab, preserving
-profile, thread, and session selectors. This navigation memory is scoped to the
-account, Organization, and default Human Profile; it never opens a location from
-another Organization. The Spaces heading still opens the directory explicitly.
+remain reachable from the rail. Spaces and its contextual sidebar heading always
+open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
+and Discover, in that order (Discover is absent in personal workspaces).
+Direct messages uses `?view=messages`; the old `/chats` index redirects there.
+Individual chat, profile, thread, and session links retain their existing routes.
+The contextual heading has no aggregate attention dot; the rail and individual
+conversation rows retain their canonical indicators.
 Header actions move into one labeled overflow menu when the contextual list is
 narrow, keeping the title and controls on one row. Both layouts share the same
 creation, view, and filter menu contents.
@@ -79,7 +80,7 @@ now stores middle-column geometry, with a 308px default; legacy icon mode maps
 to a collapsed list. Scroll positions are isolated by account, Organization,
 and list family. Mobile presents application and contextual navigation in
 mutually exclusive drawers; a collapsed desktop preference never hides the
-mobile list. Grouped is the default conversation view, with a
+mobile list. Recent is the default conversation view. Grouped offers a
 shared Pinned section, existing personal groups, Spaces, and Direct messages.
 Recent retains the same Pinned section and orders the remaining conversations
 by the latest message timestamp across both kinds. Both views use the same rows,
@@ -647,8 +648,11 @@ No membership, Wakeability, execution, or permission owner changes are introduce
 
 The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
 its visible Space windows in this browser per account and Organization. Without a
-selection it uses an existing ordinary Space, or creates a private, members-only
-`Welcome Space` through the ordinary creation flow when none exists.
+selection it reuses a marked Welcome Space (or an existing joined `Welcome Space`),
+or creates a private, members-only `Welcome Space` through the ordinary creation
+flow when none exists. It never selects an unrelated ordinary Space by default.
+An old automatically selected ordinary window is replaced by Welcome; other
+saved windows and user-created layouts remain intact.
 There is no special Space kind or membership policy. A browser lock prevents
 concurrent tabs from creating duplicates; a pending marker prevents blind
 retries after an uncertain creation result. This is not cross-device atomic
@@ -4101,35 +4105,29 @@ trailing edge of the second header row so the Space name remains identifiable;
 it stays visually separate from the **Messages** and **Files** view control and
 returns to the primary action group at wider breakpoints.
 
-While reading earlier messages in an ordinary Space, the tabs move beside the
-title and live-status adornments along a straight diagonal path driven by the
-same scroll progress on both axes. The anchor is measured from the rendered content;
-Space title text is capped at 28rem in both Messages and Files. The compact
-layout reserves at least 240px for navigation, increasing that reservation when
-the rendered tabs require more. Long titles truncate and insufficient width
-retains the two-row layout.
-Direct messages and compact embedded conversations retain their existing headers.
-Returning to the latest messages restores the expanded header. Messages and
-Files share the same header position: changing tabs does not move navigation.
-The browser remembers the normalized header position per Organization, Profile,
-and Space across navigation and reloads. Narrow layouts temporarily use two
-rows without overwriting that saved position. Scrolling Messages resumes the
-motion; Files itself does not drive header compaction.
+While reading earlier messages in a Space, a small scroll switches the header
+fully into one compact row. Messages and Files move upward between the sidebar
+toggle and the title, separated from the title by a vertical divider. There is
+no scroll-progress interpolation and no diagonal travel. The same layout applies
+inside Desk windows; width checks use layout coordinates, unaffected by canvas
+zoom. Long titles truncate. Insufficient width and mobile setup recall retain
+the complete two-row layout. Direct messages retain their existing headers.
+Messages and Files share the same expanded/compact preference per Organization,
+Profile, and Space. Returning to the latest messages expands the header. A new
+preference starts expanded; obsolete intermediate-position preferences are not
+reused. Files does not drive compaction. A short vertical entrance runs once
+per collapse, with no travel under reduced motion.
 Latest-message observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
 changes require a fresh latest-message measurement; document visibility, access
 confirmation, and the normal read debounce still gate persistence.
-Scroll frames update only the navigation transform outside React. Header height
-changes at the collapse/expansion boundary, with a matching scroll offset to
-preserve the reading anchor. Collapse and expansion use separate boundaries
-(144px and 72px from the bottom), so small reversals do not repeatedly resize
-the conversation. Restored views use the saved position before paint; a Space
-without a saved position starts expanded. Pausing a scroll preserves its
-progress without snapping. Preferences are written on scroll end, page exit,
-or unmount, never on each animation frame. The tabs return fully to their lower
-row within 24px of the latest messages. Reduced motion switches positions
-without travel.
+Scroll events only check distance from the latest messages. Layout and preference
+writes happen at the endpoint change, never per animation frame. The viewport
+height changes once with a matching scroll offset to preserve the reading anchor.
+A 4px collapse threshold and 1px expansion threshold avoid boundary oscillation.
+Geometry is observed only on resize; there is no animation-frame loop or subtree
+mutation observer.
 
 Messages and files share one pinned-item preview with previous/next navigation.
 The preview's X dismisses all pins for the reader; the original pinner gets a
