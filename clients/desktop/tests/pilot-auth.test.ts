@@ -5,8 +5,15 @@ const platform = vi.hoisted(() => ({
   stored: new Map<string, string>(),
   openExternal: vi.fn(),
   on: vi.fn(),
+  registerSchemes: vi.fn(),
 }));
 vi.mock("electron", () => ({
+  app: {
+    on: platform.on,
+    whenReady: () => Promise.resolve(),
+    requestSingleInstanceLock: () => true,
+    setAsDefaultProtocolClient: () => true,
+  },
   shell: { openExternal: platform.openExternal },
   default: {
     app: {
@@ -16,7 +23,7 @@ vi.mock("electron", () => ({
       setAsDefaultProtocolClient: () => true,
       userAgentFallback: "Desktop test",
     },
-    protocol: { registerSchemesAsPrivileged: vi.fn() },
+    protocol: { registerSchemesAsPrivileged: platform.registerSchemes },
     shell: { openExternal: platform.openExternal },
     safeStorage: {
       isEncryptionAvailable: () => true,
@@ -77,11 +84,12 @@ it("signals after the installed Electron plugin persists the exchanged cookie, a
   const observedCookies: string[] = [];
   const changed = vi.fn(() => observedCookies.push(auth.cookie()));
   const auth = createPilotAuth("http://localhost:39991", () => null, changed);
+  expect(platform.registerSchemes).not.toHaveBeenCalled();
   const openUrl = platform.on.mock.calls.find(
     ([name]) => name === "open-url"
   )?.[1];
   if (!openUrl) {
-    throw new Error("Expected the vendor open-url handler");
+    throw new Error("Expected the native open-url handler");
   }
   const finishBrowserReturn = async () => {
     await auth.signIn();
@@ -92,7 +100,10 @@ it("signals after the installed Electron plugin persists the exchanged cookie, a
         identifier: "test-authorization-code",
       })
     ).toString("base64url");
-    await openUrl({}, `sh.openmeld.desktop.dev://auth/callback#token=${code}`);
+    await openUrl(
+      { preventDefault: vi.fn() },
+      `sh.openmeld.desktop.dev://auth/callback#token=${code}`
+    );
   };
   await finishBrowserReturn();
   expect(observedCookies).toEqual([

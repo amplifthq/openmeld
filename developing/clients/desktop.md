@@ -76,8 +76,10 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
 Better Auth's matching Electron integration owns PKCE/state, system-browser
 return, and encrypted cookie storage. Auth enables its additive Electron plugin
 only in development. `/desktop-sign-in` uses normal Web login and an explicit
-Continue in Desktop action. Main installs the vendor protocol handling but not
-its unrestricted IPC handlers or global CSP hook. Credentials never cross the
+Continue in Desktop action. Main registers page and auth scheme privileges in
+one Electron call, owns OS callback delivery, and passes callbacks to the vendor's
+public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
+and the global CSP hook are disabled. Credentials never cross the
 renderer bridge. Storage is scoped to the configured Web origin.
 
 Desktop sign-out revokes the Desktop session; it does not run CLI logout.
