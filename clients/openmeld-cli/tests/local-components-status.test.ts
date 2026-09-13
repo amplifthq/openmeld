@@ -9,6 +9,9 @@ const STALE_SKILLS_BUNDLE_HASH = "a".repeat(64);
 
 describe("local components status", () => {
   beforeEach(() => {
+    vi.doMock("../src/local-components/managed-install", () => ({
+      readManagedCliInstallation: async () => null,
+    }));
     vi.doMock(
       "../src/local-service/maintenance/openmeld-tools-maintenance-policy",
       () => ({
@@ -30,6 +33,8 @@ describe("local components status", () => {
     vi.resetModules();
     vi.doUnmock("../src/commands/skills");
     vi.doUnmock("../src/config/paths");
+    vi.doUnmock("../src/runtime/distribution");
+    vi.doUnmock("../src/local-components/managed-install");
     vi.doUnmock("../src/local-service/lifecycle/current-daemon-version");
     vi.doUnmock("../src/local-service/lifecycle/daemon-service-bundle");
     vi.doUnmock("../src/local-service/lifecycle/daemon-service-inventory");
@@ -45,12 +50,21 @@ describe("local components status", () => {
     vi.doUnmock("../src/system/local-service-participation-gate");
   });
 
-  it("reports live OpenMeld skills status instead of a stale setup snapshot", async () => {
+  it("reports live installed components instead of a stale setup snapshot or retained carrier version", async () => {
     const openMeldHome = await mkdtemp(
       join(tmpdir(), "openmeld-local-components-")
     );
     vi.doMock("../src/config/paths", () => ({
       openMeldRootDir: () => openMeldHome,
+    }));
+    vi.doMock("../src/runtime/distribution", () => ({
+      isBinaryDistribution: () => true,
+    }));
+    vi.doMock("../src/local-components/managed-install", () => ({
+      readManagedCliInstallation: async () => ({
+        version: "99.0.0",
+        binaryPath: join(openMeldHome, "versions/99.0.0/openmeld"),
+      }),
     }));
     vi.doMock("../src/skills/bundled-assets", () => ({
       loadBundledSkillAssets: vi.fn(async () => [
@@ -108,7 +122,10 @@ describe("local components status", () => {
     await writeInstalledLocalComponentsSnapshot({ source: "setup" });
     const snapshotPath = localComponentsSnapshotPath();
     const snapshot = JSON.parse(await readFile(snapshotPath, "utf8")) as {
-      manifest: { skills: { bundleHash: string } };
+      manifest: {
+        skills: { bundleHash: string };
+        cli: { packageVersion: string; commandContractVersion: string };
+      };
     };
     snapshot.manifest.skills.bundleHash = STALE_SKILLS_BUNDLE_HASH;
     await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
@@ -120,6 +137,26 @@ describe("local components status", () => {
       installedBundleHash: LIVE_SKILLS_BUNDLE_HASH,
       status: "ok",
       targetCount: 1,
+    });
+    expect(status.cli).toMatchObject({
+      packageVersion: "99.0.0",
+      commandContractVersion: "unknown",
+      status: "update_required",
+    });
+    snapshot.manifest.cli = {
+      packageVersion: "99.0.0",
+      commandContractVersion: "new-cli-contract",
+    };
+    await writeFile(snapshotPath, JSON.stringify(snapshot));
+    const updated = await resolveLocalComponentsStatus({
+      latestPackageVersion: "99.0.0",
+      requiredCommandContractVersion: "new-cli-contract",
+    });
+    expect(updated.cli).toMatchObject({
+      packageVersion: "99.0.0",
+      commandContractVersion: "new-cli-contract",
+      status: "ok",
+      reasonCodes: [],
     });
   });
 

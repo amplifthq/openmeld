@@ -63,6 +63,13 @@ reply in the intended Space through the intended local execution path.
 
 ## Ownership Boundary
 
+A retained Service reports the installed managed CLI version, not its own
+carrier version. The CLI installer refreshes the existing local-components
+snapshot atomically. Its CLI command contract is usable only when the snapshot
+version matches the current managed executable. A missing or mismatched receipt
+does not establish the newer CLI's contract; the report fails closed for that
+contract while retaining the observed installed version.
+
 OpenMeld Service may own or report local execution evidence:
 
 - service availability
