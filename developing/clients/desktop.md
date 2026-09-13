@@ -184,6 +184,9 @@ console error categories. Terminal output excludes console text, URLs, request
 bodies, and credentials. Inspect the full error locally in DevTools. This entry
 requires the validated local pilot and an unpackaged app; it does not expose a
 remote debugging listener or enable diagnostics in packaged builds.
+The local pilot Web build leaves client JavaScript unminified so DevTools can
+set exact line breakpoints in hydration and application error callbacks. Normal
+Web builds retain their default minification.
 
 GUI data lives under `<OPENMELD_HOME>/desktop/user-data`. Main sets and verifies
 Electron's `userData` path before Better Auth constructs storage. The launcher

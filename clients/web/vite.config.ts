@@ -58,7 +58,15 @@ const config = defineConfig(({ command }) => {
 		},
 		// Keep browser diagnostics private. Full SSR maps exceed the current 4 GB
 		// release build budget; server errors retain native Worker invocation logs.
-		environments: { client: { build: { sourcemap: "hidden" } } },
+		environments: {
+			client: {
+				build: {
+					sourcemap: "hidden",
+					// Keep real source lines for local Electron DevTools breakpoints.
+					...(desktopPilotBuild ? { minify: false } : {}),
+				},
+			},
+		},
 		plugins: [
 			{
 				name: "openmeld-desktop-build-identity",
