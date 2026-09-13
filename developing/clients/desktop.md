@@ -177,6 +177,14 @@ Then run `pnpm desktop:start:dev`. Missing/stale lane ownership or a missing
 lane-local executable stops startup without falling back to production/global
 state. Rebuild Web after source changes before relaunching Desktop.
 
+For a blank pilot window, use
+`OPENMELD_DESKTOP_DIAGNOSTICS=1 pnpm desktop:start:dev`. This opens local Electron
+DevTools and reports load milestones, preload failure, renderer exit, and fixed
+console error categories. Terminal output excludes console text, URLs, request
+bodies, and credentials. Inspect the full error locally in DevTools. This entry
+requires the validated local pilot and an unpackaged app; it does not expose a
+remote debugging listener or enable diagnostics in packaged builds.
+
 GUI data lives under `<OPENMELD_HOME>/desktop/user-data`. Main sets and verifies
 Electron's `userData` path before Better Auth constructs storage. The launcher
 also passes that directory explicitly to Electron, keeping GUI preferences and
