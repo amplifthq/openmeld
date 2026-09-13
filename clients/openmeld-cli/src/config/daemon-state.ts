@@ -50,6 +50,7 @@ const DAEMON_REPAIR_JOURNAL_FILENAME = "repair-journal.json";
 const DAEMON_SERVICE_LOCK_PROFILE = "daemon-service";
 const DAEMON_SERVICE_LOCK_KEY = "daemon-service-run";
 type DaemonServiceLifecycleLockContext = {
+  lock: OpenMeldLock;
   active: boolean;
   failures: unknown[];
   ownerRoot: string;
@@ -57,6 +58,15 @@ type DaemonServiceLifecycleLockContext = {
 };
 const daemonServiceLifecycleLockContext =
   new AsyncLocalStorage<DaemonServiceLifecycleLockContext>();
+
+export function currentDaemonServiceLifecycleLock(): OpenMeldLock | null {
+  const context = daemonServiceLifecycleLockContext.getStore();
+  return context?.active &&
+    context.ownerRoot ===
+      resolveOpenMeldRootDir(resolveOpenMeldServiceOwnedPathInput())
+    ? context.lock
+    : null;
+}
 const DAEMON_STABLE_LAUNCHER_FILENAME = "daemon-service-launcher.mjs";
 const DAEMON_SERVICE_EXECUTABLE_WRAPPER_FILENAME_BY_PRESET = {
   prod: "OpenMeld Service",
@@ -434,6 +444,7 @@ async function withDaemonServiceLifecycleOwnerLock<T>(input: {
     lock,
     run: async () => {
       const context: DaemonServiceLifecycleLockContext = {
+        lock,
         active: true,
         failures: [],
         ownerRoot: input.ownerRoot,
