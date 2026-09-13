@@ -1590,7 +1590,6 @@ test("deploys worker-response and activity readers before the Remote Agent produ
     changedPaths: [
       "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
       "services/core/src/center-agent-tasks/application/center-agent-task-service.ts",
-      "services/core/src/remote-agent/application/native-delivery-service.ts",
       "services/remote-agent/.flue/agents/center-agent.ts",
       "services/remote-agent/flue-adapter/conversation-footprint.ts",
       "packages/schemas/src/schemas/protocol/agent-stream.ts",
@@ -1618,6 +1617,33 @@ test("deploys worker-response and activity readers before the Remote Agent produ
       "Verify final R2/npm/Core alignment",
     ]
   );
+});
+
+const AMBIGUOUS_NATIVE_DELIVERY_ORDER = /Split Core\/CLI and Remote Agent/;
+
+test("rejects ambiguous native delivery rollouts but permits reviewed single-side stages", () => {
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+  for (const scope of ["core,remote-agent", "cli,remote-agent"]) {
+    assert.throws(
+      () => buildProductionReleasePlan({ ...input, scope }),
+      AMBIGUOUS_NATIVE_DELIVERY_ORDER
+    );
+  }
+  for (const scope of ["core", "remote-agent"]) {
+    assert.deepEqual(
+      buildProductionReleasePlan({ ...input, scope }).deployScopeOrder,
+      [scope]
+    );
+  }
 });
 
 test("prints the current production Worker version before a harmless redeploy", async () => {
