@@ -248,15 +248,16 @@ export async function fetchLatestCliBinaryRelease(input?: {
       `version check failed: invalid CLI manifest response: missing platform ${platform}`
     );
   }
+  const serviceRelease = manifest.service?.platforms[platform];
   return {
     version: manifest.version,
     minRequiredCliVersion: manifest.minRequiredCliVersion,
     platform,
     ...release,
-    ...(manifest.service
+    ...(manifest.service && serviceRelease
       ? {
           service: {
-            ...manifest.service.platforms[platform],
+            ...serviceRelease,
             version: manifest.service.version,
             platform,
           },

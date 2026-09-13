@@ -220,12 +220,16 @@ describe("version state", () => {
 
     const manifestRaw = await readFile(CLI_BINARY_MANIFEST_FIXTURE_URL, "utf8");
     const manifest = JSON.parse(manifestRaw) as CliBinaryManifest;
+    const cliArtifact = manifest.channels.stable.platforms["darwin-arm64"];
+    if (!cliArtifact) {
+      throw new Error("The captured manifest must include the test platform.");
+    }
     if (independentService) {
       manifest.channels.stable.service = {
         version: "0.3.1",
         platforms: {
           "darwin-arm64": {
-            ...manifest.channels.stable.platforms["darwin-arm64"],
+            ...cliArtifact,
             sha256: "b".repeat(64),
             url: "https://dev.openmeld.test/cli/download/openmeld-cli-darwin-arm64-0.3.1",
           },
