@@ -1,7 +1,15 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { lazyRouteComponent } from "@tanstack/react-router";
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { type ReactNode, Suspense } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+	CLIENT_VERSION_RECOVERY_ATTEMPT_KEY,
+	CLIENT_VERSION_RECOVERY_NAVIGATION_TIMEOUT_MS,
+	installClientVersionRecovery,
+	resetClientVersionRecovery,
+} from "../client-version-recovery";
+import {
+	ClientVersionRecovery,
 	RootErrorComponent,
 	RootNotFoundComponent,
 	Route,
@@ -77,7 +85,7 @@ describe("RootErrorComponent", () => {
 		).toBeTruthy();
 	});
 
-	it("explains a stale deployed asset without exposing its internal URL", () => {
+	it("explains an unavailable page asset without claiming a deployment or exposing its URL", () => {
 		const failedAssetUrl =
 			"https://openmeld.ai/assets/highlighted-body-old-build.js";
 		render(
@@ -93,12 +101,178 @@ describe("RootErrorComponent", () => {
 		);
 
 		expect(
-			screen.getByText("OpenMeld was updated while this page was open.")
+			screen.getByText("Some files needed for this page couldn’t load.")
 		).toBeTruthy();
-		expect(
-			screen.getByText("Refresh to load the latest version.")
-		).toBeTruthy();
+		expect(screen.getByText("Refresh the page to try again.")).toBeTruthy();
 		expect(screen.queryByText(new RegExp(failedAssetUrl))).toBeNull();
+	});
+
+	it.each([
+		"timeout",
+		"navigation",
+	])("shows loading during automatic refresh and leaves recovery on %s", (exit) => {
+		const error = new Error(
+			"Failed to fetch dynamically imported module: /assets/old.js"
+		);
+		const reload = vi.fn();
+		window.sessionStorage.clear();
+		vi.useFakeTimers();
+		const dispose = installClientVersionRecovery({
+			now: () => 1_000_000,
+			reload,
+			window,
+		});
+		try {
+			render(
+				<ClientVersionRecovery>
+					<p>Current page</p>
+				</ClientVersionRecovery>
+			);
+			act(() =>
+				window.dispatchEvent(
+					Object.assign(new Event("vite:preloadError", { cancelable: true }), {
+						payload: error,
+					})
+				)
+			);
+			expect(screen.queryByText("This page couldn’t load.")).toBeNull();
+			expect(screen.getByRole("status", { name: "Loading page" })).toBeTruthy();
+			expect(reload).toHaveBeenCalledOnce();
+			if (exit === "navigation") {
+				act(resetClientVersionRecovery);
+			}
+			act(() =>
+				vi.advanceTimersByTime(CLIENT_VERSION_RECOVERY_NAVIGATION_TIMEOUT_MS)
+			);
+			if (exit === "timeout") {
+				expect(screen.getByText("This page couldn’t load.")).toBeTruthy();
+				expect(
+					screen.getByRole("button", { name: "Refresh page" })
+				).toBeTruthy();
+			} else {
+				expect(screen.getByText("Current page")).toBeTruthy();
+				expect(screen.queryByText("This page couldn’t load.")).toBeNull();
+			}
+			expect(screen.queryByRole("status", { name: "Loading page" })).toBeNull();
+			expect(reload).toHaveBeenCalledOnce();
+		} finally {
+			cleanup();
+			dispose();
+			window.sessionStorage.clear();
+			vi.useRealTimers();
+		}
+	});
+
+	it.each([
+		false,
+		true,
+	])("takes over a failed lazy route before its native reload path (already attempted: %s)", async (alreadyAttempted) => {
+		window.sessionStorage.clear();
+		if (alreadyAttempted) {
+			window.sessionStorage.setItem(
+				CLIENT_VERSION_RECOVERY_ATTEMPT_KEY,
+				"1000000"
+			);
+		}
+		const reload = vi.fn();
+		const dispose = installClientVersionRecovery({
+			now: () => 1_000_001,
+			reload,
+			window,
+		});
+		const failedImport = new Error(
+			"Failed to fetch dynamically imported module: /assets/route-old.js"
+		);
+		const LazyPage = lazyRouteComponent(
+			async (): Promise<{ default: () => ReactNode }> => {
+				await Promise.resolve();
+				// Vite's documented event precedes rejection of the same import.
+				window.dispatchEvent(
+					Object.assign(new Event("vite:preloadError", { cancelable: true }), {
+						payload: failedImport,
+					})
+				);
+				throw failedImport;
+			}
+		);
+		try {
+			const view = render(
+				<ClientVersionRecovery>
+					<p>Current page</p>
+				</ClientVersionRecovery>
+			);
+			await act(() => LazyPage.preload?.());
+			view.rerender(
+				<ClientVersionRecovery>
+					<Suspense fallback={<p>Route loading</p>}>
+						<LazyPage />
+					</Suspense>
+				</ClientVersionRecovery>
+			);
+			expect(screen.queryByText("Route loading")).toBeNull();
+			if (alreadyAttempted) {
+				expect(reload).not.toHaveBeenCalled();
+				expect(
+					screen.getByRole("button", { name: "Refresh page" })
+				).toBeTruthy();
+			} else {
+				expect(reload).toHaveBeenCalledOnce();
+				expect(
+					screen.getByRole("status", { name: "Loading page" })
+				).toBeTruthy();
+				expect(screen.queryByText("This page couldn’t load.")).toBeNull();
+			}
+		} finally {
+			cleanup();
+			dispose();
+			window.sessionStorage.clear();
+		}
+	});
+
+	it.each([
+		"getItem",
+		"setItem",
+		"reload",
+	] as const)("shows a usable failure when recovery cannot %s", (operation) => {
+		window.sessionStorage.clear();
+		const reload = vi.fn(() => {
+			if (operation === "reload") {
+				throw new Error("Navigation unavailable");
+			}
+		});
+		const storageSpy =
+			operation === "reload"
+				? undefined
+				: vi.spyOn(Storage.prototype, operation).mockImplementation(() => {
+						throw new Error("Storage unavailable");
+					});
+		const dispose = installClientVersionRecovery({
+			now: () => 1_000_000,
+			reload,
+			window,
+		});
+		try {
+			render(
+				<ClientVersionRecovery>
+					<p>Current page</p>
+				</ClientVersionRecovery>
+			);
+			act(() =>
+				window.dispatchEvent(
+					Object.assign(new Event("vite:preloadError", { cancelable: true }), {
+						payload: new Error("Unable to preload CSS for /assets/old.css"),
+					})
+				)
+			);
+			expect(screen.getByRole("button", { name: "Refresh page" })).toBeTruthy();
+			expect(screen.queryByRole("status", { name: "Loading page" })).toBeNull();
+			expect(reload).toHaveBeenCalledTimes(operation === "reload" ? 1 : 0);
+		} finally {
+			cleanup();
+			dispose();
+			storageSpy?.mockRestore();
+			window.sessionStorage.clear();
+		}
 	});
 
 	it("uses the public landing header on not-found errors", () => {

@@ -10,7 +10,8 @@ import {
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
 import { useBlocker } from "@tanstack/react-router";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 
 /**
  * One navigation contract for directly editable Web surfaces. Internal
@@ -23,6 +24,10 @@ export function UnsavedChangesGuard(input: {
 	onSave: () => Promise<boolean>;
 	saving?: boolean;
 }) {
+	useLayoutEffect(
+		() => registerClientVersionRecoveryBlocker(() => input.hasUnsavedChanges),
+		[input.hasUnsavedChanges]
+	);
 	const blocker = useBlocker({
 		disabled: !input.hasUnsavedChanges,
 		enableBeforeUnload: input.hasUnsavedChanges,
