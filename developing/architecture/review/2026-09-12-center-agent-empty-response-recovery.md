@@ -82,11 +82,11 @@ For an OpenMeld-managed default, an evaluated alternative model can be part of a
 
 The original message and attachments remain in place. During a real automatic recovery, retain the normal working state; only a noticeable delay needs “Taking longer than usual. Trying again…” and a working Stop action. Do not show a failure before recovery is exhausted.
 
-After automatic recovery is exhausted, use “Couldn't complete this reply. Your message is saved.” with one contextual primary action. The implementation uses **Continue conversation** only when Core verifies the saved exact hosted conversation. It does not resubmit the original user request: the continuation has no tools, Computer sandbox, or executable Skills. If that continuation fails, the original failure no longer offers another execution. Unknown publication or connectivity outcomes offer a read-only status check.
+After automatic recovery is exhausted, use “Center Agent couldn't generate a reply. Your message is saved.” with one contextual primary action. The implementation uses **Continue conversation** only when Core verifies the saved exact hosted conversation. It does not resubmit the original user request: the continuation has no tools, Computer sandbox, or executable Skills. If that continuation fails, the original failure no longer offers another execution. Unknown publication or connectivity outcomes offer a read-only status check.
 
 Repeated failures must not return the member to the same unchanged loop. A permitted alternative model or a truthful service-unavailable state is preferable, with a direct support action when needed. Error IDs belong under `Details`. If the product says an issue was reported, the report must have a real receipt; automatic operational detection must not fabricate user-submitted Diagnostic Reports.
 
-Writing review: **Block** for the current empty-reply error and `Replied` classification. The former hides a useful recovery path; the latter contradicts the authoritative failed outcome. Replacing the sentence alone is insufficient.
+The baseline writing review blocked the old empty-reply error and `Replied` classification: the former hid recovery and the latter contradicted the failed outcome. The draft implementation corrects both; production still requires deployment and verification.
 
 ## Implementation and evidence order
 
