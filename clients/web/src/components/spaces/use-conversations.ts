@@ -58,15 +58,15 @@ export function useConversations(input: {
 		});
 	}
 	for (const chat of directMessages.chats) {
+		const preview = directMessages.previews[directMessages.chats.indexOf(chat)];
 		conversations.set(chat.spaceId, {
 			kind: "direct-message",
 			chat,
+			preview,
 			spaceId: chat.spaceId,
 			title: directMessages.title(chat),
 			profileId: chat.viewerProfileId ?? profileId,
-			activity:
-				directMessages.previews[directMessages.chats.indexOf(chat)]?.data
-					?.timestamp ?? 0,
+			activity: preview?.data?.timestamp ?? 0,
 			url: directMessages.chatPath(chat),
 		});
 	}

@@ -5,7 +5,9 @@ import type {
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { resolveLatestVisibleTs } from "#/lib/spaces/unread";
 
-const READ_THROUGH_DEBOUNCE_MS = 800;
+// Keep a brief dwell to ignore fly-by navigation, then use the Inbox owner's
+// optimistic update rather than making readers wait for a network round trip.
+const READ_THROUGH_DEBOUNCE_MS = 150;
 
 function isDocumentVisible(): boolean {
 	return (

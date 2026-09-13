@@ -3233,6 +3233,15 @@ Auth, or hide the unfinished choice behind a completed badge.
 
 Web presents a Space as a collaboration room and visible outcome surface.
 
+Entering a conversation renders the latest 60 cached timeline signals by default,
+without discarding older cached history. An older saved reading anchor opens a
+bounded cached neighborhood; missing anchors use the existing server history
+navigation. Explicit older-history loads expand the visible window, while new
+live messages do not move its start. Space, DM, and Desk readers share this rule.
+Direct-message previews reuse the Account Space Index projection when provided,
+including its explicit empty value. Only conversations without that projection
+retain the per-conversation preview read.
+
 The Space and DM title never shows a green live-connection dot: a healthy
 message stream says nothing about Human presence or Agent Wakeability. Initial
 connection and healthy live updates have no visible status indicator. Only
@@ -4147,7 +4156,9 @@ Latest-message observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
 changes require a fresh latest-message measurement; document visibility, access
-confirmation, and the normal read debounce still gate persistence.
+confirmation, and a brief 150 ms dwell still gate persistence. After that dwell,
+the existing optimistic Inbox projection updates before the server write settles;
+failed writes retain the existing rollback and reconciliation path.
 Scroll events only check distance from the latest messages. Layout and preference
 writes happen at the endpoint change, never per animation frame. The viewport
 height changes once with a matching scroll offset to preserve the reading anchor.

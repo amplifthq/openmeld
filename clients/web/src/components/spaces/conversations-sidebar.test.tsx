@@ -62,14 +62,6 @@ vi.mock("./new-chat-dialog", () => ({
 vi.mock("../organizations/center-agent-chat-avatar", () => ({
 	CenterAgentChatAvatar: () => <span>Agent</span>,
 }));
-vi.mock("./direct-message-preview", async (importOriginal) => ({
-	...(await importOriginal<typeof import("./direct-message-preview")>()),
-	useSpaceMessagePreview: () => ({
-		data: { timestamp: 200, text: "Latest conversation message" },
-		isPending: false,
-		isError: false,
-	}),
-}));
 
 afterEach(() => {
 	cleanup();
