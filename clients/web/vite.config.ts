@@ -7,11 +7,16 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+// @ts-expect-error Build-only JavaScript helper.
+import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
 
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
 
 const config = defineConfig(({ command }) => {
+	const desktopWebBuild = desktopWebBuildIdentity(
+		path.resolve(import.meta.dirname, "../..")
+	);
 	if (command === "build") {
 		execFileSync(
 			process.execPath,
@@ -27,6 +32,12 @@ const config = defineConfig(({ command }) => {
 	}
 	return {
 		define: {
+			__OPENMELD_DESKTOP_WEB_BUILD__: JSON.stringify(desktopWebBuild),
+			__OPENMELD_DESKTOP_PILOT__: JSON.stringify(
+				process.env.OPENMELD_DESKTOP_PILOT === "1" &&
+					command === "build" &&
+					process.env.CLOUDFLARE_ENV !== "prod"
+			),
 			__OPENMELD_WEB_BUILD__: JSON.stringify({
 				id: randomUUID(),
 				sha: execFileSync("git", ["rev-parse", "HEAD"], {
@@ -42,6 +53,22 @@ const config = defineConfig(({ command }) => {
 		// release build budget; server errors retain native Worker invocation logs.
 		environments: { client: { build: { sourcemap: "hidden" } } },
 		plugins: [
+			{
+				name: "openmeld-desktop-build-identity",
+				apply: "build",
+				generateBundle() {
+					if (
+						process.env.OPENMELD_DESKTOP_PILOT === "1" &&
+						this.environment.name === "client"
+					) {
+						this.emitFile({
+							type: "asset",
+							fileName: "desktop-build.json",
+							source: JSON.stringify({ webBuild: desktopWebBuild }),
+						});
+					}
+				},
+			},
 			cloudflare({
 				viteEnvironment: { name: "ssr" },
 				...(isolatedDev
@@ -61,7 +88,12 @@ const config = defineConfig(({ command }) => {
 					: {}),
 			}),
 			tsconfigPaths({ projects: ["./tsconfig.json"] }),
-			tanstackStart(),
+			tanstackStart({
+				spa: {
+					enabled: process.env.OPENMELD_DESKTOP_PILOT === "1",
+					maskPath: "/desktop-shell",
+				},
+			}),
 			viteReact({
 				babel: {
 					plugins: ["babel-plugin-react-compiler"],

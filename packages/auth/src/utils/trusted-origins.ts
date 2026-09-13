@@ -1,3 +1,4 @@
+import { DESKTOP_APP_ORIGIN, DESKTOP_AUTH_SCHEME } from "@openmeld/schemas";
 import type { AuthWorkerNodeEnv } from "./config-validator";
 
 const LOCAL_DEV_ORIGINS = [
@@ -27,6 +28,8 @@ export function resolveTrustedOrigins(
   addOrigin(origins, input.appUrl);
 
   if (input.env === "development") {
+    origins.add(DESKTOP_APP_ORIGIN);
+    origins.add(`${DESKTOP_AUTH_SCHEME}:/`);
     addConfiguredLoopbackAliases(origins, input.appUrl);
     for (const origin of LOCAL_DEV_ORIGINS) {
       origins.add(origin);

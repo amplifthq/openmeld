@@ -1,3 +1,4 @@
+import { electron } from "@better-auth/electron";
 import { passkey } from "@better-auth/passkey";
 import { ORGANIZATION_INVITATION_LIFETIME_SECONDS } from "@openmeld/schemas";
 import { APIError, type BetterAuthOptions } from "better-auth";
@@ -1043,6 +1044,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       },
     },
     plugins: [
+      ...(validated.AUTH_WORKER_NODE_ENV === "development" ? [electron()] : []),
       createSpaceOwnerDeparturePlugin({
         coreWorker: env.OPENMELD_CORE_WORKER,
         db: env.OPENMELD_DB,

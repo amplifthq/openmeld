@@ -19,6 +19,8 @@ import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as CheckEmailRouteImport } from './routes/check-email'
 import { Route as DesktopRouteImport } from './routes/desktop'
+import { Route as DesktopShellRouteImport } from './routes/desktop-shell'
+import { Route as DesktopSignInRouteImport } from './routes/desktop-sign-in'
 import { Route as DeviceRouteImport } from './routes/device'
 import { Route as FilePreviewRouteImport } from './routes/file-preview'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
@@ -183,6 +185,16 @@ const CheckEmailRoute = CheckEmailRouteImport.update({
 const DesktopRoute = DesktopRouteImport.update({
   id: '/desktop',
   path: '/desktop',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesktopShellRoute = DesktopShellRouteImport.update({
+  id: '/desktop-shell',
+  path: '/desktop-shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesktopSignInRoute = DesktopSignInRouteImport.update({
+  id: '/desktop-sign-in',
+  path: '/desktop-sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeviceRoute = DeviceRouteImport.update({
@@ -812,6 +824,8 @@ export interface FileRoutesByFullPath {
   '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
+  '/desktop-shell': typeof DesktopShellRoute
+  '/desktop-sign-in': typeof DesktopSignInRoute
   '/device': typeof DeviceRouteWithChildren
   '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -938,6 +952,8 @@ export interface FileRoutesByTo {
   '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
+  '/desktop-shell': typeof DesktopShellRoute
+  '/desktop-sign-in': typeof DesktopSignInRoute
   '/device': typeof DeviceRouteWithChildren
   '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -1055,6 +1071,8 @@ export interface FileRoutesById {
   '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
+  '/desktop-shell': typeof DesktopShellRoute
+  '/desktop-sign-in': typeof DesktopSignInRoute
   '/device': typeof DeviceRouteWithChildren
   '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -1184,6 +1202,8 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/check-email'
     | '/desktop'
+    | '/desktop-shell'
+    | '/desktop-sign-in'
     | '/device'
     | '/file-preview'
     | '/forgot-password'
@@ -1310,6 +1330,8 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/check-email'
     | '/desktop'
+    | '/desktop-shell'
+    | '/desktop-sign-in'
     | '/device'
     | '/file-preview'
     | '/forgot-password'
@@ -1426,6 +1448,8 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/check-email'
     | '/desktop'
+    | '/desktop-shell'
+    | '/desktop-sign-in'
     | '/device'
     | '/file-preview'
     | '/forgot-password'
@@ -1554,6 +1578,8 @@ export interface RootRouteChildren {
   ChangelogRoute: typeof ChangelogRoute
   CheckEmailRoute: typeof CheckEmailRoute
   DesktopRoute: typeof DesktopRouteWithChildren
+  DesktopShellRoute: typeof DesktopShellRoute
+  DesktopSignInRoute: typeof DesktopSignInRoute
   DeviceRoute: typeof DeviceRouteWithChildren
   FilePreviewRoute: typeof FilePreviewRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
@@ -1663,6 +1689,20 @@ declare module '@tanstack/react-router' {
       path: '/desktop'
       fullPath: '/desktop'
       preLoaderRoute: typeof DesktopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desktop-shell': {
+      id: '/desktop-shell'
+      path: '/desktop-shell'
+      fullPath: '/desktop-shell'
+      preLoaderRoute: typeof DesktopShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desktop-sign-in': {
+      id: '/desktop-sign-in'
+      path: '/desktop-sign-in'
+      fullPath: '/desktop-sign-in'
+      preLoaderRoute: typeof DesktopSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/device': {
@@ -2849,6 +2889,8 @@ const rootRouteChildren: RootRouteChildren = {
   ChangelogRoute: ChangelogRoute,
   CheckEmailRoute: CheckEmailRoute,
   DesktopRoute: DesktopRouteWithChildren,
+  DesktopShellRoute: DesktopShellRoute,
+  DesktopSignInRoute: DesktopSignInRoute,
   DeviceRoute: DeviceRouteWithChildren,
   FilePreviewRoute: FilePreviewRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,

@@ -24,7 +24,7 @@ describe("preload bridge", () => {
   it("exposes only the OpenMeld bridge methods on window.openmeld", async () => {
     await import("../src/preload/preload");
 
-    expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
+    expect(exposeInMainWorld).toHaveBeenCalledTimes(2);
     const [name, bridge] = exposeInMainWorld.mock.calls[0] ?? [];
 
     expect(name).toBe("openmeld");
