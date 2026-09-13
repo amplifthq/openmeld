@@ -44,6 +44,8 @@ export function useSpaceHistoryNavigation(input: {
 					hasBefore: true,
 					hasAfter: true,
 				});
+			} else {
+				setWindow(null);
 			}
 		}
 	}
@@ -168,8 +170,8 @@ export function useSpaceHistoryNavigation(input: {
 	return {
 		visibleLiveEnvelopes,
 		hasHiddenLiveHistory: liveStartIndex > 0,
-		revealCachedBefore: () => {
-			const first = input.liveEnvelopes[Math.max(0, liveStartIndex - 60)];
+		revealCachedBefore: (envelopes = input.liveEnvelopes) => {
+			const first = envelopes[Math.max(0, liveStartIndex - 60)];
 			setLiveBoundary(first ? { identity, signalId: first.id } : null);
 		},
 		directory: directory.data,
