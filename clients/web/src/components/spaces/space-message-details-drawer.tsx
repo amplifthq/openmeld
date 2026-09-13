@@ -891,7 +891,10 @@ function resolveActivityOutcomeNotice(input: {
 	if (bySignal) {
 		return bySignal;
 	}
-	if (!input.item.targetProfileId) {
+	if (
+		!input.item.targetProfileId ||
+		(input.item.status !== "failed" && input.item.status !== "stopped")
+	) {
 		return null;
 	}
 	return (

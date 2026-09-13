@@ -1109,6 +1109,41 @@ describe("SpaceMessageDetailsDrawer", () => {
 		});
 	});
 
+	it("shows the recovered answer instead of the earlier failure copy", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+		renderMessageDetailsPanel({
+			replyItems: [
+				createTimelineItem({
+					id: "failed",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeType: "terminal_failure",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeDispatchId: "dispatch",
+					systemNoticeReasonCode: "remote_agent.empty_assistant_response",
+					text: "Earlier failure",
+				}),
+				createTimelineItem({
+					id: "recovered",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeType: "execution_recovery_completed",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeDispatchId: "dispatch",
+					text: "Here is the saved answer.",
+				}),
+			],
+		});
+		expect(screen.getByText("Here is the saved answer.")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Center Agent couldn't generate a reply. Your message is saved."
+			)
+		).toBeNull();
+	});
+
 	it("does not retry publication failures", () => {
 		useQueryMock.mockReturnValue(
 			createQueryResult({ data: createHumanMessageDetails() })

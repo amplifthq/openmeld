@@ -3838,6 +3838,13 @@ uses the Core-provided label and warning. It preserves the terminal failure
 rather than presenting retained evidence as an already-published reply. The
 recovery notice never creates a second terminal outcome row.
 
+A published `execution_recovery_completed` remains visible at its own timeline
+position. When its author is an Agent, its saved answer uses the ordinary Agent
+reply presentation; a system-authored completion keeps the system divider.
+The same notice still closes the original request's recovery action. Message
+details shows the recovered content, without substituting an earlier failure
+from the same target. The original failure remains recorded in history.
+
 While a requested recovery is running, Web shows **Preparing your reply…** and
 polls the existing inspection endpoint. A failed status check retains an honest
 unknown state with **Check status**, which only reads and never executes another
