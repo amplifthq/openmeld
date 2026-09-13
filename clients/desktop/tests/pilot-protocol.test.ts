@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +9,9 @@ import { createPilotProtocol } from "../src/main/pilot-protocol";
 it("serves local page files and confines credentials to the configured cloud origin", async () => {
   const assets = await mkdtemp(join(tmpdir(), "openmeld-desktop-assets-"));
   try {
-    await writeFile(join(assets, "index.html"), "local application");
+    const html =
+      '<script>self.route="__root__\u0000";\r\nself.ready=true;\r</script>';
+    await writeFile(join(assets, "index.html"), html);
     const fetchCloud = vi.fn<typeof fetch>(
       async () =>
         new Response("cloud result", {
@@ -26,9 +29,16 @@ it("serves local page files and confines credentials to the configured cloud ori
       cookie: () => "session=main-only",
       fetch: fetchCloud,
     });
-    expect(
-      await (await handle(new Request(`${DESKTOP_APP_ORIGIN}/`))).text()
-    ).toBe("local application");
+    const page = await handle(new Request(`${DESKTOP_APP_ORIGIN}/`));
+    expect(await page.text()).toBe(html);
+    // HTML tokenization replaces NULL and normalizes CR/CRLF before CSP checks.
+    const browserScript = 'self.route="__root__\uFFFD";\nself.ready=true;\n';
+    const hash = createHash("sha256").update(browserScript).digest("base64");
+    const scriptPolicy = page.headers
+      .get("content-security-policy")
+      ?.split(";")
+      .find((part) => part.includes("script-src"));
+    expect(scriptPolicy).toBe(` script-src 'self' 'sha256-${hash}'`);
     const result = await handle(
       new Request(`${DESKTOP_APP_ORIGIN}/v1/spaces`, {
         headers: {
