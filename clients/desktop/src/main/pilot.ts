@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
+  DESKTOP_AUTH_SCHEME,
   desktopPlatformSchema,
   desktopWebBuildSchema,
 } from "@openmeld/schemas";
@@ -52,6 +53,10 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     webBuild: __OPENMELD_DESKTOP_WEB_BUILD__,
   });
   protocol.registerSchemesAsPrivileged([
+    {
+      scheme: DESKTOP_AUTH_SCHEME,
+      privileges: { standard: false, secure: true },
+    },
     {
       scheme: "openmeld-desktop",
       privileges: {
