@@ -24,6 +24,11 @@ describe("Desktop route authentication", () => {
 			platform: vi.fn(),
 			signIn: vi.fn(),
 			signOut: vi.fn(),
+			onSessionChanged: vi.fn(() => () => undefined),
+			spaceStreamOpen: vi.fn(),
+			spaceStreamClose: vi.fn(),
+			spaceStreamPing: vi.fn(),
+			onSpaceStream: vi.fn(() => () => undefined),
 		} satisfies DesktopPilotBridge;
 		vi.stubGlobal("window", {
 			location: { protocol: "openmeld-desktop:", host: "app" },

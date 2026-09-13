@@ -1,5 +1,6 @@
+import type { DesktopSession } from "@openmeld/schemas";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
+import { useLocation, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
 import { getDesktopPlatform } from "./platform";
@@ -9,29 +10,63 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 	const bridge = getDesktopPlatform();
 	const router = useRouter();
 	const queryClient = useQueryClient();
+	const pathname = useLocation({ select: (location) => location.pathname });
 	useEffect(() => {
 		if (!bridge) {
 			return;
 		}
-		const refresh = () => {
-			bridge
-				.session()
-				.then(async (session) => {
-					if (
-						!session.user &&
-						router.state.location.pathname !== "/desktop-shell"
-					) {
-						await resetAccountScopedQueriesAfterAuthChange(queryClient);
-						await router.navigate({ to: "/desktop-shell", replace: true });
-					}
-				})
+		let disposed = false;
+		let revision = 0;
+		let prepared = Promise.resolve();
+		async function applySession(
+			session: DesktopSession | null,
+			active: () => boolean,
+			sessionChanged: boolean
+		) {
+			if (!(session && active())) {
+				return;
+			}
+			if (session.user) {
+				if (sessionChanged) {
+					await router.invalidate();
+				}
+				return;
+			}
+			if (!sessionChanged) {
+				await resetAccountScopedQueriesAfterAuthChange(queryClient);
+			}
+			if (active()) {
+				await router.navigate({ to: "/desktop-shell", replace: true });
+			}
+		}
+		const refresh = (sessionChanged = false) => {
+			if (pathname === "/desktop-shell") {
+				return;
+			}
+			if (sessionChanged) {
+				revision++;
+				prepared = resetAccountScopedQueriesAfterAuthChange(queryClient);
+			}
+			const current = revision;
+			const active = () => !disposed && current === revision;
+			prepared
+				.then(() => (active() ? bridge.session() : null))
+				.then((session) => applySession(session, active, sessionChanged))
 				.catch((error: unknown) => {
-					console.error("Could not refresh Desktop sign-in.", error);
+					if (active()) {
+						console.error("Could not refresh Desktop sign-in.", error);
+					}
 				});
 		};
-		window.addEventListener("focus", refresh);
-		return () => window.removeEventListener("focus", refresh);
-	}, [bridge, router, queryClient]);
+		const onFocus = () => refresh();
+		const unsubscribe = bridge.onSessionChanged(() => refresh(true));
+		window.addEventListener("focus", onFocus);
+		return () => {
+			disposed = true;
+			unsubscribe();
+			window.removeEventListener("focus", onFocus);
+		};
+	}, [bridge, router, queryClient, pathname]);
 	if (!bridge) {
 		return children;
 	}

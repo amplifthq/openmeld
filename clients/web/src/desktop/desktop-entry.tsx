@@ -1,12 +1,15 @@
 import { Button } from "@openmeld/ui/components/button";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { resolveOptionalActiveOrganizationEntryPath } from "#/lib/organizations/organization-scope";
+import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
 import { getDesktopPlatform } from "./platform";
 
 export function DesktopEntry() {
 	const router = useRouter();
+	const queryClient = useQueryClient();
 	const { redirect: returnPath } = useSearch({ from: "/desktop-shell" });
 	const [pending, setPending] = useState(true);
 	const [error, setError] = useState<string | null>(null);
@@ -18,15 +21,27 @@ export function DesktopEntry() {
 			return;
 		}
 		let disposed = false;
-		const refresh = () => {
-			resolveDesktopEntry(bridge, returnPath)
+		let revision = 0;
+		let prepared = Promise.resolve();
+		const refresh = (sessionChanged = false) => {
+			if (sessionChanged) {
+				revision++;
+				prepared = resetAccountScopedQueriesAfterAuthChange(queryClient);
+			}
+			const current = revision;
+			const active = () =>
+				!disposed &&
+				current === revision &&
+				router.state.location.pathname === "/desktop-shell";
+			prepared
+				.then(() => (active() ? resolveDesktopEntry(bridge, returnPath) : null))
 				.then(async (path) => {
-					if (path && !disposed) {
+					if (path && active()) {
 						await router.navigate({ to: path, replace: true });
 					}
 				})
 				.catch((failure: unknown) => {
-					if (!disposed) {
+					if (active()) {
 						setError(
 							failure instanceof Error
 								? failure.message
@@ -35,18 +50,21 @@ export function DesktopEntry() {
 					}
 				})
 				.finally(() => {
-					if (!disposed) {
+					if (active()) {
 						setPending(false);
 					}
 				});
 		};
 		refresh();
-		window.addEventListener("focus", refresh);
+		const onFocus = () => refresh();
+		const unsubscribe = bridge.onSessionChanged(() => refresh(true));
+		window.addEventListener("focus", onFocus);
 		return () => {
 			disposed = true;
-			window.removeEventListener("focus", refresh);
+			unsubscribe();
+			window.removeEventListener("focus", onFocus);
 		};
-	}, [bridge, router, returnPath]);
+	}, [bridge, router, returnPath, queryClient]);
 
 	return (
 		<main className="flex min-h-svh items-center justify-center bg-background p-6">
