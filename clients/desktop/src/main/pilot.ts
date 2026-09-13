@@ -6,6 +6,7 @@ import {
   desktopWebBuildSchema,
 } from "@openmeld/schemas";
 import {
+  app,
   type BrowserWindow,
   type IpcMainInvokeEvent,
   ipcMain,
@@ -20,6 +21,7 @@ import {
 import { createPilotAuth } from "./pilot-auth";
 import { createPilotProtocol } from "./pilot-protocol";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
+import { configurePilotUserData } from "./pilot-user-data";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
 
@@ -59,7 +61,14 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       },
     },
   ]);
-  const auth = createPilotAuth(webOrigin, getWindow);
+  configurePilotUserData(app, process.env);
+  const auth = createPilotAuth(webOrigin, getWindow, () => {
+    streams.closeAll();
+    const owner = getWindow()?.webContents;
+    if (owner && !owner.isDestroyed()) {
+      owner.send(PILOT_IPC.sessionChanged);
+    }
+  });
   const streams = createPilotSpaceStreams({
     webOrigin,
     webBuild: platform.webBuild,

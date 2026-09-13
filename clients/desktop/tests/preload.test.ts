@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OPENMELD_IPC, WINDOW_IPC } from "../src/shared/ipc-contract";
+import { type DesktopPilotBridge, PILOT_IPC } from "../src/shared/pilot-bridge";
 import { LOCAL_AGENTS_GUIDE_PATH } from "../src/shared/web-paths";
 
 const exposeInMainWorld = vi.fn();
@@ -21,6 +22,24 @@ afterEach(() => {
 });
 
 describe("preload bridge", () => {
+  it("exposes a payload-free session invalidation and removes its exact listener", async () => {
+    await import("../src/preload/preload");
+    const bridge = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const changed = vi.fn();
+    const unsubscribe = bridge.onSessionChanged(changed);
+    const listener = on.mock.calls.find(
+      ([channel]) => channel === PILOT_IPC.sessionChanged
+    )?.[1];
+    listener({}, { token: "must-not-cross-the-bridge" });
+    expect(changed.mock.calls).toEqual([[]]);
+    unsubscribe();
+    expect(removeListener).toHaveBeenCalledWith(
+      PILOT_IPC.sessionChanged,
+      listener
+    );
+  });
   it("exposes only the OpenMeld bridge methods on window.openmeld", async () => {
     await import("../src/preload/preload");
 

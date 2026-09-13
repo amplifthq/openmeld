@@ -2,13 +2,34 @@ import { createHash } from "node:crypto";
 import { electronClient } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
 import { DESKTOP_AUTH_SCHEME, desktopSessionSchema } from "@openmeld/schemas";
-import { createAuthClient } from "better-auth/client";
+import {
+  type BetterAuthClientPlugin,
+  createAuthClient,
+} from "better-auth/client";
 import type { BrowserWindow } from "electron";
 
 export function createPilotAuth(
   webOrigin: string,
-  getWindow: () => BrowserWindow | null
+  getWindow: () => BrowserWindow | null,
+  onSessionChanged: () => void
 ) {
+  const sessionNotifications: BetterAuthClientPlugin = {
+    id: "desktop-session-notifications",
+    fetchPlugins: [
+      {
+        id: "desktop-session-notifications",
+        name: "Desktop session notifications",
+        hooks: {
+          onSuccess(context) {
+            const pathname = new URL(context.request.url).pathname;
+            if (pathname === "/api/auth/electron/token") {
+              onSessionChanged();
+            }
+          },
+        },
+      },
+    ],
+  };
   const client = createAuthClient({
     baseURL: webOrigin,
     plugins: [
@@ -20,6 +41,9 @@ export function createPilotAuth(
         }),
         userImageProxy: { enabled: false },
       }),
+      // Better Fetch awaits success hooks in plugin order. The Electron
+      // plugin has persisted/cleared its cookie before this signal is emitted.
+      sessionNotifications,
     ],
   });
   // The application owns all IPC authorization and CSP; do not install the
@@ -43,9 +67,15 @@ export function createPilotAuth(
     },
     cookie: () => client.getCookie(),
     async signOut() {
-      const result = await client.signOut();
-      if (result.error) {
-        throw new Error(result.error.message ?? "Desktop sign-out failed.");
+      try {
+        const result = await client.signOut();
+        if (result.error) {
+          throw new Error(result.error.message ?? "Desktop sign-out failed.");
+        }
+      } finally {
+        // The vendor clears its local cookie before sending sign-out, even
+        // if the server request fails. Refresh identity without claiming success.
+        onSessionChanged();
       }
     },
   };

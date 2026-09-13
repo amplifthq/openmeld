@@ -16,6 +16,7 @@ export const PILOT_IPC = {
   session: "desktop:session",
   signIn: "desktop:sign-in",
   signOut: "desktop:sign-out",
+  sessionChanged: "desktop:session-changed",
   spaceStreamOpen: "desktop:space-stream-open",
   spaceStreamClose: "desktop:space-stream-close",
   spaceStreamPing: "desktop:space-stream-ping",
@@ -26,4 +27,5 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
   session(): Promise<DesktopSession>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
+  onSessionChanged(handler: () => void): () => void;
 };

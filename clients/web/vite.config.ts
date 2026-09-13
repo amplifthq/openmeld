@@ -21,6 +21,13 @@ const config = defineConfig(({ command }) => {
 	const desktopWebBuild = desktopPilotBuild
 		? desktopWebBuildIdentity(path.resolve(import.meta.dirname, "../.."))
 		: "";
+	const isolatedListener = isolatedDev
+		? {
+				host: new URL(isolatedDev.vars.WEB_APP_URL).hostname,
+				port: isolatedDev.port,
+				strictPort: true,
+			}
+		: undefined;
 	if (command === "build") {
 		execFileSync(
 			process.execPath,
@@ -120,11 +127,10 @@ const config = defineConfig(({ command }) => {
 		},
 		...(isolatedDev
 			? {
-					server: {
-						host: new URL(isolatedDev.vars.WEB_APP_URL).hostname,
-						port: isolatedDev.port,
-						strictPort: true,
-					},
+					server: isolatedListener,
+					// TanStack prerender requires a Vite resolvedUrls.local entry.
+					// Only the listener uses loopback; lane URLs remain unchanged.
+					preview: { ...isolatedListener, host: "127.0.0.1" },
 				}
 			: {}),
 	};

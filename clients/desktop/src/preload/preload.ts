@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
   session: () => ipcRenderer.invoke(PILOT_IPC.session),
   signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),
   signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
+  onSessionChanged: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on(PILOT_IPC.sessionChanged, listener);
+    return () => ipcRenderer.removeListener(PILOT_IPC.sessionChanged, listener);
+  },
   spaceStreamOpen: (input) =>
     ipcRenderer.invoke(PILOT_IPC.spaceStreamOpen, input),
   spaceStreamClose: (id) => ipcRenderer.invoke(PILOT_IPC.spaceStreamClose, id),
