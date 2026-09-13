@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-13T01:49:37.920Z",
+  "updatedAt": "2026-09-13T04:15:40.204Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.200",
+      "packageVersion": "0.3.201",
       "updatePolicy": "available",
-      "reason": "Setup continuation and Service alignment preserve existing commands and optional shared payloads across old and new cloud versions."
+      "reason": "Hosted reply recovery preserves existing CLI setup, Wake, Space action and diagnostic commands across both cloud versions."
     },
     "service": {
-      "bundleHash": "7be482fa1ee9a57819ac180d73703ae16cfddd8bed936e0d758ca07aff81b869",
-      "bundleVersion": "0.3.200",
+      "bundleHash": "78f11342a03454477f0c3438d11680523aad78c661137aa72d379f4fdfac1cb1",
+      "bundleVersion": "0.3.201",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Recovery and update fixes preserve transport, execution leases and result contracts; existing Services can safely finish accepted work and receive normal updates."
+      "reason": "Shared schemas change the bundle fingerprint without changing Runtime Transport or execution leases; existing Services remain compatible with old and new cloud deployments."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
