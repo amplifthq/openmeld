@@ -1,9 +1,11 @@
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { readSpaceConversationPosition } from "#/lib/space-conversation-position";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { mergeSpaceTimelineEnvelopes } from "#/lib/spaces/timeline";
 import { SPACE_HISTORY_SIGNAL_KINDS } from "#/query/spaces/history";
+import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 
 export function useSpaceHistoryNavigation(input: {
 	spaceId: string;
@@ -18,6 +20,33 @@ export function useSpaceHistoryNavigation(input: {
 		identity: string;
 		signalId: string;
 	} | null>(null);
+	// Keep a stable entry boundary as live messages arrive. An empty bootstrap
+	// must not pin the boundary before the persisted history has been restored.
+	if (liveBoundary?.identity !== identity && input.liveEnvelopes.length > 0) {
+		const first =
+			input.liveEnvelopes[Math.max(0, input.liveEnvelopes.length - 60)];
+		if (first) {
+			setLiveBoundary({ identity, signalId: first.id });
+			const saved = readSpaceConversationPosition(
+				`${input.profileId}:${buildSpaceConversationScrollRestorationId(input.spaceId)}`
+			);
+			const anchor = input.liveEnvelopes.findIndex(
+				(item) => item.id === saved?.anchorSignalId
+			);
+			if (anchor >= 0 && anchor < input.liveEnvelopes.length - 60) {
+				setWindow({
+					identity,
+					envelopes: input.liveEnvelopes.slice(
+						Math.max(0, anchor - 30),
+						anchor + 31
+					),
+					// A cached window does not prove the server's history boundaries.
+					hasBefore: true,
+					hasAfter: true,
+				});
+			}
+		}
+	}
 	const liveStartIndex =
 		liveBoundary?.identity === identity
 			? Math.max(
@@ -26,7 +55,7 @@ export function useSpaceHistoryNavigation(input: {
 						(item) => item.id === liveBoundary.signalId
 					)
 				)
-			: 0;
+			: Math.max(0, input.liveEnvelopes.length - 60);
 	const visibleLiveEnvelopes = useMemo(
 		() => input.liveEnvelopes.slice(liveStartIndex),
 		[input.liveEnvelopes, liveStartIndex]
@@ -38,7 +67,6 @@ export function useSpaceHistoryNavigation(input: {
 	currentIdentity.current = identity;
 	useEffect(() => {
 		currentIdentity.current = identity;
-		setWindow(null);
 		setPending(false);
 		setError(null);
 		return () => flight.current?.abort();
