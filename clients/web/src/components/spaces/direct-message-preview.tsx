@@ -24,8 +24,17 @@ export function useSpaceMessagePreview(input: {
 	spaceId: string;
 	viewerProfileId: string;
 	enabled: boolean;
+	indexedPreview?: { text: string; timestamp: number } | null;
 }) {
-	return useQuery(spaceMessagePreviewQueryOptions(input));
+	const query = useQuery(
+		spaceMessagePreviewQueryOptions({
+			...input,
+			enabled: input.enabled && input.indexedPreview === undefined,
+		})
+	);
+	return input.indexedPreview !== undefined
+		? { data: input.indexedPreview, isPending: false, isError: false }
+		: query;
 }
 
 export function spaceMessagePreviewQueryOptions(input: {

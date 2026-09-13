@@ -93,6 +93,10 @@ export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 
 function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
 	const preview = useSpaceMessagePreview({
+		indexedPreview:
+			input.conversation.kind === "direct-message"
+				? input.conversation.chat.messagePreview
+				: undefined,
 		spaceId: input.conversation.spaceId,
 		viewerProfileId: input.profileId,
 		enabled: !!input.profileId,

@@ -357,7 +357,10 @@ describe("ConversationsSidebar", () => {
 		focusManager.setFocused(undefined);
 	});
 
-	it("[S02] shows the indexed message time without subscribing to per-Space previews", async () => {
+	it.each([
+		null,
+		OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+	])("[S02] uses indexed previews without per-conversation polling for %s", async (spacePurpose) => {
 		const timestamp = Date.parse("2026-09-06T17:00:00.000Z");
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -366,6 +369,7 @@ describe("ConversationsSidebar", () => {
 					...createAccountSpaceItem({
 						spaceId: "space-alpha",
 						spaceName: "Alpha",
+						spacePurpose,
 					}),
 					messagePreview: {
 						signalId: "message-alpha",
@@ -389,7 +393,10 @@ describe("ConversationsSidebar", () => {
 			queryClient
 				.getQueryCache()
 				.getAll()
-				.filter((query) => query.queryKey.includes("incoming-preview"))
+				.filter(
+					(query) =>
+						query.queryKey.includes("incoming-preview") && query.isActive()
+				)
 		).toHaveLength(0);
 	});
 

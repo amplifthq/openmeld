@@ -101,6 +101,7 @@ export function useChats(input: {
 			return [
 				item.spaceId,
 				{
+					messagePreview: item.messagePreview,
 					spaceId: item.spaceId,
 					name: peer?.profileName ?? item.spaceName,
 					createdAt: item.spaceCreatedAt ?? null,
@@ -126,8 +127,11 @@ export function useChats(input: {
 		store.preferences,
 		ordinaryAccountItems
 	);
-	const previews = useQueries({
-		queries: chats.map((chat) =>
+	const unprojectedChats = chats.filter(
+		(chat) => chat.messagePreview === undefined
+	);
+	const unprojectedPreviews = useQueries({
+		queries: unprojectedChats.map((chat) =>
 			spaceMessagePreviewQueryOptions({
 				spaceId: chat.spaceId,
 				viewerProfileId: chat.viewerProfileId ?? profileId,
@@ -135,6 +139,17 @@ export function useChats(input: {
 			})
 		),
 	});
+	const previewById = new Map(
+		unprojectedChats.map((chat, index) => [
+			chat.spaceId,
+			unprojectedPreviews[index],
+		])
+	);
+	const previews = chats.map((chat) =>
+		chat.messagePreview !== undefined
+			? { data: chat.messagePreview, isPending: false, isError: false }
+			: previewById.get(chat.spaceId)
+	);
 	const activity = new Map(
 		chats.map((chat, index) => [
 			chat.spaceId,
