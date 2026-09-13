@@ -839,12 +839,27 @@ identity, or other tools advance the goal. Large tool catalogs may compact
 schemas into Code Mode, but compaction does not change the semantic owner,
 reasoning policy, tool authorization, or available inner capabilities.
 
-A provider response that completes with no content events, visible text, or
-tool call may be retried once at the provider stream boundary. The worker must
-not retry after any content or tool event has been observed, or after the
-caller cancels the turn. The delivered attempt includes token and cost usage
-from the discarded empty attempt. A second empty response follows the ordinary
-visible terminal-failure path instead of creating an unbounded retry loop.
+A provider response that completes normally without visible text or tool calls
+may be retried once at the existing provider stream boundary, using the same
+frozen model and inference context, including already committed tool results.
+Thinking-only and whitespace events may be buffered up to 256 events and 64 KiB
+of deltas. Visible text, any tool event, or exceeding that buffer commits the
+attempt to normal streaming and disables retry. Length, error, refusal, and
+cancelled completions are not empty-stop recovery candidates. A retry may start
+only within two minutes of the inference starting and before caller cancellation;
+this admission limit never interrupts an active inference. The delivered attempt
+includes token and cost usage from the discarded attempt. A second empty response
+follows the ordinary visible terminal-failure path. Recovery never restarts the
+workflow, repeats tools, or changes an explicitly selected model.
+
+Manual reply recovery uses the existing fenced Execution Recovery operation.
+Its worker request carries `replyRecovery` with the original dispatch, operation,
+and optional Space result reference. The same frozen runtime conversation and
+model route are retained. The runtime exposes no executable tools, Skills, or
+Computer sandbox for this request, and does not stream it as a new Space Wake.
+Core publishes its final answer through Space's idempotent recovery-notice owner.
+If it fails, the original failure stays visible and the exact recovery attempt
+becomes unavailable. An unknown publication outcome does not authorize replay.
 
 Action authorization is semantic, not lexical. Conversation context may
 complete arguments only inside an action the user already authorized; it cannot

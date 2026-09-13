@@ -32,7 +32,7 @@ export function resolveDaemonServiceArtifact(input: {
   activeBundle: DaemonActiveBundleState | null;
   activeBundleSourceAvailable: boolean | null;
   activeBundleEntryPath: string | null;
-  currentSourceDistFingerprint: string | null;
+  installedBundleFingerprint: string | null;
   pathInput?: OpenMeldPathResolutionInput;
 }): ResolvedDaemonServiceArtifact {
   const installVersion = input.installStatus.installed
@@ -46,7 +46,7 @@ export function resolveDaemonServiceArtifact(input: {
         activeBundle: input.activeBundle,
         activeBundleEntryPath: input.activeBundleEntryPath,
         activeBundleSourceAvailable: input.activeBundleSourceAvailable,
-        currentSourceDistFingerprint: input.currentSourceDistFingerprint,
+        installedBundleFingerprint: input.installedBundleFingerprint,
         expectedBundleId,
         expectedDaemonVersion,
         pathInput: input.pathInput,
@@ -69,7 +69,7 @@ function collectActiveBundleDriftReasonCodes(input: {
   activeBundle: DaemonActiveBundleState;
   activeBundleEntryPath: string | null;
   activeBundleSourceAvailable: boolean | null;
-  currentSourceDistFingerprint: string | null;
+  installedBundleFingerprint: string | null;
   expectedBundleId: string | null;
   expectedDaemonVersion: string;
   pathInput?: OpenMeldPathResolutionInput;
@@ -124,11 +124,11 @@ function hasBundleIdDrift(input: {
 
 function hasBundleContentDrift(input: {
   activeBundle: DaemonActiveBundleState;
-  currentSourceDistFingerprint: string | null;
+  installedBundleFingerprint: string | null;
 }): boolean {
   return (
-    input.currentSourceDistFingerprint !== null &&
+    input.installedBundleFingerprint === null ||
     input.activeBundle.sourceDistFingerprint !==
-      input.currentSourceDistFingerprint
+      input.installedBundleFingerprint
   );
 }

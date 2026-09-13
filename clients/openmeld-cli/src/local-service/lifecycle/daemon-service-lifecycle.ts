@@ -386,7 +386,6 @@ export async function runDaemonServiceLifecycle(input: {
       expectedVersion: input.expectedVersion,
       intendedMode: resolveLifecycleIntendedMode(input),
       intent: toLifecycleIntent(input.operation),
-      ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
     });
     const inventoryBefore = state.inventoryBefore;
     const desiredState =

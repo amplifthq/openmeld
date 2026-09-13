@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-13T01:49:37.920Z",
+  "updatedAt": "2026-09-13T12:04:40.249Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.200",
+      "packageVersion": "0.3.202",
       "updatePolicy": "available",
-      "reason": "Setup continuation and Service alignment preserve existing commands and optional shared payloads across old and new cloud versions."
+      "reason": "Existing CLI commands and cloud contracts remain compatible; this release corrects installed artifact selection without changing command eligibility."
     },
     "service": {
-      "bundleHash": "7be482fa1ee9a57819ac180d73703ae16cfddd8bed936e0d758ca07aff81b869",
-      "bundleVersion": "0.3.200",
+      "bundleHash": "35356c676636a27129557a90717e8eb4848302f045d8b608de9a6d2aca886855",
+      "bundleVersion": "0.3.202",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Recovery and update fixes preserve transport, execution leases and result contracts; existing Services can safely finish accepted work and receive normal updates."
+      "reason": "Existing Services can safely continue Wake execution with old and new cloud code; artifact integrity and update ownership improve without changing Runtime Transport or execution authority."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

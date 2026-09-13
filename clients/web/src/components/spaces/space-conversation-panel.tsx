@@ -2986,7 +2986,6 @@ function ConversationBubbleContent(input: {
 			})}
 			<ReplyStalenessMarker align={input.messageAlign} item={input.item} />
 			{renderAnchoredSpaceOutcomeRows({
-				align: input.messageAlign,
 				notices: input.anchoredOutcomeNotices,
 				onOpenMessageDetails: parent.onOpenMessageDetails,
 				onRecoverExecution: parent.onRecoverExecution,
@@ -3800,22 +3799,9 @@ const EMPTY_ANCHORED_OUTCOME_NOTICES: readonly SpaceTimelineItem[] = [];
 const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 	Promise.reject(new Error("Space Wake Stop is unavailable."));
 
-// Renders the terminal_failure/wake_stopped notices anchored to this source
-// message inside its own bubble content, right after the local wake
-// failure/fallback block (Space collaboration's "one final visible outcome"
-// projected onto the request it closes, now visually part of that message's
-// card instead of a trailing sibling row below it). BubbleContent already
-// carries the card's hover coloring, rounded corners, and self/other
-// alignment, so this no longer needs its own align or max-width handling --
-// it renders start-aligned, matching the local wake failure/fallback block
-// right above it.
-//
-// The Details action always opens the SOURCE message's details (not the
-// notice's own), because the notice's own record carries little the user can
-// act on -- the source message's Wake context/failure history is the useful
-// destination, and it is already the thing the reader is looking at.
+// Stopped system outcomes stay with their source message and open its details.
+// Terminal failures are represented by the source message failure footer.
 function renderAnchoredSpaceOutcomeRows(input: {
-	align?: "end" | "start";
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -3851,7 +3837,6 @@ function renderAnchoredSpaceOutcomeRows(input: {
 					: null;
 				return (
 					<SpaceOutcomeRow
-						align={input.align}
 						key={group.key}
 						onOpenDetails={
 							input.readOnly

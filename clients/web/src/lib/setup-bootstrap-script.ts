@@ -437,11 +437,15 @@ resolve_managed_binary_command_path() {
 }
 
 read_manifest_string_field() {
-  sed -n "s/.*\\"$1\\"[[:space:]]*:[[:space:]]*\\"\\([^\\"]*\\)\\".*/\\1/p" "$2" | head -n 1
+  OPENMELD_SETUP_MANIFEST_KEY="channels.stable.platforms.$OPENMELD_SETUP_BINARY_PLATFORM.$1"
+  if [ "$1" = "version" ]; then
+    OPENMELD_SETUP_MANIFEST_KEY="channels.stable.version"
+  fi
+  plutil -extract "$OPENMELD_SETUP_MANIFEST_KEY" raw -expect string -o - "$2" 2>/dev/null || true
 }
 
 read_manifest_number_field() {
-  sed -n "s/.*\\"$1\\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p" "$2" | head -n 1
+  plutil -extract "channels.stable.platforms.$OPENMELD_SETUP_BINARY_PLATFORM.$1" raw -expect integer -o - "$2" 2>/dev/null || true
 }
 
 format_binary_download_notice() {
@@ -536,6 +540,7 @@ install_binary_openmeld() {
   command_exists shasum || die "OpenMeld binary setup needs shasum."
 
   OPENMELD_SETUP_BINARY_PLATFORM="$(resolve_binary_platform)"
+  command_exists plutil || die "OpenMeld binary setup needs the macOS plutil tool."
   OPENMELD_SETUP_BINARY_TMP="$(mktemp -d "\${TMPDIR:-/tmp}/openmeld-cli-binary.XXXXXX" 2>/dev/null || true)"
   [ -n "$OPENMELD_SETUP_BINARY_TMP" ] || die "OpenMeld could not create a temporary directory for the CLI binary."
   trap cleanup_binary_download EXIT
@@ -544,7 +549,7 @@ install_binary_openmeld() {
   OPENMELD_SETUP_BINARY_ARCHIVE_PATH="$OPENMELD_SETUP_BINARY_TMP/openmeld.gz"
 
   download_file_with_retry "$OPENMELD_SETUP_BINARY_MANIFEST_URL" "$OPENMELD_SETUP_BINARY_MANIFEST_PATH" 0 || die "OpenMeld could not download the CLI binary manifest."
-  grep -F "\\"$OPENMELD_SETUP_BINARY_PLATFORM\\"" "$OPENMELD_SETUP_BINARY_MANIFEST_PATH" >/dev/null 2>&1 || die "OpenMeld CLI binary manifest does not include this platform."
+  plutil -extract "channels.stable.platforms.$OPENMELD_SETUP_BINARY_PLATFORM" json -o /dev/null "$OPENMELD_SETUP_BINARY_MANIFEST_PATH" 2>/dev/null || die "OpenMeld CLI binary manifest does not include this platform."
   OPENMELD_SETUP_BINARY_VERSION="$(read_manifest_string_field version "$OPENMELD_SETUP_BINARY_MANIFEST_PATH")"
   OPENMELD_SETUP_BINARY_URL="$(read_manifest_string_field url "$OPENMELD_SETUP_BINARY_MANIFEST_PATH")"
   OPENMELD_SETUP_BINARY_SHA256="$(read_manifest_string_field sha256 "$OPENMELD_SETUP_BINARY_MANIFEST_PATH")"

@@ -157,6 +157,7 @@ export function isRemoteAgentStreamEligible(
   const source = context.turnEnvelope?.trigger.source;
   return (
     context.callbackStatus === "pending" &&
+    !context.replyRecovery &&
     (source === "space_wake" ||
       source === "web_dm" ||
       source === "message_channel")

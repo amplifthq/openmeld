@@ -5,7 +5,10 @@ import { hasPendingComputerSetupContinuation } from "../../config/auth-session";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import { hasIndependentMaintenanceRegistration } from "../../config/daemon-service-update-worker-registration";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
-import { compareSemver } from "../../config/version-state";
+import {
+  type CliBinaryReleaseInfo,
+  compareSemver,
+} from "../../config/version-state";
 import { withManagedInstallTransaction } from "../../local-components/managed-install";
 import {
   LocalDaemonControlPlaneClientError,
@@ -44,6 +47,7 @@ type DaemonServiceUpdateReconcileLock = <T>(
 type ManagedInstallTransaction = <T>(run: () => Promise<T>) => Promise<T>;
 
 type ScheduleDaemonServiceUpdateInput = {
+  binaryRelease?: CliBinaryReleaseInfo;
   cliScriptPath?: string;
   operationId?: string;
   requestedAt?: string;
@@ -61,6 +65,7 @@ type ScheduleDaemonServiceUpdateDependencies = {
     activate: false;
     daemonVersion: string;
     cliScriptPath?: string;
+    binaryRelease?: CliBinaryReleaseInfo;
   }) => Promise<DaemonActiveBundleState>;
   prepareWorkerCarrier: (job: DaemonServiceUpdateJob) => Promise<void>;
   pruneWorkerVersions: (job: DaemonServiceUpdateJob) => Promise<void>;
@@ -127,6 +132,7 @@ async function scheduleDaemonServiceUpdateLocked(
   const preparedBundle = await deps.prepareBundle({
     activate: false,
     daemonVersion: input.targetVersion,
+    ...(input.binaryRelease ? { binaryRelease: input.binaryRelease } : {}),
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
   });
   const now = deps.now();
@@ -185,6 +191,9 @@ async function reschedulePendingDaemonServiceUpdate(input: {
                 preparedBundle: await input.dependencies.prepareBundle({
                   activate: false,
                   daemonVersion: input.request.targetVersion,
+                  ...(input.request.binaryRelease
+                    ? { binaryRelease: input.request.binaryRelease }
+                    : {}),
                   ...(input.request.cliScriptPath
                     ? { cliScriptPath: input.request.cliScriptPath }
                     : {}),

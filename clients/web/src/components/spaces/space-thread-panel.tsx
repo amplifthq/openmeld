@@ -1619,7 +1619,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 									/>
 								) : null}
 								{renderAnchoredThreadOutcomeRows({
-									align: messageAlign,
 									notices: anchoredOutcomeNotices,
 									onOpenMessageDetails: input.onOpenMessageDetails,
 									onRecoverExecution: input.onRecoverExecution,
@@ -1922,7 +1921,6 @@ const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 // Details action always opens the SOURCE thread message (not the notice's
 // own record), matching the main panel.
 function renderAnchoredThreadOutcomeRows(input: {
-	align?: "end" | "start";
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1958,7 +1956,6 @@ function renderAnchoredThreadOutcomeRows(input: {
 					: null;
 				return (
 					<SpaceOutcomeRow
-						align={input.align}
 						key={group.key}
 						onOpenDetails={
 							input.readOnly

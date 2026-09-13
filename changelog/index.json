@@ -2,6 +2,200 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "sidebar-inbox-indicator-placement",
+      "title": "Align the Inbox status indicator with its icon",
+      "kind": "improved",
+      "areas": [
+        "web",
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.201",
+      "evidence": [
+        "pr:977",
+        "pr:980",
+        "commit:a4521fb2865759abbd715be2cab5aa8d41a90b63",
+        "workflow:34738376199"
+      ],
+      "body": "The sidebar Inbox now shows unread and attention indicators on the icon's\nupper-right corner, matching Spaces instead of sitting on the button's edge."
+    },
+    {
+      "id": "desk-centered-loading",
+      "title": "Clearer loading feedback on Desk",
+      "kind": "improved",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.201",
+      "evidence": [
+        "pr:977",
+        "pr:980",
+        "commit:a4521fb2865759abbd715be2cab5aa8d41a90b63",
+        "workflow:34738376199"
+      ],
+      "body": "Desk now shows a centered loading indicator while preparing your Space."
+    },
+    {
+      "id": "agent-results-reconnect-replay",
+      "title": "Deliver saved Agent results promptly after reconnecting",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "cli"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.200",
+      "evidence": [
+        "pr:974",
+        "pr:975",
+        "commit:de0140fd0892ffb13fd6a670a30a5c96074b6c39",
+        "workflow:34731853294",
+        "smoke:dispatch:f810516d-a222-4669-a884-225f612e5f0a"
+      ],
+      "body": "When your computer reconnects, OpenMeld immediately retries saved Agent results\nthat have not been confirmed, so waiting work can continue without an extra\ndelay from the previous connection. Confirmed results stay settled."
+    },
+    {
+      "id": "upgrade-aligns-current-cli-service",
+      "title": "Finish Service updates when the CLI is already current",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "cli"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.200",
+      "evidence": [
+        "pr:974",
+        "pr:975",
+        "commit:de0140fd0892ffb13fd6a670a30a5c96074b6c39",
+        "workflow:34731853294",
+        "smoke:update:5943d0df-fcd3-46b5-9662-340925b4dc06"
+      ],
+      "body": "Running `openmeld upgrade` now checks the Service even when the CLI is already\nup to date. It joins an update already in progress or schedules the remaining\nService work through the existing background updater."
+    },
+    {
+      "id": "preserve-stop-during-agent-progress",
+      "title": "Keep Stop available while agents work",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.201",
+      "evidence": [
+        "pr:969",
+        "pr:980",
+        "commit:a4521fb2865759abbd715be2cab5aa8d41a90b63",
+        "workflow:34738376199"
+      ],
+      "body": "Thinking and reply preview updates no longer remove an available Stop button\nfrom an active Wake. This applies to the shared conversation controls used in\ndirect messages, group conversations, and threads."
+    },
+    {
+      "id": "computer-reconnect-attempts",
+      "title": "More consistent Computer reconnection",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "cli"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.200",
+      "evidence": [
+        "pr:974",
+        "pr:975",
+        "commit:de0140fd0892ffb13fd6a670a30a5c96074b6c39",
+        "workflow:34731853294",
+        "smoke:recovery:35bf4c1d-4f15-4b15-88fe-704ef4fa93bd"
+      ],
+      "body": "After a Computer reconnects successfully, a later interruption starts with the\nnormal short retry delay instead of carrying over failures from an earlier\noutage. Local status stops reporting an interrupted connection as online.\n\nLocal diagnostic records connect each outage with its recovery attempts and\ncompletion time. They remain available while offline and no longer describe\nsuccessful connections or authentication problems as network disconnects."
+    },
+    {
+      "id": "reliable-computer-setup-recovery",
+      "title": "More reliable Computer setup and recovery",
+      "kind": "fixed",
+      "areas": [
+        "computer",
+        "cli"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.200",
+      "evidence": [
+        "pr:974",
+        "pr:975",
+        "commit:de0140fd0892ffb13fd6a670a30a5c96074b6c39",
+        "workflow:34731853294",
+        "smoke:update:5943d0df-fcd3-46b5-9662-340925b4dc06"
+      ],
+      "body": "Computer setup requests a macOS background Service start without restarting an\nalready running Service. Startup failures retain diagnostic details, and CLI\nupdate and diagnostic commands remain available when an earlier connection\ncannot recover.\n\nSetup also migrates original local agent settings without requiring a reset.\nAn older npm installation that cannot update no longer blocks setup through\nthe new managed OpenMeld binary.\n\nWhen setup starts a background Service update, it waits for that operation and\ncontinues automatically instead of asking you to run setup a second time.\nIt verifies the running Service before continuing. If Terminal closes after the\nupdate begins, the background worker finishes the same setup and Web updates\nautomatically when the computer is connected.\n\nWeb onboarding keeps an active Terminal connection flow in place while computer\nstatus refreshes, so a successful connection can finish in the same flow.\n\nOn macOS, starting a stopped Service also re-enables its automatic update worker\nbefore registering it, avoiding a startup failure caused by its disabled state."
+    },
+    {
+      "id": "center-agent-reply-recovery",
+      "title": "Recover missing Center Agent replies",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.201",
+      "evidence": [
+        "pr:969",
+        "pr:980",
+        "pr:983",
+        "pr:986",
+        "commit:e08cf7a051c497eb2ce3074280ab65484d7b7655",
+        "workflow:34739338298",
+        "workflow:34740351553"
+      ],
+      "body": "Center Agent retries eligible missing replies automatically without repeating\ncompleted actions. If it still cannot answer, your message stays saved and the\nfailure is shown clearly. When the original conversation is available, Continue\nconversation can prepare a reply from its saved results without running tools or\nother actions again."
+    },
+    {
+      "id": "quiet-web-page-recovery",
+      "title": "Recover page loading without an error-page flash",
+      "kind": "fixed",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "all-users"
+      ],
+      "publishedAt": "2026-09-13",
+      "release": "v0.3.201",
+      "evidence": [
+        "pr:979",
+        "pr:980",
+        "commit:a4521fb2865759abbd715be2cab5aa8d41a90b63",
+        "workflow:34738376199"
+      ],
+      "body": "When page files become unavailable after an update, OpenMeld shows a loading\nstate while refreshing automatically. If recovery fails, a clear refresh action\nappears. Unsaved edits and messages still being sent keep their existing\nnavigation protections."
+    },
+    {
       "id": "organization-owned-center-agent",
       "title": "Center Agents belong to their organizations",
       "kind": "security",

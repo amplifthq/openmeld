@@ -325,14 +325,14 @@ function resolveRuntimeStatusForSnapshot(input: {
   return resolveDaemonRuntimeState(input.daemonStatus).catch(() => null);
 }
 
-function resolveInventoryForSnapshot(
+async function resolveInventoryForSnapshot(
   localServiceObservation?: CurrentReplyReadinessLocalServiceObservation
 ): Promise<DaemonServiceInventory | null> {
   if (localServiceObservation) {
     return Promise.resolve(localServiceObservation.inventory);
   }
   return inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intent: "status_cleanup",
   }).catch(() => null);
 }

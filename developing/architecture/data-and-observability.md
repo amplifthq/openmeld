@@ -3053,6 +3053,14 @@ The existing Analytics Engine execution-stage event also records the content
 kind and stop reason, for example `provider.completed_empty_stop`. A completed
 provider stream is not proof of a successful Wake or published reply.
 
+An empty or thinking-only completion is recorded as a failed provider stage,
+even when transport completed normally. Attempt two records `recovered_*` or
+`recovery_exhausted_*`; non-deliverable completions use warning-level structured
+logs. Group these existing events by model and call ID to measure recovery rate,
+repeated failures, added latency, and token cost. Provider rerouting remains the
+existing OpenRouter same-model policy. These measurements do not automatically
+change a selected model or create user-submitted Diagnostic Reports.
+
 Completion observation adds no retry, per-token logging, execution timeout, or
 cross-service payload field. Reporter failure cannot interrupt stream delivery.
 These completion logs follow Workers log retention/access and Analytics Engine

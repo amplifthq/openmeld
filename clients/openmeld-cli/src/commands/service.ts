@@ -57,6 +57,7 @@ import {
   normalizeOptionalText,
   warnDaemonEvent,
 } from "../local-service/core/logger";
+import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import {
   emitDaemonLifecycleEvent,
   runDaemonServiceManagerAction,
@@ -549,7 +550,8 @@ export async function runDaemonInstall(
     code: "daemon.install.installing",
     text: "Installing OpenMeld Service...",
   });
-  const requestedVersion = options.daemonVersion ?? OPENMELD_VERSION;
+  const requestedVersion =
+    options.daemonVersion ?? (await resolveCurrentDaemonExpectedVersion());
   const downgradeBlock = await resolveDaemonDowngradeBlock({
     requestedVersion,
   });
@@ -870,7 +872,12 @@ export async function runDaemonReinstall(
           profile: input.profile,
           runtime,
           displayAction,
-          resolved: resolveDaemonReinstallOptions(options),
+          resolved: resolveDaemonReinstallOptions({
+            ...options,
+            daemonVersion:
+              options.daemonVersion ??
+              (await resolveCurrentDaemonExpectedVersion()),
+          }),
         });
         outcome = await attachDaemonReinstallEvidence({
           outcome,
@@ -1407,7 +1414,7 @@ function isDaemonInventoryRunningAndAligned(
 }
 
 function resolveDaemonReinstallOptions(
-  options: DaemonReinstallInternalOptions
+  options: DaemonReinstallInternalOptions & { daemonVersion: string }
 ): {
   drainWaitMs: number;
   daemonVersion: string;
@@ -1424,7 +1431,7 @@ function resolveDaemonReinstallOptions(
   resolveUpdateUrgency: typeof resolveServiceUpdateUrgency;
   scheduleServiceUpdate: typeof scheduleDaemonServiceUpdate;
 } {
-  const daemonVersion = options.daemonVersion ?? OPENMELD_VERSION;
+  const daemonVersion = options.daemonVersion;
   return {
     drainWaitMs: options.drainWaitMs ?? REINSTALL_DRAIN_WAIT_MS,
     daemonVersion,
@@ -2763,7 +2770,7 @@ export async function runDaemonRun(
   if (!input.mode && canUseInteractivePrompts(runtime)) {
     const preflightResult =
       await runDaemonRunInteractivePreflightBeforeModePrompt({
-        daemonVersion: OPENMELD_VERSION,
+        daemonVersion: await resolveCurrentDaemonExpectedVersion(),
         input,
         presenter,
         runtime,
@@ -2795,7 +2802,10 @@ export async function runDaemonRun(
   }
 
   return await executeResolvedDaemonRun({
-    daemonVersion: OPENMELD_VERSION,
+    daemonVersion:
+      mode === "foreground"
+        ? OPENMELD_VERSION
+        : await resolveCurrentDaemonExpectedVersion(),
     input,
     mode,
     options,
@@ -3020,7 +3030,7 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
   }
 
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: OPENMELD_VERSION,
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intendedMode: "background",
   }).catch(() => null);
   if (!(inventory && shouldBlockDaemonRunFromInventory(inventory))) {
@@ -4891,7 +4901,7 @@ type DetachedDaemonServiceLaunchTarget = {
 
 async function resolveDetachedDaemonServiceLaunchTarget(): Promise<DetachedDaemonServiceLaunchTarget> {
   const entryPath = await resolveAlignedDaemonActiveBundleEntryPath({
-    expectedVersion: OPENMELD_VERSION,
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
   });
   if (entryPath) {
     if (isBinaryDistribution()) {

@@ -31,7 +31,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/u;
 const SECURE_STORAGE_SMOKE_FAILURE_PATTERN = /secure storage smoke failed/u;
 const STOP_AFTER_BUILD_INPUT_PATTERN = /stop after build input/u;
 
-test("publishes the proven 0.3.126 CLI compatibility floor without forcing every older supported release", () => {
+test("publishes the proven CLI compatibility floor without forcing every older supported release", () => {
   const packageJson = JSON.parse(
     readFileSync(
       new URL("../../clients/openmeld-cli/package.json", import.meta.url),
@@ -40,7 +40,7 @@ test("publishes the proven 0.3.126 CLI compatibility floor without forcing every
   );
   const minRequiredCliVersion = resolveCliMinRequiredVersion();
 
-  assert.equal(minRequiredCliVersion, "0.3.126");
+  assert.equal(minRequiredCliVersion, "0.3.198");
   assert.notEqual(
     minRequiredCliVersion,
     packageJson.version,
@@ -105,6 +105,10 @@ test("builds the captured stable CLI binary manifest shape", () => {
 test("passes an isolated staging version into the binary build", async () => {
   const calls = [];
   const version = "0.3.122-staging.20260828001527123.30530093";
+  const service = {
+    version: CAPTURED_MANIFEST.channels.stable.version,
+    platforms: CAPTURED_MANIFEST.channels.stable.platforms,
+  };
   await assert.rejects(
     async () =>
       await import("./upload-cli-binary.mjs").then(({ uploadCliBinary }) =>
@@ -114,13 +118,29 @@ test("passes an isolated staging version into the binary build", async () => {
             throw new Error("stop after build input");
           },
           version,
+          service,
         })
       ),
     STOP_AFTER_BUILD_INPUT_PATTERN
   );
   assert.deepEqual(calls, [
-    { outDir: undefined, platform: "darwin-arm64", version },
+    { outDir: undefined, platform: "darwin-arm64", version, service },
   ]);
+  const artifact = service.platforms["darwin-arm64"];
+  const published = buildCliManifest({
+    version,
+    service,
+    minRequiredCliVersion: "0.2.14",
+    platform: "darwin-arm64",
+    artifactName: `openmeld-cli-darwin-arm64-${version}`,
+    archiveArtifactName: `openmeld-cli-darwin-arm64-${version}.gz`,
+    downloadBaseUrl: DEFAULT_CLI_DOWNLOAD_BASE_URL,
+    sha256: artifact.sha256,
+    sizeBytes: artifact.sizeBytes,
+    archiveSha256: artifact.sha256,
+    archiveSizeBytes: artifact.sizeBytes,
+  });
+  assert.deepEqual(published.channels.stable.service, service);
 });
 
 test("compresses the final signed CLI binary into a gzip transport artifact", () => {

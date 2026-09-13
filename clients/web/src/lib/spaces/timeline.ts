@@ -1,5 +1,6 @@
 import {
 	AGENT_REPLY_FINAL_PURPOSE,
+	CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
 	type NavigationAction,
 	REMOTE_AGENT_FAILURE_PURPOSE,
 } from "@openmeld/schemas";
@@ -439,6 +440,31 @@ function buildSpaceTimelineItem(input: {
 		transientActivityPurpose: readTransientActivityPurpose(input.signal),
 		text: projection.text,
 		...readSourceMessageAddressingDetails(input.signal),
+		...readLegacyEmptyReplyFailure(input.signal),
+	};
+}
+
+function readLegacyEmptyReplyFailure(
+	signal: SpaceTimelineVisibleEnvelope
+): Partial<SpaceTimelineItem> {
+	if (
+		signal.type !== "signal.text" ||
+		signal.profile.kind !== "agent" ||
+		signal.data.meta?.purpose !== REMOTE_AGENT_FAILURE_PURPOSE ||
+		signal.data.meta.errorCode !== "remote_agent.empty_assistant_response" ||
+		!signal.data.meta.dispatchId
+	) {
+		return {};
+	}
+	return {
+		signalType: "signal.system_notice",
+		systemNoticeType: "terminal_failure",
+		systemNoticeDispatchId: signal.data.meta.dispatchId,
+		systemNoticeTargetProfileId: signal.profile.profileId,
+		systemNoticeReasonCode: signal.data.meta.errorCode,
+		systemNoticeFailureStage: "execution",
+		text: CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY,
+		isAgentFinalReply: false,
 	};
 }
 

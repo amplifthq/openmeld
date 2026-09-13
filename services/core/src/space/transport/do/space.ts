@@ -307,6 +307,7 @@ import {
 } from "../../../execution-recovery/application/execution-recovery-native-result";
 import {
   buildExecutionRecoveryFreshClientMessageId,
+  buildExecutionRecoveryOperationKeys,
   EXECUTION_RECOVERY_OPERATION_CLAIM_STORAGE_PREFIX,
 } from "../../../execution-recovery/application/execution-recovery-operation-identity";
 import { publishExecutionRecoveryToOrigin } from "../../../execution-recovery/application/execution-recovery-publication";
@@ -5504,7 +5505,11 @@ export class Space extends DurableObject<CoreBindings> {
       };
     }
     if (input.command.action !== "retry_as_new_execution") {
-      if (input.command.destination.surface === "space") {
+      if (
+        input.command.destination.surface === "space" &&
+        input.projection.identity.agentControllerRef !==
+          HOSTED_CENTER_AGENT_CONTROLLER_REF
+      ) {
         return null;
       }
       return await this.resolveAuthoritativeHostedExecutionRecoveryResponse(
@@ -5659,11 +5664,7 @@ export class Space extends DurableObject<CoreBindings> {
         targetProfileId: trace.dispatch.targetProfileId,
       });
     const identity: ExecutionRecoveryIdentity = {
-      agentControllerConversationId:
-        trace.origin?.resolvedAgentControllerConversationId ??
-        trace.origin?.agentControllerConversationId ??
-        null,
-      agentControllerRef: trace.origin?.agentControllerRef ?? null,
+      ...resolveExecutionRecoveryControllerIdentity(trace, nativeDelivery),
       attemptId:
         resultInbox?.attemptId ?? trace.latestAttempt?.attemptId ?? null,
       dispatchId: trace.dispatch.dispatchId,
@@ -5731,7 +5732,7 @@ export class Space extends DurableObject<CoreBindings> {
       recoveredSignalId,
       spaceRecoveryCompleted,
     });
-    return inspectExecutionRecovery({
+    const projection = inspectExecutionRecovery({
       destination,
       explicitUserStop: trace.finalVisibleOutcome?.status === "visible_stopped",
       identity: canonicalIdentity,
@@ -5751,8 +5752,72 @@ export class Space extends DurableObject<CoreBindings> {
         nativeDelivery?.failureCode ??
         trace.finalVisibleOutcome?.reasonCode ??
         null,
+      replyRecoverySupported: Boolean(nativeDelivery),
       updatedAtMs: Date.now(),
     });
+    return await this.projectNativeReplyRecoveryAttempt(
+      projection,
+      nativeDelivery
+    );
+  }
+
+  private async projectNativeReplyRecoveryAttempt(
+    projection: ExecutionRecoveryProjection,
+    originalDelivery: Awaited<
+      ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>
+    >
+  ): Promise<ExecutionRecoveryProjection> {
+    if (
+      !originalDelivery ||
+      projection.status !== "available" ||
+      projection.recommendedAction !== "resume_controller_conversation"
+    ) {
+      return projection;
+    }
+    const db = wakeEvidenceDb(this.bindings);
+    if (!db) {
+      return projection;
+    }
+    const keys = await buildExecutionRecoveryOperationKeys({
+      action: "resume_controller_conversation",
+      destination: projection.destination,
+      expectedIdentity: projection.identity,
+      operationId: "inspect",
+    });
+    const identity = buildRemoteAgentExecutionRecoveryIdentity({
+      action: "resume_controller_conversation",
+      operationId: keys.effectOperationId,
+      originalDelivery,
+    });
+    const attempt = await readRemoteAgentNativeDeliveryByIdempotencyKey({
+      db,
+      idempotencyKey: identity.idempotencyKey,
+    });
+    if (!attempt) {
+      return projection;
+    }
+    const failed =
+      attempt.status === "failed" || attempt.status === "worker_unavailable";
+    const outcomeUnknown = attempt.finalPublicationState === "outcome_unknown";
+    const knownStatus = failed ? "unavailable" : "in_progress";
+    return {
+      ...projection,
+      status: outcomeUnknown ? "outcome_unknown" : knownStatus,
+      recommendedAction: null,
+      actions: {
+        ...projection.actions,
+        resumeControllerConversation: {
+          ...projection.actions.resumeControllerConversation,
+          enabled: false,
+          reasonCode: failed
+            ? "execution_recovery.reply_failed"
+            : "execution_recovery.reply_in_progress",
+          warning: failed
+            ? "The reply still couldn't be completed. Your message is saved. Use Details to send a report."
+            : null,
+        },
+      },
+    };
   }
 
   private async requireExecutionRecoveryNativeDelivery(
@@ -5786,13 +5851,12 @@ export class Space extends DurableObject<CoreBindings> {
     identity: ExecutionRecoveryIdentity | null;
     serviceSupportsResume: boolean;
   }> {
-    if (input.destination.surface !== "space") {
+    if (input.nativeDelivery) {
       const delivery = input.nativeDelivery;
       const request = delivery?.executionRecoverySubmitRequest;
       const exactAssociationVerified = Boolean(
         delivery &&
           request &&
-          delivery.conversationKind !== "space" &&
           delivery.dispatchId === input.identity.dispatchId &&
           delivery.profileId === input.identity.targetProfileId &&
           delivery.spaceId === input.destination.spaceId &&
@@ -5808,7 +5872,10 @@ export class Space extends DurableObject<CoreBindings> {
         identity: exactAssociationVerified
           ? {
               ...input.identity,
-              agentControllerConversationId: delivery?.spaceId ?? null,
+              ...resolveExecutionRecoveryControllerIdentity(
+                input.trace,
+                delivery
+              ),
               agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
             }
           : null,
@@ -5898,7 +5965,10 @@ export class Space extends DurableObject<CoreBindings> {
       | "new_execution_requested"
       | "outcome_unknown";
   }> {
-    if (input.command.destination.surface !== "space") {
+    if (
+      input.projection.identity.agentControllerRef ===
+      HOSTED_CENTER_AGENT_CONTROLLER_REF
+    ) {
       const db = wakeEvidenceDb(this.bindings);
       if (!db) {
         throw new Error("execution_recovery.storage_unavailable");
@@ -5913,6 +5983,9 @@ export class Space extends DurableObject<CoreBindings> {
         nowMs: Date.now(),
         operationId: input.command.operationId,
         originalDelivery: delivery,
+        resultRef:
+          buildControllerResumeResultRef(input.projection.identity) ??
+          undefined,
         markEffectStarted: input.markEffectStarted,
       });
       return {
@@ -23340,6 +23413,30 @@ function buildControllerResumeResultRef(
   return conversationId
     ? ["controller-resume", identity.dispatchId, conversationId].join(":")
     : null;
+}
+
+function resolveExecutionRecoveryControllerIdentity(
+  trace: SpaceDispatchTraceSnapshot,
+  delivery: Awaited<ReturnType<typeof readRemoteAgentNativeDeliveryByExecution>>
+): Pick<
+  ExecutionRecoveryIdentity,
+  "agentControllerConversationId" | "agentControllerRef"
+> {
+  const request = delivery?.executionRecoverySubmitRequest;
+  if (delivery?.submissionId && request) {
+    return {
+      agentControllerConversationId:
+        request.v === 4 ? request.runtimeConversation.id : delivery.spaceId,
+      agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    };
+  }
+  return {
+    agentControllerConversationId:
+      trace.origin?.resolvedAgentControllerConversationId ??
+      trace.origin?.agentControllerConversationId ??
+      null,
+    agentControllerRef: trace.origin?.agentControllerRef ?? null,
+  };
 }
 
 function assertMatchingExecutionRecoveryNotice(

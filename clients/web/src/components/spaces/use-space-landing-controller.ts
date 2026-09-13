@@ -3224,6 +3224,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const merged = mergePersistedIncoming(history.envelopes);
+			historyNavigation.revealCachedBefore(merged);
 			const nextEarliestVisibleSignalId =
 				getEarliestVisibleTimelineSignalId(merged);
 			if (nextEarliestVisibleSignalId === earliestVisibleSignalId) {

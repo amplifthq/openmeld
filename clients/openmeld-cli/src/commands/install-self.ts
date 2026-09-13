@@ -9,12 +9,16 @@ import {
   type CliInstallSelfOutcome,
   performManagedInstall,
 } from "../local-components/managed-install";
+import { writeInstalledLocalComponentsSnapshot } from "../local-components/manifest";
 
 export async function runInstallSelf(input: {
   json: boolean;
   force: boolean;
 }): Promise<void> {
   const outcome = await performManagedInstall({ force: input.force });
+  if (outcome.result !== "noop_newer_present") {
+    await writeInstalledLocalComponentsSnapshot({ source: "manual" });
+  }
   await activateManagedCommandOrWarn(outcome);
   if (input.json) {
     process.stdout.write(
