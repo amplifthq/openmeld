@@ -220,7 +220,9 @@ export function useSpaceConversationPosition(input: {
 		controls.addEventListener("pointerdown", release);
 		viewport.addEventListener("keydown", onKeyDown);
 		window.addEventListener("pagehide", save);
-		schedule();
+		// Align mounted history in this layout effect, before it can paint at the
+		// default start position. Later size changes still coalesce into a frame.
+		restore();
 		return () => {
 			if (saveTimerRef.current) {
 				clearTimeout(saveTimerRef.current);
