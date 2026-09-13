@@ -1,4 +1,5 @@
 import { Badge } from "@openmeld/ui/components/badge";
+import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	ContextMenu,
@@ -883,8 +884,9 @@ function Desk() {
 						profilesQuery.isError ||
 						(loaded && space.ready)
 					) && (
-						<output className="p-6 text-muted-foreground">
-							Preparing your Space…
+						<output className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground text-sm">
+							<Bars aria-hidden="true" className="h-6 w-8" />
+							<span>Preparing your Space…</span>
 						</output>
 					)}
 					{loaded && !nodes.some((node) => node.data.kind !== "welcome") && (
