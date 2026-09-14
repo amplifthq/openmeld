@@ -388,11 +388,29 @@ Electron entitlements support JIT and library loading with Hardened Runtime.
 
 The existing `unsigned` command and artifact names mean no Developer ID signing.
 Ad-hoc integrity is not Developer ID trust, notarization, or Gatekeeper acceptance.
-Notarization remains disabled for these local artifacts. Before installation
+Notarization remains disabled for default development artifacts. Before installation
 acceptance, verify both the source App and its DMG copy with
 `codesign --verify --deep --strict --verbose=2`, then use the normal macOS Open
 flow with quarantine preserved. A valid signature does not prove visible startup,
 login, or Service behavior; report those outcomes separately.
+
+For an authorized local installation acceptance, use
+`pnpm desktop:package:acceptance` with the existing disposable target and fixed
+Web origin. This invokes the same installed packaging pipeline and validates the
+same renderer fingerprint. The installed builder configuration selects the
+existing SOPHIAPRO Developer ID and `openmeld-notary` Keychain profile from the
+Apple release credential contract. Competing file/password credentials are
+rejected; no certificate is created or exported. Builder signs nested code,
+submits the App to Apple, staples the accepted ticket to the App, and then creates
+a signed `-acceptance.dmg` under `clients/desktop/dist/acceptance`. The ticket
+covers the App copied out of that DMG; the container has no separately stapled
+ticket. No renderer or account data is changed, and publishing remains disabled.
+Verify the copied App's strict signature, stapled ticket and Gatekeeper assessment
+before the normal download/Finder/native batch. This command contacts Apple's
+notary service but does not authorize public distribution or deployment.
+Use `DEBUG=electron-notarize:notarytool` for a local evidence run to retain the
+Apple submission ID and Accepted result in the build log. Compute final artifact
+hashes only after notarization, stapling and DMG creation have completed.
 
 ### Installed macOS entry
 

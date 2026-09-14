@@ -1,5 +1,9 @@
 import { readFileSync } from "node:fs";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target.ts";
+import {
+  DEFAULT_APPLE_TEAM_ID,
+  DEFAULT_NOTARY_KEYCHAIN_PROFILE,
+} from "../../scripts/release/macos-cli-signing.mjs";
 
 const target = readInstalledDesktopTarget(process.env);
 if (!target) {
@@ -9,12 +13,35 @@ const { build } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8")
 );
 
-// Local ad-hoc artifact only. Developer ID/publication is a separate release gate.
+const acceptance = process.env.OPENMELD_DESKTOP_ACCEPTANCE === "1";
+if (acceptance) {
+  if (target.kind !== "disposable") {
+    throw new Error("Local Desktop acceptance requires the disposable target.");
+  }
+  // Builder prioritizes these over Keychain profiles. Refuse mixed credentials.
+  for (const name of [
+    "APPLE_ID",
+    "APPLE_APP_SPECIFIC_PASSWORD",
+    "APPLE_API_KEY",
+    "APPLE_API_KEY_ID",
+    "APPLE_API_ISSUER",
+    "CSC_LINK",
+  ]) {
+    if (process.env[name]) {
+      throw new Error(
+        `Unset ${name} to use the local Desktop Keychain profile.`
+      );
+    }
+  }
+  process.env.APPLE_KEYCHAIN_PROFILE = DEFAULT_NOTARY_KEYCHAIN_PROFILE;
+}
+
+// Both modes use the same installed pages and build pipeline; neither publishes.
 export default {
   ...build,
   appId: target.appId,
   productName: target.dataDirectory,
-  directories: { output: "dist/installed" },
+  directories: { output: acceptance ? "dist/acceptance" : "dist/installed" },
   files: build.files
     .filter((file) => file !== "out/**/*")
     .concat(["out/main/**/*", "out/preload/**/*"]),
@@ -22,5 +49,23 @@ export default {
   protocols: [
     { name: "OpenMeld Desktop sign-in", schemes: [target.authScheme] },
   ],
+  mac: acceptance
+    ? {
+        ...build.mac,
+        identity: `SOPHIAPRO PTE. LTD. (${DEFAULT_APPLE_TEAM_ID})`,
+        type: "distribution",
+        notarize: true,
+      }
+    : build.mac,
+  dmg: acceptance
+    ? {
+        ...build.dmg,
+        artifactName: build.dmg.artifactName.replace(
+          "-unsigned",
+          "-acceptance"
+        ),
+        sign: true,
+      }
+    : build.dmg,
   publish: null,
 };
