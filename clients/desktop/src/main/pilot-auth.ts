@@ -146,6 +146,11 @@ export function createPilotAuth(
       if (!raw) {
         throw new Error("OpenMeld did not return a response.");
       }
+      if (raw.status === 401) {
+        // Invalidate the existing account fence after SDK cookie handling.
+        // The fence rereads identity; an HTTP status is not identity truth.
+        onSessionChanged();
+      }
       return raw;
     },
     async session() {

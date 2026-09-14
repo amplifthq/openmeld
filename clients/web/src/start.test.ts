@@ -2,8 +2,13 @@ import {
 	DESKTOP_APP_ORIGIN,
 	DESKTOP_WEB_BUILD_HEADER,
 } from "@openmeld/schemas";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startInstance } from "./start";
+
+beforeEach(() => {
+	vi.stubGlobal("__OPENMELD_DESKTOP_PILOT__", false);
+	vi.stubGlobal("__OPENMELD_DESKTOP_WEB_BUILD__", "test-build");
+});
 
 afterEach(() => {
 	vi.restoreAllMocks();

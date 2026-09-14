@@ -147,15 +147,20 @@ it.each([
     expect(auth.cookie()).toBe(`${originalCookie}; unrelated=unchanged`); // Expiry-only renewal preserves the token value.
   }
   vi.setSystemTime(Date.now() + 8000); // Beyond the original 10-second expiry.
-  auth = createPilotAuth(origin, () => null, vi.fn());
+  const changed = vi.fn(() => {
+    expect(auth.cookie()).not.toMatch(usableSessionToken);
+  });
+  auth = createPilotAuth(origin, () => null, changed);
   expect(auth.cookie()).toBe(`${originalCookie}; unrelated=unchanged`);
   expect((await auth.session()).user?.email).toBe("native@example.com");
+  expect(changed).not.toHaveBeenCalled();
   status = 401;
   const deleted = await auth.cloudRequest("/v1/renewal", {
     method: "GET",
     headers: new Headers(),
   });
   expect(deleted.status).toBe(401);
+  expect(changed).toHaveBeenCalledTimes(1);
   expect(await deleted.json()).toEqual({ code: "business.failed" });
   expect(auth.cookie()).not.toMatch(usableSessionToken);
   expect((await auth.session()).user).toBeNull();
