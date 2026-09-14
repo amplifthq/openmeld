@@ -15405,7 +15405,10 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("opens an Inbox source at the exact loaded Space message", () => {
+	it("opens an Inbox source before the conversation viewport finishes layout", () => {
+		const offsetHeightSpy = vi
+			.spyOn(HTMLElement.prototype, "offsetHeight", "get")
+			.mockReturnValue(0);
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -15457,6 +15460,7 @@ describe("SpaceLanding", () => {
 		).toBe(480);
 		expect(document.activeElement).toBe(target);
 		rectSpy.mockRestore();
+		offsetHeightSpy.mockRestore();
 	});
 
 	it("opens a terminal Wake failure Inbox target at the source message that presents its outcome", () => {

@@ -1905,7 +1905,13 @@ function scrollMessageIntoConversationViewport(input: {
 		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
 		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
 		// Canvas transforms scale viewport coordinates, while scrollTop uses CSS pixels.
-		const scale = viewportRect.height / input.scrollElement.offsetHeight;
+		// The first deep-link focus can run before layout reports an offset height.
+		// Use unscaled coordinates for that frame; the scheduled passes below will
+		// correct the position once layout has settled.
+		const scale =
+			input.scrollElement.offsetHeight > 0 && viewportRect.height > 0
+				? viewportRect.height / input.scrollElement.offsetHeight
+				: 1;
 		if (scale > 0) {
 			input.scrollElement.scrollTop += (messageCenter - viewportCenter) / scale;
 		}
