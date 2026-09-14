@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T17:59:17.523Z",
+  "updatedAt": "2026-09-14T21:54:21.683Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.205",
+      "packageVersion": "0.3.206",
       "updatePolicy": "available",
-      "reason": "Permission descriptions and Codex waiting recovery preserve commands and wire contracts with old and new cloud versions."
+      "reason": "Existing CLI setup, Wake, Space actions and Trace remain compatible; new private diagnostics use an opt-in receiver deployed first."
     },
     "service": {
-      "bundleHash": "9a1ea5e8491ecbaafb855c36266c7755f32f51592d214342691d81f7eb4c1288",
-      "bundleVersion": "0.3.205",
+      "bundleHash": "7bc19d6066358b6372e3400cc3ed75cd1f7652a2023e1447233a72d613c0f3b0",
+      "bundleVersion": "0.3.206",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Codex writer admission retries preserve existing Wake lifecycle contracts and do not interrupt work owned by other applications; old Services remain compatible."
+      "reason": "Old and new Services preserve accepted work and existing authority; recovery improvements and bounded diagnostics are additive, so blocking new work or interrupting running tasks is unnecessary."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
