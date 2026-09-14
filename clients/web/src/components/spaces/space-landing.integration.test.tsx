@@ -15405,10 +15405,10 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("opens an Inbox source before the conversation viewport finishes layout", () => {
+	it("opens an Inbox source at the highlighted message", () => {
 		const offsetHeightSpy = vi
 			.spyOn(HTMLElement.prototype, "offsetHeight", "get")
-			.mockReturnValue(0);
+			.mockReturnValue(500);
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -15593,7 +15593,7 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 	});
 
-	it("opens a linked thread and highlights the exact Inbox reply", async () => {
+	it("opens the linked thread shell before its catalog and replies load, then focuses the exact Inbox reply", async () => {
 		const rootSignal = createTextSignal({
 			id: "sig-linked-thread-root",
 			text: "Thread root",
@@ -15604,6 +15604,8 @@ describe("SpaceLanding", () => {
 			text: "Exact linked reply",
 			ts: 20,
 		});
+		const threadSignals = createQueryResult({ isPending: true });
+		const threads = createQueryResult({ isPending: true, isFetching: true });
 		mockSpaceQueries({
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
@@ -15614,7 +15616,26 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: { envelopes: [rootSignal], nextCursor: null },
 			}),
-			threads: createQueryResult({
+			threads,
+			threadSignals,
+		});
+
+		const view = renderSpaceLanding({
+			initialFocusSignalId: replySignal.id,
+			initialFocusThreadRootSignalId: rootSignal.id,
+		});
+
+		const threadPanel = await screen.findByRole("complementary", {
+			name: "Thread",
+		});
+		expect(
+			within(threadPanel).getByText("Thread", { exact: true })
+		).toBeTruthy();
+		expect(within(threadPanel).getByRole("textbox")).toBeTruthy();
+		expect(within(threadPanel).queryByText("Exact linked reply")).toBeNull();
+		Object.assign(
+			threads,
+			createQueryResult({
 				isSuccess: true,
 				data: {
 					previews: [],
@@ -15629,30 +15650,37 @@ describe("SpaceLanding", () => {
 						},
 					],
 				},
-			}),
-			threadSignals: createQueryResult({
-				isSuccess: true,
-				data: { signals: [replySignal] },
-			}),
-		});
-
-		renderSpaceLanding({
-			initialFocusSignalId: replySignal.id,
-			initialFocusThreadRootSignalId: rootSignal.id,
-		});
-
-		const threadPanel = await screen.findByRole("complementary", {
-			name: "Thread",
-		});
+			})
+		);
+		view.rerender(
+			<SpaceLanding
+				initialFocusSignalId={replySignal.id}
+				initialFocusThreadRootSignalId={rootSignal.id}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		expect(within(threadPanel).getByText("Loading thread…")).toBeTruthy();
+		Object.assign(
+			threadSignals,
+			createQueryResult({ isSuccess: true, data: { signals: [replySignal] } })
+		);
+		view.rerender(
+			<SpaceLanding
+				initialFocusSignalId={replySignal.id}
+				initialFocusThreadRootSignalId={rootSignal.id}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
 		await waitFor(() => {
 			const target = threadPanel.querySelector(
 				`[data-signal-id="${replySignal.id}"]`
 			);
 			expect(target?.getAttribute("data-highlighted")).toBe("true");
 			expect(target?.className).toContain("motion-reduce:transition-none");
-		});
-		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
-			block: "center",
 		});
 		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
 			replySignal.id

@@ -123,7 +123,11 @@ import type {
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
-import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
+import {
+	SpaceConversationSendScrollController,
+	type SpaceMessageScrollAction,
+	SpaceMessageScrollController,
+} from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
@@ -561,6 +565,7 @@ function SpaceConversationPanelContent(
 		conversationAutoScroll,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
+		messageScrollActionRef,
 		followLatest,
 		releaseReadingPosition,
 		loadEarlierHistory,
@@ -571,7 +576,6 @@ function SpaceConversationPanelContent(
 		registerConversationScrollElement,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
-		threadFocusStatusMessage,
 		unreadNavigation,
 	} = navigation;
 	const registerReadingScrollElement = useCallback(
@@ -618,7 +622,6 @@ function SpaceConversationPanelContent(
 			) : null}
 			{renderInitialSpaceFocusStatus({
 				mainMessage: mainFocusStatusMessage,
-				threadMessage: threadFocusStatusMessage,
 			})}
 			{input.activeSpaceView === "messages" ? (
 				<SpacePinnedItemsBar
@@ -667,6 +670,7 @@ function SpaceConversationPanelContent(
 							isSendingMessage={input.isSendingMessage}
 							onSendStart={followLatest}
 						/>
+						<SpaceMessageScrollController actionRef={messageScrollActionRef} />
 						<MessageScroller className="relative min-h-0 flex-1">
 							{input.historyNavigation && (
 								<SpaceHistoryRail
@@ -1226,6 +1230,7 @@ function useSpaceConversationNavigationController(input: {
 		input.spaceId ?? input.spaceViewIdPrefix
 	);
 	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
+	const messageScrollActionRef = useRef<SpaceMessageScrollAction | null>(null);
 	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
 	const [conversationScrollElement, setConversationScrollElement] =
 		useState<HTMLDivElement | null>(null);
@@ -1255,7 +1260,6 @@ function useSpaceConversationNavigationController(input: {
 	const onConversationScrollEnd = conversationPosition.onScrollEnd;
 	const highlightMessageTimerRef = useRef<number | null>(null);
 	const appliedInitialFocusRef = useRef<string | null>(null);
-	const appliedInitialThreadFocusRef = useRef<string | null>(null);
 	const focusHistorySearchRef = useRef({ attempts: 0, targetKey: "" });
 	const [highlightedSignalId, setHighlightedSignalId] = useState<string | null>(
 		null
@@ -1294,6 +1298,10 @@ function useSpaceConversationNavigationController(input: {
 			return;
 		}
 		conversationPosition.releaseReadingPosition();
+		messageScrollActionRef.current?.(signalId, {
+			align: "center",
+			behavior: "instant",
+		});
 		const scrollElement = conversationScrollRef.current;
 		if (scrollElement) {
 			scrollMessageIntoConversationViewport({ messageElement, scrollElement });
@@ -1477,35 +1485,6 @@ function useSpaceConversationNavigationController(input: {
 				requestedMainFocusSignalId
 			)
 		: undefined;
-	const initialFocusThread = input.initialFocusThreadRootSignalId
-		? input.threadsByRootSignalId.get(input.initialFocusThreadRootSignalId)
-		: undefined;
-	const threadFocusStatusMessage = resolveInitialThreadFocusStatusMessage({
-		hasTargetThread: initialFocusThread !== undefined,
-		isLoading: input.threadsIsLoading,
-		rootSignalId: input.initialFocusThreadRootSignalId,
-		threadsErrorMessage: input.threadsErrorMessage,
-	});
-	useEffect(() => {
-		const rootSignalId = input.initialFocusThreadRootSignalId;
-		if (!rootSignalId) {
-			appliedInitialThreadFocusRef.current = null;
-			return;
-		}
-		const targetKey = `${input.spaceId ?? "space"}:${rootSignalId}`;
-		if (
-			appliedInitialThreadFocusRef.current !== targetKey &&
-			initialFocusThread
-		) {
-			appliedInitialThreadFocusRef.current = targetKey;
-			input.onOpenThread(initialFocusThread.threadId);
-		}
-	}, [
-		input.initialFocusThreadRootSignalId,
-		input.spaceId,
-		initialFocusThread,
-		input.onOpenThread,
-	]);
 	useEffect(() => {
 		if (input.initialFocusThreadRootSignalId) {
 			return;
@@ -1604,6 +1583,7 @@ function useSpaceConversationNavigationController(input: {
 
 	return {
 		conversationAutoScroll,
+		messageScrollActionRef,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
 		followLatest: conversationPosition.followLatest,
@@ -1620,7 +1600,6 @@ function useSpaceConversationNavigationController(input: {
 		onOpenThread,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
-		threadFocusStatusMessage,
 		unreadNavigation,
 	};
 }
@@ -1685,20 +1664,6 @@ function resolveInitialMainFocusSignalId(
 	);
 }
 
-function resolveInitialThreadFocusStatusMessage(input: {
-	hasTargetThread: boolean;
-	isLoading: boolean;
-	rootSignalId?: string;
-	threadsErrorMessage?: string | null;
-}): string | null {
-	if (!input.rootSignalId || input.hasTargetThread || input.isLoading) {
-		return null;
-	}
-	return input.threadsErrorMessage
-		? "Couldn’t open the linked thread. Refresh this Space and try again."
-		: "This linked thread isn’t available. It may have been removed or you may no longer have access.";
-}
-
 function continueInitialMainTimelineFocusSearch(input: {
 	appliedInitialFocusRef: { current: string | null };
 	focusHistorySearchRef: {
@@ -1761,21 +1726,14 @@ function continueInitialMainTimelineFocusSearch(input: {
 	);
 }
 
-function renderInitialSpaceFocusStatus(input: {
-	mainMessage: string | null;
-	threadMessage: string | null;
-}) {
-	const message = input.threadMessage ?? input.mainMessage;
+function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
+	const message = input.mainMessage;
 	if (!message) {
 		return null;
 	}
 	return (
 		<output
-			aria-label={
-				input.threadMessage
-					? "Linked thread isn't available"
-					: "Linked message isn't available"
-			}
+			aria-label="Linked message isn't available"
 			className="border-border border-b bg-muted/40 px-4 py-3 text-muted-foreground text-sm sm:px-5"
 		>
 			{message}

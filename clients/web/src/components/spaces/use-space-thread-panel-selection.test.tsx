@@ -32,6 +32,58 @@ function ThreadPanelSelectionHarness() {
 }
 
 describe("useSpaceThreadPanelSelection", () => {
+	it.each([
+		"close",
+		"switch",
+	])("opens a pending linked Thread immediately and respects %s before its catalog arrives", (action) => {
+		function Harness({ ready }: { ready: boolean }) {
+			const selection = useSpaceThreadPanelSelection({
+				profileId: "profile-1",
+				spaceId: "space-1",
+				availableThreadIds: new Set(
+					ready ? ["thread-1", "thread-2"] : ["thread-2"]
+				),
+				availableThreadsReady: ready,
+				threadIdsByRootSignalId: new Map(
+					ready
+						? [
+								["root-1", "thread-1"],
+								["root-2", "thread-2"],
+							]
+						: [["root-2", "thread-2"]]
+				),
+				initialFocusThreadRootSignalId: "root-1",
+				initialFocusSignalId: "reply-1",
+			});
+			return (
+				<>
+					<output aria-label="Panel">
+						{selection.isOpen
+							? (selection.activeThreadId ?? "loading")
+							: "closed"}
+					</output>
+					<button
+						onClick={() =>
+							action === "close"
+								? selection.close()
+								: selection.open("thread-2")
+						}
+						type="button"
+					>
+						Leave target
+					</button>
+				</>
+			);
+		}
+		const view = render(<Harness ready={false} />);
+		expect(screen.getByLabelText("Panel").textContent).toBe("loading");
+		fireEvent.click(screen.getByRole("button", { name: "Leave target" }));
+		view.rerender(<Harness ready={true} />);
+		expect(screen.getByLabelText("Panel").textContent).toBe(
+			action === "close" ? "closed" : "thread-2"
+		);
+	});
+
 	it("opens and closes the Thread when browser storage is blocked", () => {
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 		const blockedStorage = () => {

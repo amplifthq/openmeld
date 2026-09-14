@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
 	clearSpaceThreadPanelSelection,
 	readSpaceThreadPanelSelection,
@@ -9,6 +9,7 @@ type SpaceThreadPanelSelection = {
 	profileId: string;
 	spaceId: string;
 	threadId: string | null;
+	rootSignalId?: string | null;
 };
 
 export function useSpaceThreadPanelSelection(input: {
@@ -16,17 +17,58 @@ export function useSpaceThreadPanelSelection(input: {
 	availableThreadsReady: boolean;
 	profileId: string;
 	spaceId: string;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+	threadIdsByRootSignalId?: ReadonlyMap<string, string>;
 }) {
+	const initialFocus = useMemo(
+		() => ({
+			rootSignalId: input.initialFocusThreadRootSignalId,
+			signalId: input.initialFocusSignalId,
+		}),
+		[input.initialFocusThreadRootSignalId, input.initialFocusSignalId]
+	);
 	const [selection, setSelection] = useState<SpaceThreadPanelSelection>(() => ({
 		profileId: input.profileId,
 		spaceId: input.spaceId,
-		threadId: readSelectionForSpace(input.spaceId),
+		threadId: input.initialFocusThreadRootSignalId
+			? null
+			: readSelectionForSpace(input.spaceId),
+		rootSignalId: input.initialFocusThreadRootSignalId ?? null,
 	}));
 	const activeThreadId =
 		selection.profileId === input.profileId &&
 		selection.spaceId === input.spaceId
-			? selection.threadId
+			? (selection.threadId ??
+				input.threadIdsByRootSignalId?.get(selection.rootSignalId ?? "") ??
+				null)
 			: null;
+	const requestedRootSignalId =
+		selection.profileId === input.profileId &&
+		selection.spaceId === input.spaceId
+			? (selection.rootSignalId ?? null)
+			: null;
+
+	useEffect(() => {
+		if (!initialFocus.rootSignalId) {
+			return;
+		}
+		setSelection({
+			profileId: input.profileId,
+			spaceId: input.spaceId,
+			threadId: null,
+			rootSignalId: initialFocus.rootSignalId,
+		});
+	}, [input.profileId, input.spaceId, initialFocus]);
+
+	useEffect(() => {
+		if (requestedRootSignalId && activeThreadId) {
+			writeSpaceThreadPanelSelection({
+				spaceId: input.spaceId,
+				threadId: activeThreadId,
+			});
+		}
+	}, [requestedRootSignalId, activeThreadId, input.spaceId]);
 
 	useEffect(() => {
 		if (!(input.profileId.trim() && input.spaceId.trim())) {
@@ -53,6 +95,7 @@ export function useSpaceThreadPanelSelection(input: {
 	useEffect(() => {
 		if (
 			activeThreadId === null ||
+			requestedRootSignalId !== null ||
 			!input.availableThreadsReady ||
 			input.availableThreadIds.has(activeThreadId)
 		) {
@@ -67,6 +110,7 @@ export function useSpaceThreadPanelSelection(input: {
 		});
 	}, [
 		activeThreadId,
+		requestedRootSignalId,
 		input.availableThreadIds,
 		input.availableThreadsReady,
 		input.profileId,
@@ -96,9 +140,23 @@ export function useSpaceThreadPanelSelection(input: {
 		},
 		[input.profileId, input.spaceId]
 	);
+	const openRoot = useCallback(
+		(rootSignalId: string) => {
+			setSelection({
+				profileId: input.profileId,
+				spaceId: input.spaceId,
+				threadId: null,
+				rootSignalId,
+			});
+		},
+		[input.profileId, input.spaceId]
+	);
 
 	return {
 		activeThreadId,
+		requestedRootSignalId,
+		isOpen: activeThreadId !== null || requestedRootSignalId !== null,
+		openRoot,
 		close,
 		open,
 	};
