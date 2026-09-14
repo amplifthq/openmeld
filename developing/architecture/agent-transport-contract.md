@@ -465,7 +465,10 @@ Important execution rules:
   recovery window, anchored to its last accepted local progress. This is not a
   total runtime deadline. Opening a socket or checking a watchdog cannot extend
   that baseline; fresh accepted progress from the same token run ends the old
-  uncertainty. A connected controller with stale progress keeps the ordinary
+  uncertainty. A reconnection after the last accepted progress also retains that
+  window when the watchdog missed the offline interval; registration alone does
+  not prove that execution evidence has caught up. A continuously connected
+  controller with stale progress keeps the ordinary
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
   reconciliation take precedence. Window expiry retains `runtime.progress_stale`
   and the existing owner-mediated late-result recovery, never automatic rerun.

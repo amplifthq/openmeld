@@ -159,6 +159,7 @@ import {
 } from "./local-control-handlers";
 import { createDaemonLocalExecutionSlots } from "./local-execution-slots";
 import { runDaemonSocketSession } from "./run-socket-session";
+import { createServiceLocalComponentsObservation } from "./service-local-components-observation";
 import { createStopAwareDelay } from "./stop-aware-delay";
 
 export function buildDispatchPromptWithBootstrap(
@@ -673,6 +674,14 @@ export const runDaemonServiceLoop = async (
     input.presenter,
     recoveryMetadata
   );
+  const localComponentsObservation = createServiceLocalComponentsObservation({
+    onError: (error) =>
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.local_components_status_failed",
+        text: `local components status unavailable: ${toErrorMessage(error)}`,
+      }),
+  });
 
   const localAdapterContainer = createLocalAdapterContainer(
     createLocalAdapterEntries({
@@ -1163,6 +1172,7 @@ export const runDaemonServiceLoop = async (
             ledgerPaths,
             loadRouteCatalog: routeCatalogLoader.load,
             localAdapterContainer,
+            localComponentsObservation,
             localExecutionSlots,
             onRuntimeReportingAuthenticationFailure: async (failure) => {
               await requestRuntimeReportingAuthenticationRecovery({
@@ -1238,6 +1248,7 @@ export const runDaemonServiceLoop = async (
     }
   } finally {
     connectionEvidence.dispose();
+    localComponentsObservation.dispose();
     unsubscribeCredentialObservation();
     unsubscribeCredentialAvailability();
     controlledShutdown.failOutstanding();

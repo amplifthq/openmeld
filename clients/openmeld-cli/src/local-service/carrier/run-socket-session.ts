@@ -49,7 +49,6 @@ import {
   manageAgentRegistrationInstallation,
   setAgentRegistrationEnabled,
 } from "../../agents/registry";
-import { resolveLocalComponentsStatus } from "../../local-components/manifest";
 import {
   ensureOpenMeldManagedProfileWorkspace,
   setCustomProfileWorkspace,
@@ -148,6 +147,7 @@ import {
 } from "./frame-router";
 import { waitForHeartbeatResponse } from "./heartbeat-loop";
 import { waitForRegisterResponse } from "./register-session";
+import type { ServiceLocalComponentsObservation } from "./service-local-components-observation";
 
 function buildShutdownHeartbeatFacts(input: {
   acceptingDispatches: boolean;
@@ -473,6 +473,7 @@ export async function runDaemonSocketSession(input: {
   ledgerPaths: LedgerPaths;
   loadRouteCatalog?: () => Promise<RouteCatalog>;
   localAdapterContainer: LocalDaemonAdapterContainer;
+  localComponentsObservation: ServiceLocalComponentsObservation;
   localExecutionSlots: LocalExecutionSlots;
   lane: string;
   ownerUserId: string;
@@ -1099,46 +1100,12 @@ export async function runDaemonSocketSession(input: {
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = OPENMELD_VERSION;
 
-  let localComponentsObservation: {
-    value: LocalComponentsStatus | null;
-    observedAtMs: number;
-  } | null = null;
-  let localComponentsRead: Promise<void> | null = null;
-  const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null => {
-    const current = localComponentsObservation;
-    if (current && Date.now() - current.observedAtMs < 30_000) {
-      return current.value;
-    }
-    // Optional filesystem inspection must not hold registration or heartbeat.
-    // Expired observations are omitted, never republished as fresh evidence.
-    if (!localComponentsRead) {
-      localComponentsRead = resolveLocalComponentsStatus()
-        .then((value) => {
-          localComponentsObservation = { value, observedAtMs: Date.now() };
-          if (value && lastHeartbeatSentAtMs !== null) {
-            scheduleHeartbeat({
-              delayMs: 0,
-              reason: "local_components_refreshed",
-            });
-          }
-        })
-        .catch((error) => {
-          localComponentsObservation = {
-            value: null,
-            observedAtMs: Date.now(),
-          };
-          emitRunLine({
-            presenter: input.presenter,
-            code: "daemon.run.local_components_status_failed",
-            text: `local components status unavailable: ${toErrorMessage(error)}`,
-          });
-        })
-        .finally(() => {
-          localComponentsRead = null;
-        });
-    }
-    return null;
-  };
+  const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
+    input.localComponentsObservation.read(() => {
+      if (lastHeartbeatSentAtMs !== null) {
+        scheduleHeartbeat({ delayMs: 0, reason: "local_components_refreshed" });
+      }
+    });
 
   const registerDaemonSession = async (
     routeCatalog: RouteCatalog

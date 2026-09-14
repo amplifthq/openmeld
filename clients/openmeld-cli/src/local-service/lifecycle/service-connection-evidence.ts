@@ -22,6 +22,7 @@ import { WebSocketConnectionError } from "../../transport/ws";
 
 const LOCAL_RETENTION_MS = 7 * 24 * 60 * 60_000;
 const MAX_JOURNAL_BYTES = 1024 * 1024;
+const MAX_PENDING_EVENT_WRITES = 128;
 
 // A bounded diagnostic journal derived from carrier events. It cannot change
 // transport state, retry policy, readiness, credentials, or execution ownership.
@@ -56,6 +57,9 @@ export function createServiceConnectionEvidenceRecorder(input: {
   let uploading = false;
   let failureCount = 0;
   let uploadTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingEventWrites = 0;
+  const truncatedRecoveryIds = new Set<string>();
+  let writeFailureReported = false;
 
   function mutate(update: (state: ServiceConnectionEvidenceJournal) => void) {
     writes = writes
@@ -81,12 +85,16 @@ export function createServiceConnectionEvidenceRecorder(input: {
           schema: serviceConnectionEvidenceJournalSchema,
           mode: 0o600,
         });
+        writeFailureReported = false;
       })
       .catch(() => {
         // Diagnostics never interrupt heartbeat or recover credentials themselves.
-        console.warn(
-          "[openmeld:connection-evidence] Local connection history could not be saved."
-        );
+        if (!writeFailureReported) {
+          writeFailureReported = true;
+          console.warn(
+            "[openmeld:connection-evidence] Local connection history could not be saved."
+          );
+        }
       });
     return writes;
   }
@@ -177,8 +185,17 @@ export function createServiceConnectionEvidenceRecorder(input: {
       return;
     }
     const recovery = inputEvent.recovery;
+    // A stalled filesystem must not turn diagnostic promises into an unbounded
+    // in-memory queue. The persisted incident explicitly records lost detail.
+    if (pendingEventWrites >= MAX_PENDING_EVENT_WRITES) {
+      if (truncatedRecoveryIds.size < 32) {
+        truncatedRecoveryIds.add(recovery.recoveryId);
+      }
+      return;
+    }
     const precedingEvents = prelude;
     prelude = [];
+    pendingEventWrites += 1;
     mutate((state) => {
       let entry = state.entries.find(
         (item) => item.incident.incidentId === recovery.recoveryId
@@ -200,6 +217,9 @@ export function createServiceConnectionEvidenceRecorder(input: {
         state.entries.push(entry);
       }
       const incident = entry.incident;
+      if (truncatedRecoveryIds.delete(recovery.recoveryId)) {
+        incident.evidenceTruncated = true;
+      }
       appendEvent(incident, event);
       incident.endedAtMs = Math.max(incident.endedAtMs, event.lastAtMs);
       if (event.kind === "registered" && event.reason === "recovered") {
@@ -207,6 +227,9 @@ export function createServiceConnectionEvidenceRecorder(input: {
       }
     })
       .then(() => scheduleUpload())
+      .finally(() => {
+        pendingEventWrites -= 1;
+      })
       .catch(() => undefined);
   }
 
@@ -217,6 +240,10 @@ export function createServiceConnectionEvidenceRecorder(input: {
         return;
       }
       online = value;
+      if (uploadTimer) {
+        clearTimeout(uploadTimer);
+        uploadTimer = null;
+      }
       if (value) {
         scheduleUpload();
       }

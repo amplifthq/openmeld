@@ -92,6 +92,7 @@ import {
 } from "@openmeld/protocol";
 import { RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION } from "@openmeld/schemas";
 import { runDaemonSocketSession as runDaemonSocketSessionInternal } from "../src/local-service/carrier/run-socket-session";
+import { createServiceLocalComponentsObservation } from "../src/local-service/carrier/service-local-components-observation";
 import { DAEMON_STREAM_KEEPALIVE_INTERVAL_MS } from "../src/local-service/core/constants";
 import type {
   CurrentDaemonSocketRef,
@@ -101,7 +102,7 @@ import type {
 
 type RunTestDaemonSocketSessionInput = Omit<
   Parameters<typeof runDaemonSocketSessionInternal>[0],
-  "localExecutionSlots"
+  "localExecutionSlots" | "localComponentsObservation"
 > & { dispatchLimits: DaemonDispatchLimits };
 
 function runDaemonSocketSession(
@@ -110,6 +111,9 @@ function runDaemonSocketSession(
   const { dispatchLimits, ...sessionInput } = input;
   return runDaemonSocketSessionInternal({
     ...sessionInput,
+    localComponentsObservation: createServiceLocalComponentsObservation({
+      onError: () => undefined,
+    }),
     localExecutionSlots: createLocalExecutionSlots({ limits: dispatchLimits }),
   });
 }

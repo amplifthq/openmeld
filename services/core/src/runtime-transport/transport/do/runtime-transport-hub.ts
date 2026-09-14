@@ -506,6 +506,7 @@ import {
   resolveRuntimeCoordinatorResultAuthorityMismatchReason,
   resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs,
   resolveRuntimeCoordinatorTerminalDecisionPlan,
+  resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs,
   sanitizeRuntimeCoordinatorDeliveryRequestForCommandState,
   settleRuntimeCoordinatorAuthorityForCancellationAccepted,
   settleRuntimeCoordinatorAuthorityForTerminalDecision,
@@ -9394,9 +9395,6 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       const serviceVersion = normalizeOptionalText(session.serviceVersion);
       this.recordSocketDisconnectSession({
-        connectionDiagnosticId:
-          readRuntimeTransportSocketAttachment(webSocket)
-            .connectionDiagnosticId,
         closeCode: input.closeCode,
         closeReasonCode: resolveRuntimeTransportSocketCloseReasonCode({
           closeCode: input.closeCode,
@@ -15630,9 +15628,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     const session = this.state.sessionsById.get(
       commandState.lastDeliveryProvenance.daemonSessionId
     );
-    if (session?.socket && nowMs - session.lastHeartbeatMs <= LEASE_TTL_MS) {
+    if (
+      session?.socket &&
+      nowMs - session.lastHeartbeatMs <= LEASE_TTL_MS &&
+      session.connectedAtMs <=
+        resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs(commandState)
+    ) {
       return commandState;
     }
+    // A reconnect may precede this alarm (or bounded bootstrap repair). Opening
+    // transport is not accepted execution progress, and must not lose the grace.
     return await retainRuntimeCoordinatorCommunicationRecovery(
       this.ctx.storage,
       commandState

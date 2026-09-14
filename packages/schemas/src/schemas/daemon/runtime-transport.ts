@@ -689,7 +689,6 @@ export const runtimeTransportSessionDisconnectDiagnosticSchema = z.strictObject(
     connectedAtMs: z.number().int().nonnegative(),
     connectionGeneration: z.number().int().positive(),
     daemonSessionId: z.string().min(1).max(128),
-    connectionDiagnosticId: z.string().uuid().optional(),
     deployAdjacentReason: z.string().trim().min(1).max(100).nullable(),
     deviceId: z.string().min(1).max(128),
     disconnectedAtMs: z.number().int().nonnegative(),

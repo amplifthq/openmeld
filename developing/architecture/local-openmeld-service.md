@@ -2443,11 +2443,13 @@ The carrier also records a strict, account-partitioned connection-evidence
 journal under its existing runtime-state directory. It retains at most 32
 incidents, 100 events per incident and 1 MiB, pruning records older than seven
 days on load/write. Repeated adjacent observations are aggregated; truncation
-is explicit. Writes and uploads never block registration or heartbeat.
+is explicit. Pending event writes are capped at 128 so a stalled filesystem
+cannot accumulate unbounded work. Writes and uploads never block registration
+or heartbeat.
 Completed incidents upload after registration, and an interrupted incident from
 a previous Service process uploads on its next connection. Receipt replay is
-idempotent. Upload retries have their own bounded backoff and cannot reconnect
-the carrier; an account change prevents uploading old evidence with new account
+idempotent. Upload retries have their own bounded backoff, retry promptly on
+reconnection, and cannot reconnect the carrier; an account change prevents uploading old evidence with new account
 credentials. Safe native network codes and observed phase are retained when
 available. Unknown runtime errors remain unknown. Retry scheduling delay does
 not prove OS sleep, a DNS problem, or a provider outage.
@@ -2458,8 +2460,8 @@ typed reason, start and duration, without signal text or prompts. A finished
 reconsideration observation is not evidence that a Space reply was published.
 
 Registration and heartbeat never await optional local-component inspection.
-The socket session coalesces that inspection and may reuse an observation for
-at most 30 seconds; absent or expired observations are omitted rather than
+One Service-lifetime observation coalesces that inspection across reconnects
+and may reuse a result for at most 30 seconds; absent or expired observations are omitted rather than
 renewed as fresh component evidence. A completed observation can schedule a
 heartbeat after registration. Missing component evidence does not grant
 component readiness or bypass the Core-owned update projection.

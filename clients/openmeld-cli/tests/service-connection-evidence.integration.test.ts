@@ -28,10 +28,15 @@ afterEach(async () => {
     await recorder.flush();
   }
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   await rm(home, { recursive: true, force: true });
 });
 
-function fixture(ownerUserId = "owner-a", serviceSessionId = randomUUID()) {
+function fixture(
+  ownerUserId = "owner-a",
+  serviceSessionId = randomUUID(),
+  failFirstUpload = false
+) {
   const reports: ServiceConnectionIncidentReport[] = [];
   const recorder = createServiceConnectionEvidenceRecorder({
     ownerUserId,
@@ -44,6 +49,9 @@ function fixture(ownerUserId = "owner-a", serviceSessionId = randomUUID()) {
     },
     sendIncident: (report) => {
       reports.push(structuredClone(report));
+      if (failFirstUpload && reports.length === 1) {
+        return Promise.reject(new Error("temporary upload failure"));
+      }
       return Promise.resolve({
         incidentId: report.incident.incidentId,
         receivedAtMs: Date.now(),
@@ -86,6 +94,55 @@ async function journals() {
 }
 
 describe("bounded Service connection evidence", () => {
+  it("retries evidence promptly on reconnection instead of waiting for an old upload backoff", async () => {
+    const { recorder, reports } = fixture("owner-a", randomUUID(), true);
+    const recovery = { recoveryId: randomUUID(), disconnectedAt: Date.now() };
+    recorder.record({
+      recovery,
+      event: event({
+        kind: "registered",
+        reason: "recovered",
+        phase: "online",
+      }),
+    });
+    await recorder.flush();
+    recorder.setOnline(true);
+    await vi.waitFor(() => expect(reports).toHaveLength(1));
+    recorder.setOnline(false);
+    recorder.setOnline(true);
+    await vi.waitFor(() => expect(reports).toHaveLength(2));
+    expect(reports[1]?.incident.incidentId).toBe(
+      reports[0]?.incident.incidentId
+    );
+  });
+  it("bounds pending evidence while disk writes stall and records truncation", async () => {
+    const localStateFile = await import(
+      "../src/config/daemon-local-state-file"
+    );
+    let release: () => void = () => undefined;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const realWrite = localStateFile.writeDaemonLocalStateFile;
+    const writes = vi
+      .spyOn(localStateFile, "writeDaemonLocalStateFile")
+      .mockImplementation(async (input) => {
+        await blocked;
+        return await realWrite(input);
+      });
+    const { recorder } = fixture();
+    const recovery = { recoveryId: randomUUID(), disconnectedAt: Date.now() };
+    const repeatedEvent = event();
+    for (let i = 0; i < 500; i += 1) {
+      recorder.record({ recovery, event: repeatedEvent });
+    }
+    release();
+    await recorder.flush();
+    expect(writes.mock.calls.length).toBeLessThanOrEqual(128);
+    const incident = (await journals())[0]?.journal.entries[0]?.incident;
+    expect(incident?.evidenceTruncated).toBe(true);
+    expect(incident?.events[0]?.count).toBe(128);
+  });
   it("keeps offline evidence, uploads the recovered immutable incident once, and acknowledges it on disk", async () => {
     const { recorder, reports } = fixture();
     const recovery = { recoveryId: randomUUID(), disconnectedAt: Date.now() };
@@ -150,6 +207,7 @@ describe("bounded Service connection evidence", () => {
         event: event(),
       });
     }
+    await recorder.flush();
     const recovery = { recoveryId: randomUUID(), disconnectedAt: Date.now() };
     for (let i = 0; i < 110; i += 1) {
       recorder.record({ recovery, event: event() });

@@ -40,8 +40,17 @@ Implementation checkpoints:
   four real-D1/owner-correlation scenarios passed. Nineteen focused credential
   header and connection classification checks passed. CLI, Core, Gateway and
   Web typechecks passed. The existing Core fixture fix already present on
-  current main is included while aligning the candidate. Full review,
-  packaged validation, Staging, release and production smoke remain pending.
+  current main is included while aligning the candidate.
+- Concentrated xhigh review found and corrected four material boundaries:
+  preserve the strict legacy disconnect response; coalesce optional component
+  inspection for the whole Service lifetime; cap pending diagnostic writes
+  during filesystem stalls; and retain the communication window when reconnect
+  precedes the first watchdog observation. The latter failed before the change
+  at nine minutes and 31 seconds, then passed with the original execution.
+  Twenty-six focused recovery/Stop/replacement cases, six isolated journal
+  cases, and two component-observation cases passed. Diagnostic upload also
+  retries promptly after a subsequent reconnection. Packaged validation,
+  Staging, release and production smoke remain pending.
 
 ## Evidence and limits
 
@@ -58,8 +67,9 @@ code. New Services preserve the same registration/heartbeat/execution protocol
 against old cloud code; an ignored connection query parameter or unavailable
 incident endpoint does not affect execution. The uploader retries independently.
 New CLI trace explicitly opts into the added response field; older callers never
-receive it. New CLI accepts its absence from old cloud. Existing optional
-transport-diagnostic fields remain optional. No command, Service or execution
+receive it. New CLI accepts its absence from old cloud. The existing unversioned
+disconnect diagnostic response is unchanged; attempt IDs remain in cloud logs
+and the separately versioned incident payload. No command, Service or execution
 epoch bump is required. Stamp changed local components as `available`: old
 versions can keep running accepted work, though they retain the diagnosed bugs.
 
@@ -94,7 +104,7 @@ All incident times in this section are September 15, 2026, Asia/Taipei.
 | Communication loss became a terminal Wake before a result arrived | Computer B: `runtime.progress_stale` at 00:36:12.865, visible failure at 00:36:13.135, resumed evidence from 00:39:49, `late_result_available` at 00:41:54.818 | Established execution timeline. A retained late result does not prove the final content was published |
 | Late progress diagnostics failed validation | 26 warnings after recovery reported `invalid runtime coordinator execution event`; the actual builder and schema reject representative event IDs of 535–539 characters against a 512-character bound | Reproduced diagnostic contract defect. It occurred after terminalization and did not initiate the communication gap |
 | Cloud storage resets occurred earlier | Two Computer A close-handler traces contain the platform's internal Durable Object storage-reset exception at 23:48:16 and 23:54:24 on September 14 | Platform errors are established. The traces do not establish whether the reset preceded the socket loss, or what caused the platform reset. No incident-time Core deployment occurred |
-| Housekeeping repeatedly exhausts its application budget | 464 warnings on Computer A's object in 00:29–00:41, each in the 25-work-unit watchdog stage; two earlier complete traces contain about 1,270 storage-get spans each | Workload concern is observed. Terminal-record starvation is a source-level hypothesis requiring a real storage/owner reproduction; it is not an established cause of the platform reset |
+| Housekeeping repeatedly exhausts its application budget | 464 warnings on Computer A's object in 00:29–00:41, each in the 25-work-unit watchdog stage; two earlier complete traces contain about 1,270 storage-get spans each | Terminal-record starvation was subsequently reproduced against real Durable Object storage with terminal history preceding active work. The bounded due index corrects it; this does not establish the cause of the platform reset |
 
 Connection generation is not a unique socket identifier. `resolveAcceptedConnectionGeneration` takes the maximum of the requested and existing value; a replacement can retain the same generation. Same-generation registrations therefore neither count reconnects nor exclude them. Computer B also has a 1006 close event at 00:39:49.031. A 1006 code identifies an abnormal close, not its cause.
 

@@ -3603,7 +3603,10 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
-  it("keeps one running token through a nine-minute communication gap and preserves Stop", async () => {
+  it.each([
+    true,
+    false,
+  ])("keeps one running token through a nine-minute communication gap and preserves Stop (watchdog observed outage: %s)", async (watchdogObservedOutage) => {
     const startedAtMs = 1_700_000_000_000;
     const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAtMs);
     try {
@@ -3636,19 +3639,27 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
       session.socket = null;
       nowSpy.mockReturnValue(startedAtMs + 6 * 60_000);
-      await (harness.hub as unknown as { alarm: () => Promise<void> }).alarm();
-      expect(
-        findRuntimeCoordinatorExecutionTokenAuthorityRecord(
-          harness.storageRecords
-        )?.terminalOutcome
-      ).toBeNull();
-      expect(
-        findRuntimeCoordinatorRunCommandState(harness.storageRecords)
-          ?.communicationRecoveryBaselineAtMs
-      ).toBe(startedAtMs + 300);
+      if (watchdogObservedOutage) {
+        await (
+          harness.hub as unknown as { alarm: () => Promise<void> }
+        ).alarm();
+        expect(
+          findRuntimeCoordinatorExecutionTokenAuthorityRecord(
+            harness.storageRecords
+          )?.terminalOutcome
+        ).toBeNull();
+        expect(
+          findRuntimeCoordinatorRunCommandState(harness.storageRecords)
+            ?.communicationRecoveryBaselineAtMs
+        ).toBe(startedAtMs + 300);
+      }
       // Opening a socket alone neither abandons the run nor resets its clock.
       session.socket = harness.socket;
       session.lastHeartbeatMs = startedAtMs + 9 * 60_000;
+      session.connectedAtMs = session.lastHeartbeatMs;
+      nowSpy.mockReturnValue(session.lastHeartbeatMs);
+      await (harness.hub as unknown as { alarm: () => Promise<void> }).alarm();
+      session.lastHeartbeatMs += 31_000;
       nowSpy.mockReturnValue(session.lastHeartbeatMs);
       await (harness.hub as unknown as { alarm: () => Promise<void> }).alarm();
       expect(
