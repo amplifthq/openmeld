@@ -345,7 +345,6 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 					.textContent
 			).toBe("Codex permissions mode: Approve for me");
 		});
-
 		fireEvent.click(
 			screen.getByRole("button", {
 				name: "Agent options for Research Agent",
@@ -2126,12 +2125,36 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Edit Agent" }));
-		expect(screen.getByRole("heading", { name: "Edit Agent" })).toBeTruthy();
-		expect(screen.getByText("Codex permissions mode")).toBeTruthy();
+		const editDialog = screen.getByRole("dialog", { name: "Edit Agent" });
+		expect(
+			within(editDialog).getByRole("heading", { name: "Edit Agent" })
+		).toBeTruthy();
+		expect(within(editDialog).getByText("Codex permissions mode")).toBeTruthy();
+		const outcome = within(editDialog).getByTestId(
+			"agent-controller-permission-mode-outcome"
+		);
+		const permissionSelect = within(editDialog).getByRole("combobox", {
+			name: "Codex permissions mode",
+		});
+		expect(permissionSelect.textContent).toBe("Ask for approval");
+		expect(permissionSelect.getAttribute("aria-describedby")).toBe(
+			`${outcome.id}-description`
+		);
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Full access" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Full access",
+			})
+		);
+		const technicalDetails = within(editDialog)
+			.getByText("Technical details")
+			.closest("details") as HTMLDetailsElement;
+		expect(technicalDetails.open).toBe(false);
+		expect(technicalDetails.textContent).toContain(
+			"--dangerously-bypass-approvals-and-sandbox"
+		);
 
 		const saveButton = screen.getByRole("button", {
 			name: "Save changes",
@@ -2139,7 +2162,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(saveButton.disabled).toBe(true);
 		fireEvent.click(
 			screen.getByLabelText(
-				"I understand this permissions mode can run with dangerous full access."
+				"I understand this mode may run dangerous actions without asking."
 			)
 		);
 		await waitFor(() => {
@@ -2184,10 +2207,14 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Full access" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Full access",
+			})
+		);
 		fireEvent.click(
 			screen.getByLabelText(
-				"I understand this permissions mode can run with dangerous full access."
+				"I understand this mode may run dangerous actions without asking."
 			)
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
