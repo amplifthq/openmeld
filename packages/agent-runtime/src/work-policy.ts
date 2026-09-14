@@ -1,16 +1,14 @@
 // Shared Agent Profile work-capacity policy.
 //
 // Design: developing/architecture/local-agent-concurrency-design.md
-// ("One Scheduler, Three Reservations" / "Limits and how to change them").
+// ("One Scheduler, Five Reservations" / "Limits and how to change them").
 // Core, Service validation, and projections must read these bounds from here;
 // clients must not keep separately editable defaults.
 //
-// AGENT_PROFILE_WORK_CONCURRENCY_LIMIT is the target reservation ceiling per
-// Profile. The Core coordinator currently still enforces a single structural
-// slot (index zero of `workItems`); consuming this constant does not by itself
-// activate three reservations.
+// The reservation ceiling is per Profile. Context, resource, and Controller
+// constraints may admit fewer concurrent executions.
 
-export const AGENT_PROFILE_WORK_CONCURRENCY_LIMIT = 3 as const;
+export const AGENT_PROFILE_WORK_CONCURRENCY_LIMIT = 5 as const;
 export const AGENT_PROFILE_WORK_MAX_WAITING = 50 as const;
 
 export type AgentProfileWorkCapacityPolicy = {

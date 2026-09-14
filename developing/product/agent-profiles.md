@@ -894,7 +894,7 @@ outcome for that exact head and the Work Coordinator continues normal terminal
 promotion. Reconnect, recovery, or later re-enabling cannot revive that settled
 Wake.
 
-One Agent Profile may have up to three independent Execution Contexts reserved
+One Agent Profile may have up to five independent Execution Contexts reserved
 and at most 50 waiting Wakes. Follow-ups in one context remain serial. New task,
 completed-history fork, and independent discussion scopes can run together when
 the local Service verifies their resource isolation. Legacy work without a

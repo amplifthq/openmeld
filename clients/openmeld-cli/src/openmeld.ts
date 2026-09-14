@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import { Command, Option } from "commander";
 import {
@@ -3598,7 +3599,10 @@ withSpaceProfileOption(
   spaceCmd
     .command("send")
     .description("Send one message to a Space.")
-    .option("--new-task", "Start an independent task (up to three per Agent)")
+    .option(
+      "--new-task",
+      `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+    )
     .option(
       "--fork-from <signal-id>",
       "Fork the selected Agent's completed task at this message"
@@ -4375,7 +4379,10 @@ withSpaceProfileOption(
 program
   .command("send")
   .description("Alias for `openmeld space send`.")
-  .option("--new-task", "Start an independent task (up to three per Agent)")
+  .option(
+    "--new-task",
+    `Start an independent task (up to ${AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent)`
+  )
   .option(
     "--fork-from <signal-id>",
     "Fork the selected Agent's completed task at this message"

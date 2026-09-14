@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import { buildTargetWakeLifecycleId } from "@openmeld/schemas";
 import type { ExecutionContextSelection } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -118,7 +119,8 @@ export function SpaceComposerTaskMenu(input: {
 					New task
 				</FluidDropdownMenuItem>
 				<p className="px-2 py-1 text-muted-foreground text-xs">
-					Independent tasks can run together, up to three per Agent.
+					Independent tasks can run together, up to{" "}
+					{AGENT_PROFILE_WORK_CONCURRENCY_LIMIT} per Agent.
 				</p>
 				{sources.length > 0 ? (
 					<>

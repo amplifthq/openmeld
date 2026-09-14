@@ -3857,13 +3857,13 @@ describe("runtime transport runtime coordinator transport contract", () => {
       agentControllerRef: "builtin:claude-code",
       access: "space_context",
     },
-  ] as const)("admits three independent $agentControllerRef $mode contexts and queues a fourth and same-context continuation", async ({
+  ] as const)("admits five independent $agentControllerRef $mode contexts and queues a sixth and same-context continuation", async ({
     mode,
     agentControllerRef,
     access,
   }) => {
     const { hub } = createHarness();
-    const requests = Array.from({ length: 4 }, (_, index) =>
+    const requests = Array.from({ length: 6 }, (_, index) =>
       buildRuntimeCoordinatorHeadAcceptRequest({
         dispatchId: `dispatch-parallel-${index}`,
         idempotencyKey: `parallel-${index}`,
@@ -3921,12 +3921,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       "accepted",
       "accepted",
       "accepted",
+      "accepted",
+      "accepted",
       "queued",
     ]);
     expect(
-      new Set(replies.slice(0, 3).map((reply) => reply.executionContext?.id))
+      new Set(replies.slice(0, 5).map((reply) => reply.executionContext?.id))
         .size
-    ).toBe(3);
+    ).toBe(5);
     const first = requests[0];
     if (!first?.acceptedDispatchSnapshot?.contextRequest) {
       throw new Error("Expected the first accepted context fixture");
@@ -10181,43 +10183,76 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
   });
 
-  it("keeps per-profile execution references within the fifty-item waiting limit", async () => {
+  it.each([
+    1, 5,
+  ])("persists %i reservations with fifty waiting Wakes and rejects overflow", async (reservations) => {
     const { hub, storageRecords } = createHarness();
-    for (let index = 0; index < 51; index += 1) {
+    const requestFor = (index: number) => {
       const dispatchId = `bounded-dispatch-${index}`;
-      const response = await fetchRuntimeTransportJson(
-        hub,
-        "/runtime-coordinator/head/accept",
-        buildRuntimeCoordinatorHeadAcceptRequest({
-          dispatchId,
-          idempotencyKey: `bounded-idempotency-${index}`,
-          targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
-            clientMessageId: `bounded-client-message-${index}`,
-            dispatchId,
-            sourceSignalId: `bounded-signal-${index}`,
-            spaceId: HEX_SPACE_ID,
-            targetProfileId: TARGET_AGENT_PROFILE_ID,
-          }),
-        })
-      );
-      expect(response.status).toBe(200);
-    }
-
-    const rejectedDispatchId = "bounded-dispatch-51";
-    const rejected = await fetchRuntimeTransportJson(
-      hub,
-      "/runtime-coordinator/head/accept",
-      buildRuntimeCoordinatorHeadAcceptRequest({
-        dispatchId: rejectedDispatchId,
-        idempotencyKey: "bounded-idempotency-51",
+      return buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId,
+        idempotencyKey: `bounded-idempotency-${index}`,
         targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
-          clientMessageId: "bounded-client-message-51",
-          dispatchId: rejectedDispatchId,
-          sourceSignalId: "bounded-signal-51",
+          clientMessageId: `bounded-client-message-${index}`,
+          dispatchId,
+          sourceSignalId: `bounded-signal-${index}`,
           spaceId: HEX_SPACE_ID,
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         }),
-      })
+        ...(reservations === 5
+          ? {
+              acceptedDispatchSnapshot: {
+                ...buildAcceptedDispatchSnapshot({
+                  agentControllerRef: "builtin:codex",
+                  fingerprint: "b",
+                }),
+                contextRequest: {
+                  required: true,
+                  scope: {
+                    organizationId: "org-1",
+                    requesterProfileId: "requester-1",
+                    spaceId: HEX_SPACE_ID,
+                    targetProfileId: TARGET_AGENT_PROFILE_ID,
+                    threadId: null,
+                  },
+                  selection: {
+                    mode: "new",
+                    access: "space_context",
+                    workspace: "isolated",
+                  },
+                },
+              },
+            }
+          : {}),
+      });
+    };
+    for (let index = 0; index < reservations + 50; index += 1) {
+      const response = await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        requestFor(index)
+      );
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        status: index < reservations ? "accepted" : "queued",
+      });
+    }
+
+    const restarted = createHarness({ storageRecords });
+    const replay = await fetchRuntimeTransportJson(
+      restarted.hub,
+      "/runtime-coordinator/head/accept",
+      requestFor(0)
+    );
+    expect(replay.status).toBe(200);
+    await expect(replay.json()).resolves.toMatchObject({
+      status: "already_accepted",
+    });
+
+    const rejected = await fetchRuntimeTransportJson(
+      restarted.hub,
+      "/runtime-coordinator/head/accept",
+      requestFor(reservations + 50)
     );
     expect(rejected.status).toBe(503);
     await expect(rejected.json()).resolves.toMatchObject({
@@ -10238,8 +10273,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
           workItems?: unknown[];
         }
       | undefined;
-    expect(admission?.activeHeadLifecycleIds).toHaveLength(1);
-    expect(admission?.workItems).toHaveLength(51);
+    expect(admission?.activeHeadLifecycleIds).toHaveLength(reservations);
+    expect(admission?.workItems).toHaveLength(reservations + 50);
     expect(admission?.referencesOverflowed).toBe(false);
   });
 

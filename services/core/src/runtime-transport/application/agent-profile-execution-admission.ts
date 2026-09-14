@@ -1,4 +1,7 @@
-import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
+import {
+  AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
+  AGENT_PROFILE_WORK_MAX_WAITING,
+} from "@openmeld/agent-runtime";
 import {
   buildRuntimeCoordinatorExecutionId,
   runtimeCoordinatorExecutionTokenAuthorityRecordSchema,
@@ -4310,7 +4313,11 @@ function isAgentProfileWorkCoordinatorItemsOrLegacy(
   if (value === undefined) {
     return true;
   }
-  if (!Array.isArray(value) || value.length > 53) {
+  if (
+    !Array.isArray(value) ||
+    value.length >
+      AGENT_PROFILE_WORK_CONCURRENCY_LIMIT + AGENT_PROFILE_WORK_MAX_WAITING
+  ) {
     return false;
   }
   const lifecycleIds = new Set<string>();

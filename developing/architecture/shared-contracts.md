@@ -6088,6 +6088,13 @@ snapshots, or authoring. The existing singular workload reference remains a
 compatibility projection of the first reserved task; waiting counts exclude all
 reserved contexts. Per-Wake progress continues to show every actual execution.
 
+The fixed Profile ceiling is five reservations plus 50 waiting Wakes, owned by
+`packages/agent-runtime`. Raising the previous three-reservation ceiling changes
+admission and local slot policy without changing payload shapes or capability
+versions. A context-capable Service built with the previous ceiling still limits
+local execution to three; both Core and Service must be updated for five. Setup,
+dispatch-owned actions, status, trace, and self-rescue retain their contracts.
+
 Contract impact: HTTP signal/thread sends gain optional selection fields;
 accepted snapshots and RuntimeTransport gain version-1 context assignments;
 current task results gain context identity/completion fields; the local ledger

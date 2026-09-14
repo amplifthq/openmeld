@@ -8,13 +8,13 @@ import {
 
 describe("work-policy", () => {
   it("publishes the shared Agent Profile work bounds", () => {
-    expect(AGENT_PROFILE_WORK_CONCURRENCY_LIMIT).toBe(3);
+    expect(AGENT_PROFILE_WORK_CONCURRENCY_LIMIT).toBe(5);
     expect(AGENT_PROFILE_WORK_MAX_WAITING).toBe(50);
   });
 
   it("exposes a frozen default capacity policy built from the constants", () => {
     expect(DEFAULT_AGENT_PROFILE_WORK_CAPACITY_POLICY).toEqual({
-      concurrencyLimit: 3,
+      concurrencyLimit: 5,
       maxWaiting: 50,
     });
     expect(Object.isFrozen(DEFAULT_AGENT_PROFILE_WORK_CAPACITY_POLICY)).toBe(

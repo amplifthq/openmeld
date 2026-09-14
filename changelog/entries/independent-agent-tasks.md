@@ -6,7 +6,7 @@ areas: ["agents", "spaces", "cli"]
 audiences: ["users", "integrators"]
 ---
 
-An updated local Agent can run up to three independent tasks at once. Start a
+An updated local Agent can run up to five independent tasks at once. Start a
 new task, fork completed history, or work in different discussion threads.
 Follow-ups in the same task wait their turn, and each reply stays with its
 original message.
