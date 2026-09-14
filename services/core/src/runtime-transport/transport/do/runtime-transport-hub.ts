@@ -546,6 +546,7 @@ import {
   readRuntimeCoordinatorRunCommandStatesFromStorageIndex,
   readRuntimeCoordinatorTokenAuthorityFromStorage,
   removeRuntimeCoordinatorFinalizationRetryFromStorage,
+  retainRuntimeCoordinatorCommunicationRecovery,
   upsertRuntimeCoordinatorFinalizationRetryEntryInStorage,
   writeRuntimeCoordinatorPreExecutionHandoffRecordToStorage,
   writeRuntimeCoordinatorRunCommandStateInTransaction,
@@ -554,6 +555,11 @@ import {
   writeRuntimeCoordinatorTokenAuthorityToStorage,
 } from "../../application/runtime-coordinator-storage";
 import { processRuntimeCoordinatorWatchdogAlarm as processRuntimeCoordinatorWatchdogAlarmWithPorts } from "../../application/runtime-coordinator-watchdog-alarm";
+import {
+  readNextRuntimeCoordinatorWatchdogAlarmAtMs,
+  readRuntimeCoordinatorWatchdogDueCommands,
+  repairRuntimeCoordinatorWatchdogSchedule,
+} from "../../application/runtime-coordinator-watchdog-storage";
 import {
   reconcileRuntimeTransportAlarmAtMs,
   resolveNextRuntimeTransportAlarmAtMs,
@@ -15584,6 +15590,22 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     };
   }
 
+  private async retainCommunicationRecoveryIfUnavailable(
+    commandState: RuntimeCoordinatorRunCommandState,
+    nowMs: number
+  ): Promise<RuntimeCoordinatorRunCommandState> {
+    const session = this.state.sessionsById.get(
+      commandState.lastDeliveryProvenance.daemonSessionId
+    );
+    if (session?.socket && nowMs - session.lastHeartbeatMs <= LEASE_TTL_MS) {
+      return commandState;
+    }
+    return await retainRuntimeCoordinatorCommunicationRecovery(
+      this.ctx.storage,
+      commandState
+    );
+  }
+
   private async redeliverRuntimeCoordinatorCurrentRun(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     decision: RuntimeTransportRuntimeCoordinatorDecisionRequest;
@@ -15638,7 +15660,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
 
-    const commandState = await this.readRuntimeCoordinatorRunCommandState(
+    let commandState = await this.readRuntimeCoordinatorRunCommandState(
       input.decision.runtimeCoordinatorExecutionId
     );
     if (!commandState) {
@@ -15662,6 +15684,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       };
     }
     if (hasRuntimeCoordinatorDurableLocalProgress(commandState.localProgress)) {
+      commandState = await this.retainCommunicationRecoveryIfUnavailable(
+        commandState,
+        input.nowMs
+      );
       const localProgressReason =
         resolveRuntimeCoordinatorLocalProgressDecisionReason(commandState);
       if (
@@ -15954,13 +15980,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     nowMs: number,
     run?: RuntimeTransportHubHousekeepingAlarmRun
   ): Promise<void> {
+    await repairRuntimeCoordinatorWatchdogSchedule(this.ctx.storage);
     await processRuntimeCoordinatorWatchdogAlarmWithPorts({
       nowMs,
       ports: {
         processWatchdogDue: (input) =>
           this.processRuntimeCoordinatorWatchdogDue(input),
         readCommandStates: () =>
-          this.readRuntimeCoordinatorRunCommandStatesFromIndex(),
+          readRuntimeCoordinatorWatchdogDueCommands(this.ctx.storage, nowMs),
         reserveWorkUnit: () =>
           !run ||
           this.reserveHousekeepingAlarmWorkUnit(
@@ -18049,21 +18076,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private async resolveNextRuntimeCoordinatorWatchdogAlarmAtMs(): Promise<
     number | null
   > {
-    const commandStates =
-      await this.readRuntimeCoordinatorRunCommandStatesFromIndex();
-    let nextAlarmAtMs: number | null = null;
-    for (const commandState of commandStates) {
-      const authority = await this.readRuntimeCoordinatorTokenAuthority(
-        commandState.runtimeCoordinatorExecutionId
-      ).catch(() => null);
-      if (!authority || authority.terminalOutcome) {
-        continue;
-      }
-      const nextCheckAtMs =
-        resolveRuntimeCoordinatorRunCommandStateWatchdogAtMs(commandState);
-      nextAlarmAtMs = minNullableTimestamp(nextAlarmAtMs, nextCheckAtMs);
-    }
-    return nextAlarmAtMs;
+    return await readNextRuntimeCoordinatorWatchdogAlarmAtMs(
+      this.ctx.storage,
+      Date.now()
+    );
   }
 
   private async resolveNextRuntimeCoordinatorFinalizationRetryAlarmAtMs(): Promise<

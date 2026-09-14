@@ -1217,6 +1217,20 @@ exclude it.
 
 ## Runtime Transport Session Disconnect Diagnostics
 
+RuntimeCoordinator event writes preserve all existing valid event IDs. If the
+length-prefixed identity exceeds the shared 512-character bound, the writer uses
+a deterministic SHA-256 identity instead; the complete execution ID and
+idempotency key remain separate columns. Oversized legacy IDs never passed the
+schema, so this correction preserves replay identity for previously stored rows.
+Token redaction and payload validation still apply.
+
+Service-runtime restoration and awaited persistence propagate storage failures.
+A failed storage read is not an empty successful restore, and an awaited failed
+write cannot be reported as durable success. Diagnostic logs preserve bounded
+platform error text, any supplied platform reference, and explicit retryable or
+overloaded flags; missing flags remain unknown. These flags do not authorize
+unbounded retries inside a broken Durable Object.
+
 The owner-scoped Runtime Transport Durable Object owns the bounded session
 disconnect diagnostic projection. The socket close and socket error handlers
 are its only writers. The owner-scoped disconnect diagnostics endpoint and Core

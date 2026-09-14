@@ -67,6 +67,7 @@ import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
   buildRuntimeCoordinatorRunCommandStateStorageKey,
+  buildRuntimeCoordinatorTokenAuthorityStorageKey,
   RUNTIME_COORDINATOR_FINALIZATION_COMMAND_STORAGE_KEY_PREFIX,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_INDEX_STORAGE_KEY,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_PARK_DELAY_MS,
@@ -77,6 +78,12 @@ import {
   type RuntimeCoordinatorRunCommandState,
 } from "../src/runtime-transport/application/runtime-coordinator-authority";
 import { retireRuntimeCoordinatorTokenRun } from "../src/runtime-transport/application/runtime-coordinator-execution-token";
+import { processRuntimeCoordinatorWatchdogAlarm } from "../src/runtime-transport/application/runtime-coordinator-watchdog-alarm";
+import {
+  readNextRuntimeCoordinatorWatchdogAlarmAtMs,
+  readRuntimeCoordinatorWatchdogDueCommands,
+  repairRuntimeCoordinatorWatchdogSchedule,
+} from "../src/runtime-transport/application/runtime-coordinator-watchdog-storage";
 import {
   buildDispatchAttemptKey,
   type CompletedDispatchResultState,
@@ -1317,7 +1324,12 @@ const createHarness = (input?: {
   );
   const storageList = vi.fn(
     async (
-      options: { limit?: number; prefix?: string; startAfter?: string } = {}
+      options: {
+        end?: string;
+        limit?: number;
+        prefix?: string;
+        startAfter?: string;
+      } = {}
     ) =>
       new Map(
         [...storageRecords.entries()]
@@ -1327,6 +1339,7 @@ const createHarness = (input?: {
           .filter(([key]) =>
             options.startAfter ? key > options.startAfter : true
           )
+          .filter(([key]) => (options.end ? key < options.end : true))
           .sort(([left], [right]) => left.localeCompare(right))
           .slice(0, options.limit)
       )
@@ -3590,6 +3603,174 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
+  it("keeps one running token through a nine-minute communication gap and preserves Stop", async () => {
+    const startedAtMs = 1_700_000_000_000;
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(startedAtMs);
+    try {
+      const harness = createHarness({
+        agentControllerReportRow: buildRuntimeAgentControllerReportRow(),
+      });
+      const executionToken = await issueDeliveryToken(harness);
+      const lifecycle = (atMs: number) =>
+        (
+          harness.hub as unknown as {
+            handleDispatchLifecycleFrame: (
+              socket: WebSocket,
+              payload: unknown
+            ) => Promise<void>;
+          }
+        ).handleDispatchLifecycleFrame(
+          harness.socket,
+          buildLifecycleRequest({
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: atMs,
+            phase: "running",
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+      nowSpy.mockReturnValue(startedAtMs + 300);
+      await lifecycle(startedAtMs + 300);
+      const session = harness.state.sessionsById.get("daemon-session-1");
+      if (!session) {
+        throw new Error("Expected registered Service");
+      }
+      session.socket = null;
+      nowSpy.mockReturnValue(startedAtMs + 6 * 60_000);
+      await (harness.hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(
+          harness.storageRecords
+        )?.terminalOutcome
+      ).toBeNull();
+      expect(
+        findRuntimeCoordinatorRunCommandState(harness.storageRecords)
+          ?.communicationRecoveryBaselineAtMs
+      ).toBe(startedAtMs + 300);
+      // Opening a socket alone neither abandons the run nor resets its clock.
+      session.socket = harness.socket;
+      session.lastHeartbeatMs = startedAtMs + 9 * 60_000;
+      nowSpy.mockReturnValue(session.lastHeartbeatMs);
+      await (harness.hub as unknown as { alarm: () => Promise<void> }).alarm();
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(
+          harness.storageRecords
+        )?.terminalOutcome
+      ).toBeNull();
+      await lifecycle(session.lastHeartbeatMs);
+      expect(
+        findRuntimeCoordinatorExecutionTokenAuthorityRecord(
+          harness.storageRecords
+        )?.currentRunId
+      ).toBe(executionToken.runId);
+      expect(
+        harness.sentFrames.filter(
+          (frame) =>
+            (frame as { code?: string }).code === "daemon.dispatch.deliver"
+        )
+      ).toHaveLength(1);
+      enableWakeStopControl(harness.state, "cancel");
+      const stop = await requestRuntimeCoordinatorWakeStop(harness.hub);
+      expect(stop.status).toBe(200);
+      await expect(stop.json()).resolves.toMatchObject({
+        status: "cancellation_requested",
+      });
+      expect(
+        harness.recordingD1.projectionRows.get(RUNTIME_COORDINATOR_EXECUTION_ID)
+      ).toMatchObject({ status: "cancellation_requested" });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+  it("advances bounded watchdog pages past retained terminal history using real Durable Object storage", async () => {
+    const harness = createHarness();
+    await issueDeliveryToken(harness);
+    const command = findRuntimeCoordinatorRunCommandState(
+      harness.storageRecords
+    );
+    const authority = findRuntimeCoordinatorExecutionTokenAuthorityRecord(
+      harness.storageRecords
+    );
+    if (!(command && authority)) {
+      throw new Error("Expected accepted execution records");
+    }
+    const transport = (env as unknown as CoreBindings)
+      .OPENMELD_RUNTIME_TRANSPORT;
+    if (!transport) {
+      throw new Error("Expected runtime transport binding");
+    }
+    await runInDurableObject(
+      transport.get(transport.newUniqueId()),
+      async (_instance, durableState) => {
+        const { storage } = durableState;
+        const expectedActive: string[] = [];
+        for (let index = 0; index < 56; index += 1) {
+          const executionId = `watchdog-${String(index).padStart(3, "0")}`;
+          const terminal = index < 31;
+          if (!terminal) {
+            expectedActive.push(executionId);
+          }
+          await storage.put(
+            buildRuntimeCoordinatorRunCommandStateStorageKey(executionId),
+            {
+              ...command,
+              runtimeCoordinatorExecutionId: executionId,
+            }
+          );
+          await storage.put(
+            buildRuntimeCoordinatorTokenAuthorityStorageKey(executionId),
+            {
+              ...authority,
+              runtimeCoordinatorExecutionId: executionId,
+              executionScope: {
+                ...authority.executionScope,
+                runtimeCoordinatorExecutionId: executionId,
+              },
+              terminalOutcome: terminal
+                ? {
+                    status: "failed_terminal",
+                    replySignalId: null,
+                    reasonCode: "runtime.progress_stale",
+                    finalizedAtMs: command.createdAtMs + 1,
+                  }
+                : null,
+            }
+          );
+        }
+        const processed: string[] = [];
+        const nowMs = command.createdAtMs + 60_000;
+        for (let page = 0; page < 7; page += 1) {
+          await repairRuntimeCoordinatorWatchdogSchedule(storage);
+          let reserved = 0;
+          await processRuntimeCoordinatorWatchdogAlarm({
+            nowMs,
+            ports: {
+              readCommandStates: () =>
+                readRuntimeCoordinatorWatchdogDueCommands(storage, nowMs),
+              reserveWorkUnit: () => ++reserved <= 25,
+              processWatchdogDue: ({ commandState }) => {
+                processed.push(commandState.runtimeCoordinatorExecutionId);
+                return Promise.resolve();
+              },
+            },
+          });
+          expect(reserved).toBeLessThanOrEqual(10);
+        }
+        expect(processed).toEqual(expectedActive);
+        expect(
+          await readNextRuntimeCoordinatorWatchdogAlarmAtMs(storage, nowMs)
+        ).toBe(nowMs + 30_000);
+        // A stuck active item is retried later, and terminal history remains intact.
+        expect(
+          await readRuntimeCoordinatorWatchdogDueCommands(storage, nowMs)
+        ).toEqual([]);
+        expect(
+          await storage.get(
+            buildRuntimeCoordinatorRunCommandStateStorageKey("watchdog-000")
+          )
+        ).toBeDefined();
+      }
+    );
+  });
   it("requests the published release through a real register frame", async () => {
     const harness = createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
@@ -17322,6 +17503,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       }
       drainingSession.acceptingDispatches = false;
       drainingSession.stopCause = "controlled_service_update";
+      drainingSession.lastHeartbeatMs = 1_700_000_300_300;
       nowSpy.mockReturnValue(1_700_000_300_300);
       await (
         hub as unknown as {
