@@ -1,6 +1,22 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
 export type {
+  ServiceConnectionEvidenceEvent,
+  ServiceConnectionEvidenceJournal,
+  ServiceConnectionIncident,
+  ServiceConnectionIncidentReceipt,
+  ServiceConnectionIncidentReport,
+  ServiceConnectionIncidentReportRpcInput,
+  ServiceConnectionIncidentsReadRpcInput,
+  ServiceConnectionIncidentsResponse,
+} from "../schemas/daemon/service-connection-evidence";
+
+export type {
+  LocalAgentReasoningPreferences,
+  LocalAgentReasoningPreferencesRpc,
+  LocalAgentReasoningState,
+} from "../schemas/http/local-agent-reasoning";
+export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";
@@ -21,6 +37,11 @@ export type {
   SpaceFileUpdateSettings,
   SpaceFileUpdateSettingsCommand,
 } from "../schemas/http/space-file-update-settings";
+export type {
+  CenterAgentSetReplyPlacementInput,
+  NativeReplyPlacement,
+  ResolveNativeReplyPlacementInput,
+} from "../schemas/space-mesh/agent-reply-placement";
 export type * from "./agent-controller-collaboration-mode";
 export type * from "./agent-controller-permission-mode";
 export type * from "./agent-view/index";

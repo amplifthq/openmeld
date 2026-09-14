@@ -215,6 +215,7 @@ const withDispatchPlannerTestDefaults = (
 ): object => {
   return {
     ownerCreatorProfileIdsByOwnerUserId: new Map(),
+    readFilePins: () => ({ pins: [] }),
     readSpaceMetaRecord: vi.fn(() => ({
       organizationId: "org-space-1",
     })),
@@ -432,24 +433,14 @@ const rpcPostTransientSignal = (
   }
 ).rpcPostTransientSignal;
 
-const broadcastLiveMessage = (
+const deliverAuthorizedLiveMessage = (
   Space.prototype as unknown as {
-    broadcast(
-      this: {
-        sessions: Map<
-          unknown,
-          {
-            profile?: SignalEnvelope["profile"];
-            blocked?: SpaceQueuedWebSocketMessage[];
-            helloAccepted: boolean;
-            supportsLiveSignalHistory: boolean;
-          }
-        >;
-      },
+    deliverAuthorizedLiveMessage(
+      this: unknown,
       message: SignalEnvelope | SpaceLiveSignalFrame
-    ): void;
+    ): Promise<void>;
   }
-).broadcast;
+).deliverAuthorizedLiveMessage;
 
 const encodeLiveMessageForSession = (
   Space.prototype as unknown as {
@@ -818,6 +809,7 @@ const readDispatchLedgerEvidence = (
 const syncSpaceBackgroundAlarm = (
   Space.prototype as unknown as {
     syncSpaceBackgroundAlarm(this: {
+      env: { OPENMELD_SPACE_ATTACHMENTS?: R2Bucket };
       ctx: {
         storage: {
           sql: SqlStorage;
@@ -1065,7 +1057,7 @@ const createMessageEnvelope = (input: {
 });
 
 describe("space signal consistency matrix", () => {
-  it("queues pre-hello live signal frames unencoded until session capabilities are known", () => {
+  it("queues pre-hello live signal frames unencoded until session capabilities are known", async () => {
     const session = createPendingSpaceWebSocketSession({
       blocked: [],
     });
@@ -1077,8 +1069,9 @@ describe("space signal consistency matrix", () => {
       },
     };
 
-    broadcastLiveMessage.call(
+    await deliverAuthorizedLiveMessage.call(
       {
+        authorizeLiveSession: async () => true,
         sessions: new Map([[{}, session]]),
       },
       frame
@@ -1088,7 +1081,7 @@ describe("space signal consistency matrix", () => {
     expect(session.blocked?.[0]).toBe(frame);
   });
 
-  it("omits live history metadata from thread frames sent to non-capable sessions", () => {
+  it("omits live history metadata from thread frames sent to non-capable sessions", async () => {
     const viewerProfile: SignalEnvelope["profile"] = {
       kind: "human",
       profileId: "hum_viewer",
@@ -1125,8 +1118,9 @@ describe("space signal consistency matrix", () => {
       },
     };
 
-    broadcastLiveMessage.call(
+    await deliverAuthorizedLiveMessage.call(
       {
+        authorizeLiveSession: async () => true,
         sessions: new Map([
           [legacySocket, legacySession],
           [modernSocket, modernSession],
@@ -1728,6 +1722,10 @@ describe("space signal consistency matrix", () => {
 
     const records = prepareDispatchOutboxRecordsForSignal.call(
       {
+        readSignalById: (id: string) =>
+          id === threadContext.rootSignalId
+            ? { ...makeSignal("signal.text"), id }
+            : null,
         ctx: {
           storage: {
             sql: createDispatchRulesSqlStub(1, {
@@ -3620,6 +3618,7 @@ describe("space signal consistency matrix", () => {
     const deleteAlarm = vi.fn().mockResolvedValue(undefined);
 
     await syncSpaceBackgroundAlarm.call({
+      env: {},
       ctx: {
         storage: {
           sql,
@@ -3691,7 +3690,10 @@ describe("space signal consistency matrix", () => {
       durableObjectId: "do-1",
       lastPostCleanupAtMs: 0,
       prepareDispatchOutboxPlanForSignal(signal: SignalEnvelope) {
-        return prepareDispatchOutboxPlanForSignal.call(this, signal);
+        return prepareDispatchOutboxPlanForSignal.call(
+          withDispatchPlannerTestDefaults(this, signal),
+          signal
+        );
       },
       collectInsertedDispatchMessages(
         preparedOutboxRecords: DispatchOutboxRecord[],
@@ -4118,6 +4120,7 @@ describe("space signal consistency matrix", () => {
     await webSocketMessage.call(
       {
         sessions,
+        authorizeLiveSession: async () => true,
         buildTextSignal: buildTextSignalSpy,
         mergePublishedAuthorProfile: async (
           profile: SignalEnvelope["profile"]
@@ -4167,6 +4170,7 @@ describe("space signal consistency matrix", () => {
     await webSocketMessage.call(
       {
         sessions,
+        authorizeLiveSession: async () => true,
         buildTextSignal: (
           profile: SignalEnvelope["profile"],
           text: string

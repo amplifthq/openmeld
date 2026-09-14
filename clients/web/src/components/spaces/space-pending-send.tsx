@@ -1,9 +1,11 @@
 import { useSyncExternalStore } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 
 type FailedSend = { message: string; retry: () => Promise<void> };
 const LOCAL_SIGNAL_PREFIX = /^(pending|failed):/;
 const failures = new Map<string, FailedSend>();
 const pending = new Map<string, () => void>();
+let removeRecoveryBlocker: (() => void) | undefined;
 function protectUnsentMessages(event: BeforeUnloadEvent) {
 	if (!pending.size) {
 		return;
@@ -16,6 +18,9 @@ export function markSpaceSendPending(
 	onConfirmed: () => void
 ) {
 	pending.set(clientMessageId, onConfirmed);
+	removeRecoveryBlocker ??= registerClientVersionRecoveryBlocker(
+		() => pending.size > 0
+	);
 	window.addEventListener("beforeunload", protectUnsentMessages);
 }
 export function completeSpaceSend(clientMessageId: string) {
@@ -24,6 +29,8 @@ export function completeSpaceSend(clientMessageId: string) {
 	onConfirmed?.();
 	setSpaceSendFailure(clientMessageId, null);
 	if (!pending.size) {
+		removeRecoveryBlocker?.();
+		removeRecoveryBlocker = undefined;
 		window.removeEventListener("beforeunload", protectUnsentMessages);
 	}
 }

@@ -355,6 +355,15 @@ export const remoteAgentWorkerAuthorContextSchema = z.strictObject({
 });
 
 const remoteAgentWorkerSubmitTurnRequestShape = {
+  // Recovery may only render an answer from retained conversation context.
+  // The worker must disable tools, Skills, and Computer capabilities.
+  replyRecovery: z
+    .strictObject({
+      originalDispatchId: nonEmptyStringSchema,
+      operationId: nonEmptyStringSchema,
+      resultRef: nonEmptyStringSchema.optional(),
+    })
+    .optional(),
   organizationId: nonEmptyStringSchema,
   spaceId: nonEmptyStringSchema,
   // Canonical conversation identity is independent from the publication

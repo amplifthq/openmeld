@@ -32,6 +32,25 @@ Do not bypass hooks to ship a failed check. Diagnose with the smallest failing
 command, fix the cause, and push again. Hooks are local feedback, not remotely
 attested evidence; FC does not claim they ran or that every business test passed.
 
+## Link Completed Fixes To Their Issues
+
+Before handing off a PR, agents should explicitly map each fully resolved issue
+to the implemented behavior and its validation. Put one `Fixes #123` or
+`Closes #123` line per resolved issue in the **PR description**, and verify that
+GitHub lists those issues as linked for automatic closure. GitHub processes
+these closing keywords when the PR merges into the repository's default branch;
+a PR comment alone does not establish automatic closure. Comments may explain
+the issue-to-fix mapping, but must not replace the description's closing links.
+
+Only use closing keywords when the PR covers the issue's complete acceptance
+scope. For partial fixes, deferred work, or related issues, use a plain reference
+such as `Related to #123` and state what remains. Recheck this mapping whenever
+the PR scope changes so implemented fixes do not leave forgotten open issues,
+and unrelated or unfinished work is not closed accidentally. Keep merge-based
+closure separate from any claim that the change has reached production.
+
+See [GitHub's issue-linking contract](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).
+
 ## Focused Checks Before Push
 
 Inspect or run the shared local/draft entrypoint:

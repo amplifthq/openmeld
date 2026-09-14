@@ -83,6 +83,7 @@ export type DispatchSlaMetrics = {
 };
 
 export type RuntimeCoordinatorQueueDecisionRequest = {
+  ownerUserId?: string | null;
   claimDecision: RuntimeCoordinatorQueueTriggeredClaimDecision;
   coordinatorDecision: RuntimeCoordinatorTokenAwareExecutionDecision;
   eventKind: Extract<
@@ -120,6 +121,7 @@ export type OpenMeldDaemonDispatchAttemptClaimResult =
     };
 
 type ExistingDispatchLedgerRow = {
+  ownerUserId: string | null;
   attemptCount: number;
   dispatchId: string;
   firstSeenAtMs: number;
@@ -1146,6 +1148,7 @@ export const claimDispatchAttempt = async (
   const coordinatorClaimResult = await buildRuntimeCoordinatorClaimResult({
     coordinatorQueueDecision,
     db: input.db,
+    existing,
     message: input.message,
     nowMs: input.nowMs,
   });
@@ -1290,6 +1293,7 @@ type RuntimeCoordinatorQueueDecision =
 const buildRuntimeCoordinatorClaimResult = async (input: {
   coordinatorQueueDecision: RuntimeCoordinatorQueueDecision;
   db: D1Database;
+  existing: ExistingDispatchLedgerRow | null;
   message: OpenMeldDaemonDispatchQueueMessage;
   nowMs: number;
 }): Promise<OpenMeldDaemonDispatchAttemptClaimResult | null> => {
@@ -1310,7 +1314,12 @@ const buildRuntimeCoordinatorClaimResult = async (input: {
     buildRuntimeCoordinatorQueueDecisionRequest(input.coordinatorQueueDecision);
   if (runtimeCoordinatorDecisionRequest) {
     return {
-      runtimeCoordinatorDecisionRequest,
+      runtimeCoordinatorDecisionRequest: {
+        ...runtimeCoordinatorDecisionRequest,
+        ownerUserId:
+          input.existing?.ownerUserId ??
+          normalizeDispatchOwnerEvidence(input.message.dispatchOwner).id,
+      },
       status: "deduped",
     };
   }
@@ -1580,6 +1589,8 @@ const readDispatchLedgerRow = async (input: {
             latest_attempt_id,
             attempt_count,
             reply_hint_sent_at_ms,
+            dispatch_owner_kind,
+            dispatch_owner_id,
             status
           FROM openMeldDaemon_dispatch_ledger
           WHERE idempotency_key = ?
@@ -1594,12 +1605,18 @@ const readDispatchLedgerRow = async (input: {
       last_attempt_at_ms?: unknown;
       latest_attempt_id?: unknown;
       reply_hint_sent_at_ms?: unknown;
+      dispatch_owner_kind?: unknown;
+      dispatch_owner_id?: unknown;
       status?: unknown;
     }>();
   if (!existing) {
     return null;
   }
   return {
+    ownerUserId:
+      existing.dispatch_owner_kind === "owner_account"
+        ? normalizeString(existing.dispatch_owner_id)
+        : null,
     attemptCount: Math.max(0, Number(existing.attempt_count ?? 0)),
     dispatchId:
       normalizeString(existing.dispatch_id) ??

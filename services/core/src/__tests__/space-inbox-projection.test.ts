@@ -5,7 +5,10 @@ import {
 } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 import { truncateInboxText } from "../inbox/application/inbox-text";
-import { buildSpaceInboxProjectionOutboxRecord } from "../space/application/space-inbox-projection";
+import {
+  buildSpaceInboxProjectionOutboxRecord,
+  buildSpaceReactionInboxProjectionOutboxRecord,
+} from "../space/application/space-inbox-projection";
 import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
@@ -49,6 +52,94 @@ const publishTextSignal = (
 ).publishTextSignal;
 
 describe("Space Inbox projection", () => {
+  it("limits thread updates to participants, including replies to an older root", () => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("writer", "writer-user", "human"),
+        member("root", "root-user", "human"),
+        member("earlier-reply", "reply-user", "human"),
+        member("observer", "observer-user", "human"),
+        member("unrelated-agent", "observer-user", "agent"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Planning",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Alex",
+        authorProfileId: "writer",
+        authorHasRead: true,
+        text: "A thread update",
+      }),
+      signalContext: {
+        threadContext: { threadId: "thread-1", rootSignalId: "root-message" },
+        threadPlacement: "thread",
+      },
+      threadParticipantProfileIds: ["root", "earlier-reply", "writer"],
+    });
+    expect(record?.candidates.map((item) => item.recipientUserId)).toEqual([
+      "root-user",
+      "reply-user",
+    ]);
+  });
+
+  it("makes reactions to old messages new ordinary updates for the author alone", () => {
+    const signal = textSignal({
+      authorKind: "human",
+      authorName: "Alex",
+      authorProfileId: "author",
+      text: "An old message",
+    });
+    if (signal.type !== "signal.text") {
+      throw new Error("Expected a message");
+    }
+    const input = {
+      actor: member("reactor", "reactor-user", "human"),
+      author: member("author", "author-user", "human"),
+      emoji: "👍",
+      nowMs: 9000,
+      organizationId: "org-1",
+      signal,
+      spaceName: "Planning",
+      threadRootSignalId: "old-root",
+      version: 4,
+    };
+    const record = buildSpaceReactionInboxProjectionOutboxRecord(input);
+    expect(record?.candidates).toEqual([
+      expect.objectContaining({
+        recipientUserId: "author-user",
+        attention: "update",
+        importance: "normal",
+        kind: "space_message",
+        occurredAtMs: 9000,
+        sourceTarget: {
+          kind: "space",
+          spaceId: "space-1",
+          signalId: "signal-1",
+          threadRootSignalId: "old-root",
+        },
+      }),
+    ]);
+    expect(buildSpaceReactionInboxProjectionOutboxRecord(input)).toEqual(
+      record
+    );
+    expect(
+      buildSpaceReactionInboxProjectionOutboxRecord({ ...input, version: 6 })
+        ?.projectionId
+    ).not.toBe(record?.projectionId);
+    expect(
+      buildSpaceReactionInboxProjectionOutboxRecord({
+        ...input,
+        actor: input.author,
+      })
+    ).toBeNull();
+    expect(
+      buildSpaceReactionInboxProjectionOutboxRecord({
+        ...input,
+        author: { ...input.author, status: "removed" },
+      })
+    ).toBeNull();
+  });
   it.each([
     true,
     false,
@@ -103,6 +194,10 @@ describe("Space Inbox projection", () => {
       organizationId: "org-1",
       spaceName: "Review",
       wakeRequesterUserId,
+      threadParticipantProfileIds:
+        wakeRequesterUserId === "owner"
+          ? ["owner-human", "agent"]
+          : ["owner-human", "requester-human", "agent"],
       signal: textSignal({
         authorKind: "agent",
         authorName: "Design Agent",
@@ -210,6 +305,7 @@ describe("Space Inbox projection", () => {
         threadPlacement: "thread",
       },
       threadRootAuthorUserId: "user-author",
+      threadParticipantProfileIds: ["profile-author", "profile-reader"],
       spaceName: "Planning",
     });
     expect(record?.candidates).toEqual([
@@ -314,6 +410,12 @@ describe("Space Inbox projection", () => {
       text: "Please review the updated launch notes.",
     });
     const record = buildSpaceInboxProjectionOutboxRecord({
+      threadParticipantProfileIds: [
+        "profile-author",
+        "profile-referenced",
+        "profile-second",
+        "profile-agent",
+      ],
       activeMemberRecords: [
         member("profile-author", "user-author", "human"),
         member("profile-referenced", "user-referenced", "human"),
@@ -441,6 +543,12 @@ describe("Space Inbox projection", () => {
       },
       spaceName: "Operations",
       threadRootAuthorUserId: "user-thread-author",
+      threadParticipantProfileIds: [
+        "profile-requester",
+        "profile-referenced",
+        "profile-thread-author",
+        "profile-agent",
+      ],
       wakeRequesterUserId: "user-requester",
     });
 

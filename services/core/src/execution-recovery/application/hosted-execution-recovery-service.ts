@@ -111,6 +111,7 @@ export async function projectHostedExecutionRecovery(input: {
         exactControllerAssociationVerified && workerCanSubmit,
     },
     terminalFailureCode: input.delivery.failureCode,
+    replyRecoverySupported: true,
     updatedAtMs: input.nowMs,
   });
 }

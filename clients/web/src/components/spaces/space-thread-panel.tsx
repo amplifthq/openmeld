@@ -107,6 +107,10 @@ import type {
 } from "./space-composer-editor";
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import {
+	type SpaceMessageScrollAction,
+	SpaceMessageScrollController,
+} from "./space-conversation-scroll-controller";
+import {
 	type ComposeExpiredDeviceWait,
 	SpaceDeviceWaitOutcomeScope,
 } from "./space-device-wait-outcome";
@@ -240,6 +244,7 @@ function createThreadExecutionRecoveryHandler(input: {
 }
 
 type SpaceThreadPanelProps = {
+	open?: boolean;
 	wakeRecommendationsEnabled?: boolean;
 	activeThread: SpaceThread | null;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
@@ -320,7 +325,7 @@ type SpaceThreadPanelProps = {
 export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 	return (
 		<SpaceWakeStopScope
-			key={`${input.activeThread?.threadId}:${input.selfProfileId}`}
+			key={`${input.activeThread?.rootSignalId ?? input.initialFocusThreadRootSignalId}:${input.selfProfileId}`}
 			progressItems={input.ephemeralActivityItems}
 			stopRequestStatusBySelectorKey={input.wakeStopRequestStatusBySelectorKey}
 		>
@@ -350,11 +355,13 @@ export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
 
 function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 	const panelWidth = useSpacePanelWidth({ panel: "thread" });
-	const { registerMessageElement, jumpToMessage } = useThreadInitialFocus({
-		activeThread: input.activeThread,
-		initialFocusSignalId: input.initialFocusSignalId,
-		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
-	});
+	const { registerMessageElement, jumpToMessage, messageScrollActionRef } =
+		useThreadInitialFocus({
+			signals: input.signals,
+			activeThread: input.activeThread,
+			initialFocusSignalId: input.initialFocusSignalId,
+			initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+		});
 	const activeThreadId = input.activeThread?.threadId ?? null;
 	const activeThreadRootSignalId = input.activeThread?.rootSignalId ?? null;
 	const onRecoverExecution = useMemo(
@@ -445,8 +452,16 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		[activeThreadRootSignalId, input.unreadTargets]
 	);
 	const firstUnreadSignalId = activeUnreadTargets[0]?.signalId ?? null;
-	const latestThreadOccurredAtMs =
-		rawThreadTimelineItems.at(-1)?.createdAtMs ?? 0;
+	const latestThreadOccurredAtMs = useMemo(() => {
+		const loadedIds = new Set(rawThreadTimelineItems.map((item) => item.id));
+		return activeUnreadTargets.reduce(
+			(latest, target) =>
+				loadedIds.has(target.signalId)
+					? Math.max(latest, target.occurredAtMs)
+					: latest,
+			rawThreadTimelineItems.at(-1)?.createdAtMs ?? 0
+		);
+	}, [activeUnreadTargets, rawThreadTimelineItems]);
 	const focusStatusMessage = resolveThreadFocusStatusMessage({
 		activeThread: input.activeThread,
 		hasTargetSignal: rawThreadTimelineItems.some(
@@ -539,7 +554,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 				maxWidth={panelWidth.maxWidth}
 				minWidth={panelWidth.minWidth}
 				onWidthChange={panelWidth.onWidthChange}
-				open={input.activeThread !== null}
+				open={input.open ?? input.activeThread !== null}
 				resizeHandleLabel="Resize Thread panel"
 				width={panelWidth.width}
 			>
@@ -564,6 +579,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					isPersonalContext={input.isPersonalContext === true}
 					items={threadTimelineItems}
 					latestThreadOccurredAtMs={latestThreadOccurredAtMs}
+					messageScrollActionRef={messageScrollActionRef}
 					onAgentInteractionResponse={input.onAgentInteractionResponse}
 					onJumpToMessage={jumpToMessage}
 					onOpenMessageDetails={onOpenMessageDetails}
@@ -771,15 +787,13 @@ function useThreadMessageDetailsController(input: {
 }
 
 function useThreadInitialFocus(input: {
+	signals: SpaceThreadPanelProps["signals"];
 	activeThread: SpaceThread | null;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 }) {
 	const messageElements = useRef(new Map<string, HTMLElement>());
-	const initialFocusElementRef = useRef<{
-		element: HTMLElement;
-		signalId: string;
-	} | null>(null);
+	const messageScrollActionRef = useRef<SpaceMessageScrollAction | null>(null);
 	const highlightedElementRef = useRef<HTMLElement | null>(null);
 	const highlightMessageTimerRef = useRef<number | null>(null);
 	const appliedInitialFocusRef = useRef<string | null>(null);
@@ -790,22 +804,16 @@ function useThreadInitialFocus(input: {
 			} else {
 				messageElements.current.delete(signalId);
 			}
-			if (element) {
-				if (signalId === input.initialFocusSignalId) {
-					initialFocusElementRef.current = { element, signalId };
-				}
-				return;
-			}
-			if (initialFocusElementRef.current?.signalId === signalId) {
-				initialFocusElementRef.current = null;
-			}
 		},
-		[input.initialFocusSignalId]
+		[]
 	);
 
 	useEffect(() => {
 		const targetSignalId = input.initialFocusSignalId;
 		const targetRootSignalId = input.initialFocusThreadRootSignalId;
+		const targetLoaded =
+			targetSignalId === input.activeThread?.rootSignalId ||
+			input.signals.some((signal) => signal.id === targetSignalId);
 		if (
 			!(targetSignalId && targetRootSignalId && input.activeThread) ||
 			input.activeThread.rootSignalId !== targetRootSignalId
@@ -819,15 +827,15 @@ function useThreadInitialFocus(input: {
 		if (appliedInitialFocusRef.current === targetKey) {
 			return;
 		}
-		const targetElement =
-			initialFocusElementRef.current?.signalId === targetSignalId
-				? initialFocusElementRef.current.element
-				: null;
-		if (!targetElement) {
+		const targetElement = messageElements.current.get(targetSignalId);
+		if (!(targetLoaded && targetElement)) {
 			return;
 		}
 		appliedInitialFocusRef.current = targetKey;
-		targetElement.scrollIntoView({ block: "center" });
+		messageScrollActionRef.current?.(targetSignalId, {
+			align: "center",
+			behavior: "instant",
+		});
 		targetElement.focus({ preventScroll: true });
 		highlightedElementRef.current?.removeAttribute("data-highlighted");
 		targetElement.setAttribute("data-highlighted", "true");
@@ -846,6 +854,7 @@ function useThreadInitialFocus(input: {
 		input.activeThread,
 		input.initialFocusSignalId,
 		input.initialFocusThreadRootSignalId,
+		input.signals,
 	]);
 
 	useEffect(
@@ -860,10 +869,13 @@ function useThreadInitialFocus(input: {
 
 	const jumpToMessage = useCallback((signalId: string) => {
 		const element = messageElements.current.get(signalId);
-		element?.scrollIntoView({ block: "center" });
+		messageScrollActionRef.current?.(signalId, {
+			align: "center",
+			behavior: "instant",
+		});
 		element?.focus({ preventScroll: true });
 	}, []);
-	return { registerMessageElement, jumpToMessage };
+	return { registerMessageElement, jumpToMessage, messageScrollActionRef };
 }
 
 function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
@@ -875,6 +887,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			agentDirectConversationKind={input.agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 			blockedWakeProfileId={input.composerBlockedWakeProfileId}
+			canSendMessage={input.activeThread !== null}
 			centerAgentProfileId={input.centerAgentProfileId ?? null}
 			composerAddressingTargets={input.composerAddressingTargets ?? []}
 			composerAuthoredMentions={input.composerAuthoredMentions ?? []}
@@ -1056,6 +1069,7 @@ function resolveThreadComputerSetupPresentation(input: {
 }
 
 function ThreadTimeline(input: {
+	messageScrollActionRef: { current: SpaceMessageScrollAction | null };
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -1132,14 +1146,15 @@ function ThreadTimeline(input: {
 	}
 	if (input.isLoading) {
 		return (
-			<p className="flex-1 p-4 text-muted-foreground text-sm">
-				Loading thread…
-			</p>
+			<div aria-busy="true" className="min-h-0 flex-1">
+				<output className="sr-only">Loading thread…</output>
+			</div>
 		);
 	}
 
 	return (
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
+			<SpaceMessageScrollController actionRef={input.messageScrollActionRef} />
 			<MessageScroller className="min-h-0 flex-1">
 				<ThreadReadThroughObserver
 					key={input.readScopeKey}
@@ -1619,7 +1634,6 @@ const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {
 									/>
 								) : null}
 								{renderAnchoredThreadOutcomeRows({
-									align: messageAlign,
 									notices: anchoredOutcomeNotices,
 									onOpenMessageDetails: input.onOpenMessageDetails,
 									onRecoverExecution: input.onRecoverExecution,
@@ -1799,6 +1813,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	canSendMessage: boolean;
 	composerMembers?: SpaceComposerProps["members"];
 	pendingActionSurface?: ReactNode;
 	agentDirectConversationKind: SpaceAgentDirectConversationComposerHintKind | null;
@@ -1840,7 +1855,7 @@ function ThreadComposer(input: {
 		text: input.composerText,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
-		if (input.isSendingMessage || sendBlocked) {
+		if (!input.canSendMessage || input.isSendingMessage || sendBlocked) {
 			return;
 		}
 		input.onSend(options).catch((error) => {
@@ -1858,7 +1873,7 @@ function ThreadComposer(input: {
 				onSubmit: submitComposer,
 			}}
 			availability={{
-				canSendMessage: true,
+				canSendMessage: input.canSendMessage,
 				fileLimitReached: input.composerFileLimitReached,
 				isSendingMessage: input.isSendingMessage,
 				sendBlocked,
@@ -1922,7 +1937,6 @@ const UNAVAILABLE_SPACE_WAKE_STOP_REQUEST: SpaceWakeStopRequestHandler = () =>
 // Details action always opens the SOURCE thread message (not the notice's
 // own record), matching the main panel.
 function renderAnchoredThreadOutcomeRows(input: {
-	align?: "end" | "start";
 	notices: readonly SpaceTimelineItem[];
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1958,7 +1972,6 @@ function renderAnchoredThreadOutcomeRows(input: {
 					: null;
 				return (
 					<SpaceOutcomeRow
-						align={input.align}
 						key={group.key}
 						onOpenDetails={
 							input.readOnly

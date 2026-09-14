@@ -12,8 +12,14 @@ export type Conversation = {
 	profileId: string;
 } & (
 	| { kind: "space"; item: AccountSpaceItem }
-	| { kind: "direct-message"; chat: Chat }
+	| { kind: "direct-message"; chat: Chat; preview?: ConversationPreview }
 );
+
+export type ConversationPreview = {
+	data?: { text: string; timestamp: number } | null;
+	isError: boolean;
+	isPending: boolean;
+};
 
 export type ConversationSection = AccountSidebarPreferences["spaces"] & {
 	id: string;

@@ -1,4 +1,11 @@
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  readFile,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
   CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -25,11 +32,13 @@ import {
 import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
 import { resolveOpenMeldToolsUpdateOperation } from "../local-service/maintenance/openmeld-tools-update-operation";
 import { resolveDaemonServiceParticipationStatus } from "../local-service/status/service-participation-status";
+import { isBinaryDistribution } from "../runtime/distribution";
 import { OPENMELD_VERSION } from "../runtime/version";
 import { hashBundledSkillAssets } from "../skills/bundled-assets";
 import { computeDirectoryContentHash } from "../skills/content-hash";
 import { collectSkillsReadinessSnapshot } from "../skills/installation-inventory";
 import { loadSelectedSkillAssets } from "../skills/official-release";
+import { readManagedCliInstallation } from "./managed-install";
 
 export const OPENMELD_CLI_COMMAND_CONTRACT_VERSION =
   "openmeld-cli-command-contract-2026-09-large-space-files-v1";
@@ -97,7 +106,7 @@ export async function buildExpectedLocalComponentsManifest(): Promise<LocalCompo
       // Expected manifests do not know which daemon bundle is active at runtime.
       // The installed service hash reported to Core comes from active-bundle.json.
       bundleHash: null,
-      bundleVersion: resolveCurrentDaemonExpectedVersion(),
+      bundleVersion: await resolveCurrentDaemonExpectedVersion(),
       runtimeContractEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
       serviceContractVersion: OPENMELD_SERVICE_CONTRACT_VERSION,
     },
@@ -126,9 +135,24 @@ export async function writeInstalledLocalComponentsSnapshot(input: {
     source: input.source,
     manifest: await buildExpectedLocalComponentsManifest(),
   };
+  const installed = isBinaryDistribution()
+    ? await readManagedCliInstallation()
+    : null;
+  if (installed && installed.version !== OPENMELD_VERSION) {
+    const previous = await readInstalledLocalComponentsSnapshot();
+    if (previous?.manifest.cli.packageVersion === installed.version) {
+      snapshot.manifest.cli = previous.manifest.cli;
+    }
+  }
   const snapshotPath = localComponentsSnapshotPath();
   await mkdir(dirname(snapshotPath), { recursive: true });
-  await writeFile(snapshotPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+  const temporaryPath = `${snapshotPath}.${crypto.randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, `${JSON.stringify(snapshot, null, 2)}\n`);
+    await rename(temporaryPath, snapshotPath);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
   return snapshot;
 }
 
@@ -143,7 +167,7 @@ export async function resolveLocalComponentsStatus(
       resolveOpenMeldToolsMaintenanceProjection(),
       resolveOpenMeldToolsUpdateOperation(),
     ]);
-  const cli = resolveCliComponentStatus(input);
+  const cli = await resolveCliComponentStatus(input);
   const selectedSkill = await loadSelectedSkillAssets();
   const setupAction = resolveLocalComponentsSetupAction({
     cliStatus: cli.status,
@@ -221,9 +245,24 @@ export function resolveLocalComponentsSetupAction(input: {
   return "none";
 }
 
-function resolveCliComponentStatus(
+async function resolveCliComponentStatus(
   input: CliUpdateInput
-): LocalComponentsStatus["cli"] {
+): Promise<LocalComponentsStatus["cli"]> {
+  const installed = isBinaryDistribution()
+    ? await readManagedCliInstallation()
+    : null;
+  const packageVersion = installed?.version ?? OPENMELD_VERSION;
+  const snapshot =
+    installed && installed.version !== OPENMELD_VERSION
+      ? await readInstalledLocalComponentsSnapshot()
+      : null;
+  let commandContractVersion = OPENMELD_CLI_COMMAND_CONTRACT_VERSION;
+  if (packageVersion !== OPENMELD_VERSION) {
+    commandContractVersion =
+      snapshot?.manifest.cli.packageVersion === packageVersion
+        ? snapshot.manifest.cli.commandContractVersion
+        : "unknown";
+  }
   const latestPackageVersion = normalizeOptionalString(
     input.latestPackageVersion
   );
@@ -233,22 +272,23 @@ function resolveCliComponentStatus(
   const reasonCodes: string[] = [];
   let status: LocalComponentStatus = "ok";
   if (
-    requiredCommandContractVersion &&
-    requiredCommandContractVersion !== OPENMELD_CLI_COMMAND_CONTRACT_VERSION
+    commandContractVersion === "unknown" ||
+    (requiredCommandContractVersion &&
+      requiredCommandContractVersion !== commandContractVersion)
   ) {
     status = "update_required";
     reasonCodes.push("cli.command_contract_mismatch");
   } else if (
     latestPackageVersion &&
-    compareSemver(OPENMELD_VERSION, latestPackageVersion) < 0
+    compareSemver(packageVersion, latestPackageVersion) < 0
   ) {
     status = "update_available";
     reasonCodes.push("cli.package_update_available");
   }
   return {
-    commandContractVersion: OPENMELD_CLI_COMMAND_CONTRACT_VERSION,
+    commandContractVersion,
     latestPackageVersion,
-    packageVersion: OPENMELD_VERSION,
+    packageVersion,
     reasonCodes,
     requiredCommandContractVersion,
     status,
@@ -256,7 +296,7 @@ function resolveCliComponentStatus(
 }
 
 async function resolveServiceComponentState(): Promise<ServiceComponentState> {
-  const expectedVersion = resolveCurrentDaemonExpectedVersion();
+  const expectedVersion = await resolveCurrentDaemonExpectedVersion();
   try {
     const [participation, inventory, activeBundle] = await Promise.all([
       resolveDaemonServiceParticipationStatus({ expectedVersion }),

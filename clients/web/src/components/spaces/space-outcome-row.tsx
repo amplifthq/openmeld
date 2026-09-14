@@ -1,5 +1,4 @@
 import { cn } from "@openmeld/ui/lib/utils";
-import { WarningCircleIcon } from "@phosphor-icons/react";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
@@ -7,7 +6,7 @@ import {
 	type WakeFailureDisplay,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
-import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
+import { Marker, MarkerContent } from "./primitives/marker";
 import {
 	SpaceExecutionRecoveryButton,
 	type SpaceExecutionRecoveryHandler,
@@ -24,7 +23,7 @@ import {
 } from "./space-outcome-tone";
 
 // A request-level Wake outcome (terminal_failure or wake_stopped) is compact
-// and always visible. Stops use the shared system divider. Only Core-authorized recovery may add an
+// and always visible. Reuse the shared system divider. Only Core-authorized recovery may add an
 // execution action; starting another Wake belongs to the ordinary composer.
 // Full reason and diagnostics remain in Message details.
 /**
@@ -76,7 +75,6 @@ function renderSpaceOutcomeAction(input: {
 }
 
 export function SpaceOutcomeRow(input: {
-	align?: "end" | "start";
 	className?: string;
 	onOpenDetails: (() => void) | null;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -85,98 +83,43 @@ export function SpaceOutcomeRow(input: {
 	text: string;
 	tone: SpaceOutcomeRowTone;
 }) {
-	const isEndAligned = input.align === "end";
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
-	const isClickable = Boolean(input.onOpenDetails);
-
-	// Stops are system outcomes, not Agent replies or failures. Reuse the same
-	// divider in the main conversation and threads, retaining the details action.
-	if (input.tone === "muted") {
-		return (
-			<Marker
-				className={cn("w-full", input.className)}
-				data-testid="space-outcome-row"
-				variant="separator"
-			>
-				<MarkerContent className="max-w-[calc(100%-4rem)] text-center text-xs leading-5">
-					{isClickable ? (
-						<button
-							aria-label="Open message details"
-							className={cn(
-								APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-								"text-center hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
-							)}
-							onClick={input.onOpenDetails ?? undefined}
-							type="button"
-						>
-							<SpaceMessageReferenceText
-								referencesById={spaceReferencesById}
-								text={input.text}
-							/>
-						</button>
-					) : (
+	return (
+		<Marker
+			className={cn(
+				"w-full",
+				resolveSpaceOutcomeRowToneClassName(input.tone),
+				input.className
+			)}
+			data-testid="space-outcome-row"
+			variant="separator"
+		>
+			<MarkerContent className="flex max-w-[calc(100%-4rem)] flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-[13px] leading-5">
+				{input.onOpenDetails ? (
+					<button
+						aria-label="Open message details"
+						className={cn(
+							APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
+							"min-w-0 text-center hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
+						)}
+						onClick={input.onOpenDetails}
+						type="button"
+					>
 						<SpaceMessageReferenceText
 							referencesById={spaceReferencesById}
 							text={input.text}
 						/>
-					)}
-				</MarkerContent>
-			</Marker>
-		);
-	}
-
-	return (
-		<div
-			className={cn(
-				"flex w-full min-w-0",
-				isEndAligned ? "justify-end" : "justify-start",
-				input.className
-			)}
-			data-align={input.align ?? "start"}
-			data-slot="space-outcome-row"
-			data-testid="space-outcome-row"
-		>
-			<div
-				className={cn(
-					"flex min-w-0 max-w-full items-center gap-2",
-					isEndAligned ? "justify-end" : "justify-start"
+					</button>
+				) : (
+					<SpaceMessageReferenceText
+						referencesById={spaceReferencesById}
+						text={input.text}
+					/>
 				)}
-			>
-				<Marker
-					aria-label={isClickable ? "Open message details" : undefined}
-					className={cn(
-						"w-fit min-w-0 max-w-full items-center gap-2",
-						resolveSpaceOutcomeRowToneClassName(input.tone),
-						isClickable &&
-							cn(
-								APP_MOBILE_TOUCH_TARGET_CLASS_NAME,
-								"cursor-pointer appearance-none border-0 bg-transparent p-0 hover:underline focus-visible:outline focus-visible:outline-1 focus-visible:outline-ring focus-visible:outline-offset-2"
-							)
-					)}
-					onClick={input.onOpenDetails ?? undefined}
-					render={isClickable ? <button type="button" /> : undefined}
-				>
-					<MarkerIcon>
-						<WarningCircleIcon aria-hidden="true" />
-					</MarkerIcon>
-					<MarkerContent
-						className={cn(
-							"min-w-0 text-[13px] leading-5",
-							isEndAligned ? "text-right" : "text-left"
-						)}
-					>
-						<span className="block max-w-full max-sm:break-words sm:truncate">
-							<SpaceMessageReferenceText
-								referencesById={spaceReferencesById}
-								text={input.text}
-							/>
-						</span>
-					</MarkerContent>
-				</Marker>
-				{renderSpaceOutcomeAction(input)}
-			</div>
-		</div>
+				{input.tone !== "muted" && renderSpaceOutcomeAction(input)}
+			</MarkerContent>
+		</Marker>
 	);
 }
 

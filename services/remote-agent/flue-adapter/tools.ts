@@ -35,6 +35,7 @@ import {
 } from "./tool-execution";
 
 export async function getRemoteAgentFlueTools(input: {
+  replyRecovery?: boolean;
   personalAgent?: boolean;
   sharedSpaceContextEnabled?: boolean;
   agentActivityReadEnabled?: boolean;
@@ -53,6 +54,9 @@ export async function getRemoteAgentFlueTools(input: {
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
+  if (input.replyRecovery) {
+    return [];
+  }
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;

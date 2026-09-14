@@ -72,7 +72,6 @@ export async function syncLocalServiceProviderConversationProofs(input: {
       family: "provider_conversation_proof",
       message: "Provider conversation proof collection failed.",
       reasonCode: "provider_conversation.runtime_reporting.collection_failed",
-      requiresCarrierHandshake: false,
       status: "failed",
     });
     throw error;
@@ -84,7 +83,6 @@ export async function syncLocalServiceProviderConversationProofs(input: {
       family: "provider_conversation_proof",
       message: null,
       reasonCode: "provider_conversation.proof.no_applicable_routes",
-      requiresCarrierHandshake: false,
       status: "not_applicable",
     });
     return {

@@ -17,6 +17,15 @@
 
 ## What Staging Provides
 
+For a CLI-only update smoke, `pnpm staging:cli:publish -- --retain-service`
+keeps the currently published staging Service selection (or the current staging
+CLI artifact for a coupled baseline). The selected artifact is embedded in the
+new binary and published in the same manifest. Publish a current-code baseline
+first; historical carriers do not prove the new maintenance behavior. Deploy
+the Web manifest reader before this smoke so it preserves the Service selection.
+Verify the Service process identity and connection remain unchanged across the
+CLI upgrade; the ordinary coupled-update smoke does not prove this behavior.
+
 Staging is a persistent, internal OpenMeld environment. It runs the same five
 internal deployables as production:
 

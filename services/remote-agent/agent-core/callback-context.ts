@@ -14,6 +14,7 @@ import {
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerConversationIdentitySchema,
+  remoteAgentWorkerSubmitTurnRequestV1Schema,
   remoteAgentWorkLoopCheckpointSchema,
   resolveMappedPublicAgentFailureReason,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
@@ -204,6 +205,7 @@ export type RemoteAgentCallbackContext = {
     typeof remoteAgentWorkerConversationIdentitySchema
   >;
   runtimeConversationId?: string;
+  replyRecovery?: RemoteAgentWorkerSubmitTurnRequest["replyRecovery"];
   conversationCompaction?: ConversationCompactionMarker;
   outputAttachments?: SpaceMessageAttachment[];
   outputFiles?: SpaceMessageFileReference[];
@@ -275,6 +277,9 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  centerAgentSetReplyPlacement?(
+    input: CenterAgentSetReplyPlacementInput
+  ): Promise<NativeReplyPlacement>;
   centerAgentSetOrganizationWorkingLanguage?(
     input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
   ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse>;
@@ -632,6 +637,9 @@ export function createRemoteAgentCallbackContext(input: {
   return {
     accepted: input.ack.accepted,
     acceptedAt: new Date(input.nowMs).toISOString(),
+    ...(input.request.replyRecovery
+      ? { replyRecovery: input.request.replyRecovery }
+      : {}),
     agentProfileId: input.request.agentProfileId,
     agentProfileOwnerUserId: input.request.agentProfileOwnerUserId,
     bindingId: input.request.bindingId,
@@ -1887,6 +1895,10 @@ function isRemoteAgentCallbackContext(
     (candidate.runtimeConversationId === undefined ||
       (typeof candidate.runtimeConversationId === "string" &&
         candidate.runtimeConversationId.trim().length > 0)) &&
+    (candidate.replyRecovery === undefined ||
+      remoteAgentWorkerSubmitTurnRequestV1Schema.shape.replyRecovery.safeParse(
+        candidate.replyRecovery
+      ).success) &&
     (candidate.modelRoute === undefined ||
       centerAgentModelRouteSchema.safeParse(candidate.modelRoute).success) &&
     (candidate.workLoopCheckpoint === undefined ||
@@ -1991,4 +2003,6 @@ import type {
   CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileBody,
   CenterAgentReadChannelFileResponse,
+  CenterAgentSetReplyPlacementInput,
+  NativeReplyPlacement,
 } from "@openmeld/schemas/types";

@@ -7,7 +7,10 @@ import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 import { getAuthSessionState } from "../../config/auth-session";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import type { OpenMeldProfile } from "../../config/openmeld-profiles-api";
-import { canAttachAuthTokenToRequest } from "../../config/request-headers";
+import {
+  canAttachAuthTokenToRequest,
+  fingerprintRequestAuthorization,
+} from "../../config/request-headers";
 import { createCliApiClientFoundation } from "../../space/api-client-foundation";
 import type { LocalParticipationState } from "../../system/action-participation-planner";
 import { resolveAgentProfilePrimaryAgentControllerReport } from "../../system/agent-profile-primary-binding";
@@ -15,11 +18,11 @@ import { warnDaemonEvent } from "../core/logger";
 import { projectAgentControllerInterfaceForCloud } from "./agent-controller-interface-cloud-projection";
 
 export type RuntimeReportingAttempt = {
+  credentialFingerprint?: string;
   authenticationRejected: boolean;
   family: "provider_conversation_proof" | "runtime_agent_controller";
   message: string | null;
   reasonCode: string | null;
-  requiresCarrierHandshake: boolean;
   status: "failed" | "not_applicable" | "succeeded";
 };
 
@@ -168,7 +171,6 @@ export async function submitRuntimeAgentControllerReports(input: {
         authenticationRejected: false,
         message: "OpenMeld Service contract is unavailable.",
         reasonCode: "runtime.reporting.service_contract_unavailable",
-        requiresCarrierHandshake: false,
       },
       onAttempt: input.onAttempt,
       submissions: unavailableSubmissions({
@@ -183,13 +185,12 @@ export async function submitRuntimeAgentControllerReports(input: {
     serviceContract.gatewayUrl
   );
   if (authCompatibility.status === "unavailable") {
-    const reasonCode = `runtime.reporting.auth_${authCompatibility.authState}`;
+    const reasonCode = `runtime.reporting.${authCompatibility.reasonCode ?? `auth_${authCompatibility.authState}`}`;
     return await finishRuntimeAgentControllerReportingAttempt({
       failure: {
         authenticationRejected: false,
         message: `Local authentication is ${authCompatibility.authState}.`,
         reasonCode,
-        requiresCarrierHandshake: authCompatibility.authState !== "error",
       },
       onAttempt: input.onAttempt,
       submissions: failedSubmissions({
@@ -207,7 +208,6 @@ export async function submitRuntimeAgentControllerReports(input: {
         message:
           "The local authentication session does not match the reporting Gateway.",
         reasonCode: "runtime.reporting.auth_gateway_mismatch",
-        requiresCarrierHandshake: false,
       },
       onAttempt: input.onAttempt,
       submissions: failedSubmissions({
@@ -221,9 +221,16 @@ export async function submitRuntimeAgentControllerReports(input: {
     });
   }
 
+  let credentialFingerprint: string | undefined;
   try {
     const api = createRuntimeReportingApi(
-      createCliApiClientFoundation(serviceContract.gatewayUrl)
+      createCliApiClientFoundation(serviceContract.gatewayUrl, {
+        onAuthHeadersResolved: (headers) => {
+          credentialFingerprint = headers.Authorization
+            ? fingerprintRequestAuthorization(headers.Authorization)
+            : undefined;
+        },
+      })
     );
     const registration = await api.submitRegistration({
       deviceId: serviceContract.deviceId,
@@ -241,7 +248,6 @@ export async function submitRuntimeAgentControllerReports(input: {
           authenticationRejected: false,
           message: `Runtime registration was rejected: ${registration.reason ?? "rejected"}.`,
           reasonCode,
-          requiresCarrierHandshake: false,
         },
         onAttempt: input.onAttempt,
         submissions: failedSubmissions({
@@ -281,6 +287,7 @@ export async function submitRuntimeAgentControllerReports(input: {
     });
   } catch (error) {
     const failure = resolveRuntimeReportingWriteFailure({
+      credentialFingerprint,
       error,
       reasonCodePrefix: "runtime.reporting",
     });
@@ -328,7 +335,6 @@ export async function submitRuntimeProviderConversationProofs(input: {
         authenticationRejected: false,
         message: "OpenMeld Service contract is unavailable.",
         reasonCode,
-        requiresCarrierHandshake: false,
       },
       onAttempt: input.onAttempt,
       submissions: unavailableProviderConversationProofSubmissions({
@@ -343,13 +349,12 @@ export async function submitRuntimeProviderConversationProofs(input: {
     serviceContract.gatewayUrl
   );
   if (authCompatibility.status === "unavailable") {
-    const reasonCode = `provider_conversation.runtime_reporting.auth_${authCompatibility.authState}`;
+    const reasonCode = `provider_conversation.runtime_reporting.${authCompatibility.reasonCode ?? `auth_${authCompatibility.authState}`}`;
     return await finishProviderConversationProofReportingAttempt({
       failure: {
         authenticationRejected: false,
         message: `Local authentication is ${authCompatibility.authState}.`,
         reasonCode,
-        requiresCarrierHandshake: authCompatibility.authState !== "error",
       },
       onAttempt: input.onAttempt,
       submissions: failedProviderConversationProofSubmissions({
@@ -369,7 +374,6 @@ export async function submitRuntimeProviderConversationProofs(input: {
         message:
           "The local authentication session does not match the reporting Gateway.",
         reasonCode,
-        requiresCarrierHandshake: false,
       },
       onAttempt: input.onAttempt,
       submissions: failedProviderConversationProofSubmissions({
@@ -383,9 +387,16 @@ export async function submitRuntimeProviderConversationProofs(input: {
     });
   }
 
+  let credentialFingerprint: string | undefined;
   try {
     const api = createRuntimeReportingApi(
-      createCliApiClientFoundation(serviceContract.gatewayUrl)
+      createCliApiClientFoundation(serviceContract.gatewayUrl, {
+        onAuthHeadersResolved: (headers) => {
+          credentialFingerprint = headers.Authorization
+            ? fingerprintRequestAuthorization(headers.Authorization)
+            : undefined;
+        },
+      })
     );
     const registration = await api.submitRegistration({
       deviceId: serviceContract.deviceId,
@@ -405,7 +416,6 @@ export async function submitRuntimeProviderConversationProofs(input: {
           authenticationRejected: false,
           message: `Runtime registration was rejected: ${registration.reason ?? "rejected"}.`,
           reasonCode,
-          requiresCarrierHandshake: false,
         },
         onAttempt: input.onAttempt,
         submissions: failedProviderConversationProofSubmissions({
@@ -438,6 +448,7 @@ export async function submitRuntimeProviderConversationProofs(input: {
     });
   } catch (error) {
     const failure = resolveRuntimeReportingWriteFailure({
+      credentialFingerprint,
       error,
       reasonCodePrefix: "provider_conversation.runtime_reporting",
     });
@@ -460,10 +471,10 @@ export async function submitRuntimeProviderConversationProofs(input: {
 }
 
 type RuntimeReportingFailure = {
+  credentialFingerprint?: string;
   authenticationRejected: boolean;
   message: string;
   reasonCode: string;
-  requiresCarrierHandshake: boolean;
 };
 
 async function finishRuntimeAgentControllerReportingAttempt(input: {
@@ -485,11 +496,13 @@ async function finishRuntimeAgentControllerReportingAttempt(input: {
         })
       : null);
   await notifyRuntimeReportingAttemptObserver(input.onAttempt, {
+    ...(failure?.credentialFingerprint
+      ? { credentialFingerprint: failure.credentialFingerprint }
+      : {}),
     authenticationRejected: failure?.authenticationRejected ?? false,
     family: "runtime_agent_controller",
     message: failure?.message ?? null,
     reasonCode: failure?.reasonCode ?? null,
-    requiresCarrierHandshake: failure?.requiresCarrierHandshake ?? false,
     status: failure ? "failed" : "succeeded",
   });
   return input.submissions;
@@ -514,11 +527,13 @@ async function finishProviderConversationProofReportingAttempt(input: {
         })
       : null);
   await notifyRuntimeReportingAttemptObserver(input.onAttempt, {
+    ...(failure?.credentialFingerprint
+      ? { credentialFingerprint: failure.credentialFingerprint }
+      : {}),
     authenticationRejected: failure?.authenticationRejected ?? false,
     family: "provider_conversation_proof",
     message: failure?.message ?? null,
     reasonCode: failure?.reasonCode ?? null,
-    requiresCarrierHandshake: failure?.requiresCarrierHandshake ?? false,
     status: failure ? "failed" : "succeeded",
   });
   return input.submissions;
@@ -533,20 +548,22 @@ function buildSubmissionFailure(input: {
     authenticationRejected: false,
     message: `Runtime reporting failed: ${reasonCode}.`,
     reasonCode,
-    requiresCarrierHandshake: false,
   };
 }
 
 function resolveRuntimeReportingWriteFailure(input: {
+  credentialFingerprint?: string;
   error: unknown;
   reasonCodePrefix: string;
 }): RuntimeReportingFailure {
   const failure = toStructuredApiClientFailure(input.error);
   const authenticationRejected =
     failure.status === 401 ||
-    failure.code === "auth.unauthenticated" ||
-    failure.message.toLowerCase().includes("authentication required");
+    (failure.status === null && failure.code === "auth.unauthenticated");
   return {
+    ...(authenticationRejected && input.credentialFingerprint
+      ? { credentialFingerprint: input.credentialFingerprint }
+      : {}),
     authenticationRejected,
     message: resolveSafeRuntimeReportingFailureMessage({
       authenticationRejected,
@@ -556,7 +573,6 @@ function resolveRuntimeReportingWriteFailure(input: {
     reasonCode: `${input.reasonCodePrefix}.${
       authenticationRejected ? "authentication_required" : "write_failed"
     }`,
-    requiresCarrierHandshake: false,
   };
 }
 
@@ -603,7 +619,6 @@ export async function notifyRuntimeReportingAttemptObserver(
       event: "cli.runtime_reporting.attempt_observer_failed",
       family: attempt.family,
       reasonCode: attempt.reasonCode,
-      requiresCarrierHandshake: attempt.requiresCarrierHandshake,
       status: attempt.status,
     });
   }
@@ -1124,9 +1139,12 @@ async function resolveRuntimeReportingAuthCompatibility(
   | {
       status: "unavailable";
       authState: "error" | "expired" | "invalid" | "missing";
+      reasonCode?: string;
     }
 > {
-  const authState = await getAuthSessionState().catch(() => null);
+  const authState = await getAuthSessionState({ refreshExpired: true }).catch(
+    () => null
+  );
   if (!authState) {
     return { authState: "error", status: "unavailable" };
   }
@@ -1135,6 +1153,7 @@ async function resolveRuntimeReportingAuthCompatibility(
     // surfaces as a bare "authentication required" with no cause. Refuse to
     // submit instead, so the failure carries the local auth state.
     return {
+      reasonCode: authState.reasonCode,
       authState:
         authState.state === "expired" || authState.state === "invalid"
           ? authState.state

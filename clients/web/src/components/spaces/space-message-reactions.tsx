@@ -245,8 +245,16 @@ export function useMessageReactions(input?: MessageReactionInput) {
 					: old
 			);
 		} catch {
-			setError("Couldn’t update your reaction. Try again.");
-			query.refetch();
+			// A failed response does not prove the write failed. Keep the user's
+			// optimistic intent visible until a fresh read confirms the outcome.
+			const refreshed = await query.refetch({ throwOnError: false });
+			const confirmed =
+				refreshed.isSuccess &&
+				Boolean(
+					refreshed.data.groups.find((group) => group.emoji === emoji.emoji)
+						?.reactedByMe
+				) === active;
+			setError(confirmed ? null : "Couldn’t update your reaction. Try again.");
 		} finally {
 			inFlight.current.delete(emoji.emoji);
 			setPending((previous) => {

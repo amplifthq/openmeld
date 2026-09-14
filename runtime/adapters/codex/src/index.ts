@@ -390,11 +390,10 @@ function abortOccupiedCodexDispatch(input: {
   return true;
 }
 
-function buildCodexWriterWaitCancelledResult(): AdapterDispatchFailure {
+function buildCodexDispatchCancelledResult(): AdapterDispatchFailure {
   return {
     errorCode: "runtime.turn.cancelled",
-    errorMessage:
-      "runtime.turn.cancelled: Codex was stopped while waiting for the Agent Controller conversation",
+    errorMessage: "runtime.turn.cancelled: This OpenMeld request was stopped",
     errorType: "adapter",
     status: "failed",
   };
@@ -463,14 +462,14 @@ async function dispatchCodexWithConversationOccupancy(input: {
       const cancellationSignal =
         state.registration?.abortController.signal ?? undefined;
       if (cancellationSignal?.aborted) {
-        return buildCodexWriterWaitCancelledResult();
+        return buildCodexDispatchCancelledResult();
       }
       const result = await input.sharedDispatch({
         ...input.request,
         ...(cancellationSignal ? { cancellationSignal } : {}),
       });
       if (state.registration?.abortController.signal.aborted) {
-        return buildCodexWriterWaitCancelledResult();
+        return buildCodexDispatchCancelledResult();
       }
       const occupancy = readCodexConversationOccupancy(result, input.request);
       if (occupancy) {
@@ -480,7 +479,7 @@ async function dispatchCodexWithConversationOccupancy(input: {
           state,
         });
         if (waitOutcome === "cancelled") {
-          return buildCodexWriterWaitCancelledResult();
+          return buildCodexDispatchCancelledResult();
         }
         continue;
       }

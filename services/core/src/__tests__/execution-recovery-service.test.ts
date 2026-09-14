@@ -161,7 +161,10 @@ describe("execution recovery service", () => {
     expect(resumeControllerConversation).not.toHaveBeenCalled();
   });
 
-  it("offers exact conversation resume only after owner, controller, conversation, and destination verification", () => {
+  it.each([
+    undefined,
+    "remote_agent.empty_assistant_response",
+  ])("offers verified conversation recovery for %s", (terminalFailureCode) => {
     const projection = inspectExecutionRecovery({
       destination,
       explicitUserStop: false,
@@ -175,6 +178,8 @@ describe("execution recovery service", () => {
         exactAssociationVerified: true,
         serviceSupportsResume: true,
       },
+      terminalFailureCode,
+      replyRecoverySupported: true,
       updatedAtMs: 100,
     });
 
@@ -199,6 +204,7 @@ describe("execution recovery service", () => {
         serviceSupportsResume: true,
       },
       terminalFailureCode: "usage_exhausted",
+      replyRecoverySupported: true,
       updatedAtMs: 100,
     });
 

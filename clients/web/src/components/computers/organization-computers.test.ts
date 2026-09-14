@@ -170,6 +170,7 @@ describe("resolveOrganizationComputerGroups", () => {
 				expect.objectContaining({
 					deviceDisplayName: "Ashley's MacBook Pro",
 					deviceId: "device-ashley-service",
+					routeId: "computer:user-ashley:device-ashley-service",
 					isOwnedByCurrentUser: false,
 				}),
 			],

@@ -25,6 +25,24 @@ const LEGACY_SNAPSHOT_STORAGE_KEY = "daemonhub.snapshot.v1";
 // Records older than this are dead devices; prune lazily on restore so the
 // per-account record set stays bounded without a dedicated sweeper.
 const SERVICE_RUNTIME_RECORD_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PLATFORM_REFERENCE_PATTERN = /reference\s*[:=]\s*([a-z0-9_-]{8,80})/iu;
+
+function describeRuntimeStorageError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  const flags = typeof error === "object" && error !== null ? error : {};
+  return {
+    error: message.slice(0, 1024),
+    platformReference: PLATFORM_REFERENCE_PATTERN.exec(message)?.[1] ?? null,
+    retryable:
+      "retryable" in flags && typeof flags.retryable === "boolean"
+        ? flags.retryable
+        : null,
+    overloaded:
+      "overloaded" in flags && typeof flags.overloaded === "boolean"
+        ? flags.overloaded
+        : null,
+  };
+}
 
 type ServiceRuntimeLeaseEntryV1 = {
   profileId: string;
@@ -105,8 +123,9 @@ const persistServiceRuntimeRecord = async (
       console.error("[core.runtime_transport.runtime_record.persist_failed]", {
         deviceId: session.deviceId,
         daemonSessionId: session.daemonSessionId,
-        error: error instanceof Error ? error.message : String(error),
+        ...describeRuntimeStorageError(error),
       });
+      throw error;
     });
 };
 
@@ -129,7 +148,7 @@ export const persistServiceRuntimeRecords = (
     console.error(
       "[core.runtime_transport.runtime_record.persist_batch_failed]",
       {
-        error: error instanceof Error ? error.message : String(error),
+        ...describeRuntimeStorageError(error),
       }
     );
   });
@@ -145,9 +164,9 @@ export const restoreServiceRuntimeRecords = async (
     .list<unknown>({ prefix: SERVICE_RUNTIME_RECORD_PREFIX })
     .catch((error: unknown) => {
       console.error("[core.runtime_transport.runtime_record.restore_failed]", {
-        error: error instanceof Error ? error.message : String(error),
+        ...describeRuntimeStorageError(error),
       });
-      return new Map<string, unknown>();
+      throw error;
     });
 
   const nowMs = Date.now();

@@ -536,9 +536,32 @@ describe("openmeld upgrade in binary distribution", () => {
     });
   });
 
-  it("does not forward process.argv[1] as a Node script path in binary internal alignment", async () => {
+  it.each([
+    false,
+    true,
+  ])("uses the selected Service target in binary alignment (independent=%s)", async (independent) => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
+      const manifest = buildBinaryManifest(
+        Buffer.from("selected Service artifact")
+      );
+      const service = independent
+        ? {
+            version: "0.0.1",
+            platforms: manifest.channels.stable.platforms,
+          }
+        : undefined;
+      vi.mocked(fetch).mockResolvedValue(
+        Response.json({
+          ...manifest,
+          channels: {
+            stable: {
+              ...manifest.channels.stable,
+              ...(service ? { service } : {}),
+            },
+          },
+        })
+      );
       resolveDaemonServiceAlignmentDecisionMock.mockReturnValueOnce({
         status: "needs_full_alignment",
         reasonCodes: ["bundle_strategy_legacy"],
@@ -557,13 +580,18 @@ describe("openmeld upgrade in binary distribution", () => {
 
         expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith(
           expect.objectContaining({
-            targetVersion: packageJson.version,
+            targetVersion: service?.version ?? packageJson.version,
             urgency: "available",
           })
         );
         const scheduleInput =
           scheduleDaemonServiceUpdateMock.mock.calls[0]?.[0];
         expect(scheduleInput).not.toHaveProperty("cliScriptPath");
+        if (service) {
+          expect(scheduleInput.binaryRelease.version).toBe(service.version);
+        } else {
+          expect(scheduleInput).not.toHaveProperty("binaryRelease");
+        }
         expect(runDaemonServiceFullAlignmentMock).not.toHaveBeenCalled();
       } finally {
         process.argv[1] = originalArgvEntry ?? process.execPath;

@@ -202,12 +202,17 @@ import {
 } from "./parse-dispatch-task";
 import { buildDispatchPromptTrace } from "./prompt-trace";
 import {
+  createReasoningStream,
+  routeReasoningEvents,
+} from "./reasoning-stream";
+import {
   buildFailedTaskResultPayload,
   resolveDispatchResultPayload,
   sendDispatchInteractionRequestFrame,
   sendDispatchLifecycleFrame,
   sendDispatchPreviewEndFrame,
   sendDispatchPreviewFrame,
+  sendDispatchReasoningFrame,
   sendDispatchRuntimeEvidenceFrame,
   sendDispatchToolActivityFrame,
 } from "./send-dispatch-result";
@@ -985,6 +990,90 @@ export async function handleDispatchDeliverFrame(input: {
     taskId: parsedTask.taskId,
   });
   const runtimeStartedAtMs = Date.now();
+  let agentToolActivitySequence = 0;
+  let firstReasoningMs: number | undefined;
+  const sendReasoning = (
+    thinkingSnapshot: string,
+    observedAtMs: number,
+    status: "streaming" | "waiting" | "disabled" = "streaming"
+  ) => {
+    const socket = currentSocketRef.socket;
+    if (
+      runtimeControllerSupport.runtimeAdapterMatch.adapterId === "openclaw" ||
+      !socket ||
+      currentSocketRef.reasoningStreamEnabled === undefined ||
+      (status === "streaming" && (socket.bufferedAmount ?? 0) > 64 * 1024)
+    ) {
+      return;
+    }
+    try {
+      sendDispatchReasoningFrame({
+        socket,
+        thinkingSnapshot,
+        observedAtMs,
+        reasoningState: {
+          status,
+          ...(firstReasoningMs !== undefined
+            ? { firstOutputMs: firstReasoningMs }
+            : {}),
+        },
+        sequence: ++agentToolActivitySequence,
+        attemptId: parsedTask.attemptId,
+        dispatchId: parsedTask.dispatchId,
+        daemonSessionId: input.daemonSessionId,
+        connectionGeneration: resolveCurrentConnectionGeneration({
+          currentSocketRef,
+          fallbackConnectionGeneration:
+            input.deliverRequest.connectionGeneration,
+        }),
+        executionIdentityEcho: toRuntimeTransportRuntimeEvidenceIdentityEcho(
+          input.deliverRequest
+        ),
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        sourceSignalId: parsedTask.sourceEventId,
+        spaceId: parsedTask.spaceId,
+        targetProfileId: parsedTask.targetProfileId,
+        taskId: parsedTask.taskId,
+      });
+    } catch {
+      // Live delivery is best effort; never log its content or fail the run.
+    }
+  };
+  const reasoningStream = createReasoningStream({
+    enabled: () =>
+      currentSocketRef.reasoningStreamEnabled === true &&
+      currentSocketRef.socket !== null,
+    send: sendReasoning,
+  });
+  const clearReasoning = () => {
+    reasoningStream.clear();
+    sendReasoning(
+      "",
+      Date.now(),
+      currentSocketRef.reasoningStreamEnabled ? "waiting" : "disabled"
+    );
+  };
+  currentSocketRef.reasoningPreferenceListeners ??= new Set();
+  currentSocketRef.reasoningPreferenceListeners.add(clearReasoning);
+  const observeReasoning = (
+    event: Extract<AdapterRuntimeEvent, { phase: "reasoning" }>
+  ) => {
+    if (firstReasoningMs === undefined && event.text.length > 0) {
+      firstReasoningMs = Math.max(0, event.tsMs - runtimeStartedAtMs);
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.reasoning_first_output",
+        text: "Local Agent produced its first reasoning output.",
+        payload: {
+          dispatchId: parsedTask.dispatchId,
+          firstOutputMs: firstReasoningMs,
+        },
+      });
+    }
+    reasoningStream.observe(event);
+  };
   const daemonWorkingDirectory = process.cwd();
   let dispatchRuntimeContext: ProviderDispatchRuntimeContext | null = null;
   let effectiveRuntimeContext: ProviderDispatchRuntimeContext | null = null;
@@ -1415,7 +1504,6 @@ export async function handleDispatchDeliverFrame(input: {
       });
       return agentControllerConversationId;
     };
-    let agentToolActivitySequence = 0;
     let usageObservationAuthPromise: ReturnType<
       typeof probeAgentControllerUsageObservationAuth
     > | null = null;
@@ -1464,6 +1552,7 @@ export async function handleDispatchDeliverFrame(input: {
         result: "accepted",
       });
     };
+    clearReasoning();
     const runtimeExecutionPromise = Promise.resolve(
       runDispatchRuntimeExecution({
         computerFileAccessBoundary,
@@ -1485,7 +1574,7 @@ export async function handleDispatchDeliverFrame(input: {
             taskId: parsedTask.taskId,
           });
         },
-        onRuntimeEvent: (event) => {
+        onRuntimeEvent: routeReasoningEvents(observeReasoning, (event) => {
           syncAgentControllerConversationOccupancyLifecycle(event);
           syncProviderTurnAcceptedLifecycle(event);
           if (event.phase === "tool_activity") {
@@ -1629,7 +1718,7 @@ export async function handleDispatchDeliverFrame(input: {
             targetProfileId: parsedTask.targetProfileId,
             taskId: parsedTask.taskId,
           });
-        },
+        }),
         parsedTask,
         instructionPrompt: runtimePromptPlan,
         prompt: runtimePromptPlan.fallbackPrompt,
@@ -1990,6 +2079,8 @@ export async function handleDispatchDeliverFrame(input: {
       },
     });
   } finally {
+    reasoningStream.dispose();
+    currentSocketRef.reasoningPreferenceListeners?.delete(clearReasoning);
     lifecycleKeepalive.stop?.();
     lifecycleKeepalive.stop = null;
     input.inflightDispatchMetaByTaskId.delete(parsedTask.taskId);
@@ -3646,124 +3737,148 @@ async function coordinateConcurrentAgentReply(input: {
     },
     observation,
     reconsider: async (prompt, currentObservation) => {
-      const continuation = resolveStructuredActionRepairContinuation({
-        agentControllerConversationOverride:
-          input.agentControllerConversationOverride,
-        runtimeResult: input.runtimeResult,
-      });
-      if (
-        !(
-          continuation.contextId ||
-          continuation.agentControllerConversationOverride
-        )
-      ) {
-        throw new DaemonServiceRunError({
-          code: "dispatch.agent_reply_reconsideration.conversation_unavailable",
-          message:
-            "The Space changed, but the exact Agent conversation is unavailable for reply reconsideration.",
-        });
-      }
-      await input.controllerTurnCompletion;
-      const activeTask = input.inflightTaskControlRegistry.getTask(
-        input.parsedTask.taskId
-      );
-      if (
-        activeTask?.dispatchId !== input.parsedTask.dispatchId ||
-        activeTask.runtimeCoordinatorExecutionId !==
-          input.parsedTask.runtimeCoordinatorExecutionId
-      ) {
-        throw new DaemonServiceRunError({
-          code: "dispatch.agent_reply_reconsideration.execution_inactive",
-          message:
-            "The Wake stopped before the Agent could reconsider its reply.",
-        });
-      }
-      if (input.dispatchSpaceActionContext) {
-        supersedeDispatchSpaceActionRecordForReconsideration({
-          context: input.dispatchSpaceActionContext,
-        });
-      }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_reply_reconsideration_started",
-        text: `Agent reply reconsideration started for task ${input.parsedTask.taskId}`,
-        payload: {
+      const reconsiderationStartedAtMs = Date.now();
+      const recordReconsideration = (result: string) =>
+        emitDaemonDispatchJournalEvent({
+          type: "dispatch.reply_reconsideration",
           dispatchId: input.parsedTask.dispatchId,
-          newerSignalCount: currentObservation.relevantSignals.length,
-          observedThroughSignalId: currentObservation.observedThroughSignalId,
-          targetProfileId: input.parsedTask.targetProfileId,
+          profileId: input.parsedTask.targetProfileId,
           taskId: input.parsedTask.taskId,
-        },
-      });
-      let runtimeResult = await runDispatchRuntimeExecution({
-        agentControllerConversationOverride:
-          continuation.agentControllerConversationOverride,
-        computerFileAccessBoundary: input.computerFileAccessBoundary,
-        contextId: continuation.contextId,
-        executionMode: "repair",
-        instructionPrompt: input.instructionPrompt
-          ? {
-              ...input.instructionPrompt,
-              userPrompt: prompt,
-            }
-          : undefined,
-        io: input.ledgerIo,
-        ledgerPaths: input.ledgerPaths,
-        parsedTask: input.parsedTask,
-        prompt,
-        routeConfig: input.routeConfig,
-        runtimeContext: input.runtimeContext,
-        runtimeEnvOverrides: input.runtimeEnvOverrides,
-        runtimeControllerSupport: input.runtimeControllerSupport,
-        streamingModeOverride: "final",
-      });
-      runtimeResult = await applyCliSpaceActionRecordIfPresent({
-        dispatchSpaceActionContext: input.dispatchSpaceActionContext,
-        parsedTask: input.parsedTask,
-        presenter: input.presenter,
-        runtimeResult,
-      });
-      const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
-        ...input,
-        agentControllerConversationOverride:
-          continuation.agentControllerConversationOverride,
-        allowConcurrentReplyReconsideration: false,
-        runtimeResult,
-      });
-      if (!reconsidered.resolvedSpaceAction) {
-        if (reconsidered.runtimeResult.resultPayload.status === "failed") {
-          return {
-            action: undefined,
-            value: {
-              provenance: undefined,
-              runtimeResult: reconsidered.runtimeResult,
-            },
-          };
+          result,
+          metadata: {
+            reason: "new_relevant_space_signal",
+            newerSignalCount: currentObservation.relevantSignals.length,
+            observedThroughSignalId: currentObservation.observedThroughSignalId,
+            triggeringSignalIds: currentObservation.relevantSignals.map(
+              (signal) => signal.id
+            ),
+            startedAtMs: reconsiderationStartedAtMs,
+            durationMs: Math.max(0, Date.now() - reconsiderationStartedAtMs),
+          },
+        });
+      recordReconsideration("started");
+      try {
+        const continuation = resolveStructuredActionRepairContinuation({
+          agentControllerConversationOverride:
+            input.agentControllerConversationOverride,
+          runtimeResult: input.runtimeResult,
+        });
+        if (
+          !(
+            continuation.contextId ||
+            continuation.agentControllerConversationOverride
+          )
+        ) {
+          throw new DaemonServiceRunError({
+            code: "dispatch.agent_reply_reconsideration.conversation_unavailable",
+            message:
+              "The Space changed, but the exact Agent conversation is unavailable for reply reconsideration.",
+          });
         }
-        throw new DaemonServiceRunError({
-          code: "dispatch.agent_reply_reconsideration.action_missing",
-          message:
-            "The Agent did not return a valid Space action after reviewing newer messages.",
+        await input.controllerTurnCompletion;
+        const activeTask = input.inflightTaskControlRegistry.getTask(
+          input.parsedTask.taskId
+        );
+        if (
+          activeTask?.dispatchId !== input.parsedTask.dispatchId ||
+          activeTask.runtimeCoordinatorExecutionId !==
+            input.parsedTask.runtimeCoordinatorExecutionId
+        ) {
+          throw new DaemonServiceRunError({
+            code: "dispatch.agent_reply_reconsideration.execution_inactive",
+            message:
+              "The Wake stopped before the Agent could reconsider its reply.",
+          });
+        }
+        if (input.dispatchSpaceActionContext) {
+          supersedeDispatchSpaceActionRecordForReconsideration({
+            context: input.dispatchSpaceActionContext,
+          });
+        }
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_reply_reconsideration_started",
+          text: `Agent reply reconsideration started for task ${input.parsedTask.taskId}`,
+          payload: {
+            dispatchId: input.parsedTask.dispatchId,
+            newerSignalCount: currentObservation.relevantSignals.length,
+            observedThroughSignalId: currentObservation.observedThroughSignalId,
+            targetProfileId: input.parsedTask.targetProfileId,
+            taskId: input.parsedTask.taskId,
+          },
         });
+        let runtimeResult = await runDispatchRuntimeExecution({
+          agentControllerConversationOverride:
+            continuation.agentControllerConversationOverride,
+          computerFileAccessBoundary: input.computerFileAccessBoundary,
+          contextId: continuation.contextId,
+          executionMode: "repair",
+          instructionPrompt: input.instructionPrompt
+            ? {
+                ...input.instructionPrompt,
+                userPrompt: prompt,
+              }
+            : undefined,
+          io: input.ledgerIo,
+          ledgerPaths: input.ledgerPaths,
+          parsedTask: input.parsedTask,
+          prompt,
+          routeConfig: input.routeConfig,
+          runtimeContext: input.runtimeContext,
+          runtimeEnvOverrides: input.runtimeEnvOverrides,
+          runtimeControllerSupport: input.runtimeControllerSupport,
+          streamingModeOverride: "final",
+        });
+        runtimeResult = await applyCliSpaceActionRecordIfPresent({
+          dispatchSpaceActionContext: input.dispatchSpaceActionContext,
+          parsedTask: input.parsedTask,
+          presenter: input.presenter,
+          runtimeResult,
+        });
+        const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
+          ...input,
+          agentControllerConversationOverride:
+            continuation.agentControllerConversationOverride,
+          allowConcurrentReplyReconsideration: false,
+          runtimeResult,
+        });
+        if (!reconsidered.resolvedSpaceAction) {
+          if (reconsidered.runtimeResult.resultPayload.status === "failed") {
+            return {
+              action: undefined,
+              value: {
+                provenance: undefined,
+                runtimeResult: reconsidered.runtimeResult,
+              },
+            };
+          }
+          throw new DaemonServiceRunError({
+            code: "dispatch.agent_reply_reconsideration.action_missing",
+            message:
+              "The Agent did not return a valid Space action after reviewing newer messages.",
+          });
+        }
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_reply_reconsideration_completed",
+          text: `Agent reply reconsideration completed for task ${input.parsedTask.taskId}`,
+          payload: {
+            dispatchId: input.parsedTask.dispatchId,
+            observedThroughSignalId: currentObservation.observedThroughSignalId,
+            targetProfileId: input.parsedTask.targetProfileId,
+            taskId: input.parsedTask.taskId,
+          },
+        });
+        return {
+          action: reconsidered.resolvedSpaceAction,
+          value: {
+            provenance: "controller_repair" as const,
+            runtimeResult: reconsidered.runtimeResult,
+          },
+        };
+      } finally {
+        recordReconsideration("finished");
       }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_reply_reconsideration_completed",
-        text: `Agent reply reconsideration completed for task ${input.parsedTask.taskId}`,
-        payload: {
-          dispatchId: input.parsedTask.dispatchId,
-          observedThroughSignalId: currentObservation.observedThroughSignalId,
-          targetProfileId: input.parsedTask.targetProfileId,
-          taskId: input.parsedTask.taskId,
-        },
-      });
-      return {
-        action: reconsidered.resolvedSpaceAction,
-        value: {
-          provenance: "controller_repair" as const,
-          runtimeResult: reconsidered.runtimeResult,
-        },
-      };
     },
     refreshObservation: readObservation,
     spaceId: input.parsedTask.spaceId,

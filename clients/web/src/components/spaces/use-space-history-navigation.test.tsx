@@ -1,6 +1,10 @@
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import {
+	clearSpaceConversationPositions,
+	writeSpaceConversationPosition,
+} from "#/lib/space-conversation-position";
 import { useSpaceHistoryNavigation } from "./use-space-history-navigation";
 
 vi.mock("@tanstack/react-query", () => ({
@@ -16,6 +20,67 @@ vi.mock("#/lib/spaces/api", () => ({
 const message = (id: string) => ({ id }) as SignalEnvelope;
 
 describe("returning to the live Space history", () => {
+	it.each([
+		"target changed",
+		"return to latest",
+	])("ignores a late history response after %s", async (action) => {
+		let finish!: (value: { envelopes: SignalEnvelope[] }) => void;
+		historyApi.listSignalEnvelopes.mockReturnValueOnce(
+			new Promise((resolve) => {
+				finish = resolve;
+			})
+		);
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				liveEnvelopes: [],
+				spaceId: "space-cancel",
+				profileId: "viewer",
+				enabled: false,
+				accessRejected: false,
+			})
+		);
+		const request = new AbortController();
+		let opening!: Promise<boolean>;
+		act(() => {
+			opening = result.current.open("old", request.signal);
+		});
+		act(() => {
+			if (action === "target changed") {
+				request.abort();
+			} else {
+				result.current.latest();
+			}
+		});
+		await act(async () => {
+			finish({ envelopes: [message("old")] });
+			expect(await opening).toBe(false);
+		});
+		expect(result.current.activeWindow).toBeNull();
+		expect(result.current.error).toBeNull();
+		expect(result.current.pending).toBe(false);
+	});
+	it("restores an older cached reading position without mounting the whole transcript", () => {
+		writeSpaceConversationPosition("viewer:space-conversation:space-saved", {
+			anchorSignalId: "100",
+			offsetFromVisibleTop: 10,
+		});
+		const history = Array.from({ length: 480 }, (_, index) => ({
+			...message(String(index)),
+			ts: index,
+		}));
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				liveEnvelopes: history,
+				spaceId: "space-saved",
+				profileId: "viewer",
+				enabled: false,
+				accessRejected: false,
+			})
+		);
+		expect(result.current.activeWindow?.envelopes).toHaveLength(61);
+		expect(result.current.activeWindow?.envelopes[30]?.id).toBe("100");
+		clearSpaceConversationPositions();
+	});
 	it("replaces a recalled message in an open historical window without adding new live messages", async () => {
 		const old: Extract<SignalEnvelope, { type: "signal.text" }> = {
 			v: 1,
@@ -67,7 +132,6 @@ describe("returning to the live Space history", () => {
 				}),
 			{ initialProps: { liveEnvelopes: history, spaceId: "space-a" } }
 		);
-		act(() => result.current.latest());
 		expect(result.current.visibleLiveEnvelopes.map((item) => item.id)).toEqual(
 			history.slice(420).map((item) => item.id)
 		);
@@ -90,6 +154,9 @@ describe("returning to the live Space history", () => {
 
 		act(() => result.current.latest());
 		rerender({ liveEnvelopes: history, spaceId: "space-b" });
-		expect(result.current.visibleLiveEnvelopes).toHaveLength(480);
+		expect(result.current.visibleLiveEnvelopes).toHaveLength(60);
+		rerender({ liveEnvelopes: [], spaceId: "space-c" });
+		rerender({ liveEnvelopes: history, spaceId: "space-c" });
+		expect(result.current.visibleLiveEnvelopes[0]?.id).toBe("420");
 	});
 });

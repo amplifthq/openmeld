@@ -1309,60 +1309,68 @@ test("deploys the Context Scope Plan receiver before Core and keeps the CLI last
   ]);
 });
 
-test("deploys computer receivers before callers and preserves the stable CLI during staged Core delivery", () => {
-  const changedPaths = [
+for (const changedPaths of [
+  [
     "packages/schemas/src/schemas/http/people-computers.ts",
     "services/core/src/people-computers/projection.ts",
     "services/gateway/src/routes/rpc-http.people-computers.ts",
-  ];
-  const input = {
-    affectedPackages: [],
-    base: "previous-release",
-    changedPaths,
-    sourceSha: REMOTE_SOURCE_SHA,
-  };
-  const plan = buildProductionReleasePlan({
-    ...input,
-    scope: "core,gateway,web,remote-agent,cli",
+  ],
+  [
+    "packages/schemas/src/schemas/daemon/service-connection-evidence.ts",
+    "services/core/src/computers/service-connection-evidence-rpc.ts",
+    "services/gateway/src/routes/rpc-http.service-connection-evidence.ts",
+  ],
+]) {
+  test(`deploys computer receivers before callers and preserves the stable CLI during staged Core delivery: ${changedPaths[0]}`, () => {
+    const input = {
+      affectedPackages: [],
+      base: "previous-release",
+      changedPaths,
+      sourceSha: REMOTE_SOURCE_SHA,
+    };
+    const plan = buildProductionReleasePlan({
+      ...input,
+      scope: "core,gateway,web,remote-agent,cli",
+    });
+    assert.equal(plan.deployOrderProfile, "people-computers-receivers-first");
+    assert.deepEqual(
+      plan.deploySteps.map((step) => step.label),
+      [
+        "Deploy Core with the current published CLI projection",
+        "Verify Core deployment is visible",
+        "Deploy Gateway Worker",
+        "Verify Gateway Worker health",
+        "Deploy Web",
+        "Verify Web health",
+        "Deploy Remote Agent Worker",
+        "Verify Remote Agent deployment is visible",
+        "Publish CLI and deploy its Core release projection",
+        "Verify final R2/npm/Core alignment",
+      ]
+    );
+    const staged = buildProductionReleasePlan({ ...input, scope: "core" });
+    assert.equal(
+      staged.deploySteps[0].args[0],
+      "scripts/release/deploy-core-current-cli-projection.mjs"
+    );
+    assert.deepEqual(
+      buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
+      buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
+    );
+    assert.throws(
+      () =>
+        buildProductionReleasePlan({
+          ...input,
+          changedPaths: [
+            ...changedPaths,
+            "services/remote-agent/.flue/cloudflare.ts",
+          ],
+          scope: "cloud",
+        }),
+      PEOPLE_COMPUTERS_ORDER_ERROR
+    );
   });
-  assert.equal(plan.deployOrderProfile, "people-computers-receivers-first");
-  assert.deepEqual(
-    plan.deploySteps.map((step) => step.label),
-    [
-      "Deploy Core with the current published CLI projection",
-      "Verify Core deployment is visible",
-      "Deploy Gateway Worker",
-      "Verify Gateway Worker health",
-      "Deploy Web",
-      "Verify Web health",
-      "Deploy Remote Agent Worker",
-      "Verify Remote Agent deployment is visible",
-      "Publish CLI and deploy its Core release projection",
-      "Verify final R2/npm/Core alignment",
-    ]
-  );
-  const staged = buildProductionReleasePlan({ ...input, scope: "core" });
-  assert.equal(
-    staged.deploySteps[0].args[0],
-    "scripts/release/deploy-core-current-cli-projection.mjs"
-  );
-  assert.deepEqual(
-    buildProductionPreflightStepSpecs({ scopes: ["core"], changedPaths }),
-    buildCoreCurrentCliProjectionPreflightStepSpecs(changedPaths)
-  );
-  assert.throws(
-    () =>
-      buildProductionReleasePlan({
-        ...input,
-        changedPaths: [
-          ...changedPaths,
-          "services/remote-agent/.flue/cloudflare.ts",
-        ],
-        scope: "cloud",
-      }),
-    PEOPLE_COMPUTERS_ORDER_ERROR
-  );
-});
+}
 
 test("routes a local Core release through startup admission at the exact source SHA", () => {
   const plan = buildProductionReleasePlan({
@@ -1422,6 +1430,27 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
       "Verify final R2/npm/Core alignment",
     ]
   );
+  const staged = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    scope: "core,gateway",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+  assert.ok(
+    staged.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+  for (const steps of [staged.verifySteps, staged.preflightSteps]) {
+    assert.equal(
+      steps.some(
+        (step) => step.label === "Verify Core CLI channel compatibility"
+      ),
+      false
+    );
+  }
 });
 
 test("publishes independent Skill report receivers and public content before the bridge CLI", () => {
@@ -1590,7 +1619,6 @@ test("deploys worker-response and activity readers before the Remote Agent produ
     changedPaths: [
       "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
       "services/core/src/center-agent-tasks/application/center-agent-task-service.ts",
-      "services/core/src/remote-agent/application/native-delivery-service.ts",
       "services/remote-agent/.flue/agents/center-agent.ts",
       "services/remote-agent/flue-adapter/conversation-footprint.ts",
       "packages/schemas/src/schemas/protocol/agent-stream.ts",
@@ -1618,6 +1646,33 @@ test("deploys worker-response and activity readers before the Remote Agent produ
       "Verify final R2/npm/Core alignment",
     ]
   );
+});
+
+const AMBIGUOUS_NATIVE_DELIVERY_ORDER = /Split Core\/CLI and Remote Agent/;
+
+test("rejects ambiguous native delivery rollouts but permits reviewed single-side stages", () => {
+  const input = {
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths: [
+      "packages/schemas/src/schemas/runtime/remote-agent-worker.ts",
+      "services/core/src/remote-agent/application/native-delivery-service.ts",
+      "services/remote-agent/.flue/agents/center-agent.ts",
+    ],
+    sourceSha: REMOTE_SOURCE_SHA,
+  };
+  for (const scope of ["core,remote-agent", "cli,remote-agent"]) {
+    assert.throws(
+      () => buildProductionReleasePlan({ ...input, scope }),
+      AMBIGUOUS_NATIVE_DELIVERY_ORDER
+    );
+  }
+  for (const scope of ["core", "remote-agent"]) {
+    assert.deepEqual(
+      buildProductionReleasePlan({ ...input, scope }).deployScopeOrder,
+      [scope]
+    );
+  }
 });
 
 test("prints the current production Worker version before a harmless redeploy", async () => {

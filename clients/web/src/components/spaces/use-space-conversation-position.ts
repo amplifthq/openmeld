@@ -122,7 +122,6 @@ export function useSpaceConversationPosition(input: {
 			releasedKeyRef.current = null;
 		}
 		let disposed = false;
-		let frame = 0;
 		let ready = false;
 		let protectedAnchor =
 			shouldRestore && releasedKeyRef.current !== positionKey;
@@ -184,10 +183,6 @@ export function useSpaceConversationPosition(input: {
 			);
 			ready = true;
 		};
-		const schedule = () => {
-			window.cancelAnimationFrame(frame);
-			frame = window.requestAnimationFrame(restore);
-		};
 		const release = () => {
 			protectedAnchor = false;
 			releasedKeyRef.current = positionKey;
@@ -209,7 +204,11 @@ export function useSpaceConversationPosition(input: {
 				release();
 			}
 		};
-		const observer = new ResizeObserver(schedule);
+		// ResizeObserver already batches layout changes before paint. Deferring
+		// restoration to rAF would paint one frame at the wrong position when
+		// content-visibility reveals a row's actual height. Only adjust scrolling;
+		// do not resize the observed elements inside this callback.
+		const observer = new ResizeObserver(restore);
 		observer.observe(viewport);
 		for (const element of input.messageElementsRef.current.values()) {
 			observer.observe(element);
@@ -220,14 +219,15 @@ export function useSpaceConversationPosition(input: {
 		controls.addEventListener("pointerdown", release);
 		viewport.addEventListener("keydown", onKeyDown);
 		window.addEventListener("pagehide", save);
-		schedule();
+		// Align mounted history in this layout effect, before it can paint at the
+		// default start position. Resize corrections also run before paint.
+		restore();
 		return () => {
 			if (saveTimerRef.current) {
 				clearTimeout(saveTimerRef.current);
 			}
 			save();
 			disposed = true;
-			window.cancelAnimationFrame(frame);
 			observer.disconnect();
 			viewport.removeEventListener("wheel", release);
 			viewport.removeEventListener("touchstart", release);

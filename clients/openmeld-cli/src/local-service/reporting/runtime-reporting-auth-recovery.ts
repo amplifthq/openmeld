@@ -1,4 +1,5 @@
 export type RuntimeReportingAuthenticationFailure = {
+  credentialFingerprint?: string;
   message: string;
   reasonCode: string;
 };

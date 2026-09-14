@@ -39,6 +39,7 @@ import { registerPrepareSessionRoutes } from "./rpc-http.prepare-session";
 import { registerProfileSpaceHistoryRoutes } from "./rpc-http.profile-spaces";
 import { registerProjectRoutes } from "./rpc-http.projects";
 import { registerPublicSpaceBoundaryRoutes } from "./rpc-http.public-space";
+import { registerReasoningRoutes } from "./rpc-http.reasoning";
 import { registerResultRoutes } from "./rpc-http.result";
 import { registerRoutineRoutes } from "./rpc-http.routines";
 import { registerRuntimeReportingRoutes } from "./rpc-http.runtime-reporting";
@@ -67,6 +68,7 @@ export function registerRpcHttpRoutes(app: Hono<HonoBindings>): void {
   registerAgentInteractionRoutes(app);
   registerExecutionRecoveryRoutes(app);
   registerInboxRoutes(app);
+  registerReasoningRoutes(app);
   registerProjectRoutes(app);
   registerCenterAgentRoutes(app);
   registerMessageChannelRoutes(app);

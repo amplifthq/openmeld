@@ -42,8 +42,7 @@ import type { SpaceExecutionRecoveryHandler } from "./space-execution-recovery-a
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 
 const useQueryMock = vi.hoisted(() => vi.fn());
-const REPORT_POINTER_COPY_PATTERN =
-	/The report sends message IDs and system trace pointers/;
+const REPORT_POINTER_COPY_PATTERN = /Message text is not included/;
 const COMPUTERS_RECOVERY_HREF_PATTERN = /\/computers$/u;
 const REFERENCED_SPACE_ID = "d".repeat(64);
 
@@ -858,7 +857,7 @@ describe("SpaceMessageDetailsDrawer", () => {
 				attempt.action === null
 					? {
 							action: "resume_controller_conversation",
-							label: "Continue conversation",
+							label: "Recover reply",
 							status: "available",
 							warning:
 								"OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.",
@@ -1108,6 +1107,41 @@ describe("SpaceMessageDetailsDrawer", () => {
 			resultRef: "dispatch-runner::result-1",
 			targetProfileId: "agt_triage",
 		});
+	});
+
+	it("shows the recovered answer instead of the earlier failure copy", () => {
+		useQueryMock.mockReturnValue(
+			createQueryResult({ data: createHumanMessageDetails() })
+		);
+		renderMessageDetailsPanel({
+			replyItems: [
+				createTimelineItem({
+					id: "failed",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeType: "terminal_failure",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeDispatchId: "dispatch",
+					systemNoticeReasonCode: "remote_agent.empty_assistant_response",
+					text: "Earlier failure",
+				}),
+				createTimelineItem({
+					id: "recovered",
+					replyToSignalId: "sig-human",
+					signalType: "signal.system_notice",
+					systemNoticeType: "execution_recovery_completed",
+					systemNoticeTargetProfileId: "agt_triage",
+					systemNoticeDispatchId: "dispatch",
+					text: "Here is the saved answer.",
+				}),
+			],
+		});
+		expect(screen.getByText("Here is the saved answer.")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"Center Agent couldn't generate a reply. Your message is saved."
+			)
+		).toBeNull();
 	});
 
 	it("does not retry publication failures", () => {

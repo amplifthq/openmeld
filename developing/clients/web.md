@@ -49,15 +49,22 @@ URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
-list inside the inset surface, and the current work area. Desk,
-Spaces, and Team are the rail's destinations. Four circular controls at the
-top stack Organization switching, search, Inbox, and Create. The Organization
-avatar fills its circular trigger. Create opens New Agent and New Space to the
-right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
-motion opens the choices without travel. Account, theme, and Settings
+list inside the inset surface, and the current work area. Inbox, Spaces, and
+Team are the rail's destinations, in that order. Desk is temporarily hidden
+from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
+switching remains at the top; the global Create entry is temporarily hidden.
+Creation remains available in the Spaces and Team contextual headers. Global search sits
+above Settings in the footer, using the same compact utility styling. Inbox
+retains the shared attention badge and active-route treatment. The Organization
+avatar fills its circular trigger. Account, theme, and Settings
 remain reachable from the rail. Spaces and its contextual sidebar heading always
 open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
 and Discover, in that order (Discover is absent in personal workspaces).
+
+The Team contextual header has an Add menu with Invite members and New Agent.
+It reuses the existing Organization invitation flow (absent in personal
+workspaces) and Agent creation route. People search and existing connection,
+activity, and group filters remain available beside the search field.
 Direct messages uses `?view=messages`; the old `/chats` index redirects there.
 Individual chat, profile, thread, and session links retain their existing routes.
 The contextual heading has no aggregate attention dot; the rail and individual
@@ -217,11 +224,30 @@ Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
 
 If a page that was already open can no longer load one of those assets, Web
-handles the Vite preload failure before router error rendering and performs at
-most one automatic reload within a bounded retry window. If the current version
-still cannot load, Web stops retrying and presents one explicit refresh action.
-It must never enter a reload loop or expose internal asset URLs as user-facing
-error copy.
+handles the Vite preload failure before router error rendering. The document
+shell synchronously replaces the failed route subtree with the existing page
+loading surface before requesting one automatic reload. This prevents both an
+error-page flash and a second reload from the router's lazy-component recovery.
+The original import rejection and diagnostic report remain intact; canceling
+Vite's event would instead resolve the failed import with an undefined module.
+
+The browser URL remains the navigation owner, including its search and hash.
+Existing Composer draft persistence remains the draft owner. Unsaved-change
+guards and pending Space sends register recovery blockers using their existing
+facts; recovery leaves those surfaces and native navigation warnings mounted
+rather than discarding unsaved work to make a deployment look seamless.
+
+Recovery accepts only module-fetch and CSS-preload failures, not arbitrary
+exceptions from executing a module. Automatic attempts retain a 30-second
+same-tab retry window and coalesce repeated failures within the old document.
+If a replacement page still fails, attempt storage is unavailable, or document
+navigation throws or has not completed after 15 seconds, Web presents one
+explicit refresh action. The navigation deadline bounds only the recovery UI.
+Failure copy describes unavailable page files without claiming that a deployment
+was detected, and internal asset URLs stay out of user-facing error copy.
+Starting another router navigation clears the old recovery surface and its
+navigation deadline, while retaining the same-tab attempt marker. Back and
+ordinary navigation links remain usable exits after a failed recovery.
 
 ## Navigation Topology
 
@@ -431,7 +457,7 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Desk**, **Spaces**, and
+The visible destinations resolve in this order: **Inbox**, **Spaces**, and
 **Team**, with **New Agent** in the separate Create action. The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
@@ -605,6 +631,12 @@ time.
 
 ### Desk and Chats
 
+Message action hints share one native Tooltip instance per mounted Space,
+including its Thread panel. Opening or leaving a Desk Space therefore does not
+mount or tear down a separate tooltip root for every message action. Pin
+providers expose the stable mutation function directly so an unchanged pin
+snapshot does not invalidate the message subtree on unrelated parent updates.
+
 The first Desk release enables adding Spaces and text only. Other widget
 categories remain commented out in the picker, with their implementations and
 existing browser layouts retained. Text is added from the canvas context menu.
@@ -646,7 +678,10 @@ active-work view, not a history or an organization-wide private-conversation fee
 Each row identifies the Agent, its owner when available, its Space, and progress.
 No membership, Wakeability, execution, or permission owner changes are introduced.
 
-The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
+The authorized Organization root `/o/{orgSlug}` redirects to Spaces. Default
+authenticated App entry also opens the current Organization's Spaces. Explicit
+Center Agent conversation links keep their existing destination. **Desk** remains
+available by direct link at `/o/{orgSlug}/desk`. It remembers
 its visible Space windows in this browser per account and Organization. Without a
 selection it reuses a marked Welcome Space (or an existing joined `Welcome Space`),
 or creates a private, members-only `Welcome Space` through the ordinary creation
@@ -837,6 +872,13 @@ The optional `?item={itemId}` deep link reads that exact recipient-authorized
 Core item by ID, places it in the canonical **All** view when it is outside the
 currently loaded list, focuses it, and marks it read once. It never searches a
 bounded number of list pages or treats list depth as item availability.
+
+Space message links load a bounded window around the exact target when it is
+outside the rendered conversation. They reuse the existing history-navigation
+owner for earlier/newer context and return-to-latest behavior, rather than
+searching a fixed number of pages from the live tail. A newer navigation cancels
+the previous lookup. Main-message links take precedence over a previously open
+Thread; explicit Thread links still open the Thread shell before replies load.
 
 When a Space terminal-failure Signal is visually anchored under its Wake source
 message, the Core-owned Inbox target uses that source Signal as `focusSignalId`.
@@ -1069,8 +1111,8 @@ request language unless stronger current context says otherwise.
 
 The **Model** section is readable by every active Organization member. It shows
 the effective friendly primary-model name and never exposes a raw OpenRouter
-model id. Owners and admins may choose **OpenMeld default**, **GLM 5.3 Flash**,
-**Grok 4.6**, **Grok 4.5**, or **DeepSeek V4 Flash** and save through the
+model id. Owners and admins may choose **OpenMeld default** or a curated model
+from OpenAI, Anthropic, Google, DeepSeek, xAI, or Z.ai and save through the
 Binding-revision compare-and-set contract; members see the same effective
 configuration without enabled mutation controls. The OpenMeld-default option
 includes the current effective model so a future system-default change is
@@ -1080,8 +1122,20 @@ matching options; Web does not infer badges from model names or the current
 default. Reasoning is catalog-owned at `high` and is not a separate Web control
 in this release.
 
-The primary-model picker searches the Core-projected choices by friendly name
-or exact catalog ID without displaying raw IDs or admitting free-text models.
+The first-level **Provider** selector filters the second-level **Primary model**
+picker. Provider means the model vendor, derived from the exact OpenRouter ID
+prefix; it never changes the serving route or asks for another credential.
+Known vendor prefixes have friendly labels; a newly cataloged prefix is shown
+verbatim so an older Web build can still expose it. Options are derived only
+from Core-projected choices, not from a separate browser model catalog.
+Changing Provider clears an incompatible draft and disables Save until a model
+is selected. It never selects a model automatically or persists the filter.
+Provider and search state reset across Organizations.
+
+**All providers** supports cross-vendor search and retains the **OpenMeld default**
+option. Within a provider, search filters only that vendor's models. Search
+matches friendly name, vendor label, or exact catalog ID without displaying raw
+IDs or admitting free-text models.
 The saved choice comes first; a persistent current-model label remains visible
 even when a search has no matches. Selecting a candidate only changes the local
 draft. The current label changes after the Binding save succeeds. The searchable
@@ -1131,6 +1185,16 @@ arguments, update commands, private skills, local policy, credentials, raw
 errors, or mutation controls. A live Service may expose team-safe OpenMeld
 Tools component versions and update states; setup commands, hashes, and
 owner-only controls remain private.
+
+Team Computer links include both the owner account ID and device ID. A device
+ID alone is not unique across accounts. Legacy device-only links resolve only
+when the visible inventory has exactly one matching Computer; ambiguous links
+ask the viewer to select the Computer from its owner's Profile. They must never
+pick the first match or borrow another account's live status. Team detail
+resolution waits for the initial Organization projection refresh before using
+cached identity evidence. Stale local-agent checks display **Status out of date**:
+current availability is unknown until the Computer reports a new check. This
+does not mean that the Agent version is outdated or that repair is required.
 
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
@@ -2285,7 +2349,8 @@ model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
 Its Agent Profile Operational Context includes one **Activity** section. Owners
 and other members see the same compact workload copy, for example
-**Working · 3 queued**. Selecting that summary keeps the user in Profile Details:
+**Active task · 3 queued**. A Work Coordinator slot is not proof that the
+provider is generating. Selecting a disclosed work location opens its Space:
 the owner may see the current Space and queued task references, while another
 member sees only neutral working and queue-count facts. Neither view infers work
 from Agent Activity, browser timers, or message age.
@@ -2299,11 +2364,11 @@ version 2; Core omits Skip from callers that do not advertise that receiver
 capability, including already-loaded older Web builds.
 Non-owners see the same neutral workload summary without the interrupted source
 or recovery action.
-The **Current activity** section renders a bound Local Agent Session only while
-the Work Coordinator projects that Profile as working. Binding a controller
-conversation is Runtime configuration, not evidence of current work. When a
-working bound Session is shown, Web displays its provider-native title,
-Conversation ID, and Computer name. The configuration grid keeps **Runtime** as
+The **Current activity** section consumes the existing authorized workload
+locations and task activity timestamp. It does not substitute the bound Local
+Agent Session for the current Wake destination. Binding a controller
+conversation is Runtime configuration, not evidence of current work.
+The configuration grid keeps **Runtime** as
 its final card and uses it to show the bound Computer and Conversation ID even
 when that Session is idle.
 **Chat with {Agent name}** is a primary header action. An authorized owner may choose
@@ -2319,6 +2384,15 @@ the canonical Agent route; it shows no edit affordance to other viewers. It
 does not add a second details dialog or an overflow-menu details action. Owners
 edit supported settings from the canonical route; other viewers keep the
 popover read-only.
+Both owner and observer popovers show the same compact activity summary and
+recorded `lastTaskActivityAt` when supplied by the runtime overview. Location
+links appear only when Core disclosed them. The timestamp is historical task
+evidence, not a live heartbeat, presence, or model progress; its tooltip gives
+the exact local date and time. Reads reuse the existing organization query and
+only mount with the visible surface. Agent conversations marks a Space with a
+current task and labels its message timestamp **Last message**. Session-writer
+conflicts say **Waiting for {Agent name}'s session**, never that another turn
+must still be running. The writer ownership and recovery mechanism is unchanged.
 Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.
@@ -2739,6 +2813,13 @@ shared optimistic-navigation delay.
 Non-persisted bounded display data used by these frequently revisited routes
 remains in the in-memory Query cache for 30 minutes after its last observer.
 This includes the bounded Space bootstrap, status, recent history, and members.
+Thread catalogs and opened replies use the same 30-minute in-memory revisit
+window. Returning to a Space must not replace a newer Thread catalog with an
+older cached bootstrap.
+After the entry access gate permits a cold conversation, its bounded bootstrap
+starts alongside route classification. Space and direct-message routes reuse
+that same bootstrap query in the conversation; saved-history visits keep their
+existing contiguous-update path instead of requesting a new tail window.
 The explicitly persisted display queries use the longer lifetime defined
 below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
@@ -2763,8 +2844,12 @@ but cannot become history anchors. Prefer the first visible recorded signal;
 when transient content fills the viewport, retain a nearby recorded signal and
 its offset instead. Existing stored positions are not migrated or invalidated.
 That account-and-Space-
-scoped semantic anchor is restored after history arrives, loading earlier pages
-if needed. A remembered position disables the MessageScroller's initial
+scoped semantic anchor is restored in the layout effect as soon as history
+mounts, before painting the default start position, loading earlier pages if
+needed. Subsequent resize corrections run directly in ResizeObserver's
+before-paint delivery; an extra animation-frame delay would expose the wrong
+position as deferred message layout resolves. The callback adjusts scrolling,
+not observed element sizes. A remembered position disables the MessageScroller's initial
 end jump and automatic following. Resize observation preserves the same message
 as images and deferred layout settle, until deliberate user scrolling takes
 ownership. Reaching the bottom resumes normal following. Different Spaces
@@ -2823,7 +2908,7 @@ No prefix, default-on, or exclusion-based persistence rule is allowed. Adding a
 query requires an explicit allowlist change, privacy and authority review, and a
 test that proves unrelated queries remain absent. Organization scope,
 activation, directories, Center Agent designation and open-command state, Space
-bootstrap and current status, Thread lists and Thread signals, membership
+bootstrap and current status, full Thread lists and Thread signals, membership
 authority, raw readiness and current-device projections, Wake state,
 diagnostics, errors, and every mutation remain excluded. The toolbar snapshot's
 opaque device id is only a stale-hint rejection key after live inventory
@@ -2853,6 +2938,17 @@ continue to own freshness. A seven-day `maxAge` and matching `gcTime` bound how
 long the saved display snapshot may help first paint; they do not make it
 authoritative or fresh for seven days.
 
+The saved Space history also carries display-only Thread summaries for retained
+root messages, so the root and its reply entrance restore together. This context
+has a separate 256 KiB ceiling, at most two preview messages per Thread, and no
+reply placements. Preview bodies exceeding 16 KiB together are omitted while the
+reply count remains. It shares the history snapshot's account, Organization,
+Profile, access-revocation, and eviction boundaries. It never seeds the live
+Thread query or establishes membership, access, or unread authority. Full reply
+history remains memory-only. A cold Thread panel keeps its container quiet while
+loading; cached replies remain visible during revalidation, and errors remain
+explicit.
+
 Current Space status is intentionally not persisted. After a successful status
 read in the current signed-in account, Organization, Space, and acting-Profile
 scope, Web derives the smaller display snapshot by removing current actions and
@@ -2877,7 +2973,11 @@ On a cold open with no safe display snapshot yet, the loading shell mounts the
 same browser-local text draft immediately instead of a Composer skeleton. That
 draft and its focus carry into the confirmed conversation without remount loss;
 it still cannot send or attach files before current status authorizes the
-mutation.
+mutation. After the entry gate permits entry, route classification must not
+delay this shell. The header renders immediately and the message region stays
+empty with an accessible loading announcement. Thread headers and Composers
+likewise render independently of reply reads, without an entrance fade hiding
+the controls.
 
 Persisted records are segmented by confirmed account and by account plus the
 immutable Organization id. Organization slug is a secondary cleanup index for a
@@ -3128,11 +3228,14 @@ Binding. The Advanced view may expose the exact actor Profile ID for diagnosis.
 Agent Profile creation and maintenance surfaces may render Agent Controller
 Permission Mode after the user has chosen a controller. Web should use the
 shared runtime metadata so each controller shows native labels and descriptions
-instead of a Web-authored abstraction. Existing Agent Profile cards should show
-a compact provider-specific line such as `Codex permissions mode: Approve for
-me`, and owner-self details may show the richer Binding fact. Web writes the
-mode through the Binding API; it must not treat the selected mode as Space
-permission, Wake readiness, or local service truth.
+instead of a Web-authored abstraction. Owner-facing cards and editors retain compact controller-native mode names.
+Editors explain the selected mode once in plain language and place key
+controller-native launch settings behind a closed technical disclosure. Existing Agent Profile list rows should still show a
+compact provider-specific fact such as `Codex permissions mode: Approve for me`, and
+owner-self details may show the richer Binding fact. Web writes the mode through
+the Binding API; it must not treat the selected mode as Space permission, Wake
+readiness, local service truth, or a bypass of separate Computer file-access
+limits.
 
 Controller replacement, unbinding, and working-folder changes are disruptive
 execution-target actions. Agents pages and Space maintenance dialogs must read
@@ -3213,6 +3316,15 @@ Auth, or hide the unfinished choice behind a completed badge.
 ## Space And Thread Presentation
 
 Web presents a Space as a collaboration room and visible outcome surface.
+
+Entering a conversation renders the latest 60 cached timeline signals by default,
+without discarding older cached history. An older saved reading anchor opens a
+bounded cached neighborhood; missing anchors use the existing server history
+navigation. Explicit older-history loads expand the visible window, while new
+live messages do not move its start. Space, DM, and Desk readers share this rule.
+Direct-message previews reuse the Account Space Index projection when provided,
+including its explicit empty value. Only conversations without that projection
+retain the per-conversation preview read.
 
 The Space and DM title never shows a green live-connection dot: a healthy
 message stream says nothing about Human presence or Agent Wakeability. Initial
@@ -3775,10 +3887,16 @@ details instead of expanding the source message bubble. Unanchored outcomes and
 only to distinguish execution failure from OpenMeld publication failure.
 Read-only viewers must still see the outcome.
 
-Wake outcomes retain their message-scoped placement. Stopped outcomes reuse the
-shared Marker separator presentation: centered muted text between divider lines,
-without an Agent avatar or stop icon. The text still opens Message details when
-available. Failures and failure footers keep their compact non-divider treatment.
+Wake outcomes retain their message-scoped placement. System outcome rows reuse
+the shared Marker separator presentation: centered text between neutral divider
+lines, without an Agent avatar. Stops use muted text; execution failures use red
+and publication failures use amber. The text still opens Message details when
+available, and an authorized recovery action stays beside it. Source-message
+failure footers remain compact request status rather than separate messages.
+An Agent-authored explanation of a failed task remains an ordinary Agent reply,
+with its speaker and message body. Never classify it by matching words in the
+reply. Runtime-generated empty-reply notices are system outcomes, even when an
+older envelope used an Agent author; their explicit metadata identifies them.
 This presentation does not create another system notice or change cancellation.
 Message details labels the persisted notice text as **Recorded outcome** and preserves
 its full public explanation, including unfamiliar failure codes. Current
@@ -3807,10 +3925,27 @@ original terminal outcome and its existing Message details remain unchanged.
 When Core instead exposes a verified exact-controller continuation, Web shows
 **Recover reply** and explains that the same Agent conversation will post
 its already-finished reply without running the task again. Web accepts the
-legacy **Continue conversation** projection during mixed-version rollout but
-normalizes it to **Recover reply** for users. It preserves the terminal failure
+**Continue conversation** projection for a hosted empty reply: the saved
+conversation prepares a reply with tools and Computer actions disabled. Web
+uses the Core-provided label and warning. It preserves the terminal failure
 rather than presenting retained evidence as an already-published reply. The
 recovery notice never creates a second terminal outcome row.
+
+A published `execution_recovery_completed` remains visible at its own timeline
+position. When its author is an Agent, its saved answer uses the ordinary Agent
+reply presentation; a system-authored completion keeps the system divider.
+The same notice still closes the original request's recovery action. Message
+details shows the recovered content, without substituting an earlier failure
+from the same target. The original failure remains recorded in history.
+
+While a requested recovery is running, Web shows **Preparing your reply…** and
+polls the existing inspection endpoint. A failed status check retains an honest
+unknown state with **Check status**, which only reads and never executes another
+recovery. An exhausted hosted continuation disables further execution for that
+original failure and explains that the message is saved. Historical
+`remote_agent_failure` text signals with the exact empty-assistant error code
+project as terminal failures, including **Failed** in Message details; their
+stored history is not rewritten. New empty failures use system notices directly.
 
 Message details presents one cause-specific primary action per failed target.
 It must not pair unrelated actions: a Cursor plan limit opens Cursor plan
@@ -4105,7 +4240,9 @@ Latest-message observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
 changes require a fresh latest-message measurement; document visibility, access
-confirmation, and the normal read debounce still gate persistence.
+confirmation, and a brief 150 ms dwell still gate persistence. After that dwell,
+the existing optimistic Inbox projection updates before the server write settles;
+failed writes retain the existing rollback and reconciliation path.
 Scroll events only check distance from the latest messages. Layout and preference
 writes happen at the endpoint change, never per animation frame. The viewport
 height changes once with a matching scroll offset to preserve the reading anchor.
@@ -4225,13 +4362,17 @@ until Core projects a reply, stopped outcome, or explicit failure. Only a
 short-lived browser-local optimistic `sending` item may expire locally. When
 Web shows elapsed running time, it uses the optional authoritative
 `startedAtMs` timing projection requested with `includeTiming=true`.
+For workstation execution it is the Coordinator's first accepted running
+lifecycle timestamp, never execution creation or time spent waiting for another
+client. If older evidence lacks that fact, omit the timer.
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
-for Codex task` and explains that the Wake will start when
-that task becomes available. It must not present that state as `Agent is
+for <Agent name>` and explains `Another app is using this conversation.` The
+waiting action uses `Cancel waiting`, with the same authorized cancellation
+path as Stop. It must not present that state as `Agent is
 working` or the generic `Sending to agent`. The current Space's secondary
 sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
@@ -4446,6 +4587,20 @@ These records help users and support return to the right evidence. They do not
 create new truth.
 
 ## Setup Handoff Entry
+
+The final Agent creation action may return to Agents before Core acknowledges
+the request. Its local card is a presentation intent, never an Agent identity
+or Wakeability verdict. Keep the unacknowledged idempotency key across that
+route change, replace the local card on acceptance, and make failed local
+cards dismissible. Completion may select the real Agent only while the member
+is still following that request; it must not interrupt later navigation.
+
+Confirmed Space deletion intent immediately closes settings and opens Browse
+Spaces. Keep only the affected Space absent from list caches while the write
+is pending, including during background refetches. Failure restores that entry
+without replacing unrelated newer list changes and leaves a persistent error
+with an Open Space action. A refresh failure after confirmed deletion must
+never restore the deleted Space or report the deletion itself as failed.
 
 Agent creation hosts the shared Computer setup workflow inside its existing
 form as soon as connection or reconnection is required, without an extra
