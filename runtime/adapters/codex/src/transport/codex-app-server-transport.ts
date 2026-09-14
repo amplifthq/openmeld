@@ -25,6 +25,7 @@ import {
   AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
   classifyRuntimePermissionDenialMessage,
   createProviderOriginalError,
+  resolveDispatchSpaceActionMcpServer,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
 import { classifyCodexProviderAccountFailure } from "../output/codex-provider-failure.js";
@@ -34,10 +35,21 @@ import {
   resolveCodexAppServerControlRequestTimeoutMs,
 } from "./codex-app-server-admission.js";
 import { buildCodexAppServerLaunch } from "./codex-app-server-launch.js";
-import { buildCodexFileAccessBoundaryGlobalArgs } from "./codex-file-access-boundary.js";
+import {
+  buildCodexFileAccessBoundaryGlobalArgs,
+  CODEX_FILE_ACCESS_PERMISSION_PROFILE,
+  isCodexExecutionContextFileAccessConfirmed,
+} from "./codex-file-access-boundary.js";
+import {
+  assertCodexScopedMcpInventory,
+  buildCodexScopedMcpDisableArgs,
+} from "./codex-scoped-mcp.js";
 import { buildCodexSpaceActionMcpGlobalArgs } from "./codex-space-action-mcp-config.js";
+import { verifyCodexWorkspaceAccess } from "./codex-workspace-access-probe.js";
 
 const CODEX_APP_SERVER_VERSION_PATTERN = /\/([^\s]+)/u;
+const EXECUTION_CONTEXT_ERROR_PATTERN =
+  /^(execution_context\.[a-z_]+|context\.mcp_isolation_unverified)(?::|$)/u;
 
 export type CodexAppServerTransportResult = {
   output: string;
@@ -147,6 +159,7 @@ type CodexAppServerSandboxMode =
   | "workspace-write";
 
 type CodexAppServerThreadPermissionModeParams = {
+  permissions?: string;
   approvalPolicy?: CodexAppServerApprovalPolicy;
   approvalsReviewer?: CodexAppServerApprovalReviewer;
   sandbox?: CodexAppServerSandboxMode;
@@ -178,6 +191,7 @@ type CodexAppServerCollaborationModePreset = {
 };
 
 type CodexAppServerThreadContext = {
+  permissionResponse: unknown;
   model: string | null;
   threadId: string;
   threadSource: string | null;
@@ -321,7 +335,8 @@ export async function invokeCodexAppServerTransport(input: {
   const permissionModeParams = resolveCodexAppServerPermissionModeParams(
     input.agentControllerPermissionMode,
     input.executionMode,
-    input.computerFileAccessBoundary !== undefined
+    input.computerFileAccessBoundary !== undefined,
+    input.computerFileAccessBoundary?.executionContextAccess !== undefined
   );
   const conversationPolicyParams =
     resolveCodexAppServerConversationPolicyParams(input.conversationPolicy);
@@ -352,6 +367,12 @@ export async function invokeCodexAppServerTransport(input: {
         threadId: input.threadId,
         instructionPrompt: input.instructionPrompt,
       });
+      assertFileAccessBeforeTurn(
+        threadContext.permissionResponse,
+        input.computerFileAccessBoundary,
+        input.codexWorkdir
+      );
+      await session.verifyScopedMcp(threadContext.threadId);
       const collaborationMode =
         await resolveCodexAppServerTurnCollaborationMode({
           conversationPolicy: input.conversationPolicy,
@@ -552,11 +573,14 @@ export async function verifyCodexAppServerThread(input: {
 }
 
 export async function forkCodexAppServerThread(input: {
+  computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   env?: Record<string, string | undefined>;
   launchContract: RuntimeAgentControllerLaunchContract;
   sourceThreadId: string;
+  sourceCompletedTurnId?: string;
+  targetWorkingDirectory?: string;
   title?: string;
 }): Promise<{ threadId: string }> {
   const sourceThreadId = normalizeOptionalText(input.sourceThreadId);
@@ -571,9 +595,10 @@ export async function forkCodexAppServerThread(input: {
   return await withCodexAppServerSession(
     {
       codexTimeoutMs: input.codexTimeoutMs,
-      codexWorkdir: input.codexWorkdir,
+      codexWorkdir: input.targetWorkingDirectory ?? input.codexWorkdir,
       env: input.env,
       launchContract: input.launchContract,
+      computerFileAccessBoundary: input.computerFileAccessBoundary,
     },
     async (session) => {
       const response = await session.requestControl(
@@ -581,6 +606,21 @@ export async function forkCodexAppServerThread(input: {
         {
           excludeTurns: true,
           threadId: sourceThreadId,
+          ...(input.computerFileAccessBoundary?.executionContextAccess
+            ? {
+                permissions: CODEX_FILE_ACCESS_PERMISSION_PROFILE,
+                approvalPolicy: "never",
+                runtimeWorkspaceRoots: [
+                  input.targetWorkingDirectory ?? input.codexWorkdir,
+                ],
+              }
+            : {}),
+          ...(input.sourceCompletedTurnId
+            ? { lastTurnId: input.sourceCompletedTurnId }
+            : {}),
+          ...(input.targetWorkingDirectory
+            ? { cwd: input.targetWorkingDirectory }
+            : {}),
         },
         {
           code: "context.fork_timeout",
@@ -609,6 +649,36 @@ export async function forkCodexAppServerThread(input: {
       return { threadId };
     }
   );
+}
+
+function assertFileAccessBeforeTurn(
+  response: unknown,
+  boundary: AdapterComputerFileAccessBoundary | undefined,
+  workingDirectory: string
+): void {
+  if (
+    boundary &&
+    !isCodexExecutionContextFileAccessConfirmed(
+      response,
+      boundary,
+      workingDirectory
+    )
+  ) {
+    throw new CodexAppServerTransportError({
+      code: "computer.file_access.unverified",
+      errorType: "config",
+      message: "Codex did not confirm the task's isolated file access profile.",
+    });
+  }
+}
+
+function scopedRuntimeWorkspaceParams(
+  permissions: CodexAppServerThreadPermissionModeParams,
+  workingDirectory: string
+): { runtimeWorkspaceRoots?: string[] } {
+  return permissions.permissions
+    ? { runtimeWorkspaceRoots: [workingDirectory] }
+    : {};
 }
 
 async function resolveDispatchThreadContext(input: {
@@ -643,6 +713,10 @@ async function resolveDispatchThreadContext(input: {
             : {}),
           ...input.permissionModeParams,
           cwd: input.codexWorkdir,
+          ...scopedRuntimeWorkspaceParams(
+            input.permissionModeParams,
+            input.codexWorkdir
+          ),
           excludeTurns: true,
           threadId: existingThreadId,
         },
@@ -684,6 +758,10 @@ async function resolveDispatchThreadContext(input: {
         : {}),
       ...input.permissionModeParams,
       cwd: input.codexWorkdir,
+      ...scopedRuntimeWorkspaceParams(
+        input.permissionModeParams,
+        input.codexWorkdir
+      ),
       ...(input.instructionPrompt
         ? {
             developerInstructions:
@@ -717,6 +795,10 @@ async function forkEphemeralCodexRepairThread(input: {
         : {}),
       ...input.permissionModeParams,
       cwd: input.codexWorkdir,
+      ...scopedRuntimeWorkspaceParams(
+        input.permissionModeParams,
+        input.codexWorkdir
+      ),
       ephemeral: true,
       excludeTurns: true,
       threadId: input.sourceThreadId,
@@ -834,8 +916,18 @@ function readCodexAppServerCollaborationModePreset(
 function resolveCodexAppServerPermissionModeParams(
   value: unknown,
   executionMode?: AdapterDispatchExecutionMode,
-  hasComputerFileAccessBoundary = false
+  hasComputerFileAccessBoundary = false,
+  hasExecutionContextBoundary = false
 ): CodexAppServerPermissionModeParams {
+  if (hasExecutionContextBoundary) {
+    return {
+      thread: {
+        approvalPolicy: "never",
+        permissions: CODEX_FILE_ACCESS_PERMISSION_PROFILE,
+      },
+      turn: { approvalPolicy: "never" },
+    };
+  }
   if (executionMode === "repair") {
     return {
       thread: {
@@ -1046,9 +1138,18 @@ class CodexAppServerSession {
       ...(this.#env ?? {}),
     };
     const spaceActionMcpArgs = buildCodexSpaceActionMcpGlobalArgs(env);
+    const scopedMcpArgs = this.#computerFileAccessBoundary
+      ?.executionContextAccess
+      ? await buildCodexScopedMcpDisableArgs({
+          env,
+          launchContract: this.#launchContract,
+          workingDirectory: this.#codexWorkdir,
+        })
+      : [];
     const launch = buildCodexAppServerLaunch({
       args: [
         ...computerFileAccessArgs,
+        ...scopedMcpArgs,
         ...spaceActionMcpArgs,
         "app-server",
         "--listen",
@@ -1213,6 +1314,17 @@ class CodexAppServerSession {
         },
       });
       this.notify("initialized", {});
+      if (this.#computerFileAccessBoundary?.executionContextAccess) {
+        await verifyCodexWorkspaceAccess({
+          boundary: this.#computerFileAccessBoundary,
+          workingDirectory: this.#codexWorkdir,
+          execute: (params) =>
+            this.requestControl("command/exec", params, {
+              code: "execution_context.workspace_probe_timeout",
+              operation: "command/exec",
+            }),
+        });
+      }
       return initialized;
     } finally {
       if (this.#startupTimeout !== null) {
@@ -1220,6 +1332,24 @@ class CodexAppServerSession {
         this.#startupTimeout = null;
       }
     }
+  }
+
+  async verifyScopedMcp(threadId: string): Promise<void> {
+    if (!this.#computerFileAccessBoundary?.executionContextAccess) {
+      return;
+    }
+    const inventory = await this.requestControl(
+      "mcpServerStatus/list",
+      { threadId, detail: "full", limit: 100 },
+      {
+        code: "execution_context.mcp_inventory_timeout",
+        operation: "mcpServerStatus/list",
+      }
+    );
+    assertCodexScopedMcpInventory(inventory, {
+      expectDispatchServer:
+        resolveDispatchSpaceActionMcpServer(this.#env) !== null,
+    });
   }
 
   async close(): Promise<void> {
@@ -1789,6 +1919,7 @@ function readThreadContextFromResponse(
 ): CodexAppServerThreadContext {
   const response = toRecord(value) as AppServerThreadResponse | null;
   return {
+    permissionResponse: value,
     model: normalizeOptionalText(response?.model),
     threadId: readRequiredText(
       response?.thread?.id,
@@ -2679,6 +2810,17 @@ function toCodexAppServerTransportError(
 ): CodexAppServerTransportError {
   if (error instanceof CodexAppServerTransportError) {
     return error;
+  }
+  const contextError =
+    error instanceof Error
+      ? EXECUTION_CONTEXT_ERROR_PATTERN.exec(error.message)?.[1]
+      : undefined;
+  if (contextError) {
+    return new CodexAppServerTransportError({
+      code: contextError,
+      errorType: "config",
+      message: `${contextError}: the local execution boundary could not be verified`,
+    });
   }
   if (
     error &&

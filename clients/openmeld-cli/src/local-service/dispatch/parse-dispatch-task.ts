@@ -189,7 +189,10 @@ export function parseDispatchTask(
       controllerSelection.agentControllerRef
     );
   const agentControllerConversationId =
-    normalizeOptionalText(payload.agentControllerConversationId) ?? null;
+    resolveDispatchNativeConversationId(payload);
+  if (!hasMatchingExecutionContextScope(payload, requiredFields)) {
+    return null;
+  }
   const deliveryRecoveryReason = resolveDeliveryRecoveryReason(payload);
   const executionTokenEcho = resolveExecutionTokenEcho(payload);
   if (!executionTokenEcho) {
@@ -210,6 +213,7 @@ export function parseDispatchTask(
 
   return {
     ...requiredFields,
+    executionContext: payload.executionContext,
     agentControllerConversationId,
     ...resolveDispatchSourceFiles(payload),
     ...controllerSelection,
@@ -246,6 +250,28 @@ export function parseDispatchTask(
     triggerMode,
     contextIdMappingSpec,
   };
+}
+
+function hasMatchingExecutionContextScope(
+  payload: RuntimeTransportDeliverDispatchPayload,
+  required: { spaceId: string; targetProfileId: string }
+): boolean {
+  const context = payload.executionContext;
+  return (
+    !context ||
+    (context.scope.targetProfileId === required.targetProfileId &&
+      context.scope.spaceId === required.spaceId &&
+      context.scope.threadId === (payload.threadContext?.threadId ?? null))
+  );
+}
+
+function resolveDispatchNativeConversationId(
+  payload: RuntimeTransportDeliverDispatchPayload
+): string | null {
+  if (payload.executionContext) {
+    return payload.executionContext.nativeConversationId;
+  }
+  return normalizeOptionalText(payload.agentControllerConversationId) ?? null;
 }
 
 function resolveDispatchSourceFiles(

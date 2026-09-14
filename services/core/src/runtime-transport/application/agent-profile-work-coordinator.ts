@@ -1,8 +1,9 @@
-import { AGENT_PROFILE_WORK_MAX_WAITING } from "@openmeld/agent-runtime";
+import {
+  AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
+  AGENT_PROFILE_WORK_MAX_WAITING,
+} from "@openmeld/agent-runtime";
 
-// Shared policy value (packages/agent-runtime/src/work-policy.ts). The
-// coordinator still enforces one structural execution slot: index zero of
-// `workItems` owns it. The shared concurrency limit is not consumed here yet.
+// Core owns reservations; the Service can further constrain local admission.
 export const AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING =
   AGENT_PROFILE_WORK_MAX_WAITING;
 
@@ -10,12 +11,15 @@ export type AgentProfileWorkCoordinatorItem = {
   dispatchId: string;
   enqueuedAtMs: number;
   targetWakeLifecycleId: string;
+  executionContextId?: string;
+  reservationState?: "reserved" | "waiting";
   waitReason?: "controller_conversation_occupied";
 };
 
 export type AgentProfileWorkRecoveryGate = {
   continuationClientMessageId: string | null;
   interruptedWork: AgentProfileWorkCoordinatorItem;
+  additionalInterruptedWork?: AgentProfileWorkCoordinatorItem[];
   status:
     | "awaiting_usage"
     | "continuation_pending"
@@ -31,13 +35,14 @@ export type AgentProfileWorkCoordinator = {
   revision: number;
   targetProfileId: string;
   updatedAtMs: number;
-  /** Index zero owns the execution slot. Every later item waits in FIFO order. */
+  /** Scoped work has explicit reservations; legacy work retains one exclusive slot. */
   workItems: AgentProfileWorkCoordinatorItem[];
 };
 
 export type AgentProfileWorkCoordinatorSummary = {
   currentWaitReason?: "controller_conversation_occupied";
   currentWork: AgentProfileWorkCoordinatorItem | null;
+  currentWorks: readonly AgentProfileWorkCoordinatorItem[];
   queuedWork: readonly AgentProfileWorkCoordinatorItem[];
   status: "idle" | "paused" | "working";
   waitingCount: number;
@@ -49,8 +54,10 @@ export function markAgentProfileWorkControllerConversationOccupancy(input: {
   nowMs: number;
   state: "available" | "occupied";
 }): { coordinator: AgentProfileWorkCoordinator; changed: boolean } {
-  const currentWork = input.coordinator.workItems[0];
-  if (!currentWork || currentWork.dispatchId !== input.dispatchId) {
+  const currentWork = reservedAgentProfileWork(input.coordinator).find(
+    (item) => item.dispatchId === input.dispatchId
+  );
+  if (!currentWork) {
     return { coordinator: input.coordinator, changed: false };
   }
   const currentlyOccupied =
@@ -72,7 +79,9 @@ export function markAgentProfileWorkControllerConversationOccupancy(input: {
       ...input.coordinator,
       revision: input.coordinator.revision + 1,
       updatedAtMs: input.nowMs,
-      workItems: [nextCurrentWork, ...input.coordinator.workItems.slice(1)],
+      workItems: input.coordinator.workItems.map((item) =>
+        item === currentWork ? nextCurrentWork : item
+      ),
     },
   };
 }
@@ -119,11 +128,14 @@ export function acceptAgentProfileWork(input: {
   }
 
   const continuationAuthorized = isAuthorizedContinuation(input);
-  const maxWorkItems =
-    input.coordinator.recoveryGate && !continuationAuthorized
-      ? AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING
-      : AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING + 1;
-  if (input.coordinator.workItems.length >= maxWorkItems) {
+  const canStart =
+    continuationAuthorized ||
+    canReserveAgentProfileWork(input.coordinator, input.item);
+  if (
+    !canStart &&
+    waitingCount(input.coordinator) >=
+      AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING
+  ) {
     return {
       coordinator: input.coordinator,
       queuePosition: null,
@@ -132,13 +144,18 @@ export function acceptAgentProfileWork(input: {
     };
   }
 
-  const queuePosition = continuationAuthorized
-    ? 0
-    : input.coordinator.workItems.length +
-      (isAgentProfileWorkPaused(input.coordinator) ? 1 : 0);
+  const item = input.item.executionContextId
+    ? {
+        ...input.item,
+        reservationState: canStart
+          ? ("reserved" as const)
+          : ("waiting" as const),
+      }
+    : input.item;
+  const queuePosition = canStart ? 0 : waitingCount(input.coordinator) + 1;
   const workItems = continuationAuthorized
-    ? [input.item, ...input.coordinator.workItems]
-    : [...input.coordinator.workItems, input.item];
+    ? [item, ...input.coordinator.workItems]
+    : [...input.coordinator.workItems, item];
   const recoveryGate = input.coordinator.recoveryGate;
   const coordinator = {
     ...input.coordinator,
@@ -158,7 +175,7 @@ export function acceptAgentProfileWork(input: {
   return {
     coordinator,
     queuePosition,
-    status: continuationAuthorized || queuePosition === 0 ? "start" : "queued",
+    status: canStart ? "start" : "queued",
     waitingCount: waitingCount(coordinator),
   };
 }
@@ -170,6 +187,7 @@ export function removeAgentProfileWork(input: {
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
   removed: boolean;
 } {
   const removedIndex = input.coordinator.workItems.findIndex(
@@ -179,6 +197,7 @@ export function removeAgentProfileWork(input: {
     return {
       coordinator: input.coordinator,
       promotedItem: null,
+      promotedItems: [],
       removed: false,
     };
   }
@@ -189,9 +208,9 @@ export function removeAgentProfileWork(input: {
   const recoveryGate =
     input.coordinator.recoveryGate?.status === "awaiting_owner_approval" &&
     workItems.length === 0
-      ? null
+      ? nextInterruptedWorkGate(input.coordinator.recoveryGate, input.nowMs)
       : input.coordinator.recoveryGate;
-  return {
+  const next = refillAgentProfileWork({
     coordinator: {
       ...input.coordinator,
       recoveryGate,
@@ -199,10 +218,11 @@ export function removeAgentProfileWork(input: {
       updatedAtMs: input.nowMs,
       workItems,
     },
-    promotedItem:
-      removedIndex === 0 && !isAgentProfileWorkPaused(input.coordinator)
-        ? (workItems[0] ?? null)
-        : null,
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return {
+    ...next,
+    promotedItem: next.promotedItems[0] ?? null,
     removed: true,
   };
 }
@@ -215,12 +235,17 @@ export function settleAgentProfileWork(input: {
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
   removed: boolean;
 } {
   const removedIndex = input.coordinator.workItems.findIndex(
     (item) => item.targetWakeLifecycleId === input.targetWakeLifecycleId
   );
-  if (removedIndex !== 0) {
+  if (
+    !reservedAgentProfileWork(input.coordinator).some(
+      (item) => item.targetWakeLifecycleId === input.targetWakeLifecycleId
+    )
+  ) {
     return removeAgentProfileWork({
       coordinator: input.coordinator,
       nowMs: input.nowMs,
@@ -228,16 +253,20 @@ export function settleAgentProfileWork(input: {
     });
   }
 
-  const interruptedWork = input.coordinator.workItems[0];
+  const interruptedWork = input.coordinator.workItems[removedIndex];
   if (!interruptedWork) {
     return {
       coordinator: input.coordinator,
       promotedItem: null,
+      promotedItems: [],
       removed: false,
     };
   }
-  const queuedWork = input.coordinator.workItems.slice(1);
+  const queuedWork = input.coordinator.workItems.filter(
+    (_, index) => index !== removedIndex
+  );
   const continuationRunning =
+    removedIndex === 0 &&
     input.coordinator.recoveryGate?.status === "continuation_running";
   if (continuationRunning) {
     const interruptedContinuationWork =
@@ -249,8 +278,12 @@ export function settleAgentProfileWork(input: {
         ...input.coordinator,
         recoveryGate:
           awaitingOwnerApproval && queuedWork.length === 0
-            ? null
+            ? nextInterruptedWorkGate(
+                input.coordinator.recoveryGate,
+                input.nowMs
+              )
             : {
+                ...input.coordinator.recoveryGate,
                 continuationClientMessageId: null,
                 interruptedWork: interruptedContinuationWork,
                 status: awaitingOwnerApproval
@@ -263,6 +296,7 @@ export function settleAgentProfileWork(input: {
         workItems: queuedWork,
       },
       promotedItem: null,
+      promotedItems: [],
       removed: true,
     };
   }
@@ -271,17 +305,28 @@ export function settleAgentProfileWork(input: {
     return {
       coordinator: {
         ...input.coordinator,
-        recoveryGate: {
-          continuationClientMessageId: null,
-          interruptedWork,
-          status: "awaiting_usage",
-          updatedAtMs: input.nowMs,
-        },
+        recoveryGate: input.coordinator.recoveryGate
+          ? {
+              ...input.coordinator.recoveryGate,
+              additionalInterruptedWork: [
+                ...(input.coordinator.recoveryGate.additionalInterruptedWork ??
+                  []),
+                interruptedWork,
+              ],
+              updatedAtMs: input.nowMs,
+            }
+          : {
+              continuationClientMessageId: null,
+              interruptedWork,
+              status: "awaiting_usage",
+              updatedAtMs: input.nowMs,
+            },
         revision: input.coordinator.revision + 1,
         updatedAtMs: input.nowMs,
         workItems: queuedWork,
       },
       promotedItem: null,
+      promotedItems: [],
       removed: true,
     };
   }
@@ -376,19 +421,28 @@ export function approveAgentProfileWorkQueue(input: {
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
 } {
   if (input.coordinator.recoveryGate?.status !== "awaiting_owner_approval") {
-    return { coordinator: input.coordinator, promotedItem: null };
+    return {
+      coordinator: input.coordinator,
+      promotedItem: null,
+      promotedItems: [],
+    };
   }
-  return {
+  const next = refillAgentProfileWork({
     coordinator: {
       ...input.coordinator,
-      recoveryGate: null,
+      recoveryGate: nextInterruptedWorkGate(
+        input.coordinator.recoveryGate,
+        input.nowMs
+      ),
       revision: input.coordinator.revision + 1,
       updatedAtMs: input.nowMs,
     },
-    promotedItem: input.coordinator.workItems[0] ?? null,
-  };
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return { ...next, promotedItem: next.promotedItems[0] ?? null };
 }
 
 export function skipAgentProfileInterruptedWork(input: {
@@ -397,40 +451,55 @@ export function skipAgentProfileInterruptedWork(input: {
 }): {
   coordinator: AgentProfileWorkCoordinator;
   promotedItem: AgentProfileWorkCoordinatorItem | null;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
 } {
   if (
     input.coordinator.recoveryGate?.status !== "continuation_needs_attention"
   ) {
-    return { coordinator: input.coordinator, promotedItem: null };
+    return {
+      coordinator: input.coordinator,
+      promotedItem: null,
+      promotedItems: [],
+    };
   }
-  return {
+  const next = refillAgentProfileWork({
     coordinator: {
       ...input.coordinator,
-      recoveryGate: null,
+      recoveryGate: nextInterruptedWorkGate(
+        input.coordinator.recoveryGate,
+        input.nowMs
+      ),
       revision: input.coordinator.revision + 1,
       updatedAtMs: input.nowMs,
     },
-    promotedItem: input.coordinator.workItems[0] ?? null,
-  };
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return { ...next, promotedItem: next.promotedItems[0] ?? null };
 }
 
 export function summarizeAgentProfileWorkCoordinator(
   coordinator: AgentProfileWorkCoordinator
 ): AgentProfileWorkCoordinatorSummary {
-  if (isAgentProfileWorkPaused(coordinator)) {
+  const currentWorks = reservedAgentProfileWork(coordinator);
+  if (isAgentProfileWorkPaused(coordinator) && currentWorks.length === 0) {
     return {
       currentWork: null,
+      currentWorks,
       queuedWork: coordinator.workItems,
       status: "paused",
       waitingCount: coordinator.workItems.length,
     };
   }
-  const [currentWork = null, ...queuedWork] = coordinator.workItems;
+  const currentWork = currentWorks[0] ?? null;
+  const queuedWork = coordinator.workItems.filter(
+    (item) => !currentWorks.includes(item)
+  );
   return {
     ...(currentWork?.waitReason
       ? { currentWaitReason: currentWork.waitReason }
       : {}),
     currentWork,
+    currentWorks,
     queuedWork,
     status: currentWork ? "working" : "idle",
     waitingCount: queuedWork.length,
@@ -466,5 +535,101 @@ function queuePositionForWorkIndex(
   coordinator: AgentProfileWorkCoordinator,
   workIndex: number
 ): number {
-  return workIndex + (isAgentProfileWorkPaused(coordinator) ? 1 : 0);
+  const summary = summarizeAgentProfileWorkCoordinator(coordinator);
+  const item = coordinator.workItems[workIndex];
+  if (!item) {
+    return 0;
+  }
+  return summary.currentWorks.includes(item)
+    ? 0
+    : summary.queuedWork.indexOf(item) + 1;
+}
+
+export function reservedAgentProfileWork(
+  coordinator: AgentProfileWorkCoordinator
+): AgentProfileWorkCoordinatorItem[] {
+  return coordinator.workItems.filter((item, index) =>
+    item.executionContextId
+      ? item.reservationState === "reserved"
+      : index === 0 && !isAgentProfileWorkPaused(coordinator)
+  );
+}
+
+function canReserveAgentProfileWork(
+  coordinator: AgentProfileWorkCoordinator,
+  item: AgentProfileWorkCoordinatorItem
+): boolean {
+  if (coordinator.recoveryGate) {
+    return false;
+  }
+  const reserved = reservedAgentProfileWork(coordinator);
+  if (!item.executionContextId) {
+    return (
+      reserved.length === 0 &&
+      (coordinator.workItems[0] === item || coordinator.workItems.length === 0)
+    );
+  }
+  if (
+    reserved.length >= AGENT_PROFILE_WORK_CONCURRENCY_LIMIT ||
+    reserved.some(
+      (active) =>
+        !active.executionContextId ||
+        active.executionContextId === item.executionContextId
+    )
+  ) {
+    return false;
+  }
+  const index = coordinator.workItems.indexOf(item);
+  return !coordinator.workItems
+    .slice(0, index < 0 ? undefined : index)
+    .some((waiter) => !waiter.executionContextId);
+}
+
+function refillAgentProfileWork(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  previouslyReserved: readonly AgentProfileWorkCoordinatorItem[];
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
+} {
+  const coordinator = {
+    ...input.coordinator,
+    workItems: [...input.coordinator.workItems],
+  };
+  for (let index = 0; index < coordinator.workItems.length; index += 1) {
+    const item = coordinator.workItems[index];
+    if (
+      item?.executionContextId &&
+      item.reservationState !== "reserved" &&
+      canReserveAgentProfileWork(coordinator, item)
+    ) {
+      coordinator.workItems[index] = { ...item, reservationState: "reserved" };
+    }
+  }
+  const priorIds = new Set(
+    input.previouslyReserved.map((item) => item.targetWakeLifecycleId)
+  );
+  return {
+    coordinator,
+    promotedItems: reservedAgentProfileWork(coordinator).filter(
+      (item) => !priorIds.has(item.targetWakeLifecycleId)
+    ),
+  };
+}
+
+function nextInterruptedWorkGate(
+  gate: AgentProfileWorkRecoveryGate | null,
+  nowMs: number
+): AgentProfileWorkRecoveryGate | null {
+  const [interruptedWork, ...additionalInterruptedWork] =
+    gate?.additionalInterruptedWork ?? [];
+  return interruptedWork
+    ? {
+        interruptedWork,
+        additionalInterruptedWork,
+        continuationClientMessageId: null,
+        status: "awaiting_usage",
+        updatedAtMs: nowMs,
+      }
+    : null;
 }

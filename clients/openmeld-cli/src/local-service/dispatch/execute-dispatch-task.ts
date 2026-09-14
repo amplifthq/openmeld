@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import type {
   AdapterComputerFileAccessBoundary,
@@ -58,6 +59,7 @@ import type {
   BootstrapTemplateFacts,
   ConversationExecutionState,
   DispatchExecution,
+  ExecutionContextCompletion,
   LocalRuntimeContextPlan,
   OpenMeldDaemonTaskResultPayload,
   ProviderDispatchRuntimeContext,
@@ -190,6 +192,18 @@ import type {
   SupportedRuntimeControllerSupport,
 } from "./execute-dispatch-types";
 import {
+  captureExecutionContextCompletion,
+  executionContextFileAccessBoundary,
+  executionContextLedgerPolicy,
+  executionContextResourceScope,
+  executionContextWorkingDirectory,
+  prepareExecutionContextConversation,
+} from "./execution-context-session";
+import {
+  type ExecutionContextWorkspace,
+  prepareExecutionContextWorkspace,
+} from "./execution-context-workspace";
+import {
   buildDispatchBootstrapTemplateFacts,
   buildDispatchCorrelation,
   buildDispatchPromptPlan,
@@ -310,6 +324,9 @@ export function enqueueDispatchDeliverFrame(input: {
     presenter: input.presenter,
   });
   const enqueueResult = input.localExecutionSlots.request({
+    resourceScope: executionContextResourceScope(
+      deliverRequest.payload.executionContext
+    ),
     adapterId: queueLogMeta.adapterId,
     attemptId: correlation.attemptId,
     controllerKey: queueLogMeta.controllerKey,
@@ -999,6 +1016,13 @@ export async function handleDispatchDeliverFrame(input: {
     | OpenMeldDaemonTaskResultPayload["agentControllerConversation"]
     | null = null;
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
+  let nativeQuiescence: Promise<void> | undefined;
+  let completedTurnId: string | null = null;
+  let providerSucceeded = false;
+  let executionContextCompletion: ExecutionContextCompletion | undefined;
+  const invalidStateStrategy = executionContextLedgerPolicy(
+    parsedTask.executionContext
+  );
 
   try {
     dispatchRuntimeContext = await resolveDispatchWorkingFolderRuntimeContext({
@@ -1035,6 +1059,18 @@ export async function handleDispatchDeliverFrame(input: {
       targetProfileId: parsedTask.targetProfileId,
     });
     effectiveRuntimeContext = runtimePreparation.effectiveRuntimeContext;
+    const originalWorkingDirectory =
+      effectiveRuntimeContext.providerRuntimeWorkingDirectory;
+    const taskWorkspace = await prepareDispatchTaskWorkspace({
+      parsedTask,
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
+      currentWorkingDirectory: originalWorkingDirectory,
+      computerFileAccessStorePath: input.computerFileAccessStorePath,
+    });
+    effectiveRuntimeContext = {
+      providerRuntimeWorkingDirectory: taskWorkspace.workingDirectory,
+    };
+    runtimePreparation.effectiveRuntimeContext = effectiveRuntimeContext;
     computerFileAccessBoundary = await resolveDispatchComputerFileAccess({
       computerFileAccessStorePath: input.computerFileAccessStorePath,
       onInteractionRequest,
@@ -1043,6 +1079,7 @@ export async function handleDispatchDeliverFrame(input: {
       routeConfig,
       runtimeControllerSupport,
       runtimePreparation,
+      taskWorkspace,
     });
     // First real consumer of the send target reference: the network load has
     // been running concurrently with the local runtime preparation above.
@@ -1122,6 +1159,18 @@ export async function handleDispatchDeliverFrame(input: {
         agentControllerConversationId: parsedTask.agentControllerConversationId,
         existingContextId,
       });
+    effectiveAgentControllerConversationId =
+      await prepareExecutionContextConversation({
+        computerFileAccessBoundary,
+        unscopedNativeConversationId: effectiveAgentControllerConversationId,
+        context: parsedTask.executionContext,
+        currentWorkingDirectory: originalWorkingDirectory,
+        workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
+        existingNativeConversationId: existingContextId,
+        ledgerRootPath: input.ledgerPaths.rootDirPath,
+        agentControllerRef: parsedTask.agentControllerRef,
+        launchContract: routeConfig?.launchContract,
+      });
     latestScopedExecutionState =
       dispatchLedgerContext.latestScopedExecutionState;
     ledgerIo = dispatchLedgerContext.ledgerIo;
@@ -1191,6 +1240,7 @@ export async function handleDispatchDeliverFrame(input: {
         profileOwnerUserId: input.profileOwnerUserId,
         sendTargetReference,
         shouldInjectBootstrap: bootstrapPlan.shouldInject,
+        taskWorkspace,
       }),
       skillPreflight
     );
@@ -1377,7 +1427,7 @@ export async function handleDispatchDeliverFrame(input: {
       }
       const persistProviderConversationObservation = withLedgerStateTransaction(
         {
-          invalidStateStrategy: "backup_and_reset",
+          invalidStateStrategy,
           io: providerConversationLedgerIo,
           mutate: (state) => ({
             nextState: commitResolvedAgentContext({
@@ -1447,6 +1497,7 @@ export async function handleDispatchDeliverFrame(input: {
       if (event.phase !== "provider_turn_accepted") {
         return;
       }
+      completedTurnId = event.turnId;
       if (
         providerAdmissionOwnsRunningLifecycle &&
         runtimeLifecyclePhase !== "running"
@@ -1639,11 +1690,15 @@ export async function handleDispatchDeliverFrame(input: {
         runtimeControllerSupport,
         agentControllerConversationOverride,
       })
-    );
+    ).then((result) => {
+      providerSucceeded = result.resultPayload.status === "success";
+      return result;
+    });
     const controllerTurnCompletion = runtimeExecutionPromise.then(
       () => undefined,
       () => undefined
     );
+    nativeQuiescence = controllerTurnCompletion;
     let runtimeResult = await resolveRuntimeResultFromRuntimeOrCliSpaceAction({
       contextIdForDispatch,
       dispatchSpaceActionContext,
@@ -1727,7 +1782,7 @@ export async function handleDispatchDeliverFrame(input: {
         ) ?? null,
     });
     await withLedgerStateTransaction({
-      invalidStateStrategy: "backup_and_reset",
+      invalidStateStrategy,
       io: ledgerIo,
       mutate: (state) => {
         let nextState = state;
@@ -1824,29 +1879,42 @@ export async function handleDispatchDeliverFrame(input: {
         observedAgentControllerConversation,
         plannedAgentControllerConversation,
       });
-      return resolveDispatchResultPayload({
-        attemptId: parsedTask.attemptId,
-        contextDelta: currentContextDelta,
-        contextResolution: runtimeResult.contextResolution ?? null,
-        basePayload: runtimeResult.resultPayload,
-        bootstrapTemplateFacts: bootstrapContext.bootstrapTemplateFacts,
-        agentControllerRef: parsedTask.agentControllerRef,
-        dispatchExecution,
-        existingContextId: contextIdForDispatch,
-        openClawBinding: runtimeOpenClawBinding,
-        openClawGatewayVisibility: runtimeOpenClawGatewayVisibility,
-        promptTrace: runtimePromptTrace,
-        agentControllerConversationForDispatch:
-          observedAgentControllerConversation ??
-          plannedAgentControllerConversation,
-        workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
-        spaceAction: resolvedSpaceAction,
-        spaceActionProvenance: resolvedSpaceActionProvenance,
-        sourceEventId: parsedTask.sourceEventId,
-        targetProfileId: parsedTask.targetProfileId,
-        taskId: parsedTask.taskId,
-      });
+      return {
+        ...resolveDispatchResultPayload({
+          attemptId: parsedTask.attemptId,
+          contextDelta: currentContextDelta,
+          contextResolution: runtimeResult.contextResolution ?? null,
+          basePayload: runtimeResult.resultPayload,
+          bootstrapTemplateFacts: bootstrapContext.bootstrapTemplateFacts,
+          agentControllerRef: parsedTask.agentControllerRef,
+          dispatchExecution,
+          existingContextId: contextIdForDispatch,
+          openClawBinding: runtimeOpenClawBinding,
+          openClawGatewayVisibility: runtimeOpenClawGatewayVisibility,
+          promptTrace: runtimePromptTrace,
+          agentControllerConversationForDispatch:
+            observedAgentControllerConversation ??
+            plannedAgentControllerConversation,
+          workingDirectory:
+            activeRuntimeContext.providerRuntimeWorkingDirectory,
+          spaceAction: resolvedSpaceAction,
+          spaceActionProvenance: resolvedSpaceActionProvenance,
+          sourceEventId: parsedTask.sourceEventId,
+          targetProfileId: parsedTask.targetProfileId,
+          taskId: parsedTask.taskId,
+        }),
+        executionContextId: parsedTask.executionContext?.id,
+        executionContextCompletion,
+      };
     };
+    executionContextCompletion = await captureExecutionContextCompletion({
+      context: parsedTask.executionContext,
+      nativeConversationId: observedProviderConversationId,
+      agentControllerRef: parsedTask.agentControllerRef,
+      workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
+      completedTurnId,
+      providerSucceeded,
+    });
     resultPayload = buildCurrentResultPayload();
     const replySettlement = await settleAgentReplyProposals({
       initialResultPayload: resultPayload,
@@ -1990,12 +2058,19 @@ export async function handleDispatchDeliverFrame(input: {
       },
     });
   } finally {
+    await nativeQuiescence;
     lifecycleKeepalive.stop?.();
     lifecycleKeepalive.stop = null;
     input.inflightDispatchMetaByTaskId.delete(parsedTask.taskId);
     input.inflightTaskControlRegistry.removeTask(parsedTask.taskId);
     pendingAgentInteractionRegistry.removeTask(parsedTask.taskId);
   }
+
+  resultPayload = {
+    ...resultPayload,
+    executionContextId: parsedTask.executionContext?.id,
+    executionContextCompletion,
+  };
 
   emitDispatchRuntimeEvidenceTransition({
     currentSocketRef,
@@ -2249,6 +2324,7 @@ async function loadDispatchLedgerContext(input: {
   latestScopedExecutionState: ConversationExecutionState | null;
 }> {
   const keyInput = {
+    executionContextId: input.parsedTask.executionContext?.id,
     spaceId: input.parsedTask.spaceId,
     targetProfileId: input.parsedTask.targetProfileId,
     agentControllerRef: input.parsedTask.agentControllerRef,
@@ -2263,7 +2339,9 @@ async function loadDispatchLedgerContext(input: {
     existingContextId,
     latestScopedExecutionState,
   } = await withLedgerStateTransaction({
-    invalidStateStrategy: "backup_and_reset",
+    invalidStateStrategy: executionContextLedgerPolicy(
+      input.parsedTask.executionContext
+    ),
     io: ledgerIo,
     mutate: (state) => {
       const scopeInput = {
@@ -2305,11 +2383,12 @@ async function loadDispatchLedgerContext(input: {
           state: seededLedgerState,
         }
       );
-      const latestScopedExecutionState =
-        resolveLatestScopedConversationExecutionState({
-          scope: scopeInput,
-          state: seededLedgerState,
-        })?.executionState ?? null;
+      const latestScopedExecutionState = input.parsedTask.executionContext
+        ? currentExecutionState
+        : (resolveLatestScopedConversationExecutionState({
+            scope: scopeInput,
+            state: seededLedgerState,
+          })?.executionState ?? null);
       return {
         nextState: seededLedgerState,
         value: {
@@ -2528,6 +2607,7 @@ function buildDispatchRuntimePrompt(input: {
   profileOwnerUserId: string;
   sendTargetReference: DispatchSendTargetReferenceLoadResult;
   shouldInjectBootstrap: boolean;
+  taskWorkspace?: ExecutionContextWorkspace;
 }): DispatchPromptPlan {
   return buildDispatchPromptPlan({
     callerContext: input.parsedTask.callerContext,
@@ -2547,7 +2627,18 @@ function buildDispatchRuntimePrompt(input: {
     organizationProtectedInformation:
       input.parsedTask.organizationProtectedInformation,
     workingLanguage: input.parsedTask.workingLanguage,
-    prompt: input.parsedTask.prompt,
+    prompt: input.taskWorkspace?.baseCommit
+      ? `${input.parsedTask.prompt}\n\nOpenMeld task workspace: ${JSON.stringify(
+          {
+            projectId: input.parsedTask.defaultProjectId,
+            repositoryName: input.taskWorkspace.sourceWorkingDirectory
+              ? basename(input.taskWorkspace.sourceWorkingDirectory)
+              : null,
+            workingDirectory: input.taskWorkspace.workingDirectory,
+            baseCommit: input.taskWorkspace.baseCommit,
+          }
+        )}\nThis task uses an independent Git worktree with private Git metadata. The starting commit is frozen. Uncommitted and ignored source files were not copied. Make changes in this task worktree; the original checkout is not the task's working directory. Refer to the task and commit in public replies without disclosing private local paths.`
+      : input.parsedTask.prompt,
     recipientExplicitlyAddressedByActivationTargets:
       input.parsedTask.recipientExplicitlyAddressedByActivationTargets,
     sourceSignalId: input.parsedTask.sourceEventId,
@@ -2570,6 +2661,31 @@ function buildDispatchRuntimePrompt(input: {
   });
 }
 
+async function prepareDispatchTaskWorkspace(input: {
+  parsedTask: ParsedDispatchTask;
+  ledgerRootPath: string;
+  currentWorkingDirectory: string;
+  computerFileAccessStorePath: string;
+}): Promise<ExecutionContextWorkspace> {
+  const context = input.parsedTask.executionContext;
+  if (context && context.access !== "space_context") {
+    return await prepareExecutionContextWorkspace({
+      context,
+      ledgerRootPath: input.ledgerRootPath,
+      currentWorkingDirectory: input.currentWorkingDirectory,
+      policy: await readComputerFileAccessPolicy(
+        input.computerFileAccessStorePath
+      ),
+    });
+  }
+  const workingDirectory = await executionContextWorkingDirectory({
+    context,
+    ledgerRootPath: input.ledgerRootPath,
+    currentWorkingDirectory: input.currentWorkingDirectory,
+  });
+  return { workingDirectory, boundaryRoot: workingDirectory };
+}
+
 async function resolveDispatchComputerFileAccess(input: {
   computerFileAccessStorePath: string;
   onInteractionRequest: AdapterInteractionCallback;
@@ -2578,6 +2694,7 @@ async function resolveDispatchComputerFileAccess(input: {
   routeConfig: DaemonProfileRouteConfig | null;
   runtimeControllerSupport: SupportedRuntimeControllerSupport;
   runtimePreparation: DispatchRuntimePreparation;
+  taskWorkspace?: ExecutionContextWorkspace;
 }): Promise<AdapterComputerFileAccessBoundary | null> {
   const policy = await readComputerFileAccessPolicy(
     input.computerFileAccessStorePath
@@ -2585,6 +2702,44 @@ async function resolveDispatchComputerFileAccess(input: {
   const verifier =
     input.runtimeControllerSupport.localAdapterEntry.adapter
       .verifyComputerFileAccessBoundary;
+  if (input.parsedTask.executionContext) {
+    const context = input.parsedTask.executionContext;
+    if (
+      input.parsedTask.agentControllerRef === "builtin:claude-code" &&
+      context.access === "space_context"
+    ) {
+      return null;
+    }
+    if (
+      input.parsedTask.agentControllerRef !== "builtin:codex" ||
+      input.parsedTask.transportMode !== "codex-app-server" ||
+      !verifier
+    ) {
+      throw new Error("execution_context.file_access_unsupported");
+    }
+    const workingDirectory =
+      input.runtimePreparation.effectiveRuntimeContext
+        .providerRuntimeWorkingDirectory;
+    const boundary = executionContextFileAccessBoundary({
+      context,
+      workingDirectory,
+      policy,
+      taskWorkspace: input.taskWorkspace,
+    });
+    const verification = await verifier({
+      boundary,
+      workingDirectory,
+      executionMode: "normal",
+      agentControllerPermissionMode:
+        input.routeConfig?.agentControllerPermissionMode,
+      launchContract: input.routeConfig?.launchContract ?? null,
+      transportMode: input.parsedTask.transportMode,
+    });
+    if (!verification.supported) {
+      throw new Error("execution_context.file_access_unverified");
+    }
+    return boundary;
+  }
   const admission = await resolveComputerFileAccessAdmission({
     agentControllerPermissionMode:
       input.routeConfig?.agentControllerPermissionMode,
@@ -2677,6 +2832,14 @@ export async function resolveRuntimeResultFromRuntimeOrCliSpaceAction(input: {
 }): Promise<RuntimeTaskResult> {
   if (!input.dispatchSpaceActionContext) {
     return await input.runtimeExecutionPromise;
+  }
+  if (input.parsedTask.executionContext) {
+    return await applyCliSpaceActionRecordIfPresent({
+      dispatchSpaceActionContext: input.dispatchSpaceActionContext,
+      parsedTask: input.parsedTask,
+      presenter: input.presenter,
+      runtimeResult: await input.runtimeExecutionPromise,
+    });
   }
 
   const cliSpaceActionAbortController = new AbortController();
@@ -4335,12 +4498,13 @@ function runDispatchRuntimeExecution(input: {
   agentControllerConversationOverride?: AgentControllerConversationRef | null;
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
   return runRuntimeTask({
-    ...(input.agentControllerConversationOverride
+    ...(input.parsedTask.executionContext ||
+    input.agentControllerConversationOverride
       ? {
           agentContextOverride: {
             agentControllerConversationId: input.contextId,
             agentControllerConversationOverride:
-              input.agentControllerConversationOverride,
+              input.agentControllerConversationOverride ?? null,
           },
         }
       : {}),
@@ -4432,6 +4596,7 @@ function buildDispatchRuntimeTask(input: {
   runtimeContext: ProviderDispatchRuntimeContext;
 }): DispatchRuntimeTask {
   return {
+    executionContext: input.parsedTask.executionContext,
     agentId: input.parsedTask.targetProfileId,
     attemptId: input.parsedTask.attemptId,
     bindingKey: `${input.parsedTask.spaceId}|${input.parsedTask.targetProfileId}`,

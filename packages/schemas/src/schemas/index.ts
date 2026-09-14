@@ -2560,6 +2560,14 @@ export {
   spaceLiveSignalFrameSchema,
 } from "./protocol/envelope";
 export {
+  executionContextAssignmentSchema,
+  executionContextCompletionSchema,
+  executionContextRequestSchema,
+  executionContextScopeSchema,
+  executionContextSelectionSchema,
+  executionContextTaskSchema,
+} from "./protocol/execution-context";
+export {
   helloAckSchema,
   helloCapabilitiesSchema,
   helloSchema,

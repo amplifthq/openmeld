@@ -362,6 +362,11 @@ import {
   DELETED_AGENT_PROFILE_WAKE_STOP_REASON,
 } from "../../application/deleted-agent-profile-wake-cancellation";
 import {
+  ExecutionContextSelectionError,
+  recordExecutionContextCompletion,
+  resolveExecutionContextTask,
+} from "../../application/execution-context-authority";
+import {
   buildFailedLocalAgentStreamTerminal,
   buildLocalAgentStreamId,
   buildLocalAgentStreamTerminal,
@@ -1168,6 +1173,14 @@ function resolveRuntimeCoordinatorHeadAdmissionResponse(input: {
 }): RuntimeTransportRuntimeCoordinatorHeadAcceptResponse {
   const identity = input.request.targetWakeLifecycleIdentity;
   switch (input.admission.status) {
+    case "context_rejected":
+      return {
+        ok: false,
+        primaryDispatchId: null,
+        reasonCode: input.admission.reasonCode,
+        status: "conflict",
+        targetWakeLifecycleId: identity.targetWakeLifecycleId,
+      };
     case "continuation_needs_attention":
       return {
         ok: false,
@@ -3482,6 +3495,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
     const db = wakeEvidenceDb(this.env);
+    const contextRejection = await this.resolveExecutionContextResultRejection(
+      parsed.data,
+      tokenValidationContext
+    );
+    if (contextRejection) {
+      this.sendSubmitTaskResultResponseFrame(
+        webSocket,
+        parsed.data,
+        contextRejection
+      );
+      return;
+    }
     const response = db
       ? await handleSubmitTaskResult(this.state, parsed.data, {
           resolvePendingResultWaiters: this.resolvePendingResultWaiters,
@@ -3535,6 +3560,59 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.queueHousekeepingAlarmSync();
   }
 
+  private async resolveExecutionContextResultRejection(
+    request: RuntimeTransportSubmitTaskResultRequest,
+    context: RuntimeCoordinatorTokenValidationContext
+  ): Promise<RuntimeTransportSubmitTaskResultResponse | null> {
+    try {
+      const scope = context.executionScope;
+      const payload = request.taskResult.payload;
+      await recordExecutionContextCompletion({
+        storage: this.ctx.storage,
+        headId: projectTargetWakeLifecycleIdentity({
+          clientMessageId: scope.sourceClientMessageId,
+          dispatchId: scope.dispatchId,
+          sourceSignalId: payload.sourceEventId,
+          spaceId: scope.spaceId,
+          targetProfileId: scope.targetProfileId,
+        }).targetWakeLifecycleId,
+        dispatchId: request.dispatchId,
+        runtimeCoordinatorExecutionId: context.runtimeCoordinatorExecutionId,
+        contextId:
+          "executionContextId" in payload
+            ? payload.executionContextId
+            : undefined,
+        completion:
+          "executionContextCompletion" in payload
+            ? payload.executionContextCompletion
+            : undefined,
+      });
+      return null;
+    } catch (error) {
+      console.warn(
+        "[core.runtime_transport.execution_context_result_rejected]",
+        {
+          dispatchId: request.dispatchId,
+          reasonCode:
+            error instanceof ExecutionContextSelectionError
+              ? error.reasonCode
+              : "execution_context.storage_unavailable",
+        }
+      );
+      return error instanceof ExecutionContextSelectionError
+        ? {
+            ok: false,
+            status: "rejected_terminal",
+            reasonCode: "runtime_coordinator.execution_context_mismatch",
+          }
+        : {
+            ok: false,
+            status: "retry_later",
+            reasonCode: "runtime_coordinator.execution_context_unavailable",
+          };
+    }
+  }
+
   private async tryAcceptRuntimeCoordinatorLateResult(input: {
     request: RuntimeTransportSubmitTaskResultRequest;
     runtimeCoordinatorExecution: RuntimeCoordinatorExecutionRecord | null;
@@ -3555,6 +3633,18 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
     if (!(recoverable && input.tokenValidation.run)) {
       return false;
+    }
+    const contextRejection = await this.resolveExecutionContextResultRejection(
+      input.request,
+      input.tokenValidationContext
+    );
+    if (contextRejection) {
+      this.sendSubmitTaskResultResponseFrame(
+        input.webSocket,
+        input.request,
+        contextRejection
+      );
+      return true;
     }
 
     const db = wakeEvidenceDb(this.env);
@@ -11243,10 +11333,24 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     if (request.acceptedDispatchSnapshot?.deviceWait) {
       this.queueHousekeepingAlarmSync();
     }
-    return resolveRuntimeCoordinatorHeadAdmissionResponse({
+    const response = resolveRuntimeCoordinatorHeadAdmissionResponse({
       admission,
       request,
     });
+    if (
+      response.ok &&
+      response.status !== "queued" &&
+      response.acceptedDispatchSnapshot?.executionContext
+    ) {
+      return {
+        ...response,
+        executionContext: await resolveExecutionContextTask(
+          this.ctx.storage,
+          response.acceptedDispatchSnapshot.executionContext
+        ),
+      };
+    }
+    return response;
   }
 
   private async recordRuntimeCoordinatorHeadNoExecution(

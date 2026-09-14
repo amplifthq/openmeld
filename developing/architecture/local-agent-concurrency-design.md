@@ -8,7 +8,9 @@
 - Do not use this for: Current production behavior, release authorization, a new memory system, or Remote Agent scheduling.
 - Source of truth: This is a design proposal. Existing scoped owner documents remain authoritative until implementation updates them together.
 
-Status: READY FOR CAPABILITY VALIDATION — design reviewed; capability probes, implementation, and rollout unverified.
+Status: IMPLEMENTATION IN DRAFT PR #956 — accepted context, admission, isolation,
+and compatibility rules are now recorded in the scoped owner documents. Local
+validation is in progress; this document does not claim production availability.
 
 Remove when this feature ships and its accepted rules, compatibility requirements,
 and validation evidence have been incorporated into the scoped owner documents.
@@ -75,8 +77,10 @@ executing; it is deliberately more conservative than a count of live processes.
 This proposal changes ordinary workstation Agent Profiles only. It retains the
 current single enabled primary Binding, computer selection, Organization scope,
 Space addressing, and per-Wake final-outcome contract. It does not add automatic
-multi-computer routing, a second scheduler, a public Session directory, automatic
-repository copies/worktrees, or a general long-term-memory implementation.
+multi-computer routing, a second scheduler, a public Session directory, or a
+general long-term-memory implementation. Explicit independent project tasks
+materialize a private Git repository and worktree from the confirmed source's
+committed state; ordinary Space-context tasks do not copy repositories.
 It includes explicit background inheritance through native fork and a bounded,
 authorized read of existing work records. Neither creates another teammate or
 automatically synchronizes private histories between contexts.

@@ -23,6 +23,7 @@ import type {
   AgentInteractionResponse,
   ComputerFileAccessPolicy,
   ConversationPolicy,
+  ExecutionContextTask,
   OpenCodePermissionConfig,
   OpenMeldDaemonProviderAccessEvidence,
   ProviderDispatchRuntimeContext,
@@ -169,7 +170,7 @@ export type AdapterDispatchExecutionMode = "normal" | "repair";
 export type AdapterComputerFileAccessBoundary = Extract<
   ComputerFileAccessPolicy,
   { mode: "block_selected_folders" | "only_selected_folders" }
->;
+> & { executionContextAccess?: ExecutionContextTask["access"] };
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   boundary: AdapterComputerFileAccessBoundary;
@@ -285,6 +286,7 @@ export type AdapterDispatchRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
+  executionContext?: ExecutionContextTask;
   dispatchId?: string;
   env?: Record<string, string | undefined>;
   executionMode?: AdapterDispatchExecutionMode;

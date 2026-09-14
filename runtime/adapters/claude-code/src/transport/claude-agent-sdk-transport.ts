@@ -129,6 +129,7 @@ function resolveCanonicalRepairSessionId(input: {
 }
 
 export async function invokeClaudeAgentSdkTransport(input: {
+  executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeTimeoutMs: number | null;
@@ -195,6 +196,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
     const createQuery = input.createQuery ?? createDefaultClaudeAgentSdkQuery;
     queryRuntime = createQuery({
       options: buildClaudeAgentSdkOptions({
+        executionContext: input.executionContext,
         abortController,
         agentControllerPermissionMode: input.agentControllerPermissionMode,
         claudeWorkdir: input.claudeWorkdir,
@@ -548,6 +550,7 @@ export async function resolveClaudeAgentSdkExecutable(input: {
 }
 
 function buildClaudeAgentSdkOptions(input: {
+  executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   abortController: AbortController;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeWorkdir: string;
@@ -564,6 +567,12 @@ function buildClaudeAgentSdkOptions(input: {
   streamingMode?: AdapterStreamingMode;
 }): ClaudeAgentOptions {
   const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
+  if (
+    input.executionContext &&
+    input.executionContext.access !== "space_context"
+  ) {
+    throw new Error("execution_context.file_access_unsupported");
+  }
   const permissionMode = resolveClaudePermissionMode({
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     executionMode: input.executionMode,
@@ -633,6 +642,19 @@ function buildClaudeAgentSdkOptions(input: {
         }
       : {}),
   };
+
+  if (input.executionContext) {
+    options.tools = [];
+    options.strictMcpConfig = true;
+    options.settingSources = ["user"];
+    options.settings = { disableAllHooks: true };
+    options.additionalDirectories = [];
+    options.allowedTools = spaceActionMcpServer
+      ? buildDispatchSpaceActionMcpToolIds("__").map(
+          (toolId) => `mcp__${toolId}`
+        )
+      : [];
+  }
 
   const sessionId = normalizeOptionalText(input.sessionId);
   if (sessionId) {

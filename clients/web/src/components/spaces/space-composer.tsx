@@ -5,6 +5,7 @@ import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
+import { useState } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -36,6 +37,11 @@ import {
 	type SpaceComposerEditorChange,
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
+import {
+	type SpaceComposerTaskChoice,
+	SpaceComposerTaskMenu,
+	type SpaceTaskSource,
+} from "./space-composer-task-menu";
 import { useSpaceWakeRecommendation } from "./space-wake-recommendation";
 import type {
 	SpaceComposerAddressingTarget,
@@ -43,6 +49,7 @@ import type {
 } from "./use-space-mention-authoring";
 
 export type SpaceComposerProps = {
+	taskSources?: readonly SpaceTaskSource[];
 	members?: { state: "loading" | "error"; onRetry: () => void };
 	recovery?: Omit<
 		ComponentProps<typeof SpaceComposerBlockedWakeRecoveryAction>,
@@ -135,7 +142,52 @@ function useComposerWakeSuggestion(input: SpaceComposerProps) {
 	return { recommendations, recommended, acceptRecommendation };
 }
 
+function useComposerTaskChoice(input: SpaceComposerProps) {
+	const [choice, setChoice] = useState<SpaceComposerTaskChoice>();
+	const targets = input.content.addressingTargets.filter(
+		(target) => target.relation === "wake"
+	);
+	const target =
+		targets.length === 1 &&
+		["builtin:codex", "builtin:claude-code"].includes(
+			targets[0]?.agentControllerRef ?? ""
+		)
+			? targets[0]
+			: undefined;
+	const active =
+		choice?.targetProfileId === target?.profileId ? choice : undefined;
+	return {
+		menu: target ? (
+			<SpaceComposerTaskMenu
+				choice={active}
+				disabled={
+					hasPendingComposerMembers(input) ||
+					input.availability.isSendingMessage
+				}
+				onChange={setChoice}
+				sources={input.taskSources ?? []}
+				supportsLocalFiles={target.agentControllerRef === "builtin:codex"}
+				targetProfileId={target.profileId}
+			/>
+		) : null,
+		prepare: (options: SpaceComposerSendOptions): SpaceComposerSendOptions => {
+			if (!active) {
+				return options;
+			}
+			return {
+				...options,
+				contextSelection: active.selection,
+				onMessageStaged: (id) => {
+					setChoice(undefined);
+					options.onMessageStaged?.(id);
+				},
+			};
+		},
+	};
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
+	const taskContext = useComposerTaskChoice(input);
 	const membersPending = hasPendingComposerMembers(input);
 	const { recommendations, recommended, acceptRecommendation } =
 		useComposerWakeSuggestion(input);
@@ -151,7 +203,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		if (deviceWaitPresentation.target && !deviceWait) {
 			return;
 		}
-		const options: SpaceComposerSendOptions = {
+		const options = taskContext.prepare({
 			...(deviceWait ? { deviceWait } : {}),
 			...(recommendations &&
 			(recommendations.candidate || recommendations.nudge)
@@ -163,8 +215,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 							),
 					}
 				: {}),
-		};
-		// Consume the recommendation only after admission stages this exact message.
+		});
 		// Return focus within the gesture; network completion must not steal it.
 		input.composerRef.current?.focus();
 		if (options.deviceWait || options.onMessageStaged) {
@@ -281,6 +332,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 					/>
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
+							{taskContext.menu}
 							{input.capabilities?.attachments !== false ? (
 								<SpaceComposerAddMenu
 									addFiles={addFiles}

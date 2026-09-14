@@ -7,13 +7,14 @@ import type {
   OpenMeldDaemonAgentContextLifecycleCounters,
   OpenMeldDaemonAgentContextRotationRecord,
   OpenMeldDaemonAgentContextState,
-  OpenMeldDaemonLedgerStateV1,
+  OpenMeldDaemonLedgerState,
 } from "./ledger-store.js";
 
 const AGENT_CONTEXT_LOOKUP_KEY_SEPARATOR = "|";
 const LEDGER_AGENT_CONTEXT_SOURCE_FIELD = "openMeldDaemon.agent_context_ledger";
 
 export type AgentContextLookupKeyInput = {
+  executionContextId?: string;
   spaceId: string;
   targetProfileId: string;
   agentControllerRef: string;
@@ -118,12 +119,16 @@ const listCompatibleAgentControllerRefs = (
 ];
 
 const buildLookupKey = (input: {
+  executionContextId?: string;
   agentControllerRef: string;
   targetProfileId: string;
   transportMode: AdapterTransportMode;
   runtimeWorkspaceFingerprint: string;
 }): string =>
   [
+    ...(input.executionContextId
+      ? ["execution-context", input.executionContextId]
+      : []),
     input.targetProfileId,
     input.agentControllerRef,
     input.transportMode,
@@ -152,28 +157,33 @@ const buildLegacySpaceScopedLookupKey = (input: {
 export const listCompatibleAgentContextLookupKeys = (
   input: AgentContextLookupKeyInput
 ): string[] =>
-  listCompatibleAgentControllerRefs(input)
-    .flatMap((agentControllerRef) => [
-      buildLookupKey({
-        agentControllerRef,
-        targetProfileId: input.targetProfileId,
-        transportMode: input.transportMode,
-        runtimeWorkspaceFingerprint: input.runtimeWorkspaceFingerprint,
-      }),
-      buildLegacySpaceScopedLookupKey({
-        agentControllerRef,
-        spaceId: input.spaceId,
-        targetProfileId: input.targetProfileId,
-        transportMode: input.transportMode,
-        runtimeWorkspaceFingerprint: input.runtimeWorkspaceFingerprint,
-      }),
-    ])
-    .filter((lookupKey, index, values) => values.indexOf(lookupKey) === index);
+  input.executionContextId
+    ? [buildAgentContextLookupKey(input)]
+    : listCompatibleAgentControllerRefs(input)
+        .flatMap((agentControllerRef) => [
+          buildLookupKey({
+            agentControllerRef,
+            targetProfileId: input.targetProfileId,
+            transportMode: input.transportMode,
+            runtimeWorkspaceFingerprint: input.runtimeWorkspaceFingerprint,
+          }),
+          buildLegacySpaceScopedLookupKey({
+            agentControllerRef,
+            spaceId: input.spaceId,
+            targetProfileId: input.targetProfileId,
+            transportMode: input.transportMode,
+            runtimeWorkspaceFingerprint: input.runtimeWorkspaceFingerprint,
+          }),
+        ])
+        .filter(
+          (lookupKey, index, values) => values.indexOf(lookupKey) === index
+        );
 
 export const buildAgentContextLookupKey = (
   input: AgentContextLookupKeyInput
 ): string =>
   buildLookupKey({
+    executionContextId: input.executionContextId,
     agentControllerRef: resolveCanonicalAgentControllerRef(input),
     targetProfileId: input.targetProfileId,
     transportMode: input.transportMode,
@@ -222,6 +232,13 @@ export const isAgentContextCompatibleWithScopeInput = (input: {
   agentContext: OpenMeldDaemonAgentContextState;
   scope: AgentContextScopeInput;
 }): boolean =>
+  (input.scope.executionContextId
+    ? input.agentContext.agentContextLookupKey.startsWith(
+        `execution-context|${encodeURIComponent(input.scope.executionContextId)}|`
+      )
+    : !input.agentContext.agentContextLookupKey.startsWith(
+        "execution-context|"
+      )) &&
   input.agentContext.targetProfileId === input.scope.targetProfileId &&
   input.agentContext.transportMode === input.scope.transportMode &&
   areAgentControllerRefsEquivalent({
@@ -232,7 +249,7 @@ export const isAgentContextCompatibleWithScopeInput = (input: {
 export const resolveAgentContextConversationProfileConflict = (input: {
   agentControllerConversationId: string | null | undefined;
   key: AgentContextLookupKeyInput;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): OpenMeldDaemonAgentContextState | null => {
   const agentControllerConversationId = normalizeContextId(
     input.agentControllerConversationId
@@ -248,7 +265,13 @@ export const resolveAgentContextConversationProfileConflict = (input: {
       (agentContext) =>
         agentContext.agentControllerConversationId ===
           agentControllerConversationId &&
-        agentContext.targetProfileId !== input.key.targetProfileId &&
+        (agentContext.targetProfileId !== input.key.targetProfileId ||
+          ((input.key.executionContextId ||
+            agentContext.agentContextLookupKey.startsWith(
+              "execution-context|"
+            )) &&
+            agentContext.agentContextLookupKey !==
+              buildAgentContextLookupKey(input.key))) &&
         agentContext.transportMode === input.key.transportMode &&
         areAgentControllerRefsEquivalent({
           leftAgentControllerRef: agentContext.agentControllerRef,
@@ -272,7 +295,7 @@ export const resolveAgentContextConversationProfileConflict = (input: {
 
 const resolveExistingAgentContext = (input: {
   key: AgentContextLookupKeyInput;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): OpenMeldDaemonAgentContextState | null => {
   for (const lookupKey of listCompatibleAgentContextLookupKeys(input.key)) {
     const agentContext = input.state.agentContextByLookupKey[lookupKey];
@@ -324,10 +347,17 @@ const resolveNextAgentContextLookupKey = (input: {
 
 const resolveIncompatibleAgentContext = (input: {
   key: AgentContextLookupKeyInput;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): IncompatibleAgentContextResolution | null => {
   const candidates = Object.values(input.state.agentContextByLookupKey).filter(
     (agentContext) =>
+      (input.key.executionContextId
+        ? agentContext.agentContextLookupKey.startsWith(
+            `execution-context|${encodeURIComponent(input.key.executionContextId)}|`
+          )
+        : !agentContext.agentContextLookupKey.startsWith(
+            "execution-context|"
+          )) &&
       agentContext.targetProfileId === input.key.targetProfileId &&
       agentContext.runtimeWorkspaceFingerprint ===
         input.key.runtimeWorkspaceFingerprint
@@ -388,10 +418,82 @@ const createAgentContextState = (input: {
   updatedAtMs: input.nowMs,
 });
 
+function reuseExistingAgentContext(input: {
+  existing: OpenMeldDaemonAgentContextState;
+  key: AgentContextLookupKeyInput;
+  providerContextId: string | null;
+  taskId: string;
+  nowMs: number;
+}): AgentContextResolutionResult {
+  const { existing, providerContextId } = input;
+  const nextAgentContext: OpenMeldDaemonAgentContextState = {
+    ...existing,
+    agentContextLookupKey: resolveNextAgentContextLookupKey({
+      existing,
+      key: input.key,
+    }),
+    agentControllerRef: resolveCanonicalAgentControllerRef({
+      agentControllerRef: existing.agentControllerRef,
+    }),
+    lastTaskId: input.taskId,
+    runtimeWorkspaceFingerprint: input.key.runtimeWorkspaceFingerprint,
+    spaceId: input.key.spaceId,
+    updatedAtMs: input.nowMs,
+  };
+  const replacedAgentContextLookupKey =
+    existing.agentContextLookupKey === nextAgentContext.agentContextLookupKey
+      ? null
+      : existing.agentContextLookupKey;
+  if (
+    providerContextId &&
+    providerContextId !== existing.agentControllerConversationId
+  ) {
+    if (input.key.executionContextId) {
+      throw new Error("execution_context.native_identity_mismatch");
+    }
+    return {
+      counterDelta: {
+        guardBlocked: 1,
+        reused: 1,
+      },
+      lifecycleReason: "guard_reused_existing_context",
+      resolvedAgentControllerConversationId:
+        existing.agentControllerConversationId,
+      agentContext: nextAgentContext,
+      agentContextLookupKey: nextAgentContext.agentContextLookupKey,
+      ...(replacedAgentContextLookupKey
+        ? {
+            replacedAgentContextLookupKey,
+          }
+        : {}),
+      sourceFieldOverride: LEDGER_AGENT_CONTEXT_SOURCE_FIELD,
+    };
+  }
+
+  return {
+    counterDelta: {
+      reused: 1,
+    },
+    lifecycleReason: "reused_existing_context",
+    resolvedAgentControllerConversationId:
+      existing.agentControllerConversationId,
+    agentContext: nextAgentContext,
+    agentContextLookupKey: nextAgentContext.agentContextLookupKey,
+    ...(replacedAgentContextLookupKey
+      ? {
+          replacedAgentContextLookupKey,
+        }
+      : {}),
+    ...(providerContextId
+      ? {}
+      : { sourceFieldOverride: LEDGER_AGENT_CONTEXT_SOURCE_FIELD }),
+  };
+}
+
 export const resolveAgentContextForDispatch = (input: {
   key: AgentContextLookupKeyInput;
   providerContextId: string | null | undefined;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   taskId: string;
   nowMs: number;
 }): AgentContextResolutionResult => {
@@ -403,65 +505,7 @@ export const resolveAgentContextForDispatch = (input: {
   const providerContextId = normalizeContextId(input.providerContextId);
 
   if (existing) {
-    const nextAgentContext: OpenMeldDaemonAgentContextState = {
-      ...existing,
-      agentContextLookupKey: resolveNextAgentContextLookupKey({
-        existing,
-        key: input.key,
-      }),
-      agentControllerRef: resolveCanonicalAgentControllerRef({
-        agentControllerRef: existing.agentControllerRef,
-      }),
-      lastTaskId: input.taskId,
-      runtimeWorkspaceFingerprint: input.key.runtimeWorkspaceFingerprint,
-      spaceId: input.key.spaceId,
-      updatedAtMs: input.nowMs,
-    };
-    const replacedAgentContextLookupKey =
-      existing.agentContextLookupKey === nextAgentContext.agentContextLookupKey
-        ? null
-        : existing.agentContextLookupKey;
-    if (
-      providerContextId &&
-      providerContextId !== existing.agentControllerConversationId
-    ) {
-      return {
-        counterDelta: {
-          guardBlocked: 1,
-          reused: 1,
-        },
-        lifecycleReason: "guard_reused_existing_context",
-        resolvedAgentControllerConversationId:
-          existing.agentControllerConversationId,
-        agentContext: nextAgentContext,
-        agentContextLookupKey: nextAgentContext.agentContextLookupKey,
-        ...(replacedAgentContextLookupKey
-          ? {
-              replacedAgentContextLookupKey,
-            }
-          : {}),
-        sourceFieldOverride: LEDGER_AGENT_CONTEXT_SOURCE_FIELD,
-      };
-    }
-
-    return {
-      counterDelta: {
-        reused: 1,
-      },
-      lifecycleReason: "reused_existing_context",
-      resolvedAgentControllerConversationId:
-        existing.agentControllerConversationId,
-      agentContext: nextAgentContext,
-      agentContextLookupKey: nextAgentContext.agentContextLookupKey,
-      ...(replacedAgentContextLookupKey
-        ? {
-            replacedAgentContextLookupKey,
-          }
-        : {}),
-      ...(providerContextId
-        ? {}
-        : { sourceFieldOverride: LEDGER_AGENT_CONTEXT_SOURCE_FIELD }),
-    };
+    return reuseExistingAgentContext({ ...input, existing, providerContextId });
   }
 
   if (!providerContextId) {
@@ -480,6 +524,9 @@ export const resolveAgentContextForDispatch = (input: {
       state: input.state,
     })
   ) {
+    if (input.key.executionContextId) {
+      throw new Error("execution_context.native_identity_conflict");
+    }
     return {
       counterDelta: {
         guardBlocked: 1,

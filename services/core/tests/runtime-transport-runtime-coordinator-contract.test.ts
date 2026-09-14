@@ -51,6 +51,7 @@ import {
   advanceRuntimeCoordinatorAgentProfileExecutionIndexRepair,
   rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission,
   runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys,
+  writeRuntimeCoordinatorHeadLifecycleWithAdmission,
 } from "../src/runtime-transport/application/agent-profile-execution-admission";
 import type {
   AgentProfileWorkCoordinatorItem,
@@ -62,6 +63,10 @@ import {
   buildAgentProfileWorkRecoveryInboxProjectionStorageKey,
   parseAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "../src/runtime-transport/application/agent-profile-work-recovery-inbox-projection";
+import {
+  prepareExecutionContextAssignment,
+  recordExecutionContextCompletion,
+} from "../src/runtime-transport/application/execution-context-authority";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../src/runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
 import {
   buildRuntimeCoordinatorFinalizationOutcomeStorageKey,
@@ -1317,7 +1322,12 @@ const createHarness = (input?: {
   );
   const storageList = vi.fn(
     async (
-      options: { limit?: number; prefix?: string; startAfter?: string } = {}
+      options: {
+        limit?: number;
+        prefix?: string;
+        startAfter?: string;
+        reverse?: boolean;
+      } = {}
     ) =>
       new Map(
         [...storageRecords.entries()]
@@ -1327,7 +1337,11 @@ const createHarness = (input?: {
           .filter(([key]) =>
             options.startAfter ? key > options.startAfter : true
           )
-          .sort(([left], [right]) => left.localeCompare(right))
+          .sort(([left], [right]) =>
+            options.reverse
+              ? right.localeCompare(left)
+              : left.localeCompare(right)
+          )
           .slice(0, options.limit)
       )
   );
@@ -3590,6 +3604,257 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
+  it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
+    const { hub, storageRecords } = createHarness();
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({ fingerprint: "7" }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "new" },
+        },
+      },
+    });
+    const response = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: { id: string; access: string } };
+    expect(response.executionContext.access).toBe("space_context");
+    const key = buildRuntimeCoordinatorHeadLifecycleStorageKey(
+      request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+    );
+    const original = storageRecords.get(
+      key
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    expect(original.acceptedDispatchSnapshot?.executionContext?.id).toBe(
+      response.executionContext.id
+    );
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: false,
+      nowMs: Date.now(),
+      storage,
+      record: {
+        ...original,
+        executionLinkedAtMs: Date.now(),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        status: "execution_linked",
+      },
+    });
+    expect(storageRecords.get(key)).toMatchObject({
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      acceptedDispatchSnapshot: {
+        executionContext: { id: response.executionContext.id },
+      },
+    });
+    expect(
+      [...storageRecords.keys()].filter((value) =>
+        value.startsWith("runtime-coordinator:execution-context:v1:")
+      )
+    ).toHaveLength(1);
+    await recordExecutionContextCompletion({
+      storage,
+      headId: original.targetWakeLifecycleId,
+      dispatchId: original.primaryDispatchId,
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      contextId: response.executionContext.id,
+      completion: {
+        contextId: response.executionContext.id,
+        nativeConversationId: "native-parent",
+        runtimeWorkspaceFingerprint: "sha256:workspace",
+        completedHistoryId: "completed-turn-1",
+      },
+    });
+    storageRecords.delete(key);
+    const originalSnapshot = request.acceptedDispatchSnapshot;
+    if (!originalSnapshot?.contextRequest) {
+      throw new Error("Expected source context request");
+    }
+    const sourceRequest = originalSnapshot.contextRequest;
+    const forkIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-fork",
+      dispatchId: "dispatch-fork",
+      sourceSignalId: "source-fork",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const planFork = (requesterProfileId: string) =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          storage: transaction,
+          record: {
+            ...original,
+            primaryDispatchId: "dispatch-fork",
+            targetWakeLifecycleId: forkIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: forkIdentity,
+            acceptedDispatchSnapshot: {
+              ...originalSnapshot,
+              contextRequest: {
+                ...sourceRequest,
+                scope: { ...sourceRequest.scope, requesterProfileId },
+                selection: {
+                  mode: "fork",
+                  sourceWakeId: original.targetWakeLifecycleId,
+                },
+              },
+            },
+          },
+        })
+      );
+    const fork = await planFork("human");
+    expect(
+      fork.record.acceptedDispatchSnapshot?.executionContext
+    ).toMatchObject({
+      forkSource: {
+        contextId: response.executionContext.id,
+        nativeConversationId: "native-parent",
+        completedHistoryId: "completed-turn-1",
+      },
+    });
+    await expect(planFork("another-human")).rejects.toThrow(
+      "source_scope_mismatch"
+    );
+    await expect(
+      recordExecutionContextCompletion({
+        storage,
+        headId: original.targetWakeLifecycleId,
+        dispatchId: "wrong-dispatch",
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        contextId: response.executionContext.id,
+        completion: undefined,
+      })
+    ).rejects.toThrow("result_mismatch");
+  });
+  it.each([
+    "new",
+    "threads",
+  ] as const)("admits three independent %s contexts and queues a fourth and same-context continuation", async (mode) => {
+    const { hub } = createHarness();
+    const requests = Array.from({ length: 4 }, (_, index) =>
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId: `dispatch-parallel-${index}`,
+        idempotencyKey: `parallel-${index}`,
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: `client-parallel-${index}`,
+          dispatchId: `dispatch-parallel-${index}`,
+          sourceSignalId: `signal-parallel-${index}`,
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }),
+        acceptedDispatchSnapshot: {
+          ...buildAcceptedDispatchSnapshot({ fingerprint: String(index + 1) }),
+          contextRequest: {
+            required: true,
+            scope: {
+              organizationId: "org-1",
+              requesterProfileId: "requester-1",
+              spaceId: HEX_SPACE_ID,
+              targetProfileId: TARGET_AGENT_PROFILE_ID,
+              threadId: mode === "threads" ? `thread-${index}` : null,
+            },
+            selection: {
+              mode: mode === "new" ? "new" : "auto",
+              access: "workspace",
+              workspace: "isolated",
+            },
+          },
+        },
+      })
+    );
+    const replies: Array<{
+      status: string;
+      executionContext?: { id: string };
+      acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+    }> = [];
+    for (const request of requests) {
+      replies.push(
+        (await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()) as {
+          status: string;
+          executionContext?: { id: string };
+          acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+        }
+      );
+    }
+    expect(replies.map((reply) => reply.status)).toEqual([
+      "accepted",
+      "accepted",
+      "accepted",
+      "queued",
+    ]);
+    expect(
+      new Set(replies.slice(0, 3).map((reply) => reply.executionContext?.id))
+        .size
+    ).toBe(3);
+    const first = requests[0];
+    if (!first?.acceptedDispatchSnapshot?.contextRequest) {
+      throw new Error("Expected the first accepted context fixture");
+    }
+    const continuation = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-continuation",
+      idempotencyKey: "continuation",
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-continuation",
+        dispatchId: "dispatch-continuation",
+        sourceSignalId: "signal-continuation",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      }),
+      acceptedDispatchSnapshot: {
+        ...first.acceptedDispatchSnapshot,
+        payloadFingerprint: `sha256:${"5".repeat(64)}`,
+        contextRequest: {
+          ...first.acceptedDispatchSnapshot.contextRequest,
+          selection: {
+            mode: "resume",
+            sourceWakeId:
+              first.targetWakeLifecycleIdentity.targetWakeLifecycleId,
+          },
+        },
+      },
+    });
+    const continued = await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        continuation
+      )
+    ).json();
+    expect(continued).toMatchObject({
+      status: "queued",
+      acceptedDispatchSnapshot: {
+        executionContext: { id: replies[0]?.executionContext?.id },
+      },
+    });
+    const replay = await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        first
+      )
+    ).json();
+    expect(replay).toMatchObject({
+      status: "already_accepted",
+      executionContext: { id: replies[0]?.executionContext?.id },
+    });
+  });
   it("requests the published release through a real register frame", async () => {
     const harness = createHarness();
     const firstWaitUntilTaskIndex = harness.waitUntilTasks.length;
@@ -5622,7 +5887,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
     const pendingPromotionKey =
       runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
-        TARGET_AGENT_PROFILE_ID
+        TARGET_AGENT_PROFILE_ID,
+        successorIdentity.targetWakeLifecycleId
       );
     expect(storageRecords.get(pendingPromotionKey)).toMatchObject({
       dispatchId: "dispatch-promoted-legacy",
@@ -8887,7 +9153,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
       const pendingPromotionKey =
         runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
-          TARGET_AGENT_PROFILE_ID
+          TARGET_AGENT_PROFILE_ID,
+          successorIdentity.targetWakeLifecycleId
         );
       const pendingPromotion = storageRecords.get(pendingPromotionKey);
       expect(pendingPromotion).toMatchObject({
@@ -8961,7 +9228,8 @@ describe("runtime transport runtime coordinator transport contract", () => {
       expect(
         storageRecords.get(
           runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.pendingPromotion(
-            TARGET_AGENT_PROFILE_ID
+            TARGET_AGENT_PROFILE_ID,
+            successorIdentity.targetWakeLifecycleId
           )
         )
       ).toMatchObject({

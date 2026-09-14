@@ -6054,6 +6054,48 @@ into the RuntimeCoordinator authority path. Caller authority, owner evidence,
 Binding evidence, and claim truth must come from verified Gateway/Core context,
 not request bodies.
 
+## Execution Context Contract
+
+`packages/schemas` owns `ExecutionContextSelection`, the Core-created request and
+assignment, the Service task projection, and the returned completion. Clients
+submit only a selection. Core constructs requester/discussion scope and assigns
+the context once. Native conversation IDs and local workspace fingerprints are
+resolved from retained Core context records. Results echo the context ID; native
+history checkpoints are stored per accepted Wake and survive Head retirement.
+
+An omitted access preference selects `space_context`; local project access is
+explicit or inherited from an authorized fork source. `workspace: isolated`
+with local access now means a committed project worktree with private Git data.
+The local preparation journal binds the shared assignment to its source and
+starting commit. Its paths remain local; it neither replaces the Core context
+association nor introduces a second Project connection. Source policy is checked
+before materialization, and native project access is probed before execution.
+Native platform temporary-directory access remains in effect; this contract
+does not promise complete temporary-directory isolation.
+
+The public signal read encoder omits `contextSelection` so older strict history
+readers remain usable. This encoder must never be used for persistence, dispatch
+snapshots, or authoring. The existing singular workload reference remains a
+compatibility projection of the first reserved task; waiting counts exclude all
+reserved contexts. Per-Wake progress continues to show every actual execution.
+
+Contract impact: HTTP signal/thread sends gain optional selection fields;
+accepted snapshots and RuntimeTransport gain version-1 context assignments;
+current task results gain context identity/completion fields; the local ledger
+and fork journal migrate to v2. Dispatch Space Action authority is unchanged.
+Setup, Service installation, CLI self-rescue, and managed Skill contracts are
+unchanged. Legacy unscoped execution keeps its existing payload and epoch.
+
+Scoped delivery requires a fresh Service adapter declaration of
+`executionContextVersion: 1`, as well as runtime-specific file-access verification.
+An older Service receives a visible update-required outcome for scoped work,
+never a delivery that silently reuses the Binding conversation. Older Core
+strictly rejects the new capability declaration, so deploy Core/Gateway support
+before distributing this Service and Web/CLI feature. This ordered rollout is
+required; publishing the local component first is unsupported. Local-component
+release metadata is deferred in the feature PR and must be produced by the
+guarded release workflow before production rollout.
+
 ## Agent Profile Binding Contract
 
 The shared Agent Profile Binding contract must stay synchronized across schemas,

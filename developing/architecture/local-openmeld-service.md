@@ -874,6 +874,73 @@ a retryable check failure, not as `Needs setup`. The next periodic pass should
 receive an accelerated one-shot retry even when a previous successful snapshot
 exists.
 
+## Execution Context Isolation
+
+An Execution Context is a Core-assigned work identity, separate from the Agent
+Profile, Binding, native conversation, and Service process. Scoped deliveries
+use a context-specific local lane and ledger key. The Service must not search
+the Profile's other contexts as a fallback or heal a missing scoped conversation
+by silently starting another one. Ledger v2 reads valid v1 state without resetting
+its native conversation mappings. Corrupt scoped evidence fails closed.
+
+The existing local slot owner enforces the three-context Profile cap and local
+resource exclusions. Isolated task folders have distinct canonical roots and
+must not be symlinks. Shared current-folder writers run exclusively; current-folder
+readers wait for potentially overlapping writers. These local checks implement
+Core's reservation, rather than creating another durable admission queue.
+The slot and scoped Core reservation stay occupied until native execution has
+settled, even when a Space Action proposal was saved earlier.
+
+Explicit isolated project tasks use the already confirmed Project connection or
+Profile working folder as their source. The source must be the exact canonical
+Git root and must satisfy the current Computer file policy before Git inspection
+or copying. The Service creates a private bare repository and a Git worktree
+under the context root using a local fetch of the frozen committed HEAD; it does
+not register a linked worktree in the user's source repository. Git hooks,
+ambient Git configuration, filters, lazy fetching, and non-file protocols are
+disabled during preparation. No dirty or ignored source files are copied.
+The resulting task boundary includes only that context's worktree and Git data.
+Its protected preparation record is outside the task's writable root and binds
+the context identity, source path, starting commit, owned paths, and completion.
+Retry verifies and reuses completed preparation. Incomplete or mismatched records
+are retained and rejected rather than rebuilding over possible task effects.
+
+Claude SDK Space-context invocations expose only dispatch-owned Space tools;
+built-in local tools, ambient MCP servers, and hooks are disabled. User settings
+remain available for the existing provider authentication. Codex local contexts
+use a named native permission profile, an explicit runtime workspace root, and
+`never` approval escalation. The Service checks the effective profile, working
+directory, and sandbox returned by native thread start/resume before starting a
+turn. A version string alone is not proof of enforcement. A native command also
+checks actual allowed task-file access and denied outside reads/writes using
+Service-owned sentinels. Failure rejects before a model turn. Platform temporary
+directories remain governed by the native runtime; project and Git isolation
+does not claim complete temporary-directory isolation. Paths covered by a broad
+native temporary grant fail the outside-access probe.
+
+Scoped Codex invocations enumerate the selected installation's effective MCP
+configuration and disable each ambient server using one merged native table.
+An empty table does not clear native configuration. A configured server using
+the reserved dispatch name rejects rather than retaining ambient environment or
+transport settings. Plugins, hooks, apps, and computer/browser controls are
+disabled; the dispatch-owned Space MCP server is supplied separately. Before a
+turn, the full effective MCP inventory must contain only its exact Space tools
+and explicitly disabled empty ambient entries. Partial or unverified inventories
+reject. Unsupported native permission evidence also rejects before execution.
+
+Forks copy only an accepted completed native-history prefix. Claude uses the
+SDK's `upToMessageId`; Codex uses `lastTurnId`. The existing local fork operation
+journal retains the exact source/cutoff and child identity across retries,
+including an unknown outcome. It must not issue a second native fork after an
+ambiguous response. Native-history inheritance copies no leases, approvals, or
+parent action credentials. An explicitly selected project worktree independently
+materializes committed project content as described above; it does not copy the
+parent's dirty working files or implicitly synchronize parent and child. A
+completion without a verified native checkpoint may
+preserve conversation identity but cannot authorize a fork.
+Native history is located by its authorized session ID, independently of the
+task's current file workspace; a fork can retain history under its origin folder.
+
 ## Runtime Reporting Health
 
 Runtime Agent Controller reports and provider conversation proofs are separate

@@ -264,6 +264,7 @@ export type EffectiveTargetBindingSnapshot = {
 export type TargetBindingSource = "core_primary_binding";
 
 type RuntimeDispatchSuccessResult = {
+  executionContextId?: string;
   agentControllerConversationId: string | null;
   bootstrapTemplateFacts?: BootstrapTemplateFacts;
   dispatchExecution?: DispatchExecution;
@@ -693,6 +694,11 @@ export const deliverDispatchMessageToDaemon = async (input: {
           executionContext: routeExecutionContext,
           executionLogBase,
           route,
+        });
+        assertDaemonRouteExecutionContextCapable({
+          message: input.message,
+          route,
+          executionContext: routeExecutionContext,
         });
       },
       timing: input.timing,
@@ -1239,6 +1245,34 @@ const assertDaemonRouteHasLiveBindingCapability = (input: {
     executionContext: input.executionContext,
   });
 };
+
+function assertDaemonRouteExecutionContextCapable(input: {
+  message: OpenMeldDaemonDispatchQueueMessage;
+  route: OnlineRuntimeTransportRoute;
+  executionContext: DispatchExecutionContext;
+}): void {
+  if (!input.message.executionContext) {
+    return;
+  }
+  const adapterId = parseAgentControllerRef(
+    input.message.controllerSnapshot.agentControllerRef
+  )?.id;
+  if (
+    input.route.capabilities.runtimeAdapters?.some(
+      (adapter) =>
+        adapter.adapterId === adapterId &&
+        adapter.capabilityDeclaration.executionContextVersion === 1
+    )
+  ) {
+    return;
+  }
+  throw buildDispatchExecutionValidationError({
+    code: "service.update_required",
+    message: "Update OpenMeld Service to run independent tasks.",
+    executionContext: input.executionContext,
+    waitReasonCode: "execution_context.service_update_required",
+  });
+}
 
 const assertDaemonRouteExecutionCompatible = (input: {
   executionContext: DispatchExecutionContext;
@@ -3806,6 +3840,9 @@ const parseSuccessfulRuntimeTransportTaskResult = (
   });
 
   return {
+    ...("executionContextId" in payload && payload.executionContextId
+      ? { executionContextId: payload.executionContextId }
+      : {}),
     agentControllerConversationId,
     agentControllerRef,
     output,
@@ -4621,6 +4658,9 @@ const persistAgentControllerConversationId = async (input: {
   runtimeResult: RuntimeDispatchSuccessResult;
   targetOwnerUserId: string;
 }): Promise<PersistAgentControllerConversationIdResult> => {
+  if (input.runtimeResult.executionContextId) {
+    return { bindingSource: null, updateApplied: false };
+  }
   const nextConversationId = normalizeOptionalText(
     input.runtimeResult.agentControllerConversation
       ?.agentControllerConversationId ?? input.agentControllerConversationId

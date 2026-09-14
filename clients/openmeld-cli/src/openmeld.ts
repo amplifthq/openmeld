@@ -3598,6 +3598,23 @@ withSpaceProfileOption(
   spaceCmd
     .command("send")
     .description("Send one message to a Space.")
+    .option("--new-task", "Start an independent task (up to three per Agent)")
+    .option(
+      "--fork-from <signal-id>",
+      "Fork the selected Agent's completed task at this message"
+    )
+    .option(
+      "--continue-from <signal-id>",
+      "Continue the selected Agent's task from this message"
+    )
+    .option(
+      "--task-access <mode>",
+      "File access: space_context, read_only, or workspace (local files require Codex)"
+    )
+    .option(
+      "--task-workspace <mode>",
+      "Task folder: isolated (private project worktree for local work) or current"
+    )
     .argument("[space]", "Space ID (64-character hex)")
     .argument("[text...]", "Text to send")
     .option(
@@ -3661,6 +3678,15 @@ withSpaceProfileOption(
         baseUrl: cliOptions.gatewayUrl,
         space: spaceValue,
         filePaths: Array.isArray(opts.file) ? opts.file.map(String) : [],
+        contextSelection: resolveSpaceTaskSelection({
+          space: spaceValue,
+          wakeTargets: opts.wake,
+          newTask: opts.newTask,
+          forkFrom: opts.forkFrom,
+          continueFrom: opts.continueFrom,
+          taskAccess: opts.taskAccess,
+          taskWorkspace: opts.taskWorkspace,
+        }),
         password: cliOptions.password,
         text: textValue,
         stdin: Boolean(opts.stdin),
@@ -4349,6 +4375,23 @@ withSpaceProfileOption(
 program
   .command("send")
   .description("Alias for `openmeld space send`.")
+  .option("--new-task", "Start an independent task (up to three per Agent)")
+  .option(
+    "--fork-from <signal-id>",
+    "Fork the selected Agent's completed task at this message"
+  )
+  .option(
+    "--continue-from <signal-id>",
+    "Continue the selected Agent's task from this message"
+  )
+  .option(
+    "--task-access <mode>",
+    "File access: space_context, read_only, or workspace (local files require Codex)"
+  )
+  .option(
+    "--task-workspace <mode>",
+    "Task folder: isolated (private project worktree for local work) or current"
+  )
   .argument("[text...]", "Text to send")
   .option("--profile <id>", "OpenMeld profile ID")
   .option("--base-url <url>", "OpenMeld gateway URL")
@@ -4393,6 +4436,11 @@ program
         baseUrl?: string;
         space?: string;
         stdin?: boolean;
+        newTask?: boolean;
+        forkFrom?: string;
+        continueFrom?: string;
+        taskAccess?: string;
+        taskWorkspace?: string;
         file?: string[];
         textFile?: string;
         plain?: boolean;
@@ -4415,6 +4463,15 @@ program
         run: async () => {
           await runSpaceSend({
             profile: opts.profile,
+            contextSelection: resolveSpaceTaskSelection({
+              space,
+              wakeTargets: opts.wake,
+              newTask: opts.newTask,
+              forkFrom: opts.forkFrom,
+              continueFrom: opts.continueFrom,
+              taskAccess: opts.taskAccess,
+              taskWorkspace: opts.taskWorkspace,
+            }),
             baseUrl: opts.baseUrl,
             space,
             password: opts.password,
@@ -5713,3 +5770,4 @@ main().catch((error: unknown) => {
 });
 
 import { registerPluginCommands } from "./plugins/registration";
+import { resolveSpaceTaskSelection } from "./space/send-input";

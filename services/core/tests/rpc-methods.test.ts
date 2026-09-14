@@ -605,12 +605,14 @@ describe("rpc methods (direct DO path)", () => {
       },
       text: "hello",
       authoringPolicy: "system_emitted",
+      contextSelection: { mode: "new", access: "space_context" },
       context: DEFAULT_CONTEXT,
     });
 
     expect(stub.rpcPostSignal).toHaveBeenCalledWith(
       expect.objectContaining({
         authoringPolicy: "system_emitted",
+        contextSelection: { mode: "new", access: "space_context" },
         context: expect.objectContaining({
           actorContext: expect.objectContaining({
             agentControllerRef: "builtin:codex",

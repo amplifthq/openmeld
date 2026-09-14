@@ -108,6 +108,8 @@ export const postNormalMessageBodySchema = z
   .strictObject({
     text: signalTextRequestDataSchema.shape.text,
     deviceWait: signalTextRequestDataSchema.shape.deviceWait.optional(),
+    contextSelection:
+      signalTextRequestDataSchema.shape.contextSelection.optional(),
     attachments: signalTextRequestDataSchema.shape.attachments.optional(),
     files: signalTextRequestDataSchema.shape.files.optional(),
     messageEnvelope:

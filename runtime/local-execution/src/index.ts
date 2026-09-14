@@ -72,7 +72,7 @@ export {
   type OpenMeldDaemonAgentContextState,
   type OpenMeldDaemonHistoryEntry,
   type OpenMeldDaemonInflightTaskState,
-  type OpenMeldDaemonLedgerStateV1,
+  type OpenMeldDaemonLedgerState,
   parseLedgerState,
   persistLedgerState,
   recordDedupeFirstSeenAt,

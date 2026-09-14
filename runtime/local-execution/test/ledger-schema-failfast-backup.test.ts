@@ -23,6 +23,54 @@ afterEach(async () => {
 });
 
 describe("ledger-recovery schema fail-fast + backup behavior", () => {
+  it("migrates a valid v1 ledger without forgetting its native conversation", async () => {
+    const paths = await createTempLedgerPaths(
+      "openmeld-context-ledger-migration-"
+    );
+    createdDirs.add(paths.rootDirPath);
+    const nowMs = Date.now();
+    const state = createEmptyLedgerState(nowMs);
+    const resolved = resolveAgentContextForDispatch({
+      key: {
+        spaceId: "space",
+        targetProfileId: "agent",
+        agentControllerRef: "builtin:codex",
+        transportMode: "codex-app-server",
+        runtimeWorkspaceFingerprint: "sha256:workspace",
+      },
+      nowMs,
+      taskId: "task",
+      state,
+      providerContextId: "existing-native-thread",
+    });
+    if (!resolved.agentContext) {
+      throw new Error("Expected the native conversation fixture");
+    }
+    state.agentContextByLookupKey[resolved.agentContextLookupKey] =
+      resolved.agentContext;
+    await writeFile(
+      paths.stateFilePath,
+      JSON.stringify({ ...state, v: 1 }),
+      "utf8"
+    );
+    const loaded = await loadLedgerState({
+      io: createNodeLedgerFileIo(),
+      paths,
+    });
+    expect(loaded.v).toBe(2);
+    expect(loaded.agentContextByLookupKey).toEqual(
+      state.agentContextByLookupKey
+    );
+    await persistLedgerState({
+      io: createNodeLedgerFileIo(),
+      paths,
+      state: loaded,
+    });
+    expect(
+      JSON.parse(await readFile(paths.stateFilePath, "utf8"))
+        .agentContextByLookupKey
+    ).toEqual(state.agentContextByLookupKey);
+  });
   it("backs up invalid json and fails fast", async () => {
     const paths = await createTempLedgerPaths(
       "openMeldDaemon-ledger-recovery-invalid-json-"
@@ -223,6 +271,8 @@ describe("ledger-recovery schema fail-fast + backup behavior", () => {
       io,
       paths,
     });
-    expect(reloaded.v).toBe(1);
+    expect(reloaded.v).toBe(2);
   });
 });
+
+import { resolveAgentContextForDispatch } from "../src/agent-context-policy";

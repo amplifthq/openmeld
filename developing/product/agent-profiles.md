@@ -865,8 +865,8 @@ Center Agent do not use this state machine or execution chain.
 
 For one Agent Profile, the Coordinator owns exactly these facts:
 
-- which accepted Wake currently owns the Profile's work slot
-- the ordered Wakes waiting behind it
+- which accepted Wakes hold the Profile's bounded work reservations
+- the ordered Wakes waiting for a context or reservation
 - whether queued work is held for an explicit recovery approval
 - the current privacy-safe workload projection
 
@@ -894,13 +894,48 @@ outcome for that exact head and the Work Coordinator continues normal terminal
 promotion. Reconnect, recovery, or later re-enabling cannot revive that settled
 Wake.
 
-One Agent Profile may have one current Wake and at most 50 waiting Wakes. FIFO
-order is the owner-shard transaction acceptance order across every Space and
-Direct Message that targets that Profile. There is no priority system in this
-version. A source message is visible in its conversation immediately; its Wake
+One Agent Profile may have up to three independent Execution Contexts reserved
+and at most 50 waiting Wakes. Follow-ups in one context remain serial. New task,
+completed-history fork, and independent discussion scopes can run together when
+the local Service verifies their resource isolation. Legacy work without a
+context drains exclusively. Waiting order is the owner-shard transaction
+acceptance order; a blocked context does not prevent eligible independent work
+from using a free reservation. There is no priority system in this version.
+A source message is visible in its conversation immediately; its Wake
 may show that it is queued, but Web does not hide or stack the message above the
 Composer until execution starts. Different Agent Profiles remain independently
 admissible and may work in parallel.
+
+The Web Task menu offers new work and source-specific continuation or fork for
+supported local Agents. CLI sends use `--new-task`, `--continue-from <signal-id>`,
+or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
+never copies permissions, active work, or publication authority. Multiple retained
+branches in the same discussion require an explicit source choice.
+
+New tasks default to Space context without requiring a local repository. Forks
+inherit the source context's access unless an explicit supported choice changes
+it. Claude Code supports independent Space-context tasks with local tools disabled.
+Codex App Server also supports explicitly selected independent project worktrees,
+or read-only/current-folder access. The CLI options
+are `--task-access space_context|read_only|workspace` and
+`--task-workspace isolated|current`. Current-folder writers wait for conflicting
+local work. An independent project task requires a confirmed working folder that
+is the root of a Git repository with a committed HEAD. The Service checks the
+source against the Computer owner's file policy, then prepares a private Git
+repository and worktree from the exact commit observed at first local preparation.
+It copies committed content only; dirty files, ignored configuration, credentials,
+and dependency directories are not copied. Each task owns its Git metadata.
+Retries and continuation preserve the task's worktree and frozen starting commit.
+The local Agent receives the repository label, task working folder, and starting
+commit; it does not discover a source by searching the computer.
+
+The task boundary confines project files and Git metadata while retaining the
+native runtime's platform temporary-directory rules. This is not a promise of
+complete temporary-directory isolation. Before model execution, a native command
+must prove allowed access inside the task and denied reads/writes to an owned
+sentinel outside its boundary. A worktree under a platform-wide temporary grant
+fails this check and cannot run as an isolated project task. Selecting an
+independent worktree does not grant access to an otherwise forbidden source.
 
 The first accepted Wake request remains frozen while it waits, moves to the
 front, or is redriven after transport recovery. Prompt, attachments, source
@@ -914,7 +949,8 @@ the changed content. Its failure tells the user to send the request again and
 open Diagnostics if needed; it does not expose a Check status/Recovery action
 or change current Wakeability.
 
-`Queued` means another Wake owns this Profile's work slot. It is not the
+`Queued` means that a Profile reservation or the selected context's writer is
+unavailable. It is not the
 existing RuntimeCoordinator `waiting` state used after a Wake reaches the head
 but is waiting for an OpenMeld Service route. Normal queue time has no fixed
 failure deadline. A terminal current Wake promotes the next queued Wake
