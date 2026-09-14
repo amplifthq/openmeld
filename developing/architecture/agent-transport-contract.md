@@ -559,6 +559,12 @@ Important execution rules:
   `accepted_local` after local process startup until that provider accepts the
   exact turn; process spawn, protocol stdout, and conversation occupancy are
   not `running` evidence.
+- Working-time presentation projects the existing first `runningAtMs` from
+  accepted Coordinator lifecycle state. The lifecycle event ledger preserves
+  this timestamp through keepalive replacement; its observation timestamp and
+  execution creation timestamp are not working-start evidence. Older records
+  without this fact omit working time. This read projection does not change
+  execution or timeout authority.
 - A provider's versioned Agent Controller conversation occupancy contract may
   keep the current Wake at the Profile FIFO head after local execution starts.
   A structured occupied admission is non-terminal: the Service reports it as

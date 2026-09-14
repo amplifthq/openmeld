@@ -4362,13 +4362,17 @@ until Core projects a reply, stopped outcome, or explicit failure. Only a
 short-lived browser-local optimistic `sending` item may expire locally. When
 Web shows elapsed running time, it uses the optional authoritative
 `startedAtMs` timing projection requested with `includeTiming=true`.
+For workstation execution it is the Coordinator's first accepted running
+lifecycle timestamp, never execution creation or time spent waiting for another
+client. If older evidence lacks that fact, omit the timer.
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
-for Codex task` and explains that the Wake will start when
-that task becomes available. It must not present that state as `Agent is
+for <Agent name>` and explains `Another app is using this conversation.` The
+waiting action uses `Cancel waiting`, with the same authorized cancellation
+path as Stop. It must not present that state as `Agent is
 working` or the generic `Sending to agent`. The current Space's secondary
 sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
