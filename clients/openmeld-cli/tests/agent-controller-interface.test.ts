@@ -1,3 +1,5 @@
+import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
 import {
   chmod,
   mkdir,
@@ -39,6 +41,22 @@ const { createOpencodeClientMock, warnDaemonEventMock } = vi.hoisted(() => ({
   createOpencodeClientMock: vi.fn(),
   warnDaemonEventMock: vi.fn(),
 }));
+
+const probeProcessObserver = vi.hoisted(() => ({
+  onSpawn: undefined as ((child: ChildProcess) => void) | undefined,
+}));
+
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: (...args: Parameters<typeof actual.spawn>) => {
+      const child = actual.spawn(...args);
+      probeProcessObserver.onSpawn?.(child);
+      return child;
+    },
+  };
+});
 
 vi.mock("@opencode-ai/sdk/v2", () => ({
   createOpencodeClient: createOpencodeClientMock,
@@ -840,6 +858,7 @@ describe("agent controller interface inventory", () => {
     const home = await mkdtemp(
       join(tmpdir(), "openmeld-aci-startup-evidence-")
     );
+    let child: ChildProcess | undefined;
     try {
       const binPath = join(home, "opencode");
       await writeFile(
@@ -848,11 +867,24 @@ describe("agent controller interface inventory", () => {
         "utf8"
       );
       await chmod(binPath, 0o755);
-      const result = await probeOpenCodeReadiness({
+      const spawned = new Promise<ChildProcess>((resolve) => {
+        probeProcessObserver.onSpawn = resolve;
+      });
+      // Keep real process I/O, but do not race its scheduling against the
+      // evidence deadline. Advance time only after stderr reaches the pipe.
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      const pending = probeOpenCodeReadiness({
         workingDirectory: home,
         launchContract: { commandPath: binPath, kind: "executable" },
         timeoutMs: 3000,
       });
+      child = await spawned;
+      if (!child.stderr) {
+        throw new Error("Expected the real probe stderr pipe");
+      }
+      await once(child.stderr, "data");
+      await vi.advanceTimersByTimeAsync(3000);
+      const result = await pending;
       expect(result).toMatchObject({
         auth: { status: "unknown" },
         probeCompleted: false,
@@ -860,7 +892,15 @@ describe("agent controller interface inventory", () => {
       });
       expect(result.message).toMatch(STARTUP_TIMEOUT_EVIDENCE_RE);
       expect(result.message?.includes(output)).toBe(visible);
+      expect(child.signalCode).toBe("SIGTERM");
     } finally {
+      probeProcessObserver.onSpawn = undefined;
+      vi.useRealTimers();
+      if (child && child.exitCode === null && child.signalCode === null) {
+        const closed = once(child, "close");
+        child.kill("SIGKILL");
+        await closed;
+      }
       await rm(home, { force: true, recursive: true });
     }
   });
