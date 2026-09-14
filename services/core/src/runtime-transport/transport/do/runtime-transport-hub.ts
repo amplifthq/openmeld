@@ -8813,6 +8813,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           agentControllerConversationOccupancy:
             request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: request.lifecycleAtMs,
+          runningAtMs: pending.runningAtMs,
           localQueue: request.localQueue ?? null,
           phase: request.phase,
         },
@@ -12701,6 +12702,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           agentControllerConversationOccupancy:
             input.request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: input.request.lifecycleAtMs,
+          runningAtMs: input.commandState.localProgress.runningAtMs,
           localQueue: input.request.localQueue ?? null,
           phase: input.request.phase,
           source: "runtime_coordinator_run_command_state",

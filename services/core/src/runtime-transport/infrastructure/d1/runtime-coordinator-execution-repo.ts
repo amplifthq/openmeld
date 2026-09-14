@@ -40,6 +40,7 @@ type RuntimeCoordinatorExecutionRow = {
 
 export type RuntimeCoordinatorExecutionWakeProgressSelector = {
   createdAtMs: number;
+  runningAtMs: number | null;
   dispatchId: string;
   latestDispatchAttemptStatus: string | null;
   runtimeCoordinatorExecutionId: string;
@@ -54,6 +55,7 @@ export type RuntimeCoordinatorExecutionWakeProgressSelector = {
 
 type RuntimeCoordinatorExecutionWakeProgressSelectorRow = {
   created_at_ms?: unknown;
+  running_at_ms?: unknown;
   dispatch_id?: unknown;
   latest_dispatch_attempt_status?: unknown;
   latest_occupancy_payload_json?: unknown;
@@ -619,6 +621,37 @@ export const listActiveRuntimeCoordinatorExecutionProjectionsBySpace =
     return rows.results.map(mapRuntimeCoordinatorExecutionRow);
   };
 
+// Read the coordinator's preserved phase start, not a heartbeat observation or
+// execution creation time. Older evidence without this fact has no timer.
+const RUNNING_AT_MS_SQL = `
+  SELECT MIN(json_extract(payload_json, '$.runningAtMs'))
+  FROM openMeldDaemon_runtime_coordinator_execution_events
+  WHERE runtime_coordinator_execution_id = executions.runtime_coordinator_execution_id
+    AND event_type = 'lifecycle_running'
+    AND json_type(payload_json, '$.runningAtMs') = 'integer'
+    AND json_extract(payload_json, '$.runningAtMs') >= 0
+`;
+
+export const readRuntimeCoordinatorExecutionRunningAtMs = async (input: {
+  db: D1Database;
+  runtimeCoordinatorExecutionId: string;
+}): Promise<number | null> => {
+  const row = await input.db
+    .prepare(`
+    SELECT (${RUNNING_AT_MS_SQL}) AS running_at_ms
+    FROM openMeldDaemon_runtime_coordinator_executions AS executions
+    WHERE executions.runtime_coordinator_execution_id = ?
+  `)
+    .bind(input.runtimeCoordinatorExecutionId)
+    .first<{ running_at_ms: number | null }>();
+  return readRunningTimestamp(row?.running_at_ms);
+};
+
+const readRunningTimestamp = (value: unknown): number | null =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+
 export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
   async (input: {
     db: D1Database;
@@ -627,6 +660,7 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
     sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string;
+    includeTiming?: boolean;
   }): Promise<RuntimeCoordinatorExecutionWakeProgressSelector[]> => {
     const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
     const targetProfileId = input.targetProfileId?.trim() || null;
@@ -676,6 +710,7 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
           executions.source_client_message_id,
           executions.status,
           executions.created_at_ms,
+          ${input.includeTiming ? `(${RUNNING_AT_MS_SQL})` : "NULL"} AS running_at_ms,
           executions.updated_at_ms,
           ledger.source_event_id,
           latest_attempt.status AS latest_dispatch_attempt_status,
@@ -1025,6 +1060,7 @@ const mapRuntimeCoordinatorExecutionWakeProgressSelectorRow = (
   return [
     {
       createdAtMs,
+      runningAtMs: readRunningTimestamp(row.running_at_ms),
       dispatchId,
       latestDispatchAttemptStatus:
         typeof row.latest_dispatch_attempt_status === "string" &&
