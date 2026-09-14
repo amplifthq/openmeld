@@ -1,8 +1,14 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import {
+  mkdir,
+  readFile,
+  readlink,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { dirname, join, relative } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
@@ -245,6 +251,26 @@ describe("openmeld upgrade in binary distribution", () => {
   it("stops before install-self when the downloaded binary sha256 does not match the manifest", async () => {
     await withTempHome(async (home) => {
       await seedVersionState(home);
+      const installedBinaryPath = join(
+        home,
+        ".openmeld",
+        "versions",
+        packageJson.version,
+        "openmeld"
+      );
+      const currentPointerPath = join(home, ".openmeld", "bin", "openmeld");
+      const installedBytes = Buffer.from("working OpenMeld CLI\n", "utf8");
+      await mkdir(dirname(installedBinaryPath), { recursive: true });
+      await mkdir(dirname(currentPointerPath), { recursive: true });
+      await writeFile(installedBinaryPath, installedBytes, { mode: 0o755 });
+      await symlink(
+        relative(dirname(currentPointerPath), installedBinaryPath),
+        currentPointerPath
+      );
+      vi.stubEnv(
+        "OPENMELD_INTERNAL_UPGRADE_BASE_BINARY_PATH",
+        currentPointerPath
+      );
       const expectedBytes = Buffer.from("expected openmeld binary\n", "utf8");
       const downloadedBytes = Buffer.from("tampered openmeld binary\n", "utf8");
       const manifest = buildBinaryManifest(expectedBytes, {
@@ -252,7 +278,7 @@ describe("openmeld upgrade in binary distribution", () => {
       });
       mockBinaryFetch(manifest, downloadedBytes);
 
-      const { runUpgrade } = await loadUpgradeModules();
+      const { readVersionState, runUpgrade } = await loadUpgradeModules();
       await withCapturedStdio(async () => {
         await expect(
           runUpgrade({
@@ -263,6 +289,15 @@ describe("openmeld upgrade in binary distribution", () => {
       });
 
       expect(spawn).not.toHaveBeenCalled();
+      await expect(readFile(installedBinaryPath)).resolves.toEqual(
+        installedBytes
+      );
+      await expect(readlink(currentPointerPath)).resolves.toBe(
+        relative(dirname(currentPointerPath), installedBinaryPath)
+      );
+      await expect(readVersionState()).resolves.toMatchObject({
+        last_version: packageJson.version,
+      });
     });
   });
 

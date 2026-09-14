@@ -740,6 +740,7 @@ function isRetryableNetworkErrorCode(code: string): boolean {
     code === "UND_ERR_BODY_TIMEOUT" ||
     code === "UND_ERR_CONNECT_TIMEOUT" ||
     code === "UND_ERR_HEADERS_TIMEOUT" ||
+    code === "UND_ERR_RES_CONTENT_LENGTH_MISMATCH" ||
     code === "UND_ERR_SOCKET"
   );
 }

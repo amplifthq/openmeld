@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { createServer } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CliBinaryReleaseInfo } from "../src/config/version-state";
 import { downloadCliBinaryUpdateArtifact } from "../src/runtime/cli-binary-update-artifact";
@@ -82,6 +84,57 @@ describe("CLI binary artifact download recovery", () => {
       })
     ).resolves.toEqual(artifact);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a real socket close after response headers and partial bytes", async () => {
+    const artifact = Buffer.from("complete artifact");
+    let requests = 0;
+    const server = createServer((_request, response) => {
+      requests += 1;
+      response.writeHead(200, {
+        connection: "close",
+        "content-length": String(artifact.byteLength),
+        "content-type": "application/octet-stream",
+      });
+      if (requests === 1) {
+        response.write(artifact.subarray(0, 4));
+        setTimeout(() => response.destroy(), 10);
+        return;
+      }
+      response.end(artifact);
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("expected a TCP test server");
+    }
+
+    try {
+      await expect(
+        downloadCliBinaryUpdateArtifact({
+          downloadPolicy: {
+            maxAttempts: 3,
+            retryDelaysMs: [0, 0],
+            stallTimeoutMs: 1000,
+            totalBudgetMs: 5000,
+          },
+          fetchImpl: fetch,
+          onDeltaFallback: vi.fn(),
+          plan: {
+            ...buildRawPlan(artifact),
+            downloadUrl: `http://127.0.0.1:${String(address.port)}/openmeld`,
+          },
+          release: buildRelease(artifact),
+        })
+      ).resolves.toEqual(artifact);
+      expect(requests).toBe(2);
+    } finally {
+      const closed = once(server, "close");
+      server.closeAllConnections();
+      server.close();
+      await closed;
+    }
   });
 
   it("aborts and cancels a stalled attempt without waiting for cleanup before retrying", async () => {
