@@ -135,3 +135,8 @@ confirmation dialog, and left the waiting state after confirmation. Screenshots
 were saved locally. The initial cold route remained blank before eventually
 loading; it was not counted as a successful render until the full Space appeared.
 This proves UI behavior with fixture data, not an end-to-end production Wake.
+
+The same smoke exposed a remaining details-panel projection that called all
+active progress `Working`. Conversation occupancy now projects `Waiting` there
+and includes the shared other-app explanation. The updated details view was
+verified in the browser; its presentation and drawer suites passed 61 tests.
