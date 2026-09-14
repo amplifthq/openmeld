@@ -72,6 +72,10 @@ export {
   resolveCenterAgentCompletedCallbackMessage,
 } from "./center-agent-publication-copy";
 export {
+  type ClientEnvironmentResponse,
+  clientEnvironmentResponseSchema,
+} from "./client-environment";
+export {
   toCompatibleSpaceAddressingRequestWireValue,
   toLegacySpaceAddressingWireValue,
 } from "./compatibility/legacy-space-addressing-wire";

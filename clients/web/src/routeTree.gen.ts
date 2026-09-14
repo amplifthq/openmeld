@@ -49,6 +49,8 @@ import { Route as GuidesLocalAgentsRouteImport } from './routes/guides/local-age
 import { Route as OOrgSlugRouteImport } from './routes/o/$orgSlug'
 import { Route as SpacesSpaceIdRouteImport } from './routes/spaces/$spaceId'
 import { Route as V1SplatRouteImport } from './routes/v1/$'
+import { Route as V1ClientEnvironmentRouteImport } from './routes/v1/client-environment'
+import { Route as V1ProfilesRouteImport } from './routes/v1/profiles'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as CliDownloadArtifactRouteImport } from './routes/cli/download/$artifact'
 import { Route as GuidesLocalAgentsAgentIdRouteImport } from './routes/guides/local-agents.$agentId'
@@ -339,6 +341,16 @@ const V1SplatRoute = V1SplatRouteImport.update({
   path: '/v1/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1ClientEnvironmentRoute = V1ClientEnvironmentRouteImport.update({
+  id: '/v1/client-environment',
+  path: '/v1/client-environment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1ProfilesRoute = V1ProfilesRouteImport.update({
+  id: '/v1/profiles',
+  path: '/v1/profiles',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -489,9 +501,9 @@ const V1ObservabilityPerformanceRoute =
     getParentRoute: () => rootRouteImport,
   } as any)
 const V1ProfilesProfileIdRoute = V1ProfilesProfileIdRouteImport.update({
-  id: '/v1/profiles/$profileId',
-  path: '/v1/profiles/$profileId',
-  getParentRoute: () => rootRouteImport,
+  id: '/$profileId',
+  path: '/$profileId',
+  getParentRoute: () => V1ProfilesRoute,
 } as any)
 const OOrgSlugCenterAgentIndexRoute =
   OOrgSlugCenterAgentIndexRouteImport.update({
@@ -861,6 +873,8 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug': typeof OOrgSlugRouteWithChildren
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
+  '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/profiles': typeof V1ProfilesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -990,6 +1004,8 @@ export interface FileRoutesByTo {
   '/o/$orgSlug': typeof OOrgSlugCenterAgentIndexRoute
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
+  '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/profiles': typeof V1ProfilesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -1110,6 +1126,8 @@ export interface FileRoutesById {
   '/o/$orgSlug': typeof OOrgSlugRouteWithChildren
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
+  '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/profiles': typeof V1ProfilesRouteWithChildren
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -1242,6 +1260,8 @@ export interface FileRouteTypes {
     | '/o/$orgSlug'
     | '/spaces/$spaceId'
     | '/v1/$'
+    | '/v1/client-environment'
+    | '/v1/profiles'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/guides/local-agents/$agentId'
@@ -1371,6 +1391,8 @@ export interface FileRouteTypes {
     | '/o/$orgSlug'
     | '/spaces/$spaceId'
     | '/v1/$'
+    | '/v1/client-environment'
+    | '/v1/profiles'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/guides/local-agents/$agentId'
@@ -1490,6 +1512,8 @@ export interface FileRouteTypes {
     | '/o/$orgSlug'
     | '/spaces/$spaceId'
     | '/v1/$'
+    | '/v1/client-environment'
+    | '/v1/profiles'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/guides/local-agents/$agentId'
@@ -1617,6 +1641,8 @@ export interface RootRouteChildren {
   OOrgSlugRoute: typeof OOrgSlugRouteWithChildren
   SpacesSpaceIdRoute: typeof SpacesSpaceIdRoute
   V1SplatRoute: typeof V1SplatRoute
+  V1ClientEnvironmentRoute: typeof V1ClientEnvironmentRoute
+  V1ProfilesRoute: typeof V1ProfilesRouteWithChildren
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   CliDownloadArtifactRoute: typeof CliDownloadArtifactRoute
   SlackIdentityStartRoute: typeof SlackIdentityStartRoute
@@ -1628,7 +1654,6 @@ export interface RootRouteChildren {
   V1AccountSidebarRoute: typeof V1AccountSidebarRoute
   V1ObservabilityApplicationErrorsRoute: typeof V1ObservabilityApplicationErrorsRoute
   V1ObservabilityPerformanceRoute: typeof V1ObservabilityPerformanceRoute
-  V1ProfilesProfileIdRoute: typeof V1ProfilesProfileIdRoute
   V1SpacesSpaceIdStreamRoute: typeof V1SpacesSpaceIdStreamRoute
   V1PrepareSessionsPrepareSessionIdStreamRoute: typeof V1PrepareSessionsPrepareSessionIdStreamRoute
 }
@@ -1915,6 +1940,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/client-environment': {
+      id: '/v1/client-environment'
+      path: '/v1/client-environment'
+      fullPath: '/v1/client-environment'
+      preLoaderRoute: typeof V1ClientEnvironmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/profiles': {
+      id: '/v1/profiles'
+      path: '/v1/profiles'
+      fullPath: '/v1/profiles'
+      preLoaderRoute: typeof V1ProfilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -2120,10 +2159,10 @@ declare module '@tanstack/react-router' {
     }
     '/v1/profiles/$profileId': {
       id: '/v1/profiles/$profileId'
-      path: '/v1/profiles/$profileId'
+      path: '/$profileId'
       fullPath: '/v1/profiles/$profileId'
       preLoaderRoute: typeof V1ProfilesProfileIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof V1ProfilesRoute
     }
     '/o/$orgSlug/_center-agent/': {
       id: '/o/$orgSlug/_center-agent/'
@@ -2899,6 +2938,18 @@ const OOrgSlugRouteWithChildren = OOrgSlugRoute._addFileChildren(
   OOrgSlugRouteChildren,
 )
 
+interface V1ProfilesRouteChildren {
+  V1ProfilesProfileIdRoute: typeof V1ProfilesProfileIdRoute
+}
+
+const V1ProfilesRouteChildren: V1ProfilesRouteChildren = {
+  V1ProfilesProfileIdRoute: V1ProfilesProfileIdRoute,
+}
+
+const V1ProfilesRouteWithChildren = V1ProfilesRoute._addFileChildren(
+  V1ProfilesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SKILLDotmdRoute: SKILLDotmdRoute,
@@ -2936,6 +2987,8 @@ const rootRouteChildren: RootRouteChildren = {
   OOrgSlugRoute: OOrgSlugRouteWithChildren,
   SpacesSpaceIdRoute: SpacesSpaceIdRoute,
   V1SplatRoute: V1SplatRoute,
+  V1ClientEnvironmentRoute: V1ClientEnvironmentRoute,
+  V1ProfilesRoute: V1ProfilesRouteWithChildren,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   CliDownloadArtifactRoute: CliDownloadArtifactRoute,
   SlackIdentityStartRoute: SlackIdentityStartRoute,
@@ -2948,7 +3001,6 @@ const rootRouteChildren: RootRouteChildren = {
   V1AccountSidebarRoute: V1AccountSidebarRoute,
   V1ObservabilityApplicationErrorsRoute: V1ObservabilityApplicationErrorsRoute,
   V1ObservabilityPerformanceRoute: V1ObservabilityPerformanceRoute,
-  V1ProfilesProfileIdRoute: V1ProfilesProfileIdRoute,
   V1SpacesSpaceIdStreamRoute: V1SpacesSpaceIdStreamRoute,
   V1PrepareSessionsPrepareSessionIdStreamRoute:
     V1PrepareSessionsPrepareSessionIdStreamRoute,
@@ -2958,15 +3010,11 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
-
 import type { startInstance } from './start.ts'
-
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
-
     router: Awaited<ReturnType<typeof getRouter>>
-
     config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

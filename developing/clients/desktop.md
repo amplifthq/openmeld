@@ -155,9 +155,20 @@ storage; it never invokes CLI, Service, login, or a real Wake.
 
 - `/v1/*` uses existing shared HTTP APIs through the matching Web gateway proxy.
   Core/Space still authorize every request. This is the portable business seam.
+- Profile listing, account Space index/active-Wake summaries, and profile-Space
+  history writes use the same typed HTTP consumers as browser Web. History
+  updates preserve last-seen, pin and removal behavior; protected Space password
+  persistence remains a separate unsupported pilot path.
+- These consumers read `GET /v1/client-environment` from the configured Web
+  endpoint for its current normalized `gatewayHost`. An installed renderer may
+  have been built in another local lane, so build metadata and the local app
+  origin must never supply this history namespace. Missing or invalid metadata
+  stops the dependent request. The response is not persisted or an authority
+  for identity, access, routing or execution.
 - Read-only `/_serverFn/*` calls are a bounded pilot compatibility dependency
-  for existing Web loaders (session, Organization scope, current profile,
-  account Space index, and sidebar state). Server-function mutations are refused;
+  for remaining Web loaders, including session and Organization scope.
+  Sidebar geometry reads its local cookie during client navigation.
+  Server-function mutations are refused;
   business writes must use the shared APIs.
 - Generic Auth HTTP endpoints are not exposed to the renderer. Session management
   and account switching that return session tokens need a native adapter before
