@@ -7,6 +7,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { queryOptions } from "@tanstack/react-query";
 import {
 	type AgentProfileCreationRequestsFailure,
+	createAgentProfileCreationRequest,
 	getAgentProfileCreationApprovalPreference,
 	listAgentProfileCreationRequests,
 	type OptimisticAgentProfileCreation,
@@ -32,11 +33,79 @@ export const agentProfileCreationRequestQueryKeys = {
 		] as const,
 } as const;
 
+// Keep the exact unacknowledged intent across the optimistic route unmount.
+// A lost response is not evidence that Core did not create the Agent.
+export async function createPresentedAgentProfileCreationRequest({
+	queryClient,
+	...input
+}: Parameters<typeof createAgentProfileCreationRequest>[0] & {
+	queryClient: QueryClient;
+}) {
+	if (!input.onStarted) {
+		return await createAgentProfileCreationRequest(input);
+	}
+	const requestFingerprint = JSON.stringify([
+		input.organizationId,
+		input.targetOwnerUserId,
+		input.profileName,
+		input.configuration,
+		input.nativeSessionId ?? null,
+		input.requestedSpaceId ?? null,
+		input.sessionStrategy ?? "new",
+	]);
+	const previous = queryClient
+		.getQueryData<readonly OptimisticAgentProfileCreation[]>(
+			agentProfileCreationRequestQueryKeys.optimisticByOrganization(
+				input.organizationId
+			)
+		)
+		?.find((creation) => creation.requestFingerprint === requestFingerprint);
+	const present = (creation: OptimisticAgentProfileCreation) =>
+		upsertOptimisticAgentProfileCreation({
+			...input,
+			queryClient,
+			creation: { ...creation, requestFingerprint },
+		});
+	const result = await createAgentProfileCreationRequest({
+		...input,
+		idempotencyKey:
+			previous?.id.slice("optimistic:".length) ?? input.idempotencyKey,
+		onStarted: (creation) => {
+			present(creation);
+			input.onStarted?.(creation);
+		},
+		onFailed: (creation, failure) => {
+			present(creation);
+			input.onFailed?.(creation, failure);
+		},
+		onAccepted: async (request, optimisticId) => {
+			upsertAcceptedAgentProfileCreationRequest({
+				...input,
+				queryClient,
+				request,
+			});
+			removeOptimisticAgentProfileCreation({
+				...input,
+				queryClient,
+				id: optimisticId,
+			});
+			await input.onAccepted?.(request, optimisticId);
+		},
+	});
+	upsertAcceptedAgentProfileCreationRequest({
+		...input,
+		queryClient,
+		request: result.request,
+	});
+	return result;
+}
+
 export function optimisticAgentProfileCreationsQueryOptions(
 	organizationId: string
 ) {
 	return queryOptions<readonly OptimisticAgentProfileCreation[]>({
 		enabled: false,
+		gcTime: Number.POSITIVE_INFINITY,
 		queryKey:
 			agentProfileCreationRequestQueryKeys.optimisticByOrganization(
 				organizationId

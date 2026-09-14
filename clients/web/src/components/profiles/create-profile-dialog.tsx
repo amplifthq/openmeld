@@ -87,10 +87,7 @@ import {
 	continuePendingAgentProfileCreationLocalSetup,
 	rememberPendingAgentProfileCreationLocalSetup,
 } from "#/lib/profiles/agent-profile-creation-local-setup";
-import {
-	createAgentProfileCreationRequest,
-	type OptimisticAgentProfileCreation,
-} from "#/lib/profiles/agent-profile-creation-requests";
+import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import { buildAgentProfileTemplateName } from "#/lib/profiles/agent-profile-template-name";
 import type {
 	NewProfileErrorState,
@@ -123,7 +120,10 @@ import {
 } from "#/query/organizations/organization-directory";
 import { projectsQueryOptions } from "#/query/organizations/projects";
 import { agentProfileCreationDefaultsQueryOptions } from "#/query/profiles/agent-profile-creation-defaults";
-import { agentProfileCreationRequestQueryKeys } from "#/query/profiles/agent-profile-creation-requests";
+import {
+	agentProfileCreationRequestQueryKeys,
+	createPresentedAgentProfileCreationRequest as createAgentProfileCreationRequest,
+} from "#/query/profiles/agent-profile-creation-requests";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -1022,6 +1022,7 @@ function useCreateProfileDialogController(
 		}) => {
 			if (submission.remote) {
 				const result = await createAgentProfileCreationRequest({
+					queryClient,
 					configuration: {
 						...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 						agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -2405,6 +2406,7 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 		);
 	}
 	const result = await createAgentProfileCreationRequest({
+		queryClient: input.queryClient,
 		configuration: {
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
 			agentControllerPermissionMode: input.agentControllerPermissionMode,

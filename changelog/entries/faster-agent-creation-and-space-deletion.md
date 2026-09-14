@@ -6,7 +6,8 @@ areas: ["agents", "spaces"]
 audiences: ["members"]
 ---
 
-Agent creation now returns you to Agents as soon as OpenMeld accepts the
-request, with honest setup progress until the Agent is ready. Deleting a Space
-also removes it from navigation immediately, while either operation restores a
-clear, retryable state if the server cannot finish it.
+Agent creation now returns you to Agents as soon as you submit, with setup
+progress while the request is confirmed. You can edit and retry an unfinished
+request or dismiss its local card. Deleting a Space immediately opens Browse
+Spaces and removes it from the lists. If deletion fails, the Space returns and
+a persistent error includes a link to reopen it.

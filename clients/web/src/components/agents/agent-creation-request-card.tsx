@@ -11,6 +11,7 @@ type PresentedAgentCreation =
 	| OptimisticAgentProfileCreation;
 
 export function AgentCreationRequestCard(input: {
+	onDismiss?: () => void;
 	onModify: () => void;
 	onReview: () => void;
 	request: PresentedAgentCreation;
@@ -29,7 +30,7 @@ export function AgentCreationRequestCard(input: {
 	const isOptimistic = !("requesterUserId" in request);
 	let reviewActionLabel = "View progress";
 	if (isOptimistic) {
-		reviewActionLabel = "Try again";
+		reviewActionLabel = "Edit and try again";
 	} else if (failed) {
 		reviewActionLabel = "Review and retry";
 	}
@@ -64,7 +65,7 @@ export function AgentCreationRequestCard(input: {
 						{reviewActionLabel}
 					</Button>
 				)}
-				{failed ? (
+				{failed && !isOptimistic ? (
 					<Button
 						onClick={input.onModify}
 						size="sm"
@@ -72,6 +73,16 @@ export function AgentCreationRequestCard(input: {
 						variant="outline"
 					>
 						Modify
+					</Button>
+				) : null}
+				{failed && isOptimistic && input.onDismiss ? (
+					<Button
+						onClick={input.onDismiss}
+						size="sm"
+						type="button"
+						variant="ghost"
+					>
+						Dismiss
 					</Button>
 				) : null}
 			</div>

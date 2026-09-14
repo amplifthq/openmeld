@@ -218,6 +218,7 @@ export function AgentDirectoryLists({
 						{creationRequests.map((request) => (
 							<AgentCreationRequestCard
 								key={request.id}
+								onDismiss={() => input.onDismissCreation?.(request.id)}
 								onModify={input.onCreateAgent}
 								onReview={() => {
 									if ("requesterUserId" in request) {

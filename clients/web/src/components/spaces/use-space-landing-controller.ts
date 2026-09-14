@@ -45,7 +45,10 @@ import {
 } from "#/lib/composer-draft-storage";
 import { updateProfileSpaceHistoryStatus } from "#/lib/onboarding/update-profile-space-history-status";
 import { upsertProfileSpaceHistory } from "#/lib/onboarding/upsert-profile-space-history";
-import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationSpacePath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
 import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
@@ -3165,6 +3168,7 @@ export function useSpaceLandingController(input: {
 	async function handleDeleteSpace() {
 		setIsDeletingSpace(true);
 		setDeleteSpaceErrorMessage(null);
+		let deleted = false;
 		let cacheSnapshot:
 			| Awaited<ReturnType<typeof optimisticallyRemoveSpaceFromListCaches>>
 			| undefined;
@@ -3175,17 +3179,20 @@ export function useSpaceLandingController(input: {
 				queryClient,
 				spaceId: input.spaceId,
 			});
-			await navigate({
+			navigate({
 				to: input.orgSlug
 					? buildOrganizationSpacesPath(input.orgSlug)
 					: "/invitations",
 				replace: true,
-			});
+			}).catch((error: unknown) =>
+				console.error("Could not open Browse Spaces.", error)
+			);
 			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).deleteSpace({
 				spaceId: input.spaceId,
 			});
+			deleted = true;
 
 			try {
 				await removeDeletedSpaceFromAccountHistory({
@@ -3202,6 +3209,11 @@ export function useSpaceLandingController(input: {
 			}
 
 			await Promise.all([
+				input.organizationId
+					? queryClient.invalidateQueries({
+							queryKey: organizationQueryKeys.spaces(input.organizationId),
+						})
+					: Promise.resolve(),
 				queryClient.invalidateQueries({
 					queryKey: spaceQueryKeys.status(input.spaceId, input.profileId),
 				}),
@@ -3217,6 +3229,11 @@ export function useSpaceLandingController(input: {
 			]);
 			toast.success("Space deleted.");
 		} catch (error) {
+			if (deleted) {
+				toast.warning("Space deleted, but its lists could not be refreshed.");
+				console.error("Could not refresh lists after Space deletion.", error);
+				return;
+			}
 			const failure = toStructuredApiClientFailure(error);
 			const message = resolveDeleteSpaceErrorMessage(failure);
 			restoreSpaceListCaches(
@@ -3225,8 +3242,26 @@ export function useSpaceLandingController(input: {
 				cacheSnapshot
 			);
 			setDeleteSpaceErrorMessage(message);
-			toast.error(`Delete failed: ${message}`);
+			toast.error(`Delete failed: ${message}`, {
+				duration: Number.POSITIVE_INFINITY,
+				closeButton: true,
+				action: {
+					label: "Open Space",
+					onClick: () => {
+						navigate({
+							to: input.orgSlug
+								? buildOrganizationSpacePath({
+										orgSlug: input.orgSlug,
+										spaceId: input.spaceId,
+										search: { profileId: input.profileId },
+									})
+								: `/spaces/${input.spaceId}`,
+						}).catch(console.error);
+					},
+				},
+			});
 		} finally {
+			cacheSnapshot?.stopKeepingRemoved();
 			setIsDeletingSpace(false);
 		}
 	}

@@ -11,7 +11,13 @@ import type {
 } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useEffectEvent,
+	useMemo,
+	useState,
+} from "react";
 import {
 	type AgentProfileActivityNavigation,
 	resolveAgentProfileActivityPreview,
@@ -48,8 +54,6 @@ import {
 	agentProfileCreationRequestsQueryOptions,
 	optimisticAgentProfileCreationsQueryOptions,
 	removeOptimisticAgentProfileCreation,
-	upsertAcceptedAgentProfileCreationRequest,
-	upsertOptimisticAgentProfileCreation,
 } from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
 
@@ -164,33 +168,17 @@ export function PeopleAndAgentsPage(input: {
 			allowTeammateRequests={isOrganizationContext}
 			currentUserId={currentUserId}
 			onAgentRequestAccepted={(request, optimisticId) => {
-				removeOptimisticAgentProfileCreation({
-					id: optimisticId,
-					organizationId: currentOrganization.id,
-					queryClient,
-				});
-				upsertAcceptedAgentProfileCreationRequest({
-					organizationId: currentOrganization.id,
-					queryClient,
-					request,
-				});
+				if (
+					new URLSearchParams(window.location.search).get("requestId") !==
+					optimisticId
+				) {
+					return;
+				}
 				input.onAgentViewChange?.("agents", request.id);
 			}}
-			onAgentRequestFailed={(creation) => {
-				upsertOptimisticAgentProfileCreation({
-					creation,
-					organizationId: currentOrganization.id,
-					queryClient,
-				});
-			}}
 			onAgentRequestStarted={(creation) => {
-				upsertOptimisticAgentProfileCreation({
-					creation,
-					organizationId: currentOrganization.id,
-					queryClient,
-				});
 				setIsCreateProfileOpen(false);
-				input.onAgentViewChange?.("agents");
+				input.onAgentViewChange?.("agents", creation.id);
 			}}
 			onOpenChange={setIsCreateProfileOpen}
 			onProfileCreated={handleProfileCreated}
@@ -541,7 +529,7 @@ function AgentsWorkspaceHome(input: {
 	const sidebarSelectedProfileId = input.selectedProfileId;
 	const requestsQuery = useQuery(
 		agentProfileCreationRequestsQueryOptions({
-			enabled: input.isOrganizationContext,
+			enabled: true,
 			organizationId: input.organizationId,
 		})
 	);
@@ -565,7 +553,9 @@ function AgentsWorkspaceHome(input: {
 						})
 					))
 		).length ?? 0;
+	const selectCreatedProfile = useEffectEvent(input.onSelectProfile);
 	useEffect(() => {
+		let cancelled = false;
 		if (!input.focusRequestId) {
 			return;
 		}
@@ -594,14 +584,20 @@ function AgentsWorkspaceHome(input: {
 					),
 				}),
 			])
-				.then(() => input.onSelectProfile(createdAgentProfileId))
+				.then(() => {
+					if (!cancelled) {
+						selectCreatedProfile(createdAgentProfileId);
+					}
+				})
 				.catch((error: unknown) => {
 					console.error("Failed to open the created Agent.", error);
 				});
 		}
+		return () => {
+			cancelled = true;
+		};
 	}, [
 		input.focusRequestId,
-		input.onSelectProfile,
 		input.organizationId,
 		input.recovery.storageScope,
 		queryClient,
@@ -736,6 +732,13 @@ function AgentsWorkspaceHomeView(input: {
 			members={workspace.profileDirectoryQuery.data?.members ?? []}
 			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
+			onDismissCreation={(id) =>
+				removeOptimisticAgentProfileCreation({
+					id,
+					organizationId: workspace.organizationId,
+					queryClient: input.queryClient,
+				})
+			}
 			onOpenCreationRequest={(requestId) =>
 				workspace.onViewChange("requests", requestId)
 			}

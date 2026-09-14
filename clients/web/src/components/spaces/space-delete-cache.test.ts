@@ -18,6 +18,12 @@ describe("Space delete list caches", () => {
 		const organizationSpaces = createOrganizationSpaces();
 		queryClient.setQueryData(accountKey, accountSpaces);
 		queryClient.setQueryData(organizationKey, organizationSpaces);
+		const wakeKey = accountSpaceQueryKeys.activeWakeSummary("human-1");
+		const wakeSummary = {
+			summary: { spaces: [] },
+			browserRequestStartedAtMonotonicMs: null,
+		};
+		queryClient.setQueryData(wakeKey, wakeSummary);
 
 		const snapshot = await optimisticallyRemoveSpaceFromListCaches({
 			organizationId: "org-1",
@@ -38,12 +44,56 @@ describe("Space delete list caches", () => {
 				)
 				?.spaces.map((space) => space.spaceId)
 		).toEqual(["space-keep"]);
+		expect(queryClient.getQueryData(wakeKey)).toEqual(wakeSummary);
 
 		restoreSpaceListCaches(queryClient, "org-1", snapshot);
 		expect(queryClient.getQueryData(accountKey)).toEqual(accountSpaces);
 		expect(queryClient.getQueryData(organizationKey)).toEqual(
 			organizationSpaces
 		);
+	});
+
+	it("keeps a pending deletion out of refetches and restores only that Space on failure", async () => {
+		const queryClient = new QueryClient();
+		const key = accountSpaceQueryKeys.items("human-1", "account");
+		queryClient.setQueryData(key, createAccountSpaces());
+		const snapshot = await optimisticallyRemoveSpaceFromListCaches({
+			organizationId: "org-1",
+			queryClient,
+			spaceId: "space-delete",
+		});
+		await queryClient.fetchQuery({
+			queryKey: key,
+			queryFn: async () => ({
+				pinnedItems: [createAccountSpace("space-delete")],
+				spaceItems: [createAccountSpace("space-new")],
+			}),
+		});
+		const organizationKey = organizationQueryKeys.spaces("org-1");
+		await queryClient.fetchQuery({
+			queryKey: organizationKey,
+			queryFn: async () => createOrganizationSpaces(),
+		});
+		expect(
+			queryClient
+				.getQueryData<OrganizationSpaceDirectoryWithMemberCountsResponse>(
+					organizationKey
+				)
+				?.spaces.map((space) => space.spaceId)
+		).toEqual(["space-keep"]);
+		expect(queryClient.getQueryData(key)).toMatchObject({
+			pinnedItems: [],
+			spaceItems: [{ spaceId: "space-new" }],
+		});
+		restoreSpaceListCaches(queryClient, "org-1", snapshot);
+		expect(queryClient.getQueryData(key)).toMatchObject({
+			pinnedItems: [{ spaceId: "space-delete" }],
+			spaceItems: [{ spaceId: "space-new" }],
+		});
+		expect(queryClient.getQueryData(organizationKey)).toEqual(
+			createOrganizationSpaces()
+		);
+		queryClient.clear();
 	});
 });
 

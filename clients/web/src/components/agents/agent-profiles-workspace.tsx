@@ -41,6 +41,7 @@ export type AgentProfilesWorkspaceProps = {
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
 	onOpenCreationRequest?: (requestId: string) => void;
+	onDismissCreation?: (requestId: string) => void;
 	onSelectProfile: (profileId: string) => void;
 	onViewChange: (view: "agents" | "requests") => void;
 	pendingRequestCount: number;

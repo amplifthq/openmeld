@@ -1141,7 +1141,17 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
-	it("refreshes the directory before opening the real Agent created by a request", async () => {
+	it.each([
+		false,
+		true,
+	])("refreshes before opening the created Agent and respects leaving the page: %s", async (leavePage) => {
+		const refreshes: (() => void)[] = [];
+		invalidateQueriesMock.mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					refreshes.push(resolve);
+				})
+		);
 		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
 			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
 			const organizationProjection = resolveOrganizationProjectionQuery(
@@ -1176,7 +1186,7 @@ describe("PeopleAndAgentsPage", () => {
 			};
 		});
 
-		render(
+		const page = render(
 			<PeopleAndAgentsPage
 				activeSectionId="agents"
 				focusProfileId={null}
@@ -1184,11 +1194,24 @@ describe("PeopleAndAgentsPage", () => {
 			/>
 		);
 
-		await waitFor(() => {
-			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme/agents?profileId=agent-created",
-			});
+		expect(navigateMock).not.toHaveBeenCalled();
+		if (leavePage) {
+			page.unmount();
+		}
+		await act(() => {
+			for (const finish of refreshes) {
+				finish();
+			}
 		});
+		if (leavePage) {
+			expect(navigateMock).not.toHaveBeenCalled();
+		} else {
+			await waitFor(() => {
+				expect(navigateMock).toHaveBeenCalledWith({
+					to: "/o/acme/agents?profileId=agent-created",
+				});
+			});
+		}
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
 			queryKey: ["organizations", "org-123", "profile-directory"],
 		});

@@ -18,6 +18,7 @@ import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld
 export type AgentProfileCreationRequestsFailure = StructuredApiClientFailure;
 
 export type OptimisticAgentProfileCreation = {
+	requestFingerprint?: string;
 	configuration: AgentProfileCreationConfiguration;
 	failureMessage: string | null;
 	id: string;

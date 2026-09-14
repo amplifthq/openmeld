@@ -1,5 +1,5 @@
-import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useRef } from "react";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
@@ -7,11 +7,6 @@ import { CreateAgentProfilePage } from "#/components/profiles/create-profile-dia
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
-import {
-	removeOptimisticAgentProfileCreation,
-	upsertAcceptedAgentProfileCreationRequest,
-	upsertOptimisticAgentProfileCreation,
-} from "#/query/profiles/agent-profile-creation-requests";
 
 export const Route = createFileRoute("/o/$orgSlug/new-agent")({
 	staticData: appShellStaticData.newAgent,
@@ -25,8 +20,8 @@ function NewAgentRoute() {
 	const { sidebarStates } = Route.useLoaderData();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const agentsPath = buildOrganizationAgentsPath(currentOrganization.slug);
+	const openingAgents = useRef<Promise<void> | null>(null);
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
 		loadAgentProfiles: false,
@@ -42,17 +37,15 @@ function NewAgentRoute() {
 				allowTeammateRequests={currentOrganization.isPersonal !== true}
 				currentUserId={currentUserId}
 				key={currentOrganization.id}
-				onAgentRequestAccepted={(request, optimisticId) => {
-					removeOptimisticAgentProfileCreation({
-						id: optimisticId,
-						organizationId: currentOrganization.id,
-						queryClient,
-					});
-					upsertAcceptedAgentProfileCreationRequest({
-						organizationId: currentOrganization.id,
-						queryClient,
-						request,
-					});
+				onAgentRequestAccepted={async (request, optimisticId) => {
+					await openingAgents.current;
+					if (
+						window.location.pathname !== agentsPath ||
+						new URLSearchParams(window.location.search).get("requestId") !==
+							optimisticId
+					) {
+						return;
+					}
 					navigate({
 						to: agentsPath,
 						search: { requestId: request.id },
@@ -60,20 +53,11 @@ function NewAgentRoute() {
 						console.error("Failed to show Agent setup progress.", error);
 					});
 				}}
-				onAgentRequestFailed={(creation) => {
-					upsertOptimisticAgentProfileCreation({
-						creation,
-						organizationId: currentOrganization.id,
-						queryClient,
-					});
-				}}
 				onAgentRequestStarted={(creation) => {
-					upsertOptimisticAgentProfileCreation({
-						creation,
-						organizationId: currentOrganization.id,
-						queryClient,
-					});
-					navigate({ to: agentsPath }).catch((error: unknown) => {
+					openingAgents.current = navigate({
+						to: agentsPath,
+						search: { requestId: creation.id },
+					}).catch((error: unknown) => {
 						console.error("Failed to show the Agent being created.", error);
 					});
 				}}

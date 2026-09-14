@@ -804,6 +804,7 @@ describe("SpaceLanding", () => {
 			isPending: false,
 		});
 		useQueryClientMock.mockReset().mockReturnValue({
+			getQueryCache: () => ({ subscribe: () => () => undefined }),
 			getQueryState: vi.fn(() => undefined),
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
 			fetchQuery: vi.fn().mockResolvedValue(undefined),
@@ -2942,6 +2943,7 @@ describe("SpaceLanding", () => {
 			getQueryData: vi.fn(() => undefined),
 			getQueryState: vi.fn(() => undefined),
 			invalidateQueries: invalidateQueriesMock,
+			getQueryCache: () => ({ subscribe: () => () => undefined }),
 			setQueriesData: vi.fn(),
 			setQueryData: vi.fn(),
 		});
@@ -3051,7 +3053,11 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(toastMock.error).toHaveBeenCalledWith(
-				"Delete failed: Only the space creator can delete this space."
+				"Delete failed: Only the space creator can delete this space.",
+				expect.objectContaining({
+					duration: Number.POSITIVE_INFINITY,
+					action: { label: "Open Space", onClick: expect.any(Function) },
+				})
 			);
 		});
 		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();

@@ -1,6 +1,11 @@
 import { DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION } from "@openmeld/schemas";
 import type { AgentProfileCreationRequest } from "@openmeld/schemas/types";
+import { QueryClient } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+	agentProfileCreationRequestQueryKeys,
+	createPresentedAgentProfileCreationRequest,
+} from "#/query/profiles/agent-profile-creation-requests";
 
 const api = vi.hoisted(() => ({
 	createAgentProfileCreationRequest: vi.fn(),
@@ -150,6 +155,45 @@ describe("accepted Agent creation in Web", () => {
 			}),
 			expect.objectContaining({ message: "Computer disconnected" })
 		);
+	});
+
+	it("reuses the unacknowledged intent after the create page unmounts and removes its failed card on acceptance", async () => {
+		const queryClient = new QueryClient();
+		api.createAgentProfileCreationRequest.mockRejectedValueOnce(
+			new Error("Response lost")
+		);
+		await expect(
+			createPresentedAgentProfileCreationRequest({
+				...command,
+				queryClient,
+				onStarted: vi.fn(),
+			})
+		).rejects.toBeTruthy();
+		api.createAgentProfileCreationRequest.mockResolvedValueOnce({
+			replayed: true,
+			request: {
+				...accepted,
+				status: "completed",
+				createdAgentProfileId: "same-agent",
+			},
+		});
+		await createPresentedAgentProfileCreationRequest({
+			...command,
+			idempotencyKey: "new-form-key",
+			queryClient,
+			onStarted: vi.fn(),
+		});
+		expect(
+			api.createAgentProfileCreationRequest.mock.calls.map(
+				([body]) => body.idempotencyKey
+			)
+		).toEqual(["one-intent", "one-intent"]);
+		expect(
+			queryClient.getQueryData(
+				agentProfileCreationRequestQueryKeys.optimisticByOrganization("org-1")
+			)
+		).toEqual([]);
+		queryClient.clear();
 	});
 
 	it("preserves acceptance when the status read fails, without submitting another creation", async () => {
