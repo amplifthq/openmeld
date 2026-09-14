@@ -1397,7 +1397,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("img", {
-				name: "Waiting for Clico Codex’s current task",
+				name: "Clico Codex is queued · Another task is running",
 			})
 		).toBeTruthy();
 		expect(
