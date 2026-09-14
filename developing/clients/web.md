@@ -49,15 +49,22 @@ URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
-list inside the inset surface, and the current work area. Desk,
-Spaces, and Team are the rail's destinations. Four circular controls at the
-top stack Organization switching, search, Inbox, and Create. The Organization
+list inside the inset surface, and the current work area. Desk, Inbox,
+Spaces, and Team are the rail's destinations, in that order. Organization
+switching and Create remain circular controls at the top. Global search sits
+above Settings in the footer, using the same compact utility styling. Inbox
+retains the shared attention badge and active-route treatment. The Organization
 avatar fills its circular trigger. Create opens New Agent and New Space to the
 right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
 motion opens the choices without travel. Account, theme, and Settings
 remain reachable from the rail. Spaces and its contextual sidebar heading always
 open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
 and Discover, in that order (Discover is absent in personal workspaces).
+
+The Team contextual header has an Add menu with Invite members and New Agent.
+It reuses the existing Organization invitation flow (absent in personal
+workspaces) and Agent creation route. People search and existing connection,
+activity, and group filters remain available beside the search field.
 Direct messages uses `?view=messages`; the old `/chats` index redirects there.
 Individual chat, profile, thread, and session links retain their existing routes.
 The contextual heading has no aggregate attention dot; the rail and individual

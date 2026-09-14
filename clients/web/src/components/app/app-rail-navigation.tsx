@@ -20,6 +20,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import {
 	ChatCircleTextIcon,
 	HouseIcon,
+	TrayIcon,
 	UsersThreeIcon,
 } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
@@ -33,11 +34,14 @@ import {
 import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { CenterTruncatedText } from "#/components/app/center-truncated-text";
 import type { AppOuterRailDestination } from "#/components/app/shell-layout";
+import { InboxAttentionBadge } from "#/components/inbox/inbox-attention-badge";
+import type { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import {
 	resolveInboxAttentionLabel,
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import {
+	buildOrganizationInboxPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationRootPath,
 	buildOrganizationSpacesPath,
@@ -47,6 +51,7 @@ import { SidebarDestinationActionSlot } from "./sidebar-destination-actions";
 type AppRailDestinationId = AppOuterRailDestination;
 
 type AppRailDestination = {
+	accessibleLabel?: string;
 	attentionTone?: "danger" | "warning" | null;
 	attentionCount?: number;
 	icon: ReactNode;
@@ -64,6 +69,7 @@ type AppRailGroup = {
 };
 
 export function buildAppRailGroups(input: {
+	inboxAttention?: ReturnType<typeof useInboxAttention>;
 	chatUnreadCount?: number;
 	chatAttentionTone?: "danger" | "warning" | null;
 	orgSlug: string;
@@ -81,6 +87,24 @@ export function buildAppRailGroups(input: {
 					label: "Desk",
 					to: buildOrganizationRootPath(input.orgSlug),
 					icon: <HouseIcon aria-hidden="true" className="size-5" />,
+				},
+				{
+					id: "inbox",
+					label: "Inbox",
+					accessibleLabel: input.inboxAttention?.label,
+					to: buildOrganizationInboxPath(input.orgSlug),
+					icon: (
+						<>
+							<TrayIcon aria-hidden="true" className="size-5" />
+							{input.inboxAttention ? (
+								<InboxAttentionBadge
+									count={input.inboxAttention.count}
+									indicatorTone={input.inboxAttention.indicatorTone}
+									tone={input.inboxAttention.tone}
+								/>
+							) : null}
+						</>
+					),
 				},
 				{
 					id: "directMessages",
@@ -182,17 +206,19 @@ export function AppRailLink(input: {
 			tone: input.destination.attentionTone,
 		};
 	}
-	const accessibleLabel = buildAppRailAccessibleLabel({
-		attentionCount,
-		destinationId: input.destination.id,
-		label: [
-			input.destination.label,
-			resolveInboxAttentionLabel(input.destination.attentionTone),
-		]
-			.filter(Boolean)
-			.join(", "),
-		unreadCount,
-	});
+	const accessibleLabel =
+		input.destination.accessibleLabel ??
+		buildAppRailAccessibleLabel({
+			attentionCount,
+			destinationId: input.destination.id,
+			label: [
+				input.destination.label,
+				resolveInboxAttentionLabel(input.destination.attentionTone),
+			]
+				.filter(Boolean)
+				.join(", "),
+			unreadCount,
+		});
 	const children = (
 		<>
 			<AppRailDestinationIcon

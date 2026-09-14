@@ -227,7 +227,7 @@ const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = ["Desk", "Spaces", "Team"] as const;
+const PRIMARY_RAIL_LABELS = ["Desk", "Inbox", "Spaces", "Team"] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
@@ -363,8 +363,8 @@ describe("AppOuterRail", () => {
 			within(header).getByRole("button", { name: "Switch organization" })
 		).toBeTruthy();
 		expect(
-			within(header).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
-		).toBeTruthy();
+			within(header).queryByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+		).toBeNull();
 		expect(screen.queryByLabelText("Go to OpenMeld homepage")).toBeNull();
 		expect(screen.queryByText("Experimental")).toBeNull();
 	});
@@ -585,19 +585,23 @@ describe("AppOuterRail", () => {
 		expect(appSectionLabels).toEqual(PRIMARY_RAIL_LABELS);
 	});
 
-	it("opens Inbox and exposes command search from the header", () => {
+	it("places Inbox in primary navigation and search in the footer", () => {
 		renderRail();
-		const header = screen
-			.getByTestId("app-outer-rail")
-			.querySelector("[data-sidebar=header]") as HTMLElement;
+		const rail = screen.getByTestId("app-outer-rail");
 		expect(
-			within(header)
+			within(
+				rail.querySelector(
+					'[data-slot="main-sidebar-navigation"]'
+				) as HTMLElement
+			)
 				.getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
 				.getAttribute("href")
 		).toBe("/o/acme/inbox");
 		expect(
 			(
-				within(header).getByRole("button", {
+				within(
+					rail.querySelector('[data-sidebar="footer"]') as HTMLElement
+				).getByRole("button", {
 					name: "Search or run a command",
 				}) as HTMLButtonElement
 			).disabled
