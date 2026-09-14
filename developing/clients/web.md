@@ -2924,7 +2924,11 @@ On a cold open with no safe display snapshot yet, the loading shell mounts the
 same browser-local text draft immediately instead of a Composer skeleton. That
 draft and its focus carry into the confirmed conversation without remount loss;
 it still cannot send or attach files before current status authorizes the
-mutation.
+mutation. After the entry gate permits entry, route classification must not
+delay this shell. The header renders immediately and the message region stays
+empty with an accessible loading announcement. Thread headers and Composers
+likewise render independently of reply reads, without an entrance fade hiding
+the controls.
 
 Persisted records are segmented by confirmed account and by account plus the
 immutable Organization id. Organization slug is a secondary cleanup index for a
