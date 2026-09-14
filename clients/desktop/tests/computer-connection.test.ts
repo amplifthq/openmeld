@@ -34,9 +34,12 @@ describe("Desktop computer connection admission", () => {
     "missing_tools",
     "fresh_session",
     "source_action",
+    "reconnect_target",
   ] as const)("keeps connection intent and account boundaries: %s", async (scenario) => {
     const cloudRequest = vi.fn();
-    if (scenario === "fresh_session" || scenario === "source_action") {
+    if (
+      ["fresh_session", "source_action", "reconnect_target"].includes(scenario)
+    ) {
       cloudRequest.mockRejectedValue(new Error("Prepare requested"));
     }
     const confirmSwitch = vi.fn(async () => false);
@@ -92,6 +95,9 @@ describe("Desktop computer connection admission", () => {
       expectedAccount: "account-a",
       ...(scenario === "unexpected_field" ? { command: "arbitrary" } : {}),
       ...(scenario === "fresh_session" ? { resetThisComputer: true } : {}),
+      ...(scenario === "reconnect_target"
+        ? { connectedComputerId: "computer-b" }
+        : {}),
       ...(scenario === "source_action"
         ? {
             sourceNavigationAction: {
@@ -113,7 +119,9 @@ describe("Desktop computer connection admission", () => {
         "old@example.com",
         "a@example.com"
       );
-    } else if (scenario === "fresh_session" || scenario === "source_action") {
+    } else if (
+      ["fresh_session", "source_action", "reconnect_target"].includes(scenario)
+    ) {
       await expect(result).rejects.toThrow("Prepare requested");
     } else if (scenario === "unreadable_connection") {
       await expect(result).rejects.toThrow("Connection identity unavailable");
@@ -121,8 +129,16 @@ describe("Desktop computer connection admission", () => {
       await expect(result).rejects.toThrow();
       expect(mocks.exec).not.toHaveBeenCalled();
     }
-    if (scenario === "fresh_session" || scenario === "source_action") {
+    if (
+      ["fresh_session", "source_action", "reconnect_target"].includes(scenario)
+    ) {
       expect(cloudRequest).toHaveBeenCalledOnce();
+      if (scenario === "reconnect_target") {
+        const body = cloudRequest.mock.calls[0]?.[1].body;
+        expect(JSON.parse(new TextDecoder().decode(body))).toMatchObject({
+          connectedComputerId: "computer-b",
+        });
+      }
     } else {
       expect(cloudRequest).not.toHaveBeenCalled();
     }

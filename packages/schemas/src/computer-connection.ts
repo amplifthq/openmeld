@@ -38,6 +38,7 @@ export const desktopComputerConnectionRequestSchema =
       humanProfileId: true,
       targetSpaceId: true,
       sourceNavigationAction: true,
+      connectedComputerId: true,
     })
     .extend({
       expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
