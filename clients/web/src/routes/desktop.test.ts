@@ -1,9 +1,11 @@
 import { isNotFound } from "@tanstack/react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Route } from "./desktop";
 
 describe("Desktop download route", () => {
+	afterEach(() => vi.unstubAllEnvs());
 	it("stays unavailable while Desktop distribution is paused", () => {
+		vi.stubEnv("DEV", false);
 		let thrown: unknown;
 		try {
 			Route.options.beforeLoad?.({} as never);
@@ -12,5 +14,10 @@ describe("Desktop download route", () => {
 		}
 
 		expect(isNotFound(thrown)).toBe(true);
+	});
+
+	it("allows local development review", () => {
+		vi.stubEnv("DEV", true);
+		expect(() => Route.options.beforeLoad?.({} as never)).not.toThrow();
 	});
 });

@@ -84,6 +84,25 @@ export async function readDesktopPreviewReleaseManifest(input: {
 	return parseDesktopPreviewReleaseManifest(await object.json());
 }
 
+// The page offers only artifacts present in the same store as the download route.
+export async function readAvailableDesktopRelease(
+	store:
+		| (DesktopReleaseManifestStore & {
+				head: (key: string) => Promise<{ size: number } | null>;
+		  })
+		| undefined
+): Promise<DesktopPreviewReleaseManifest | null> {
+	if (!store) {
+		return null;
+	}
+	const release = await readDesktopPreviewReleaseManifest({ store });
+	if (!release) {
+		return null;
+	}
+	const artifact = await store.head(release.macosArm64.objectKey);
+	return artifact && artifact.size > 0 ? release : null;
+}
+
 export function buildAbsoluteDesktopUrl(input: {
 	origin: string;
 	pathname: string;
