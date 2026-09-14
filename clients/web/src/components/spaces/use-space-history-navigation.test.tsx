@@ -20,6 +20,45 @@ vi.mock("#/lib/spaces/api", () => ({
 const message = (id: string) => ({ id }) as SignalEnvelope;
 
 describe("returning to the live Space history", () => {
+	it.each([
+		"target changed",
+		"return to latest",
+	])("ignores a late history response after %s", async (action) => {
+		let finish!: (value: { envelopes: SignalEnvelope[] }) => void;
+		historyApi.listSignalEnvelopes.mockReturnValueOnce(
+			new Promise((resolve) => {
+				finish = resolve;
+			})
+		);
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				liveEnvelopes: [],
+				spaceId: "space-cancel",
+				profileId: "viewer",
+				enabled: false,
+				accessRejected: false,
+			})
+		);
+		const request = new AbortController();
+		let opening!: Promise<boolean>;
+		act(() => {
+			opening = result.current.open("old", request.signal);
+		});
+		act(() => {
+			if (action === "target changed") {
+				request.abort();
+			} else {
+				result.current.latest();
+			}
+		});
+		await act(async () => {
+			finish({ envelopes: [message("old")] });
+			expect(await opening).toBe(false);
+		});
+		expect(result.current.activeWindow).toBeNull();
+		expect(result.current.error).toBeNull();
+		expect(result.current.pending).toBe(false);
+	});
 	it("restores an older cached reading position without mounting the whole transcript", () => {
 		writeSpaceConversationPosition("viewer:space-conversation:space-saved", {
 			anchorSignalId: "100",
