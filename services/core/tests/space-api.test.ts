@@ -6481,13 +6481,9 @@ describe("OpenMeld Core", () => {
     await hub.rpcReasoningPreferences({ enabled: false });
     await runInDurableObject(stub, (instance) => {
       const internal = instance as unknown as { bindings: CoreBindings };
-      const original = internal.bindings.OPENMELD_AUTH_WORKER;
-      const resolveProfile = original?.resolveProfileById?.bind(original);
-      if (!resolveProfile) {
-        throw new Error("Missing profile resolver test binding");
-      }
-      internal.bindings.OPENMELD_AUTH_WORKER = {
-        ...original,
+      // This Workers environment has no Auth service binding. Supply the
+      // public Auth profile contract without mutating the shared test env.
+      const auth = {
         resolveProfileById: (input) =>
           input.openMeldProfileId === disabledProfileId
             ? Promise.resolve({
@@ -6501,7 +6497,20 @@ describe("OpenMeld Core", () => {
                   ownerUserId,
                 },
               })
-            : resolveProfile(input),
+            : Promise.resolve({
+                ok: false as const,
+                code: "profile.not_found",
+                message: "profile not found",
+              }),
+      } satisfies Pick<
+        NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>,
+        "resolveProfileById"
+      >;
+      internal.bindings = {
+        ...internal.bindings,
+        OPENMELD_AUTH_WORKER: auth as NonNullable<
+          CoreBindings["OPENMELD_AUTH_WORKER"]
+        >,
       };
     });
     for (const streamId of ["cleared", "unknown-owner", "disabled-owner"]) {
