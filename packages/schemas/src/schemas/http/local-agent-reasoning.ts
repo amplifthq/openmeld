@@ -13,6 +13,9 @@ export type LocalAgentReasoningState = z.infer<
 export const localAgentReasoningPreferencesSchema = z.strictObject({
   enabled: z.boolean(),
 });
+export type LocalAgentReasoningPreferences = z.infer<
+  typeof localAgentReasoningPreferencesSchema
+>;
 export const localAgentReasoningPreferencesRpcSchema = z.strictObject({
   context: openMeldRequestContextSchema,
   enabled: z.boolean().optional(),

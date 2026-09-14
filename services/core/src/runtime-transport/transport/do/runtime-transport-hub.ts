@@ -155,6 +155,8 @@ import type {
   ComputerFileAccessErrorResponse,
   DaemonServiceLane,
   DaemonStreamFrame,
+  LocalAgentReasoningPreferences,
+  LocalAgentReasoningPreferencesRpc,
   LocalComponentsReleaseManifest,
   LocalWakeRouteReport,
   OpenMeldDaemonCancelPayload,
@@ -1466,9 +1468,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   private scheduledHousekeepingAlarmAtMs: number | null | undefined;
   private reasoningStreamEnabled = true;
 
-  async rpcReasoningPreferences(input: {
-    enabled?: boolean;
-  }): Promise<{ enabled: boolean }> {
+  async rpcReasoningPreferences(
+    input: Omit<LocalAgentReasoningPreferencesRpc, "context">
+  ): Promise<LocalAgentReasoningPreferences> {
     if (input.enabled !== undefined) {
       const preference = localAgentReasoningPreferencesSchema.parse(input);
       await this.ctx.storage.put(

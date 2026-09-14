@@ -1002,7 +1002,7 @@ export async function handleDispatchDeliverFrame(input: {
       runtimeControllerSupport.runtimeAdapterMatch.adapterId === "openclaw" ||
       !socket ||
       currentSocketRef.reasoningStreamEnabled === undefined ||
-      (socket.bufferedAmount ?? 0) > 64 * 1024
+      (status === "streaming" && (socket.bufferedAmount ?? 0) > 64 * 1024)
     ) {
       return;
     }
