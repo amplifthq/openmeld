@@ -2,7 +2,9 @@ import {
   chmod,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -498,12 +500,16 @@ describe("agent controller interface inventory", () => {
 
   it("reports OpenCode auth, models, and interrupt-backed Stop from the local CLI", async () => {
     const home = await mkdtemp(join(tmpdir(), "openmeld-aci-opencode-"));
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(home);
     try {
+      await mkdir(join(home, ".git"));
       const binPath = join(home, "opencode");
+      const cwdLog = join(home, "probe-cwd");
       await writeFile(
         binPath,
         [
           "#!/bin/sh",
+          `pwd > '${cwdLog}'`,
           'if [ "$1" = "--version" ]; then echo "opencode 1.17.11"; exit 0; fi',
           'if [ "$1" = "serve" ]; then echo "opencode server listening on http://127.0.0.1:34567"; sleep 60; exit 0; fi',
           "exit 1",
@@ -580,9 +586,13 @@ describe("agent controller interface inventory", () => {
       });
       expect(createOpencodeClientMock).toHaveBeenCalledWith({
         baseUrl: "http://127.0.0.1:34567",
-        directory: process.cwd(),
+        directory: (await readFile(cwdLog, "utf8")).trim(),
         throwOnError: true,
       });
+      const probeCwd = (await readFile(cwdLog, "utf8")).trim();
+      expect(probeCwd).not.toBe(process.cwd());
+      expect(probeCwd.startsWith(`${home}/`)).toBe(false);
+      await expect(stat(probeCwd)).rejects.toMatchObject({ code: "ENOENT" });
       expect(globalThis.fetch).toHaveBeenCalledWith(OPENCODE_NPM_LATEST_URL, {
         headers: {
           accept: "application/json",
@@ -590,6 +600,7 @@ describe("agent controller interface inventory", () => {
         signal: expect.any(AbortSignal),
       });
     } finally {
+      cwdSpy.mockRestore();
       await rm(home, { force: true, recursive: true });
     }
   });
@@ -838,6 +849,7 @@ describe("agent controller interface inventory", () => {
       );
       await chmod(binPath, 0o755);
       const result = await probeOpenCodeReadiness({
+        workingDirectory: home,
         launchContract: { commandPath: binPath, kind: "executable" },
         timeoutMs: 3000,
       });
@@ -871,6 +883,7 @@ describe("agent controller interface inventory", () => {
 
       await expect(
         probeOpenCodeReadiness({
+          workingDirectory: home,
           launchContract: { commandPath: binPath, kind: "executable" },
           timeoutMs: 100,
         })
