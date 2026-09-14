@@ -488,6 +488,28 @@ work.
 Opening the exact Inbox item marks that item read and deep-links to its source
 Signal in the same conversation.
 
+Main-conversation unread navigation uses one chronological shortcut for updates
+outside the viewport, combining targets above and below. It reveals the first
+unread target and dismisses that observed navigation batch after a successful
+jump; dismissal does not write a read watermark. A new event can show the
+shortcut again. The bottom history control returns to the latest messages and
+does not repeat unread counts. There is no per-message clicking requirement.
+
+For a thread target, this shortcut reveals and briefly highlights its root
+message in the main conversation without opening the thread panel. A thread
+with recipient-specific unread targets has a blue **Open thread** entry with
+an unread count; the count includes replies and reactions, so it is not labeled
+as a count of new replies. Explicitly opening that entry focuses its first
+unread target. Reading the main root or its preview never acknowledges hidden
+thread replies. Thread deep links from Inbox still open the exact thread.
+
+This uses Slack's separation of conversation navigation, thread attention, and
+read actions as a precedent, not an identical default: Slack offers immediate
+mark-as-read on conversation entry and includes mentioned users in thread
+notifications. OpenMeld preserves participant-only recipients and the visible
+read-through contract above. References: [Slack read preferences](https://slack.com/help/articles/360043037853-Manage-your-Mark-as-Read-preference)
+and [Slack threads](https://slack.com/help/articles/115000769927-Use-threads-to-organize-discussions).
+
 The Center Agent may create an explicit response request only for the verified
 member in the current OpenMeld Space conversation. `response_needed` is a
 normal action-required item. `work_blocked` and `material_failure_risk` are

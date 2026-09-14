@@ -10,8 +10,11 @@ Thread replies notify participants instead of everyone in the Space. Reactions
 to your messages now appear as ordinary unread Inbox updates, including replies
 inside threads.
 
-Unread links open the target conversation directly, and historical failure
-links focus the retained request. Reading the latest messages also acknowledges
+One unread shortcut takes you to the first unread update. Thread updates
+highlight their main message and show a blue **Open thread** entry with an
+unread count; the thread opens only when you choose it. Inbox links still open
+the exact reply, and historical failure links focus the retained request.
+Reading the latest messages also acknowledges
 newer updates attached to those messages. Sent messages update the sidebar
 preview immediately while the shared index catches up.
 

@@ -12,13 +12,7 @@ import type {
 import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
-import {
-	ArrowUpIcon,
-	CaretDoubleDownIcon,
-	ChatCircleIcon,
-	InfoIcon,
-	XIcon,
-} from "@phosphor-icons/react";
+import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
 import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
 import {
 	Fragment,
@@ -144,10 +138,7 @@ import {
 import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
-import {
-	type SpaceHistoryActions,
-	SpaceHistoryRail,
-} from "./space-history-rail";
+import { SpaceHistoryRail } from "./space-history-rail";
 import { SpaceMessageBody } from "./space-message-body";
 import {
 	resolveSpaceMessageBubblePresentationClass,
@@ -366,21 +357,11 @@ type SpaceConversationPanelProps = Omit<
 const MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS = 9;
 
 type SpaceUnreadNavigationState = {
-	aboveCount: number;
-	aboveTargetKeys: readonly string[];
-	belowCount: number;
-	belowTargetKeys: readonly string[];
-	nearestAbove: SpaceInboxUnreadTarget | null;
-	nearestBelow: SpaceInboxUnreadTarget | null;
+	targets: readonly SpaceInboxUnreadTarget[];
 };
 
 const EMPTY_SPACE_UNREAD_NAVIGATION_STATE: SpaceUnreadNavigationState = {
-	aboveCount: 0,
-	aboveTargetKeys: [],
-	belowCount: 0,
-	belowTargetKeys: [],
-	nearestAbove: null,
-	nearestBelow: null,
+	targets: [],
 };
 
 type SpaceSetupGuidanceSlots = {
@@ -695,20 +676,7 @@ function SpaceConversationPanelContent(
 									onJumpToMessage={onJumpToMessage}
 									onNavigateStart={releaseReadingPosition}
 									renderNavigation={(history) => (
-										<ConversationJumpButton
-											dismissedTargetKeys={dismissedUnreadTargetKeys}
-											history={history}
-											navigation={unreadNavigation}
-											onDismissUnread={() =>
-												setDismissedUnreadTargetKeys((current) =>
-													mergeUnreadTargetKeys(
-														current,
-														unreadNavigation.belowTargetKeys
-													)
-												)
-											}
-											onNavigateUnread={revealUnreadTarget}
-										/>
+										<SpaceHistoryJumpControl history={history} />
 									)}
 									scrollElement={conversationScrollElement}
 									visible={showHistoryRail}
@@ -760,14 +728,14 @@ function SpaceConversationPanelContent(
 							>
 								<SpaceConversationStickyDate
 									afterDate={
-										<SpaceUnreadAboveControl
+										<SpaceUnreadNavigationControl
 											dismissedTargetKeys={dismissedUnreadTargetKeys}
 											navigation={unreadNavigation}
 											onDismiss={() =>
 												setDismissedUnreadTargetKeys((current) =>
 													mergeUnreadTargetKeys(
 														current,
-														unreadNavigation.aboveTargetKeys
+														unreadNavigation.targets.map(unreadTargetKey)
 													)
 												)
 											}
@@ -797,21 +765,7 @@ function SpaceConversationPanelContent(
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 
-							{!input.historyNavigation && (
-								<ConversationJumpButton
-									dismissedTargetKeys={dismissedUnreadTargetKeys}
-									navigation={unreadNavigation}
-									onDismissUnread={() => {
-										setDismissedUnreadTargetKeys((current) =>
-											mergeUnreadTargetKeys(
-												current,
-												unreadNavigation.belowTargetKeys
-											)
-										);
-									}}
-									onNavigateUnread={revealUnreadTarget}
-								/>
-							)}
+							{!input.historyNavigation && <SpaceHistoryJumpControl />}
 						</MessageScroller>
 					</MessageScrollerProvider>
 				}
@@ -925,7 +879,7 @@ function renderPanelConversationBody(input: {
 		onJumpToDate: panel.onJumpToDate,
 		onJumpToMessage: navigation.onJumpToMessage,
 		onOpenMessageDetails: presentation.setMessageDetailsItem,
-		onOpenThread: presentation.onOpenThread,
+		onOpenThread: navigation.onOpenThread,
 		onOpenSpaceFile: panel.onOpenSpaceFile,
 		onReplyToMessage: presentation.onReplyToMessage,
 		onReportMessage: presentation.onReportMessage,
@@ -966,6 +920,7 @@ function renderPanelConversationBody(input: {
 		timelineItems: presentation.mainTimelineItems,
 		wakeOutcomeIndex: presentation.wakeOutcomeIndex,
 		threadsByRootSignalId: presentation.threadsByRootSignalId,
+		unreadTargets: panel.unreadTargets ?? [],
 		threadPreviewByThreadId: presentation.threadPreviewByThreadId,
 		wakeFailureTargetContextsByProfileId:
 			panel.wakeFailureTargetContextsByProfileId,
@@ -1364,6 +1319,36 @@ function useSpaceConversationNavigationController(input: {
 		window.requestAnimationFrame(() => jumpToMessage(signalId));
 	});
 	const [pendingPinJump, setPendingPinJump] = useState<string | null>(null);
+	const onOpenThread = useLatestCallback(async (threadId: string) => {
+		const thread = [...input.threadsByRootSignalId.values()].find(
+			(candidate) => candidate.threadId === threadId
+		);
+		const firstUnread = input.unreadTargets
+			.filter((target) => target.threadRootSignalId === thread?.rootSignalId)
+			.sort((left, right) => left.occurredAtMs - right.occurredAtMs)[0];
+		if (!(firstUnread?.threadRootSignalId && input.onOpenUnreadThread)) {
+			input.onOpenThread(threadId);
+			return;
+		}
+		setMainFocusStatusMessage(null);
+		try {
+			if (
+				!(await input.onOpenUnreadThread({
+					rootSignalId: firstUnread.threadRootSignalId,
+					signalId: firstUnread.signalId,
+					threadId,
+				}))
+			) {
+				throw new Error("Couldn’t open this thread. Try again.");
+			}
+		} catch (error) {
+			setMainFocusStatusMessage(
+				error instanceof Error
+					? error.message
+					: "Couldn’t open this thread. Try again."
+			);
+		}
+	});
 	useLayoutEffect(() => {
 		if (
 			pendingPinJump &&
@@ -1458,46 +1443,30 @@ function useSpaceConversationNavigationController(input: {
 		observer.observe(conversationScrollElement);
 		return () => observer.disconnect();
 	}, [conversationScrollElement, requestUnreadMeasurement]);
-	const openUnreadThreadTarget = useLatestCallback(
-		async (target: SpaceInboxUnreadTarget): Promise<boolean> => {
-			if (!target.threadRootSignalId) {
-				return true;
-			}
-			const thread = input.threadsByRootSignalId.get(target.threadRootSignalId);
-			return (
-				(await input.onOpenUnreadThread?.({
-					rootSignalId: target.threadRootSignalId,
-					signalId: target.signalId,
-					...(thread ? { threadId: thread.threadId } : {}),
-				})) === true
-			);
-		}
-	);
 	const revealUnreadTarget = useLatestCallback(
-		async (target: SpaceInboxUnreadTarget) => {
+		async (target: SpaceInboxUnreadTarget): Promise<boolean> => {
 			setMainFocusStatusMessage(null);
 			conversationPosition.releaseReadingPosition();
 			input.onSpaceViewChange("messages");
+			const signalId = target.threadRootSignalId ?? target.signalId;
 			try {
-				if (target.threadRootSignalId) {
-					if (!(await openUnreadThreadTarget(target))) {
-						throw new Error("Couldn’t open this thread. Try again.");
-					}
-				} else if (messageElementsBySignalIdRef.current.has(target.signalId)) {
-					jumpToMessage(target.signalId);
-				} else if (await input.onLoadHistoryAround?.(target.signalId)) {
-					setPendingPinJump(target.signalId);
+				if (messageElementsBySignalIdRef.current.has(signalId)) {
+					jumpToMessage(signalId);
+				} else if (await input.onLoadHistoryAround?.(signalId)) {
+					setPendingPinJump(signalId);
 				} else {
 					throw new Error(
 						"Couldn’t find this unread message. Refresh this Space and try again."
 					);
 				}
+				return true;
 			} catch (error) {
 				setMainFocusStatusMessage(
 					error instanceof Error
 						? error.message
 						: "Couldn’t open this message. Try again."
 				);
+				return false;
 			}
 		}
 	);
@@ -1648,6 +1617,7 @@ function useSpaceConversationNavigationController(input: {
 		registerConversationScrollElement,
 		registerMessageElement,
 		onJumpToPinnedMessage,
+		onOpenThread,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
 		threadFocusStatusMessage,
@@ -1825,98 +1795,51 @@ function ConversationLatestObserver(input: {
 	return null;
 }
 
-function ConversationJumpButton(input: {
-	history?: SpaceHistoryActions;
-	dismissedTargetKeys: ReadonlySet<string>;
-	navigation: SpaceUnreadNavigationState;
-	onDismissUnread: () => void;
-	onNavigateUnread: (target: SpaceInboxUnreadTarget) => Promise<void>;
-}) {
-	const showUnread =
-		!(
-			input.history?.isHistorical ||
-			input.history?.onBack ||
-			input.history?.pending
-		) &&
-		input.navigation.belowCount > 0 &&
-		hasUndismissedUnreadTarget(
-			input.navigation.belowTargetKeys,
-			input.dismissedTargetKeys
-		);
-	if (showUnread && input.navigation.nearestBelow) {
-		return (
-			<div className="absolute inset-x-0 bottom-4 z-20 flex justify-center">
-				<SpaceUnreadNavigationPill
-					count={input.navigation.belowCount}
-					direction="below"
-					onDismiss={input.onDismissUnread}
-					onNavigate={() => {
-						runUnreadNavigation(
-							input.navigation.nearestBelow,
-							input.onNavigateUnread
-						);
-					}}
-				/>
-			</div>
-		);
-	}
-
-	return <SpaceHistoryJumpControl history={input.history} />;
-}
-
-function SpaceUnreadAboveControl(input: {
+function SpaceUnreadNavigationControl(input: {
 	dismissedTargetKeys: ReadonlySet<string>;
 	navigation: SpaceUnreadNavigationState;
 	onDismiss: () => void;
-	onNavigate: (target: SpaceInboxUnreadTarget) => Promise<void>;
+	onNavigate: (target: SpaceInboxUnreadTarget) => Promise<boolean>;
 }) {
-	if (
-		input.navigation.aboveCount <= 0 ||
-		!hasUndismissedUnreadTarget(
-			input.navigation.aboveTargetKeys,
-			input.dismissedTargetKeys
-		) ||
-		!input.navigation.nearestAbove
-	) {
+	const targets = input.navigation.targets.filter(
+		(target) => !input.dismissedTargetKeys.has(unreadTargetKey(target))
+	);
+	const firstTarget = targets[0];
+	if (!firstTarget) {
 		return null;
 	}
 	return (
 		<SpaceUnreadNavigationPill
-			count={input.navigation.aboveCount}
-			direction="above"
+			count={targets.length}
 			onDismiss={input.onDismiss}
 			onNavigate={() => {
-				runUnreadNavigation(input.navigation.nearestAbove, input.onNavigate);
+				input
+					.onNavigate(firstTarget)
+					.then((revealed) => {
+						if (revealed) {
+							input.onDismiss();
+						}
+					})
+					.catch((error: unknown) => {
+						console.error("Failed to reveal an unread Space message.", error);
+					});
 			}}
 		/>
 	);
 }
 
-function runUnreadNavigation(
-	target: SpaceInboxUnreadTarget | null,
-	navigate: (target: SpaceInboxUnreadTarget) => Promise<void>
-): void {
-	if (!target) {
-		return;
-	}
-	navigate(target).catch((error: unknown) => {
-		console.error("Failed to reveal an unread Space message.", error);
-	});
-}
-
 function SpaceUnreadNavigationPill(input: {
 	count: number;
-	direction: "above" | "below";
 	onDismiss: () => void;
 	onNavigate: () => void;
 }) {
-	const label = `${String(input.count)} new ${input.count === 1 ? "message" : "messages"}${input.direction === "above" ? " above" : ""}`;
-	const navigateLabel = `${label}. Jump to the nearest new message`;
+	const label = `${String(input.count)} unread ${input.count === 1 ? "update" : "updates"}`;
+	const navigateLabel = `${label}. Jump to first unread`;
 	const dismissLabel = `Hide ${label}`;
 	return (
 		<div
 			className="pointer-events-auto inline-flex self-center overflow-hidden rounded-full border border-blue-200 bg-blue-50 text-blue-800 shadow-xs dark:border-blue-800 dark:bg-blue-950 dark:text-blue-200"
-			data-unread-direction={input.direction}
+			data-unread-navigation=""
 		>
 			<Button
 				aria-label={navigateLabel}
@@ -1926,11 +1849,7 @@ function SpaceUnreadNavigationPill(input: {
 				type="button"
 				variant="secondary"
 			>
-				{input.direction === "above" ? (
-					<ArrowUpIcon aria-hidden="true" weight="bold" />
-				) : (
-					<CaretDoubleDownIcon aria-hidden="true" weight="bold" />
-				)}
+				<ChatCircleIcon aria-hidden="true" weight="bold" />
 				<span>{label}</span>
 			</Button>
 			<Button
@@ -1957,40 +1876,23 @@ function resolveSpaceUnreadNavigationState(input: {
 		return EMPTY_SPACE_UNREAD_NAVIGATION_STATE;
 	}
 	const viewport = input.scrollElement.getBoundingClientRect();
-	const above: Array<{
-		distance: number;
-		target: SpaceInboxUnreadTarget;
-	}> = [];
-	const below: Array<{
-		distance: number;
-		target: SpaceInboxUnreadTarget;
-	}> = [];
+	const targets: SpaceInboxUnreadTarget[] = [];
 	for (const target of input.targets) {
 		const anchorSignalId = target.threadRootSignalId ?? target.signalId;
 		const element = input.messageElementsBySignalId.get(anchorSignalId);
 		if (!element) {
 			if (input.hasEarlierHistory) {
-				above.push({ distance: Number.POSITIVE_INFINITY, target });
+				targets.push(target);
 			}
 			continue;
 		}
 		const rect = element.getBoundingClientRect();
-		if (rect.bottom < viewport.top) {
-			above.push({ distance: viewport.top - rect.bottom, target });
-		} else if (rect.top > viewport.bottom) {
-			below.push({ distance: rect.top - viewport.bottom, target });
+		if (rect.bottom < viewport.top || rect.top > viewport.bottom) {
+			targets.push(target);
 		}
 	}
-	above.sort((left, right) => left.distance - right.distance);
-	below.sort((left, right) => left.distance - right.distance);
-	return {
-		aboveCount: above.length,
-		aboveTargetKeys: above.map((item) => unreadTargetKey(item.target)),
-		belowCount: below.length,
-		belowTargetKeys: below.map((item) => unreadTargetKey(item.target)),
-		nearestAbove: above[0]?.target ?? null,
-		nearestBelow: below[0]?.target ?? null,
-	};
+	targets.sort((left, right) => left.occurredAtMs - right.occurredAtMs);
+	return { targets };
 }
 
 function scrollMessageIntoConversationViewport(input: {
@@ -2015,14 +1917,7 @@ function scrollMessageIntoConversationViewport(input: {
 }
 
 function unreadTargetKey(target: SpaceInboxUnreadTarget): string {
-	return `${target.threadRootSignalId ?? "main"}:${target.signalId}`;
-}
-
-function hasUndismissedUnreadTarget(
-	targetKeys: readonly string[],
-	dismissedTargetKeys: ReadonlySet<string>
-): boolean {
-	return targetKeys.some((key) => !dismissedTargetKeys.has(key));
+	return `${target.threadRootSignalId ?? "main"}:${target.signalId}:${String(target.occurredAtMs)}`;
 }
 
 function mergeUnreadTargetKeys(
@@ -2268,6 +2163,7 @@ function renderConversationBody(input: {
 	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
 	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 	threadPreviewByThreadId: ReadonlyMap<string, SpaceThreadPreview>;
+	unreadTargets: readonly SpaceInboxUnreadTarget[];
 	wakeFailureTargetContextsByProfileId: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -2493,6 +2389,7 @@ function renderConversationBody(input: {
 						threadPreviewByThreadId={input.threadPreviewByThreadId}
 						threadsByRootSignalId={input.threadsByRootSignalId}
 						timelineItems={input.timelineItems}
+						unreadTargets={input.unreadTargets}
 						wakeFailureTargetContextsByProfileId={
 							input.wakeFailureTargetContextsByProfileId
 						}
@@ -2607,6 +2504,7 @@ type ConversationBubbleRunInput = {
 	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
 	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 	threadPreviewByThreadId: ReadonlyMap<string, SpaceThreadPreview>;
+	unreadTargets: readonly SpaceInboxUnreadTarget[];
 	wakeFailureTargetContextsByProfileId: ReadonlyMap<
 		string,
 		WakeFailureTargetContext
@@ -2938,7 +2836,7 @@ function ConversationBubbleContent(input: {
 	return (
 		<BubbleContent
 			className={cn(
-				"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors motion-reduce:transition-none",
+				"group/message relative flex w-full min-w-0 flex-col gap-2 transition-colors data-[highlighted=true]:border-unread/60 motion-reduce:transition-none",
 				SPACE_MESSAGE_CONTENT_PADDING_CLASS,
 				SPACE_MESSAGE_SURFACE_WIDTH_CLASS,
 				input.selfMessageContentLayoutClassName,
@@ -3022,6 +2920,11 @@ function ConversationBubbleContent(input: {
 				}
 				spaceReferencesById={parent.spaceReferencesById}
 				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
+				unreadCount={
+					parent.unreadTargets.filter(
+						(target) => target.threadRootSignalId === input.item.id
+					).length
+				}
 			/>
 		</BubbleContent>
 	);
@@ -3566,6 +3469,7 @@ function resolveReplyItemsForMessage(input: {
 
 function ThreadPreview(input: {
 	membersSnapshot: SpaceMembersSnapshot | null;
+	unreadCount: number;
 	onOpenThread: (threadId: string) => void;
 	preview: SpaceThreadPreview | null;
 	spaceReferencesById?: SpaceMessageReferencesById;
@@ -3582,6 +3486,9 @@ function ThreadPreview(input: {
 	}).slice(0, 2);
 	const replyCount = input.preview?.replyCount ?? 0;
 	const replyCountText = formatThreadReplyCount(replyCount);
+	const unreadLabel = `${String(input.unreadCount)} unread`;
+	const countLabel = input.unreadCount > 0 ? unreadLabel : replyCountText;
+	const showCount = input.unreadCount > 0 || replyCount > 0;
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 
@@ -3613,17 +3520,27 @@ function ThreadPreview(input: {
 				</section>
 			) : null}
 			<button
-				aria-label={
-					replyCount > 0 ? `Open thread (${replyCountText})` : "Open thread"
-				}
-				className="inline-flex h-7 w-fit items-center gap-1.5 text-muted-foreground text-xs hover:text-foreground"
+				aria-label={showCount ? `Open thread (${countLabel})` : "Open thread"}
+				className={cn(
+					"inline-flex min-h-7 w-fit items-center gap-1.5 text-xs hover:text-foreground",
+					input.unreadCount > 0
+						? "rounded-md border border-unread/40 bg-unread/10 px-2 font-medium text-unread dark:text-blue-200"
+						: "text-muted-foreground"
+				)}
 				onClick={() => input.onOpenThread(thread.threadId)}
+				title="Only threads you start or reply to count as unread. Read the thread to clear its unread replies and reactions."
 				type="button"
 			>
 				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
 				<span>Open thread</span>
-				{replyCount > 0 ? (
-					<span className="text-muted-foreground/75">{replyCountText}</span>
+				{showCount ? (
+					<span
+						className={
+							input.unreadCount > 0 ? undefined : "text-muted-foreground/75"
+						}
+					>
+						{countLabel}
+					</span>
 				) : null}
 			</button>
 		</div>
