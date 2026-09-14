@@ -710,6 +710,9 @@ class GrokBuildAcpSession {
     }
     const update = toRecord(toRecord(notification.params)?.update);
     if (update?.sessionUpdate === "agent_thought_chunk") {
+      if (toRecord(notification.params)?.sessionId !== this.#sessionId) {
+        return;
+      }
       const thought = toRecord(update.content);
       if (thought?.type === "text" && typeof thought.text === "string") {
         this.#emitRuntimeEvent({

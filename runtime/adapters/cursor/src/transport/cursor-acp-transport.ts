@@ -212,7 +212,7 @@ async function runCursorAcpTurn(input: {
     taskId: input.input.taskId,
   });
   let promptResult: unknown;
-  input.session.beginTurn();
+  input.session.beginTurn(descriptor.sessionId);
   try {
     promptResult = await input.session.request("session/prompt", {
       prompt: [{ text: input.prompt, type: "text" }],
@@ -419,6 +419,7 @@ class CursorAcpSession {
   #interactionFailure: CursorAcpInteractionFailure | null = null;
   #output = "";
   #turnActive = false;
+  #activeSessionId: string | null = null;
 
   constructor(input: {
     agentControllerPermissionMode?: AgentControllerPermissionMode;
@@ -564,7 +565,8 @@ class CursorAcpSession {
     this.#process.notify(method, params);
   }
 
-  beginTurn(): void {
+  beginTurn(sessionId: string): void {
+    this.#activeSessionId = sessionId;
     this.#firstOutputAtMs = null;
     this.#output = "";
     this.#turnActive = true;
@@ -572,6 +574,7 @@ class CursorAcpSession {
 
   endTurn(): void {
     this.#turnActive = false;
+    this.#activeSessionId = null;
   }
 
   readCollectedAgentText(): string {
@@ -734,6 +737,9 @@ class CursorAcpSession {
     const params = toRecord(message.params);
     const update = toRecord(params?.update);
     if (update?.sessionUpdate === "agent_thought_chunk") {
+      if (params?.sessionId !== this.#activeSessionId) {
+        return;
+      }
       const thought = toRecord(update.content);
       if (thought?.type === "text" && typeof thought.text === "string") {
         this.#emitRuntimeEvent({

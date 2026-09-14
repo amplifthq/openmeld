@@ -373,6 +373,7 @@ export async function invokeCodexAppServerTransport(input: {
         threadSource: threadContext.threadSource,
       });
       session.emitProviderConversationObserved(continuityThreadId);
+      session.observeReasoningForThread(executionThreadId);
       throwIfCodexDispatchCancelled(input.cancellationSignal);
       const turnResponse = await session.requestControl(
         "turn/start",
@@ -978,6 +979,7 @@ class CodexAppServerSession {
   readonly #permissionMode?: AgentControllerPermissionMode;
   readonly #pending = new Map<JsonRpcId, PendingJsonRpcRequest>();
   readonly #turnAgentMessageDeltas = new Map<string, string>();
+  #reasoningThreadId: string | null = null;
   #child: ChildProcessWithoutNullStreams | null = null;
   #runtimeProcess: SpawnedAgentControllerProcess | null = null;
   #contextCompactionObserved = false;
@@ -1545,16 +1547,7 @@ class CodexAppServerSession {
 
   #handleNotification(message: JsonRpcMessage): void {
     if (message.method === "item/reasoning/summaryTextDelta") {
-      const params = toRecord(message.params);
-      if (typeof params?.delta === "string" && params.delta.length > 0) {
-        this.#emitRuntimeEvent({
-          phase: "reasoning",
-          blockId: `${params.turnId}:${params.itemId}:${params.summaryIndex}`,
-          text: params.delta,
-          mode: "append",
-          tsMs: Date.now(),
-        });
-      }
+      this.#observeReasoningSummary(message.params);
       return;
     }
     if (
@@ -1776,6 +1769,32 @@ class CodexAppServerSession {
 
   readInteractionFailure(): CodexAppServerInteractionFailure | null {
     return this.#interactionFailure;
+  }
+
+  observeReasoningForThread(threadId: string): void {
+    this.#reasoningThreadId = threadId;
+  }
+
+  #observeReasoningSummary(payload: unknown): void {
+    const params = toRecord(payload);
+    if (
+      !this.#reasoningThreadId ||
+      params?.threadId !== this.#reasoningThreadId ||
+      typeof params.turnId !== "string" ||
+      typeof params.itemId !== "string" ||
+      typeof params.summaryIndex !== "number" ||
+      typeof params.delta !== "string" ||
+      params.delta.length === 0
+    ) {
+      return;
+    }
+    this.#emitRuntimeEvent({
+      phase: "reasoning",
+      blockId: `${params.turnId}:${params.itemId}:${params.summaryIndex}`,
+      text: params.delta,
+      mode: "append",
+      tsMs: Date.now(),
+    });
   }
 
   emitProviderConversationObserved(threadId: string): void {
