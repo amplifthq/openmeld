@@ -49,7 +49,7 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 					computerName: activeTarget ? activeTarget.name : target.name,
 					onStart: input.onRetry,
 					computerChoices:
-						!selected && enrolled.length > 1 ? (
+						!selected && enrolled.length > 0 ? (
 							<div className="grid gap-2">
 								<label className="grid gap-2 text-sm">
 									Computer to reconnect
@@ -104,6 +104,7 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 			: undefined;
 	return {
 		computerRecovery: recovery,
+		reconnectComputerId: target.connectedComputerId,
 	};
 }
 
@@ -123,25 +124,23 @@ function resolveRepairComputer(
 ) {
 	const computers =
 		input.recovery.localRuntimesQuery.data?.peopleComputers.computers ?? [];
-	const selected = computers.find((computer) =>
-		input.sessionComputerId
-			? computer.connectedComputerId === input.sessionComputerId
-			: computer.deviceId === input.recovery.deviceId ||
-				computer.legacyDeviceIds?.includes(input.recovery.deviceId ?? "")
-	);
+	// Catalog/routing selection (including recovery.deviceId) does not identify
+	// the machine running Desktop. Only an explicit session/reconnect intent may
+	// ask Prepare to attach this machine to an existing stable Computer.
+	const selected = input.sessionComputerId
+		? computers.find(
+				(computer) => computer.connectedComputerId === input.sessionComputerId
+			)
+		: undefined;
 	const enrolled = computers.filter(
 		(computer) => computer.identityStatus === "enrolled"
 	);
 	const repairComputer =
 		selected ??
-		enrolled.find((computer) => computer.deviceId === repairComputerId) ??
-		(enrolled.length === 1 ? enrolled[0] : undefined);
+		enrolled.find((computer) => computer.deviceId === repairComputerId);
 	const target: SetupTarget = {
 		connectedComputerId:
-			repairComputer?.connectedComputerId ??
-			(repairComputer?.identityStatus === "enrolled"
-				? repairComputer.deviceId
-				: input.sessionComputerId),
+			repairComputer?.connectedComputerId ?? input.sessionComputerId,
 		name: repairComputer?.deviceDisplayName,
 	};
 	return { target, selected, enrolled };

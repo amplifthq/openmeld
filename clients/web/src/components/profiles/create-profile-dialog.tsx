@@ -839,12 +839,6 @@ function useCreateProfileDialogController(
 		ownerMode,
 		selectedTeammateBinding,
 	});
-	const recoveryActionHref = buildConnectComputerPath({
-		connectedComputerId: recovery.currentComputer?.connectedComputerId,
-		orgSlug,
-		returnTo: "agent_creation",
-		session: "fresh",
-	});
 	const creationGuidance = resolveLocalAgentCreationGuidance({
 		queryFailed: creationComputerReadiness.isError,
 		readiness: creationComputerReadiness.data,
@@ -863,15 +857,22 @@ function useCreateProfileDialogController(
 			console.error("Could not refresh the computer for Agent creation.", error)
 		);
 	};
-	const { computerRecovery } = useAgentCreationComputerRecovery({
-		enabled: input.open && ownerMode === "self",
+	const { computerRecovery, reconnectComputerId } =
+		useAgentCreationComputerRecovery({
+			enabled: input.open && ownerMode === "self",
+			orgSlug,
+			recovery,
+			guidance: creationGuidance,
+			hasLocalAgents: ownLocalAgentIds.length > 0,
+			isPending: creationComputerReadiness.isPending,
+			sessionComputerId: sessionPreset?.computerId,
+			onRetry: retryCreationConnection,
+		});
+	const recoveryActionHref = buildConnectComputerPath({
+		connectedComputerId: reconnectComputerId,
 		orgSlug,
-		recovery,
-		guidance: creationGuidance,
-		hasLocalAgents: ownLocalAgentIds.length > 0,
-		isPending: creationComputerReadiness.isPending,
-		sessionComputerId: sessionPreset?.computerId,
-		onRetry: retryCreationConnection,
+		returnTo: "agent_creation",
+		session: "fresh",
 	});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug
