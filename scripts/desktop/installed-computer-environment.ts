@@ -3,6 +3,10 @@ import { isAbsolute, join, resolve } from "node:path";
 
 /** Only the build process selects the shared test lane; the renderer cannot. */
 export function readInstalledComputerEnvironment(env: NodeJS.ProcessEnv) {
+  const acceptance = env.OPENMELD_DESKTOP_ACCEPTANCE === "1";
+  if (acceptance && env.OPENMELD_DESKTOP_TARGET !== "disposable") {
+    throw new Error("Local Desktop acceptance requires the disposable target.");
+  }
   if (env.OPENMELD_DESKTOP_TARGET !== "disposable") {
     return null;
   }
@@ -10,6 +14,11 @@ export function readInstalledComputerEnvironment(env: NodeJS.ProcessEnv) {
   const auth = env.OPENMELD_DESKTOP_TEST_AUTH_ORIGIN;
   const gateway = env.OPENMELD_DESKTOP_TEST_GATEWAY_ORIGIN;
   if (!(home || auth || gateway)) {
+    if (acceptance) {
+      throw new Error(
+        "Desktop acceptance requires OPENMELD_DESKTOP_TEST_COMPUTER_HOME, OPENMELD_DESKTOP_TEST_AUTH_ORIGIN, and OPENMELD_DESKTOP_TEST_GATEWAY_ORIGIN from the existing aligned test lane."
+      );
+    }
     return null;
   }
   if (

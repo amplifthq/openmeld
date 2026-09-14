@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { readInstalledComputerEnvironment } from "../../scripts/desktop/installed-computer-environment.ts";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target.ts";
 import {
   DEFAULT_APPLE_TEAM_ID,
@@ -6,6 +7,7 @@ import {
 } from "../../scripts/release/macos-cli-signing.mjs";
 
 const target = readInstalledDesktopTarget(process.env);
+readInstalledComputerEnvironment(process.env);
 if (!target) {
   throw new Error("Select a fixed installed Desktop build target.");
 }
@@ -15,9 +17,6 @@ const { build } = JSON.parse(
 
 const acceptance = process.env.OPENMELD_DESKTOP_ACCEPTANCE === "1";
 if (acceptance) {
-  if (target.kind !== "disposable") {
-    throw new Error("Local Desktop acceptance requires the disposable target.");
-  }
   // Builder prioritizes these over Keychain profiles. Refuse mixed credentials.
   for (const name of [
     "APPLE_ID",

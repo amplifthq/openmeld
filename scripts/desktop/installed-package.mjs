@@ -1,10 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { runOwnedCommand } from "../dev/owned-command.mjs";
+import { readInstalledComputerEnvironment } from "./installed-computer-environment.ts";
 import { readInstalledDesktopTarget } from "./installed-target.ts";
 import { stageDesktopRenderer } from "./private-package.mjs";
 import { desktopWebBuildIdentity } from "./web-build-identity.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
+readInstalledComputerEnvironment(process.env);
 const target = readInstalledDesktopTarget(process.env);
 if (!target || process.platform !== "darwin" || process.arch !== "arm64") {
   throw new Error("Select an installed Desktop target on macOS Apple Silicon.");

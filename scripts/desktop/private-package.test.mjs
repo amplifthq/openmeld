@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -12,11 +12,65 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { readInstalledComputerEnvironment } from "./installed-computer-environment.ts";
 import { stageDesktopRenderer } from "./private-package.mjs";
 import { desktopWebBuildIdentity } from "./web-build-identity.mjs";
 
 const unavailable = /missing, incomplete, or stale/u;
 const symbolicLinks = /symbolic links/u;
+const requiredComputerLane =
+  /Desktop acceptance requires OPENMELD_DESKTOP_TEST_COMPUTER_HOME/u;
+
+test("acceptance packaging rejects a missing Computer lane before staging or signing", () => {
+  const env = {
+    ...process.env,
+    OPENMELD_DESKTOP_ACCEPTANCE: "1",
+    OPENMELD_DESKTOP_TARGET: "disposable",
+    OPENMELD_DESKTOP_TEST_WEB_ORIGIN: "http://wt-test.localhost:28290",
+    OPENMELD_DESKTOP_TEST_COMPUTER_HOME: "",
+    OPENMELD_DESKTOP_TEST_AUTH_ORIGIN: "",
+    OPENMELD_DESKTOP_TEST_GATEWAY_ORIGIN: "",
+  };
+  for (const entry of [
+    "./installed-package.mjs",
+    "../../clients/desktop/electron-builder.installed.config.mjs",
+  ]) {
+    const result = spawnSync(
+      process.execPath,
+      [new URL(entry, import.meta.url).pathname],
+      {
+        env,
+        encoding: "utf8",
+      }
+    );
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, requiredComputerLane);
+  }
+  assert.equal(
+    readInstalledComputerEnvironment({ OPENMELD_DESKTOP_TARGET: "disposable" }),
+    null
+  );
+  const configured = {
+    ...env,
+    OPENMELD_DESKTOP_TEST_COMPUTER_HOME: join(
+      tmpdir(),
+      "desktop-existing-lane"
+    ),
+    OPENMELD_DESKTOP_TEST_AUTH_ORIGIN: "http://wt-test.localhost:28291",
+    OPENMELD_DESKTOP_TEST_GATEWAY_ORIGIN: "http://wt-test.localhost:28292",
+  };
+  assert.deepEqual(readInstalledComputerEnvironment(configured), {
+    home: configured.OPENMELD_DESKTOP_TEST_COMPUTER_HOME,
+    auth: configured.OPENMELD_DESKTOP_TEST_AUTH_ORIGIN,
+    gateway: configured.OPENMELD_DESKTOP_TEST_GATEWAY_ORIGIN,
+  });
+  assert.throws(() =>
+    readInstalledComputerEnvironment({
+      ...configured,
+      OPENMELD_DESKTOP_TEST_AUTH_ORIGIN: "",
+    })
+  );
+});
 
 test("private staging rejects missing/stale Web builds and copies only local renderer output", () => {
   const root = mkdtempSync(join(tmpdir(), "desktop-package-stage-"));

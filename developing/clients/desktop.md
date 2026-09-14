@@ -164,6 +164,9 @@ disposable build must compile its already aligned test lane using
 non-loopback test endpoints. These native-only values never enter the renderer
 bridge or come from its launch environment. A build without that configuration
 cannot connect a computer; it never creates a separate GUI-owned Service home.
+The explicit `desktop:package:acceptance` entry requires all three values before
+staging or building. Direct acceptance builder invocation enforces the same
+build-time validation before signing or notarization.
 
 Computer pages retain the shared connection and per-local-agent projections.
 Native background controls are folded and appear only for a positively matching
