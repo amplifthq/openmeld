@@ -2,6 +2,7 @@
 import { cn } from "@openmeld/ui/lib/utils";
 import { useQuery } from "@tanstack/react-query";
 import { useMatches } from "@tanstack/react-router";
+import { useInboxAttention } from "#/components/inbox/use-inbox-attention";
 import { useCenterAgentConversationIntentPrefetch } from "#/components/organizations/use-center-agent-conversation-intent-prefetch";
 import { useAccountAvatar } from "#/hooks/account.hooks";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
@@ -34,6 +35,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 		select: resolveAppOuterRailDestinationFromMatches,
 	});
 	const { currentOrganization } = useAppOrganization();
+	const inboxAttention = useInboxAttention(currentOrganization.id);
 	const { defaultHumanProfile } = useDefaultHumanProfile();
 	const { data: currentAccountAvatar } = useAccountAvatar();
 	const accountAvatarImage = currentAccountAvatar?.avatar ?? null;
@@ -81,6 +83,7 @@ export function AppOuterRail({ account }: { account: AppOuterRailAccount }) {
 				>
 					{buildAppRailGroups({
 						orgSlug: currentOrganization.slug,
+						inboxAttention,
 						centerAgentUnreadCount: Math.max(0, center.data?.unreadCount ?? 0),
 						spacesUnreadCount: Math.max(
 							0,

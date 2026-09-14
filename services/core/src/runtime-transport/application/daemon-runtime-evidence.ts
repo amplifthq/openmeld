@@ -23,7 +23,7 @@ export function validateDaemonDispatchRuntimeEvidence(input: {
 }
 
 export function validateDaemonDispatchToolActivityIdentity(input: {
-  activity: RuntimeTransportDispatchToolActivityRequest;
+  activity: Omit<RuntimeTransportDispatchToolActivityRequest, "part">;
   state: RuntimeTransportMutableState;
   webSocket: WebSocket;
 }): ReturnType<typeof validateDaemonDispatchProgressIdentity> {
@@ -48,7 +48,7 @@ function validateDaemonDispatchProgressIdentity(input: {
   connectionGenerationPolicy: "allow_owned_reconnect" | "require_current";
   progress:
     | RuntimeTransportDispatchRuntimeEvidenceRequest
-    | RuntimeTransportDispatchToolActivityRequest;
+    | Omit<RuntimeTransportDispatchToolActivityRequest, "part">;
   state: RuntimeTransportMutableState;
 }): {
   ok: boolean;

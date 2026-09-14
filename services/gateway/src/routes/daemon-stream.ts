@@ -9,6 +9,7 @@ import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
+  OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
@@ -135,6 +136,9 @@ function forwardRecognizedLocalCapabilityHeaders(input: {
   source: Headers;
   target: Headers;
 }): void {
+  if (input.source.get(OPENMELD_REASONING_STREAM_HEADER) === "1") {
+    input.target.set(OPENMELD_REASONING_STREAM_HEADER, "1");
+  }
   if (
     input.source.get(OPENMELD_RUNTIME_CAPABILITIES_HEADER) ===
     COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY

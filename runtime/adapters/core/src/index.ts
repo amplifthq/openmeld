@@ -243,7 +243,17 @@ export type AdapterRuntimeEvent =
   | AdapterProviderConversationObservedEvent
   | AdapterProviderTurnAcceptedEvent
   | AdapterProviderUsageLimitsObservedEvent
-  | AdapterToolActivityEvent;
+  | AdapterToolActivityEvent
+  | AdapterReasoningEvent;
+
+/** Transient provider output. Never journal, log, or persist this event. */
+export type AdapterReasoningEvent = {
+  phase: "reasoning";
+  blockId: string;
+  text: string;
+  mode: "append" | "snapshot";
+  tsMs: number;
+};
 export type AdapterRuntimeEventCallback = (
   event: AdapterRuntimeEvent
 ) => Promise<void> | void;

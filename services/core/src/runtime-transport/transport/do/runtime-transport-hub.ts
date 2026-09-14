@@ -21,6 +21,7 @@ import {
   computerFileAccessPolicyResultSchema,
   daemonStreamFrameSchema,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
+  localAgentReasoningPreferencesSchema,
   localFolderPickerDaemonFrameSchema,
   localFolderPickerResultSchema,
   localProjectControlConnectResultSchema,
@@ -30,6 +31,7 @@ import {
   localProjectControlRemoveMissingConnectionsResultSchema,
   localProjectControlSetDefaultConnectionResultSchema,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
+  OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   openMeldToolsControlResultSchema,
   postSpaceDispatchOutboxRedriveBodySchema,
@@ -77,6 +79,7 @@ import {
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportForkAgentSessionRequestSchema,
@@ -152,6 +155,8 @@ import type {
   ComputerFileAccessErrorResponse,
   DaemonServiceLane,
   DaemonStreamFrame,
+  LocalAgentReasoningPreferences,
+  LocalAgentReasoningPreferencesRpc,
   LocalComponentsReleaseManifest,
   LocalWakeRouteReport,
   OpenMeldDaemonCancelPayload,
@@ -206,6 +211,7 @@ import type {
   RuntimeTransportDispatchLifecycleRequest,
   RuntimeTransportDispatchPreviewEndRequest,
   RuntimeTransportDispatchPreviewRequest,
+  RuntimeTransportDispatchReasoningRequest,
   RuntimeTransportDispatchRuntimeEvidenceRequest,
   RuntimeTransportDispatchToolActivityRequest,
   RuntimeTransportForkAgentSessionResult,
@@ -1463,6 +1469,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     ExpectedRouteReconciliationReadCacheState
   >();
   private readonly orderedDispatchFrameTails = new Map<string, Promise<void>>();
+  private readonly pendingReasoningDispatches = new Set<string>();
   private readonly runtimeCoordinatorFinalizationTails = new Map<
     string,
     Promise<void>
@@ -1472,10 +1479,47 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     Promise<RuntimeCoordinatorFinalizationRecoveryResult>
   >();
   private scheduledHousekeepingAlarmAtMs: number | null | undefined;
+  private reasoningStreamEnabled = true;
+
+  async rpcReasoningPreferences(
+    input: Omit<LocalAgentReasoningPreferencesRpc, "context">
+  ): Promise<LocalAgentReasoningPreferences> {
+    if (input.enabled !== undefined) {
+      const preference = localAgentReasoningPreferencesSchema.parse(input);
+      await this.ctx.storage.put(
+        "local-agent-reasoning-preferences",
+        preference
+      );
+      this.reasoningStreamEnabled = preference.enabled;
+      for (const session of this.state.sessionsById.values()) {
+        if (session.socket) {
+          this.sendReasoningPreference(session.socket);
+        }
+      }
+    }
+    return { enabled: this.reasoningStreamEnabled };
+  }
+
+  private sendReasoningPreference(socket: WebSocket): void {
+    if (readRuntimeTransportSocketAttachment(socket).reasoningStream) {
+      this.sendFrame(socket, {
+        code: "daemon.reasoning.preferences",
+        payload: { enabled: this.reasoningStreamEnabled },
+      });
+    }
+  }
 
   constructor(ctx: DurableObjectState, env: CoreBindings) {
     super(ctx, env);
     this.ctx.blockConcurrencyWhile(async () => {
+      const reasoningPreference = await this.ctx.storage.get(
+        "local-agent-reasoning-preferences"
+      );
+      this.reasoningStreamEnabled =
+        reasoningPreference === undefined
+          ? true
+          : localAgentReasoningPreferencesSchema.parse(reasoningPreference)
+              .enabled;
       const restoredRecords = await restoreServiceRuntimeRecords(
         this.ctx,
         this.state
@@ -2862,6 +2906,53 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         );
         return;
       }
+      case "daemon.dispatch.reasoning": {
+        const parsed = runtimeTransportDispatchReasoningRequestSchema.safeParse(
+          frame.payload
+        );
+        if (!parsed.success) {
+          return;
+        }
+        const dispatchId = parsed.data.dispatchId;
+        if (parsed.data.reasoningState.status !== "streaming") {
+          this.enqueueOrderedDispatchFrame({
+            payload: parsed.data,
+            onError: () => undefined,
+            run: () =>
+              this.handleDispatchToolActivityFrame(
+                webSocket,
+                { ...parsed.data, thinkingSnapshot: "" },
+                true
+              ),
+          });
+          return;
+        }
+        // Every frame is a complete bounded snapshot. Drop intermediate frames
+        // while delivery is busy rather than queueing private text behind it.
+        if (
+          this.pendingReasoningDispatches.size >= 128 ||
+          this.pendingReasoningDispatches.has(dispatchId)
+        ) {
+          return;
+        }
+        this.pendingReasoningDispatches.add(dispatchId);
+        this.enqueueOrderedDispatchFrame({
+          payload: frame.payload,
+          onError: () => this.pendingReasoningDispatches.delete(dispatchId),
+          run: async () => {
+            try {
+              await this.handleDispatchToolActivityFrame(
+                webSocket,
+                frame.payload,
+                true
+              );
+            } finally {
+              this.pendingReasoningDispatches.delete(dispatchId);
+            }
+          },
+        });
+        return;
+      }
       case "daemon.dispatch.tool_activity": {
         this.enqueueOrderedDispatchFrame({
           onError: (error) => {
@@ -3089,6 +3180,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       code: "daemon.session.register",
       payload: response,
     });
+    if (response.ok) {
+      this.sendReasoningPreference(webSocket);
+    }
     if (parsed.data.ownerUserId === verifiedOwnerUserId) {
       const profileIds =
         response.ok && isSameSocketReRegister
@@ -8272,10 +8366,14 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
 
   private async handleDispatchToolActivityFrame(
     webSocket: WebSocket,
-    payload: unknown
+    payload: unknown,
+    reasoning = false
   ): Promise<void> {
-    const parsed =
-      runtimeTransportDispatchToolActivityRequestSchema.safeParse(payload);
+    const parsed = (
+      reasoning
+        ? runtimeTransportDispatchReasoningRequestSchema
+        : runtimeTransportDispatchToolActivityRequestSchema
+    ).safeParse(payload);
     if (!parsed.success) {
       this.sendErrorFrame(webSocket, {
         code: "schema.invalid",
@@ -8283,7 +8381,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    const activity: RuntimeTransportDispatchToolActivityRequest = parsed.data;
+    const activity = parsed.data;
     const pending = this.state.pendingDispatches.get(
       buildDispatchAttemptKey(activity.dispatchId, activity.attemptId)
     );
@@ -8363,6 +8461,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
 
+    await this.publishDispatchLiveActivity(webSocket, pending, activity);
+  }
+
+  private async publishDispatchLiveActivity(
+    webSocket: WebSocket,
+    pending: PendingDispatchState,
+    activity:
+      | RuntimeTransportDispatchToolActivityRequest
+      | RuntimeTransportDispatchReasoningRequest
+  ): Promise<void> {
     const spaceStub = resolveSpaceStub(
       this.env.OPENMELD_SPACES,
       pending.spaceId
@@ -8381,10 +8489,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
       return;
     }
-    const result = await spaceStub.rpcApplyAgentStreamPart({
+    const streamIdentity = {
       v: 1,
       dispatchId: pending.dispatchId,
-      part: activity.part,
       profileId: pending.profileId,
       sequence: activity.sequence,
       spaceId: pending.spaceId,
@@ -8393,7 +8500,30 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         dispatchId: pending.dispatchId,
       }),
       triggerMessageId: pending.sourceSignalId,
-    });
+    } as const;
+    // Authorization above awaits other owners; a privacy change can interleave.
+    if ("thinkingSnapshot" in activity && !this.reasoningStreamEnabled) {
+      activity.thinkingSnapshot = "";
+      activity.reasoningState = { status: "disabled" };
+    }
+    if (
+      "thinkingSnapshot" in activity &&
+      activity.reasoningState.status !== "streaming"
+    ) {
+      activity.thinkingSnapshot = "";
+    }
+    const result =
+      "thinkingSnapshot" in activity
+        ? await spaceStub.rpcApplyAgentStreamDelta({
+            ...streamIdentity,
+            kind: "thinking",
+            thinkingSnapshot: activity.thinkingSnapshot,
+            reasoningState: activity.reasoningState,
+          })
+        : await spaceStub.rpcApplyAgentStreamPart({
+            ...streamIdentity,
+            part: activity.part,
+          });
     if (result.status === "rejected") {
       console.warn("[core.runtime_transport.tool_activity_rejected]", {
         attemptId: activity.attemptId,
@@ -8406,6 +8536,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         code: "schema.invalid",
         message: "dispatch tool activity rejected",
       });
+      return;
+    }
+    if ("thinkingSnapshot" in activity) {
       return;
     }
     console.info("[core.runtime_transport.tool_activity_applied]", {
@@ -9789,6 +9922,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      reasoningStream:
+        request.headers.get(OPENMELD_REASONING_STREAM_HEADER) === "1",
       computerFileAccessCapability:
         request.headers.get(OPENMELD_RUNTIME_CAPABILITIES_HEADER) ===
         COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY

@@ -185,10 +185,10 @@ describe("onboarding progress", () => {
 				currentOrganizationSlug: "acme",
 				progress,
 			})
-		).toBe("/o/acme");
+		).toBe("/o/acme/spaces");
 	});
 
-	it("opens Home after a setup with no prior destination", () => {
+	it("opens Spaces after a setup with no prior destination", () => {
 		const progress = completeOnboardingProgress({
 			current: createInitialOnboardingProgress({ nowMs: 1 }),
 			nowMs: 2,
@@ -199,6 +199,6 @@ describe("onboarding progress", () => {
 				currentOrganizationSlug: "acme",
 				progress,
 			})
-		).toBe("/o/acme");
+		).toBe("/o/acme/spaces");
 	});
 });

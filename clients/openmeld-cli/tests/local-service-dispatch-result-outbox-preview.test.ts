@@ -1351,10 +1351,12 @@ describe("dispatch result outbox around preview teardown", () => {
           { timeout: CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS }
         );
         expect(carrierReleased).toBe(false);
+        expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(1);
       } finally {
         finishRuntime(createRuntimeSuccessResult());
       }
       const result = await carrierResult;
+      expect(currentSocketRef.reasoningPreferenceListeners?.size).toBe(0);
 
       stdoutSpy.mockRestore();
       expect(result).toEqual({

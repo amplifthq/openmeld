@@ -11,6 +11,7 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
+import { TeamSidebarHeader } from "#/components/directory/team-sidebar-header";
 import type {
 	InnerSidebarPreferenceKey,
 	SidebarPersistedState,
@@ -46,7 +47,7 @@ export function AppFullWidthLayout(input: {
 			moduleNavigation={
 				input.mainSidebarContent ? (
 					<>
-						<h2 className="mb-4 px-1 font-medium text-sm">Team</h2>
+						<TeamSidebarHeader />
 						{input.mainSidebarContent}
 					</>
 				) : undefined

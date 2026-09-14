@@ -216,12 +216,17 @@ import {
 } from "./parse-dispatch-task";
 import { buildDispatchPromptTrace } from "./prompt-trace";
 import {
+  createReasoningStream,
+  routeReasoningEvents,
+} from "./reasoning-stream";
+import {
   buildFailedTaskResultPayload,
   resolveDispatchResultPayload,
   sendDispatchInteractionRequestFrame,
   sendDispatchLifecycleFrame,
   sendDispatchPreviewEndFrame,
   sendDispatchPreviewFrame,
+  sendDispatchReasoningFrame,
   sendDispatchRuntimeEvidenceFrame,
   sendDispatchToolActivityFrame,
 } from "./send-dispatch-result";
@@ -1002,6 +1007,90 @@ export async function handleDispatchDeliverFrame(input: {
     taskId: parsedTask.taskId,
   });
   const runtimeStartedAtMs = Date.now();
+  let agentToolActivitySequence = 0;
+  let firstReasoningMs: number | undefined;
+  const sendReasoning = (
+    thinkingSnapshot: string,
+    observedAtMs: number,
+    status: "streaming" | "waiting" | "disabled" = "streaming"
+  ) => {
+    const socket = currentSocketRef.socket;
+    if (
+      runtimeControllerSupport.runtimeAdapterMatch.adapterId === "openclaw" ||
+      !socket ||
+      currentSocketRef.reasoningStreamEnabled === undefined ||
+      (status === "streaming" && (socket.bufferedAmount ?? 0) > 64 * 1024)
+    ) {
+      return;
+    }
+    try {
+      sendDispatchReasoningFrame({
+        socket,
+        thinkingSnapshot,
+        observedAtMs,
+        reasoningState: {
+          status,
+          ...(firstReasoningMs !== undefined
+            ? { firstOutputMs: firstReasoningMs }
+            : {}),
+        },
+        sequence: ++agentToolActivitySequence,
+        attemptId: parsedTask.attemptId,
+        dispatchId: parsedTask.dispatchId,
+        daemonSessionId: input.daemonSessionId,
+        connectionGeneration: resolveCurrentConnectionGeneration({
+          currentSocketRef,
+          fallbackConnectionGeneration:
+            input.deliverRequest.connectionGeneration,
+        }),
+        executionIdentityEcho: toRuntimeTransportRuntimeEvidenceIdentityEcho(
+          input.deliverRequest
+        ),
+        executionTokenEcho: parsedTask.executionTokenEcho,
+        leaseEpoch: input.deliverRequest.leaseEpoch,
+        runtimeCoordinatorExecutionId: parsedTask.runtimeCoordinatorExecutionId,
+        sourceSignalId: parsedTask.sourceEventId,
+        spaceId: parsedTask.spaceId,
+        targetProfileId: parsedTask.targetProfileId,
+        taskId: parsedTask.taskId,
+      });
+    } catch {
+      // Live delivery is best effort; never log its content or fail the run.
+    }
+  };
+  const reasoningStream = createReasoningStream({
+    enabled: () =>
+      currentSocketRef.reasoningStreamEnabled === true &&
+      currentSocketRef.socket !== null,
+    send: sendReasoning,
+  });
+  const clearReasoning = () => {
+    reasoningStream.clear();
+    sendReasoning(
+      "",
+      Date.now(),
+      currentSocketRef.reasoningStreamEnabled ? "waiting" : "disabled"
+    );
+  };
+  currentSocketRef.reasoningPreferenceListeners ??= new Set();
+  currentSocketRef.reasoningPreferenceListeners.add(clearReasoning);
+  const observeReasoning = (
+    event: Extract<AdapterRuntimeEvent, { phase: "reasoning" }>
+  ) => {
+    if (firstReasoningMs === undefined && event.text.length > 0) {
+      firstReasoningMs = Math.max(0, event.tsMs - runtimeStartedAtMs);
+      emitRunLine({
+        presenter: input.presenter,
+        code: "daemon.run.reasoning_first_output",
+        text: "Local Agent produced its first reasoning output.",
+        payload: {
+          dispatchId: parsedTask.dispatchId,
+          firstOutputMs: firstReasoningMs,
+        },
+      });
+    }
+    reasoningStream.observe(event);
+  };
   const daemonWorkingDirectory = process.cwd();
   let dispatchRuntimeContext: ProviderDispatchRuntimeContext | null = null;
   let effectiveRuntimeContext: ProviderDispatchRuntimeContext | null = null;
@@ -1465,7 +1554,6 @@ export async function handleDispatchDeliverFrame(input: {
       });
       return agentControllerConversationId;
     };
-    let agentToolActivitySequence = 0;
     let usageObservationAuthPromise: ReturnType<
       typeof probeAgentControllerUsageObservationAuth
     > | null = null;
@@ -1515,6 +1603,7 @@ export async function handleDispatchDeliverFrame(input: {
         result: "accepted",
       });
     };
+    clearReasoning();
     const runtimeExecutionPromise = Promise.resolve(
       runDispatchRuntimeExecution({
         computerFileAccessBoundary,
@@ -1536,7 +1625,7 @@ export async function handleDispatchDeliverFrame(input: {
             taskId: parsedTask.taskId,
           });
         },
-        onRuntimeEvent: (event) => {
+        onRuntimeEvent: routeReasoningEvents(observeReasoning, (event) => {
           syncAgentControllerConversationOccupancyLifecycle(event);
           syncProviderTurnAcceptedLifecycle(event);
           if (event.phase === "tool_activity") {
@@ -1680,7 +1769,7 @@ export async function handleDispatchDeliverFrame(input: {
             targetProfileId: parsedTask.targetProfileId,
             taskId: parsedTask.taskId,
           });
-        },
+        }),
         parsedTask,
         instructionPrompt: runtimePromptPlan,
         prompt: runtimePromptPlan.fallbackPrompt,
@@ -2059,6 +2148,8 @@ export async function handleDispatchDeliverFrame(input: {
     });
   } finally {
     await nativeQuiescence;
+    reasoningStream.dispose();
+    currentSocketRef.reasoningPreferenceListeners?.delete(clearReasoning);
     lifecycleKeepalive.stop?.();
     lifecycleKeepalive.stop = null;
     input.inflightDispatchMetaByTaskId.delete(parsedTask.taskId);

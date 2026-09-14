@@ -26,6 +26,7 @@ import type {
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   RemoteAgentTurnEnvelope,
   RemoteAgentWorkerSubmitTurnRequest,
+  ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -9606,6 +9607,7 @@ type BuildEnvOptions = {
 };
 
 type TestSpaceStub = {
+  rpcResolveNativeReplyPlacement: ReturnType<typeof vi.fn>;
   rpcPostExecutionRecoveryNoticeSignal: ReturnType<typeof vi.fn>;
   rpcCloseAgentStream: ReturnType<typeof vi.fn>;
   rpcGetMeta: ReturnType<typeof vi.fn>;
@@ -9663,6 +9665,15 @@ function buildEnv(
     };
   };
   const spaceStub: TestSpaceStub = {
+    rpcResolveNativeReplyPlacement: vi.fn(
+      async (input: ResolveNativeReplyPlacementInput) => ({
+        dispatchId: input.dispatchId,
+        sourceSignalId: input.sourceSignalId,
+        profileId: input.profileId,
+        threadContext: THREAD_CONTEXT,
+        locked: input.lock,
+      })
+    ),
     rpcCloseAgentStream: vi.fn(async () => null),
     rpcGetMeta: vi.fn(() => {
       const guide =

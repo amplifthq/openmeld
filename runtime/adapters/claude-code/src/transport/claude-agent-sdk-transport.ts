@@ -128,6 +128,33 @@ function resolveCanonicalRepairSessionId(input: {
   return normalizeOptionalText(input.sessionId);
 }
 
+async function observeClaudeReasoning(
+  message: SDKMessage,
+  messageId: string,
+  onRuntimeEvent?: AdapterRuntimeEventCallback
+): Promise<string> {
+  if (message.type !== "stream_event") {
+    return messageId;
+  }
+  const event = message.event;
+  if (event.type === "message_start") {
+    return event.message.id;
+  }
+  if (
+    event.type === "content_block_delta" &&
+    event.delta.type === "thinking_delta"
+  ) {
+    await onRuntimeEvent?.({
+      phase: "reasoning",
+      blockId: `${messageId}:${event.index}`,
+      text: event.delta.thinking,
+      mode: "append",
+      tsMs: Date.now(),
+    });
+  }
+  return messageId;
+}
+
 export async function invokeClaudeAgentSdkTransport(input: {
   executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
@@ -197,6 +224,7 @@ export async function invokeClaudeAgentSdkTransport(input: {
     queryRuntime = createQuery({
       options: buildClaudeAgentSdkOptions({
         executionContext: input.executionContext,
+        onRuntimeEvent: input.onRuntimeEvent,
         abortController,
         agentControllerPermissionMode: input.agentControllerPermissionMode,
         claudeWorkdir: input.claudeWorkdir,
@@ -231,7 +259,13 @@ export async function invokeClaudeAgentSdkTransport(input: {
       });
     }
 
+    let reasoningMessageId = "";
     for await (const message of queryRuntime) {
+      reasoningMessageId = await observeClaudeReasoning(
+        message,
+        reasoningMessageId,
+        input.onRuntimeEvent
+      );
       await emitClaudeCodeUsageLimits({
         message,
         onRuntimeEvent: input.onRuntimeEvent,
@@ -551,6 +585,7 @@ export async function resolveClaudeAgentSdkExecutable(input: {
 
 function buildClaudeAgentSdkOptions(input: {
   executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
   abortController: AbortController;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeWorkdir: string;
@@ -595,6 +630,7 @@ function buildClaudeAgentSdkOptions(input: {
       ...(input.env ?? {}),
     },
     includePartialMessages:
+      input.onRuntimeEvent !== undefined ||
       input.streamingMode === "stream" ||
       input.onInteractionRequest !== undefined,
     pathToClaudeCodeExecutable: input.pathToClaudeCodeExecutable,

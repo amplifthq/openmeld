@@ -45,7 +45,6 @@ type RemoteAgentTransientStreamState = {
   pendingKindOrder: RemoteAgentStreamDeltaKind[];
   pendingThinking: string;
   replaceTextSnapshotOnNextText: boolean;
-  thinkingProjectionDisabled: boolean;
   thinkingSnapshot: string;
 };
 
@@ -242,7 +241,6 @@ export function createRemoteAgentStreamPublisher(
       pendingThinking: "",
       replaceTextSnapshotOnNextText:
         state.textSnapshot.length > 0 || state.pendingText.length > 0,
-      thinkingProjectionDisabled: false,
       thinkingSnapshot: "",
     };
     transientStates.set(submissionId, transientState);
@@ -275,7 +273,12 @@ export function createRemoteAgentStreamPublisher(
       state,
       transientState,
     });
-    const snapshot = currentSnapshot + pendingDelta;
+    const snapshot =
+      kind === "thinking"
+        ? (currentSnapshot + pendingDelta).slice(
+            -AGENT_STREAM_SNAPSHOT_MAX_CHARS
+          )
+        : currentSnapshot + pendingDelta;
     if (
       pendingDelta.length > REMOTE_AGENT_STREAM_DELTA_MAX_CHARS ||
       snapshot.length > AGENT_STREAM_SNAPSHOT_MAX_CHARS
@@ -398,18 +401,6 @@ export function createRemoteAgentStreamPublisher(
         if (state.disabled || input.delta.length === 0) {
           return {
             status: state.disabled ? "disabled" : "buffered",
-            sequence: state.sequence,
-            streamId: state.streamId,
-          };
-        }
-        if (
-          input.kind === "thinking" &&
-          transientState.thinkingProjectionDisabled
-        ) {
-          return {
-            contentKind: "thinking",
-            deltaLength: input.delta.length,
-            status: "dropped",
             sequence: state.sequence,
             streamId: state.streamId,
           };
@@ -537,30 +528,18 @@ function appendPendingRemoteAgentStreamDelta(input: {
   transientState: RemoteAgentTransientStreamState;
 }): void {
   if (input.kind === "thinking") {
-    if (input.transientState.thinkingProjectionDisabled) {
-      return;
-    }
     if (input.transientState.pendingThinking.length === 0) {
       input.transientState.pendingKindOrder.push(input.kind);
     }
-    input.transientState.pendingThinking += input.delta;
+    input.transientState.pendingThinking = (
+      input.transientState.pendingThinking + input.delta
+    ).slice(-REMOTE_AGENT_STREAM_DELTA_MAX_CHARS);
     return;
   }
   if (input.state.pendingText.length === 0) {
     input.transientState.pendingKindOrder.push(input.kind);
   }
   input.state.pendingText += input.delta;
-}
-
-function disableRemoteAgentThinkingProjection(
-  transientState: RemoteAgentTransientStreamState
-): void {
-  transientState.pendingKindOrder = transientState.pendingKindOrder.filter(
-    (kind) => kind !== "thinking"
-  );
-  transientState.pendingThinking = "";
-  transientState.thinkingProjectionDisabled = true;
-  transientState.thinkingSnapshot = "";
 }
 
 async function handleRemoteAgentStreamLimitExceeded(input: {
@@ -570,17 +549,6 @@ async function handleRemoteAgentStreamLimitExceeded(input: {
   storage: RemoteAgentStorage;
   transientState: RemoteAgentTransientStreamState;
 }): Promise<RemoteAgentStreamPublishResult> {
-  if (input.kind === "thinking") {
-    disableRemoteAgentThinkingProjection(input.transientState);
-    return {
-      contentKind: "thinking",
-      deltaLength: input.pendingDelta.length,
-      status: "dropped",
-      sequence: input.state.sequence,
-      streamId: input.state.streamId,
-    };
-  }
-
   input.state.disabled = true;
   input.state.pendingText = "";
   input.transientState.pendingKindOrder = [];
@@ -622,18 +590,6 @@ function resolveRemoteAgentStreamEarlyResult(input: {
   if (input.state.disabled) {
     return {
       status: "disabled",
-      sequence: input.state.sequence,
-      streamId: input.state.streamId,
-    };
-  }
-  if (
-    input.kind === "thinking" &&
-    input.transientState.thinkingProjectionDisabled
-  ) {
-    return {
-      contentKind: "thinking",
-      deltaLength: input.pendingDelta.length,
-      status: "dropped",
       sequence: input.state.sequence,
       streamId: input.state.streamId,
     };

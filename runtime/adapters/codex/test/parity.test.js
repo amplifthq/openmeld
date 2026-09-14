@@ -1380,6 +1380,8 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
     ).params;
     assert.equal("model" in turnStartParams, false);
     assert.equal("effort" in turnStartParams, false);
+    // Official App Server TurnStartParams: summaries must be requested explicitly.
+    assert.equal(turnStartParams.summary, "auto");
     assert.deepEqual(
       runtimeEvents
         .filter((event) => event.phase === "provider_conversation_observed")

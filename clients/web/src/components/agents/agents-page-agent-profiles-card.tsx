@@ -3255,14 +3255,13 @@ function useAgentProfileCurrentSession(input: {
 	detailsOpen: boolean;
 	organizationId: string;
 	organizationSlug: string;
-	presentation: "cards" | "detail" | undefined;
 	primaryNativeSessionId: string | null;
 }) {
 	const currentSessionQuery = useQuery(
 		agentActivitySessionsQueryOptions({
 			enabled:
 				input.canManage &&
-				(input.presentation === "detail" || input.detailsOpen) &&
+				input.detailsOpen &&
 				Boolean(input.primaryNativeSessionId),
 			limit: 1,
 			nativeSessionId: input.primaryNativeSessionId ?? undefined,
@@ -3333,7 +3332,6 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 		detailsOpen: dialogs.state.detailsOpen,
 		organizationId: input.organizationId,
 		organizationSlug: currentOrganization.slug,
-		presentation: input.presentation,
 		primaryNativeSessionId: input.primaryNativeSessionId,
 	});
 	const { runtime, runtimeControllerLabel } = resolveAgentProfileRowRuntime({
@@ -3351,7 +3349,6 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 					eligibility.controllerChangeEligibilityStatus
 				}
 				controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
-				currentSession={currentSessionLink}
 				input={input}
 				onOpenChange={{
 					details: dialogs.setDetailsOpen,
@@ -3604,12 +3601,6 @@ function AgentProfileCardEditAction(input: {
 function AgentProfileWorkspacePresentation(input: {
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeStatusLabel: string | null;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
 	input: Parameters<typeof AgentProfileRowMoreMenu>[0];
 	onOpenChange: {
 		details: (open: boolean) => void;
@@ -3761,7 +3752,6 @@ function AgentProfileWorkspacePresentation(input: {
 				}
 				controllerModelSummary={controllerModelSummary}
 				conversationViewerProfileId={input.input.actorProfileId}
-				currentSession={input.currentSession}
 				details={input.input.details}
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}
 				isDirectMessagePending={input.input.pendingState.directMessage}

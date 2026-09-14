@@ -6,6 +6,7 @@ import type {
 } from "@openmeld/local-service";
 import {
   daemonStreamFrameSchema,
+  localAgentReasoningPreferencesSchema,
   RUNTIME_TRANSPORT_SCHEMA_VERSION,
   runtimeTransportDispatchInteractionDeliveredRequestSchema,
   runtimeTransportDispatchInteractionResponseFramePayloadSchema,
@@ -341,6 +342,23 @@ function handleDispatchInteractionResponse(input: {
   });
 }
 
+function applyReasoningPreference(
+  ref: CurrentDaemonSocketRef,
+  payload: unknown
+): void {
+  const preference = localAgentReasoningPreferencesSchema.safeParse(payload);
+  if (
+    !preference.success ||
+    ref.reasoningStreamEnabled === preference.data.enabled
+  ) {
+    return;
+  }
+  ref.reasoningStreamEnabled = preference.data.enabled;
+  for (const listener of ref.reasoningPreferenceListeners ?? []) {
+    listener();
+  }
+}
+
 export function handleDaemonSocketFrame(input: {
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
@@ -363,6 +381,13 @@ export function handleDaemonSocketFrame(input: {
   waiters: PendingFrameWaiters;
 }): void {
   switch (input.parsedFrame.code) {
+    case "daemon.reasoning.preferences": {
+      applyReasoningPreference(
+        input.currentSocketRef,
+        input.parsedFrame.payload
+      );
+      return;
+    }
     case "daemon.session.register":
       resolveRegisterResponseFrame({
         payload: input.parsedFrame.payload,

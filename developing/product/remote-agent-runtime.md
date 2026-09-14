@@ -1301,9 +1301,12 @@ worker sends the authenticated gateway token plus that exact
 tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
-The repo-owned `center-agent` catalog exposes GLM 5.3 Flash, Grok 4.6, Grok
-4.5, and DeepSeek V4 Flash, with GLM 5.3 Flash as the OpenMeld default since
-2026-08-27. Core resolves a complete immutable route for each new turn. The
+The repo-owned `center-agent` catalog exposes curated models from OpenAI,
+Anthropic, Google, DeepSeek, xAI, and Z.ai, with GLM 5.3 Flash as the OpenMeld
+default since 2026-08-27. The exact selection and captured metadata are owned by
+[Agent Profile Model Selection](agent-model-selection.md#55-hosted-center-agent-catalog).
+These are model vendors; all hosted routes still use OpenRouter. Core resolves
+a complete immutable route for each new turn. The
 route contains the exact OpenRouter model id, friendly display name, input
 modalities, context window, output budget, reasoning level, catalog timestamp,
 preference kind, auxiliary image-understanding model, and
@@ -1670,8 +1673,11 @@ final-outcome authority.
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
 typed stream callback. Text WebSocket frames keep their legacy shape. Web also
-ignores any legacy thinking frame so a stale producer cannot expose private
-reasoning. Rollback removes the Remote Agent producer before Core or Web
+renders provider-emitted thinking in the same transient Thinking + Reasoning
+component used for Local Agents. Center Agent and Remote Agent conversations
+share its bounded viewport, manual scroll control, and reduced-motion behavior.
+Thinking keeps a bounded latest tail during long turns and never enters persisted
+stream state or final message metadata. Rollback removes the Remote Agent producer before Core or Web
 consumers.
 
 Workstation Local Agents may use the same downstream Space tool-part and

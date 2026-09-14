@@ -9,7 +9,10 @@ const OrganizationInviteDialog = lazy(() =>
 	}))
 );
 
-export function useOrganizationInviteEntry(closeMenu: () => void) {
+export function useOrganizationInviteEntry(
+	closeMenu: () => void,
+	label = "Invite people"
+) {
 	const [open, setOpen] = useState(false);
 	const context = useOptionalAppOrganization();
 	const available = context && !context.currentOrganization.isPersonal;
@@ -24,7 +27,7 @@ export function useOrganizationInviteEntry(closeMenu: () => void) {
 				}}
 			>
 				<UserPlusIcon />
-				Invite people
+				{label}
 			</FluidDropdownMenuItem>
 		) : null,
 		dialog:

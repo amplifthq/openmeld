@@ -1336,7 +1336,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("[S24] shows that the current Agent is waiting when its current task is occupied", async () => {
+	it("[S24] shows a session wait without claiming an active task", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1397,7 +1397,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("img", {
-				name: "Waiting for Clico Codex’s current task",
+				name: "Waiting for Clico Codex’s session",
 			})
 		).toBeTruthy();
 		expect(

@@ -221,6 +221,10 @@ change must leave those signals cleaner and less ambiguous.
 - Commit hooks check staged files; development push hooks must pass focused
   checks on the exact clean commit. Do not bypass failures. Keep PRs draft while
   developing; mark ready only after risk-appropriate behavior validation.
+- Before handing off a PR, map fully resolved issues to closing keywords in its
+  description and verify GitHub's closing links. Follow the issue-linking rules
+  in `developing/engineering/agent-native-delivery.md`; comments alone do not
+  enable automatic closure, and partial fixes must not close an issue.
 - Standard Final Candidate certifies identity, trusted control, repository
   contracts, and path-owned database/release readiness; it does not repeat broad
   workspace tests. The commands, rationale, and batch flow live only in

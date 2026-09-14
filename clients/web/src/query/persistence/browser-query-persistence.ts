@@ -1,5 +1,6 @@
 import {
 	getCenterAgentDirectMessageSpaceProjectionResponseSchema,
+	listSpaceThreadsResponseSchema,
 	organizationSpaceDirectoryWithMemberCountsResponseSchema,
 	signalEnvelopeSchema,
 } from "@openmeld/schemas";
@@ -31,6 +32,7 @@ import { spaceConversationDisplaySnapshotSchema } from "#/query/spaces/display-s
 import {
 	mergeSpaceHistorySnapshots,
 	SPACE_SAVED_HISTORY_MAX_BYTES,
+	SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES,
 } from "#/query/spaces/history";
 import { spaceMemberDirectoryDisplaySchema } from "#/query/spaces/member-directory-display";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -897,6 +899,13 @@ async function restoreAndSubscribe(input: {
 }
 
 const spaceHistorySnapshotSchema = z.strictObject({
+	threadDisplay: listSpaceThreadsResponseSchema
+		.refine(
+			(snapshot) =>
+				new TextEncoder().encode(JSON.stringify(snapshot)).byteLength <=
+				SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES
+		)
+		.optional(),
 	envelopes: z
 		.array(signalEnvelopeSchema)
 		.refine(

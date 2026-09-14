@@ -196,6 +196,19 @@ or tombstone.
 
 The first release creates items for these explicit user-visible events:
 
+Thread reply updates are scoped to current members who authored the root or a
+retained reply, including the current owners of participating personal Agents.
+Space membership, viewing a thread, and owning a nonparticipating Agent do not
+subscribe a person. This audience restriction also applies to explicit mentions
+inside thread replies; main-timeline addressing keeps its existing audience.
+
+A changed reaction addition to a Human member's message creates one ordinary
+unread update for that message's current Human owner, excluding self-reactions.
+This applies to main messages and thread replies independently of participation.
+The item links to the reacted message, uses the reaction time, and follows normal
+Inbox notification preferences. Removal does not create another notification;
+adding it again creates a new event. Existing delivered items remain history.
+
 1. A visible Space message, including a Human member's own messages published
    through CLI or automation without an explicit author read confirmation,
    with a targeted reply or
@@ -474,6 +487,28 @@ client clock suppress later messages. Reading never resolves unfinished source
 work.
 Opening the exact Inbox item marks that item read and deep-links to its source
 Signal in the same conversation.
+
+Main-conversation unread navigation uses one chronological shortcut for updates
+outside the viewport, combining targets above and below. It reveals the first
+unread target and dismisses that observed navigation batch after a successful
+jump; dismissal does not write a read watermark. A new event can show the
+shortcut again. The bottom history control returns to the latest messages and
+does not repeat unread counts. There is no per-message clicking requirement.
+
+For a thread target, this shortcut reveals and briefly highlights its root
+message in the main conversation without opening the thread panel. A thread
+with recipient-specific unread targets has a blue **Open thread** entry with
+an unread count; the count includes replies and reactions, so it is not labeled
+as a count of new replies. Explicitly opening that entry focuses its first
+unread target. Reading the main root or its preview never acknowledges hidden
+thread replies. Thread deep links from Inbox still open the exact thread.
+
+This uses Slack's separation of conversation navigation, thread attention, and
+read actions as a precedent, not an identical default: Slack offers immediate
+mark-as-read on conversation entry and includes mentioned users in thread
+notifications. OpenMeld preserves participant-only recipients and the visible
+read-through contract above. References: [Slack read preferences](https://slack.com/help/articles/360043037853-Manage-your-Mark-as-Read-preference)
+and [Slack threads](https://slack.com/help/articles/115000769927-Use-threads-to-organize-discussions).
 
 The Center Agent may create an explicit response request only for the verified
 member in the current OpenMeld Space conversation. `response_needed` is a

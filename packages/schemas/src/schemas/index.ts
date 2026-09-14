@@ -1,5 +1,13 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 export {
+  LOCAL_AGENT_REASONING_MAX_CHARS,
+  localAgentReasoningPreferencesRpcSchema,
+  localAgentReasoningPreferencesSchema,
+  localAgentReasoningStateSchema,
+  OPENMELD_REASONING_STREAM_HEADER,
+} from "./http/local-agent-reasoning";
+
+export {
   HUMAN_PRESENCE_HEARTBEAT_MS,
   HUMAN_PRESENCE_IDLE_MS,
   HUMAN_PRESENCE_LEASE_MS,
@@ -574,6 +582,7 @@ export {
   runtimeTransportDispatchLifecycleSnapshotSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidencePhaseSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchSourceSignalSchema,
@@ -2862,6 +2871,15 @@ export {
   remoteAgentWorkerExecutionInputRequestSchema,
   remoteAgentWorkerExecutionInputResponseSchema,
 } from "./runtime/remote-agent-execution-input";
+export {
+  AGENT_REPLY_PLACEMENT_HEADER,
+  agentReplyPlacementSchema,
+  agentStreamForReplyPlacementReader,
+  agentStreamsForReplyPlacementReader,
+  centerAgentSetReplyPlacementInputSchema,
+  nativeReplyPlacementSchema,
+  resolveNativeReplyPlacementInputSchema,
+} from "./space-mesh/agent-reply-placement";
 export { spaceAuthorityOrderSchema } from "./space-mesh/authority-order";
 export { continuitySchema } from "./space-mesh/continuity";
 export { dispatchBriefSchema } from "./space-mesh/dispatch-brief";
