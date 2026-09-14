@@ -27,6 +27,7 @@ import {
 } from "@openmeld/protocol";
 import {
   AGENT_REPLY_FINAL_PURPOSE,
+  agentStreamForReplyPlacementReader,
   buildSpaceComposerUploadObjectKey,
   buildSpaceFileEntryIdForMutation,
   buildSpaceFileObjectKey,
@@ -37,6 +38,7 @@ import {
   createSpaceDiagnosticReportResponseSchema,
   createSpaceFolderBodySchema,
   createSpaceThreadBodySchema,
+  createSpaceThreadResponseSchema,
   deriveCenterAgentDirectMessageSpaceProjection,
   evalSpaceSignalMetricsInputSchema,
   evalSpaceSignalMetricsSchema,
@@ -54,6 +56,7 @@ import {
   listSignalsQuerySchema,
   listSpaceThreadSignalsQuerySchema,
   MENTION_DISPATCH_ERROR_CODES,
+  nativeReplyPlacementSchema,
   normalizeMessageEnvelope,
   normalizeSpaceCursorPatch,
   openMeldDaemonTaskResultEnvelopeSchema,
@@ -77,6 +80,7 @@ import {
   remoteAgentWorkerExecutionInputResponseSchema,
   removeSpaceMembersBodySchema,
   resolveMappedPublicAgentFailureReason,
+  resolveNativeReplyPlacementInputSchema,
   resolveSingleSpaceMentionLabels,
   resolveSpaceComposerUploadScopeResponseSchema,
   resolveSpaceFileContentInputSchema,
@@ -6620,7 +6624,13 @@ export class Space extends DurableObject<CoreBindings> {
     }
 
     for (const snapshot of await this.readActiveAgentStreamSnapshots()) {
-      webSocket.send(JSON.stringify(buildAgentStreamDeltaFrame(snapshot)));
+      const projected = agentStreamForReplyPlacementReader(
+        snapshot,
+        session.supportsAgentReplyPlacement === true
+      );
+      if (projected) {
+        webSocket.send(JSON.stringify(buildAgentStreamDeltaFrame(projected)));
+      }
     }
   }
 
@@ -6928,6 +6938,92 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcResolveNativeReplyPlacement(
+    raw: ResolveNativeReplyPlacementInput
+  ): Promise<NativeReplyPlacement> {
+    const input = resolveNativeReplyPlacementInputSchema.parse(raw);
+    this.applySpaceRef(input.spaceId);
+    const outcome = await this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        return { value: await this.resolveNativeReplyPlacement(input) };
+      } catch (error) {
+        return { error };
+      }
+    });
+    if ("error" in outcome) {
+      throw outcome.error;
+    }
+    return outcome.value;
+  }
+
+  private async resolveNativeReplyPlacement(
+    input: ResolveNativeReplyPlacementInput
+  ): Promise<NativeReplyPlacement> {
+    const key = `native-reply-placement:${input.dispatchId}`;
+    const stored = await this.ctx.storage.get<NativeReplyPlacement>(key);
+    const current = stored ? nativeReplyPlacementSchema.parse(stored) : null;
+    const meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      throw new Error("space.reply_placement.space_unavailable");
+    }
+    const source = this.readSignalById(input.sourceSignalId);
+    if (!source) {
+      throw new Error("space.reply_placement.source_unavailable");
+    }
+    const sourceThread = this.resolveThreadContextForSignal(
+      input.sourceSignalId
+    );
+    const directMessage = Boolean(
+      meta.directMessage && !meta.directMessage.convertedAt
+    );
+    const choice = chooseNativeReplyPlacement({
+      request: input,
+      current,
+      directMessage,
+      sourceThread,
+    });
+    if ("current" in choice) {
+      return choice.current;
+    }
+    let threadContext = choice.threadContext;
+    if (choice.useThread && !threadContext) {
+      const response = await this.handleCreateThread(
+        new Request("https://space.internal/threads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            rootSignalId: input.sourceSignalId,
+            clientMutationId: `reply:${input.dispatchId}`,
+          }),
+        }),
+        {
+          activeOrganizationId: meta.organizationId,
+          actorContext: {
+            openMeldProfileId: input.profileId,
+            profileKind: "agent",
+            requestId: `reply:${input.dispatchId}`,
+          },
+        }
+      );
+      if (!response.ok) {
+        throw new Error("space.reply_placement.thread_unavailable");
+      }
+      const result = createSpaceThreadResponseSchema.parse(
+        await response.json()
+      );
+      threadContext = toSpaceThreadContext(result.thread);
+    }
+    const result = nativeReplyPlacementSchema.parse({
+      dispatchId: input.dispatchId,
+      sourceSignalId: input.sourceSignalId,
+      profileId: input.profileId,
+      threadContext,
+      locked: input.lock,
+    });
+    await this.ctx.storage.put(key, result);
+    return result;
+  }
+
   async rpcApplyAgentStreamDelta(
     input: ApplySpaceAgentStreamDeltaInput
   ): Promise<
@@ -7033,6 +7129,7 @@ export class Space extends DurableObject<CoreBindings> {
       sequence: result.stream.sequence,
       profileId: result.stream.profileId,
       triggerMessageId: result.stream.triggerMessageId,
+      replyThreadRootSignalId: result.stream.replyThreadRootSignalId,
       dispatchId: result.stream.dispatchId,
       terminal: result.terminal,
       updatedAtMs: nowMs,
@@ -12049,7 +12146,10 @@ export class Space extends DurableObject<CoreBindings> {
       for (const queued of coalesceQueuedSpaceWebSocketInvalidations(
         session.blocked
       )) {
-        webSocket.send(this.encodeLiveMessageForSession(queued, session));
+        const encoded = this.encodeLiveMessageForSession(queued, session);
+        if (encoded !== null) {
+          webSocket.send(encoded);
+        }
       }
       session.blocked = undefined;
     }
@@ -15642,6 +15742,9 @@ export class Space extends DurableObject<CoreBindings> {
         }
         if (session.profile) {
           const encoded = this.encodeLiveMessageForSession(message, session);
+          if (encoded === null) {
+            return;
+          }
           try {
             ws.send(encoded);
           } catch {
@@ -15683,7 +15786,7 @@ export class Space extends DurableObject<CoreBindings> {
       | SpaceAgentStreamPartFrame
       | SpaceAgentStreamTerminalFrame,
     session: Session
-  ): string {
+  ): string | null {
     if (typeof message === "string") {
       return message;
     }
@@ -15719,7 +15822,11 @@ export class Space extends DurableObject<CoreBindings> {
       return JSON.stringify(message);
     }
     if (isSpaceAgentStreamFrame(message)) {
-      return JSON.stringify(message);
+      const projected = agentStreamForReplyPlacementReader(
+        message,
+        session.supportsAgentReplyPlacement === true
+      );
+      return projected ? JSON.stringify(projected) : null;
     }
     return JSON.stringify(
       spaceAddressingWireValueForSession(
@@ -20133,6 +20240,9 @@ function buildAgentStreamDeltaFrame(
   snapshot: SpaceAgentStreamSnapshot
 ): SpaceAgentStreamDeltaFrame {
   return spaceAgentStreamDeltaFrameSchema.parse({
+    ...(snapshot.replyThreadRootSignalId !== undefined
+      ? { replyThreadRootSignalId: snapshot.replyThreadRootSignalId }
+      : {}),
     type: "space.agent_stream_delta",
     v: snapshot.v,
     spaceId: snapshot.spaceId,
@@ -20162,6 +20272,9 @@ function buildAgentStreamThinkingDeltaFrame(
     dispatchId: input.dispatchId,
     kind: "thinking",
     thinkingSnapshot: input.thinkingSnapshot,
+    ...(input.replyThreadRootSignalId !== undefined
+      ? { replyThreadRootSignalId: input.replyThreadRootSignalId }
+      : {}),
     state: "streaming",
     updatedAtMs,
   });
@@ -23689,3 +23802,9 @@ function toPublicSpaceCursor(cursor: SpaceCursorRecord): SpaceCursor {
     updatedAt: cursor.updatedAt,
   };
 }
+
+import type {
+  NativeReplyPlacement,
+  ResolveNativeReplyPlacementInput,
+} from "@openmeld/schemas/types";
+import { chooseNativeReplyPlacement } from "../../application/native-reply-placement";

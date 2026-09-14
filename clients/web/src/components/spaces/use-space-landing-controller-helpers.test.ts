@@ -15,13 +15,16 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 	OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
+import { spaceQueryKeys } from "#/query/spaces/status";
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
 	listPendingWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
+	mergeLiveThreadSignalIntoCache,
 	mergeThreadSignalsCache,
 	mergeWakeProgressItemState,
 	pollWakeProgress,
@@ -38,6 +41,40 @@ vi.mock("#/lib/spaces/api", () => ({
 const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
 
 describe("Thread conversation policy during live replies", () => {
+	it.each([
+		false,
+		true,
+	])("refreshes the catalog only when a live reply introduces a new Thread (%s)", (knownThread) => {
+		const queryClient = new QueryClient();
+		const key = spaceQueryKeys.threads("space", "viewer");
+		queryClient.setQueryData(key, {
+			threads: knownThread ? [{ threadId: "thread" }] : [],
+			previews: [],
+		});
+		mergeLiveThreadSignalIntoCache({
+			queryClient,
+			spaceId: "space",
+			openMeldProfileId: "viewer",
+			threadContext: { threadId: "thread", rootSignalId: "root" },
+			placement: {
+				threadId: "thread",
+				signalId: "reply",
+				placement: "thread",
+				createdAt: "2026-09-14T00:00:00.000Z",
+			},
+			signal: {
+				v: 1,
+				id: "reply",
+				spaceId: "space",
+				ts: 1,
+				type: "signal.text",
+				profile: { kind: "agent", profileId: "A" },
+				data: { text: "The review is ready." },
+			},
+		});
+		expect(queryClient.getQueryState(key)?.isInvalidated).toBe(!knownThread);
+		queryClient.clear();
+	});
 	it("retains the server's direct conversation policy when an Agent reply arrives", () => {
 		const signal: SignalEnvelope = {
 			v: 1,

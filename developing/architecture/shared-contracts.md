@@ -25,6 +25,32 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Center Agent Space reply placement
+
+Space owns the durable per-dispatch output destination. The native delivery's
+frozen `threadContext` remains source context for authorization and continuity.
+Core resolves the output through `rpcResolveNativeReplyPlacement`; the hosted
+Center Agent can explicitly select it through `centerAgentSetReplyPlacement`
+using its authenticated submission context. A choice is locked before answer
+text or final publication and reused for recovery. Workstation execution,
+personal Remote Agents, Routines, and external channels retain their contracts.
+
+Agent stream identities add optional `replyThreadRootSignalId`: a root means
+Thread output, `null` means main output, and absence preserves legacy source
+alignment. Current HTTP readers advertise `x-openmeld-agent-reply-placement: 1`;
+WebSocket readers advertise `hello.capabilities.agentReplyPlacement`. Gateway
+and Space omit new Thread live streams for older readers and remove the field
+from main streams. Durable Thread messages remain available to both readers.
+Current Web uses the explicit destination through deltas, reconnects and terminal
+frames, rather than deriving output location from the trigger's source scope.
+
+Roll out Core and Gateway before Remote Agent and Web. A new Remote Agent tool
+against old Core reports unavailable rather than posting an independent answer.
+Old Remote Agent workers still receive the new default from Core, but need the
+new tool to select main explicitly. This is a cloud-only capability: old/new
+CLI, Service, and Skills retain setup, Wake, Space actions, trace and recovery
+contracts. No local contract epoch or local component stamp changes are needed.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by

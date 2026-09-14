@@ -245,10 +245,13 @@ describe("space conversation stream state", () => {
 	])("replaces partial text with the $kind terminal notice and rejects a late delta", (terminal) => {
 		let state = applySpaceConversationStreamFrame({
 			current: [],
-			frame: createDeltaFrame({
-				sequence: 4,
-				textSnapshot: "Unfinished partial text",
-			}),
+			frame: {
+				...createDeltaFrame({
+					sequence: 4,
+					textSnapshot: "Unfinished partial text",
+				}),
+				replyThreadRootSignalId: "source-thread-root",
+			},
 			observedRevision: 1,
 		});
 		state = applySpaceConversationStreamFrame({
@@ -268,6 +271,7 @@ describe("space conversation stream state", () => {
 		expect(listVisibleSpaceConversationStreams(state)).toEqual([
 			expect.objectContaining({
 				reasonCode: terminal.reasonCode,
+				replyThreadRootSignalId: "source-thread-root",
 				status: terminal.kind,
 				text: terminal.noticeText,
 			}),

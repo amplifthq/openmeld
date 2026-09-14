@@ -328,6 +328,11 @@ function isAgentStreamVisibleInScope(input: {
 	if (!input.scope) {
 		return true;
 	}
+	if (input.stream.replyThreadRootSignalId !== undefined) {
+		return input.scope.kind === "thread"
+			? input.stream.replyThreadRootSignalId === input.scope.rootSignalId
+			: input.stream.replyThreadRootSignalId === null;
+	}
 	if (!input.signalIndex.has(input.stream.triggerMessageId)) {
 		return false;
 	}

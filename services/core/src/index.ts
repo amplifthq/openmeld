@@ -5334,6 +5334,10 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentReadTurnDiagnostics(this.env, input);
   }
 
+  centerAgentSetReplyPlacement(input: CenterAgentSetReplyPlacementInput) {
+    return rpcCenterAgentSetReplyPlacement(this.env, input);
+  }
+
   centerAgentListOpportunities(input: CenterAgentListOpportunitiesInput) {
     return rpcCenterAgentListOpportunities(this.env, input);
   }
@@ -5453,6 +5457,7 @@ export default CoreEntrypoint;
 import type {
   CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileResponse,
+  CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { rpcPluginAction } from "./connectors/plugin-actions";
 import {
@@ -5463,3 +5468,4 @@ import {
   type CenterAgentReadChannelFileInput,
   rpcCenterAgentReadChannelFile,
 } from "./remote-agent/application/message-channel-file-service";
+import { rpcCenterAgentSetReplyPlacement } from "./rpc/methods";
