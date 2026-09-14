@@ -124,6 +124,10 @@ evidence. Old, npm, non-macOS and unverifiable pairs omit usable controls.
 
 `pilot-protocol.ts` owns a fixed-endpoint request adapter:
 
+Its header allowlist preserves shared Inbox and Space addressing capability
+negotiation. These version headers select an existing response contract; they
+do not grant authorization. Renderer cookies and authorization remain excluded.
+
 `pilot-transport.ts` owns one private in-memory Electron Session shared by the
 BrowserWindow and protocol handler. Before the page loads, it installs that
 Session's sole `webRequest.onBeforeRequest` listener. Every local `/v1/` and

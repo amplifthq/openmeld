@@ -90,6 +90,9 @@ importers:
       '@openmeld/agent-runtime':
         specifier: workspace:*
         version: link:../../packages/agent-runtime
+      '@openmeld/gateway-contract':
+        specifier: workspace:*
+        version: link:../../packages/gateway-contract
       '@openmeld/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

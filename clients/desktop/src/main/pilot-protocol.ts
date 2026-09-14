@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { readFile, realpath } from "node:fs/promises";
 import { extname, resolve, sep } from "node:path";
 import {
+  OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
+  OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
+} from "@openmeld/gateway-contract";
+import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_WEB_BUILD_HEADER,
 } from "@openmeld/schemas";
@@ -18,6 +24,10 @@ const CONTENT_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 const FORWARDED_HEADERS = new Set([
+  OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
+  OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
+  OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
+  OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
   "accept",
   "content-type",
   "x-tsr-redirect",

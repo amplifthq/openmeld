@@ -2,6 +2,10 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import {
+  OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
+  OPENMELD_INBOX_SUMMARY_VERSION,
+} from "@openmeld/gateway-contract";
 import { DESKTOP_APP_ORIGIN } from "@openmeld/schemas";
 import { expect, it, vi } from "vitest";
 import { createPilotProtocol } from "../src/main/pilot-protocol";
@@ -45,6 +49,8 @@ it("serves local page files and confines credentials to the configured cloud ori
           origin: DESKTOP_APP_ORIGIN,
           authorization: "renderer-credential",
           cookie: "renderer-cookie",
+          [OPENMELD_HEADER_INBOX_SUMMARY_VERSION]:
+            OPENMELD_INBOX_SUMMARY_VERSION,
         },
       })
     );
@@ -57,6 +63,9 @@ it("serves local page files and confines credentials to the configured cloud ori
       "session=main-only"
     );
     expect(new Headers(options?.headers).has("authorization")).toBe(false);
+    expect(
+      new Headers(options?.headers).get(OPENMELD_HEADER_INBOX_SUMMARY_VERSION)
+    ).toBe(OPENMELD_INBOX_SUMMARY_VERSION);
     expect(options?.redirect).toBe("manual");
     for (const request of [
       new Request("openmeld-desktop://other/v1/spaces", {
