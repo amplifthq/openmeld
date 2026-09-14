@@ -221,8 +221,13 @@ Its header allowlist preserves shared Inbox, Space addressing, and Space access 
 negotiation. These version headers select an existing response contract; they
 do not grant authorization. Renderer cookies and authorization remain excluded.
 
-`pilot-transport.ts` owns one private in-memory Electron Session shared by the
-BrowserWindow and protocol handler. Before the page loads, it installs that
+`pilot-transport.ts` owns one private persistent Electron Session shared by the
+BrowserWindow and protocol handler. Its partition lives under the existing
+isolated application data directory, so shared Web appearance preferences survive
+normal GUI exit. HTTP caching stays disabled. Shared Web account-scoped read
+cache authorization and sign-out cleanup still apply; native authentication
+cookies remain in the separate main-owned SDK storage and are never forwarded
+to the renderer. Before the page loads, it installs that
 Session's sole `webRequest.onBeforeRequest` listener. Every local `/v1/` and
 `/_serverFn/` request requires Chromium's current live owner WebContents ID,
 exact main-frame identity, and trusted local document URL. Missing provenance,

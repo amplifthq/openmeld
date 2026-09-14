@@ -155,9 +155,12 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     },
     rendererUrl: `${DESKTOP_APP_ORIGIN}/${sharedAssets ? "desktop-shell" : "pilot.html"}`,
     install(authorize: (event: IpcMainInvokeEvent) => void) {
-      transportSession = session.fromPartition("openmeld-desktop-pilot", {
-        cache: false,
-      });
+      transportSession = session.fromPartition(
+        "persist:openmeld-desktop-pilot",
+        {
+          cache: false,
+        }
+      );
       disposeTransport = installPilotTransport(
         transportSession,
         () => getWindow()?.webContents ?? null,
