@@ -1,8 +1,12 @@
-import type { SignalEnvelope } from "@openmeld/schemas/types";
+import type {
+	ListSpaceThreadsResponse,
+	SignalEnvelope,
+} from "@openmeld/schemas/types";
 import { QueryClient } from "@tanstack/react-query";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
 	boundSavedSpaceHistory,
+	boundSpaceThreadDisplay,
 	mergeSpaceHistorySnapshots,
 	readSpaceUpdates,
 	SPACE_DATE_HISTORY_PAGE_MAX_MESSAGES,
@@ -23,6 +27,79 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 
 describe("space history helpers", () => {
+	it("keeps only bounded reply previews for retained roots and preserves them across a main-message refresh", () => {
+		const messages = [createTextSignal({ id: "root", ts: 1 })];
+		const thread = {
+			threadId: "thread-a",
+			rootSignalId: "root",
+			spaceId: "space-a",
+			createdByProfileId: "human-a",
+			createdAt: "2026-09-14T00:00:00.000Z",
+			updatedAt: "2026-09-14T00:00:00.000Z",
+		};
+		const snapshot: ListSpaceThreadsResponse = {
+			threads: [
+				thread,
+				{ ...thread, threadId: "thread-b", rootSignalId: "absent" },
+			],
+			previews: [
+				{
+					threadId: "thread-a",
+					replyCount: 300,
+					signals: [1, 2, 3].map((i) =>
+						createTextSignal({ id: `reply-${i}`, ts: i })
+					),
+					placements: [],
+				},
+			],
+		};
+		const display = boundSpaceThreadDisplay(messages, snapshot);
+		expect(display.threads).toEqual([thread]);
+		expect(display.previews[0]?.replyCount).toBe(300);
+		expect(display.previews[0]?.signals.map((s) => s.id)).toEqual([
+			"reply-1",
+			"reply-2",
+		]);
+		const current = {
+			envelopes: messages,
+			nextCursor: null,
+			threadDisplay: display,
+		};
+		const merged = mergeSpaceHistorySnapshots({
+			current,
+			incoming: { envelopes: messages, nextCursor: null },
+		});
+		expect(merged).toBe(current);
+		expect(boundSpaceThreadDisplay([], snapshot)).toEqual({
+			threads: [],
+			previews: [],
+		});
+		const oversized = createTextSignal({ id: "large-reply", ts: 1 });
+		if (oversized.type !== "signal.text") {
+			throw new Error("Expected a text fixture.");
+		}
+		oversized.data.text = "x".repeat(16 * 1024);
+		expect(
+			boundSpaceThreadDisplay(messages, {
+				threads: [thread],
+				previews: [
+					{
+						threadId: thread.threadId,
+						replyCount: 300,
+						signals: [oversized],
+						placements: [],
+					},
+				],
+			}).previews
+		).toEqual([
+			{
+				threadId: thread.threadId,
+				replyCount: 300,
+				signals: [],
+				placements: [],
+			},
+		]);
+	});
 	it("retains loaded pages when a fresh 30-message tail arrives", () => {
 		const messages = Array.from({ length: 100 }, (_, i) =>
 			createTextSignal({ id: `message-${i}`, ts: i })

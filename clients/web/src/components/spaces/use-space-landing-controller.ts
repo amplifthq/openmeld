@@ -750,6 +750,7 @@ function reportComposerSendFailure(input: {
 
 function useSpaceBootstrapQueryCache(input: {
 	bootstrap: SpaceBootstrapSnapshot | null;
+	bootstrapUpdatedAt: number;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
@@ -761,11 +762,18 @@ function useSpaceBootstrapQueryCache(input: {
 
 		applySpaceBootstrapSnapshotToCache({
 			bootstrap: input.bootstrap,
+			bootstrapUpdatedAt: input.bootstrapUpdatedAt,
 			queryClient: input.queryClient,
 			spaceId: input.spaceId,
 			viewerProfileId: input.profileId,
 		});
-	}, [input.bootstrap, input.profileId, input.queryClient, input.spaceId]);
+	}, [
+		input.bootstrap,
+		input.bootstrapUpdatedAt,
+		input.profileId,
+		input.queryClient,
+		input.spaceId,
+	]);
 }
 
 export async function hardRefreshSpaceStatusAndMembers(input: {
@@ -846,6 +854,7 @@ function useSpaceLandingBootstrapState(input: {
 	);
 	useSpaceBootstrapQueryCache({
 		bootstrap: bootstrapQuery.data ?? null,
+		bootstrapUpdatedAt: bootstrapQuery.dataUpdatedAt,
 		profileId: input.profileId,
 		queryClient: input.queryClient,
 		spaceId: input.spaceId,
@@ -1779,6 +1788,7 @@ export function useSpaceLandingController(input: {
 		membersRefetch: membersQuery.refetch,
 		membersSnapshot,
 		initialThreads: bootstrapQuery.data?.threads ?? null,
+		displayHistory: historySnapshot,
 		onWakeProgressItems: mergeConversationWakeProgressItems,
 		onWakeProgressRemoveClientMessageId:
 			removeConversationWakeProgressItemsForClientMessageId,
@@ -3272,6 +3282,7 @@ export function useSpaceLandingController(input: {
 }
 
 function useSpaceThreadController(input: {
+	displayHistory: SpaceHistorySnapshot | null;
 	isMembersLoading: boolean;
 	initialThreads: ListSpaceThreadsResponse | null;
 	membersErrorMessage: string | null;
@@ -3302,7 +3313,33 @@ function useSpaceThreadController(input: {
 			enabled: input.statusReady && input.threadsEnabled,
 		})
 	);
-	const threadsSnapshot = threadsQuery.data ?? input.initialThreads;
+	const currentThreads = threadsQuery.data ?? input.initialThreads;
+	const threadsSnapshot =
+		currentThreads ?? input.displayHistory?.threadDisplay ?? null;
+	useLayoutEffect(() => {
+		if (!(currentThreads && input.displayHistory)) {
+			return;
+		}
+		input.queryClient.setQueryData<SpaceHistorySnapshot>(
+			spaceQueryKeys.history(input.spaceId, input.profileId),
+			(current) =>
+				current
+					? mergeSpaceHistorySnapshots({
+							current,
+							incoming: {
+								...current,
+								threadDisplay: currentThreads,
+							},
+						})
+					: current
+		);
+	}, [
+		currentThreads,
+		input.displayHistory,
+		input.queryClient,
+		input.spaceId,
+		input.profileId,
+	]);
 	const threads = threadsSnapshot?.threads ?? [];
 	const threadPreviews = threadsSnapshot?.previews ?? [];
 	const availableThreadIds = useMemo(

@@ -1140,9 +1140,9 @@ function ThreadTimeline(input: {
 	}
 	if (input.isLoading) {
 		return (
-			<p className="flex-1 p-4 text-muted-foreground text-sm">
-				Loading thread…
-			</p>
+			<div aria-busy="true" className="min-h-0 flex-1">
+				<output className="sr-only">Loading thread…</output>
+			</div>
 		);
 	}
 

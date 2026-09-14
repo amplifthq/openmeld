@@ -2764,6 +2764,13 @@ shared optimistic-navigation delay.
 Non-persisted bounded display data used by these frequently revisited routes
 remains in the in-memory Query cache for 30 minutes after its last observer.
 This includes the bounded Space bootstrap, status, recent history, and members.
+Thread catalogs and opened replies use the same 30-minute in-memory revisit
+window. Returning to a Space must not replace a newer Thread catalog with an
+older cached bootstrap.
+After the entry access gate permits a cold conversation, its bounded bootstrap
+starts alongside route classification. Space and direct-message routes reuse
+that same bootstrap query in the conversation; saved-history visits keep their
+existing contiguous-update path instead of requesting a new tail window.
 The explicitly persisted display queries use the longer lifetime defined
 below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
@@ -2852,7 +2859,7 @@ No prefix, default-on, or exclusion-based persistence rule is allowed. Adding a
 query requires an explicit allowlist change, privacy and authority review, and a
 test that proves unrelated queries remain absent. Organization scope,
 activation, directories, Center Agent designation and open-command state, Space
-bootstrap and current status, Thread lists and Thread signals, membership
+bootstrap and current status, full Thread lists and Thread signals, membership
 authority, raw readiness and current-device projections, Wake state,
 diagnostics, errors, and every mutation remain excluded. The toolbar snapshot's
 opaque device id is only a stale-hint rejection key after live inventory
@@ -2881,6 +2888,17 @@ the existing query-specific `staleTime`, server read, and live invalidation
 continue to own freshness. A seven-day `maxAge` and matching `gcTime` bound how
 long the saved display snapshot may help first paint; they do not make it
 authoritative or fresh for seven days.
+
+The saved Space history also carries display-only Thread summaries for retained
+root messages, so the root and its reply entrance restore together. This context
+has a separate 256 KiB ceiling, at most two preview messages per Thread, and no
+reply placements. Preview bodies exceeding 16 KiB together are omitted while the
+reply count remains. It shares the history snapshot's account, Organization,
+Profile, access-revocation, and eviction boundaries. It never seeds the live
+Thread query or establishes membership, access, or unread authority. Full reply
+history remains memory-only. A cold Thread panel keeps its container quiet while
+loading; cached replies remain visible during revalidation, and errors remain
+explicit.
 
 Current Space status is intentionally not persisted. After a successful status
 read in the current signed-in account, Organization, Space, and acting-Profile
