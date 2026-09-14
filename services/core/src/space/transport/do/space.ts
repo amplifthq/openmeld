@@ -9918,19 +9918,15 @@ export class Space extends DurableObject<CoreBindings> {
       string,
       Array<{
         placement: SpaceThreadSignalPlacement;
-        signal: SignalEnvelope;
+        signal: SignalEnvelope | null;
       }>
     >();
     for (const entry of listSpaceThreadPreviewEntries(this.ctx.storage.sql)) {
-      const signal = parseStoredSignal(entry.payloadJson);
-      if (!signal) {
-        continue;
-      }
-      if (
-        signal.type === "signal.text" &&
-        signal.profile.kind === "system" &&
-        signal.data.meta?.purpose === SPACE_MESSAGE_CHANGED_PURPOSE
-      ) {
+      const signal =
+        entry.payloadJson === null
+          ? null
+          : parseStoredSignal(entry.payloadJson);
+      if (entry.payloadJson !== null && !signal) {
         continue;
       }
       const entries = entriesByThreadId.get(entry.placement.threadId) ?? [];
@@ -9951,7 +9947,7 @@ export class Space extends DurableObject<CoreBindings> {
     viewer: SpaceReadViewerIdentity,
     entries: ReadonlyArray<{
       placement: SpaceThreadSignalPlacement;
-      signal: SignalEnvelope;
+      signal: SignalEnvelope | null;
     }>
   ): SpaceThreadPreview {
     const previewEntries = entries.slice(0, 2);
@@ -9959,7 +9955,7 @@ export class Space extends DurableObject<CoreBindings> {
       threadId: thread.threadId,
       replyCount: entries.length,
       signals: this.redactSignalsForReadViewer(
-        previewEntries.map((entry) => entry.signal),
+        previewEntries.flatMap((entry) => (entry.signal ? [entry.signal] : [])),
         viewer
       ),
       placements: entries.map((entry) => entry.placement),
