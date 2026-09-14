@@ -49,8 +49,9 @@ URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
-list inside the inset surface, and the current work area. Desk, Inbox,
-Spaces, and Team are the rail's destinations, in that order. Organization
+list inside the inset surface, and the current work area. Inbox, Spaces, and
+Team are the rail's destinations, in that order. Desk is temporarily hidden
+from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
 switching and Create remain circular controls at the top. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
 retains the shared attention badge and active-route treatment. The Organization
@@ -457,7 +458,7 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Desk**, **Spaces**, and
+The visible destinations resolve in this order: **Inbox**, **Spaces**, and
 **Team**, with **New Agent** in the separate Create action. The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
@@ -678,7 +679,10 @@ active-work view, not a history or an organization-wide private-conversation fee
 Each row identifies the Agent, its owner when available, its Space, and progress.
 No membership, Wakeability, execution, or permission owner changes are introduced.
 
-The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
+The authorized Organization root `/o/{orgSlug}` redirects to Spaces. Default
+authenticated App entry also opens the current Organization's Spaces. Explicit
+Center Agent conversation links keep their existing destination. **Desk** remains
+available by direct link at `/o/{orgSlug}/desk`. It remembers
 its visible Space windows in this browser per account and Organization. Without a
 selection it reuses a marked Welcome Space (or an existing joined `Welcome Space`),
 or creates a private, members-only `Welcome Space` through the ordinary creation

@@ -17,7 +17,7 @@ function encodePathSegment(value: string): string {
 }
 
 export function buildOrganizationDefaultPath(orgSlug: string): string {
-	return buildOrganizationRootPath(orgSlug);
+	return buildOrganizationSpacesPath(orgSlug);
 }
 
 export function buildOrganizationInboxPath(orgSlug: string): string {

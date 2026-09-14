@@ -78,6 +78,7 @@ import { Route as V1ObservabilityPerformanceRouteImport } from './routes/v1/obse
 import { Route as V1ProfilesProfileIdRouteImport } from './routes/v1/profiles/$profileId'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
+import { Route as OOrgSlugCenterAgentDeskRouteImport } from './routes/o/$orgSlug/_center-agent/desk'
 import { Route as OOrgSlugAgentActivityIndexRouteImport } from './routes/o/$orgSlug/agent-activity/index'
 import { Route as OOrgSlugAgentActivityChangesRouteImport } from './routes/o/$orgSlug/agent-activity/changes'
 import { Route as OOrgSlugAgentActivitySessionsRouteImport } from './routes/o/$orgSlug/agent-activity/sessions'
@@ -486,6 +487,11 @@ const OOrgSlugCenterAgentCenterAgentRoute =
     path: '/center-agent',
     getParentRoute: () => OOrgSlugCenterAgentRoute,
   } as any)
+const OOrgSlugCenterAgentDeskRoute = OOrgSlugCenterAgentDeskRouteImport.update({
+  id: '/desk',
+  path: '/desk',
+  getParentRoute: () => OOrgSlugCenterAgentRoute,
+} as any)
 const OOrgSlugAgentActivityIndexRoute =
   OOrgSlugAgentActivityIndexRouteImport.update({
     id: '/',
@@ -869,6 +875,7 @@ export interface FileRoutesByFullPath {
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
+  '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
@@ -987,6 +994,7 @@ export interface FileRoutesByTo {
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
+  '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
@@ -1113,6 +1121,7 @@ export interface FileRoutesById {
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
+  '/o/$orgSlug/_center-agent/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents_/new': typeof OOrgSlugAgentsNewRoute
@@ -1241,6 +1250,7 @@ export interface FileRouteTypes {
     | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/center-agent'
+    | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents/new'
@@ -1359,6 +1369,7 @@ export interface FileRouteTypes {
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
+    | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents/new'
@@ -1484,6 +1495,7 @@ export interface FileRouteTypes {
     | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
     | '/o/$orgSlug/_center-agent/center-agent'
+    | '/o/$orgSlug/_center-agent/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents_/new'
@@ -2078,6 +2090,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentRouteImport
       parentRoute: typeof OOrgSlugCenterAgentRoute
     }
+    '/o/$orgSlug/_center-agent/desk': {
+      id: '/o/$orgSlug/_center-agent/desk'
+      path: '/desk'
+      fullPath: '/o/$orgSlug/desk'
+      preLoaderRoute: typeof OOrgSlugCenterAgentDeskRouteImport
+      parentRoute: typeof OOrgSlugCenterAgentRoute
+    }
     '/o/$orgSlug/agent-activity/': {
       id: '/o/$orgSlug/agent-activity/'
       path: '/'
@@ -2609,6 +2628,7 @@ const OOrgSlugCenterAgentCenterAgentRouteWithChildren =
 
 interface OOrgSlugCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentRoute: typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
+  OOrgSlugCenterAgentDeskRoute: typeof OOrgSlugCenterAgentDeskRoute
   OOrgSlugCenterAgentIndexRoute: typeof OOrgSlugCenterAgentIndexRoute
   OOrgSlugCenterAgentChatsCenterAgentRoute: typeof OOrgSlugCenterAgentChatsCenterAgentRoute
 }
@@ -2616,6 +2636,7 @@ interface OOrgSlugCenterAgentRouteChildren {
 const OOrgSlugCenterAgentRouteChildren: OOrgSlugCenterAgentRouteChildren = {
   OOrgSlugCenterAgentCenterAgentRoute:
     OOrgSlugCenterAgentCenterAgentRouteWithChildren,
+  OOrgSlugCenterAgentDeskRoute: OOrgSlugCenterAgentDeskRoute,
   OOrgSlugCenterAgentIndexRoute: OOrgSlugCenterAgentIndexRoute,
   OOrgSlugCenterAgentChatsCenterAgentRoute:
     OOrgSlugCenterAgentChatsCenterAgentRoute,
