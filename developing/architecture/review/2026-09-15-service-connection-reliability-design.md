@@ -88,6 +88,16 @@ Implementation checkpoints:
   validation and authorization contracts. Startup and lazy identity checks pass,
   as do the real-D1 incident/ownership tests. Final cloud admission and signed
   artifact validation must include this initialization-only correction.
+- Final Staging acceptance passed from `f6e112579`: all cloud components and
+  public health checks completed; Core passed platform startup admission at
+  622 ms. This remains above the repository's 500 ms optimization target, a
+  recorded performance follow-up rather than a claimed target pass. The signed,
+  notarized public package passed archive and binary integrity checks. Existing
+  Canary maintenance automatically installed it and aligned the Service with the
+  same device identity. The isolated final package completed a real Wake and
+  published its one requested reply. The final implementation push gate passed.
+  Exact current-base Final Candidate, production deployment and production/fleet
+  verification remain separate required delivery evidence.
 
 ## Evidence and limits
 
