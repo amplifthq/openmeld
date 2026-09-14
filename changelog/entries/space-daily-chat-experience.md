@@ -1,0 +1,19 @@
+---
+id: space-daily-chat-experience
+title: Clearer Space conversations and relevant notifications
+kind: improved
+areas: ["spaces", "inbox", "web"]
+audiences: ["users"]
+---
+
+Thread replies notify participants instead of everyone in the Space. Reactions
+to your messages now appear as ordinary unread Inbox updates, including replies
+inside threads.
+
+Unread links open the target conversation directly, and historical failure
+links focus the retained request. Reading the latest messages also acknowledges
+newer updates attached to those messages. Sent messages update the sidebar
+preview immediately while the shared index catches up.
+
+When an Agent cannot respond, choose **Mention only instead** to keep chatting.
+Each Agent in the composer can independently use **Wake** or **Mention only**.

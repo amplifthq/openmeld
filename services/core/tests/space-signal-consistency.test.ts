@@ -809,6 +809,7 @@ const readDispatchLedgerEvidence = (
 const syncSpaceBackgroundAlarm = (
   Space.prototype as unknown as {
     syncSpaceBackgroundAlarm(this: {
+      env: { OPENMELD_SPACE_ATTACHMENTS?: R2Bucket };
       ctx: {
         storage: {
           sql: SqlStorage;
