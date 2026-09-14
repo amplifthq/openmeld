@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-13T15:17:24.471Z",
+  "updatedAt": "2026-09-14T13:14:16.733Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.203",
+      "packageVersion": "0.3.204",
       "updatePolicy": "available",
-      "reason": "Conversation-independent CLI repair selection and hosted Profile diagnostics remain compatible with existing cloud and Service contracts; setup, Wake and Space actions are unchanged."
+      "reason": "Existing CLI commands, setup, Space actions and diagnostics remain compatible with both cloud versions; the release adds optional stream metadata without changing command authority."
     },
     "service": {
-      "bundleHash": "b9dbd1082b6cad1487184a6a6e5a8911e886474caca50edcecac68a4f189f652",
-      "bundleVersion": "0.3.203",
+      "bundleHash": "cfa0dd0a8110a0466664036946dbe1f9b2e6e1e214cae400e28a83395a6d46a9",
+      "bundleVersion": "0.3.204",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services can safely continue Wake execution with old and new cloud code; artifact integrity and update ownership improve without changing Runtime Transport or execution authority."
+      "reason": "Reasoning frames wait for Core preferences, so new Services remain safe against old cloud code; old Services continue current Wake and recovery work against new Core. Deploy cloud receivers before publishing the new Service."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
