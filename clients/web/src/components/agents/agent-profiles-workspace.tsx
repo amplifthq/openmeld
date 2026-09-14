@@ -2,6 +2,7 @@
 
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import type {
+	AgentProfileCreationRequest,
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
@@ -14,6 +15,7 @@ import type { ReactNode } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { TeamHeader } from "#/components/directory/team-header";
 import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
+import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
 
@@ -26,6 +28,10 @@ export type AgentProfilesWorkspaceProps = {
 	members?: OrganizationProfileDirectoryResponse["members"];
 	lastTaskActivityByProfileId?: ReadonlyMap<string, string | null>;
 	canCreateAgent?: boolean;
+	creationRequests?: readonly (
+		| AgentProfileCreationRequest
+		| OptimisticAgentProfileCreation
+	)[];
 	person?: { id: string; name: string; path: string; agentsPath: string };
 	activeView: "agents" | "requests";
 	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
@@ -34,6 +40,7 @@ export type AgentProfilesWorkspaceProps = {
 	hasAnyProfiles?: boolean;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
+	onOpenCreationRequest?: (requestId: string) => void;
 	onSelectProfile: (profileId: string) => void;
 	onViewChange: (view: "agents" | "requests") => void;
 	pendingRequestCount: number;

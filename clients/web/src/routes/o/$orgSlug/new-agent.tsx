@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
@@ -6,6 +7,11 @@ import { CreateAgentProfilePage } from "#/components/profiles/create-profile-dia
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationAgentsPath } from "#/lib/organizations/organization-routes";
 import { getAppSidebarStatesForRoute } from "#/lib/sidebar-width-cookie";
+import {
+	removeOptimisticAgentProfileCreation,
+	upsertAcceptedAgentProfileCreationRequest,
+	upsertOptimisticAgentProfileCreation,
+} from "#/query/profiles/agent-profile-creation-requests";
 
 export const Route = createFileRoute("/o/$orgSlug/new-agent")({
 	staticData: appShellStaticData.newAgent,
@@ -19,6 +25,7 @@ function NewAgentRoute() {
 	const { sidebarStates } = Route.useLoaderData();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const agentsPath = buildOrganizationAgentsPath(currentOrganization.slug);
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
@@ -35,13 +42,39 @@ function NewAgentRoute() {
 				allowTeammateRequests={currentOrganization.isPersonal !== true}
 				currentUserId={currentUserId}
 				key={currentOrganization.id}
-				onAgentRequestCreated={async (request) => {
-					await navigate({
+				onAgentRequestAccepted={(request, optimisticId) => {
+					removeOptimisticAgentProfileCreation({
+						id: optimisticId,
+						organizationId: currentOrganization.id,
+						queryClient,
+					});
+					upsertAcceptedAgentProfileCreationRequest({
+						organizationId: currentOrganization.id,
+						queryClient,
+						request,
+					});
+					navigate({
 						to: agentsPath,
-						search:
-							request.status === "completed" && request.createdAgentProfileId
-								? { profileId: request.createdAgentProfileId }
-								: { view: "requests", requestId: request.id },
+						search: { requestId: request.id },
+					}).catch((error: unknown) => {
+						console.error("Failed to show Agent setup progress.", error);
+					});
+				}}
+				onAgentRequestFailed={(creation) => {
+					upsertOptimisticAgentProfileCreation({
+						creation,
+						organizationId: currentOrganization.id,
+						queryClient,
+					});
+				}}
+				onAgentRequestStarted={(creation) => {
+					upsertOptimisticAgentProfileCreation({
+						creation,
+						organizationId: currentOrganization.id,
+						queryClient,
+					});
+					navigate({ to: agentsPath }).catch((error: unknown) => {
+						console.error("Failed to show the Agent being created.", error);
 					});
 				}}
 				onCancel={() => {

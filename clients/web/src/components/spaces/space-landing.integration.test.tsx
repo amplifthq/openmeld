@@ -808,6 +808,7 @@ describe("SpaceLanding", () => {
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
 			fetchQuery: vi.fn().mockResolvedValue(undefined),
 			getQueryData: vi.fn(() => undefined),
+			getQueriesData: vi.fn(() => []),
 			invalidateQueries: vi.fn().mockResolvedValue(undefined),
 			resetQueries: vi.fn().mockResolvedValue(undefined),
 			setQueriesData: vi.fn(),
@@ -2918,11 +2919,14 @@ describe("SpaceLanding", () => {
 		expect(useNavigateMock).not.toHaveBeenCalled();
 	});
 
-	it("deletes a space, cleans account space history, and navigates away", async () => {
-		const deleteSpaceMock = vi.fn().mockResolvedValue({
-			deleted: true,
-			spaceId: "space-123",
-		});
+	it("navigates away before delete finishes, then cleans account space history", async () => {
+		let finishDelete!: (value: { deleted: true; spaceId: string }) => void;
+		const pendingDelete = new Promise<{ deleted: true; spaceId: string }>(
+			(resolve) => {
+				finishDelete = resolve;
+			}
+		);
+		const deleteSpaceMock = vi.fn(() => pendingDelete);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: deleteSpaceMock,
@@ -2933,13 +2937,21 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			getQueriesData: vi.fn(() => []),
+			getQueryData: vi.fn(() => undefined),
+			getQueryState: vi.fn(() => undefined),
 			invalidateQueries: invalidateQueriesMock,
+			setQueriesData: vi.fn(),
 			setQueryData: vi.fn(),
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
-				data: createSpaceStatus(),
+				data: {
+					...createSpaceStatus(),
+					ownerUserIds: ["user-mira"],
+				},
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -2964,19 +2976,23 @@ describe("SpaceLanding", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
 
 		await waitFor(() => {
-			expect(deleteSpaceMock).toHaveBeenCalledWith({
-				spaceId: "space-123",
-			});
-		});
-		expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
-			currentProfileId: DEFAULT_SPACE_PROFILE_ID,
-			reason: "deleted_space",
-			spaceId: "space-123",
+			expect(
+				screen.queryByRole("dialog", { name: "Space settings" })
+			).toBeNull();
 		});
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
 				to: "/o/acme/spaces",
 				replace: true,
+			});
+		});
+		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
+		finishDelete({ deleted: true, spaceId: "space-123" });
+		await waitFor(() => {
+			expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
+				currentProfileId: DEFAULT_SPACE_PROFILE_ID,
+				reason: "deleted_space",
+				spaceId: "space-123",
 			});
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
@@ -2990,7 +3006,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows delete authorization errors without navigating away", async () => {
+	it("restores a failed delete after optimistic navigation", async () => {
 		const deleteSpaceMock = vi.fn().mockRejectedValue({
 			code: "space.forbidden",
 			message: "only space creator can delete this space",
@@ -3006,7 +3022,10 @@ describe("SpaceLanding", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
-				data: createSpaceStatus(),
+				data: {
+					...createSpaceStatus(),
+					ownerUserIds: ["user-mira"],
+				},
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -3030,11 +3049,16 @@ describe("SpaceLanding", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
 
-		expect(
-			await screen.findByText("Only the space creator can delete this space.")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"Delete failed: Only the space creator can delete this space."
+			);
+		});
 		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
-		expect(useNavigateMock).not.toHaveBeenCalled();
+		expect(useNavigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/spaces",
+			replace: true,
+		});
 	});
 
 	it("hides delete space when the current profile is not the creator or owner", () => {

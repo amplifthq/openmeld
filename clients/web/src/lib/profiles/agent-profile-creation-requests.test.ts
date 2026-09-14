@@ -78,6 +78,80 @@ describe("accepted Agent creation in Web", () => {
 		expect(api.createAgentProfileCreationRequest).toHaveBeenCalledOnce();
 	});
 
+	it("publishes the accepted request before waiting for Agent setup to finish", async () => {
+		const onAccepted = vi.fn();
+		const onStarted = vi.fn();
+		api.listAgentProfileCreationRequests.mockResolvedValue({
+			organizationId: "org-1",
+			requests: [accepted],
+		});
+		const result = createAgentProfileCreationRequest({
+			...command,
+			onAccepted,
+			onStarted,
+		});
+
+		expect(onStarted).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: "optimistic:one-intent",
+				profileName: "Reviewer",
+				status: "creating",
+			})
+		);
+		await vi.waitFor(() =>
+			expect(onAccepted).toHaveBeenCalledWith(accepted, "optimistic:one-intent")
+		);
+		expect(api.listAgentProfileCreationRequests).not.toHaveBeenCalled();
+
+		await vi.runAllTimersAsync();
+		await result;
+	});
+
+	it("does not misreport an accepted request when its presentation callback fails", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+		const completed = {
+			...accepted,
+			status: "completed" as const,
+			createdAgentProfileId: "same-agent",
+			completedAt: "2026-09-09T00:00:03.000Z",
+		};
+		api.listAgentProfileCreationRequests.mockResolvedValue({
+			organizationId: "org-1",
+			requests: [completed],
+		});
+		const result = createAgentProfileCreationRequest({
+			...command,
+			onAccepted: () => {
+				throw new Error("Navigation failed");
+			},
+		});
+
+		await vi.runAllTimersAsync();
+		expect((await result).request).toEqual(completed);
+		expect(api.createAgentProfileCreationRequest).toHaveBeenCalledOnce();
+		expect(warn).toHaveBeenCalledOnce();
+		warn.mockRestore();
+	});
+
+	it("turns the optimistic creation into a failed state when Core rejects it", async () => {
+		const onFailed = vi.fn();
+		api.createAgentProfileCreationRequest.mockRejectedValueOnce(
+			new Error("Computer disconnected")
+		);
+
+		await expect(
+			createAgentProfileCreationRequest({ ...command, onFailed })
+		).rejects.toBeTruthy();
+		expect(onFailed).toHaveBeenCalledWith(
+			expect.objectContaining({
+				failureMessage: "Computer disconnected",
+				id: "optimistic:one-intent",
+				status: "failed",
+			}),
+			expect.objectContaining({ message: "Computer disconnected" })
+		);
+	});
+
 	it("preserves acceptance when the status read fails, without submitting another creation", async () => {
 		api.listAgentProfileCreationRequests.mockRejectedValue(
 			new Error("Temporary connection loss")

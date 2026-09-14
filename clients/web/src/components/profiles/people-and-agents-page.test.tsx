@@ -1141,6 +1141,59 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
+	it("refreshes the directory before opening the real Agent created by a request", async () => {
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return organizationProjection;
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: {
+						organizationId: "org-123",
+						requests: [
+							{
+								createdAgentProfileId: "agent-created",
+								id: "request-completed",
+								status: "completed",
+							},
+						],
+					},
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={null}
+				focusRequestId="request-completed"
+			/>
+		);
+
+		await waitFor(() => {
+			expect(navigateMock).toHaveBeenCalledWith({
+				to: "/o/acme/agents?profileId=agent-created",
+			});
+		});
+		expect(invalidateQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["organizations", "org-123", "profile-directory"],
+		});
+	});
+
 	it("keeps Agent selection in the existing profileId deep-link contract", () => {
 		render(
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />

@@ -133,6 +133,10 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
+import {
+	optimisticallyRemoveSpaceFromListCaches,
+	restoreSpaceListCaches,
+} from "./space-delete-cache";
 import { useSpaceEntryConfirmation } from "./space-entry-confirmation";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import type {
@@ -3161,8 +3165,22 @@ export function useSpaceLandingController(input: {
 	async function handleDeleteSpace() {
 		setIsDeletingSpace(true);
 		setDeleteSpaceErrorMessage(null);
+		let cacheSnapshot:
+			| Awaited<ReturnType<typeof optimisticallyRemoveSpaceFromListCaches>>
+			| undefined;
 
 		try {
+			cacheSnapshot = await optimisticallyRemoveSpaceFromListCaches({
+				organizationId: input.organizationId ?? null,
+				queryClient,
+				spaceId: input.spaceId,
+			});
+			await navigate({
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
+				replace: true,
+			});
 			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).deleteSpace({
@@ -3198,15 +3216,16 @@ export function useSpaceLandingController(input: {
 				}),
 			]);
 			toast.success("Space deleted.");
-			await navigate({
-				to: input.orgSlug
-					? buildOrganizationSpacesPath(input.orgSlug)
-					: "/invitations",
-				replace: true,
-			});
 		} catch (error) {
 			const failure = toStructuredApiClientFailure(error);
-			setDeleteSpaceErrorMessage(resolveDeleteSpaceErrorMessage(failure));
+			const message = resolveDeleteSpaceErrorMessage(failure);
+			restoreSpaceListCaches(
+				queryClient,
+				input.organizationId ?? null,
+				cacheSnapshot
+			);
+			setDeleteSpaceErrorMessage(message);
+			toast.error(`Delete failed: ${message}`);
 		} finally {
 			setIsDeletingSpace(false);
 		}
