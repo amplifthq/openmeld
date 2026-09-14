@@ -141,6 +141,20 @@ Remove this patch when an adopted upstream version processes these cookies
 before status handling, after rerunning the expiry/recreation and error matrix.
 SDK recreation in tests does not prove real macOS safeStorage or OS restart.
 
+Shared Profile and Organization business actions use fixed Web `/v1/` adapters:
+Profile capabilities, Human/Agent creation, Agent-only deletion; Organization
+creation/settings, invitations and member management; invitation links, public
+join requests and Space invitations. They reuse Auth HTTP/Core owners and shared
+schemas, never generated mutation IDs or renderer Better Auth calls. Membership
+recovery reads the existing account Organization context. Account security
+handoffs and native cookie/session storage remain separate.
+
+The adapters preserve the incoming Origin, reject redirects, project safe JSON,
+and forward separate vendor Set-Cookie headers only at the server HTTP boundary.
+Auth's trusted-cookie-origin guard remains authoritative, including the exact
+development Desktop origin. Installed production trust remains a separate
+native transport prerequisite; these adapters do not relax it.
+
 `pilot-protocol.ts` owns a fixed-endpoint request adapter:
 
 Its header allowlist preserves shared Inbox, Space addressing, and Space access capability

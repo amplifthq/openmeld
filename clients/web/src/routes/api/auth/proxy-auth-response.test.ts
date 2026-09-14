@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	buildBufferedAuthProxyResponse,
+	buildDownstreamAuthProxyHeaders,
 	buildUpstreamHeaders,
 } from "#/lib/auth-proxy.server";
 
@@ -18,6 +19,23 @@ function readSetCookieHeaders(headers: Headers): string[] {
 }
 
 describe("auth proxy response", () => {
+	it("preserves separate cookies through the Workers Headers getAll contract", () => {
+		const cookies = [
+			"session=renewed; Expires=Wed, 21 Oct 2037 07:28:00 GMT; HttpOnly",
+			"session_data=; Max-Age=0; HttpOnly",
+		];
+		const headers = new Headers();
+		Object.defineProperty(headers, "getSetCookie", { value: undefined });
+		Object.defineProperty(headers, "getAll", {
+			value: (name: string) => {
+				expect(name).toBe("Set-Cookie");
+				return cookies;
+			},
+		});
+		expect(
+			readSetCookieHeaders(buildDownstreamAuthProxyHeaders(headers))
+		).toEqual(cookies);
+	});
 	it("forwards browser auth cookies to the auth worker", () => {
 		const headers = buildUpstreamHeaders(
 			new Headers({

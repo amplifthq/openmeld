@@ -1,28 +1,25 @@
-import { type AuthProfileView, agentProfileIdSchema } from "@openmeld/schemas";
-import { createServerFn } from "@tanstack/react-start";
-import { getRequiredServerEnv } from "#/env";
-
-export const deleteStartAgentProfile = createServerFn({
-	method: "POST",
-})
-	.validator((data: unknown) => {
-		const parsed = agentProfileIdSchema.safeParse(data);
-		if (!parsed.success) {
-			throw new Error(
-				parsed.error.issues[0]?.message ?? "Invalid delete agent profile input."
-			);
+import {
+	agentProfileIdSchema,
+	deletedAgentProfileActionResponseSchema,
+} from "@openmeld/schemas";
+import {
+	OrganizationRequestError,
+	requestAuthBusiness,
+} from "#/lib/auth-business";
+export async function deleteStartAgentProfile({ data }: { data: string }) {
+	const profileId = agentProfileIdSchema.parse(data);
+	try {
+		return (
+			await requestAuthBusiness({
+				path: `/v1/profiles/agents/${encodeURIComponent(profileId)}`,
+				method: "DELETE",
+				schema: deletedAgentProfileActionResponseSchema,
+			})
+		).profile;
+	} catch (error) {
+		if (error instanceof OrganizationRequestError && error.status === 404) {
+			throw new Error("Agent Profile was already removed.");
 		}
-
-		return parsed.data;
-	})
-	.handler(async ({ data }): Promise<AuthProfileView> => {
-		const { deleteStartAgentProfileFromRequest } = await import(
-			"./delete-agent-profile.server"
-		);
-
-		return await deleteStartAgentProfileFromRequest({
-			authBaseUrl: getRequiredServerEnv("BETTER_AUTH_URL"),
-			gatewayUrl: getRequiredServerEnv("OPENMELD_GATEWAY_URL"),
-			profileId: data,
-		});
-	});
+		throw error;
+	}
+}
