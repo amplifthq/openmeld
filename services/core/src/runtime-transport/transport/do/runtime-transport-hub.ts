@@ -11588,20 +11588,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetDisplay: resolveRuntimeCoordinatorHeadTargetDisplay(request),
         updatedAtMs: nowMs,
       };
-      await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
-      await this.publishRuntimeCoordinatorHeadPreAgentStoppedOutcome({
-        nowMs,
+      return await this.commitRuntimeCoordinatorHeadStop({
         record: nextRecord,
+        nowMs,
       });
-      return {
-        ok: true,
-        primaryDispatchId: request.dispatchId,
-        publicationIntentId,
-        reasonCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-        runtimeCoordinatorExecutionId: null,
-        status: "stopped_before_execution",
-        targetWakeLifecycleId: identity.targetWakeLifecycleId,
-      };
     }
 
     if (!isSameRuntimeCoordinatorHeadAuthority(existing, request)) {

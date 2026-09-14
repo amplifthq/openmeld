@@ -610,7 +610,9 @@ Important execution rules:
   indefinitely active Wake presentation.
   Old retryable deliveries that never acquired a head are also subject to
   deletion: a confirmed missing Profile must converge through the existing
-  pre-head terminal publication path, not retry owner discovery forever.
+  RuntimeCoordinator pre-agent Stop and System Message publication path, not
+  retry owner discovery forever. Core-recorded dispatch ownership can address
+  this cancellation after Auth deletion; it never authorizes new execution.
   Missing identity and temporarily unavailable identity lookup remain distinct.
   A linked execution or existing terminal head keeps its RuntimeCoordinator
   authority; deletion recovery must not replace its outcome or restart work.
