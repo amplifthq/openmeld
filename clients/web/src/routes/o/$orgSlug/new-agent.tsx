@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useRef } from "react";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { appShellStaticData } from "#/components/app/shell-layout";
@@ -20,6 +21,7 @@ function NewAgentRoute() {
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const navigate = useNavigate();
 	const agentsPath = buildOrganizationAgentsPath(currentOrganization.slug);
+	const openingAgents = useRef<Promise<void> | null>(null);
 	const recovery = useLocalAgentRecoveryController({
 		agentExecutionReadinessScope: "bound_runtime",
 		loadAgentProfiles: false,
@@ -35,13 +37,28 @@ function NewAgentRoute() {
 				allowTeammateRequests={currentOrganization.isPersonal !== true}
 				currentUserId={currentUserId}
 				key={currentOrganization.id}
-				onAgentRequestCreated={async (request) => {
-					await navigate({
+				onAgentRequestAccepted={async (request, optimisticId) => {
+					await openingAgents.current;
+					if (
+						window.location.pathname !== agentsPath ||
+						new URLSearchParams(window.location.search).get("requestId") !==
+							optimisticId
+					) {
+						return;
+					}
+					navigate({
 						to: agentsPath,
-						search:
-							request.status === "completed" && request.createdAgentProfileId
-								? { profileId: request.createdAgentProfileId }
-								: { view: "requests", requestId: request.id },
+						search: { requestId: request.id },
+					}).catch((error: unknown) => {
+						console.error("Failed to show Agent setup progress.", error);
+					});
+				}}
+				onAgentRequestStarted={(creation) => {
+					openingAgents.current = navigate({
+						to: agentsPath,
+						search: { requestId: creation.id },
+					}).catch((error: unknown) => {
+						console.error("Failed to show the Agent being created.", error);
 					});
 				}}
 				onCancel={() => {

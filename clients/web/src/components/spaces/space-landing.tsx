@@ -2742,6 +2742,7 @@ function SpaceLandingSecondaryPanels({
 							}
 				}
 				onWakeStopRequest={controller.onWakeStopRequest}
+				open={controller.threadPanelOpen}
 				orgSlug={input.orgSlug}
 				pendingActionSurface={pendingActionSurface}
 				prepareSetupHref={prepareSetupHref}

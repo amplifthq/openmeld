@@ -2530,6 +2530,7 @@ export {
 export {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
   agentStreamToolPartSchema,
+  clearSpaceReasoningReplaySchema,
   spaceAgentActivitySchema,
   spaceAgentStreamDeltaFrameSchema,
   spaceAgentStreamPartFrameSchema,

@@ -422,16 +422,14 @@ describe("space-mesh", () => {
         noticeType: "wake_stopped",
         variant: "agent_profile_deleted",
       })
-    ).toBe(
-      "Wake was stopped for Codex Agent because its Agent Profile was deleted."
-    );
+    ).toBe("Wake cancelled. Codex Agent was deleted.");
     expect(
       buildSystemNoticeText({
         actorName: null,
         noticeType: "wake_stopped",
         variant: "agent_profile_deleted",
       })
-    ).toBe("Wake was stopped because the Agent Profile was deleted.");
+    ).toBe("Wake cancelled. This agent was deleted.");
     expect(
       buildSystemNoticeText({
         actorName: null,

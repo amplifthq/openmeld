@@ -518,7 +518,7 @@ describe("claimDispatchAttempt", () => {
       throw new Error("expected seeded row");
     }
     seedRow({ ...seeded, status: "failed_retryable" });
-    await claimDispatchAttempt({
+    const retryClaim = await claimDispatchAttempt({
       db,
       message: buildDispatchMessage({
         idempotencyKey: firstMessage.idempotencyKey,
@@ -526,6 +526,9 @@ describe("claimDispatchAttempt", () => {
       }),
       attempt: 2,
       nowMs: 2000,
+    });
+    expect(retryClaim).toMatchObject({
+      runtimeCoordinatorDecisionRequest: { ownerUserId: "owner-a" },
     });
     expect(readRow(firstMessage.idempotencyKey)).toMatchObject({
       dispatchOwnerId: "owner-a",
@@ -566,6 +569,7 @@ describe("claimDispatchAttempt", () => {
 
     expect(retryClaim).toMatchObject({
       runtimeCoordinatorDecisionRequest: {
+        ownerUserId: "owner-a",
         claimDecision: "claim_existing_inside_window",
         eventKind: "retry",
         runtimeCoordinatorExecutionId:

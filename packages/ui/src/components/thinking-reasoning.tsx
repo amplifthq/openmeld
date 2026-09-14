@@ -4,41 +4,48 @@
 // https://www.aicss.dev/components/thinking-reasoning
 // Real provider events replace the demo sentences, timers, and fixed line heights.
 import { CaretDownIcon } from "@phosphor-icons/react";
-import { memo, useId, useLayoutEffect, useRef, useState } from "react";
+import {
+  memo,
+  type ReactNode,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import "./thinking-reasoning.css";
 
 export const ThinkingReasoning = memo(function ThinkingReasoning(input: {
   text: string;
   streaming: boolean;
   firstOutputMs?: number;
+  children?: ReactNode;
 }) {
   const id = useId();
   const viewport = useRef<HTMLElement>(null);
   const following = useRef(true);
-  const [state, setState] = useState({
-    streaming: input.streaming,
-    open: input.streaming,
-  });
-  if (state.streaming !== input.streaming) {
-    setState({ streaming: input.streaming, open: input.streaming });
-  }
+  const [open, setOpen] = useState(true);
   useLayoutEffect(() => {
     if (
       input.text.length > 0 &&
-      state.open &&
+      open &&
       following.current &&
       viewport.current
     ) {
       viewport.current.scrollTop = viewport.current.scrollHeight;
     }
-  }, [input.text, state.open]);
+  }, [input.text, open]);
   return (
     <div className="om-reasoning" data-slot="thinking-reasoning">
       <button
         aria-controls={id}
-        aria-expanded={state.open}
+        aria-expanded={open}
         className="om-reasoning-header"
-        onClick={() => setState({ ...state, open: !state.open })}
+        onClick={() => {
+          if (!open) {
+            following.current = true;
+          }
+          setOpen(!open);
+        }}
         type="button"
       >
         <span
@@ -59,9 +66,9 @@ export const ThinkingReasoning = memo(function ThinkingReasoning(input: {
       </button>
       <div
         className="om-reasoning-collapsible"
-        data-open={state.open}
+        data-open={open}
         id={id}
-        inert={!state.open}
+        inert={!open}
       >
         <div className="om-reasoning-inner">
           <section
@@ -73,9 +80,11 @@ export const ThinkingReasoning = memo(function ThinkingReasoning(input: {
                 el.scrollHeight - el.scrollTop - el.clientHeight < 24;
             }}
             ref={viewport}
-            tabIndex={state.open ? 0 : -1}
+            tabIndex={open ? 0 : -1}
           >
-            <div className="om-reasoning-stream">{input.text}</div>
+            <div className="om-reasoning-stream">
+              {open ? (input.children ?? input.text) : null}
+            </div>
           </section>
         </div>
       </div>

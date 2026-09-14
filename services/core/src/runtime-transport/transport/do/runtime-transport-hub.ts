@@ -1473,6 +1473,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
   ): Promise<LocalAgentReasoningPreferences> {
     if (input.enabled !== undefined) {
       const preference = localAgentReasoningPreferencesSchema.parse(input);
+      if (preference.enabled) {
+        await this.clearPendingReasoningReplay();
+      }
       await this.ctx.storage.put(
         "local-agent-reasoning-preferences",
         preference
@@ -1482,6 +1485,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         if (session.socket) {
           this.sendReasoningPreference(session.socket);
         }
+      }
+      if (!preference.enabled) {
+        await this.clearPendingReasoningReplay();
       }
     }
     return { enabled: this.reasoningStreamEnabled };
@@ -1494,6 +1500,28 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         payload: { enabled: this.reasoningStreamEnabled },
       });
     }
+  }
+
+  private async clearPendingReasoningReplay(): Promise<void> {
+    const targets = new Map<string, { spaceId: string; profileId: string }>();
+    for (const pending of this.state.pendingDispatches.values()) {
+      targets.set(JSON.stringify([pending.spaceId, pending.profileId]), {
+        spaceId: pending.spaceId,
+        profileId: pending.profileId,
+      });
+    }
+    await Promise.all(
+      [...targets.values()].map(async (target) => {
+        const space = resolveSpaceStub(
+          this.env.OPENMELD_SPACES,
+          target.spaceId
+        );
+        if (!space) {
+          throw new Error("reasoning.replay_space_unavailable");
+        }
+        await space.rpcClearReasoningReplay(target);
+      })
+    );
   }
 
   constructor(ctx: DurableObjectState, env: CoreBindings) {
@@ -8813,6 +8841,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           agentControllerConversationOccupancy:
             request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: request.lifecycleAtMs,
+          runningAtMs: pending.runningAtMs,
           localQueue: request.localQueue ?? null,
           phase: request.phase,
         },
@@ -11588,20 +11617,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         targetDisplay: resolveRuntimeCoordinatorHeadTargetDisplay(request),
         updatedAtMs: nowMs,
       };
-      await this.writeRuntimeCoordinatorHeadLifecycleRecord(nextRecord);
-      await this.publishRuntimeCoordinatorHeadPreAgentStoppedOutcome({
-        nowMs,
+      return await this.commitRuntimeCoordinatorHeadStop({
         record: nextRecord,
+        nowMs,
       });
-      return {
-        ok: true,
-        primaryDispatchId: request.dispatchId,
-        publicationIntentId,
-        reasonCode: RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
-        runtimeCoordinatorExecutionId: null,
-        status: "stopped_before_execution",
-        targetWakeLifecycleId: identity.targetWakeLifecycleId,
-      };
     }
 
     if (!isSameRuntimeCoordinatorHeadAuthority(existing, request)) {
@@ -12701,6 +12720,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           agentControllerConversationOccupancy:
             input.request.agentControllerConversationOccupancy ?? null,
           lifecycleAtMs: input.request.lifecycleAtMs,
+          runningAtMs: input.commandState.localProgress.runningAtMs,
           localQueue: input.request.localQueue ?? null,
           phase: input.request.phase,
           source: "runtime_coordinator_run_command_state",

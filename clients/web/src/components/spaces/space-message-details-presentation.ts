@@ -271,12 +271,20 @@ function applyWakeProgressEntries(input: {
 		target.description = entry.text.trim() || entry.step.label;
 		if (
 			entry.step.kind === "waiting_for_device" ||
+			entry.step.kind === "waiting_for_controller" ||
 			(entry.step.kind === "queued" && entry.step.status === "pending")
 		) {
 			target.description += `. ${entry.step.description}`;
 		}
 		target.occurredAtMs = entry.elapsedStartedAtMs;
-		target.status = entry.step.status === "failed" ? "failed" : "running";
+		if (
+			entry.step.kind === "waiting_for_controller" &&
+			entry.step.status !== "failed"
+		) {
+			target.status = "pending";
+		} else {
+			target.status = entry.step.status === "failed" ? "failed" : "running";
+		}
 	}
 }
 

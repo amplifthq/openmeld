@@ -52,12 +52,11 @@ Web uses three navigation levels: a fixed 76px application rail, a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
 Team are the rail's destinations, in that order. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
-switching and Create remain circular controls at the top. Global search sits
+switching remains at the top; the global Create entry is temporarily hidden.
+Creation remains available in the Spaces and Team contextual headers. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
 retains the shared attention badge and active-route treatment. The Organization
-avatar fills its circular trigger. Create opens New Agent and New Space to the
-right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
-motion opens the choices without travel. Account, theme, and Settings
+avatar fills its circular trigger. Account, theme, and Settings
 remain reachable from the rail. Spaces and its contextual sidebar heading always
 open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
 and Discover, in that order (Discover is absent in personal workspaces).
@@ -873,6 +872,13 @@ The optional `?item={itemId}` deep link reads that exact recipient-authorized
 Core item by ID, places it in the canonical **All** view when it is outside the
 currently loaded list, focuses it, and marks it read once. It never searches a
 bounded number of list pages or treats list depth as item availability.
+
+Space message links load a bounded window around the exact target when it is
+outside the rendered conversation. They reuse the existing history-navigation
+owner for earlier/newer context and return-to-latest behavior, rather than
+searching a fixed number of pages from the live tail. A newer navigation cancels
+the previous lookup. Main-message links take precedence over a previously open
+Thread; explicit Thread links still open the Thread shell before replies load.
 
 When a Space terminal-failure Signal is visually anchored under its Wake source
 message, the Core-owned Inbox target uses that source Signal as `focusSignalId`.
@@ -3222,11 +3228,14 @@ Binding. The Advanced view may expose the exact actor Profile ID for diagnosis.
 Agent Profile creation and maintenance surfaces may render Agent Controller
 Permission Mode after the user has chosen a controller. Web should use the
 shared runtime metadata so each controller shows native labels and descriptions
-instead of a Web-authored abstraction. Existing Agent Profile cards should show
-a compact provider-specific line such as `Codex permissions mode: Approve for
-me`, and owner-self details may show the richer Binding fact. Web writes the
-mode through the Binding API; it must not treat the selected mode as Space
-permission, Wake readiness, or local service truth.
+instead of a Web-authored abstraction. Owner-facing cards and editors retain compact controller-native mode names.
+Editors explain the selected mode once in plain language and place key
+controller-native launch settings behind a closed technical disclosure. Existing Agent Profile list rows should still show a
+compact provider-specific fact such as `Codex permissions mode: Approve for me`, and
+owner-self details may show the richer Binding fact. Web writes the mode through
+the Binding API; it must not treat the selected mode as Space permission, Wake
+readiness, local service truth, or a bypass of separate Computer file-access
+limits.
 
 Controller replacement, unbinding, and working-folder changes are disruptive
 execution-target actions. Agents pages and Space maintenance dialogs must read
@@ -4353,13 +4362,17 @@ until Core projects a reply, stopped outcome, or explicit failure. Only a
 short-lived browser-local optimistic `sending` item may expire locally. When
 Web shows elapsed running time, it uses the optional authoritative
 `startedAtMs` timing projection requested with `includeTiming=true`.
+For workstation execution it is the Coordinator's first accepted running
+lifecycle timestamp, never execution creation or time spent waiting for another
+client. If older evidence lacks that fact, omit the timer.
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
-for Codex task` and explains that the Wake will start when
-that task becomes available. It must not present that state as `Agent is
+for <Agent name>` and explains `Another app is using this conversation.` The
+waiting action uses `Cancel waiting`, with the same authorized cancellation
+path as Stop. It must not present that state as `Agent is
 working` or the generic `Sending to agent`. The current Space's secondary
 sidebar status uses the same progress projection and a non-Working waiting
 indicator instead of its animated Working orb. Both surfaces return to ordinary
@@ -4574,6 +4587,20 @@ These records help users and support return to the right evidence. They do not
 create new truth.
 
 ## Setup Handoff Entry
+
+The final Agent creation action may return to Agents before Core acknowledges
+the request. Its local card is a presentation intent, never an Agent identity
+or Wakeability verdict. Keep the unacknowledged idempotency key across that
+route change, replace the local card on acceptance, and make failed local
+cards dismissible. Completion may select the real Agent only while the member
+is still following that request; it must not interrupt later navigation.
+
+Confirmed Space deletion intent immediately closes settings and opens Browse
+Spaces. Keep only the affected Space absent from list caches while the write
+is pending, including during background refetches. Failure restores that entry
+without replacing unrelated newer list changes and leaves a persistent error
+with an Open Space action. A refresh failure after confirmed deletion must
+never restore the deleted Space or report the deletion itself as failed.
 
 Agent creation hosts the shared Computer setup workflow inside its existing
 form as soon as connection or reconnection is required, without an extra
