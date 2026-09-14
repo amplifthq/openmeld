@@ -69,7 +69,7 @@ describe("local components schema", () => {
     ).toBe(true);
   });
 
-  it("owns the bounded child-process failure frame without trusting public copy", () => {
+  it("owns the bounded child-process failure frame and safe product copy", () => {
     const frame = {
       detail: "local diagnostic at /private/path",
       failureCode: "cli.update.download_stalled",
@@ -94,6 +94,11 @@ describe("local components schema", () => {
     expect(formatOpenMeldToolsUpdateFailureMessage(frame.failureCode)).toBe(
       "The update download stopped making progress. Check this computer's connection and try again."
     );
+    expect(
+      formatOpenMeldToolsUpdateFailureMessage(
+        "cli.update.service_alignment_failed"
+      )
+    ).toBe("OpenMeld Service could not finish updating.");
   });
 
   it("keeps Web and Center Agent maintenance requests on one contract", () => {

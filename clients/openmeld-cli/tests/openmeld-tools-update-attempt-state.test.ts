@@ -38,6 +38,35 @@ const attempt: OpenMeldToolsUpdateAttempt = {
     urgency: "available",
   },
 };
+const serviceJob: DaemonServiceUpdateJob = {
+  v: 2,
+  schema: "openmeld-daemon-service-update-job-v2",
+  attempts: 0,
+  desiredState: "background",
+  errorMessage: null,
+  jobId: "update-1",
+  phase: "waiting_for_work",
+  preparedBundle: {
+    v: 2,
+    schema: "openmeld-daemon-active-bundle-v2",
+    bundleId: "0.3.105-bundle",
+    daemonVersion: "0.3.105",
+    entryScriptRelativePath: "openmeld",
+    bundleFormat: "binary_v1",
+    sourceEntryScriptPath: "/tmp/openmeld",
+    sourcePackageRootPath: "/tmp",
+    sourceDistRootPath: "/tmp",
+    sourceDistFingerprint: "abc123",
+    sourceKind: "package_install",
+    createdAt: NOW,
+    updatedAt: NOW,
+  },
+  requestedAt: NOW,
+  requestSource: "automatic",
+  targetVersion: "0.3.105",
+  updatedAt: NOW,
+  urgency: "available",
+};
 
 describe("OpenMeld Tools update attempt state", () => {
   const temporaryRoots: string[] = [];
@@ -93,43 +122,10 @@ describe("OpenMeld Tools update attempt state", () => {
     await completeOpenMeldToolsUpdateAttempt(
       {
         ...attempt,
-        errorMessage: encodePersistedOpenMeldToolsUpdateFailure({
-          detail: "older CLI download failure",
-          failureCode: "cli.update.download_stalled",
-        }),
-        operation: { ...attempt.operation, phase: "needs_help" },
+        operation: { ...attempt.operation, phase: "updated" },
       },
       pathInput
     );
-    const serviceJob: DaemonServiceUpdateJob = {
-      v: 2,
-      schema: "openmeld-daemon-service-update-job-v2",
-      attempts: 0,
-      desiredState: "background",
-      errorMessage: null,
-      jobId: "update-1",
-      phase: "waiting_for_work",
-      preparedBundle: {
-        v: 2,
-        schema: "openmeld-daemon-active-bundle-v2",
-        bundleId: "0.3.105-bundle",
-        daemonVersion: "0.3.105",
-        entryScriptRelativePath: "openmeld",
-        bundleFormat: "binary_v1",
-        sourceEntryScriptPath: "/tmp/openmeld",
-        sourcePackageRootPath: "/tmp",
-        sourceDistRootPath: "/tmp",
-        sourceDistFingerprint: "abc123",
-        sourceKind: "package_install",
-        createdAt: NOW,
-        updatedAt: NOW,
-      },
-      requestedAt: NOW,
-      requestSource: "automatic",
-      targetVersion: "0.3.105",
-      updatedAt: NOW,
-      urgency: "available",
-    };
     await persistPendingDaemonServiceUpdate(serviceJob, pathInput);
 
     await expect(
@@ -164,6 +160,33 @@ describe("OpenMeld Tools update attempt state", () => {
         operationId: "update-1",
         phase: "restored",
       },
+    });
+  });
+
+  it.each([
+    "needs_help",
+    "restored",
+  ] as const)("projects a standalone terminal Service %s outcome without inferring CLI state", async (phase) => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-tools-update-"));
+    temporaryRoots.push(root);
+    const pathInput: OpenMeldPathResolutionInput = {
+      env: {
+        OPENMELD_ENV_PRESET: "dev-local",
+        OPENMELD_HOME: root,
+      },
+      homeDir: root,
+    };
+    await persistPendingDaemonServiceUpdate(serviceJob, pathInput);
+    await completePendingDaemonServiceUpdate(
+      { ...serviceJob, phase },
+      pathInput
+    );
+
+    await expect(
+      resolveOpenMeldToolsUpdateOperationProjection(pathInput, Date.parse(NOW))
+    ).resolves.toMatchObject({
+      failureCode: "cli.update.service_alignment_failed",
+      operation: { operationId: "update-1", phase },
     });
   });
 

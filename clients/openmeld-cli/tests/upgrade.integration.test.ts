@@ -659,17 +659,27 @@ describe("openmeld upgrade", () => {
       ]);
 
       try {
+        let thrown: unknown;
         const { stdout } = await withCapturedStdio(async () => {
-          await expect(
-            runUpgrade({
+          try {
+            await runUpgrade({
               view: "agent",
               yes: true,
-            })
-          ).rejects.toThrow(
-            "Latest OpenMeld CLI handoff reported a service alignment failure."
-          );
+            });
+          } catch (error) {
+            thrown = error;
+          }
         });
 
+        expect(thrown).toEqual(
+          expect.objectContaining({
+            message:
+              "Latest OpenMeld CLI handoff reported a service alignment failure.",
+          })
+        );
+        expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
+          "cli.update.service_alignment_failed"
+        );
         expect(stdout).toContain('"code":"upgrade.reconcile.failed"');
         expect(stdout).not.toContain('"code":"upgrade.completed"');
       } finally {

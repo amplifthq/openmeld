@@ -347,7 +347,7 @@ export function formatOpenMeldToolsUpdateFailureMessage(
     case "cli.update.install_failed":
       return "The update was downloaded but could not be installed.";
     case "cli.update.service_alignment_failed":
-      return "OpenMeld CLI is ready, but OpenMeld Service could not finish updating.";
+      return "OpenMeld Service could not finish updating.";
     case "cli.update.failed":
       return "The update could not be completed. Try again or update manually.";
     default: {
