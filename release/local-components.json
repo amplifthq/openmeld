@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T13:14:16.733Z",
+  "updatedAt": "2026-09-14T17:59:17.523Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.204",
+      "packageVersion": "0.3.205",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands, setup, Space actions and diagnostics remain compatible with both cloud versions; the release adds optional stream metadata without changing command authority."
+      "reason": "Permission descriptions and Codex waiting recovery preserve commands and wire contracts with old and new cloud versions."
     },
     "service": {
-      "bundleHash": "cfa0dd0a8110a0466664036946dbe1f9b2e6e1e214cae400e28a83395a6d46a9",
-      "bundleVersion": "0.3.204",
+      "bundleHash": "9a1ea5e8491ecbaafb855c36266c7755f32f51592d214342691d81f7eb4c1288",
+      "bundleVersion": "0.3.205",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Reasoning frames wait for Core preferences, so new Services remain safe against old cloud code; old Services continue current Wake and recovery work against new Core. Deploy cloud receivers before publishing the new Service."
+      "reason": "Codex writer admission retries preserve existing Wake lifecycle contracts and do not interrupt work owned by other applications; old Services remain compatible."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
