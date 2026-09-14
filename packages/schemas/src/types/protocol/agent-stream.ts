@@ -1,5 +1,9 @@
 import type { z } from "zod/v4";
 
+export type ClearSpaceReasoningReplay = z.infer<
+  typeof import("../../schemas/protocol/agent-stream")["clearSpaceReasoningReplaySchema"]
+>;
+
 type SpaceAgentStreamSnapshotSchema =
   typeof import("../../schemas/protocol/agent-stream")["spaceAgentStreamSnapshotSchema"];
 type SpaceAgentStreamPresenceSchema =
