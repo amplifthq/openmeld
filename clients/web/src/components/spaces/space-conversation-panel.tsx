@@ -1329,11 +1329,16 @@ function useSpaceConversationNavigationController(input: {
 		},
 		[]
 	);
-	const jumpToMessage = useCallback((signalId: string) => {
+	const jumpToMessage = useLatestCallback((requestedSignalId: string) => {
+		const signalId = resolveConversationFocusSignalId(
+			input.mainTimelineItems,
+			requestedSignalId
+		);
 		const messageElement = messageElementsBySignalIdRef.current.get(signalId);
 		if (!messageElement) {
 			return;
 		}
+		conversationPosition.releaseReadingPosition();
 		const scrollElement = conversationScrollRef.current;
 		if (scrollElement) {
 			scrollMessageIntoConversationViewport({ messageElement, scrollElement });
@@ -1349,7 +1354,7 @@ function useSpaceConversationNavigationController(input: {
 			highlightMessageTimerRef.current = null;
 			setHighlightedSignalId(null);
 		}, 1800);
-	}, []);
+	});
 	const onJumpToMessage = useLatestCallback((signalId: string) => {
 		if (input.activeSpaceView === "messages") {
 			jumpToMessage(signalId);
@@ -1470,37 +1475,39 @@ function useSpaceConversationNavigationController(input: {
 	);
 	const revealUnreadTarget = useLatestCallback(
 		async (target: SpaceInboxUnreadTarget) => {
-			const anchorSignalId = target.threadRootSignalId ?? target.signalId;
-			for (
-				let attempt = 0;
-				attempt <= MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS;
-				attempt += 1
-			) {
-				if (messageElementsBySignalIdRef.current.has(anchorSignalId)) {
-					jumpToMessage(anchorSignalId);
-					if (target.threadRootSignalId) {
-						await openUnreadThreadTarget(target);
+			setMainFocusStatusMessage(null);
+			conversationPosition.releaseReadingPosition();
+			input.onSpaceViewChange("messages");
+			try {
+				if (target.threadRootSignalId) {
+					if (!(await openUnreadThreadTarget(target))) {
+						throw new Error("Couldn’t open this thread. Try again.");
 					}
-					return;
-				}
-				if (
-					!(
-						input.hasEarlierHistory &&
-						attempt < MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS
-					)
-				) {
-					return;
-				}
-				await loadEarlierHistory();
-				await new Promise<void>((resolve) => {
-					window.requestAnimationFrame(() =>
-						window.requestAnimationFrame(() => resolve())
+				} else if (messageElementsBySignalIdRef.current.has(target.signalId)) {
+					jumpToMessage(target.signalId);
+				} else if (await input.onLoadHistoryAround?.(target.signalId)) {
+					setPendingPinJump(target.signalId);
+				} else {
+					throw new Error(
+						"Couldn’t find this unread message. Refresh this Space and try again."
 					);
-				});
+				}
+			} catch (error) {
+				setMainFocusStatusMessage(
+					error instanceof Error
+						? error.message
+						: "Couldn’t open this message. Try again."
+				);
 			}
 		}
 	);
-	const initialMainFocusSignalId = resolveInitialMainFocusSignalId(input);
+	const requestedMainFocusSignalId = resolveInitialMainFocusSignalId(input);
+	const initialMainFocusSignalId = requestedMainFocusSignalId
+		? resolveConversationFocusSignalId(
+				input.mainTimelineItems,
+				requestedMainFocusSignalId
+			)
+		: undefined;
 	const initialFocusThread = input.initialFocusThreadRootSignalId
 		? input.threadsByRootSignalId.get(input.initialFocusThreadRootSignalId)
 		: undefined;
@@ -1672,6 +1679,16 @@ function SpacePrimaryView(input: {
 			{activeContent}
 		</div>
 	);
+}
+
+function resolveConversationFocusSignalId(
+	items: readonly SpaceTimelineItem[],
+	signalId: string
+): string {
+	const outcome = items.find(
+		(item) => item.id === signalId && isSpaceOutcomeNoticeItem(item)
+	);
+	return outcome?.replyToSignalId ?? signalId;
 }
 
 function resolveInitialMainFocusSignalId(

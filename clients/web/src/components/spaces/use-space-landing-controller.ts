@@ -86,7 +86,10 @@ import type {
 } from "#/lib/spaces/wake-stop-target";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
-import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import {
+	accountSpaceQueryKeys,
+	updateAccountSpaceAcceptedMessage,
+} from "#/query/spaces/account-spaces";
 import {
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
@@ -2837,6 +2840,7 @@ export function useSpaceLandingController(input: {
 				targetProfileIds: wakeProgressTargetProfileIds,
 			});
 			mergePersistedIncoming([signal]);
+			updateAccountSpaceAcceptedMessage(queryClient, input.profileId, signal);
 			removePendingOutgoingSignal(
 				setPendingOutgoingSignals,
 				sendInput.clientMessageId
@@ -3912,6 +3916,11 @@ function useSpaceThreadController(input: {
 			);
 			postedMessage = true;
 			activationTargets = readPublishedWakeTargetProfileIds(response.signal);
+			updateAccountSpaceAcceptedMessage(
+				input.queryClient,
+				input.profileId,
+				response.signal
+			);
 			completeSpaceSend(clientMessageId);
 			recordWakeDiagnosticIfNeeded({
 				clientMessageId,

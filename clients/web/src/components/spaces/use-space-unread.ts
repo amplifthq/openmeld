@@ -30,10 +30,16 @@ export function useSpaceUnread(input: {
 	spaceId: string;
 	targets: readonly SpaceInboxUnreadTarget[];
 }): SpaceUnreadState & { onViewingLatestChange: (viewing: boolean) => void } {
-	const latestVisibleTs = useMemo(
-		() => resolveLatestVisibleTs(input.envelopes),
-		[input.envelopes]
-	);
+	const latestVisibleTs = useMemo(() => {
+		const loadedIds = new Set(input.envelopes.map((signal) => signal.id));
+		return input.targets.reduce(
+			(latest, target) =>
+				target.threadRootSignalId === null && loadedIds.has(target.signalId)
+					? Math.max(latest, target.occurredAtMs)
+					: latest,
+			resolveLatestVisibleTs(input.envelopes)
+		);
+	}, [input.envelopes, input.targets]);
 	const mainTargets = useMemo(
 		() => input.targets.filter((target) => target.threadRootSignalId === null),
 		[input.targets]

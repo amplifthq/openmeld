@@ -445,8 +445,16 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		[activeThreadRootSignalId, input.unreadTargets]
 	);
 	const firstUnreadSignalId = activeUnreadTargets[0]?.signalId ?? null;
-	const latestThreadOccurredAtMs =
-		rawThreadTimelineItems.at(-1)?.createdAtMs ?? 0;
+	const latestThreadOccurredAtMs = useMemo(() => {
+		const loadedIds = new Set(rawThreadTimelineItems.map((item) => item.id));
+		return activeUnreadTargets.reduce(
+			(latest, target) =>
+				loadedIds.has(target.signalId)
+					? Math.max(latest, target.occurredAtMs)
+					: latest,
+			rawThreadTimelineItems.at(-1)?.createdAtMs ?? 0
+		);
+	}, [activeUnreadTargets, rawThreadTimelineItems]);
 	const focusStatusMessage = resolveThreadFocusStatusMessage({
 		activeThread: input.activeThread,
 		hasTargetSignal: rawThreadTimelineItems.some(

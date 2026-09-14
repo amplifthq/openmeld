@@ -1474,6 +1474,39 @@ describe("SpaceConversationPanel", () => {
 		expect(screen.getByText("Status update")).toBeTruthy();
 	});
 
+	it("focuses the retained source of a folded historical failure link", async () => {
+		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+			configurable: true,
+			value: vi.fn(),
+		});
+		renderSpaceConversationPanel({
+			initialFocusSignalId: "old-failure",
+			timelineItems: [
+				createTimelineItem({
+					id: "source-request",
+					text: "Review the proposal",
+				}),
+				createTimelineItem({
+					id: "old-failure",
+					text: "No reply was returned",
+					signalType: "signal.system_notice",
+					systemNoticeType: "terminal_failure",
+					replyToSignalId: "source-request",
+				}),
+			],
+		});
+		await waitFor(() =>
+			expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+				"source-request"
+			)
+		);
+		expect(
+			screen.queryByText("This linked message isn’t available", {
+				exact: false,
+			})
+		).toBeNull();
+	});
+
 	it("returns to Messages before resolving a same-Space message link", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
