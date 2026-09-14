@@ -1094,8 +1094,8 @@ request language unless stronger current context says otherwise.
 
 The **Model** section is readable by every active Organization member. It shows
 the effective friendly primary-model name and never exposes a raw OpenRouter
-model id. Owners and admins may choose **OpenMeld default**, **GLM 5.3 Flash**,
-**Grok 4.6**, **Grok 4.5**, or **DeepSeek V4 Flash** and save through the
+model id. Owners and admins may choose **OpenMeld default** or a curated model
+from OpenAI, Anthropic, Google, DeepSeek, xAI, or Z.ai and save through the
 Binding-revision compare-and-set contract; members see the same effective
 configuration without enabled mutation controls. The OpenMeld-default option
 includes the current effective model so a future system-default change is
@@ -1105,8 +1105,20 @@ matching options; Web does not infer badges from model names or the current
 default. Reasoning is catalog-owned at `high` and is not a separate Web control
 in this release.
 
-The primary-model picker searches the Core-projected choices by friendly name
-or exact catalog ID without displaying raw IDs or admitting free-text models.
+The first-level **Provider** selector filters the second-level **Primary model**
+picker. Provider means the model vendor, derived from the exact OpenRouter ID
+prefix; it never changes the serving route or asks for another credential.
+Known vendor prefixes have friendly labels; a newly cataloged prefix is shown
+verbatim so an older Web build can still expose it. Options are derived only
+from Core-projected choices, not from a separate browser model catalog.
+Changing Provider clears an incompatible draft and disables Save until a model
+is selected. It never selects a model automatically or persists the filter.
+Provider and search state reset across Organizations.
+
+**All providers** supports cross-vendor search and retains the **OpenMeld default**
+option. Within a provider, search filters only that vendor's models. Search
+matches friendly name, vendor label, or exact catalog ID without displaying raw
+IDs or admitting free-text models.
 The saved choice comes first; a persistent current-model label remains visible
 even when a search has no matches. Selecting a candidate only changes the local
 draft. The current label changes after the Binding save succeeds. The searchable
