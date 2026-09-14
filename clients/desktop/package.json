@@ -40,6 +40,7 @@
     "zod": "4.3.6"
   },
   "build": {
+    "forceCodeSigning": true,
     "appId": "sh.openmeld.desktop",
     "productName": "OpenMeld Desktop",
     "directories": {
@@ -55,7 +56,9 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "resources/icon.icns",
-      "identity": null,
+      "identity": "-",
+      "notarize": false,
+      "strictVerify": true,
       "target": [
         {
           "target": "dmg",

@@ -378,6 +378,22 @@ Electron is deliberately separate from the root Worker development stack.
 Public Desktop distribution remains paused: `/desktop` returns 404. Do not
 publish or deploy this pilot as a production release.
 
+Local macOS packages use electron-builder's standard ad-hoc signing
+(`mac.identity: "-"`) for the assembled App and nested code. The shared build
+requires signing and strict verification before creating the DMG; installed and
+private targets inherit this policy. Do not set `identity: null`: the original
+Electron executable's linker signature does not seal the application resources.
+No post-build signature repair is required or supported. The builder's default
+Electron entitlements support JIT and library loading with Hardened Runtime.
+
+The existing `unsigned` command and artifact names mean no Developer ID signing.
+Ad-hoc integrity is not Developer ID trust, notarization, or Gatekeeper acceptance.
+Notarization remains disabled for these local artifacts. Before installation
+acceptance, verify both the source App and its DMG copy with
+`codesign --verify --deep --strict --verbose=2`, then use the normal macOS Open
+flow with quarantine preserved. A valid signature does not prove visible startup,
+login, or Service behavior; report those outcomes separately.
+
 ### Installed macOS entry
 
 `OPENMELD_DESKTOP_TARGET=production` compiles the installed entry for

@@ -9,7 +9,7 @@ const { build } = JSON.parse(
   readFileSync(new URL("./package.json", import.meta.url), "utf8")
 );
 
-// Reviewable local artifact only. Signing/publication is a separate release gate.
+// Local ad-hoc artifact only. Developer ID/publication is a separate release gate.
 export default {
   ...build,
   appId: target.appId,
@@ -22,6 +22,5 @@ export default {
   protocols: [
     { name: "OpenMeld Desktop sign-in", schemes: [target.authScheme] },
   ],
-  mac: { ...build.mac, identity: null, notarize: false },
   publish: null,
 };

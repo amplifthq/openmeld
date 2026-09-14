@@ -21,7 +21,6 @@ export default {
       schemes: [DESKTOP_AUTH_SCHEME],
     },
   ],
-  mac: { ...build.mac, identity: null, notarize: false },
   dmg: {
     ...build.dmg,
     artifactName: build.dmg.artifactName.replace(
