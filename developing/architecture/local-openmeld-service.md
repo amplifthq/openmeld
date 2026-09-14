@@ -233,6 +233,16 @@ Codex, Claude Code, Grok Build, Cursor, OpenCode, or future controller; ACI is t
 surface OpenMeld uses to detect it, launch it, inspect it, and drive its native
 control capabilities.
 
+Device inventory probes use an owned temporary directory outside Projects, not
+the caller's or Service's working directory. Native cwd parameters (including
+Codex skills/list and OpenCode's directory) use that same probe context. The
+selected executable, user configuration, authenticated account, and environment
+remain unchanged. Probe directories are removed after completion or failure.
+Inventory skills describe user/global controller context; they do not describe
+an incidental development repository. Actual execution continues to use the
+selected Project workspace and its access checks. Successful device inventory
+does not prove that a particular Project is accessible.
+
 ACI-owned local evidence may include:
 
 - selected launch contract and install choice
