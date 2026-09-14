@@ -4,17 +4,6 @@ import { resolveWakeProgressStatus } from "./wake-progress-status";
 
 describe("resolveWakeProgressStatus", () => {
 	it.each([
-		["Monica’s MacBook", "runner is working · Monica’s MacBook"],
-		[null, "runner is working"],
-		["  ", "runner is working"],
-	])("only shows a supplied execution location (%s)", (runtimeDeviceDisplayName, label) => {
-		expect(
-			resolveWakeProgressStatus(
-				createWakeProgressItem({ runtimeDeviceDisplayName })
-			)?.label
-		).toBe(label);
-	});
-	it.each([
 		["earlier_work", "runner is queued · Waiting for earlier tasks"],
 		["device_offline", "Waiting for runner’s computer to come online"],
 	] as const)("preserves the authoritative waiting reason %s", (reason, label) => {

@@ -47,7 +47,6 @@ type PresentableWakeProgress = Pick<
 	| "targetLabel"
 	| "waitReasonCode"
 	| "deviceWait"
-	| "runtimeDeviceDisplayName"
 >;
 
 /**
@@ -137,9 +136,7 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "The Agent is working on this Wake.",
 				kind: "working",
-				label: item.runtimeDeviceDisplayName?.trim()
-					? `${targetName} is working · ${item.runtimeDeviceDisplayName.trim()}`
-					: `${targetName} is working`,
+				label: `${targetName} is working`,
 				status: "active",
 			};
 		case "writing":

@@ -1157,6 +1157,16 @@ errors, or mutation controls. A live Service may expose team-safe OpenMeld
 Tools component versions and update states; setup commands, hashes, and
 owner-only controls remain private.
 
+Team Computer links include both the owner account ID and device ID. A device
+ID alone is not unique across accounts. Legacy device-only links resolve only
+when the visible inventory has exactly one matching Computer; ambiguous links
+ask the viewer to select the Computer from its owner's Profile. They must never
+pick the first match or borrow another account's live status. Team detail
+resolution waits for the initial Organization projection refresh before using
+cached identity evidence. Stale local-agent checks display **Status out of date**:
+current availability is unknown until the Computer reports a new check. This
+does not mean that the Agent version is outdated or that repair is required.
+
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
 automatically. In the collapsed row, a compact summary follows the existing
