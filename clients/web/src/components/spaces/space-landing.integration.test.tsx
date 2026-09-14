@@ -15508,7 +15508,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("loads bounded earlier history to open an older Inbox source message", async () => {
+	it("opens an old Inbox message directly without loading the intervening history", async () => {
 		const recentSignal = createTextSignal({
 			id: "sig-recent",
 			text: "Recent message",
@@ -15519,10 +15519,12 @@ describe("SpaceLanding", () => {
 			text: "Older linked message",
 			ts: 10,
 		});
-		const listSignalEnvelopesMock = vi.fn().mockResolvedValue({
-			envelopes: [olderTarget, recentSignal],
-			nextCursor: null,
-		});
+		const listSignalEnvelopesMock = vi.fn().mockImplementation(({ query }) =>
+			Promise.resolve({
+				envelopes: query.aroundSignalId === olderTarget.id ? [olderTarget] : [],
+				nextCursor: null,
+			})
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			listSignalEnvelopes: listSignalEnvelopesMock,
 			postNormalMessage: vi.fn(),
@@ -15548,28 +15550,41 @@ describe("SpaceLanding", () => {
 					?.getAttribute("data-highlighted")
 			).toBe("true");
 		});
+		expect(screen.queryByText("Recent message")).toBeNull();
+		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+			olderTarget.id
+		);
+		expect(listSignalEnvelopesMock).toHaveBeenCalledTimes(1);
 		expect(listSignalEnvelopesMock).toHaveBeenCalledWith({
 			spaceId: "space-123",
+			signal: expect.any(AbortSignal),
 			query: {
-				afterCount: 0,
-				aroundSignalId: recentSignal.id,
-				beforeCount: 20,
+				afterCount: 30,
+				aroundSignalId: olderTarget.id,
+				beforeCount: 30,
 				kinds: ["text", "status", "system_notice"],
 			},
 		});
 	});
 
-	it("explains when an older Inbox source message is unavailable", async () => {
+	it.each([
+		"missing",
+		"network failure",
+	])("explains an old Inbox lookup failure: %s", async (failure) => {
 		const recentSignal = createTextSignal({
 			id: "sig-only-recent",
 			text: "Only recent message",
 			ts: 20,
 		});
 		createWebSpaceApiMock.mockReturnValue({
-			listSignalEnvelopes: vi.fn().mockResolvedValue({
-				envelopes: [recentSignal],
-				nextCursor: null,
-			}),
+			listSignalEnvelopes:
+				failure === "missing"
+					? vi.fn().mockResolvedValue({ envelopes: [], nextCursor: null })
+					: vi
+							.fn()
+							.mockRejectedValue(
+								new Error("The connection was interrupted. Try again.")
+							),
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
@@ -15587,9 +15602,11 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding({ initialFocusSignalId: "sig-missing-inbox-target" });
 
 		expect(
-			await screen.findByRole("status", {
-				name: "Linked message isn't available",
-			})
+			await screen.findByText(
+				failure === "missing"
+					? "This message is no longer available."
+					: "The connection was interrupted. Try again."
+			)
 		).toBeTruthy();
 	});
 

@@ -31,9 +31,10 @@ export function useSpaceThreadPanelSelection(input: {
 	const [selection, setSelection] = useState<SpaceThreadPanelSelection>(() => ({
 		profileId: input.profileId,
 		spaceId: input.spaceId,
-		threadId: input.initialFocusThreadRootSignalId
-			? null
-			: readSelectionForSpace(input.spaceId),
+		threadId:
+			input.initialFocusThreadRootSignalId || input.initialFocusSignalId
+				? null
+				: readSelectionForSpace(input.spaceId),
 		rootSignalId: input.initialFocusThreadRootSignalId ?? null,
 	}));
 	const activeThreadId =
@@ -50,14 +51,17 @@ export function useSpaceThreadPanelSelection(input: {
 			: null;
 
 	useEffect(() => {
-		if (!initialFocus.rootSignalId) {
+		if (!(initialFocus.rootSignalId || initialFocus.signalId)) {
 			return;
+		}
+		if (!initialFocus.rootSignalId) {
+			clearSpaceThreadPanelSelection({ spaceId: input.spaceId });
 		}
 		setSelection({
 			profileId: input.profileId,
 			spaceId: input.spaceId,
 			threadId: null,
-			rootSignalId: initialFocus.rootSignalId,
+			rootSignalId: initialFocus.rootSignalId ?? null,
 		});
 	}, [input.profileId, input.spaceId, initialFocus]);
 

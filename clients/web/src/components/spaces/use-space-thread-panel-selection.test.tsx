@@ -8,8 +8,13 @@ afterEach(() => {
 	window.localStorage.clear();
 });
 
-function ThreadPanelSelectionHarness() {
+function ThreadPanelSelectionHarness({
+	initialFocusSignalId,
+}: {
+	initialFocusSignalId?: string;
+}) {
 	const selection = useSpaceThreadPanelSelection({
+		initialFocusSignalId,
 		availableThreadIds: new Set(["thread-1"]),
 		availableThreadsReady: true,
 		profileId: "profile-1",
@@ -32,6 +37,27 @@ function ThreadPanelSelectionHarness() {
 }
 
 describe("useSpaceThreadPanelSelection", () => {
+	it.each([
+		"same Space",
+		"return to Space",
+	])("prioritizes a main-message link over the previous Thread on %s", (navigation) => {
+		const view = render(<ThreadPanelSelectionHarness />);
+		fireEvent.click(screen.getByRole("button", { name: "Open Thread" }));
+		expect(screen.getByLabelText("Active Thread").textContent).toBe("thread-1");
+		if (navigation === "return to Space") {
+			view.unmount();
+			render(
+				<ThreadPanelSelectionHarness initialFocusSignalId="main-message" />
+			);
+		} else {
+			view.rerender(
+				<ThreadPanelSelectionHarness initialFocusSignalId="main-message" />
+			);
+		}
+		expect(screen.getByLabelText("Active Thread").textContent).toBe("closed");
+		fireEvent.click(screen.getByRole("button", { name: "Open Thread" }));
+		expect(screen.getByLabelText("Active Thread").textContent).toBe("thread-1");
+	});
 	it.each([
 		"close",
 		"switch",

@@ -874,6 +874,13 @@ Core item by ID, places it in the canonical **All** view when it is outside the
 currently loaded list, focuses it, and marks it read once. It never searches a
 bounded number of list pages or treats list depth as item availability.
 
+Space message links load a bounded window around the exact target when it is
+outside the rendered conversation. They reuse the existing history-navigation
+owner for earlier/newer context and return-to-latest behavior, rather than
+searching a fixed number of pages from the live tail. A newer navigation cancels
+the previous lookup. Main-message links take precedence over a previously open
+Thread; explicit Thread links still open the Thread shell before replies load.
+
 When a Space terminal-failure Signal is visually anchored under its Wake source
 message, the Core-owned Inbox target uses that source Signal as `focusSignalId`.
 Web focuses the exact target it receives and does not infer a second navigation
