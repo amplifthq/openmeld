@@ -37,9 +37,11 @@ export const desktopComputerConnectionRequestSchema =
     .pick({
       humanProfileId: true,
       targetSpaceId: true,
+      sourceNavigationAction: true,
     })
     .extend({
       expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
+      resetThisComputer: z.boolean().optional(),
     });
 
 export const desktopComputerConnectionResultSchema = z.discriminatedUnion(

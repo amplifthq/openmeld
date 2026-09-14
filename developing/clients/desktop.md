@@ -121,6 +121,14 @@ projection, and reuses an account-aligned existing Service when that projection
 positively identifies it. Reuse selects its actual device/lane; it does not
 claim Agent Wakeability or rewrite a Computer session.
 
+Fresh-session requests (including New Agent recovery) and source navigation
+actions bypass that reuse shortcut. Source actions enter the existing Prepare
+request unchanged. Explicit Computer targeting, Service updates, and Space
+recovery stay in the Web flow until the native path supports their full intent;
+Desktop offers the original route, or the original Space for a source action,
+without reporting native completion. Once Prepare exists, later authorization,
+account, execution, or snapshot failures retain its diagnostic correlation ID.
+
 When the managed CLI is absent or lacks the connection contract, main downloads
 the fixed Web origin's managed binary manifest and Apple silicon artifact.
 The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
@@ -394,6 +402,12 @@ not users: existing Auth/Core/Space authorization remains authoritative.
 Installed renderers cannot call generated `/_serverFn/` or generic `/api/`
 endpoints. They consume explicit `/v1/` contracts, including CLI release metadata
 from the existing binary-channel manifest at `GET /v1/cli/release`.
+The fixed native Computer connection operation additionally admits only
+`POST /api/auth/device/code`, `GET /api/auth/device`, and
+`POST /api/auth/device/approve` through Web's representation guard. The existing
+Auth handlers retain authorization and grant validation. Renderer protocol
+requests to all `/api/` paths, including these three, remain rejected before
+native credentials are attached.
 
 After building the matching shared Web renderer, `pnpm desktop:package:installed`
 stages it and builds a local unsigned arm64 DMG with no publication target.

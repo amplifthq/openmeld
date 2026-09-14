@@ -44,6 +44,24 @@ it("keeps an installed contract usable across Web builds while retaining private
 			)?.status
 		).toBe(403);
 	}
+	for (const [path, method, admitted] of [
+		["/api/auth/device/code", "POST", true],
+		["/api/auth/device?user_code=TEST", "GET", true],
+		["/api/auth/device/approve", "POST", true],
+		["/api/auth/device/code", "GET", false],
+		["/api/auth/device/approve", "GET", false],
+		["/api/auth/device/token", "POST", false],
+		["/api/auth/device/code/extra", "POST", false],
+	] as const) {
+		const result = admitDesktopRequest(
+			new Request(`https://openmeld.ai${path}`, {
+				method,
+				headers: { origin: DESKTOP_APP_ORIGIN, [DESKTOP_CONTRACT_HEADER]: "1" },
+			}),
+			pilot
+		);
+		expect(result?.status ?? null).toBe(admitted ? null : 403);
+	}
 	expect(
 		admitDesktopRequest(
 			request("/v1/account/session", { [DESKTOP_CONTRACT_HEADER]: "2" }),
