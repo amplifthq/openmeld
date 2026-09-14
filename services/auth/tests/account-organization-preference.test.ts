@@ -1,5 +1,7 @@
 import {
   accountOrganizationContextSchema,
+  accountSidebarResponseSchema,
+  DESKTOP_APP_ORIGIN,
   selectLastSelectedOrganizationErrorResponseSchema,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -34,6 +36,145 @@ afterEach(() => {
 });
 
 describe("Account Organization preference HTTP API", () => {
+  it.each([
+    "development",
+    "production",
+  ] as const)("enforces cookie Origin and membership on real sidebar writes in %s", async (environment) => {
+    const context = createTestContext({ environment });
+    const account = await createSignedInUser(context, {
+      email: `sidebar-${environment}@example.com`,
+      name: "Sidebar",
+    });
+    const organizationId = await createOrganization(context, {
+      headers: account.headers,
+      name: "Sidebar",
+      slug: `sidebar-${environment}`,
+    });
+    const read = async () => {
+      const response = await context.app.fetch(
+        new Request(
+          `${AUTH_BASE_URL}/v1/account/sidebar?organizationId=${organizationId}`,
+          { headers: account.headers }
+        ),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      return accountSidebarResponseSchema.parse(await response.json());
+    };
+    const initial = await read();
+    const origins = [
+      DESKTOP_APP_ORIGIN,
+      WEB_APP_URL,
+      "https://hostile.example",
+      "null",
+      null,
+      `${DESKTOP_APP_ORIGIN}/`,
+      `${DESKTOP_APP_ORIGIN}.evil`,
+      "openmeld-desktop://other",
+      "sh.openmeld.desktop.dev:/",
+      "file://app",
+      "http://localhost:39999",
+      `blob:${WEB_APP_URL}/id`,
+    ];
+    let revision = initial.revision;
+    for (const origin of origins) {
+      const headers = new Headers(account.headers);
+      headers.set("content-type", "application/json");
+      headers.delete("referer");
+      if (origin === null) {
+        headers.delete("origin");
+      } else {
+        headers.set("origin", origin);
+      }
+      const response = await context.app.fetch(
+        new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            organizationId,
+            revision,
+            preferences: initial.preferences,
+          }),
+        }),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      const allowed =
+        origin === WEB_APP_URL ||
+        (environment === "development" && origin === DESKTOP_APP_ORIGIN);
+      expect({
+        origin,
+        status: response.status,
+        body: await response.json(),
+      }).toMatchObject(
+        allowed
+          ? { status: 200, body: { ok: true } }
+          : { status: 403, body: { code: "auth.invalid_origin" } }
+      );
+      if (allowed) {
+        revision++;
+      }
+      expect((await read()).revision).toBe(revision);
+    }
+    const headers = new Headers(account.headers);
+    headers.set("origin", WEB_APP_URL);
+    headers.set("content-type", "application/json");
+    const denied = await context.app.fetch(
+      new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          organizationId: "not-a-membership",
+          revision: 0,
+          preferences: initial.preferences,
+        }),
+      }),
+      context.env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({
+      error: { code: "organization.membership_required" },
+    });
+    headers.delete("origin");
+    for (const referer of [`${WEB_APP_URL}/workspace`, DESKTOP_APP_ORIGIN]) {
+      headers.set("referer", referer);
+      const response = await context.app.fetch(
+        new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            organizationId,
+            revision,
+            preferences: initial.preferences,
+          }),
+        }),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(referer === DESKTOP_APP_ORIGIN ? 403 : 200);
+      if (response.ok) {
+        revision++;
+      }
+    }
+    headers.set("origin", WEB_APP_URL);
+    headers.set("cookie", "invalid-session=invalid");
+    const anonymous = await context.app.fetch(
+      new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          organizationId,
+          revision,
+          preferences: initial.preferences,
+        }),
+      }),
+      context.env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(anonymous.status).toBe(401);
+  });
   it("reads only the current account and follows membership-checked entry preferences", async () => {
     const context = createTestContext({ environment: "production" });
     const account = await createSignedInUser(context, {

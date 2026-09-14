@@ -1,4 +1,5 @@
 import { resolveTrustedOrigins } from "@openmeld/auth/server";
+import { DESKTOP_APP_ORIGIN } from "@openmeld/schemas";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppContext } from "../context";
@@ -45,13 +46,22 @@ export function resolveAuthWorkerTrustedOrigins(
 }
 
 function readRequestOrigin(headers: Headers): string | null {
+  // URL.origin is "null" for the custom Desktop scheme. Preserve only the
+  // exact native Origin; the existing environment trust set still decides
+  // whether it is admitted (development only).
+  if (headers.get("origin") === DESKTOP_APP_ORIGIN) {
+    return DESKTOP_APP_ORIGIN;
+  }
   const source = headers.get("origin") || headers.get("referer");
   if (!source || source === "null") {
     return null;
   }
 
   try {
-    return new URL(source).origin;
+    const url = new URL(source);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
   } catch {
     return null;
   }

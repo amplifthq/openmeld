@@ -29,6 +29,11 @@
 
 ### Account Organization context
 
+The shared fetch transport invokes its injected fetch as a standalone callable,
+without assigning the transport options object or another arbitrary receiver.
+This supports Worker global fetch and preserves explicitly bound injections;
+cancellation, timeout and structured failure semantics remain unchanged.
+
 Auth owns `GET /v1/account/organization-context`, a credential-free read
 projection defined in `packages/schemas`. It returns the authenticated account's
 display fields and user ID, normalized membership Organization summaries, and
@@ -72,6 +77,13 @@ CLI, Service, Skills, Core and Gateway require no protocol or version-floor
 change. The Desktop fingerprint and request admission rules remain in force.
 
 ### Remaining pilot transport
+
+Auth's cookie-write guard preserves the exact `DESKTOP_APP_ORIGIN` before URL
+origin normalization and then checks the existing environment trust set. Only
+development admits that origin. Custom-scheme near matches, callback origins,
+opaque/null origins, and custom-scheme Referers are not substitutes. Configured
+HTTP(S) Web origins and the existing HTTP(S) Referer behavior remain supported;
+session and membership checks still apply. No native Origin rewriting is used.
 
 `packages/schemas/src/desktop-client.ts` owns the Desktop origin, build header,
 sanitized session identity, and platform metadata. The native process owns
