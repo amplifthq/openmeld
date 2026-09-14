@@ -106,7 +106,7 @@ describe("resolveWakeProgressStatus", () => {
 		).toEqual(
 			expect.objectContaining({
 				kind: "waiting_for_controller",
-				label: "runner is queued · Another task is running",
+				label: "Waiting for runner · Another task is running",
 			})
 		);
 	});
