@@ -4588,6 +4588,20 @@ create new truth.
 
 ## Setup Handoff Entry
 
+The final Agent creation action may return to Agents before Core acknowledges
+the request. Its local card is a presentation intent, never an Agent identity
+or Wakeability verdict. Keep the unacknowledged idempotency key across that
+route change, replace the local card on acceptance, and make failed local
+cards dismissible. Completion may select the real Agent only while the member
+is still following that request; it must not interrupt later navigation.
+
+Confirmed Space deletion intent immediately closes settings and opens Browse
+Spaces. Keep only the affected Space absent from list caches while the write
+is pending, including during background refetches. Failure restores that entry
+without replacing unrelated newer list changes and leaves a persistent error
+with an Open Space action. A refresh failure after confirmed deletion must
+never restore the deleted Space or report the deletion itself as failed.
+
 Agent creation hosts the shared Computer setup workflow inside its existing
 form as soon as connection or reconnection is required, without an extra
 Connect or Reconnect click. Missing connection or a

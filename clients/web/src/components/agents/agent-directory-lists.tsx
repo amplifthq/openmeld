@@ -10,6 +10,7 @@ import {
 } from "#/lib/dev/agent-sidebar-fixtures";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationPersonPath } from "#/lib/organizations/organization-routes";
+import { AgentCreationRequestCard } from "./agent-creation-request-card";
 import {
 	AgentList,
 	AgentListControls,
@@ -122,6 +123,14 @@ export function AgentDirectoryLists({
 			Object.values(view.filters).every((values) => values.length === 0);
 	const totalCount =
 		items.length + Number(!input.person && Boolean(centerItem));
+	const creationRequests = (input.creationRequests ?? []).filter(
+		(request) =>
+			(!("requesterUserId" in request) ||
+				request.requesterUserId === input.currentUserId) &&
+			(!("createdAgentProfileId" in request) ||
+				request.createdAgentProfileId === null) &&
+			["creating", "pending", "approved", "failed"].includes(request.status)
+	);
 	const toolbar = (
 		<div className="flex h-16 items-center justify-between gap-3">
 			<p className="shrink-0 text-muted-foreground text-xs">
@@ -202,6 +211,28 @@ export function AgentDirectoryLists({
 					</div>
 				</section>
 			)}
+			{creationRequests.length > 0 ? (
+				<section aria-label="Agents being created" className="space-y-3">
+					<h2 className="font-medium text-sm">Creating</h2>
+					<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+						{creationRequests.map((request) => (
+							<AgentCreationRequestCard
+								key={request.id}
+								onDismiss={() => input.onDismissCreation?.(request.id)}
+								onModify={input.onCreateAgent}
+								onReview={() => {
+									if ("requesterUserId" in request) {
+										input.onOpenCreationRequest?.(request.id);
+										return;
+									}
+									input.onCreateAgent();
+								}}
+								request={request}
+							/>
+						))}
+					</div>
+				</section>
+			) : null}
 			{visibleGroups.map((group) => (
 				<AgentList
 					defaults={view}
