@@ -51,6 +51,15 @@ Implementation checkpoints:
   cases, and two component-observation cases passed. Diagnostic upload also
   retries promptly after a subsequent reconnection. Packaged validation,
   Staging, release and production smoke remain pending.
+- The guarded Staging deployment from `36ab6395b` applied the additive migration
+  and deployed the compatible cloud receivers; public health checks passed.
+  Signed artifact publication and real connection/Wake acceptance are still
+  required. Subsequent scheduler and Trace changes only correct test fixtures.
+  The Core boundary batch passed 1,537 cases; its three scheduler failures
+  exposed the missing retention mock, corrected with ten focused cases passing.
+  The CLI push batch passed 1,622 cases; its remaining Trace URL expectation
+  was corrected, with all three focused Trace cases passing. The pre-push gate
+  must complete before these commits become the remote candidate.
 
 ## Evidence and limits
 
@@ -276,4 +285,4 @@ Deliver three bounded implementation areas: A for the established local chain, B
 
 For each implementation, update the touched owner document in the same PR; audit old/new CLI, Service, Core, Gateway and Web interoperability under the existing Contract Impact Audit. Prefer additive reason/evidence fields and receiver-first rollout when shared contracts change. Preserve device IDs, Bindings, sessions and outbox data across update and rollback. Use existing controlled drain for Service updates. Follow [Agent-Native Delivery](../../engineering/agent-native-delivery.md) and [Production Release](../../engineering/production-release.md); report candidate, merge, deploy, artifact and real-user smoke separately.
 
-Architecture check: this documentation-only PR changes no owner contract or runtime behavior. A enforces the existing auth/reporting/carrier separation. B must keep indexes and diagnostics subordinate to RuntimeCoordinator. C intentionally proposes a stale-progress policy refinement and must update the Agent Transport owner document when implemented. No product Changelog entry is needed for this draft; shipped user-visible behavior requires one.
+Architecture check: the implementation preserves the existing auth/reporting/carrier separation and keeps indexes and diagnostics subordinate to RuntimeCoordinator. The Agent Transport owner document now defines the scoped communication-recovery policy; Local Service and Data and Observability define the bounded private evidence contract. A draft Changelog entry records the user-visible correction and remains unpublished until delivery is proven.
