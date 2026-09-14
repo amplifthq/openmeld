@@ -54,6 +54,7 @@ import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/org
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { isQueryCancellationError } from "#/query/query-cancellation";
+import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import { spaceConversationDisplaySnapshotQueryOptions } from "#/query/spaces/display-snapshot";
 import { spaceHistoryQueryOptions } from "#/query/spaces/history";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
@@ -634,15 +635,10 @@ function AppSpaceAccessGate(
 	);
 }
 
-function ValidatedSpaceNavigationContent(
-	input: {
-		children: ReactNode;
-		initialSidebarStates?: AppSidebarPersistedStates;
-		orgSlug: string;
-		profileId: string;
-		spaceId: string;
-	} & AppSpaceFocusSearch
-) {
+function useSpaceConversationEntryQueries(input: {
+	spaceId: string;
+	profileId: string;
+}) {
 	const statusQuery = useQuery(
 		spaceStatusQueryOptions({
 			enabled: true,
@@ -656,21 +652,32 @@ function ValidatedSpaceNavigationContent(
 			openMeldProfileId: input.profileId,
 		})
 	);
-	if (
-		!statusQuery.data &&
-		statusQuery.isPending &&
-		!displaySnapshotQuery.data
-	) {
-		return (
-			<AppSpaceEntryShell
-				initialSidebarStates={input.initialSidebarStates}
-				spaceId={input.spaceId}
-				verifiedProfileId={input.profileId}
-			>
-				<SpaceConversationCheckState />
-			</AppSpaceEntryShell>
-		);
-	}
+	// Cold entry already passed the access gate. Start the bounded conversation
+	// read alongside route classification instead of waiting for status first.
+	// SpaceLanding consumes this same query; warm visits keep their saved tail.
+	useQuery(
+		spaceBootstrapQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+			enabled:
+				statusQuery.isPending &&
+				!statusQuery.data &&
+				!displaySnapshotQuery.data,
+		})
+	);
+	return { statusQuery, displaySnapshotQuery };
+}
+
+function ValidatedSpaceNavigationContent(
+	input: {
+		children: ReactNode;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & AppSpaceFocusSearch
+) {
+	const { statusQuery } = useSpaceConversationEntryQueries(input);
 
 	if (
 		statusQuery.data &&
@@ -701,35 +708,8 @@ function ValidatedDirectMessageEntryContent(
 		spaceId: string;
 	} & AppSpaceFocusSearch
 ) {
-	const statusQuery = useQuery(
-		spaceStatusQueryOptions({
-			enabled: true,
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-		})
-	);
-	const displaySnapshotQuery = useQuery(
-		spaceConversationDisplaySnapshotQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-		})
-	);
-	if (
-		!statusQuery.data &&
-		statusQuery.isPending &&
-		!displaySnapshotQuery.data
-	) {
-		return (
-			<AppSpaceEntryShell
-				initialSidebarStates={input.initialSidebarStates}
-				navigationSurface="directMessages"
-				spaceId={input.spaceId}
-				verifiedProfileId={input.profileId}
-			>
-				<SpaceConversationCheckState />
-			</AppSpaceEntryShell>
-		);
-	}
+	const { statusQuery, displaySnapshotQuery } =
+		useSpaceConversationEntryQueries(input);
 	if (!statusQuery.data && statusQuery.isError && !displaySnapshotQuery.data) {
 		return (
 			<AppSpaceEntryShell
@@ -817,25 +797,6 @@ function SpaceProfileCheckState() {
 				</h1>
 				<p className="text-muted-foreground text-sm">
 					OpenMeld is confirming which profile can open this Space.
-				</p>
-			</div>
-		</output>
-	);
-}
-
-function SpaceConversationCheckState() {
-	return (
-		<output
-			aria-label="Opening conversation"
-			className="flex w-full max-w-sm flex-col items-center gap-4 text-center"
-		>
-			<Bars aria-hidden="true" className="h-7 w-10 text-muted-foreground" />
-			<div className="space-y-2">
-				<h1 className="font-medium text-base text-foreground">
-					Opening this conversation
-				</h1>
-				<p className="text-muted-foreground text-sm">
-					OpenMeld is checking access and loading the latest messages.
 				</p>
 			</div>
 		</output>

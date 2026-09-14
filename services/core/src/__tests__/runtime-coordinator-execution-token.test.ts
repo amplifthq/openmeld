@@ -1,4 +1,7 @@
-import { RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION } from "@openmeld/schemas";
+import {
+  buildRuntimeCoordinatorExecutionEventId,
+  RUNTIME_COORDINATOR_EXECUTION_MODEL_VERSION,
+} from "@openmeld/schemas";
 import type { RuntimeCoordinatorExecutionTokenAuthorityRecord } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -54,6 +57,48 @@ const tokenScope: RuntimeCoordinatorTokenScope = {
 };
 
 describe("runtime coordinator execution token helper", () => {
+  it("bounds long diagnostic identities without changing legacy replay identities or correlation", async () => {
+    const rows: unknown[][] = [];
+    const db = {
+      prepare: () => ({
+        bind: (...values: unknown[]) => ({
+          run: () => {
+            rows.push(values);
+            return Promise.resolve();
+          },
+        }),
+      }),
+    } as unknown as D1Database;
+    const input = {
+      db,
+      eventType: "execution_token_terminal_late" as const,
+      runtimeCoordinatorExecutionId: "e".repeat(200),
+      idempotencyKey: `token_validation:${"e".repeat(200)}:lifecycle:${"r".repeat(120)}`,
+      observedAtMs: 1000,
+      payload: { frameKind: "lifecycle" },
+    };
+    await writeRuntimeCoordinatorExecutionEventFromParts(input);
+    await writeRuntimeCoordinatorExecutionEventFromParts({
+      ...input,
+      observedAtMs: 2000,
+    });
+    await writeRuntimeCoordinatorExecutionEventFromParts({
+      ...input,
+      idempotencyKey: `${input.idempotencyKey}:different`,
+    });
+    expect(String(rows[0]?.[0]).length).toBeLessThanOrEqual(512);
+    expect(rows[0]?.[0]).toBe(rows[1]?.[0]);
+    expect(rows[0]?.[0]).not.toBe(rows[2]?.[0]);
+    expect(rows[0]?.[1]).toBe(input.runtimeCoordinatorExecutionId);
+    expect(rows[0]?.[6]).toBe(input.idempotencyKey);
+    const short = {
+      ...input,
+      idempotencyKey: "short",
+      runtimeCoordinatorExecutionId: "rce-1",
+    };
+    await writeRuntimeCoordinatorExecutionEventFromParts(short);
+    expect(rows[3]?.[0]).toBe(buildRuntimeCoordinatorExecutionEventId(short));
+  });
   it("generates an opaque execution token with enough entropy material", () => {
     const token = generateRuntimeCoordinatorExecutionToken({
       randomBytes: (byteLength) =>

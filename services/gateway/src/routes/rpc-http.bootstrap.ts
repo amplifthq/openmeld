@@ -5,6 +5,7 @@ import {
   spaceBootstrapQuerySchema,
   spaceBootstrapResponseSchema,
 } from "@openmeld/schemas";
+import type { SpaceBootstrapResponse } from "@openmeld/schemas/types";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
 import { emitGatewayCloudflareRuntimeEvidence } from "../lib/cloudflare-runtime-evidence";
@@ -25,6 +26,7 @@ type BootstrapTimingMetric = {
 };
 
 type SpaceBootstrapWithTimingResult = {
+  payload: SpaceBootstrapResponse;
   metrics?: readonly BootstrapTimingMetric[];
   serverTiming: string;
 };
@@ -91,11 +93,36 @@ export function registerBootstrapRoute(app: Hono<HonoBindings>): void {
       method: "GET",
       spaceId,
       includeLegacySpaceAddressingWireFields: true,
-      execute: async () =>
-        await c.var.coreRpc.getSpaceBootstrapWithTiming(
+      execute: async () => {
+        const result = (await c.var.coreRpc.getSpaceBootstrapWithTiming(
           rpcInput,
           OPENMELD_SPACE_ADDRESSING_VERSION
-        ),
+        )) as SpaceBootstrapWithTimingResult;
+        const supported = c.req.header(AGENT_REPLY_PLACEMENT_HEADER) === "1";
+        return {
+          ...result,
+          payload: {
+            ...result.payload,
+            ...(result.payload.activeAgentStreams
+              ? {
+                  activeAgentStreams: agentStreamsForReplyPlacementReader(
+                    result.payload.activeAgentStreams,
+                    supported
+                  ),
+                }
+              : {}),
+            ...(result.payload.activeAgentStreamPresences
+              ? {
+                  activeAgentStreamPresences:
+                    agentStreamsForReplyPlacementReader(
+                      result.payload.activeAgentStreamPresences,
+                      supported
+                    ),
+                }
+              : {}),
+          },
+        };
+      },
       onValidatedSuccess: ({ result, status }) => {
         emitBootstrapServerTimingEvidence({
           env: c.env,
@@ -148,3 +175,8 @@ function emitBootstrapServerTimingEvidence(input: {
     });
   }
 }
+
+import {
+  AGENT_REPLY_PLACEMENT_HEADER,
+  agentStreamsForReplyPlacementReader,
+} from "@openmeld/schemas";

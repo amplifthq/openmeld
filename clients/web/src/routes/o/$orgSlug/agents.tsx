@@ -13,6 +13,7 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
 	buildOrganizationAgentCreationPath,
 	buildOrganizationAgentCreationRequestsPath,
+	buildOrganizationAgentsPath,
 	buildOrganizationPeoplePath,
 	buildOrganizationPersonAgentPath,
 	buildOrganizationPersonAgentsPath,
@@ -50,7 +51,7 @@ export const Route = createFileRoute("/o/$orgSlug/agents")({
 
 function TeamAgentsRoute() {
 	const { sidebarStates } = Route.useLoaderData();
-	const { profileId } = Route.useSearch();
+	const { profileId, requestId } = Route.useSearch();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const navigate = useNavigate();
 	const directory = useQuery(
@@ -64,13 +65,22 @@ function TeamAgentsRoute() {
 			<PeopleAndAgentsPage
 				activeSectionId="agents"
 				focusProfileId={null}
+				focusRequestId={requestId ?? null}
 				initialSidebarStates={sidebarStates}
-				onAgentViewChange={(view) => {
+				onAgentViewChange={(view, focusedRequestId) => {
 					if (view === "requests") {
 						navigate({
 							to: buildOrganizationAgentCreationRequestsPath({
 								orgSlug: currentOrganization.slug,
+								requestId: focusedRequestId,
 							}),
+						}).catch(console.error);
+						return;
+					}
+					if (focusedRequestId) {
+						navigate({
+							to: buildOrganizationAgentsPath(currentOrganization.slug),
+							search: { requestId: focusedRequestId },
 						}).catch(console.error);
 					}
 				}}

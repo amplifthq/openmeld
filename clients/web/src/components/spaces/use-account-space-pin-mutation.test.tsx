@@ -14,7 +14,10 @@ import type {
 	AccountSpaceSections,
 } from "#/lib/spaces/account-spaces";
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
-import { preserveOptimisticAccountSpacePinUpdates } from "./account-space-sections";
+import {
+	applyAcceptedAccountSpaceMessage,
+	preserveOptimisticAccountSpacePinUpdates,
+} from "./account-space-sections";
 import { useAccountSpacePinMutation } from "./use-account-space-pin-mutation";
 
 const { setAccountSpaceItemPinnedMock, toastErrorMock, toastWarningMock } =
@@ -277,6 +280,43 @@ function PinControl(input: { controlName: string; item: AccountSpaceItem }) {
 		</button>
 	);
 }
+
+it("keeps a confirmed message preview through index lag but accepts convergence and expiry", () => {
+	vi.useFakeTimers();
+	const sections: AccountSpaceSections = {
+		pinnedItems: [],
+		spaceItems: [
+			createAccountSpaceItem({ spaceId: "chat", spaceName: "Planning" }),
+		],
+	};
+	const preview = {
+		signalId: "new",
+		profileId: "human-1",
+		timestamp: Date.now(),
+		text: "Sent just now",
+	};
+	const accepted = applyAcceptedAccountSpaceMessage(sections, "chat", preview);
+	const lagging = preserveOptimisticAccountSpacePinUpdates(
+		accepted,
+		sections
+	) as AccountSpaceSections;
+	expect(lagging.spaceItems[0]?.messagePreview).toEqual(preview);
+	const converged = {
+		...sections,
+		spaceItems: sections.spaceItems.map((item) => ({
+			...item,
+			messagePreview: preview,
+		})),
+	};
+	expect(preserveOptimisticAccountSpacePinUpdates(lagging, converged)).toEqual(
+		converged
+	);
+	vi.advanceTimersByTime(30_001);
+	expect(preserveOptimisticAccountSpacePinUpdates(lagging, sections)).toEqual(
+		sections
+	);
+	vi.useRealTimers();
+});
 
 function createQueryClient(sections: AccountSpaceSections): QueryClient {
 	const queryClient = new QueryClient({

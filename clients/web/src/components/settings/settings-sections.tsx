@@ -10,6 +10,7 @@ import { AccountSection } from "./account-section";
 import { AgentProfileCreationApprovalSettings } from "./agent-profile-creation-approval-settings";
 import { AppearanceSection } from "./appearance-section";
 import { NotificationsSection } from "./notifications-section";
+import { ReasoningStreamSetting } from "./reasoning-stream-setting";
 import { SettingsPlaceholderSection } from "./settings-placeholder-section";
 
 /**
@@ -86,6 +87,7 @@ export function buildSettingsSections(
 			render: () => (
 				<SettingsLeafLayout>
 					<CenterAgentPrivacyPage />
+					<ReasoningStreamSetting />
 					<PersonalAgentPermissions />
 				</SettingsLeafLayout>
 			),

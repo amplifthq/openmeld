@@ -132,6 +132,23 @@ describe("resolveAuthTokenAttachment", () => {
 });
 
 describe("buildRequestAuthHeaders credential failures", () => {
+  it("fences background evidence to the account that recorded it", async () => {
+    const authSession = { ...sessionWith({}), user: { id: "owner-a" } };
+    const request = {
+      authSession,
+      requestUrl: DAEMON_STREAM_URL,
+      expectedOwnerUserId: "owner-a",
+    };
+    expect((await buildRequestAuthHeaders(request)).Authorization).toBe(
+      "Bearer stored-token"
+    );
+    await expect(
+      buildRequestAuthHeaders({ ...request, expectedOwnerUserId: "owner-b" })
+    ).rejects.toThrow("auth.session_owner_changed");
+    await expect(
+      buildRequestAuthHeaders({ ...request, authSession: sessionWith({}) })
+    ).rejects.toThrow("auth.session_owner_changed");
+  });
   let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {

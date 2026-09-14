@@ -78,36 +78,15 @@ export async function waitForCodexThreadWriterAvailability(input: {
             // The recovery check below remains the fail-closed backstop.
           });
       };
-      const scheduleRecoveryCheck = () => {
-        if (settled) {
-          return;
-        }
-        recoveryTimer = setTimeout(() => {
-          recoveryTimer = null;
-          pathExists(lockPath)
-            .then((exists) => {
-              if (settled) {
-                return;
-              }
-              if (!exists) {
-                finish("release_observed");
-                return;
-              }
-              scheduleRecoveryCheck();
-            })
-            .catch(() => {
-              if (settled) {
-                return;
-              }
-              // Filesystem uncertainty is not proof that the writer released
-              // the conversation. Keep this waiter alive and check again.
-              scheduleRecoveryCheck();
-            });
-        }, input.recoveryRetryMs ?? CODEX_THREAD_WRITER_RECOVERY_RETRY_MS);
-        recoveryTimer.unref?.();
-      };
       input.signal?.addEventListener("abort", handleAbort, { once: true });
-      scheduleRecoveryCheck();
+      // A crashed writer releases the OS lock without deleting its file.
+      // Only official admission can decide ownership; retry_due is not release
+      // evidence and must preserve the occupied UI until the provider accepts.
+      recoveryTimer = setTimeout(
+        () => finish("retry_due"),
+        input.recoveryRetryMs ?? CODEX_THREAD_WRITER_RECOVERY_RETRY_MS
+      );
+      recoveryTimer.unref?.();
       try {
         watcher = watch(lockDirectory, (_eventType, fileName) => {
           if (fileName === null || String(fileName) === lockFileName) {

@@ -357,9 +357,12 @@ is a hosted-runtime policy catalog, not a local Agent Profile controller:
 
 - `defaultModelId` is the system default resolved for each new Center Agent
   turn. The current default is `z-ai/glm-5.3-flash` (**GLM 5.3 Flash**).
-- The selectable models are `z-ai/glm-5.3-flash`, `x-ai/grok-4.6`,
-  `x-ai/grok-4.5`, and `deepseek/deepseek-v4-flash`, presented as
-  **GLM 5.3 Flash**, **Grok 4.6**, **Grok 4.5**, and **DeepSeek V4 Flash**.
+- The curated list covers six model vendors: OpenAI (GPT-5.6 Terra and GPT-5.6
+  Luna), Anthropic (Claude Opus 5 and Claude Sonnet 5), Google (Gemini 3.8 Flash,
+  Gemini 3.5 Flash Lite, and Gemini 3.1 Pro Preview), DeepSeek (V4.1 Flash and
+  V4 Flash), xAI (Grok 4.6 and Grok 4.5), and Z.ai (GLM 5.3 Flash). Exact
+  OpenRouter IDs remain in `release/vendor-models.json`; a preview model remains
+  labeled Preview.
 - A hosted model may declare one optional `badgeLabel` as catalog-owned
   selector presentation metadata. Core projects the same label onto the
   explicit model choice and the OpenMeld-default choice when that model is the
@@ -396,6 +399,23 @@ id is no longer in the catalog, member-facing projections use the neutral
 Core rejects new work on that Binding until an owner or admin chooses an
 available model; it never routes the stale id or silently substitutes the
 default.
+
+The September 14, 2026 expansion preserves the existing default, vision helper,
+and all saved model IDs. New entries use captured OpenRouter `/api/v1/models`
+metadata for text/image input, the smaller of the catalog and top-provider
+context limits, and support for `tools` and reasoning effort `high`. The
+OpenMeld output budget remains 16,384 tokens. Evidence fields are retained in
+`services/remote-agent/tests/fixtures/openrouter-center-agent-models-2026-09-14.json`.
+The focused runtime test resolves each catalog route and serializes a tool
+continuation through the actual provider adapter before network dispatch.
+This proves local contract compatibility, not live provider availability or
+successful hosted execution for a particular account.
+
+No catalog schema changes are required. Older Web clients can show the expanded
+flat list; the provider-aware Web client can also consume the older catalog.
+Core deployment publishes the added choices; Web deployment publishes the
+two-level picker. Existing Remote Agent route readers consume the same frozen
+fields. CLI, Service, and local Agent settings are unaffected.
 
 ### 5.6 GLM 5.3 Flash hosted verification
 

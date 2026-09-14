@@ -72,6 +72,9 @@ export function registerDispatchTraceRoutes(app: Hono<HonoBindings>): void {
         return await c.var.coreRpc.getSpaceDispatchTrace({
           spaceId,
           dispatchId,
+          ...(c.req.query("includeServiceConnectionDiagnostics") === "true"
+            ? { includeServiceConnectionDiagnostics: true }
+            : {}),
           ...(includeRemoteAgentRuntimeDiagnostics
             ? { includeRemoteAgentRuntimeDiagnostics: true }
             : {}),

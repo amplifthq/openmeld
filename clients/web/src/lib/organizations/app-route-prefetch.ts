@@ -224,6 +224,9 @@ export async function prefetchKnownSpaceConversationData(input: {
 	);
 	applySpaceBootstrapSnapshotToCache({
 		bootstrap,
+		bootstrapUpdatedAt: input.queryClient.getQueryState(
+			spaceQueryKeys.bootstrap(input.spaceId, input.openMeldProfileId)
+		)?.dataUpdatedAt,
 		queryClient: input.queryClient,
 		spaceId: input.spaceId,
 		viewerProfileId: input.openMeldProfileId,

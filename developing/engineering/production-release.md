@@ -284,6 +284,12 @@ publishes CLI without Core fails closed. This profile is structural and
 provider-neutral: it protects any strict Service-to-Core protocol addition
 without coupling release order to one Agent Controller or business workflow.
 
+This profile also supports a cloud-only receiver stage before the signed GitHub
+CLI release. Selecting Core without CLI uses the same immutable published CLI
+projection, with its existing channel and tag checks, instead of requiring the
+future CLI bundle to be published first. Keep the pre-feature base in both stage
+plans; publish CLI only after the Core receiver is healthy.
+
 The coordinated device-wait schema, Space receiver, and Gateway route select
 `device-wait-receivers-first`: Database, Auth, Core, Gateway, Web, Remote Agent,
 then CLI. Core must expose `postDeviceWaitingSignal` before Gateway calls it,
@@ -524,7 +530,8 @@ checks.
 ## Local Scoped Release
 
 The `people-computers-receivers-first` profile recognizes the shared computer
-schema, Core projection, and Gateway endpoint together. It deploys selected
+schema, Core projection, and Gateway endpoint together, or the shared Service
+connection evidence schema with its Core and Gateway receivers. It deploys selected
 Auth, Core, Gateway, Web, Remote Agent, then CLI scopes (Database remains first
 when selected). Core and Gateway must precede new computer callers. A staged
 Core receiver deploy uses the immutable current stable CLI projection even when

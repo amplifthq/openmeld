@@ -2965,6 +2965,8 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
   failureCode: string;
   failureMessage: string;
 }): Promise<SignalEnvelope> {
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
@@ -3022,9 +3024,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
     }),
     spaceId: input.delivery.spaceId,
     text: input.failureMessage,
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
   });
 }
 
@@ -11241,6 +11241,8 @@ async function publishRemoteAgentCallbackFailureText(input: {
     }
     return { id: original.publishedSignalId };
   }
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   if (input.delivery.conversationKind === "message_channel") {
     throw new Error(
       "Message Channel failure publication requires the provider publication coordinator"
@@ -11345,9 +11347,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
         spaceId: input.delivery.spaceId,
         targetProfileId: input.delivery.profileId,
       }),
-      ...(input.delivery.threadContext
-        ? { threadContext: input.delivery.threadContext }
-        : {}),
+      ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
       context,
     });
   }
@@ -11386,9 +11386,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
       spaceId: input.delivery.spaceId,
       targetProfileId: input.delivery.profileId,
     }),
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     context,
   });
 }
@@ -11443,6 +11441,8 @@ async function publishRemoteAgentCallbackReply(input: {
   if (recovery?.resultRef && input.delivery.conversationKind === "space") {
     return await publishRemoteAgentRecoveredSpaceReply({ ...input, recovery });
   }
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   if (input.delivery.conversationKind === "message_channel") {
     throw new Error(
       "Message Channel reply publication requires the provider publication coordinator"
@@ -11555,9 +11555,7 @@ async function publishRemoteAgentCallbackReply(input: {
       spaceId: input.delivery.spaceId,
       targetProfileId: input.delivery.profileId,
     }),
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     context,
   });
 }
@@ -11594,6 +11592,10 @@ async function publishRemoteAgentRecoveredSpaceReply(input: {
   recovery: NonNullable<RemoteAgentWorkerSubmitTurnRequest["replyRecovery"]>;
 }): Promise<{ id: string }> {
   const original = await requireReplyRecoveryOriginalDelivery(input);
+  const replyThreadContext = await resolveNativeDeliveryReplyThreadContext({
+    env: input.env,
+    delivery: original,
+  });
   if (!input.recovery.resultRef) {
     throw new Error("execution_recovery.identity_mismatch");
   }
@@ -11631,9 +11633,7 @@ async function publishRemoteAgentRecoveredSpaceReply(input: {
       spaceId: original.spaceId,
       targetProfileId: original.profileId,
     }),
-    ...(original.threadContext
-      ? { threadContext: original.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     data: {
       actorProfileId: original.profileId,
       ...(targetProfile.profileName
@@ -12673,3 +12673,5 @@ function normalizeOptionalText(value: unknown): string | null {
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+import { resolveNativeDeliveryReplyThreadContext } from "./reply-placement";

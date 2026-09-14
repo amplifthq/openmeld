@@ -2440,7 +2440,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Approve for me" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Approve for me",
+			})
+		);
 		await waitFor(() => {
 			expect(screen.getByRole("combobox", { name: "Model" })).toBeTruthy();
 		});
@@ -2815,7 +2819,7 @@ describe("CreateProfileDialog", () => {
 		expect(
 			(
 				screen.getByRole("checkbox", {
-					name: "I understand this permissions mode can run with dangerous full access.",
+					name: "I understand this mode may run dangerous actions without asking.",
 				}) as HTMLInputElement
 			).checked
 		).toBe(true);
@@ -2919,7 +2923,7 @@ describe("CreateProfileDialog", () => {
 			);
 			fireEvent.click(
 				await screen.findByRole("checkbox", {
-					name: "I understand this permissions mode can run with dangerous full access.",
+					name: "I understand this mode may run dangerous actions without asking.",
 				})
 			);
 			fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
@@ -3106,7 +3110,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Approve for me" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Approve for me",
+			})
+		);
 		expect(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 				.textContent
@@ -3235,7 +3243,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Full access" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Full access",
+			})
+		);
 
 		const submitButton = screen.getByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
@@ -3245,7 +3257,7 @@ describe("CreateProfileDialog", () => {
 		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		fireEvent.click(
 			screen.getByLabelText(
-				"I understand this permissions mode can run with dangerous full access."
+				"I understand this mode may run dangerous actions without asking."
 			)
 		);
 		await waitFor(() => {

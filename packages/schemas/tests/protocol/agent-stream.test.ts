@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  agentStreamsForReplyPlacementReader,
   incomingServerMessageSchema,
   signalEnvelopeSchema,
   spaceAgentActivitySchema,
@@ -21,6 +22,27 @@ const baseFrame = {
 } as const;
 
 describe("Space Agent stream frames", () => {
+  it("projects explicit reply locations for current readers and keeps legacy readers compatible", () => {
+    const legacy = spaceAgentStreamDeltaFrameSchema.parse({
+      ...baseFrame,
+      type: "space.agent_stream_delta",
+      kind: "text",
+      textSnapshot: "Reply",
+      state: "streaming",
+    });
+    const main = { ...legacy, replyThreadRootSignalId: null };
+    const thread = { ...legacy, replyThreadRootSignalId: "source-root" };
+    expect(
+      agentStreamsForReplyPlacementReader([legacy, main, thread], true)
+    ).toEqual([legacy, main, thread]);
+    expect(
+      JSON.parse(
+        JSON.stringify(
+          agentStreamsForReplyPlacementReader([legacy, main, thread], false)
+        )
+      )
+    ).toEqual([legacy, legacy]);
+  });
   it("accepts privacy-bounded durable Agent Work Summary metadata", () => {
     const activity = {
       v: 1,

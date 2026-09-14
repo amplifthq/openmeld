@@ -37,7 +37,12 @@ import {
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorPreExecutionHandoffRecord,
   type RuntimeCoordinatorRunCommandState,
+  resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs,
 } from "./runtime-coordinator-authority";
+import {
+  syncRuntimeCoordinatorWatchdogSchedule,
+  writeRuntimeCoordinatorWatchdogSchedule,
+} from "./runtime-coordinator-watchdog-storage";
 
 type RuntimeCoordinatorStorage = Pick<
   DurableObjectStorage,
@@ -187,6 +192,36 @@ export const writeRuntimeCoordinatorRunCommandStateToStorage = async (
   );
 };
 
+export async function retainRuntimeCoordinatorCommunicationRecovery(
+  storage: RuntimeCoordinatorStorage,
+  commandState: RuntimeCoordinatorRunCommandState
+): Promise<RuntimeCoordinatorRunCommandState> {
+  return await storage.transaction(async (transaction) => {
+    const latest = await readRuntimeCoordinatorRunCommandStateFromStorage(
+      transaction,
+      commandState.runtimeCoordinatorExecutionId
+    );
+    if (
+      !latest ||
+      latest.activeRunId !== commandState.activeRunId ||
+      latest.localProgress.phase === "result_received"
+    ) {
+      return commandState;
+    }
+    const baseline =
+      resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs(latest);
+    if (latest.communicationRecoveryBaselineAtMs === baseline) {
+      return latest;
+    }
+    const next = { ...latest, communicationRecoveryBaselineAtMs: baseline };
+    await writeRuntimeCoordinatorRunCommandStateInTransaction(
+      transaction,
+      next
+    );
+    return next;
+  });
+}
+
 export const writeRuntimeCoordinatorRunCommandStateInTransaction = async (
   transaction: DurableObjectTransaction,
   state: RuntimeCoordinatorRunCommandState
@@ -208,6 +243,10 @@ export const writeRuntimeCoordinatorRunCommandStateInTransaction = async (
       nextIds
     ),
   ]);
+  await syncRuntimeCoordinatorWatchdogSchedule(
+    transaction,
+    state.runtimeCoordinatorExecutionId
+  );
 };
 
 export const deleteRuntimeCoordinatorRunCommandStateFromStorage = async (
@@ -228,6 +267,11 @@ export const deleteRuntimeCoordinatorRunCommandStateFromStorage = async (
         existingIds.filter((id) => id !== runtimeCoordinatorExecutionId)
       ),
     ]);
+    await writeRuntimeCoordinatorWatchdogSchedule(
+      transaction,
+      runtimeCoordinatorExecutionId,
+      null
+    );
   });
 };
 

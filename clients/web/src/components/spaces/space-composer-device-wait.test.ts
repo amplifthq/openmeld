@@ -81,7 +81,10 @@ describe("Space device waiting authoring and progress", () => {
 				reason: "earlier_work",
 			},
 		});
-		expect(status).toMatchObject({ kind: "queued", label: "Runner is queued" });
+		expect(status).toMatchObject({
+			kind: "queued",
+			label: "Runner is queued · Waiting for earlier tasks",
+		});
 		expect(status?.description).toContain(
 			new Date(deviceWait.deadlineAtMs).toLocaleString()
 		);

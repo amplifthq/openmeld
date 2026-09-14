@@ -2,6 +2,7 @@ export type StopAwareDelayResult = "elapsed" | "interrupted";
 
 export type StopAwareDelay = {
   interrupt: () => void;
+  wake: () => void;
   wait: (delayMs: number) => Promise<StopAwareDelayResult>;
 };
 
@@ -14,8 +15,16 @@ export type StopAwareDelay = {
 // without an interrupt each wait runs its full duration unchanged.
 export function createStopAwareDelay(): StopAwareDelay {
   let interrupted = false;
+  let wakePending = false;
   const pendingInterruptNotifiers = new Set<() => void>();
   return {
+    wake: () => {
+      wakePending = pendingInterruptNotifiers.size === 0;
+      for (const notify of pendingInterruptNotifiers) {
+        notify();
+      }
+      pendingInterruptNotifiers.clear();
+    },
     interrupt: () => {
       if (interrupted) {
         return;
@@ -28,6 +37,10 @@ export function createStopAwareDelay(): StopAwareDelay {
     },
     wait: (delayMs) => {
       if (interrupted) {
+        return Promise.resolve("interrupted");
+      }
+      if (wakePending) {
+        wakePending = false;
         return Promise.resolve("interrupted");
       }
       return new Promise((resolve) => {

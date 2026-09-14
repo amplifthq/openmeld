@@ -19,7 +19,12 @@ type Scenario = {
 	profileId: string;
 	profileName: string;
 	sourceSignalId: string;
-	scenario: "working" | "plan_review" | "permission" | "question";
+	scenario:
+		| "working"
+		| "conversation_wait"
+		| "plan_review"
+		| "permission"
+		| "question";
 };
 const states = new Map<string, WakeProgressItem>();
 
@@ -83,7 +88,10 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 				},
 			],
 		};
-	} else if (scenario.scenario !== "working") {
+	} else if (
+		scenario.scenario !== "working" &&
+		scenario.scenario !== "conversation_wait"
+	) {
 		request =
 			scenario.scenario === "plan_review"
 				? {
@@ -115,7 +123,12 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 		runtimeCoordinatorExecutionId: interactionId,
 		targetProfileId: scenario.profileId,
 		targetLabel: scenario.profileName,
-		phase: "running",
+		phase: scenario.scenario === "conversation_wait" ? "connecting" : "running",
+		...(scenario.scenario === "conversation_wait"
+			? {
+					waitReasonCode: "runtime.agent_controller_conversation.occupied",
+				}
+			: {}),
 		terminal: false,
 		wakeStopEligibility: {
 			status: "eligible",
@@ -124,7 +137,9 @@ function fixture(spaceId: string, viewer?: string): WakeProgressItem | null {
 			reasonCode: null,
 		},
 		message: "Checking the implementation and running focused checks.",
-		startedAtMs: now - 45_000,
+		...(scenario.scenario === "conversation_wait"
+			? {}
+			: { startedAtMs: now - 45_000 }),
 		updatedAtMs: now,
 		...(request
 			? {

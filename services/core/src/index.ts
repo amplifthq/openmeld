@@ -229,6 +229,7 @@ import type {
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
+  LocalAgentReasoningPreferencesRpc,
   LocalRuntimeEnrollmentResponse,
   LocalRuntimesResponse,
   MarkAllInboxItemsReadResponse,
@@ -292,6 +293,8 @@ import type {
   RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
   SelectCurrentLocalAgentInstallationResponse,
+  ServiceConnectionIncidentReportRpcInput,
+  ServiceConnectionIncidentsReadRpcInput,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceResponse,
@@ -935,6 +938,7 @@ import {
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
   rpcReadPeopleComputerFileAccessPolicy,
+  rpcReadServiceConnectionIncidents,
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
@@ -946,6 +950,7 @@ import {
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
+  rpcReportServiceConnectionIncident,
   rpcRequestCurrentOpenMeldToolsUpdate,
   rpcRequestMessageChannelSetup,
   rpcRequestPeopleComputerOpenMeldToolsUpdate,
@@ -1050,6 +1055,7 @@ import {
   type WriteCurrentDeviceObservedMetadataInput,
   type WriteSpaceFileContentRpcInput,
 } from "./rpc/methods";
+import { reasoningPreferences } from "./runtime-transport/application/reasoning-preferences";
 import { RuntimeTransportHub } from "./runtime-transport/transport/do/runtime-transport-hub";
 import {
   ROUTINE_TICK_CRON,
@@ -1475,6 +1481,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return rpcGetInboxNotificationPreferences(this.env, input);
+  }
+
+  localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
+    return reasoningPreferences(this.env, input);
   }
 
   updateInboxNotificationPreferences(
@@ -3387,6 +3397,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListPeopleComputers(this.env, input);
   }
 
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return rpcReadServiceConnectionIncidents(this.env, input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return rpcReportServiceConnectionIncident(this.env, input);
+  }
+
   setPeopleComputerLocalAgentEnabled(
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
@@ -4300,6 +4322,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
     return super.listPeopleComputers(input);
+  }
+
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return super.readServiceConnectionIncidents(input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return super.reportServiceConnectionIncident(input);
   }
 
   setPeopleComputerLocalAgentEnabled(
@@ -5334,6 +5368,10 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentReadTurnDiagnostics(this.env, input);
   }
 
+  centerAgentSetReplyPlacement(input: CenterAgentSetReplyPlacementInput) {
+    return rpcCenterAgentSetReplyPlacement(this.env, input);
+  }
+
   centerAgentListOpportunities(input: CenterAgentListOpportunitiesInput) {
     return rpcCenterAgentListOpportunities(this.env, input);
   }
@@ -5453,6 +5491,7 @@ export default CoreEntrypoint;
 import type {
   CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileResponse,
+  CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { rpcPluginAction } from "./connectors/plugin-actions";
 import {
@@ -5463,3 +5502,4 @@ import {
   type CenterAgentReadChannelFileInput,
   rpcCenterAgentReadChannelFile,
 } from "./remote-agent/application/message-channel-file-service";
+import { rpcCenterAgentSetReplyPlacement } from "./rpc/methods";
