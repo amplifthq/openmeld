@@ -94,8 +94,11 @@ function DesktopSignIn() {
 	}
 	return (
 		<AuthPageShell>
-			<section aria-busy={pending} className="w-full max-w-sm space-y-6">
-				<div className="w-fit">
+			<section
+				aria-busy={pending}
+				className="w-full max-w-sm space-y-6 text-center"
+			>
+				<div className="mx-auto w-fit">
 					<OpenMeldLogo colors={OPENMELD_LOGO_THEME_COLORS} scale={0.2} />
 				</div>
 				<div className="space-y-2">

@@ -82,8 +82,11 @@ export function DesktopEntry() {
 	);
 	return (
 		<main className="flex min-h-svh items-center justify-center bg-background p-6">
-			<section aria-busy={pending} className="w-full max-w-sm space-y-6">
-				<div className="w-fit">
+			<section
+				aria-busy={pending}
+				className="w-full max-w-sm space-y-6 text-center"
+			>
+				<div className="mx-auto w-fit">
 					<OpenMeldLogo colors={OPENMELD_LOGO_THEME_COLORS} scale={0.2} />
 				</div>
 				<div className="space-y-2">

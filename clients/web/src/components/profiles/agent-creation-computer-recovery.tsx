@@ -113,7 +113,7 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 			return {
 				title: "Waiting for local agent details",
 				description:
-					"Your computer is connected. Its local agent report has not arrived yet. Check again to refresh the list.",
+					"Your computer is connected. Local agent details aren’t available yet. Check again to refresh the list.",
 			};
 		case "check_failed":
 			return {
