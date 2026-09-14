@@ -1,6 +1,15 @@
 # Codex Desktop and OpenMeld session coexistence
 
-Status: Draft implementation and bounded compatibility investigation.
+## Agent Context
+
+- Purpose: Track the bounded Codex coexistence correction and experiment.
+- Read this when: Implementing or reviewing this correction.
+- Update this when: Behavior checks or interoperability evidence change.
+- Do not use this for: Production release authority or a Desktop connection contract.
+- Source of truth: Current code, observed experiments, and linked provider sources.
+- Status: Draft implementation and bounded compatibility investigation.
+- Remove after the correction ships and the remaining compatibility decision is
+  recorded in the owning local Service document.
 
 ## Outcome
 
