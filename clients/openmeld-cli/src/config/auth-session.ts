@@ -240,6 +240,7 @@ export type AuthSessionStateReasonCode =
   | "session_token_unavailable";
 
 export type AuthSessionStateResult = {
+  retryAfterMs?: number;
   errorMessage?: string;
   reasonCode?: AuthSessionStateReasonCode;
   state: AuthSessionState;
@@ -270,6 +271,7 @@ type GetAuthSessionStateOptions = {
 
 type LocalAuthSessionState =
   | {
+      retryAfterMs?: number;
       errorMessage?: string;
       reasonCode: Exclude<
         AuthSessionStateReasonCode,
@@ -281,10 +283,12 @@ type LocalAuthSessionState =
   | {
       reasonCode: "session_expired";
       state: "expired";
+      payloadKey: string;
       session: StoredAuthSession;
     }
   | {
       state: "valid";
+      payloadKey: string;
       session: StoredAuthSession;
     };
 
@@ -301,17 +305,48 @@ type RemoteAuthSessionValidation =
 const TRAILING_SLASHES_RE = /\/+$/u;
 
 type CachedAuthSession = {
-  payloadKey: string;
+  credentialKey: string;
   session: StoredAuthSession;
 };
 
 let cachedAuthSession: CachedAuthSession | null = null;
+const pendingCredentialReads = new Map<
+  string,
+  ReturnType<typeof readAccessToken>
+>();
+const credentialAvailabilityListeners = new Set<{
+  path: string;
+  notify: () => void;
+}>();
+
+export function onAuthSessionCredentialAvailable(
+  notify: () => void
+): () => void {
+  const listener = { path: authSessionPath(), notify };
+  credentialAvailabilityListeners.add(listener);
+  return () => {
+    credentialAvailabilityListeners.delete(listener);
+  };
+}
 const activeAuthSessionTransitionIds = new Set<string>();
 
 export async function getAuthSessionState(
   options: GetAuthSessionStateOptions = {}
 ): Promise<AuthSessionStateResult> {
-  return await getAuthSessionStateWithCandidateRefreshFence(options, false);
+  const result = await getAuthSessionStateWithCandidateRefreshFence(
+    options,
+    false
+  );
+  // Exact-payload fences are private to the auth owner, not diagnostic payloads.
+  return {
+    state: result.state,
+    session: result.session,
+    ...(result.reasonCode ? { reasonCode: result.reasonCode } : {}),
+    ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+    ...(result.retryAfterMs !== undefined
+      ? { retryAfterMs: result.retryAfterMs }
+      : {}),
+  };
 }
 
 async function getAuthSessionStateWithCandidateRefreshFence(
@@ -319,7 +354,8 @@ async function getAuthSessionStateWithCandidateRefreshFence(
   candidateRefreshFenceHeld: boolean
 ): Promise<AuthSessionStateResult> {
   const localState = await getLocalAuthSessionState();
-  const localPayloadKey = cachedAuthSession?.payloadKey ?? null;
+  const localPayloadKey =
+    "payloadKey" in localState ? localState.payloadKey : null;
   const shouldValidateRemote =
     options.validateRemote === true ||
     (options.refreshExpired === true && localState.state === "expired");
@@ -1328,7 +1364,7 @@ async function authSessionFileExists(): Promise<boolean> {
 }
 
 async function getLocalAuthSessionState(
-  options: { recover?: boolean } = {}
+  options: { recover?: boolean; reloadCount?: number } = {}
 ): Promise<LocalAuthSessionState> {
   let payload: Partial<AuthSessionV1> | null;
   try {
@@ -1338,6 +1374,7 @@ async function getLocalAuthSessionState(
         : await readSessionPayload();
   } catch (error) {
     if (error instanceof AuthSessionStorageError) {
+      cachedAuthSession = null;
       return {
         errorMessage: error.message,
         reasonCode: "session_metadata_invalid",
@@ -1348,6 +1385,7 @@ async function getLocalAuthSessionState(
     throw error;
   }
   if (payload?.v !== 1) {
+    cachedAuthSession = null;
     return {
       reasonCode: "session_missing",
       state: "missing",
@@ -1357,6 +1395,7 @@ async function getLocalAuthSessionState(
 
   const tokenRef = normalizeTokenRef(payload.tokenRef);
   if (!tokenRef) {
+    cachedAuthSession = null;
     return {
       reasonCode: "session_token_ref_invalid",
       state: "invalid",
@@ -1369,6 +1408,7 @@ async function getLocalAuthSessionState(
   const clientId = normalizeOptionalString(payload.clientId);
   const createdAt = normalizeOptionalString(payload.createdAt);
   if (!(tokenType && authBaseUrl && clientId && createdAt)) {
+    cachedAuthSession = null;
     return {
       reasonCode: "session_metadata_invalid",
       state: "invalid",
@@ -1376,27 +1416,10 @@ async function getLocalAuthSessionState(
     };
   }
 
-  let session = readCachedAuthSession(payload);
+  const session = readCachedAuthSession(payload);
   if (!session) {
-    const accessToken = await readAccessToken(tokenRef);
-    if (accessToken.status === "missing") {
-      return {
-        reasonCode: "session_token_missing",
-        state: "invalid",
-        session: null,
-      };
-    }
-    if (accessToken.status === "unavailable") {
-      return {
-        errorMessage: accessToken.errorMessage,
-        reasonCode: "session_token_unavailable",
-        state: "invalid",
-        session: null,
-      };
-    }
-    session = buildStoredAuthSession({
-      accessToken: accessToken.accessToken,
-      payload: {
+    return await loadCurrentSessionCredential(
+      {
         ...payload,
         v: 1,
         tokenRef,
@@ -1405,10 +1428,19 @@ async function getLocalAuthSessionState(
         clientId,
         createdAt,
       },
-    });
-    cacheAuthSession({ payload, session });
+      options
+    );
   }
+  return resolveLocalStoredSessionState(
+    session,
+    buildAuthSessionPayloadKey(payload)
+  );
+}
 
+function resolveLocalStoredSessionState(
+  session: StoredAuthSession,
+  payloadKey: string
+): LocalAuthSessionState {
   const expiryEligibility = resolveAuthSessionExpiryEligibility(
     session.expiresAt
   );
@@ -1423,14 +1455,91 @@ async function getLocalAuthSessionState(
     return {
       reasonCode: "session_expired",
       state: "expired",
+      payloadKey,
       session,
     };
   }
 
   return {
     state: "valid",
+    payloadKey,
     session,
   };
+}
+
+async function loadCurrentSessionCredential(
+  payload: AuthSessionV1,
+  options: { recover?: boolean; reloadCount?: number }
+): Promise<LocalAuthSessionState> {
+  const credentialKey = buildAuthSessionCredentialCacheKey(payload);
+  const accessToken = await readSessionCredential(
+    credentialKey,
+    payload.tokenRef
+  );
+  // Secret-store reads can outlive logout. Recheck the owner before accepting a result.
+  let currentPayload: Partial<AuthSessionV1> | null;
+  try {
+    currentPayload =
+      options.recover === false
+        ? await readSessionPayloadFile()
+        : await readSessionPayload();
+  } catch (error) {
+    if (!(error instanceof AuthSessionStorageError)) {
+      throw error;
+    }
+    cachedAuthSession = null;
+    return {
+      state: "invalid",
+      session: null,
+      reasonCode: "session_metadata_invalid",
+      errorMessage: error.message,
+    };
+  }
+  if (
+    !currentPayload ||
+    buildAuthSessionCredentialCacheKey(currentPayload) !== credentialKey
+  ) {
+    if ((options.reloadCount ?? 0) >= 2) {
+      cachedAuthSession = null;
+      return {
+        state: "invalid",
+        session: null,
+        reasonCode: "session_metadata_invalid",
+        errorMessage:
+          "The local login changed while reading its credentials. Try again.",
+      };
+    }
+    return await getLocalAuthSessionState({
+      ...options,
+      reloadCount: (options.reloadCount ?? 0) + 1,
+    });
+  }
+  if (accessToken.status === "missing") {
+    return {
+      reasonCode: "session_token_missing",
+      state: "invalid",
+      session: null,
+    };
+  }
+  if (accessToken.status === "unavailable") {
+    return {
+      errorMessage: accessToken.errorMessage,
+      retryAfterMs: accessToken.retryAfterMs,
+      reasonCode: "session_token_unavailable",
+      state: "invalid",
+      session: null,
+    };
+  }
+  // Credential-key equality preserves all required fields validated by the caller.
+  const session = buildStoredAuthSession({
+    accessToken: accessToken.accessToken,
+    payload: currentPayload as AuthSessionV1,
+  });
+  cacheAuthSession({ payload: currentPayload, session });
+  return resolveLocalStoredSessionState(
+    session,
+    buildAuthSessionPayloadKey(currentPayload)
+  );
 }
 
 async function assertStoredAccessTokenReloads(input: {
@@ -1540,19 +1649,71 @@ function cacheAuthSession(input: {
   payload: Partial<AuthSessionV1>;
   session: StoredAuthSession;
 }): void {
+  const credentialKey = buildAuthSessionCredentialCacheKey(input.payload);
+  const becameAvailable = cachedAuthSession?.credentialKey !== credentialKey;
   cachedAuthSession = {
-    payloadKey: buildAuthSessionPayloadKey(input.payload),
+    credentialKey,
     session: input.session,
   };
+  if (becameAvailable) {
+    const path = authSessionPath();
+    for (const listener of credentialAvailabilityListeners) {
+      if (listener.path === path) {
+        listener.notify();
+      }
+    }
+  }
 }
 
 function readCachedAuthSession(
   payload: Partial<AuthSessionV1>
 ): StoredAuthSession | null {
-  const payloadKey = buildAuthSessionPayloadKey(payload);
-  return cachedAuthSession?.payloadKey === payloadKey
-    ? cachedAuthSession.session
-    : null;
+  if (
+    cachedAuthSession?.credentialKey !==
+    buildAuthSessionCredentialCacheKey(payload)
+  ) {
+    return null;
+  }
+  const session = buildStoredAuthSession({
+    accessToken: cachedAuthSession.session.accessToken,
+    payload: payload as AuthSessionV1,
+  });
+  // Context is freshly read; the exact payload still fences remote refreshes.
+  cacheAuthSession({ payload, session });
+  return session;
+}
+
+function buildAuthSessionCredentialCacheKey(
+  payload: Partial<AuthSessionV1>
+): string {
+  return `${authSessionPath()}\n${JSON.stringify({
+    v: payload.v,
+    tokenRef: payload.tokenRef,
+    tokenType: payload.tokenType,
+    authBaseUrl: payload.authBaseUrl,
+    clientId: payload.clientId,
+    createdAt: payload.createdAt,
+    expiresAt: payload.expiresAt,
+    scope: payload.scope,
+    ownerUserId: payload.user?.id,
+  })}`;
+}
+
+async function readSessionCredential(
+  key: string,
+  ref: StoredTokenRef
+): ReturnType<typeof readAccessToken> {
+  const pending = pendingCredentialReads.get(key);
+  if (pending) {
+    return await pending;
+  }
+  const read = readAccessToken(ref).finally(() => {
+    if (pendingCredentialReads.get(key) === read) {
+      pendingCredentialReads.delete(key);
+    }
+  });
+  pendingCredentialReads.set(key, read);
+  return await read;
 }
 
 function buildAuthSessionPayloadKey(payload: Partial<AuthSessionV1>): string {
@@ -1649,7 +1810,7 @@ async function persistCommittedRemoteSessionRefresh(input: {
   const refresh = await prepareRemoteSessionRefresh({
     ...input,
     payload,
-    uniqueTokenRef: false,
+    uniqueTokenRef: true,
   });
   if (!refresh) {
     return null;

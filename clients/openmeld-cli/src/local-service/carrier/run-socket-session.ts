@@ -848,7 +848,7 @@ export async function runDaemonSocketSession(input: {
           leaseEpoch,
         }))
         .sort((left, right) => left.profileId.localeCompare(right.profileId));
-      const localComponentsStatus = await resolveSessionLocalComponentsStatus();
+      const localComponentsStatus = readSessionLocalComponentsStatus();
       const heartbeatRequest = runtimeTransportHeartbeatRequestSchema.safeParse(
         {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1099,25 +1099,52 @@ export async function runDaemonSocketSession(input: {
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = OPENMELD_VERSION;
 
-  const resolveSessionLocalComponentsStatus =
-    async (): Promise<LocalComponentsStatus | null> => {
-      try {
-        return await resolveLocalComponentsStatus();
-      } catch (error) {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.local_components_status_failed",
-          text: `local components status unavailable: ${toErrorMessage(error)}`,
+  let localComponentsObservation: {
+    value: LocalComponentsStatus | null;
+    observedAtMs: number;
+  } | null = null;
+  let localComponentsRead: Promise<void> | null = null;
+  const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null => {
+    const current = localComponentsObservation;
+    if (current && Date.now() - current.observedAtMs < 30_000) {
+      return current.value;
+    }
+    // Optional filesystem inspection must not hold registration or heartbeat.
+    // Expired observations are omitted, never republished as fresh evidence.
+    if (!localComponentsRead) {
+      localComponentsRead = resolveLocalComponentsStatus()
+        .then((value) => {
+          localComponentsObservation = { value, observedAtMs: Date.now() };
+          if (value && lastHeartbeatSentAtMs !== null) {
+            scheduleHeartbeat({
+              delayMs: 0,
+              reason: "local_components_refreshed",
+            });
+          }
+        })
+        .catch((error) => {
+          localComponentsObservation = {
+            value: null,
+            observedAtMs: Date.now(),
+          };
+          emitRunLine({
+            presenter: input.presenter,
+            code: "daemon.run.local_components_status_failed",
+            text: `local components status unavailable: ${toErrorMessage(error)}`,
+          });
+        })
+        .finally(() => {
+          localComponentsRead = null;
         });
-        return null;
-      }
-    };
+    }
+    return null;
+  };
 
   const registerDaemonSession = async (
     routeCatalog: RouteCatalog
   ): Promise<RuntimeTransportRegisterSessionResponse> => {
     const connectionGeneration = Math.max(1, input.reconnectAttempt + 1);
-    const localComponentsStatus = await resolveSessionLocalComponentsStatus();
+    const localComponentsStatus = readSessionLocalComponentsStatus();
     const registerPayload =
       runtimeTransportRegisterSessionRequestSchema.safeParse({
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,

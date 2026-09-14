@@ -2013,6 +2013,7 @@ describe("local service run catalog signal", () => {
 
 describe("daemon stream keepalive", () => {
   beforeEach(() => {
+    resolveLocalComponentsStatusMock.mockResolvedValue(null);
     loadDaemonRouteCatalogMock.mockResolvedValue({
       profileIds: ["agt-1"],
       routeByProfileId: new Map(),
@@ -2054,6 +2055,25 @@ describe("daemon stream keepalive", () => {
     // PING is not a heartbeat side-effect.
     expect(socket.heartbeatSendCount).toBe(heartbeatsAfterStartup);
 
+    socket.close(1000, "shutdown");
+    await sessionPromise;
+  });
+
+  it("keeps registration and heartbeat live when component inspection stalls", async () => {
+    vi.useFakeTimers();
+    resolveLocalComponentsStatusMock.mockImplementation(
+      () => new Promise(() => undefined)
+    );
+    const socket = createMockSocket();
+    const sessionPromise = runDaemonSocketSession(
+      buildKeepaliveSessionInput(socket, [], 5000)
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    await flushMicrotasks(() => socket.heartbeatSendCount > 0);
+    expect(socket.heartbeatSendCount).toBeGreaterThan(0);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(socket.heartbeatSendCount).toBeGreaterThan(1);
+    expect(resolveLocalComponentsStatusMock).toHaveBeenCalledOnce();
     socket.close(1000, "shutdown");
     await sessionPromise;
   });

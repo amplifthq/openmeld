@@ -33,6 +33,7 @@ import { setAgentRegistrationEnabled } from "../../agents/registry";
 import {
   type AuthSessionState,
   getAuthSessionState,
+  onAuthSessionCredentialAvailable,
   type StoredAuthSession,
 } from "../../config/auth-session";
 import { resolveBaseUrl } from "../../config/base-url";
@@ -48,6 +49,7 @@ import {
   type AuthRequestCredentialFailureReason,
   buildOpenMeldProfileRequestHeadersWithAuth,
   buildRequestAuthHeaders,
+  fingerprintRequestAuthorization,
 } from "../../config/request-headers";
 import {
   requireOpenMeldProfile,
@@ -59,7 +61,11 @@ import type { WsClient } from "../../transport/ws";
 import { connectWebSocket } from "../../transport/ws";
 import { resolveLocalConversationExecutionStatus } from "../control-plane/conversation-execution-status";
 import { startLocalDaemonControlPlaneServer } from "../control-plane/server";
-import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../core/constants";
+import {
+  DAEMON_STREAM_CONNECT_TIMEOUT_MS,
+  DEFAULT_RECONNECT_DELAY_MS,
+  MAX_RECONNECT_DELAY_MS,
+} from "../core/constants";
 import {
   emitRunLine,
   normalizeHeartbeatIntervalMs,
@@ -196,6 +202,7 @@ function buildLocalServiceCapabilityHeaders(input: {
 // what produced the production 401 relaunch storm, so the connect path treats
 // it as authentication_required and never sends the handshake.
 type DaemonStreamCredentialFailure = {
+  retryAfterMs?: number;
   authHost: string | null;
   expectedGatewayHost: string | null;
   reason: AuthRequestCredentialFailureReason;
@@ -325,6 +332,7 @@ export async function resolveDaemonStreamAuthContext(input: {
 }): Promise<
   | {
       authState: "valid";
+      credentialFingerprint: string;
       headers: Record<string, string>;
       status: "ready";
     }
@@ -362,6 +370,9 @@ export async function resolveDaemonStreamAuthContext(input: {
 
   return {
     authState: "valid",
+    credentialFingerprint: fingerprintRequestAuthorization(
+      headers.Authorization
+    ),
     headers,
     status: "ready",
   };
@@ -383,6 +394,9 @@ function toDaemonStreamCredentialFailure(
   error: AuthRequestCredentialError
 ): DaemonStreamCredentialFailure {
   return {
+    ...(error.retryAfterMs !== undefined
+      ? { retryAfterMs: error.retryAfterMs }
+      : {}),
     authHost: error.authHost,
     expectedGatewayHost: error.expectedGatewayHost,
     reason: error.reason,
@@ -722,6 +736,7 @@ export const runDaemonServiceLoop = async (
   const reconnectBackoffDelay = createStopAwareDelay();
   let reconnectAttempt = 0;
   let activeSocket: WsClient | null = null;
+  let activeCredentialFingerprint: string | null = null;
   const recoverRuntimeReportingAuthentication =
     createRuntimeReportingAuthenticationRecovery({
       requestCarrierHandshake: () => {
@@ -738,6 +753,9 @@ export const runDaemonServiceLoop = async (
         reason: input.expectedSocket ? "stale_socket" : "socket_unavailable",
         reasonCode: input.failure.reasonCode,
       });
+      return;
+    }
+    if (input.failure.credentialFingerprint !== activeCredentialFingerprint) {
       return;
     }
     const recovery = await recoverRuntimeReportingAuthentication(input.failure);
@@ -1009,6 +1027,13 @@ export const runDaemonServiceLoop = async (
     agentActivityIntegrationRefresh.request();
   };
 
+  const unsubscribeCredentialAvailability = onAuthSessionCredentialAvailable(
+    () => {
+      if (connectionState.get().reason === "auth_unavailable") {
+        reconnectBackoffDelay.wake();
+      }
+    }
+  );
   try {
     emitRunLine({
       presenter: input.presenter,
@@ -1077,6 +1102,7 @@ export const runDaemonServiceLoop = async (
           break;
         }
         activeSocket = ws;
+        activeCredentialFingerprint = authContext.credentialFingerprint;
 
         emitRunLine({
           presenter: input.presenter,
@@ -1173,6 +1199,7 @@ export const runDaemonServiceLoop = async (
       }
     }
   } finally {
+    unsubscribeCredentialAvailability();
     controlledShutdown.failOutstanding();
     process.off("SIGINT", onSigint);
     process.off("SIGTERM", onSigterm);
@@ -1655,15 +1682,37 @@ function noteRunLoopReconnectScheduled(input: {
   reconnectAttempt: number;
 }): number {
   const errorMessage = toErrorMessage(input.error);
-  const failureReason = classifyConnectionFailureReason(errorMessage);
-  const authState =
+  const credentialFailure =
+    input.error instanceof DaemonStreamAuthenticationRequiredError
+      ? input.error.credentialFailure
+      : null;
+  const failureReason =
+    credentialFailure?.reason === "session_token_unavailable"
+      ? "auth_unavailable"
+      : classifyConnectionFailureReason(errorMessage);
+  let authState =
     input.error instanceof DaemonStreamAuthenticationRequiredError
       ? input.error.authState
       : null;
-  const backoffMs = resolveServiceConnectionReconnectBackoffMs({
+  if (failureReason === "auth_unavailable") {
+    authState = null;
+  }
+  const policyBackoffMs = resolveServiceConnectionReconnectBackoffMs({
     attempt: input.reconnectAttempt,
     reason: failureReason,
   });
+  const credentialRetryAfterMs = credentialFailure?.retryAfterMs ?? 0;
+  let backoffMs = policyBackoffMs;
+  if (failureReason === "auth_unavailable" && credentialRetryAfterMs > 0) {
+    backoffMs = credentialRetryAfterMs;
+  } else if (failureReason !== "auth_rejected") {
+    backoffMs = applyIntervalJitterMs({
+      baseIntervalMs: policyBackoffMs,
+      minIntervalMs: DEFAULT_RECONNECT_DELAY_MS,
+      maxIntervalMs: MAX_RECONNECT_DELAY_MS,
+      jitterRatio: 0.2,
+    });
+  }
   noteReconnectFailureState({
     authState,
     connectionState: input.connectionState,
@@ -1779,6 +1828,13 @@ function noteAuthenticationRequiredState(input: {
   const detail = input.credentialFailure
     ? `stored credentials are not attachable to the daemon stream (${input.credentialFailure.reason}: requestHost=${input.credentialFailure.requestHost ?? "unknown"}, authHost=${input.credentialFailure.authHost ?? "unknown"}, expectedGatewayHost=${input.credentialFailure.expectedGatewayHost ?? "unknown"})`
     : `connecting without credentials, session=${input.authState}`;
+  if (input.credentialFailure?.reason === "session_token_unavailable") {
+    input.connectionState.set("degraded", {
+      detail,
+      reason: "auth_unavailable",
+    });
+    return;
+  }
   input.connectionState.set("authentication_required", {
     authState: input.authState,
     detail,
