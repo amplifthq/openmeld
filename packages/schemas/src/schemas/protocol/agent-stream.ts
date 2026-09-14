@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { localAgentReasoningStateSchema } from "../http/local-agent-reasoning";
 import { agentProfileIdSchema } from "./profile";
 import { nonEmptyTrimmedStringFromUnknown } from "./shared";
 
@@ -355,7 +356,8 @@ const spaceAgentStreamThinkingDeltaFrameSchema = z.strictObject({
   type: z.literal("space.agent_stream_delta"),
   ...agentStreamIdentityShape,
   kind: z.literal("thinking"),
-  thinkingSnapshot: textSnapshotSchema,
+  thinkingSnapshot: z.string().max(AGENT_STREAM_SNAPSHOT_MAX_CHARS),
+  reasoningState: localAgentReasoningStateSchema.optional(),
   state: z.literal("streaming"),
   updatedAtMs: timestampSchema,
 });

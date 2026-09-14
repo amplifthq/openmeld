@@ -2,6 +2,7 @@ import type { IncomingMessage } from "node:http";
 import WebSocket from "ws";
 
 export type WsClient = {
+  readonly bufferedAmount?: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   terminate(): void;
@@ -90,6 +91,9 @@ export async function connectWebSocket(
         clearTimeout(openTimeout);
       }
       resolve({
+        get bufferedAmount() {
+          return ws.bufferedAmount;
+        },
         send: (data) => ws.send(data),
         close: (code, reason) => ws.close(code, reason),
         terminate: () => ws.terminate(),

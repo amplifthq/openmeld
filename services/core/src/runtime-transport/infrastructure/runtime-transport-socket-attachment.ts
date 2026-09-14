@@ -14,6 +14,7 @@ export const RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER =
 // previously blew the platform's 2KiB attachment limit and silently broke
 // hibernation recovery.
 export type RuntimeTransportSocketAttachment = {
+  reasoningStream?: boolean;
   computerFileAccessCapability:
     | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
     | null;
@@ -29,6 +30,7 @@ export const readRuntimeTransportSocketAttachment = (
   webSocket: WebSocket
 ): RuntimeTransportSocketAttachment => {
   let attachment: {
+    reasoningStream?: unknown;
     verifiedOwnerUserId?: unknown;
     computerFileAccessCapability?: unknown;
     localFolderPickerCapability?: unknown;
@@ -37,6 +39,7 @@ export const readRuntimeTransportSocketAttachment = (
   };
   try {
     attachment = (webSocket.deserializeAttachment() ?? {}) as {
+      reasoningStream?: unknown;
       verifiedOwnerUserId?: unknown;
       computerFileAccessCapability?: unknown;
       localFolderPickerCapability?: unknown;
@@ -57,6 +60,7 @@ export const readRuntimeTransportSocketAttachment = (
   }
 
   return {
+    reasoningStream: attachment.reasoningStream === true,
     computerFileAccessCapability:
       attachment.computerFileAccessCapability ===
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -76,6 +80,7 @@ export const readRuntimeTransportSocketAttachment = (
 export const writeRuntimeTransportSocketAttachment = (
   webSocket: WebSocket,
   input: {
+    reasoningStream?: boolean;
     verifiedOwnerUserId: string;
     computerFileAccessCapability?:
       | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -90,6 +95,8 @@ export const writeRuntimeTransportSocketAttachment = (
   try {
     const current = readRuntimeTransportSocketAttachment(webSocket);
     webSocket.serializeAttachment({
+      reasoningStream:
+        input.reasoningStream ?? current.reasoningStream ?? false,
       verifiedOwnerUserId: input.verifiedOwnerUserId,
       computerFileAccessCapability:
         input.computerFileAccessCapability === undefined

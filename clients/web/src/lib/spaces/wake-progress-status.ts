@@ -95,9 +95,9 @@ export function resolveWakeProgressStatus(
 	) {
 		return {
 			description:
-				"This Wake will start when the Agent’s current task finishes.",
+				"Another client holds this Agent’s session. This Wake is waiting for the session to become available.",
 			kind: "waiting_for_controller",
-			label: `Waiting for ${targetName} · Another task is running`,
+			label: `Waiting for ${targetName}’s session`,
 			status: "active",
 		};
 	}

@@ -510,6 +510,8 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
   const captured = {};
   const previews = [];
 
+  const reasoning = [];
+
   await writeFile(
     fixturePath,
     [
@@ -531,6 +533,23 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
       createAgentSdkQuery: createFakeClaudeAgentQueryFactory({
         captured,
         messages: [
+          {
+            type: "stream_event",
+            event: { type: "message_start", message: { id: "msg-thinking" } },
+            session_id: "sdk-session-1",
+          },
+          {
+            type: "stream_event",
+            event: {
+              type: "content_block_delta",
+              index: 0,
+              delta: {
+                type: "thinking_delta",
+                thinking: "Checking the request",
+              },
+            },
+            session_id: "sdk-session-1",
+          },
           {
             type: "stream_event",
             event: {
@@ -588,6 +607,11 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
         previews.push(preview.text);
       },
       prompt: "hello sdk",
+      onRuntimeEvent: (event) => {
+        if (event.phase === "reasoning") {
+          reasoning.push(event);
+        }
+      },
       runtimeContext: createRuntimeContext(dispatchDir),
       sourceEventId: "evt-sdk",
       spaceId: "space-1",
@@ -597,6 +621,9 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
 
     assert.equal(result.status, "success");
     assert.equal(result.output, "hello from sdk preview");
+    assert.equal(reasoning.length, 1);
+    assert.equal(reasoning[0].blockId, "msg-thinking:0");
+    assert.equal(reasoning[0].text, "Checking the request");
     assert.deepEqual(result.contextDelta, {
       agentControllerConversationId: "sdk-session-1",
       agentControllerConversation: {

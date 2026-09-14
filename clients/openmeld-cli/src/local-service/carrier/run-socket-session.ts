@@ -446,6 +446,13 @@ function handleLocalFolderPickerSocketFrame(input: {
   return true;
 }
 
+function resetReasoningPreference(ref: CurrentDaemonSocketRef): void {
+  ref.reasoningStreamEnabled = undefined;
+  for (const listener of ref.reasoningPreferenceListeners ?? []) {
+    listener();
+  }
+}
+
 export async function runDaemonSocketSession(input: {
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
@@ -2585,6 +2592,7 @@ export async function runDaemonSocketSession(input: {
     );
   }
   if (currentSocketRef.socket === input.socket) {
+    resetReasoningPreference(currentSocketRef);
     currentSocketRef.socket = null;
     currentSocketRef.connectionGeneration = null;
   }

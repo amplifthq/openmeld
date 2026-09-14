@@ -20275,6 +20275,7 @@ function buildAgentStreamThinkingDeltaFrame(
     ...(input.replyThreadRootSignalId !== undefined
       ? { replyThreadRootSignalId: input.replyThreadRootSignalId }
       : {}),
+    ...(input.reasoningState ? { reasoningState: input.reasoningState } : {}),
     state: "streaming",
     updatedAtMs,
   });

@@ -318,6 +318,9 @@ export async function invokeCodexAppServerTransport(input: {
   }
 
   const invokedAtMs = Date.now();
+  const reasoningSummary = input.onRuntimeEvent
+    ? { summary: "auto" as const }
+    : {};
   const permissionModeParams = resolveCodexAppServerPermissionModeParams(
     input.agentControllerPermissionMode,
     input.executionMode,
@@ -370,6 +373,7 @@ export async function invokeCodexAppServerTransport(input: {
         threadSource: threadContext.threadSource,
       });
       session.emitProviderConversationObserved(continuityThreadId);
+      session.observeReasoningForThread(executionThreadId);
       throwIfCodexDispatchCancelled(input.cancellationSignal);
       const turnResponse = await session.requestControl(
         "turn/start",
@@ -378,6 +382,7 @@ export async function invokeCodexAppServerTransport(input: {
           ...(collaborationMode ? { collaborationMode } : {}),
           cwd: input.codexWorkdir,
           ...conversationPolicyParams,
+          ...reasoningSummary,
           input: [
             {
               text: turnPrompt,
@@ -974,6 +979,7 @@ class CodexAppServerSession {
   readonly #permissionMode?: AgentControllerPermissionMode;
   readonly #pending = new Map<JsonRpcId, PendingJsonRpcRequest>();
   readonly #turnAgentMessageDeltas = new Map<string, string>();
+  #reasoningThreadId: string | null = null;
   #child: ChildProcessWithoutNullStreams | null = null;
   #runtimeProcess: SpawnedAgentControllerProcess | null = null;
   #contextCompactionObserved = false;
@@ -1540,6 +1546,18 @@ class CodexAppServerSession {
   }
 
   #handleNotification(message: JsonRpcMessage): void {
+    if (message.method === "item/reasoning/summaryTextDelta") {
+      this.#observeReasoningSummary(message.params);
+      return;
+    }
+    if (
+      message.method?.startsWith("item/reasoning/") ||
+      toRecord(toRecord(message.params)?.item)?.type === "reasoning"
+    ) {
+      // Reasoning has no role in turn completion or reply extraction. Do not
+      // retain raw deltas or full completed reasoning items in the event queue.
+      return;
+    }
     this.#notifications.push(message);
     this.#observeContextTelemetry(message);
     this.#collectAgentMessageDelta(message);
@@ -1751,6 +1769,32 @@ class CodexAppServerSession {
 
   readInteractionFailure(): CodexAppServerInteractionFailure | null {
     return this.#interactionFailure;
+  }
+
+  observeReasoningForThread(threadId: string): void {
+    this.#reasoningThreadId = threadId;
+  }
+
+  #observeReasoningSummary(payload: unknown): void {
+    const params = toRecord(payload);
+    if (
+      !this.#reasoningThreadId ||
+      params?.threadId !== this.#reasoningThreadId ||
+      typeof params.turnId !== "string" ||
+      typeof params.itemId !== "string" ||
+      typeof params.summaryIndex !== "number" ||
+      typeof params.delta !== "string" ||
+      params.delta.length === 0
+    ) {
+      return;
+    }
+    this.#emitRuntimeEvent({
+      phase: "reasoning",
+      blockId: `${params.turnId}:${params.itemId}:${params.summaryIndex}`,
+      text: params.delta,
+      mode: "append",
+      tsMs: Date.now(),
+    });
   }
 
   emitProviderConversationObserved(threadId: string): void {
