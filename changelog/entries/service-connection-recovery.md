@@ -4,7 +4,9 @@ title: More reliable computer connections and recovery
 kind: fixed
 areas: ["service", "computers", "wakes"]
 audiences: ["users"]
-evidence: ["pr:1051"]
+publishedAt: 2026-09-15
+release: v0.3.206
+evidence: ["pr:1051", "pr:1055", "workflow:34902801271", "commit:ca92fef004ea00bc726f34015ba1ae2e9ba0cbda"]
 ---
 
 Temporary credential-store delays no longer disconnect a working computer, and
