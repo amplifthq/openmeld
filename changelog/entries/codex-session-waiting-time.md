@@ -1,5 +1,8 @@
 ---
 id: codex-session-waiting-time
+publishedAt: 2026-09-14
+release: v0.3.205
+evidence: ["pr:1049", "pr:1052", "commit:d913ca02e16ca64e934f967a8dd017d09982192e", "workflow:34879030368", "workflow:34879035286"]
 title: Clearer waiting and working time for local Agents
 kind: fixed
 areas: ["spaces", "agents"]

@@ -2,6 +2,161 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "deleted-agent-wake-cleanup",
+      "title": "Clear pending Wakes for deleted agents",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-14",
+      "release": "v0.3.205",
+      "evidence": [
+        "pr:1048",
+        "pr:1052",
+        "commit:d913ca02e16ca64e934f967a8dd017d09982192e",
+        "workflow:34879030368",
+        "workflow:34879035286"
+      ],
+      "body": "Old pending Wakes stop retrying when their agent has been deleted. Spaces shows\na simple system message explaining that the Wake was cancelled, instead of\nleaving it on \"Trying to reach\"."
+    },
+    {
+      "id": "codex-session-waiting-time",
+      "title": "Clearer waiting and working time for local Agents",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-14",
+      "release": "v0.3.205",
+      "evidence": [
+        "pr:1049",
+        "pr:1052",
+        "commit:d913ca02e16ca64e934f967a8dd017d09982192e",
+        "workflow:34879030368",
+        "workflow:34879035286"
+      ],
+      "body": "When another app is using an Agent's conversation, Spaces explains why the\nrequest is waiting and offers Cancel waiting. Working time starts when execution\nbegins, excluding time spent waiting. Stopping a request after it starts no longer\nreports that it was still waiting for the conversation.\n\nWaiting requests can also recover after the other Codex process exits abruptly,\neven if it leaves a lock file behind."
+    },
+    {
+      "id": "hide-global-create-entry",
+      "title": "Keep creation actions in Spaces and Team",
+      "kind": "improved",
+      "areas": [
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-14",
+      "release": "v0.3.205",
+      "evidence": [
+        "pr:1045",
+        "pr:1052",
+        "commit:d913ca02e16ca64e934f967a8dd017d09982192e",
+        "workflow:34879030368",
+        "workflow:34879035286"
+      ],
+      "body": "The global plus button is temporarily hidden from the main sidebar. Use the\nSpaces menu to start a conversation or create a Space, and the Team menu to\ninvite members or create an Agent."
+    },
+    {
+      "id": "faster-agent-creation-and-space-deletion",
+      "title": "Move on immediately after creating an Agent or deleting a Space",
+      "kind": "improved",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-14",
+      "release": "v0.3.205",
+      "evidence": [
+        "pr:1050",
+        "pr:1052",
+        "commit:d913ca02e16ca64e934f967a8dd017d09982192e",
+        "workflow:34879030368",
+        "workflow:34879035286"
+      ],
+      "body": "Agent creation now returns you to Agents as soon as you submit, with setup\nprogress while the request is confirmed. You can edit and retry an unfinished\nrequest or dismiss its local card. Deleting a Space immediately opens Browse\nSpaces and removes it from the lists. If deletion fails, the Space returns and\na persistent error includes a link to reopen it."
+    },
+    {
+      "id": "inbox-message-deep-link-positioning",
+      "title": "Open Inbox notifications at the exact message",
+      "kind": "fixed",
+      "areas": [
+        "inbox",
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-14",
+      "release": "v0.3.205",
+      "evidence": [
+        "pr:1044",
+        "pr:1052",
+        "commit:d913ca02e16ca64e934f967a8dd017d09982192e",
+        "workflow:34879030368",
+        "workflow:34879035286"
+      ],
+      "body": "Inbox notifications scroll to and highlight their exact Space message without\nbeing pulled back to the latest message as the conversation finishes loading.\nOlder links load the message and its surrounding conversation directly, without\nstopping after a fixed number of history pages. Opening a main-message link\ncloses the previously selected Thread so the destination has room to display.\nThread notifications open the Thread header and composer while replies load,\nthen bring the linked reply into view. Closing or switching threads while a\nrequest is pending keeps your latest selection."
+    },
+    {
+      "id": "reasoning-reconnect",
+      "title": "Restore recent live reasoning after reconnecting",
+      "kind": "fixed",
+      "areas": [
+        "spaces",
+        "agents"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-14",
+      "release": "v0.3.205",
+      "evidence": [
+        "pr:1047",
+        "pr:1052",
+        "commit:d913ca02e16ca64e934f967a8dd017d09982192e",
+        "workflow:34879030368",
+        "workflow:34879035286"
+      ],
+      "body": "Spaces can restore an Agent's recent live reasoning when you refresh or reconnect,\nwithout waiting for another reasoning update. The temporary tail is available\nwhile the server retains it in memory; it is not saved in conversation history.\n\nLive reasoning supports basic Markdown formatting and stays open while an Agent\nswitches between thinking and using tools. If you collapse it, new output keeps\nit collapsed until you choose to open it again.\n\nReopening follows the latest reasoning. Turning off Local Agent reasoning sharing\nalso blocks reconnect replay without waiting for the owner's computer to respond."
+    },
+    {
+      "id": "explain-agent-permission-outcomes",
+      "title": "Understand what each Agent permission mode does",
+      "kind": "improved",
+      "areas": [
+        "agents",
+        "web"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-09-14",
+      "release": "v0.3.205",
+      "evidence": [
+        "pr:1036",
+        "pr:1052",
+        "commit:d913ca02e16ca64e934f967a8dd017d09982192e",
+        "workflow:34879030368",
+        "workflow:34879035286"
+      ],
+      "body": "Agent setup and settings now explain each controller permission mode in terms\nof what the Agent can do and when it will still ask. Familiar mode names stay visible, while command-line details are folded\naway until needed."
+    },
+    {
       "id": "sidebar-inbox-indicator-placement",
       "title": "Align the Inbox status indicator with its icon",
       "kind": "improved",
