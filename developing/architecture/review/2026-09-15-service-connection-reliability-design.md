@@ -8,13 +8,26 @@
 - Do not use this for: Production incident logs, credentials, a second lifecycle owner, or permission to deploy.
 - Source of truth: This is a proposed implementation plan. The linked architecture owner documents remain authoritative.
 
-Status: DRAFT. Remove when the accepted corrections ship and their stable contracts are incorporated into the owner documents, or when this proposal is superseded.
+Status: IN PROGRESS. Remove when the accepted corrections ship and their stable contracts are incorporated into the owner documents, or when this proposal is superseded.
 
 ## Intended result
 
 A running Service must survive an unavailable credential store without voluntarily destroying a usable connection. Changing the selected Organization or display information must not change the Computer's account identity, restart the Service, or retarget an accepted Wake. A transport interruption must preserve local work and its durable result, and recovery must converge on the same execution.
 
-This PR changes documentation only. It neither implements a repair nor claims production acceptance.
+Implementation, incremental commits, review, Staging validation, merge, scoped production release, and production/update verification are authorized in this single PR. Completion requires the evidence below; the design alone is not repair or production acceptance.
+
+## Implementation and delivery checklist
+
+Keep PR 1051 in Draft during implementation. Work in its isolated checkout and preserve unrelated work. Use the existing owners rather than introducing a second supervisor, execution authority, credential store, or telemetry state machine.
+
+1. **Credential continuity and recovery.** Reproduce the combined warm-Service failure in an isolated lane. Separate credential cache identity from Organization presentation while preserving full-payload transaction fences and supported rotation behavior. Carry temporary-unavailability reasons through reporting and the carrier, coalesce credential reads, integrate retry eligibility into the existing reconnect scheduler, and decouple heartbeat from optional observations. Commit with focused auth/reporting/carrier behavior evidence.
+2. **Cloud correctness and work continuity.** Correct bounded diagnostic event identity and verify deduplication. Reproduce watchdog eligibility/budget behavior at the real storage boundary; implement a scheduling correction only if the experiment confirms the defect. Preserve storage errors. Implement the scoped communication-recovery policy in RuntimeCoordinator, including Stop, replacement-process reconciliation, late results, and no duplicate execution. Commit with the matching owner-contract updates and focused state-transition evidence.
+3. **Incident evidence and user recovery.** Extend existing local journals and shared contracts with bounded, redacted connection evidence; add owner-scoped recovery upload and the existing Computer/Wake diagnostic entry points. Preserve dispatch reconsideration reasons and durations. Validate offline retention, replay, authorization and privacy, and use natural product copy. Include these changes in this PR, not a deferred observability project.
+4. **Review and close the candidate.** Review the complete implementation at `xhigh` effort for requested outcome, user harm, security, ownership, compatibility, race conditions, and evidence quality; fix material findings. Use `low` effort for implementation and subsequent routine execution. Complete the Contract Impact Audit, release manifest preparation, necessary Changelog entry, and one consolidated affected validation batch after scope stabilizes.
+5. **Staging, current-main merge, and release.** Run the real Staging connection/Wake/recovery/update paths with isolated state and the packaged Service. Sync the latest `origin/main`, resolve conflicts, and revalidate any affected behavior. Obtain exact current-base Final Candidate evidence before merge, then use the guarded production release path for the affected scopes and explicit local-component rollout policy. Staging smoke does not replace these release gates.
+6. **Production and fleet closeout.** Verify deployed versions and a real production connection/Wake/diagnostic path. Observe the local Computer's automatic update and compare online teammates' reported Service/component versions against the released manifest. Preserve active work and controlled drain; do not force-reset, restart, or reconnect other users' Computers. Distinguish aligned, still running/draining, offline, and unverifiable devices. Report merge, deployment, update and smoke evidence separately.
+
+Commit each coherent correction with its focused validation. Do not repeatedly run broad suites during iteration. The unresolved native-helper, pre-Worker network, and platform-internal reset causes remain explicit evidence limits; they do not authorize speculative changes or block the proven corrections.
 
 ## Evidence and limits
 
