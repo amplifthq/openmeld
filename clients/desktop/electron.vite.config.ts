@@ -8,6 +8,9 @@ import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identit
 export default defineConfig({
   main: {
     define: {
+      __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: JSON.stringify(
+        process.env.OPENMELD_DESKTOP_PRIVATE_PACKAGE === "1"
+      ),
       __OPENMELD_DESKTOP_WEB_BUILD__: JSON.stringify(
         desktopWebBuildIdentity(resolve(import.meta.dirname, "../.."))
       ),

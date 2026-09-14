@@ -54,6 +54,8 @@
     "desktop:start:prod": "OPENMELD_ENV_PRESET=prod OPENMELD_USER_FACING_CLI_COMMAND=openmeld OPENMELD_BIN=openmeld OPENMELD_GATEWAY_URL=https://gateway.openmeld.ai OPENMELD_AUTH_URL=https://auth.openmeld.ai WEB_APP_URL=https://openmeld.ai pnpm -C clients/desktop dev",
     "desktop:start:canary": "node scripts/dev/desktop-pilot.mjs canary",
     "desktop:canary": "pnpm run desktop:start:canary",
+    "desktop:package:private": "pnpm --dir clients/desktop build:contract-deps && node scripts/desktop/private-package.mjs",
+    "desktop:start:package": "node scripts/dev/desktop-pilot.mjs --app",
     "openmeld:dev": "node scripts/dev/openmeld-dev.mjs",
     "openmeld:dev:install": "node scripts/dev/openmeld-dev-shortcut.mjs install",
     "openmeld:dev:remove": "node scripts/dev/openmeld-dev-shortcut.mjs remove",

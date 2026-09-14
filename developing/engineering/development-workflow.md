@@ -591,6 +591,8 @@ rerun `pnpm dev:desktop`; do not reattach Desktop to root `pnpm dev`.
 | `pnpm run desktop:start:dev`    | Current registered worktree lane | Uses the existing lane CLI, home and endpoints; no global installation or production fallback. |
 | `pnpm run desktop:canary`       | Current registered worktree lane | Alias for `pnpm desktop:start:canary`. |
 | `pnpm run desktop:start:canary` | Current registered worktree lane | Uses the same guarded lane launcher with an explicit canary preset. |
+| `pnpm desktop:package:private` | Build only | Packages the matching prebuilt pilot Web assets into a private unsigned macOS arm64 app/DMG; no Service or upload. |
+| `pnpm desktop:start:package "/path/to/private.app" [canary]` | Current registered worktree lane | Launches that private app through the same CLI, endpoint and GUI-data guards without rebuilding it. |
 | `pnpm run desktop:start:prod`   | `openmeld` / `~/.openmeld`               | Starts Electron against the published production lane for explicit production reproduction only.                                             |
 
 These scripts align `OPENMELD_BIN`, `OPENMELD_ENV_PRESET`,
@@ -1714,8 +1716,11 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
-The current Desktop preview release is a production Web download plus a private
-R2 artifact:
+Public Desktop distribution is paused and `/desktop` returns 404. The private
+local pilot uses `pnpm desktop:package:private` and never enters this preview
+metadata/upload workflow; see [Desktop](../clients/desktop.md#private-local-macos-package).
+The retained preview workflow below targets production Web and R2 and requires
+separate release authorization:
 
 1. Build the unsigned Apple silicon DMG:
 

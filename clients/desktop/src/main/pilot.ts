@@ -1,10 +1,8 @@
-import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
   desktopPlatformSchema,
-  desktopWebBuildSchema,
 } from "@openmeld/schemas";
 import {
   app,
@@ -21,6 +19,7 @@ import {
   resolveDesktopEnvPreset,
   resolveDesktopWebUrl,
 } from "./desktop-environment";
+import { resolvePilotAssets } from "./pilot-assets";
 import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
@@ -28,8 +27,15 @@ import { installPilotTransport } from "./pilot-transport";
 import { configurePilotUserData } from "./pilot-user-data";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
+declare const __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: boolean;
 
 export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
+  const sharedAssets = resolvePilotAssets({
+    privatePackage: __OPENMELD_DESKTOP_PRIVATE_PACKAGE__,
+    resourcesPath: process.resourcesPath,
+    webBuild: __OPENMELD_DESKTOP_WEB_BUILD__,
+    env: process.env,
+  });
   if (process.env.OPENMELD_DESKTOP_PILOT !== "1") {
     return null;
   }
@@ -82,19 +88,6 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     webBuild: platform.webBuild,
     cookie: auth.cookie,
   });
-  const sharedAssets = process.env.OPENMELD_DESKTOP_RENDERER_DIR;
-  if (sharedAssets) {
-    const rendererBuild = desktopWebBuildSchema.parse(
-      JSON.parse(
-        readFileSync(resolve(sharedAssets, "desktop-build.json"), "utf8")
-      )
-    );
-    if (rendererBuild.webBuild !== platform.webBuild) {
-      throw new Error(
-        "Desktop page files do not match this native build. Rebuild both from the same source."
-      );
-    }
-  }
   let transportSession: Session | undefined;
   let disposeTransport: (() => void) | undefined;
   const diagnosticsEnabled =

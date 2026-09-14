@@ -15,6 +15,7 @@ import { resolveDesktopPilotLaunch } from "./desktop-pilot.mjs";
 const MISSING_CLI = /installed CLI/;
 const INVALID_PRESET = /development preset/;
 const WRONG_WORKTREE = /another worktree/;
+const MISSING_APP = /missing its executable/u;
 
 test("the Desktop launcher uses its owned lane CLI and overrides unrelated parent endpoints", () => {
   const root = mkdtempSync(join(tmpdir(), "openmeld-desktop-launch-"));
@@ -73,6 +74,29 @@ test("the Desktop launcher uses its owned lane CLI and overrides unrelated paren
       launch.args.at(-1),
       `--user-data-dir=${join(home, "desktop/user-data")}`
     );
+    const appPath = join(root, "OpenMeld Desktop Private.app");
+    assert.throws(
+      () => resolveDesktopPilotLaunch({ lane, root, appPath }),
+      MISSING_APP
+    );
+    const executable = join(appPath, "Contents/MacOS/OpenMeld Desktop Private");
+    mkdirSync(join(appPath, "Contents/MacOS"), { recursive: true });
+    writeFileSync(executable, "#!/bin/sh\nexit 0\n");
+    chmodSync(executable, 0o700);
+    const packaged = resolveDesktopPilotLaunch({
+      lane,
+      root,
+      appPath,
+      preset: "canary",
+      env: { OPENMELD_DESKTOP_RENDERER_DIR: "/old/build" },
+    });
+    assert.equal(packaged.command, executable);
+    assert.equal(packaged.env.OPENMELD_DESKTOP_RENDERER_DIR, undefined);
+    assert.equal(packaged.env.OPENMELD_ENV_PRESET, "canary");
+    assert.equal(packaged.env.OPENMELD_BIN, cli);
+    assert.deepEqual(packaged.args, [
+      `--user-data-dir=${join(home, "desktop/user-data")}`,
+    ]);
     assert.throws(
       () => resolveDesktopPilotLaunch({ lane, root, preset: "prod" }),
       INVALID_PRESET

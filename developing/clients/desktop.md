@@ -255,6 +255,50 @@ Electron is deliberately separate from the root Worker development stack.
 Public Desktop distribution remains paused: `/desktop` returns 404. Do not
 publish or deploy this pilot as a production release.
 
+### Private local macOS package
+
+`pnpm desktop:package:private` builds the private unsigned macOS arm64 app and
+DMG with the existing electron-builder. It requires installed workspace
+dependencies and current pilot Web output in `clients/web/dist/client` (build
+with `OPENMELD_DESKTOP_PILOT=1`, as in the lane workflow above). Missing,
+incomplete, or stale Web output stops packaging. It never starts Web or a Service.
+
+The build stages the shared client output without source maps or hidden files,
+rejects symbolic links, and includes it at `Contents/Resources/desktop-renderer`.
+The private target includes main/preload and icons, but excludes the old status
+and foundation renderers. Its compiled private mode requires the guarded pilot
+entry even when started without environment configuration; it cannot fall back
+to the status UI. Native startup always resolves this package's own resources,
+ignores external renderer overrides, and checks the same Web build identity
+before creating authentication storage. The existing Web-side build check still
+rejects a mismatched server before forwarding an operation.
+The app's `Info.plist` declares the existing development Auth return scheme from
+`packages/schemas`, as macOS requires for packaged URL callbacks; no new scheme
+or Auth authority is introduced.
+
+Output is under `clients/desktop/dist/private`, with `Private` in both app and
+DMG names. This target writes no preview/update manifest and has no publisher.
+It does not bundle CLI, Service, credentials, lane state, or worktree asset paths.
+The legacy preview build remains a separate paused distribution path.
+
+Launch the built or copied app from an already configured, matching worktree:
+
+```sh
+pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app"
+# Explicit canary preset, using the same worktree lane:
+pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app" canary
+```
+
+This extends the existing root launcher: it verifies lane ownership and the
+lane-local CLI, supplies aligned loopback endpoints and isolated GUI storage,
+then runs the packaged executable without rebuilding it. Finder launch alone
+has no lane configuration and is refused. A matching compiled Web server and
+an existing connected CLI/Service remain prerequisites; this is not clean-machine
+setup or a production compatibility promise. Auth, IPC, transport and protected
+Service-control gates are unchanged. Signing, notarization, Gatekeeper behavior,
+authenticated packaged UI, and OS browser-return callbacks need separate native
+acceptance; package construction and content checks do not prove those outcomes.
+
 The existing preview pipeline builds an unsigned Apple silicon DMG with
 `pnpm release:desktop-preview:build` and electron-builder. Its upload command
 targets production R2 and requires separate release authorization.
