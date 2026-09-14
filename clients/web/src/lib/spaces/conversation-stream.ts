@@ -241,8 +241,14 @@ function toPresenceProjection(input: {
 		streamId: input.presence.streamId,
 		text: currentStreamingProjection?.text ?? "",
 		textSequence: currentStreamingProjection?.textSequence ?? 0,
+		...(currentStreamingProjection?.reasoningState
+			? { reasoningState: currentStreamingProjection.reasoningState }
+			: {}),
 		...(currentStreamingProjection?.thinking
-			? { thinking: currentStreamingProjection.thinking }
+			? {
+					thinking: currentStreamingProjection.thinking,
+					thinkingActive: currentStreamingProjection.thinkingActive,
+				}
 			: {}),
 		...(currentStreamingProjection?.toolParts
 			? { toolParts: currentStreamingProjection.toolParts }
@@ -421,8 +427,15 @@ function toSnapshotProjection(input: {
 		text: input.snapshot.textSnapshot,
 		textSequence: input.snapshot.sequence,
 		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.reasoningState
+			? { reasoningState: input.currentProjection.reasoningState }
+			: {}),
+		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.thinking
-			? { thinking: input.currentProjection.thinking }
+			? {
+					thinking: input.currentProjection.thinking,
+					thinkingActive: input.currentProjection.thinkingActive,
+				}
 			: {}),
 		triggerMessageId: input.snapshot.triggerMessageId,
 		updatedAtMs: Math.max(

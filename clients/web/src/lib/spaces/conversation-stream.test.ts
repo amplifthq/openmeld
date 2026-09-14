@@ -1,4 +1,5 @@
 import type {
+	LocalAgentReasoningState,
 	SpaceAgentStreamDeltaFrame,
 	SpaceAgentStreamPartFrame,
 	SpaceAgentStreamSnapshot,
@@ -360,6 +361,7 @@ describe("space conversation stream state", () => {
 			frame: createThinkingDeltaFrame({
 				sequence: 3,
 				thinkingSnapshot: "Checking the current Space state",
+				reasoningState: { status: "streaming", firstOutputMs: 1200 },
 			}),
 			observedRevision: 1,
 		});
@@ -376,6 +378,8 @@ describe("space conversation stream state", () => {
 				sequence: 3,
 				text: "Restored reply text",
 				thinking: "Checking the current Space state",
+				thinkingActive: true,
+				reasoningState: { status: "streaming", firstOutputMs: 1200 },
 			}),
 		]);
 	});
@@ -439,6 +443,7 @@ function createDeltaFrame(input: {
 function createThinkingDeltaFrame(input: {
 	sequence: number;
 	thinkingSnapshot: string;
+	reasoningState?: LocalAgentReasoningState;
 }): SpaceAgentStreamDeltaFrame {
 	return {
 		type: "space.agent_stream_delta",
@@ -451,6 +456,7 @@ function createThinkingDeltaFrame(input: {
 		dispatchId: "dispatch-1",
 		kind: "thinking",
 		thinkingSnapshot: input.thinkingSnapshot,
+		...(input.reasoningState ? { reasoningState: input.reasoningState } : {}),
 		state: "streaming",
 		updatedAtMs: 1000 + input.sequence,
 	};

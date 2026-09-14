@@ -347,7 +347,10 @@ function applyReasoningPreference(
   payload: unknown
 ): void {
   const preference = localAgentReasoningPreferencesSchema.safeParse(payload);
-  if (!preference.success) {
+  if (
+    !preference.success ||
+    ref.reasoningStreamEnabled === preference.data.enabled
+  ) {
     return;
   }
   ref.reasoningStreamEnabled = preference.data.enabled;

@@ -31,6 +31,7 @@ export function ReasoningStreamSetting() {
 					<label
 						className="font-medium text-sm"
 						htmlFor="reasoning-stream-enabled"
+						id="reasoning-stream-label"
 					>
 						Stream local Agent reasoning
 					</label>
@@ -41,6 +42,7 @@ export function ReasoningStreamSetting() {
 					</p>
 				</div>
 				<Switch
+					aria-labelledby="reasoning-stream-label"
 					checked={query.data?.enabled ?? false}
 					disabled={!query.data || mutation.isPending || query.isError}
 					id="reasoning-stream-enabled"

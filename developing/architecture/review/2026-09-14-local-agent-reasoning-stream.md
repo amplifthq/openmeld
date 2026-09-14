@@ -8,7 +8,7 @@
 - Do not use this for: Production release authorization.
 - Source of truth: Current source and scoped architecture owner documents.
 
-Status: Implementation in progress.
+Status: Implemented; localhost acceptance completed for Codex and OpenCode.
 
 Remove this document after the accepted behavior and evidence have moved into
 the owner documents and PR.
@@ -68,7 +68,7 @@ smoke. Capture first-output timing without retaining output content.
 - Rollback removes the new local producer before its cloud consumer, preserving
   accepted executions and existing final publication. No data migration applies.
 
-## Validation In Progress
+## Validation
 
 - Initial focused pre-push checks passed on `02bac7564` and the draft was pushed.
 - Bounded local buffer and privacy-clear tests passed, as did Space thinking
@@ -83,6 +83,34 @@ smoke. Capture first-output timing without retaining output content.
 - OpenCode's existing OpenAI OAuth connection returned a refresh 401; Go was
   used without changing or replacing credentials.
 - Hosted thinking rollover, observer, and extraction checks passed (55 tests).
-- Full localhost UI and real Wake smoke remain pending. The guarded Worker
-  startup is waiting for machine memory while other worktree lanes remain active.
-  Adapter-level success is not end-to-end product acceptance.
+- The guarded localhost lane eventually started after memory became available.
+  Normal browser sign-in, CLI device approval, and isolated Service setup were
+  used; no authentication or execution projections were manually edited.
+- Codex and OpenCode were created through the public CLI and Woken in a real
+  Space. Both produced live reasoning and published their requested final
+  markers. Public Service traces report `visible_reply` and `reply.delivered`.
+  OpenCode's live bubble was visually inspected with its title, timer, Stop,
+  expanded reasoning, and a 180 px scrolling viewport. First reasoning appeared
+  at approximately 9.6 seconds for OpenCode and 13.4 seconds for Codex; these
+  include provider processing and are not isolated transport latency metrics.
+- Smoke exposed repeated unchanged preference frames clearing live content.
+  A failing regression test reproduced it; the receiver now only notifies on an
+  actual value change. Snapshot reconciliation also preserves transient status
+  and expansion phase. Focused regressions pass, and the refreshed Service's
+  continuous OpenCode output was observed beyond 90 seconds.
+- Browser checks covered default-on, saving off across reload, disabled working
+  notice, manual collapse/reopen, and keeping an upward reading position while
+  new text arrived. Turning the setting off from another tab cleared existing
+  live text while execution continued. Stop reached an explicit stopped outcome.
+  Completed replies and stopped tasks retain no live reasoning in history.
+- Center Agent completed a real local chat request and published its marker;
+  this run did not capture a visible reasoning phase. Center/Remote reasoning
+  extraction and rolling-tail behavior have protocol-test evidence, not separate
+  paid-provider UI smoke for every model or Remote Agent connection.
+- The shared Switch needed an explicit accessible name, discovered and verified
+  in the browser. The local setting now labels the rendered switch directly.
+- The isolated Worker/Web/Service lane and test tabs were stopped after smoke,
+  preserving source and test data and releasing resources for another task.
+- Scoped architecture review: execution, routing, identity, and publication
+  authority remain unchanged. The default-on transient-text exception is recorded
+  in the owning contracts; reasoning is not a second execution-state authority.
