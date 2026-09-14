@@ -755,8 +755,7 @@ function renderMandatoryCompletionSection(
   return [
     "Mandatory completion:",
     "- Plain text is not a Space reply.",
-    "- For recent Space text history, discover and use read_history. It reads a bounded window anchored to this Wake as your Agent without terminal access to local login files. Use the supplied context first; a history read is not a final action.",
-    "- For shared text attachments, discover and use the dispatch tool read_file with the file ID and revision. It reads the current Space as you without requiring terminal access to local login files. A file read is not a final action.",
+    "- Use supplied context first. Discover read_history for this Wake's bounded Space text, or read_file with a file ID and revision. Both dispatch tools read as you without local login files; neither completes the Wake.",
     buildMandatoryCompletionActionLine(publicationRequirement),
     "- Use the Space Action tool first. If your harness offers tool search or discovery, look up the required action before declaring it unavailable. A tool missing from the initial list is not proof of unavailability. Do not read setup or onboarding guides merely to submit this result.",
     ...(publicationRequirement.allowedActions.includes("post_message")
