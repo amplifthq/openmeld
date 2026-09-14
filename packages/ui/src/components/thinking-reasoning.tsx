@@ -40,7 +40,12 @@ export const ThinkingReasoning = memo(function ThinkingReasoning(input: {
         aria-controls={id}
         aria-expanded={open}
         className="om-reasoning-header"
-        onClick={() => setOpen(!open)}
+        onClick={() => {
+          if (!open) {
+            following.current = true;
+          }
+          setOpen(!open);
+        }}
         type="button"
       >
         <span

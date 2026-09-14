@@ -6,6 +6,20 @@ type ThinkingFrame = Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }>;
 // or WebSocket attachments. Eviction loses the tail rather than persisting it.
 export class ReasoningReplay {
   private readonly frames = new Map<string, ThinkingFrame>();
+  revision = 0;
+
+  clearProfile(profileId: string): void {
+    this.revision++;
+    for (const [streamId, frame] of this.frames) {
+      if (frame.profileId === profileId) {
+        this.frames.delete(streamId);
+      }
+    }
+  }
+
+  isCurrent(frame: ThinkingFrame): boolean {
+    return this.frames.get(frame.streamId) === frame;
+  }
 
   remember(frame: SpaceAgentStreamDeltaFrame): void {
     if (frame.kind !== "thinking") {

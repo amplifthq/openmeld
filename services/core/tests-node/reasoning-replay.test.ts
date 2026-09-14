@@ -38,6 +38,21 @@ describe("transient reasoning replay", () => {
     expect(new ReasoningReplay().read(1003)).toEqual([]);
   });
 
+  it("invalidates an already-read replay when its owner clears it", () => {
+    const replay = new ReasoningReplay();
+    replay.remember(frame);
+    const pending = replay.read(1001)[0];
+    if (!pending) {
+      throw new Error("Expected a replay tail");
+    }
+    const revision = replay.revision;
+    expect(replay.isCurrent(pending)).toBe(true);
+    replay.clearProfile(frame.profileId);
+    expect(replay.isCurrent(pending)).toBe(false);
+    expect(replay.revision).not.toBe(revision);
+    expect(replay.read(1002)).toEqual([]);
+  });
+
   it("bounds retained streams, tail size, and lifetime", () => {
     const replay = new ReasoningReplay();
     for (let index = 0; index < 129; index++) {

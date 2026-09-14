@@ -1619,7 +1619,13 @@ Space may retain the latest accepted thinking frame in instance memory for
 authenticated live-connection replay. This tail is bounded to 8,192 characters
 per stream, 128 streams per Space, and 30 minutes since its last thinking
 frame. Replay checks the active stream identity and uses the existing viewer
-reply-placement projection. A disabled frame replaces the private tail with
+reply-placement projection, then rechecks the live viewer's access before sending.
+Local reasoning replay also requires the current owner's cloud preference to
+permit sharing; an unavailable owner or preference fails closed. Preference
+changes clear tails for the Hub's pending dispatches through a Core-only Space
+RPC, without waiting for the local Service. Clearing invalidates replay already
+awaiting authorization and prevents an in-flight write from restoring the cache.
+A disabled frame replaces the private tail with
 empty text, and stream closure removes it. No tail is written to Durable Object
 storage, WebSocket attachments, or browser persistence. Instance eviction,
 restart, or tail expiry loses this optional replay; subsequent producer output
@@ -1630,7 +1636,8 @@ Web renders lightweight sanitized Markdown in a bounded transient viewport,
 reusing the message renderer without raw HTML, images, code highlighting,
 code controls, or per-token animation. The first tail opens automatically;
 tool/reasoning phase changes preserve the user's disclosure choice and manual
-scroll position. Collapsed tails do not mount the Markdown renderer. Neither private final replies nor tool inputs and
+scroll position. Reopening resumes following the latest text. Collapsed tails
+do not mount the Markdown renderer. Neither private final replies nor tool inputs and
 outputs are added to this stream.
 
 The Space part RPC must finish before the matching result may retire execution

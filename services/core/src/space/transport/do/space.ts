@@ -33,6 +33,7 @@ import {
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdFromDigest,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   createSpaceDiagnosticReportBodySchema,
   createSpaceDiagnosticReportResponseSchema,
@@ -133,6 +134,7 @@ import {
   wakeDeviceWaitAccessRequestSchema,
 } from "@openmeld/schemas";
 import type {
+  ClearSpaceReasoningReplay,
   ConvertDirectMessageToSpaceResponse,
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderResponse,
@@ -6655,10 +6657,47 @@ export class Space extends DurableObject<CoreBindings> {
         frame,
         session.supportsAgentReplyPlacement === true
       );
-      if (projected) {
+      if (!projected) {
+        continue;
+      }
+      if (!(await this.canReplayReasoning(frame))) {
+        continue;
+      }
+      if (
+        (await this.authorizeLiveSession(session)) &&
+        this.reasoningReplay.isCurrent(frame)
+      ) {
         webSocket.send(JSON.stringify(projected));
       }
     }
+  }
+
+  private async canReplayReasoning(
+    frame: Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }>
+  ): Promise<boolean> {
+    if (!frame.reasoningState) {
+      return true;
+    }
+    try {
+      const owner = await this.resolveOutboxActiveAttemptOwnerUserId(
+        frame.profileId
+      );
+      if (
+        owner.status === "ok" &&
+        (
+          await resolveRuntimeTransportOwnerShard(
+            this.bindings,
+            owner.ownerUserId
+          ).rpcReasoningPreferences({})
+        ).enabled
+      ) {
+        return true;
+      }
+      this.reasoningReplay.forget(frame.streamId);
+    } catch {
+      // Private replay fails closed when the preference owner is unavailable.
+    }
+    return false;
   }
 
   async rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
@@ -7051,6 +7090,12 @@ export class Space extends DurableObject<CoreBindings> {
     return result;
   }
 
+  rpcClearReasoningReplay(input: ClearSpaceReasoningReplay): void {
+    const parsed = clearSpaceReasoningReplaySchema.parse(input);
+    this.applySpaceRef(parsed.spaceId);
+    this.reasoningReplay.clearProfile(parsed.profileId);
+  }
+
   async rpcApplyAgentStreamDelta(
     input: ApplySpaceAgentStreamDeltaInput
   ): Promise<
@@ -7061,6 +7106,7 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     if (input.kind === "thinking") {
       const nowMs = Date.now();
+      const replayRevision = this.reasoningReplay.revision;
       const result = await applyAgentStreamThinkingDelta({
         storage: this.agentStreamProjectionStorage,
         delta: input,
@@ -7068,7 +7114,9 @@ export class Space extends DurableObject<CoreBindings> {
       });
       if (result.status === "accepted") {
         const frame = buildAgentStreamThinkingDeltaFrame(input, nowMs);
-        this.reasoningReplay.remember(frame);
+        if (replayRevision === this.reasoningReplay.revision) {
+          this.reasoningReplay.remember(frame);
+        }
         this.broadcast(frame);
         await this.syncSpaceBackgroundAlarm();
         return {
