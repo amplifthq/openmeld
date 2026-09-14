@@ -15,6 +15,7 @@ import {
 	CaretRightIcon,
 	DesktopTowerIcon,
 	GearSixIcon,
+	MagnifyingGlassIcon,
 	MoonIcon,
 	SignOutIcon,
 	SunIcon,
@@ -102,6 +103,22 @@ export function AppSidebarFooter({
 					iconOnly && "flex-col"
 				)}
 			>
+				<CollapsedRailTooltip
+					label="Search or run a command"
+					side={iconOnly ? "right" : "top"}
+				>
+					<button
+						aria-label="Search or run a command"
+						className={actionClass}
+						onClick={() => {
+							dismiss();
+							window.dispatchEvent(new Event("openmeld:command-center"));
+						}}
+						type="button"
+					>
+						<MagnifyingGlassIcon className="size-4" />
+					</button>
+				</CollapsedRailTooltip>
 				<CollapsedRailTooltip
 					label={settingsLabel}
 					side={iconOnly ? "right" : "top"}

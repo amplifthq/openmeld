@@ -21,7 +21,7 @@ afterEach(() => {
 });
 
 it.each([
-	["h", "/o/acme"],
+	["h", "/o/acme/spaces"],
 	["s", "/o/acme/spaces"],
 	["m", "/o/acme/chats"],
 	["p", "/o/acme/people"],

@@ -66,6 +66,37 @@ describe("useSpaceUnread", () => {
 		expect(onViewedThroughTs).toHaveBeenCalledWith(40);
 	});
 
+	it("acknowledges a later reaction to a loaded message without reading another thread or unloaded history", async () => {
+		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const { result } = renderHook(() =>
+			useSpaceUnread({
+				envelopes: [textSignal(40, "old-message")],
+				isReady: true,
+				profileId: "profile-1",
+				spaceId: "space-1",
+				onViewedThroughTs,
+				targets: [
+					{
+						signalId: "old-message",
+						occurredAtMs: 100,
+						threadRootSignalId: null,
+					},
+					{ signalId: "unloaded", occurredAtMs: 200, threadRootSignalId: null },
+					{
+						signalId: "thread-reply",
+						occurredAtMs: 300,
+						threadRootSignalId: "other-thread",
+					},
+				],
+			})
+		);
+		act(() => result.current.onViewingLatestChange(true));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(150);
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledWith(100);
+	});
+
 	it("does not postpone a visible read when the parent rerenders with a new callback", async () => {
 		const persist = vi.fn().mockResolvedValue(undefined);
 		const { result, rerender } = renderHook(() =>

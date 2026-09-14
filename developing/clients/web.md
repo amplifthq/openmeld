@@ -49,15 +49,23 @@ URL so Files/Messages cannot reselect a different conversation. Explicit
 session links always select their exact identity, including after reload.
 
 Web uses three navigation levels: a fixed 76px application rail, a contextual
-list inside the inset surface, and the current work area. Desk,
-Spaces, and Team are the rail's destinations. Four circular controls at the
-top stack Organization switching, search, Inbox, and Create. The Organization
+list inside the inset surface, and the current work area. Inbox, Spaces, and
+Team are the rail's destinations, in that order. Desk is temporarily hidden
+from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
+switching and Create remain circular controls at the top. Global search sits
+above Settings in the footer, using the same compact utility styling. Inbox
+retains the shared attention badge and active-route treatment. The Organization
 avatar fills its circular trigger. Create opens New Agent and New Space to the
 right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
 motion opens the choices without travel. Account, theme, and Settings
 remain reachable from the rail. Spaces and its contextual sidebar heading always
 open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
 and Discover, in that order (Discover is absent in personal workspaces).
+
+The Team contextual header has an Add menu with Invite members and New Agent.
+It reuses the existing Organization invitation flow (absent in personal
+workspaces) and Agent creation route. People search and existing connection,
+activity, and group filters remain available beside the search field.
 Direct messages uses `?view=messages`; the old `/chats` index redirects there.
 Individual chat, profile, thread, and session links retain their existing routes.
 The contextual heading has no aggregate attention dot; the rail and individual
@@ -450,7 +458,7 @@ change does not retire, redirect, combine, or relocate those products.
 Team is a single link in every rail tier, with no disclosure trigger or nested
 People/Agents children. Old saved Team collapse preferences do not hide it.
 
-The visible destinations resolve in this order: **Desk**, **Spaces**, and
+The visible destinations resolve in this order: **Inbox**, **Spaces**, and
 **Team**, with **New Agent** in the separate Create action. The product destinations are:
 
 1. **Desk** — renders ordinary Space windows and a greeting on the shared infinite
@@ -671,7 +679,10 @@ active-work view, not a history or an organization-wide private-conversation fee
 Each row identifies the Agent, its owner when available, its Space, and progress.
 No membership, Wakeability, execution, or permission owner changes are introduced.
 
-The authorized Organization root `/o/{orgSlug}` renders **Desk**. It remembers
+The authorized Organization root `/o/{orgSlug}` redirects to Spaces. Default
+authenticated App entry also opens the current Organization's Spaces. Explicit
+Center Agent conversation links keep their existing destination. **Desk** remains
+available by direct link at `/o/{orgSlug}/desk`. It remembers
 its visible Space windows in this browser per account and Organization. Without a
 selection it reuses a marked Welcome Space (or an existing joined `Welcome Space`),
 or creates a private, members-only `Welcome Space` through the ordinary creation
@@ -1168,6 +1179,16 @@ arguments, update commands, private skills, local policy, credentials, raw
 errors, or mutation controls. A live Service may expose team-safe OpenMeld
 Tools component versions and update states; setup commands, hashes, and
 owner-only controls remain private.
+
+Team Computer links include both the owner account ID and device ID. A device
+ID alone is not unique across accounts. Legacy device-only links resolve only
+when the visible inventory has exactly one matching Computer; ambiguous links
+ask the viewer to select the Computer from its owner's Profile. They must never
+pick the first match or borrow another account's live status. Team detail
+resolution waits for the initial Organization projection refresh before using
+cached identity evidence. Stale local-agent checks display **Status out of date**:
+current availability is unknown until the Computer reports a new check. This
+does not mean that the Agent version is outdated or that repair is required.
 
 Each Local Agent renders its `usageLimits` list inside the existing expandable
 row. Usage Limit evidence does not create a separate page or make the row expand
@@ -2786,6 +2807,13 @@ shared optimistic-navigation delay.
 Non-persisted bounded display data used by these frequently revisited routes
 remains in the in-memory Query cache for 30 minutes after its last observer.
 This includes the bounded Space bootstrap, status, recent history, and members.
+Thread catalogs and opened replies use the same 30-minute in-memory revisit
+window. Returning to a Space must not replace a newer Thread catalog with an
+older cached bootstrap.
+After the entry access gate permits a cold conversation, its bounded bootstrap
+starts alongside route classification. Space and direct-message routes reuse
+that same bootstrap query in the conversation; saved-history visits keep their
+existing contiguous-update path instead of requesting a new tail window.
 The explicitly persisted display queries use the longer lifetime defined
 below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
@@ -2874,7 +2902,7 @@ No prefix, default-on, or exclusion-based persistence rule is allowed. Adding a
 query requires an explicit allowlist change, privacy and authority review, and a
 test that proves unrelated queries remain absent. Organization scope,
 activation, directories, Center Agent designation and open-command state, Space
-bootstrap and current status, Thread lists and Thread signals, membership
+bootstrap and current status, full Thread lists and Thread signals, membership
 authority, raw readiness and current-device projections, Wake state,
 diagnostics, errors, and every mutation remain excluded. The toolbar snapshot's
 opaque device id is only a stale-hint rejection key after live inventory
@@ -2904,6 +2932,17 @@ continue to own freshness. A seven-day `maxAge` and matching `gcTime` bound how
 long the saved display snapshot may help first paint; they do not make it
 authoritative or fresh for seven days.
 
+The saved Space history also carries display-only Thread summaries for retained
+root messages, so the root and its reply entrance restore together. This context
+has a separate 256 KiB ceiling, at most two preview messages per Thread, and no
+reply placements. Preview bodies exceeding 16 KiB together are omitted while the
+reply count remains. It shares the history snapshot's account, Organization,
+Profile, access-revocation, and eviction boundaries. It never seeds the live
+Thread query or establishes membership, access, or unread authority. Full reply
+history remains memory-only. A cold Thread panel keeps its container quiet while
+loading; cached replies remain visible during revalidation, and errors remain
+explicit.
+
 Current Space status is intentionally not persisted. After a successful status
 read in the current signed-in account, Organization, Space, and acting-Profile
 scope, Web derives the smaller display snapshot by removing current actions and
@@ -2928,7 +2967,11 @@ On a cold open with no safe display snapshot yet, the loading shell mounts the
 same browser-local text draft immediately instead of a Composer skeleton. That
 draft and its focus carry into the confirmed conversation without remount loss;
 it still cannot send or attach files before current status authorizes the
-mutation.
+mutation. After the entry gate permits entry, route classification must not
+delay this shell. The header renders immediately and the message region stays
+empty with an accessible loading announcement. Thread headers and Composers
+likewise render independently of reply reads, without an entrance fade hiding
+the controls.
 
 Persisted records are segmented by confirmed account and by account plus the
 immutable Organization id. Organization slug is a secondary cleanup index for a

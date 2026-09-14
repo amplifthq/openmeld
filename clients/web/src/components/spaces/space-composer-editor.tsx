@@ -90,6 +90,7 @@ export type SpaceComposerEditorHandle = {
 	focus: () => void;
 	insertMentionTrigger: () => void;
 	acceptWakeRecommendation?: (profileId: string) => void;
+	setAgentMentionOnly?: (profileIds: readonly string[]) => void;
 	selectTextRange: (selection: SpaceComposerSelection) => void;
 };
 
@@ -328,6 +329,19 @@ export function SpaceComposerEditor(input: SpaceComposerEditorProps) {
 		};
 
 		const composerHandle: SpaceComposerEditorHandle = {
+			setAgentMentionOnly: (profileIds) => {
+				editor.tf.setNodes(
+					{ relation: "reference" },
+					{
+						at: [],
+						match: (node) =>
+							isSpaceComposerProfileElement(node) &&
+							profileIds.includes(node.profileId) &&
+							node.relation === "wake",
+					}
+				);
+				focusWhenReady();
+			},
 			focus: () => {
 				focusEditorAtSelection(editor, focusWhenReady);
 			},

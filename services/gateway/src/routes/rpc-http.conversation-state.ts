@@ -32,12 +32,24 @@ export function registerConversationStateRoute(app: Hono<HonoBindings>): void {
       route: SPACE_CONVERSATION_STATE_ROUTE,
       method: "GET",
       execute: async () => {
-        return await c.var.coreRpc.getSpaceConversationState({
+        const result = await c.var.coreRpc.getSpaceConversationState({
           spaceId,
           spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
         });
+        return {
+          ...result,
+          streams: agentStreamsForReplyPlacementReader(
+            result.streams,
+            c.req.header(AGENT_REPLY_PLACEMENT_HEADER) === "1"
+          ),
+        };
       },
       responseSchema: getSpaceConversationStateResponseSchema,
     });
   });
 }
+
+import {
+  AGENT_REPLY_PLACEMENT_HEADER,
+  agentStreamsForReplyPlacementReader,
+} from "@openmeld/schemas";

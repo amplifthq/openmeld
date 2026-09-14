@@ -2418,6 +2418,7 @@ export type GetSpaceConversationStateRpcInput = {
 };
 
 type ApplySpaceAgentStreamDeltaIdentity = {
+  replyThreadRootSignalId?: string | null;
   v: 1;
   spaceId: string;
   streamId: string;
@@ -24713,4 +24714,53 @@ export async function rpcSpaceMessagePins(
   const context = requireRpcContext(input.context);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   return await stub.rpcMessagePins({ ...input, spaceId, context });
+}
+
+import { centerAgentSetReplyPlacementInputSchema } from "@openmeld/schemas";
+import type {
+  CenterAgentSetReplyPlacementInput,
+  NativeReplyPlacement,
+} from "@openmeld/schemas/types";
+import { resolveNativeDeliveryReplyPlacement } from "../remote-agent/application/reply-placement";
+
+export async function rpcCenterAgentSetReplyPlacement(
+  env: CoreBindings,
+  input: CenterAgentSetReplyPlacementInput
+): Promise<NativeReplyPlacement> {
+  const parsed = centerAgentSetReplyPlacementInputSchema.parse(input);
+  const authorization = await prepareHostedCenterAgentRequest(
+    env,
+    requireRpcContext(parsed.context)
+  );
+  const submissionId =
+    authorization.context.agentControllerConversationId?.trim();
+  const db = wakeEvidenceDb(env);
+  if (!(submissionId && db)) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db,
+    submissionId,
+  });
+  if (
+    !delivery ||
+    (delivery.status !== "accepted" && delivery.status !== "retry_observed") ||
+    delivery.routineRunId ||
+    delivery.conversationKind !== "space" ||
+    delivery.organizationId !==
+      authorization.activeOrganization.organizationId ||
+    delivery.profileId !== authorization.actorProfileId
+  ) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  const placement = await resolveNativeDeliveryReplyPlacement({
+    env,
+    delivery,
+    lock: true,
+    placement: parsed.placement,
+  });
+  if (!placement) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  return placement;
 }

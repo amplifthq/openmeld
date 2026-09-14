@@ -10,6 +10,7 @@ import type {
 } from "@openmeld/schemas/types";
 
 type SpaceConversationStreamCommon = {
+	replyThreadRootSignalId?: string | null;
 	createdAtMs: number;
 	dispatchId: string;
 	observedRevision: number;
@@ -113,6 +114,7 @@ export function applySpaceConversationStreamFrame(input: {
 	return replaceStreamProjection(
 		input.current,
 		toTerminalProjection({
+			currentProjection,
 			createdAtMs: currentProjection?.createdAtMs ?? input.frame.updatedAtMs,
 			frame: input.frame,
 			observedRevision: input.observedRevision,
@@ -254,6 +256,15 @@ function toPresenceProjection(input: {
 			? { toolParts: currentStreamingProjection.toolParts }
 			: {}),
 		triggerMessageId: input.presence.triggerMessageId,
+		...(currentStreamingProjection
+			? {
+					replyThreadRootSignalId:
+						currentStreamingProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.presence.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.presence.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: Math.max(
 			currentStreamingProjection?.updatedAtMs ?? 0,
 			input.presence.updatedAtMs
@@ -335,6 +346,15 @@ function toStreamingProjection(input: {
 				}
 			: {}),
 		triggerMessageId: input.frame.triggerMessageId,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.frame.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.frame.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: input.frame.updatedAtMs,
 		...(input.currentProjection?.toolParts
 			? { toolParts: input.currentProjection.toolParts }
@@ -399,6 +419,15 @@ function toStreamingPartProjection(input: {
 			: {}),
 		toolParts: boundedToolParts,
 		triggerMessageId: input.frame.triggerMessageId,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.frame.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.frame.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: input.frame.updatedAtMs,
 	};
 }
@@ -438,6 +467,15 @@ function toSnapshotProjection(input: {
 				}
 			: {}),
 		triggerMessageId: input.snapshot.triggerMessageId,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.snapshot.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.snapshot.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: Math.max(
 			input.currentProjection?.updatedAtMs ?? 0,
 			input.snapshot.updatedAtMs
@@ -449,6 +487,7 @@ function toSnapshotProjection(input: {
 }
 
 function toTerminalProjection(input: {
+	currentProjection: SpaceConversationStreamProjection | undefined;
 	createdAtMs: number;
 	frame: SpaceAgentStreamTerminalFrame;
 	observedRevision: number;
@@ -462,6 +501,15 @@ function toTerminalProjection(input: {
 		spaceId: input.frame.spaceId,
 		streamId: input.frame.streamId,
 		triggerMessageId: input.frame.triggerMessageId,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.frame.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.frame.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: input.frame.updatedAtMs,
 	};
 	if (input.frame.terminal.kind === "final_message") {

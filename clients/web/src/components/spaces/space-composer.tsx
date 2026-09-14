@@ -205,7 +205,12 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets
 	);
-	const composerHint = fileHint ?? policy.wakeTextHint;
+	const composerHint =
+		fileHint ??
+		resolvePerAgentComposerHint(
+			input.content.addressingTargets,
+			policy.wakeTextHint
+		);
 	const blockedWakeTarget = input.content.addressingTargets.find(
 		(target) =>
 			isBlockedWakeTarget(target) && !createSpaceComposerDeviceWait(target)
@@ -335,6 +340,7 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</span>
 								</TooltipHint>
 							) : null}
+							<SpaceComposerMentionOnlyAction {...input} />
 							{primaryAction}
 						</div>
 					</PromptInputActions>
@@ -431,6 +437,45 @@ function resolveSpaceComposerBlockedWakeHint(
 		compactReason ||
 		reason ||
 		`${blockedWakeTarget.profileName} can't reply right now. Change Wake to Reference or try again.`
+	);
+}
+
+function resolvePerAgentComposerHint(
+	targets: readonly SpaceComposerAddressingTarget[],
+	fallback: string | null
+): string | null {
+	return targets.filter((target) => target.relation !== "mention").length > 1
+		? "Choose Wake or Mention only on each agent."
+		: fallback;
+}
+
+function SpaceComposerMentionOnlyAction(input: SpaceComposerProps) {
+	const targets = input.content.addressingTargets.filter(
+		(target) =>
+			target.relation === "wake" &&
+			target.wakeAvailability.status !== "ready" &&
+			target.allowedRelations.reference
+	);
+	if (!targets.length) {
+		return null;
+	}
+	return (
+		<Button
+			disabled={
+				input.availability.isSendingMessage ||
+				!input.availability.canSendMessage
+			}
+			onClick={() =>
+				input.composerRef.current?.setAgentMentionOnly?.(
+					targets.map((target) => target.profileId)
+				)
+			}
+			size="sm"
+			type="button"
+			variant="ghost"
+		>
+			Mention only instead
+		</Button>
 	);
 }
 

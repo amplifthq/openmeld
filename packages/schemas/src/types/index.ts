@@ -26,6 +26,11 @@ export type {
   SpaceFileUpdateSettings,
   SpaceFileUpdateSettingsCommand,
 } from "../schemas/http/space-file-update-settings";
+export type {
+  CenterAgentSetReplyPlacementInput,
+  NativeReplyPlacement,
+  ResolveNativeReplyPlacementInput,
+} from "../schemas/space-mesh/agent-reply-placement";
 export type * from "./agent-controller-collaboration-mode";
 export type * from "./agent-controller-permission-mode";
 export type * from "./agent-view/index";
