@@ -26,7 +26,7 @@ describe("transient reasoning replay", () => {
     replay.remember({
       ...frame,
       sequence: 2,
-      reasoningState: { status: "disabled" },
+      reasoningState: { status: "disabled" as const },
     });
     replay.remember(frame);
     expect(replay.read(1002)[0]).toMatchObject({
