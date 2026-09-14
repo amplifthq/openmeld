@@ -29,7 +29,58 @@ Keep PR 1051 in Draft during implementation. Work in its isolated checkout and p
 
 Commit each coherent correction with its focused validation. Do not repeatedly run broad suites during iteration. The unresolved native-helper, pre-Worker network, and platform-internal reset causes remain explicit evidence limits; they do not authorize speculative changes or block the proven corrections.
 
+Implementation checkpoints:
+
+- Credential/reporting/carrier correction: commit `597f0fac4`; real credential
+  subprocess/concurrency checks and focused recovery/reporting tests passed.
+- RuntimeCoordinator work continuity and bounded bookkeeping: commit
+  `896f4e7a2`; 39 focused real-storage, Stop/replacement, recovery and diagnostic
+  identity checks passed.
+- Incident upload/read and privacy: four isolated local-journal scenarios and
+  four real-D1/owner-correlation scenarios passed. Nineteen focused credential
+  header and connection classification checks passed. CLI, Core, Gateway and
+  Web typechecks passed. The existing Core fixture fix already present on
+  current main is included while aligning the candidate. Full review,
+  packaged validation, Staging, release and production smoke remain pending.
+
 ## Evidence and limits
+
+### Contract impact audit
+
+The changed boundaries are local credential reads/reporting, the Service carrier,
+RuntimeCoordinator recovery scheduling, optional transport diagnostic metadata,
+owner Computer incident HTTP/RPC endpoints and opt-in Wake Trace diagnostics.
+Execution tokens, dispatch/action payloads, Prepare, self-rescue commands,
+permission modes and managed Skill instructions retain their contracts.
+
+Old Services continue setup, Wake, Space actions and status against new cloud
+code. New Services preserve the same registration/heartbeat/execution protocol
+against old cloud code; an ignored connection query parameter or unavailable
+incident endpoint does not affect execution. The uploader retries independently.
+New CLI trace explicitly opts into the added response field; older callers never
+receive it. New CLI accepts its absence from old cloud. Existing optional
+transport-diagnostic fields remain optional. No command, Service or execution
+epoch bump is required. Stamp changed local components as `available`: old
+versions can keep running accepted work, though they retain the diagnosed bugs.
+
+Apply the additive incident-table migration before deploying Core. Publish the
+new local artifact after the compatible cloud receivers. The new Web history
+reader reports unavailability honestly during a receiver gap; it does not block
+connection management. Prefer completing Core/Gateway receivers before exposing
+that reader. Rollback removes the new reader before its receivers and keeps the
+additive table; local reporting remains independent if receivers are rolled back.
+
+The RuntimeCoordinator due index is a derived scheduling projection, maintained
+transactionally with command writes and repaired in bounded pages for existing
+records. Old code ignores it; it never decides execution or result authority.
+The communication-recovery marker is private optional command state and is
+superseded by accepted progress. Rollback restores the old timeout behavior but
+does not change tokens or introduce a second execution.
+
+Owner-contract check: these changes preserve local Service, RuntimeCoordinator,
+Space and Diagnostics ownership. The scoped owner documents record the changed
+recovery window and bounded private evidence contract in this PR. Production
+acceptance and fleet update evidence are still pending.
 
 The incident ran CLI/Service 0.3.204 and Core version `5ada5035-ce0b-49b6-9f1c-91508b14fbbc`. The release projection digest was independently matched to commit `d053dc1846411928fb37fe3c47deeb05c5398d0c`. Private device identifiers, credentials, transcripts, raw telemetry, and local filesystem evidence are excluded from this document.
 

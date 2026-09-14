@@ -326,6 +326,7 @@ export type {
   SubmitRuntimeProviderConversationProofsInput,
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
+export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
 export type {
   AddSpaceMembersInput,
   CreateSpaceDiagnosticReportBody,

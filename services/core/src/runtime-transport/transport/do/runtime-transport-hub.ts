@@ -146,6 +146,8 @@ import {
   runtimeTransportSocketDisconnectRateBucketSchema,
   runtimeTransportSubmitTaskResultRequestSchema,
   runtimeTransportWaitDispatchResultRequestSchema,
+  SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  serviceConnectionDiagnosticIdSchema,
   toLegacySpaceAddressingWireValue,
   wakeStopEligibilityReadModelSchema,
 } from "@openmeld/schemas";
@@ -9363,6 +9365,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       );
       const serviceVersion = normalizeOptionalText(session.serviceVersion);
       this.recordSocketDisconnectSession({
+        connectionDiagnosticId:
+          readRuntimeTransportSocketAttachment(webSocket)
+            .connectionDiagnosticId,
         closeCode: input.closeCode,
         closeReasonCode: resolveRuntimeTransportSocketCloseReasonCode({
           closeCode: input.closeCode,
@@ -9389,6 +9394,9 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       });
     }
     console.info(`[${input.event}]`, {
+      connectionDiagnosticId:
+        readRuntimeTransportSocketAttachment(webSocket)
+          .connectionDiagnosticId ?? null,
       abnormalClosure: input.closeCode !== 1000 && input.closeCode !== 1001,
       closeCode: input.closeCode,
       closeReason,
@@ -9838,6 +9846,11 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     this.ctx.acceptWebSocket(server);
     this.state.sessionIdBySocket.set(server, null);
     writeRuntimeTransportSocketAttachment(server, {
+      connectionDiagnosticId: serviceConnectionDiagnosticIdSchema.safeParse(
+        new URL(request.url).searchParams.get(
+          SERVICE_CONNECTION_ID_QUERY_PARAMETER
+        )
+      ).data,
       reasoningStream:
         request.headers.get(OPENMELD_REASONING_STREAM_HEADER) === "1",
       computerFileAccessCapability:

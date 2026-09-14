@@ -3095,6 +3095,42 @@ and operators so they can understand which evidence channel needs attention.
 
 ## Diagnostic Reports
 
+### Automatic Service connection evidence
+
+Service connection incidents are bounded operational evidence, separate from
+user-submitted Diagnostic Reports. The Service derives them from its existing
+carrier recovery identifier and lifecycle events. They do not own connection,
+readiness, retry policy, or Wake outcomes.
+
+`openmeld_service_connection_incidents` belongs to Diagnostics and uses
+`wakeEvidenceDb` (currently the shared production database). Reports contain
+only schema-whitelisted phases, times, safe native error codes, optional request
+IDs, opaque connection IDs, device/lane identity and Service version. No token,
+credential fingerprint, raw error, path, prompt, transcript or tool input is
+accepted. Gateway bounds a report to 128 KiB before JSON parsing.
+
+The uploader must authenticate as the owner and match the current registered
+device/lane Service session. Historical incidents can come from an earlier
+Service process on that same account and device. An immutable owner/incident
+key makes replay idempotent; conflicting evidence is rejected. Store at most
+100 incidents per owner/device/lane and expose at most 20 per read. The existing
+daily Core retention schedule deletes receipts older than 30 days in bounded
+batches, independently of the disabled physical-database-split retention gate.
+Expired records are excluded from reads immediately.
+
+Only the computer owner can read these details through Computer Connection
+history. Team membership alone does not grant access. The existing Wake Trace
+can opt into `serviceConnectionDiagnostics`; Core first authorizes the Space
+trace, verifies the runtime's account owner, and returns incident IDs whose
+intervals overlap that execution. Overlap is correlation, not proof of cause.
+No opt-in means no new response field, preserving strict older trace clients.
+An unavailable evidence read must not hide the underlying execution trace.
+
+Explicit owner-authorized sharing remains necessary for another teammate or
+support to receive the private incident contents.
+
+### User-submitted reports
+
 A Diagnostic Report is a user-submitted event.
 
 The report event belongs to the Diagnostics domain. Wake pointers attached to

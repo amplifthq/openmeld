@@ -293,6 +293,8 @@ import type {
   RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
   SelectCurrentLocalAgentInstallationResponse,
+  ServiceConnectionIncidentReportRpcInput,
+  ServiceConnectionIncidentsReadRpcInput,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceResponse,
@@ -936,6 +938,7 @@ import {
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
   rpcReadPeopleComputerFileAccessPolicy,
+  rpcReadServiceConnectionIncidents,
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
@@ -947,6 +950,7 @@ import {
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
+  rpcReportServiceConnectionIncident,
   rpcRequestCurrentOpenMeldToolsUpdate,
   rpcRequestMessageChannelSetup,
   rpcRequestPeopleComputerOpenMeldToolsUpdate,
@@ -3393,6 +3397,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListPeopleComputers(this.env, input);
   }
 
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return rpcReadServiceConnectionIncidents(this.env, input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return rpcReportServiceConnectionIncident(this.env, input);
+  }
+
   setPeopleComputerLocalAgentEnabled(
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
@@ -4306,6 +4322,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
     return super.listPeopleComputers(input);
+  }
+
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return super.readServiceConnectionIncidents(input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return super.reportServiceConnectionIncident(input);
   }
 
   setPeopleComputerLocalAgentEnabled(

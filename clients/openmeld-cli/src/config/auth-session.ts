@@ -330,6 +330,40 @@ export function onAuthSessionCredentialAvailable(
 }
 const activeAuthSessionTransitionIds = new Set<string>();
 
+type CredentialObservation =
+  | "context_changed"
+  | "credential_changed"
+  | "account_changed"
+  | "metadata_unavailable"
+  | "credential_available";
+const credentialObservationListeners = new Set<{
+  path: string;
+  notify: (reason: CredentialObservation) => void;
+}>();
+
+export function onAuthSessionCredentialObservation(
+  notify: (reason: CredentialObservation) => void
+): () => void {
+  const listener = { path: authSessionPath(), notify };
+  credentialObservationListeners.add(listener);
+  return () => {
+    credentialObservationListeners.delete(listener);
+  };
+}
+
+function observeCredential(reason: CredentialObservation): void {
+  const path = authSessionPath();
+  for (const listener of credentialObservationListeners) {
+    if (listener.path === path) {
+      try {
+        listener.notify(reason);
+      } catch {
+        /* Observations never control authentication. */
+      }
+    }
+  }
+}
+
 export async function getAuthSessionState(
   options: GetAuthSessionStateOptions = {}
 ): Promise<AuthSessionStateResult> {
@@ -338,6 +372,9 @@ export async function getAuthSessionState(
     false
   );
   // Exact-payload fences are private to the auth owner, not diagnostic payloads.
+  if (result.reasonCode === "session_metadata_invalid") {
+    observeCredential("metadata_unavailable");
+  }
   return {
     state: result.state,
     session: result.session,
@@ -1651,10 +1688,26 @@ function cacheAuthSession(input: {
 }): void {
   const credentialKey = buildAuthSessionCredentialCacheKey(input.payload);
   const becameAvailable = cachedAuthSession?.credentialKey !== credentialKey;
+  const previous = cachedAuthSession;
   cachedAuthSession = {
     credentialKey,
     session: input.session,
   };
+  if (!previous) {
+    observeCredential("credential_available");
+  } else if (previous.session.user?.id !== input.session.user?.id) {
+    observeCredential("account_changed");
+  } else if (becameAvailable) {
+    observeCredential("credential_changed");
+  } else if (
+    JSON.stringify([
+      previous.session.activeOrganization,
+      previous.session.user,
+    ]) !==
+    JSON.stringify([input.session.activeOrganization, input.session.user])
+  ) {
+    observeCredential("context_changed");
+  }
   if (becameAvailable) {
     const path = authSessionPath();
     for (const listener of credentialAvailabilityListeners) {

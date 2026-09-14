@@ -13,10 +13,12 @@ import {
 } from "@openmeld/local-service";
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
+  daemonServiceLaneSchema,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  SERVICE_CONNECTION_ID_QUERY_PARAMETER,
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonControlPlaneResponse,
@@ -34,6 +36,7 @@ import {
   type AuthSessionState,
   getAuthSessionState,
   onAuthSessionCredentialAvailable,
+  onAuthSessionCredentialObservation,
   type StoredAuthSession,
 } from "../../config/auth-session";
 import { resolveBaseUrl } from "../../config/base-url";
@@ -57,8 +60,9 @@ import {
 } from "../../config/resolve-openmeld-profile";
 import { getConfiguredDaemonDispatchLimits } from "../../config/runtime-config";
 import type { Presenter } from "../../runtime/presenter";
+import { OPENMELD_VERSION } from "../../runtime/version";
 import type { WsClient } from "../../transport/ws";
-import { connectWebSocket } from "../../transport/ws";
+import { connectWebSocket, WebSocketConnectionError } from "../../transport/ws";
 import { resolveLocalConversationExecutionStatus } from "../control-plane/conversation-execution-status";
 import { startLocalDaemonControlPlaneServer } from "../control-plane/server";
 import {
@@ -106,6 +110,7 @@ import {
   journalDaemonStopSignalEvidence,
   startDaemonServiceRegistrationReconcileLoop,
 } from "../lifecycle/daemon-service-registration-reconcile";
+import { createServiceConnectionEvidenceObserver } from "../lifecycle/service-connection-evidence-observer";
 import { createOpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { syncLocalServiceRuntimeAgentControllerReports } from "../reporting/runtime-agent-controller-report-sync";
 import type { RuntimeReportingAttemptObserver } from "../reporting/runtime-agent-controller-reporting-submission";
@@ -647,8 +652,21 @@ export const runDaemonServiceLoop = async (
   // Correlation only: the existing connection tracker and retry counter still
   // own connection facts and policy. No recovery intent is persisted here.
   let recovery: { recoveryId: string; disconnectedAt: number } | null = null;
+  const connectionEvidence = createServiceConnectionEvidenceObserver({
+    ownerUserId: ownerContext.ownerUserId,
+    gatewayUrl: baseUrl,
+    identity: {
+      deviceId,
+      runtimeLane: daemonServiceLaneSchema.parse(lane),
+      serviceSessionId: daemonSessionId,
+      serviceVersion: OPENMELD_VERSION,
+    },
+    getRecovery: () => recovery,
+    isStopping: () => stopRequested,
+  });
   const recoveryMetadata = () => ({
     ...describeConnectionRecovery(recovery),
+    connectionDiagnosticId: connectionEvidence.connectionDiagnosticId,
     attempt: reconnectAttempt,
   });
   const connectionState = createRunLoopConnectionStateTracker(
@@ -1034,6 +1052,9 @@ export const runDaemonServiceLoop = async (
       }
     }
   );
+  const unsubscribeCredentialObservation = onAuthSessionCredentialObservation(
+    (reason) => connectionEvidence.credential(reason)
+  );
   try {
     emitRunLine({
       presenter: input.presenter,
@@ -1068,10 +1089,16 @@ export const runDaemonServiceLoop = async (
 
     while (!stopRequested) {
       try {
+        connectionEvidence.beginAttempt();
         connectionState.set("connecting", {
           reason: resolveConnectingReason(reconnectAttempt),
         });
-        const wsUrl = toDaemonStreamUrl(baseUrl);
+        const connectionUrl = new URL(toDaemonStreamUrl(baseUrl));
+        connectionUrl.searchParams.set(
+          SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+          connectionEvidence.connectionDiagnosticId
+        );
+        const wsUrl = connectionUrl.toString();
         const authContext = await resolveDaemonStreamAuthContext({
           requestUrl: wsUrl,
           selectedOpenMeldProfile,
@@ -1083,6 +1110,7 @@ export const runDaemonServiceLoop = async (
             credentialFailure: authContext.credentialFailure ?? null,
           });
         }
+        connectionEvidence.opening();
         const ws = await connectWebSocket(wsUrl, {
           headers: {
             ...authContext.headers,
@@ -1103,6 +1131,7 @@ export const runDaemonServiceLoop = async (
         }
         activeSocket = ws;
         activeCredentialFingerprint = authContext.credentialFingerprint;
+        connectionEvidence.opened(ws);
 
         emitRunLine({
           presenter: input.presenter,
@@ -1163,6 +1192,10 @@ export const runDaemonServiceLoop = async (
             socket: ws,
             touchRuntimeState: async (updates) => {
               if (typeof updates.heartbeatAt === "string") {
+                connectionEvidence.acknowledged(
+                  updates.heartbeatAt,
+                  connectionState.get().state !== "online"
+                );
                 connectionState.set("online");
                 reconnectAttempt = 0;
                 recovery = null;
@@ -1195,10 +1228,17 @@ export const runDaemonServiceLoop = async (
           presenter: input.presenter,
           reconnectAttempt,
         });
+        connectionEvidence.retry(
+          error,
+          connectionState.get().reason,
+          backoffMs
+        );
         await reconnectBackoffDelay.wait(backoffMs);
       }
     }
   } finally {
+    connectionEvidence.dispose();
+    unsubscribeCredentialObservation();
     unsubscribeCredentialAvailability();
     controlledShutdown.failOutstanding();
     process.off("SIGINT", onSigint);
@@ -1686,10 +1726,16 @@ function noteRunLoopReconnectScheduled(input: {
     input.error instanceof DaemonStreamAuthenticationRequiredError
       ? input.error.credentialFailure
       : null;
-  const failureReason =
-    credentialFailure?.reason === "session_token_unavailable"
-      ? "auth_unavailable"
-      : classifyConnectionFailureReason(errorMessage);
+  let failureReason = classifyConnectionFailureReason(errorMessage);
+  if (credentialFailure?.reason === "session_token_unavailable") {
+    failureReason = "auth_unavailable";
+  } else if (
+    input.error instanceof DaemonStreamAuthenticationRequiredError ||
+    (input.error instanceof WebSocketConnectionError &&
+      input.error.status === 401)
+  ) {
+    failureReason = "auth_rejected";
+  }
   let authState =
     input.error instanceof DaemonStreamAuthenticationRequiredError
       ? input.error.authState

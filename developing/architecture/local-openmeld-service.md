@@ -2435,6 +2435,24 @@ acknowledged connection share a recovery identifier and elapsed time in the
 existing local lifecycle journal, including while offline. These are observations,
 not another recovery controller or a claim about the original cause of an outage.
 
+The carrier also records a strict, account-partitioned connection-evidence
+journal under its existing runtime-state directory. It retains at most 32
+incidents, 100 events per incident and 1 MiB, pruning records older than seven
+days on load/write. Repeated adjacent observations are aggregated; truncation
+is explicit. Writes and uploads never block registration or heartbeat.
+Completed incidents upload after registration, and an interrupted incident from
+a previous Service process uploads on its next connection. Receipt replay is
+idempotent. Upload retries have their own bounded backoff and cannot reconnect
+the carrier; an account change prevents uploading old evidence with new account
+credentials. Safe native network codes and observed phase are retained when
+available. Unknown runtime errors remain unknown. Retry scheduling delay does
+not prove OS sleep, a DNS problem, or a provider outage.
+
+Reply reconsideration retains its existing exact-conversation behavior. Its
+existing dispatch journal additionally records the relevant signal IDs/count,
+typed reason, start and duration, without signal text or prompts. A finished
+reconsideration observation is not evidence that a Space reply was published.
+
 Registration and heartbeat never await optional local-component inspection.
 The socket session coalesces that inspection and may reuse an observation for
 at most 30 seconds; absent or expired observations are omitted rather than

@@ -32,6 +32,7 @@ export function fingerprintRequestAuthorization(authorization: string): string {
 
 type RequestAuthHeadersInput = {
   authSession?: StoredAuthSession | null;
+  expectedOwnerUserId?: string;
   requestUrl: string;
 };
 
@@ -230,6 +231,12 @@ async function attachAuthHeader(
   input: RequestAuthHeadersInput
 ): Promise<void> {
   const session = await resolveAuthSessionForHeaders(input);
+  if (
+    input.expectedOwnerUserId &&
+    session?.user?.id !== input.expectedOwnerUserId
+  ) {
+    throw new Error("auth.session_owner_changed");
+  }
   if (session === null) {
     // No stored credentials exist, so there is nothing to strip: the caller
     // is knowingly sending an unauthenticated request.

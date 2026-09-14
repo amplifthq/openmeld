@@ -92,6 +92,7 @@ import {
 	formatRuntimeLane,
 } from "./agents-page-formatters";
 import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
+import { ComputerConnectionHistory } from "./computer-connection-history";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
@@ -621,6 +622,10 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
+			<ComputerConnectionHistory
+				storageScope={input.recovery.storageScope}
+				target={input.currentLocalRuntimeReplyReadiness?.currentTarget}
+			/>
 			<ComputerReportDetails computer={input.computer} />
 		</OpenMeldToolsCardFrame>
 	);
