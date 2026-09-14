@@ -65,7 +65,14 @@ export function createComputerConnection(input: {
       ) {
         return { status: "cancelled" };
       }
-      if (review.account?.id === account.id && review.existingConnection) {
+      const canReuse = !(
+        intent.resetThisComputer || intent.sourceNavigationAction
+      );
+      if (
+        canReuse &&
+        review.account?.id === account.id &&
+        review.existingConnection
+      ) {
         await assertAccount();
         return { status: "reused", connection: review.existingConnection };
       }
@@ -103,65 +110,91 @@ export function createComputerConnection(input: {
           humanProfileId: intent.humanProfileId,
           targetSpaceId: intent.targetSpaceId,
           selectedLocalAgentIds: [],
+          sourceNavigationAction: intent.sourceNavigationAction,
         })
       );
-      if (prepare.snapshot.ownerUserId !== account.id) {
-        throw new Error("The computer connection belongs to another account.");
-      }
-      const grant = await createComputerAuthorizationGrant(
-        (path, method, body) => cloud(`/api/auth${path}`, method, body)
+      return await withPrepareDiagnostics(
+        prepare.snapshot.diagnosticCorrelationId,
+        async () => {
+          if (prepare.snapshot.ownerUserId !== account.id) {
+            throw new Error(
+              "The computer connection belongs to another account."
+            );
+          }
+          const grant = await createComputerAuthorizationGrant(
+            (path, method, body) => cloud(`/api/auth${path}`, method, body)
+          );
+          await assertAccount();
+          let setupFailure: string | null = null;
+          try {
+            await runConnectionSetup(
+              bin,
+              [
+                "setup",
+                "--view",
+                "agent",
+                "--start-session",
+                prepare.opaqueToken,
+                "--device-code",
+                grant.deviceCode,
+                "--local-agents",
+                "none",
+                "--connection-intent",
+                JSON.stringify({
+                  expectedAccount: account.id,
+                  previousSessionIdentity: review.previousSessionIdentity,
+                }),
+              ],
+              deps.env
+            );
+          } catch (error) {
+            setupFailure =
+              error instanceof Error
+                ? error.message
+                : "This computer could not connect. Try again.";
+          }
+          const result = prepareSessionResponseSchema.parse(
+            await cloud(
+              `/v1/prepare/sessions/${encodeURIComponent(prepare.snapshot.prepareSessionId)}`,
+              "GET"
+            )
+          );
+          if (result.snapshot.lifecycleStatus !== "completed") {
+            setupFailure ??=
+              "This computer has not finished connecting. Try again to check its progress.";
+          }
+          if (setupFailure) {
+            return {
+              status: "failed",
+              message: setupFailure,
+              diagnosticId: result.snapshot.diagnosticCorrelationId,
+            };
+          }
+          return { status: "completed", snapshot: result.snapshot };
+        }
       );
-      await assertAccount();
-      let setupFailure: string | null = null;
-      try {
-        await runConnectionSetup(
-          bin,
-          [
-            "setup",
-            "--view",
-            "agent",
-            "--start-session",
-            prepare.opaqueToken,
-            "--device-code",
-            grant.deviceCode,
-            "--local-agents",
-            "none",
-            "--connection-intent",
-            JSON.stringify({
-              expectedAccount: account.id,
-              previousSessionIdentity: review.previousSessionIdentity,
-            }),
-          ],
-          deps.env
-        );
-      } catch (error) {
-        setupFailure =
-          error instanceof Error
-            ? error.message
-            : "This computer could not connect. Try again.";
-      }
-      const result = prepareSessionResponseSchema.parse(
-        await cloud(
-          `/v1/prepare/sessions/${encodeURIComponent(prepare.snapshot.prepareSessionId)}`,
-          "GET"
-        )
-      );
-      if (result.snapshot.lifecycleStatus !== "completed") {
-        setupFailure ??=
-          "This computer has not finished connecting. Try again to check its progress.";
-      }
-      if (setupFailure) {
-        return {
-          status: "failed",
-          message: setupFailure,
-          diagnosticId: result.snapshot.diagnosticCorrelationId,
-        };
-      }
-      return { status: "completed", snapshot: result.snapshot };
     } finally {
       pending = false;
     }
   };
+}
+
+async function withPrepareDiagnostics(
+  diagnosticId: string,
+  operation: () => Promise<DesktopComputerConnectionResult>
+): Promise<DesktopComputerConnectionResult> {
+  try {
+    return await operation();
+  } catch (error) {
+    return {
+      status: "failed",
+      message:
+        error instanceof Error
+          ? error.message
+          : "This computer could not connect. Try again.",
+      diagnosticId,
+    };
+  }
 }
 
 async function approveAccountSwitch(

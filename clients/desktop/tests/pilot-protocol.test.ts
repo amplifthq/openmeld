@@ -47,9 +47,16 @@ it("admits installed API requests before credentials and preserves SDK errors wi
       throw new Error("Installed APIs must use the SDK");
     },
   });
-  for (const path of ["/_serverFn/generated", "/api/auth/get-session"]) {
+  for (const [path, method] of [
+    ["/_serverFn/generated", "GET"],
+    ["/api/auth/get-session", "GET"],
+    ["/api/auth/device/code", "POST"],
+    ["/api/auth/device?user_code=TEST", "GET"],
+    ["/api/auth/device/approve", "POST"],
+  ]) {
     expect(
-      (await handle(new Request(`${DESKTOP_APP_ORIGIN}${path}`))).status
+      (await handle(new Request(`${DESKTOP_APP_ORIGIN}${path}`, { method })))
+        .status
     ).toBe(403);
   }
   expect(compatibility).not.toHaveBeenCalled();

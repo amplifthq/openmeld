@@ -21,7 +21,15 @@ export function admitDesktopRequest(
 				{ status: 409, headers: { "cache-control": "no-store" } }
 			);
 		}
-		if (!new URL(request.url).pathname.startsWith("/v1/")) {
+		const pathname = new URL(request.url).pathname;
+		// Only the fixed native connection operation uses these Auth-owned routes.
+		// Renderer protocol handling continues to reject every /api/ request.
+		const computerAuthorization =
+			(request.method === "POST" &&
+				(pathname === "/api/auth/device/code" ||
+					pathname === "/api/auth/device/approve")) ||
+			(request.method === "GET" && pathname === "/api/auth/device");
+		if (!(pathname.startsWith("/v1/") || computerAuthorization)) {
 			return new Response("Open this action in OpenMeld Web.", { status: 403 });
 		}
 		return null;

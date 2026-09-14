@@ -183,6 +183,8 @@ export function ComputerSetupFlow(input: ComputerSetupFlowProps) {
 			<DesktopComputerConnection
 				onCompleted={input.onCompleted}
 				onContinue={input.onContinue}
+				orgSlug={input.orgSlug}
+				sourceNavigationAction={input.sourceNavigationAction}
 			/>
 		);
 	}
