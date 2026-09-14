@@ -8,6 +8,7 @@ import {
 	HeadContent,
 	Link,
 	Scripts,
+	useRouter,
 } from "@tanstack/react-router";
 import { ThemeProvider, useTheme } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
@@ -248,7 +249,17 @@ export function ThemeColorMeta() {
 }
 
 export function RootErrorComponent({ error }: ErrorComponentProps) {
-	return <PageError error={error} />;
+	const router = useRouter();
+	// Retry loaders and reset their boundary without document navigation, which
+	// Desktop intentionally blocks. Failed assets still need a document reload.
+	return (
+		<PageError
+			error={error}
+			onRetry={
+				isClientAssetLoadError(error) ? undefined : () => router.invalidate()
+			}
+		/>
+	);
 }
 
 export function ClientVersionRecovery({
@@ -272,7 +283,13 @@ export function ClientVersionRecovery({
 	return children;
 }
 
-function PageError({ error }: { error: unknown }) {
+function PageError({
+	error,
+	onRetry,
+}: {
+	error: unknown;
+	onRetry?: () => Promise<void>;
+}) {
 	let message = "Unexpected runtime error";
 	if (error instanceof Error) {
 		message = error.message;
@@ -308,11 +325,14 @@ function PageError({ error }: { error: unknown }) {
 					description={description}
 					details={`${diagnosticDetails}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
 					message={displayMessage}
-					onAction={() => {
-						if (typeof window !== "undefined") {
-							window.location.reload();
-						}
-					}}
+					onAction={
+						onRetry ??
+						(() => {
+							if (typeof window !== "undefined") {
+								window.location.reload();
+							}
+						})
+					}
 					onReport={() => submitApplicationErrorReport(error)}
 				>
 					{isEnvError && import.meta.env.DEV ? (
