@@ -32,6 +32,8 @@ test("shares one async process-table snapshot across a simultaneous controller s
   nowMs = 75;
   assert.equal(await readProcessTable(), "snapshot-2");
   assert.equal(readCount, 2);
+  assert.equal(await readProcessTable({ fresh: true }), "snapshot-3");
+  assert.equal(readCount, 3);
 });
 
 test("shares a slow in-flight process scan after its snapshot age expires", async () => {
@@ -206,6 +208,21 @@ test("keeps reparented supervised processes after the leader exits", () => {
   });
 
   assert.deepEqual(processIds, [4300, 4400]);
+  assert.deepEqual(
+    resolveAgentControllerSupervisedProcessIds({
+      markedProcessIds: [4200, 4201, 4300],
+      processId: null,
+      processTable: [
+        "1 0 1",
+        "4200 1 4200",
+        "4201 4200 4200",
+        "4300 1 4300",
+        "5000 1 5000",
+      ].join("\n"),
+      supervisionId: "supervision-4200",
+    }),
+    [4200, 4201, 4300]
+  );
 });
 
 test("signals the process group without waiting for process discovery", () => {

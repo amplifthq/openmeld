@@ -25,6 +25,7 @@ import {
   AGENT_CONTROLLER_CONVERSATION_OCCUPANCY_CONTRACT_VERSION,
   classifyRuntimePermissionDenialMessage,
   createProviderOriginalError,
+  listAgentControllerSupervisedProcessIds,
   resolveDispatchSpaceActionMcpServer,
   spawnAgentControllerProcess,
 } from "@openmeld/adapter-core";
@@ -361,6 +362,9 @@ export async function invokeCodexAppServerTransport(input: {
     async (session) => {
       throwIfCodexDispatchCancelled(input.cancellationSignal);
       const threadContext = await resolveDispatchThreadContext({
+        executionContextScoped:
+          input.computerFileAccessBoundary?.executionContextAccess !==
+          undefined,
         cancellationSignal: input.cancellationSignal,
         conversationPolicyParams,
         codexWorkdir: input.codexWorkdir,
@@ -373,7 +377,8 @@ export async function invokeCodexAppServerTransport(input: {
       assertFileAccessBeforeTurn(
         threadContext.permissionResponse,
         input.computerFileAccessBoundary,
-        input.codexWorkdir
+        input.codexWorkdir,
+        input.executionMode
       );
       await session.verifyScopedMcp(threadContext.threadId);
       const collaborationMode =
@@ -587,6 +592,7 @@ export async function forkCodexAppServerThread(input: {
   sourceCompletedTurnId?: string;
   targetWorkingDirectory?: string;
   title?: string;
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
 }): Promise<{ threadId: string }> {
   const sourceThreadId = normalizeOptionalText(input.sourceThreadId);
   if (!sourceThreadId) {
@@ -594,6 +600,17 @@ export async function forkCodexAppServerThread(input: {
       code: "schema.invalid",
       errorType: "config",
       message: "schema.invalid: sourceThreadId is required",
+    });
+  }
+  if (
+    input.computerFileAccessBoundary?.executionContextAccess &&
+    !normalizeOptionalText(input.sourceCompletedTurnId)
+  ) {
+    throw new CodexAppServerTransportError({
+      code: "execution_context.fork_checkpoint_unavailable",
+      errorType: "config",
+      message:
+        "execution_context.fork_checkpoint_unavailable: a completed turn is required for a scoped fork",
     });
   }
 
@@ -604,6 +621,7 @@ export async function forkCodexAppServerThread(input: {
       env: input.env,
       launchContract: input.launchContract,
       computerFileAccessBoundary: input.computerFileAccessBoundary,
+      onRuntimeEvent: input.onRuntimeEvent,
     },
     async (session) => {
       const response = await session.requestControl(
@@ -659,14 +677,16 @@ export async function forkCodexAppServerThread(input: {
 function assertFileAccessBeforeTurn(
   response: unknown,
   boundary: AdapterComputerFileAccessBoundary | undefined,
-  workingDirectory: string
+  workingDirectory: string,
+  executionMode?: AdapterDispatchExecutionMode
 ): void {
   if (
     boundary &&
     !isCodexExecutionContextFileAccessConfirmed(
       response,
       boundary,
-      workingDirectory
+      workingDirectory,
+      executionMode
     )
   ) {
     throw new CodexAppServerTransportError({
@@ -687,6 +707,7 @@ function scopedRuntimeWorkspaceParams(
 }
 
 async function resolveDispatchThreadContext(input: {
+  executionContextScoped: boolean;
   cancellationSignal?: AbortSignal;
   conversationPolicyParams: CodexAppServerConversationPolicyParams;
   codexWorkdir: string;
@@ -698,7 +719,7 @@ async function resolveDispatchThreadContext(input: {
 }): Promise<CodexAppServerThreadContext> {
   const existingThreadId = normalizeOptionalText(input.threadId);
   if (existingThreadId) {
-    if (input.executionMode === "repair") {
+    if (input.executionMode === "repair" && !input.executionContextScoped) {
       return await forkEphemeralCodexRepairThread({
         conversationPolicyParams: input.conversationPolicyParams,
         codexWorkdir: input.codexWorkdir,
@@ -1057,6 +1078,7 @@ async function withCodexAppServerSession<T>(
 }
 
 class CodexAppServerSession {
+  #processCleanup: Promise<void> | null = null;
   readonly #codexTimeoutMs: number | null;
   readonly #codexWorkdir: string;
   readonly #controlRequestTimeoutMs?: number;
@@ -1174,6 +1196,10 @@ class CodexAppServerSession {
       cwd: tmpdir(),
       env: launch.env,
       shell: launch.shell ?? false,
+      ...(this.#computerFileAccessBoundary?.executionContextAccess &&
+      this.#env?.OPENMELD_PROCESS_SUPERVISION_ID
+        ? { supervisionId: this.#env.OPENMELD_PROCESS_SUPERVISION_ID }
+        : {}),
     });
     const { child, processId, signalTarget } = runtimeProcess;
     this.#child = child;
@@ -1238,19 +1264,45 @@ class CodexAppServerSession {
     });
 
     child.on("close", (exitCode, signal) => {
-      runtimeProcess.terminateRemainingDescendants();
       this.#clearTimers();
       this.#lifecycle.exitCode = exitCode;
       this.#lifecycle.exitObservedAtMs = Date.now();
       this.#lifecycle.exitSignal = signal;
-      this.#emitRuntimeEvent({
-        exitCode,
-        phase: "process_exit",
-        processId,
-        signal,
-        signalTarget,
-        tsMs: this.#lifecycle.exitObservedAtMs,
-      });
+      const exitObservedAtMs = this.#lifecycle.exitObservedAtMs;
+      this.#processCleanup = (async () => {
+        let ownedProcessesQuiescent = false;
+        try {
+          const cleanup = await runtimeProcess.terminateRemainingDescendants();
+          if (
+            cleanup.ok &&
+            signalTarget === "process_group" &&
+            processId !== null &&
+            isProcessGroupAbsent(processId)
+          ) {
+            ownedProcessesQuiescent =
+              (
+                await listAgentControllerSupervisedProcessIds({
+                  fresh: true,
+                  processId,
+                  supervisionId: runtimeProcess.supervisionId,
+                })
+              ).length === 0 && isProcessGroupAbsent(processId);
+          }
+        } catch {
+          // Missing cleanup/discovery evidence must never authorize file reclamation.
+        }
+        this.#emitRuntimeEvent({
+          exitCode,
+          phase: "process_exit",
+          processId,
+          signal,
+          signalTarget,
+          tsMs: exitObservedAtMs,
+          ...(ownedProcessesQuiescent
+            ? { ownedProcessesQuiescent: true as const }
+            : {}),
+        });
+      })();
       this.#onProcessControlEvent?.({
         phase: "process_exit",
         processId,
@@ -1323,6 +1375,7 @@ class CodexAppServerSession {
       if (this.#computerFileAccessBoundary?.executionContextAccess) {
         await verifyCodexWorkspaceAccess({
           boundary: this.#computerFileAccessBoundary,
+          executionMode: this.#executionMode,
           workingDirectory: this.#codexWorkdir,
           execute: (params) =>
             this.requestControl("command/exec", params, {
@@ -1376,18 +1429,20 @@ class CodexAppServerSession {
       child.stdin.end();
     }
     if (this.#lifecycle.exitObservedAtMs !== null) {
+      await this.#processCleanup;
       return;
     }
     this.#requestProcessTermination();
     await new Promise<void>((resolve) => {
       const timeout = setTimeout(() => {
         resolve();
-      }, APP_SERVER_PROCESS_KILL_GRACE_MS);
+      }, APP_SERVER_PROCESS_KILL_GRACE_MS * 2);
       child.once("close", () => {
         clearTimeout(timeout);
         resolve();
       });
     });
+    await this.#processCleanup;
   }
 
   async request(
@@ -2923,6 +2978,15 @@ function normalizeText(value: unknown): string {
 function normalizeOptionalText(value: unknown): string | null {
   const normalized = normalizeText(value);
   return normalized.length > 0 ? normalized : null;
+}
+
+function isProcessGroupAbsent(processId: number): boolean {
+  try {
+    process.kill(-processId, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "ESRCH";
+  }
 }
 
 function parseCodexAppServerVersion(response: unknown): string | null {

@@ -19,3 +19,6 @@ export type ExecutionContextCompletion = z.infer<
 export type ExecutionContextTask = z.infer<
   Schemas["executionContextTaskSchema"]
 >;
+export type ExecutionContextLegacyAssociation = z.infer<
+  Schemas["executionContextLegacyAssociationSchema"]
+>;

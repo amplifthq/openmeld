@@ -1,10 +1,10 @@
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   appendLedgerHistoryEntry,
   createEmptyLedgerState,
   type LedgerFileIo,
-  type LedgerPaths,
+  loadLedgerState,
   persistLedgerState,
   recordDedupeFirstSeenAt,
   withLedgerStateTransaction,
@@ -51,39 +51,57 @@ describe("ledger-recovery ledger atomic write", () => {
     expect(await exists(paths.stateTempFilePath)).toBe(false);
   });
 
-  it("cleans temp file when rename fails", async () => {
-    const rmCalls: string[] = [];
+  it.each([
+    "write",
+    "sync",
+    "rename",
+  ])("preserves the original and migration backup when state %s fails, then retries safely", async (failure) => {
+    const paths = await createTempLedgerPaths(
+      "openmeld-ledger-atomic-failure-"
+    );
+    createdDirs.add(paths.rootDirPath);
+    const state = createEmptyLedgerState();
+    const original = JSON.stringify({ ...state, v: 1 });
+    await writeFile(paths.stateFilePath, original, "utf8");
+    const baseIo = createNodeLedgerFileIo();
     const io: LedgerFileIo = {
-      appendFile: async () => undefined,
-      copyFile: async () => undefined,
-      mkdir: async () => undefined,
-      readFile: async () => "",
-      rename: () => Promise.reject(new Error("rename failed")),
-      rm: (filePath) => {
-        rmCalls.push(filePath);
-        return Promise.resolve();
+      ...baseIo,
+      writeFile: async (filePath, content, encoding) => {
+        if (failure === "write") {
+          throw new Error("state write failed");
+        }
+        await baseIo.writeFile(filePath, content, encoding);
       },
-      writeFile: async () => undefined,
-    };
-    const paths: LedgerPaths = {
-      backupStateFilePath: "/tmp/state.v1.json.bak",
-      historyFilePath: "/tmp/history.ndjson",
-      historyTempFilePath: "/tmp/history.ndjson.tmp",
-      rootDirPath: "/tmp",
-      stateFilePath: "/tmp/state.v1.json",
-      stateTempFilePath: "/tmp/state.v1.json.tmp",
+      syncPath: async (filePath) => {
+        if (
+          failure === "sync" &&
+          filePath.startsWith(paths.stateTempFilePath)
+        ) {
+          throw new Error("state sync failed");
+        }
+        await baseIo.syncPath(filePath);
+      },
+      rename: async (fromPath, toPath) => {
+        if (failure === "rename" && toPath === paths.stateFilePath) {
+          throw new Error("state rename failed");
+        }
+        await baseIo.rename(fromPath, toPath);
+      },
     };
 
-    await expect(
-      persistLedgerState({
-        io,
-        paths,
-        state: createEmptyLedgerState(),
-      })
-    ).rejects.toThrow("rename failed");
+    await expect(persistLedgerState({ io, paths, state })).rejects.toThrow(
+      `state ${failure} failed`
+    );
+    expect(await readFile(paths.stateFilePath, "utf8")).toBe(original);
+    const backupPath = `${paths.stateFilePath}.v1.bak`;
+    expect(await readFile(backupPath, "utf8")).toBe(original);
+    expect(
+      (await readdir(paths.rootDirPath)).filter((name) => name.includes(".tmp"))
+    ).toEqual([]);
 
-    expect(rmCalls).toHaveLength(1);
-    expect(rmCalls[0]?.startsWith(paths.stateTempFilePath)).toBe(true);
+    await persistLedgerState({ io: baseIo, paths, state });
+    expect(JSON.parse(await readFile(paths.stateFilePath, "utf8")).v).toBe(2);
+    expect(await readFile(backupPath, "utf8")).toBe(original);
   });
 
   it("does not corrupt existing history file when append fails", async () => {
@@ -177,36 +195,55 @@ describe("ledger-recovery ledger atomic write", () => {
     );
     createdDirs.add(paths.rootDirPath);
     const io = createNodeLedgerFileIo();
+    const original = JSON.stringify({ ...createEmptyLedgerState(), v: 1 });
+    await writeFile(paths.stateFilePath, original, "utf8");
 
-    await Promise.all([
-      withLedgerStateTransaction({
-        io,
-        mutate: async (state) => {
-          await new Promise((resolve) => setTimeout(resolve, 20));
-          return {
-            nextState: recordDedupeFirstSeenAt({
-              firstSeenAtMs: 1,
-              idempotencyKey: "dispatch-a",
-              state,
-            }),
-            value: undefined,
-          };
-        },
-        paths,
-      }),
-      withLedgerStateTransaction({
-        io,
-        mutate: async (state) => ({
+    let releaseFirstTransaction = () => undefined;
+    const firstTransactionPending = new Promise<void>((resolve) => {
+      releaseFirstTransaction = resolve;
+    });
+    let firstTransactionEntered = () => undefined;
+    const firstTransactionStarted = new Promise<void>((resolve) => {
+      firstTransactionEntered = resolve;
+    });
+
+    const firstTransaction = withLedgerStateTransaction({
+      io,
+      mutate: async (state) => {
+        firstTransactionEntered();
+        await firstTransactionPending;
+        return {
           nextState: recordDedupeFirstSeenAt({
-            firstSeenAtMs: 2,
-            idempotencyKey: "dispatch-b",
+            firstSeenAtMs: 1,
+            idempotencyKey: "dispatch-a",
             state,
           }),
           value: undefined,
+        };
+      },
+      paths,
+    });
+    await firstTransactionStarted;
+    const pendingRead = loadLedgerState({ io, paths });
+    const secondTransaction = withLedgerStateTransaction({
+      io,
+      mutate: async (state) => ({
+        nextState: recordDedupeFirstSeenAt({
+          firstSeenAtMs: 2,
+          idempotencyKey: "dispatch-b",
+          state,
         }),
-        paths,
+        value: undefined,
       }),
+      paths,
+    });
+    releaseFirstTransaction();
+    const [, readState] = await Promise.all([
+      firstTransaction,
+      pendingRead,
+      secondTransaction,
     ]);
+    expect(readState.dedupeFirstSeenByKey).toEqual({ "dispatch-a": 1 });
 
     const raw = await readFile(paths.stateFilePath, "utf8");
     const parsed = JSON.parse(raw) as {
@@ -217,5 +254,8 @@ describe("ledger-recovery ledger atomic write", () => {
       "dispatch-a": 1,
       "dispatch-b": 2,
     });
+    expect(await readFile(`${paths.stateFilePath}.v1.bak`, "utf8")).toBe(
+      original
+    );
   });
 });

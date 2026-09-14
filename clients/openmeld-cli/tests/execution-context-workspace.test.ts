@@ -1,4 +1,6 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { once } from "node:events";
 import {
   mkdir,
   mkdtemp,
@@ -19,9 +21,12 @@ import type {
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { acquireLock, releaseLock } from "../src/config/lock";
 import {
+  markExecutionContextWorkspaceInUse,
   prepareExecutionContextWorkspace,
   readExecutionContextWorkspace,
+  releaseExecutionContextWorkspace,
 } from "../src/local-service/dispatch/execution-context-workspace";
 
 const execFileAsync = promisify(execFile);
@@ -110,6 +115,352 @@ function prepare(
 }
 
 describe("Execution Context workspaces", () => {
+  it.each([
+    "before Git",
+    "after init",
+    "after fetch",
+    "during checkout",
+    "after checkout",
+  ])("reconciles an interrupted preparation %s at the frozen commit", async (stage) => {
+    const base = await initializeRepository();
+    const first = await prepare();
+    const path = join(
+      ledger,
+      "execution-context-workspace-records",
+      `${context.id}.json`
+    );
+    const record = JSON.parse(await readFile(path, "utf8"));
+    await writeFile(path, JSON.stringify({ ...record, status: "preparing" }));
+    if (stage !== "after checkout" && stage !== "during checkout") {
+      await rm(first.boundaryRoot, { recursive: true });
+    }
+    if (stage === "during checkout") {
+      await rm(join(first.workingDirectory, "tracked.txt"));
+    }
+    if (stage === "after init" || stage === "after fetch") {
+      await mkdir(first.boundaryRoot);
+      const repository = join(first.boundaryRoot, "repository.git");
+      await git(first.boundaryRoot, [
+        "init",
+        "--bare",
+        "--template=",
+        repository,
+      ]);
+      if (stage === "after fetch") {
+        await git(first.boundaryRoot, [
+          `--git-dir=${repository}`,
+          "fetch",
+          "--depth=1",
+          source,
+          `${base}:refs/openmeld/base`,
+        ]);
+      }
+    }
+    await writeFile(join(source, "tracked.txt"), "later source commit\n");
+    await git(source, ["commit", "-am", "Move source"]);
+    const retried = await prepare();
+    expect(retried).toEqual(first);
+    expect(await git(retried.workingDirectory, ["rev-parse", "HEAD"])).toBe(
+      base
+    );
+    expect(
+      await readFile(join(retried.workingDirectory, "tracked.txt"), "utf8")
+    ).toBe("committed source\n");
+  });
+
+  it("refuses preparation while another live materialization owns the lock", async () => {
+    await initializeRepository();
+    const lock = await acquireLock({
+      openMeldProfileId: "execution-context-workspaces",
+      key: context.id,
+      pathResolution: { env: { OPENMELD_HOME: ledger } },
+    });
+    try {
+      await expect(prepare()).rejects.toMatchObject({
+        code: "openmeld.locked",
+      });
+      await expect(
+        stat(join(ledger, "execution-context-workspaces", context.id))
+      ).rejects.toMatchObject({ code: "ENOENT" });
+    } finally {
+      await releaseLock(lock);
+    }
+    expect((await prepare()).baseCommit).toBeTruthy();
+  });
+
+  it("reclaims both pristine Git copies only after quiescence and restores the exact native workspace on demand", async () => {
+    const base = await initializeRepository();
+    const first = await prepare();
+    const use = await markExecutionContextWorkspaceInUse({
+      ledgerRootPath: ledger,
+      context,
+    });
+    await expect(prepare()).rejects.toMatchObject({ code: "openmeld.locked" });
+    expect(
+      await releaseExecutionContextWorkspace({
+        ledgerRootPath: ledger,
+        context,
+        ownedProcessesQuiescent: true,
+        use,
+      })
+    ).toEqual({ status: "released" });
+    await expect(stat(first.boundaryRoot)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+    expect(
+      await readExecutionContextWorkspace({
+        ledgerRootPath: ledger,
+        contextId: context.id,
+      })
+    ).toEqual(first);
+    await writeFile(join(source, "tracked.txt"), "later source commit\n");
+    await git(source, ["commit", "-am", "Move source"]);
+    expect(
+      await prepare({
+        context: {
+          ...context,
+          nativeConversationId: "retained-native",
+          runtimeWorkspaceFingerprint: "retained-workspace",
+        },
+      })
+    ).toEqual(first);
+    expect(await git(first.workingDirectory, ["rev-parse", "HEAD"])).toBe(base);
+    expect(
+      await readdir(join(ledger, "execution-context-workspace-records"))
+    ).toEqual([`${context.id}.json`]);
+  });
+
+  it("reconciles a lost exit observation only after the durable supervised invocation is absent", async () => {
+    await initializeRepository();
+    const first = await prepare();
+    const use = await markExecutionContextWorkspaceInUse({
+      ledgerRootPath: ledger,
+      context,
+    });
+    if (!use) {
+      throw new Error("project invocation lock required");
+    }
+    const child = spawn(
+      process.execPath,
+      ["-e", "process.send('ready'); setInterval(() => {}, 1000)"],
+      {
+        env: {
+          ...process.env,
+          OPENMELD_PROCESS_SUPERVISION_ID: use.processSupervisionId,
+        },
+        stdio: ["ignore", "ignore", "ignore", "ipc"],
+        detached: true,
+      }
+    );
+    try {
+      await once(child, "message");
+      await writeFile(
+        join(first.workingDirectory, "output.txt"),
+        "retained task output"
+      );
+      expect(
+        await releaseExecutionContextWorkspace({
+          ledgerRootPath: ledger,
+          context,
+          use,
+          ownedProcessesQuiescent: false,
+        })
+      ).toEqual({
+        status: "retained",
+        reason: "execution_quiescence_unconfirmed",
+      });
+      await expect(prepare()).rejects.toThrow(
+        "workspace_execution_quiescence_unconfirmed"
+      );
+      const exited = once(child, "exit");
+      child.kill("SIGTERM");
+      await exited;
+      expect(
+        await prepare({
+          context: { ...context, nativeConversationId: "same-native" },
+        })
+      ).toEqual(first);
+      expect(
+        await readFile(join(first.workingDirectory, "output.txt"), "utf8")
+      ).toBe("retained task output");
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) {
+        const exited = once(child, "exit");
+        child.kill("SIGKILL");
+        await exited;
+      }
+      await releaseLock(use.lock);
+    }
+  });
+
+  it("clears a pre-launch failure fence without requiring an exit from a process that never started", async () => {
+    await initializeRepository();
+    const first = await prepare();
+    const use = await markExecutionContextWorkspaceInUse({
+      ledgerRootPath: ledger,
+      context,
+    });
+    await releaseExecutionContextWorkspace({
+      ledgerRootPath: ledger,
+      context,
+      use,
+      ownedProcessesQuiescent: false,
+    });
+    expect(await prepare()).toEqual(first);
+  });
+
+  it("reads an old v1 association without inventing a pristine baseline and publishes only v2 lifecycle updates", async () => {
+    await initializeRepository();
+    const first = await prepare();
+    const path = join(
+      ledger,
+      "execution-context-workspace-records",
+      `${context.id}.json`
+    );
+    const { pristineFingerprint, processSupervisionId, ...old } = JSON.parse(
+      await readFile(path, "utf8")
+    );
+    await writeFile(path, JSON.stringify({ ...old, version: 1 }));
+    expect(await prepare()).toEqual(first);
+    const use = await markExecutionContextWorkspaceInUse({
+      ledgerRootPath: ledger,
+      context,
+    });
+    expect(
+      await releaseExecutionContextWorkspace({
+        ledgerRootPath: ledger,
+        context,
+        use,
+        ownedProcessesQuiescent: true,
+      })
+    ).toEqual({ status: "retained", reason: "baseline_unverified" });
+    expect(JSON.parse(await readFile(path, "utf8")).version).toBe(2);
+    expect(
+      await readFile(join(first.workingDirectory, "tracked.txt"), "utf8")
+    ).toBe("committed source\n");
+  });
+
+  it.each([
+    "before rename",
+    "after rename",
+    "edited retired copy",
+    "unexpected live path",
+  ])("reconciles retirement interrupted %s without losing continuation data", async (stage) => {
+    await initializeRepository();
+    const first = await prepare();
+    const path = join(
+      ledger,
+      "execution-context-workspace-records",
+      `${context.id}.json`
+    );
+    const record = JSON.parse(await readFile(path, "utf8"));
+    const retired = `${path}.retired-${randomUUID()}`;
+    await writeFile(
+      path,
+      JSON.stringify({
+        ...record,
+        status: "retiring",
+        retirement: {
+          path: retired,
+          pristineFingerprint: record.pristineFingerprint,
+        },
+      })
+    );
+    if (stage !== "before rename") {
+      await rename(first.boundaryRoot, retired);
+    }
+    if (stage === "edited retired copy") {
+      await writeFile(
+        join(retired, "worktree", "output.txt"),
+        "preserve concurrent edit"
+      );
+    }
+    if (stage === "unexpected live path") {
+      await mkdir(first.boundaryRoot);
+      await writeFile(join(first.boundaryRoot, "user.txt"), "never overwrite");
+      await expect(prepare()).rejects.toThrow("workspace_release_incomplete");
+      expect(await readFile(join(first.boundaryRoot, "user.txt"), "utf8")).toBe(
+        "never overwrite"
+      );
+      expect(
+        await readFile(join(retired, "worktree", "tracked.txt"), "utf8")
+      ).toBe("committed source\n");
+      return;
+    }
+    expect(
+      await prepare({
+        context: { ...context, nativeConversationId: "same-native" },
+      })
+    ).toEqual(first);
+    expect(
+      await readFile(join(first.workingDirectory, "tracked.txt"), "utf8")
+    ).toBe("committed source\n");
+    if (stage === "edited retired copy") {
+      expect(
+        await readFile(join(first.workingDirectory, "output.txt"), "utf8")
+      ).toBe("preserve concurrent edit");
+    }
+    await expect(stat(retired)).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it.each([
+    "tracked edit",
+    "untracked",
+    "ignored",
+    "commit",
+    "metadata",
+  ])("retains %s after quiescence and allows exact continuation", async (kind) => {
+    await initializeRepository();
+    const first = await prepare();
+    const use = await markExecutionContextWorkspaceInUse({
+      ledgerRootPath: ledger,
+      context,
+    });
+    const filename =
+      ({ ignored: ".env", untracked: "output.txt" } as Record<string, string>)[
+        kind
+      ] ?? "tracked.txt";
+    const file =
+      kind === "metadata"
+        ? join(first.boundaryRoot, "repository.git", "user-notes")
+        : join(first.workingDirectory, filename);
+    await writeFile(file, "keep task data\n");
+    if (kind === "commit") {
+      await git(first.workingDirectory, ["commit", "-am", "Task output"]);
+    }
+    const head = await git(first.workingDirectory, ["rev-parse", "HEAD"]);
+    expect(
+      await releaseExecutionContextWorkspace({
+        ledgerRootPath: ledger,
+        context,
+        ownedProcessesQuiescent: true,
+        use,
+      })
+    ).toEqual({ status: "retained", reason: "workspace_changed" });
+    expect(await prepare()).toEqual(first);
+    expect(await readFile(file, "utf8")).toBe("keep task data\n");
+    expect(await git(first.workingDirectory, ["rev-parse", "HEAD"])).toBe(head);
+  });
+
+  it("fails exact restore when the frozen source commit disappears instead of selecting current HEAD", async () => {
+    await initializeRepository();
+    const first = await prepare();
+    await releaseExecutionContextWorkspace({
+      ledgerRootPath: ledger,
+      context,
+      ownedProcessesQuiescent: true,
+    });
+    await rm(join(source, ".git"), { recursive: true });
+    await expect(
+      prepare({
+        context: { ...context, nativeConversationId: "retained-native" },
+      })
+    ).rejects.toThrow("workspace_base_commit_unavailable");
+    await expect(stat(first.boundaryRoot)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+  });
+
   it("materializes independent real worktrees from committed source without shared Git metadata or local secrets", async () => {
     const commit = await initializeRepository();
     const sourceWorktrees = await git(source, [

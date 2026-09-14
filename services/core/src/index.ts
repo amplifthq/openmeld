@@ -15,6 +15,7 @@ import type {
   AccountSpaceActiveWakeSummaryResponse,
   AccountSpaceIndexResponse,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileExecutionModeResponse,
   ApproveOrganizationDocumentDraftResponse,
   ApproveOrganizationDocumentDraftRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
@@ -518,6 +519,7 @@ import {
   type AddCenterAgentToSpaceInput,
   type AddOrganizationDirectoryProfilesToSpaceInput,
   type AddSpaceMembersInput,
+  type AgentProfileExecutionModeInput,
   type ArchiveProjectInput,
   type AssertCurrentDesignatedCenterAgentInput,
   type AuthorizeConnectorDisconnectInput,
@@ -730,6 +732,7 @@ import {
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
+  rpcAgentProfileExecutionMode,
   rpcArchiveProject,
   rpcAssertCurrentDesignatedCenterAgent,
   rpcAuthorizeConnectorDisconnect,
@@ -2315,6 +2318,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return rpcExecuteAgentProfileWorkRecovery(this.env, input);
+  }
+
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return rpcAgentProfileExecutionMode(this.env, input);
   }
 
   getAgentProfileControllerChangeEligibility(
@@ -4477,6 +4486,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return super.executeAgentProfileWorkRecovery(input);
+  }
+
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return super.agentProfileExecutionMode(input);
   }
 
   getAgentProfileControllerChangeEligibility(

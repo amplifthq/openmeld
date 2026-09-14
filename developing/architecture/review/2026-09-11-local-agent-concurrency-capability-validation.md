@@ -1,86 +1,178 @@
-# Local Agent Concurrency: Capability Validation And Implementation Log
+# Local Agent Concurrency: Capability And Implementation Evidence
 
 ## Agent Context
 
-- Purpose: Record source-confirmed facts, native capability probes, and implemented slices for the "Stable Local Agent Identity And Concurrent Work" design so implementation decisions rest on evidence rather than the design's assumptions.
-- Read this when: Implementing, reviewing, or continuing the design in `local-agent-concurrency-design.md`, or judging whether a claimed capability is source-confirmed, natively verified, or still unverified.
-- Update this when: A probe result changes, a slice lands, or a design premise is proven true or false.
-- Do not use this for: Product rules (owner documents), release authorization, or as proof that any incident is fixed in production.
-- Source of truth: Evidence log for PR #948 implementation. Owner documents remain authoritative for behavior.
+- Purpose: Separate current source behavior, historical native probes, and remaining acceptance work for PR #956.
+- Read this when: Reviewing Execution Context implementation or evaluating a concurrency, receipt, migration, or workspace-lifecycle claim.
+- Update this when: Implementation or validation evidence changes.
+- Do not use this for: Release authorization, production proof, or current product rules.
+- Source of truth: Evidence record for [PR #956](https://github.com/amplifthq/openmeld/pull/956); scoped owner documents define the contract.
 
-Status: DRAFT — capability validation in progress; activation off.
+Status: Local P1 and review-comment validation completed on September 15, 2026
+(Asia/Shanghai). The PR remains draft; this is not hosted certification or release
+evidence.
 
-Remove when the feature ships and this evidence is incorporated into the scoped
-owner documents and the design document is deleted.
+Remove when the feature ships and its evidence has been incorporated into the
+scoped owner documents. The original PR #948 and `593cdb2a` receipt-only snapshot
+are historical slices, not descriptions of the current implementation.
 
-## Evidence Levels
+## Current Implementation
 
-| Level | Meaning |
+| Area | Source-confirmed behavior | Limit |
+| --- | --- | --- |
+| Profile capacity | One Work Coordinator, three new reservations, 50 waiting Wakes, one writer per Context, and legacy exclusivity. Readers retain the preceding candidate's five reservations and 55 total items. | Three is a policy ceiling; it is not a measured host-resource budget. |
+| Execution Context | Core assigns Context identity and exact requester/Organization/Space/discussion scope in the owner-shard admission transaction. New, resume, fork, and supported implicit discussion scopes are wired through execution and result routing. | Unsupported harnesses retain legacy serial behavior before Context activation; explicit unsupported selection fails closed. |
+| Native identity | A reverse index rejects a native conversation assigned to a different Context in the same Runtime/Controller namespace. Exact-Wake checkpoints survive Head retirement. | Activity observations and Binding pointers cannot substitute for retained Context evidence. |
+| Project workspaces | Explicit Codex tasks use private Git metadata and worktrees from the confirmed source root's frozen commit. Native project permissions, outside-access probes, and effective MCP inventory are checked before execution. | System temporary directories retain native access rules. This is project-file/Git isolation, not a container boundary. |
+| Continuation and fork | Continuation retains its workspace and native identity; fork uses the selected completed history prefix and its own authority/workspace. | Recent-work brief injection and the general work-history product remain deferred. |
+| Local Space Action receipt | `proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`; exact replay retains original evidence. | `coordinatorAcceptance` and `publication` remain `unconfirmed`. No remote receipt or Late reply UI is implemented here. |
+
+The authoritative implementation lives in:
+
+- `packages/agent-runtime/src/work-policy.ts`
+- `services/core/src/runtime-transport/application/agent-profile-work-coordinator.ts`
+- `services/core/src/runtime-transport/application/execution-context-authority.ts`
+- `clients/openmeld-cli/src/local-service/dispatch/execution-context-workspace.ts`
+- `runtime/local-execution/src/ledger-store.ts`
+- `packages/schemas/src/schemas/space-mesh/dispatch-space-action-receipt.ts`
+
+## Historical Native Evidence
+
+These observations were recorded before the P1 migration/lifecycle revision.
+They must not be relabeled as a five-way product run or as current-candidate
+migration acceptance.
+
+| Observation | Evidence level and scope |
 | --- | --- |
-| SOURCE | Confirmed by reading current checkout source (file:line cited). |
-| NATIVE | Verified by a local native Controller test in a temporary directory. |
-| UNVERIFIED | Not yet proven; the minimal external condition is named. |
-| NOT SUPPORTED | Current source cannot satisfy the design contract as written. |
+| Claude Code local CLI ran three independent requests in separate temporary directories, returned the requested outputs and distinct native session IDs; a same-directory continuation retained its session. | Native CLI capability only. This did not prove the complete OpenMeld Wake/Service path, long-running cleanup, or a fourth waiter. |
+| One local macOS Codex Profile received four independent project requests; three native turns overlapped and the fourth started after a native process exited. Each produced its own result file and correctly linked Space reply. | Reported real local product-path smoke from PR #956 implementation. |
+| A Codex continuation retained edits. A completed-prefix fork used separate files/Git metadata and a different native conversation; native-history readback excluded the parent's later continuation. The source checkout stayed clean. | Reported real local product-path continuation/fork smoke. |
+| Desktop and narrow Task-menu checks passed. | Browser evidence for the earlier implementation, not a new migration or rollback run. |
 
-## Current Source Facts (baseline `origin/main` at `7cf0b014`)
+The five-reservation candidate added deterministic five/sixth and full-queue
+tests, but no five-way native product run. Its five-task policy was therefore
+returned to the demonstrated three-task ceiling during P1 remediation.
 
-| Fact | Level | Evidence |
-| --- | --- | --- |
-| Work Coordinator has one structural slot: index zero owns execution; `start` only when `queuePosition === 0`; `summarize` destructures `[currentWork, ...queuedWork]`. | SOURCE | `services/core/src/runtime-transport/application/agent-profile-work-coordinator.ts:28,155,422` |
-| Waiting bound is `AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING = 50`; overflow returns `queue_full`. | SOURCE | same file `:116-127` |
-| Release = `removeAgentProfileWork` promotes `workItems[0]` only; `settleAgentProfileWork` moves a `usage_exhausted` head into a single `recoveryGate.interruptedWork`. | SOURCE | same file `:160-202,204-288` |
-| Admission DO record is versioned (`openmeld.runtime_coordinator.agent_profile_work_coordinator.v1`, legacy `agent_profile_execution_admission.v1`) and upgraded at read time, not by a stored migration step. | SOURCE | `agent-profile-execution-admission.ts:64-71,108-120,4155-4193` |
-| Single interrupted-work pointer compared by `dispatchId`. | SOURCE | `agent-profile-execution-admission.ts:432-433,1375,1391` |
-| No fixed wall-clock execution deadline exists; termination is progress-evidence staleness (`progressEvidenceStaleTerminalAfterMs`) and pre-accept waiting boundaries. `DEFAULT_AGENT_EXECUTION_TIMEOUT_MS = null`. | SOURCE | `runtime-coordinator-authority.ts:328,1071,1151,917-920`; `packages/agent-runtime/src/dispatch-timeout.ts:4` |
-| Late-result eligibility already exists: terminal-late token, matched run, `failed_terminal`, reason in {progress-stale, local-runtime-lost}, task `success|partial_success`. | SOURCE | `runtime-coordinator-authority.ts:304-321` |
-| Local ledger is Profile-wide: key = `[targetProfileId, agentControllerRef, transportMode, runtimeWorkspaceFingerprint]`, one native conversation per key, `LEDGER_STATE_VERSION = 1`. | SOURCE | `runtime/local-execution/src/ledger-store.ts:12,79-92,127` |
-| Ledger version mismatch is a backup-and-reset, not an upgrade. | NOT SUPPORTED (design asks for versioned upgrade) | `ledger-store.ts:559-561,857-866,973-989` |
-| Local Space Action recorder checks only a 12h local TTL and env/context identity; no remote dispatch-state check before writing the proposal. | SOURCE | `clients/openmeld-cli/src/runtime/dispatch-space-action-context.ts:36,131,174-221,323-346,432-438` |
-| MCP tool returned the success-looking "Action recorded" text even when the remote dispatch had closed. | SOURCE | `clients/openmeld-cli/src/space/action-mcp-server.ts` (pre-change `:153-177`) |
-| Codex fork calls app-server `thread/fork` with `{ excludeTurns: true, threadId }` and no `lastTurnId` / completed-turn cutoff; no summary-injection fallback exists. | NOT SUPPORTED (no frozen boundary) | `runtime/adapters/codex/src/transport/codex-app-server-transport.ts:579-584,626-634,712-723` |
-| CLI fork is coupled to Agent Profile creation: the only cloud caller feeds the child thread into `rpcEnsureAgentProfilePrimaryBinding`. | SOURCE | `services/core/src/agent-profile-creation-request/agent-profile-creation-request-rpc.ts:854-872`; `clients/openmeld-cli/src/local-service/session-control/fork-agent-session.ts` |
-| Fork operations are idempotent per `operationId` (partial lost-ack coverage). | SOURCE | `clients/openmeld-cli/src/local-service/session-control/session-fork-operation-store.ts:9-13,46-88` |
-| Binding conversation column is nullable text. | SOURCE | `packages/db/src/core/agent-profile-binding.schema.ts:22,89-90` |
-| Claude Code exposes only `--resume <id> --fork-session` (repair-gated) and SDK `forkSession`; no turn-cutoff parameter. | NOT SUPPORTED (for the completed-prefix contract) | `runtime/adapters/claude-code/src/transport/claude-cli-transport.ts:320-324`; `claude-agent-sdk-transport.ts:637-642` |
+## P1 Validation
 
-## Native Probes
+- **Workspace recovery and retention:** focused tests cover interrupted preparation,
+  exact-base restore, live-owner exclusion, proven process-tree quiescence,
+  clean-copy reclamation, and retention of edits/ignored or untracked files,
+  new commits, and unknown ownership. A retained workspace is not a completed
+  cleanup. Native transcripts and user-created results must not be deleted.
+- **Mode transition and rollback:** focused tests cover a durable finite legacy boundary,
+  current Binding reread under the owner mutation lease, unclassified legacy
+  association, atomic activation, restart, waiting/recovery preservation, and
+  serial rollback with grandfathered five-reservation records.
+- **Ledger backup:** a separate verified prior-version backup is required before
+  replacing a valid v1 state. Tests cover copy/flush/verification failure and retry,
+  direct writes, native identity preservation, and genuinely unknown versions.
+  Windows directory-entry durability across power loss is not claimed; native
+  Windows execution has not been tested.
+- **Closeout:** report the exact candidate and its focused, contract, packaging,
+  hosted, and native evidence separately. A green import check does not certify
+  the remaining runtime acceptance work.
 
-| Capability | Level | Evidence / blocker |
-| --- | --- | --- |
-| Codex native fork with completed-turn cutoff | UNVERIFIED | `codex-cli 0.148.0` installed at `/opt/homebrew/bin/codex`; `codex login status` = Not logged in. Unblock: `codex login` on the validation host, then one `thread/fork` with `lastTurnId` on a multi-turn thread. |
-| Claude Code local-cli: three independent sessions in parallel | NATIVE | `claude` 2.1.268; three concurrent `claude -p "Reply with exactly: OK <n>" --output-format json --max-turns 1` in separate `mktemp -d` dirs all returned rc=0 with the correct text and distinct `session_id`s; wall 21 s / 26 s / 84 s. |
-| Claude Code local-cli: resume from the same cwd | NATIVE | `claude -p --resume <session_id> "What did you reply before?"` returned "I replied: OK 3" with the same `session_id`, rc=0, 28 s. Resume from a different cwd, a long task, a fourth waiter, and cleanup were not exercised. |
-| Service allows three Claude Code executions per Profile | NOT SUPPORTED today | `runtime/local-service/src/local-execution-slots.ts:1,312-324` (`LOCAL_EXECUTION_LANE_CONCURRENCY_LIMIT = 1`); `dispatch-queue-routing.ts:81-93` lane key falls back to `agent-profile:<profileId>` without a bound native conversation; `agent-context-policy.ts:475-490` `profile_conversation_conflict`. The transport itself is stateless per spawn (`claude-cli-transport.ts:319-338`). |
-| Exit code vs termination signal recorded separately | SOURCE | `runtime/adapters/core/src/drivers/cli-driver.ts:262-268` (`close` event with `exitCode`, `signal`); signal maps to `provider.process_terminated` (`claude-cli-transport.ts:566-571`). Exit 137 without a signal is not labelled OOM but falls to generic `upstream_unreachable`. |
-| Tool-subprocess death distinguishable from Controller death | NOT SUPPORTED | Only the `claude` child process is observed; tool failures surface only as model-reported text. |
-| Active tool call counts as running evidence | NOT SUPPORTED | No `tool_use`/`tool_result`/progress/heartbeat handling in the transport or preview emitter; only `firstStdoutAtMs`/`firstOutputAtMs` are stamped. A silent long tool call is indistinguishable from a hang. |
-| Fixed wall-clock timeout in the Claude Code path | SOURCE | One request-level `claudeTimeoutMs` (SIGTERM then SIGKILL, `cli-driver.ts:178-195`) from `OPENMELD_DAEMON_RUNTIME_REQUEST_TIMEOUT_MS` (`config/claude-runtime-config.ts:78-82`); unbounded when unset. No idle timer. |
+The assembled P1 revision passed 123 focused CLI tests, 17 API client tests,
+CLI/Core/Gateway/Web typechecks, repository contracts, and deferred packaging
+verification. The subsequent checkpoint correction passed the complete 310-test
+Runtime Transport contract file and 22 focused CLI settlement tests, with renewed
+CLI/Core typechecks. These are separate runs, not one aggregate suite.
 
-## Implemented Slices (activation off)
+A real macOS native probe on Codex `0.154.0-alpha.6.2` observed the durable
+supervision marker, a successful native turn, and proven process-tree quiescence.
+The unchanged checkout and private repository were reclaimed and restored at the
+same path and frozen commit. This is adapter/lifecycle evidence, not a complete
+Wake-to-Space smoke. Unit regressions additionally cover interrupted retirement
+and preservation of changed or ambiguously owned copies.
 
-1. Shared work-capacity policy module: `packages/agent-runtime/src/work-policy.ts` exports `AGENT_PROFILE_WORK_CONCURRENCY_LIMIT = 3`, `AGENT_PROFILE_WORK_MAX_WAITING = 50`, a policy type, frozen default, and guard. The coordinator's waiting constant now imports the shared value; the one-slot rule is untouched and the concurrency limit is not consumed anywhere. Tests: `packages/agent-runtime/tests/work-policy.test.ts`, `services/core/src/__tests__/agent-profile-work-coordinator.test.ts`.
-2. Local Space Action receipts use `dispatchSpaceActionToolResultSchema` from `packages/schemas` as the MCP output schema and structured result. `receipt.status` distinguishes `proposal_saved_locally`, `rejected_closed`, and `outcome_unknown`. Exact replay after local expiry preserves the original record and identity while reporting the expired local context; different or new actions stay rejected. Runtime identity and record nonce checks remain enforced, and expiry never admits file reads or uploads. Invalid records are preserved with an unknown receipt. Coordinator acceptance and Space publication remain unconfirmed in every local receipt. Tests: `clients/openmeld-cli/tests/space-action-command.test.ts` and `packages/schemas/tests/dispatch-space-action-receipt.test.ts`.
+## September 15 Comment Fixes
 
-## Not Implemented Yet
+The [review comment](https://github.com/amplifthq/openmeld/pull/956#issuecomment-5666223602)
+identified two defects:
 
-- Three-reservation admission, per-item interrupted work, context-keyed DO and ledger records with versioned upgrade, legacy drain and atomic switch.
-- Execution Context identity, `contextSelection` contract, scoped automatic continuation, recent-work brief, work-history projection.
-- Remote authoritative receipts (`accepted_for_finalization`, `published`), Coordinator-serialized closure, Late reply presentation, CLI stdout wording in `action-command.ts`, and the Space-side closure notice.
-- Completed-prefix native fork (Codex `lastTurnId`), same-Profile fork entry point decoupled from Profile creation, child-authority rejection checks.
-- Host memory/CPU admission, shared provider cooldown, process-termination classification end to end.
+- Space-only scratch access was incorrectly subjected to a user-project
+  allowlist. It now retains a scratch-only native boundary without requiring
+  permission for the Service directory. Real native execution also exposed
+  parent-repository instruction discovery; setting the scratch project root
+  fixes startup without widening file access. Seven session-boundary tests and
+  12 Codex argument/MCP tests pass.
+- Reply repair and reconsideration could retain an earlier turn's checkpoint.
+  All native invocations now share completion observation, reset stale turn
+  evidence, and recapture completion per proposal. Core reserves native identity
+  during receipt checks, but freezes history with the accepted finalization
+  command. Rejected review proposals cannot freeze history, and replay cannot
+  rewrite an accepted checkpoint. Real smoke additionally exposed a read-only
+  repair profile checked as if it allowed writes, and an implicit temporary
+  repair fork. Scoped repair now verifies its effective read-only permissions
+  and resumes the same native conversation; legacy repair remains unchanged.
 
-## Contract Impact Notes
+Local product smoke uses an isolated localhost Worker lane, a temporary
+`OPENMELD_HOME` outside system temporary-directory grants, one owned Git fixture,
+and public `openmeld-dev` commands. Computer policy fixture setup uses its public
+API and is not claimed as browser UI acceptance. Production state is untouched.
 
-Receipt correction validation (2026-09-14): 36 CLI action tests, six dispatch
-file-read tests, five schema tests, and three packaged CLI/stdio MCP integration
-tests passed. The packaged test starts a new server with an already-expired
-context, recovers the original receipt, and rejects a different action without
-changing the record. CLI and schema typechecks, focused Biome, documentation
-and Changelog checks passed. Deferred release-ready verification rebuilt the
-CLI/Service facts against `982cbc5bae40a8803465cb8a7f07569c56e0508b` and passed;
-the release version and manifest remain unchanged. These are isolated local
-checks, not real Space publication, three-way Wake execution, or Final Candidate
-certification.
+The current local build ran three new Space-context Wakes on the same Codex
+Profile after its owner switched the Profile from serial to parallel through
+the public CLI. Three distinct native conversations had overlapping turns;
+all three published their exact requested marker to their own source message.
+The project-only Computer allowlist remained in force. The source Git fixture
+remained clean. This confirms three-way local product concurrency, not five-way
+capacity or a measured resource budget.
 
-- MCP tool result text changed; anything string-matching "Action recorded" (skills, prompts, tests) must update. Error path is additive. On-disk record format and Service/Coordinator wire payloads are unchanged, so old and new CLI/Service interoperate; old CLIs keep the misleading wording.
-- Shared schemas now own the additive MCP receipt contract. No on-disk format, daemon/Coordinator payload, CLI JSON, or D1 change is required. Old and new local/cloud components remain interoperable; no mandatory version floor or deployment order is introduced. Receipt recovery never grants new action or publication authority. See the scoped Shared Contracts and CLI owner documents.
+The budget-correction product smoke started a project task at 1,000 credits,
+posted the owner's 2,000-credit correction after native turn admission, observed
+Core's `review_required` response, and ran a second turn on the same native
+conversation. The final Space reply used 2,000 credits and the requested revision
+marker; the public trace reported `visible_reply`. The unchanged project copy
+was reclaimed only after native execution settled. The first attempt exposed
+the repair-permission defect described above and remains recorded as a failure;
+the successful attempt used a new Wake rather than replaying it.
+
+A public CLI fork from that completed Wake created a different native
+conversation. Native `thread/read` diagnostics showed the parent's initial turn
+and its final correction turn as the child's inherited prefix, followed by the
+child's own new turn. This directly verifies the selected checkpoint includes
+the revised answer rather than relying on a child answer that could have read
+the same correction from Space history.
+The fork also published the revised budget and marker to its own source message;
+its public trace reported `visible_reply`.
+
+After the native repair correction, the full Codex adapter suite passed 126
+tests with two optional native tests skipped. A separate current-native probe
+completed normal and read-only repair turns on one fresh test-owned native
+conversation, with file-operation probes and permission attestation on both.
+
+The final Space-only history smoke retained the project-only Computer allowlist.
+Native history readback showed successful `read_history` and `reply` MCP calls,
+and Space published `SPACE_HISTORY_OK: the revised budget is 2000 credits.`
+The public trace reported `visible_reply`. The earlier startup failure and the
+intermediate inability to load the native terminal CLI remain recorded as failed
+attempts; the final implementation uses the bounded dispatch MCP reader without
+widening filesystem access. Its 28 CLI regressions, four adapter-core MCP tests,
+12 Codex argument tests, targeted Claude/OpenCode configuration cases, schema and
+adapter builds, and CLI typecheck passed. All 71 changed code/configuration files
+passed Biome, and the final repository static contracts passed.
+Final deferred release-readiness verification rebuilt the packaged CLI and
+Service against base `d053dc1846411928fb37fe3c47deeb05c5398d0c` and passed its
+59 release-tool tests. Release metadata remains identical to that base; stamping
+and production distribution are deferred to the release. The test Computer
+policy was restored, the Profile was left in its original parallel mode, and
+the owned Service and localhost Worker stack were stopped.
+
+## Remaining Scope And Explicit Limits
+
+Host RAM/CPU admission, a shared transient-provider cooldown budget, and the
+complete tool-subprocess versus Controller termination classification matrix
+remain unimplemented. Existing slot/resource exclusions and usage recovery do
+not constitute those mechanisms. No claim of universal three-task performance
+or OOM prevention is made.
+
+The local receipt does not expose `accepted_for_finalization` or `published`;
+Core execution and Space publication remain separate authoritative facts.
+There is no Late reply presentation or automatically injected five-entry
+recent-work brief in this implementation. General ACP Context support is
+tracked after merge in [#1040](https://github.com/amplifthq/openmeld/issues/1040).
+
+The draft Changelog entry must remain unpublished until the selected release
+and its user-visible acceptance are proven.

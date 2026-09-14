@@ -129,8 +129,10 @@ import {
   waitRuntimeTransportDispatchResult,
 } from "../infrastructure/runtime-transport/runtime-coordinator-client";
 import {
+  acquireRuntimeTransportAgentProfileLegacyConversationMutation,
   lookupRuntimeTransportOwnerService,
   lookupRuntimeTransportRoute,
+  releaseRuntimeTransportAgentProfileExecutionTargetMutation,
 } from "../infrastructure/runtime-transport/runtime-transport-client";
 import { RUNTIME_TASK_DEDUPED_ERROR_CODE } from "../rules/dispatch-error-policy";
 import {
@@ -1261,7 +1263,8 @@ function assertDaemonRouteExecutionContextCapable(input: {
     input.route.capabilities.runtimeAdapters?.some(
       (adapter) =>
         adapter.adapterId === adapterId &&
-        adapter.capabilityDeclaration.executionContextVersion === 1
+        (adapter.capabilityDeclaration.executionContextVersion ?? 0) >=
+          (input.message.executionContext?.legacyAssociation ? 2 : 1)
     )
   ) {
     return;
@@ -3597,6 +3600,7 @@ const prepareSuccessfulDispatchReply = async (input: {
     runtimeResult,
   });
   const persistedConversationId = await persistAgentControllerConversationId({
+    env: input.env,
     agentControllerConversationId: resolvedAgentControllerConversationId,
     agentControllerRef: resolvedAgentControllerRef,
     db: input.localStateDb,
@@ -4649,6 +4653,7 @@ const buildConversationContinuityWarningText = (input: {
 };
 
 const persistAgentControllerConversationId = async (input: {
+  env: CoreBindings;
   agentControllerConversationId: string | null;
   agentControllerRef: string;
   db: D1Database;
@@ -4686,6 +4691,21 @@ const persistAgentControllerConversationId = async (input: {
     };
   }
 
+  const operationId = `legacy-conversation:${crypto.randomUUID()}`;
+  const mutation =
+    await acquireRuntimeTransportAgentProfileLegacyConversationMutation({
+      env: input.env,
+      operationId,
+      ownerUserId: input.targetOwnerUserId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
+  if (mutation.status !== "acquired") {
+    console.warn("[core.legacy_conversation.write_fenced]", {
+      reasonCode: mutation.reasonCode,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
+    return { bindingSource: null, updateApplied: false };
+  }
   try {
     const currentBinding = await readPrimaryAgentProfileBindingRecord({
       agentProfileId: input.dispatchMessage.targetProfileId,
@@ -4804,6 +4824,13 @@ const persistAgentControllerConversationId = async (input: {
       bindingSource: null,
       updateApplied: false,
     };
+  } finally {
+    await releaseRuntimeTransportAgentProfileExecutionTargetMutation({
+      env: input.env,
+      operationId,
+      ownerUserId: input.targetOwnerUserId,
+      targetProfileId: input.dispatchMessage.targetProfileId,
+    });
   }
 };
 

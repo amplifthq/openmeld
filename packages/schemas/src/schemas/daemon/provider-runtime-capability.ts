@@ -38,7 +38,7 @@ export const providerRuntimeWorkspaceResumeBehaviorSchema = z.enum([
 ]);
 
 export const providerRuntimeCapabilityDeclarationSchema = z.strictObject({
-  executionContextVersion: z.literal(1).optional(),
+  executionContextVersion: z.union([z.literal(1), z.literal(2)]).optional(),
   streamingCapability: providerRuntimeStreamingCapabilitySchema,
   imageInputCapability: providerRuntimeImageInputCapabilitySchema.optional(),
   runtimeWorkingDirectoryMode: providerRuntimeWorkingDirectoryModeSchema,

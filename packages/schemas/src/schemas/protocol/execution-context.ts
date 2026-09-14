@@ -62,8 +62,19 @@ export const executionContextCompletionSchema = z.strictObject({
   completedHistoryId: reference.optional(),
 });
 
+export const executionContextLegacyAssociationSchema = z.strictObject({
+  id: reference,
+  bindingId: reference,
+  configurationRevision: z.number().int().positive(),
+  agentControllerRef: reference,
+  openMeldServiceRuntimeId: reference,
+  nativeConversationId: reference.nullable(),
+  scope: z.literal("legacy_unclassified"),
+});
+
 export const executionContextTaskSchema =
   executionContextAssignmentSchema.extend({
+    legacyAssociation: executionContextLegacyAssociationSchema.optional(),
     nativeConversationId: reference.nullable(),
     runtimeWorkspaceFingerprint: reference.nullable(),
   });

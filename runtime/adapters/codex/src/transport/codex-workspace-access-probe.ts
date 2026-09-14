@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { AdapterComputerFileAccessBoundary } from "@openmeld/adapter-core";
-import { CODEX_FILE_ACCESS_PERMISSION_PROFILE } from "./codex-file-access-boundary.js";
+import type {
+  AdapterComputerFileAccessBoundary,
+  AdapterDispatchExecutionMode,
+} from "@openmeld/adapter-core";
+import {
+  CODEX_FILE_ACCESS_PERMISSION_PROFILE,
+  resolveCodexExecutionContextAccess,
+} from "./codex-file-access-boundary.js";
 
 // Exercise actual opens, not Unix mode bits or the native permission summary.
 // Every path is a Service-created sentinel; no project file is used as a probe.
@@ -20,6 +26,7 @@ printf '%s:%s:%s:%s' "$outside_read" "$outside_write" "$inside_read" "$inside_wr
 
 export async function verifyCodexWorkspaceAccess(input: {
   boundary: AdapterComputerFileAccessBoundary;
+  executionMode?: AdapterDispatchExecutionMode;
   workingDirectory: string;
   execute: (params: {
     command: string[];
@@ -66,7 +73,10 @@ export async function verifyCodexWorkspaceAccess(input: {
       outputBytesCap: 1024,
     });
     const expected =
-      input.boundary.executionContextAccess === "workspace"
+      resolveCodexExecutionContextAccess(
+        input.boundary,
+        input.executionMode
+      ) === "workspace"
         ? "denied:denied:allowed:allowed"
         : "denied:denied:allowed:denied";
     if (

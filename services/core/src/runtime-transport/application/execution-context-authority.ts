@@ -1,6 +1,7 @@
 import {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
+  executionContextLegacyAssociationSchema,
 } from "@openmeld/schemas";
 import type {
   ExecutionContextAssignment,
@@ -8,6 +9,7 @@ import type {
   ExecutionContextScope,
   ExecutionContextTask,
 } from "@openmeld/schemas/types";
+import type { LegacyContextAssociation } from "./agent-profile-context-migration";
 import {
   buildRuntimeCoordinatorHeadLifecycleStorageKey,
   isRuntimeCoordinatorHeadLifecycleRecord,
@@ -20,6 +22,7 @@ const NATIVE_CONTEXT_PREFIX =
 const ASSOCIATION_PREFIX = "runtime-coordinator:execution-context-scope:v1:";
 const WAKE_CONTEXT_PREFIX = "runtime-coordinator:execution-context-wake:v1:";
 type ContextRecord = {
+  legacyAssociation?: LegacyContextAssociation;
   assignment: ExecutionContextAssignment;
   bindingId: string;
   openMeldServiceRuntimeId: string;
@@ -106,6 +109,17 @@ function scopeKey(scope: ExecutionContextScope): string {
     .join(":");
 }
 
+export async function hasRetainedExecutionContexts(input: {
+  targetProfileId: string;
+  storage: Pick<Storage, "list">;
+}): Promise<boolean> {
+  const associations = await input.storage.list({
+    prefix: `${ASSOCIATION_PREFIX}${encodeURIComponent(input.targetProfileId)}:`,
+    limit: 1,
+  });
+  return associations.size > 0;
+}
+
 function requireContext(value: unknown): ContextRecord {
   const record =
     value && typeof value === "object" ? (value as Partial<ContextRecord>) : {};
@@ -114,6 +128,10 @@ function requireContext(value: unknown): ContextRecord {
   );
   if (
     !assignment.success ||
+    (record.legacyAssociation !== undefined &&
+      !executionContextLegacyAssociationSchema.safeParse(
+        record.legacyAssociation
+      ).success) ||
     typeof record.bindingId !== "string" ||
     !record.bindingId ||
     typeof record.openMeldServiceRuntimeId !== "string" ||
@@ -140,6 +158,9 @@ function requireContext(value: unknown): ContextRecord {
     );
   }
   return {
+    ...(record.legacyAssociation
+      ? { legacyAssociation: record.legacyAssociation }
+      : {}),
     assignment: assignment.data,
     bindingId: record.bindingId,
     openMeldServiceRuntimeId: record.openMeldServiceRuntimeId,
@@ -164,6 +185,8 @@ type AssignmentPlan = {
   writes: Record<string, unknown>;
 };
 type AssignmentInput = {
+  legacyAssociation?: LegacyContextAssociation;
+  contextModeActive?: boolean;
   record: RuntimeCoordinatorHeadLifecycleRecord;
   storage: Storage;
   authorizedContinuationSourceWakeId?: string;
@@ -255,6 +278,30 @@ async function retainAcceptedContextDecision(
   };
 }
 
+function assertContextRequestScope(
+  input: AssignmentInput,
+  request: ContextRequest
+): void {
+  if (
+    request.scope.targetProfileId !==
+      input.record.targetWakeLifecycleIdentity.targetProfileId ||
+    request.scope.spaceId !== input.record.targetWakeLifecycleIdentity.spaceId
+  ) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.scope_mismatch"
+    );
+  }
+}
+
+function assertLegacyFallbackAllowed(
+  input: AssignmentInput,
+  reasonCode: string
+): void {
+  if (input.contextModeActive) {
+    throw new ExecutionContextSelectionError(reasonCode);
+  }
+}
+
 export async function prepareExecutionContextAssignment(
   input: AssignmentInput
 ): Promise<AssignmentPlan> {
@@ -275,17 +322,13 @@ export async function prepareExecutionContextAssignment(
   }
   const request = snapshot.contextRequest;
   if (!request) {
+    assertLegacyFallbackAllowed(
+      input,
+      "execution_context.required_after_activation"
+    );
     return { record: input.record, writes: {} };
   }
-  if (
-    request.scope.targetProfileId !==
-      input.record.targetWakeLifecycleIdentity.targetProfileId ||
-    request.scope.spaceId !== input.record.targetWakeLifecycleIdentity.spaceId
-  ) {
-    throw new ExecutionContextSelectionError(
-      "execution_context.scope_mismatch"
-    );
-  }
+  assertContextRequestScope(input, request);
   const implicitRequest =
     request.selection.mode === "auto" && request.required === false;
   if (
@@ -297,6 +340,10 @@ export async function prepareExecutionContextAssignment(
   ) {
     // An unsupported harness keeps its existing Binding conversation. Do not
     // select retained Context history from a previously configured harness.
+    assertLegacyFallbackAllowed(
+      input,
+      "execution_context.harness_unsupported_after_activation"
+    );
     return { record: input.record, writes: {} };
   }
   const source = await resolveContextSource(input, request);
@@ -308,17 +355,25 @@ export async function prepareExecutionContextAssignment(
       );
     }
   }
-  if (!source && implicitRequest && request.scope.threadId === null) {
+  if (
+    !source &&
+    implicitRequest &&
+    request.scope.threadId === null &&
+    !input.contextModeActive
+  ) {
     return { record: input.record, writes: {} };
   }
   const createsContext =
     !source ||
     request.selection.mode === "new" ||
     request.selection.mode === "fork";
-  const context =
+  const selectedContext =
     source && !createsContext
       ? source.context
       : createContext(input.record, snapshot, request, source);
+  const context = input.legacyAssociation
+    ? { ...selectedContext, legacyAssociation: input.legacyAssociation }
+    : selectedContext;
   assertContextPreferences(context, request, createsContext);
   const associationKey = `${ASSOCIATION_PREFIX}${scopeKey(request.scope)}:${context.assignment.id}`;
   return {
@@ -330,7 +385,7 @@ export async function prepareExecutionContextAssignment(
       },
     },
     writes: {
-      ...(createsContext
+      ...(createsContext || input.legacyAssociation
         ? { [CONTEXT_PREFIX + context.assignment.id]: context }
         : {}),
       [associationKey]: {
@@ -343,6 +398,44 @@ export async function prepareExecutionContextAssignment(
       ),
     },
   };
+}
+
+export async function claimLegacyExecutionContext(input: {
+  association: LegacyContextAssociation;
+  storage: Storage;
+}): Promise<void> {
+  if (!input.association.nativeConversationId) {
+    return;
+  }
+  const key =
+    NATIVE_CONTEXT_PREFIX +
+    [
+      input.association.openMeldServiceRuntimeId,
+      input.association.agentControllerRef,
+      input.association.nativeConversationId,
+    ]
+      .map(encodeURIComponent)
+      .join(":");
+  const owner = await input.storage.get<string>(key);
+  if (owner && owner !== input.association.id) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.native_identity_conflict"
+    );
+  }
+  await input.storage.put(key, input.association.id);
+}
+
+export async function attachLegacyAssociationToExecutionContext(input: {
+  contextId: string;
+  association: LegacyContextAssociation;
+  storage: Storage;
+}): Promise<void> {
+  const key = CONTEXT_PREFIX + input.contextId;
+  const record = requireContext(await input.storage.get(key));
+  await input.storage.put(key, {
+    ...record,
+    legacyAssociation: input.association,
+  });
 }
 
 function assertContextBinding(
@@ -590,6 +683,9 @@ export async function resolveExecutionContextTask(
   }
   return {
     ...assignment,
+    ...(context.legacyAssociation
+      ? { legacyAssociation: context.legacyAssociation }
+      : {}),
     nativeConversationId: context.nativeConversationId,
     runtimeWorkspaceFingerprint: context.runtimeWorkspaceFingerprint,
   };
@@ -606,7 +702,7 @@ type ContextCompletionInput = {
 
 function validateResultWake(
   wake: WakeContextRecord | null,
-  input: ContextCompletionInput
+  input: Omit<ContextCompletionInput, "storage">
 ): WakeContextRecord | null {
   if (!(wake || input.contextId || input.completion)) {
     return null;
@@ -664,46 +760,77 @@ function assertCompletionIdentity(
   }
 }
 
+export async function recordExecutionContextCandidate(
+  input: ContextCompletionInput
+): Promise<void> {
+  await input.storage.transaction((storage) =>
+    recordExecutionContextEvidence({
+      ...input,
+      storage,
+      freezeCheckpoint: false,
+    })
+  );
+}
+
+// A native result proposal can require another turn. Only the durable accepted
+// finalization command may make its completed prefix available to later forks.
 export async function recordExecutionContextCompletion(
   input: ContextCompletionInput
 ): Promise<void> {
-  await input.storage.transaction(async (storage) => {
-    const key = wakeContextKey(input.headId);
-    const wake = validateResultWake(
-      readWakeContext(await storage.get(key)),
-      input
+  await input.storage.transaction((storage) =>
+    recordExecutionContextCompletionInTransaction({ ...input, storage })
+  );
+}
+
+export async function recordExecutionContextCompletionInTransaction(
+  input: Omit<ContextCompletionInput, "storage"> & { storage: Storage }
+): Promise<void> {
+  await recordExecutionContextEvidence({ ...input, freezeCheckpoint: true });
+}
+
+async function recordExecutionContextEvidence(
+  input: Omit<ContextCompletionInput, "storage"> & {
+    storage: Storage;
+    freezeCheckpoint: boolean;
+  }
+): Promise<void> {
+  const storage = input.storage;
+  const key = wakeContextKey(input.headId);
+  const wake = validateResultWake(
+    readWakeContext(await storage.get(key)),
+    input
+  );
+  if (!(wake && input.completion)) {
+    return;
+  }
+  const context = requireContext(
+    await storage.get(CONTEXT_PREFIX + wake.contextId)
+  );
+  assertCompletionIdentity(context, wake, input.completion);
+  const nativeKey =
+    NATIVE_CONTEXT_PREFIX +
+    [
+      context.openMeldServiceRuntimeId,
+      context.agentControllerRef,
+      input.completion.nativeConversationId,
+    ]
+      .map(encodeURIComponent)
+      .join(":");
+  const nativeOwner = await storage.get<string>(nativeKey);
+  if (nativeOwner && nativeOwner !== wake.contextId) {
+    throw new ExecutionContextSelectionError(
+      "execution_context.native_identity_conflict"
     );
-    if (!(wake && input.completion)) {
-      return;
-    }
-    const context = requireContext(
-      await storage.get(CONTEXT_PREFIX + wake.contextId)
-    );
-    assertCompletionIdentity(context, wake, input.completion);
-    const nativeKey =
-      NATIVE_CONTEXT_PREFIX +
-      [
-        context.openMeldServiceRuntimeId,
-        context.agentControllerRef,
-        input.completion.nativeConversationId,
-      ]
-        .map(encodeURIComponent)
-        .join(":");
-    const nativeOwner = await storage.get<string>(nativeKey);
-    if (nativeOwner && nativeOwner !== wake.contextId) {
-      throw new ExecutionContextSelectionError(
-        "execution_context.native_identity_conflict"
-      );
-    }
-    await storage.put({
-      [nativeKey]: wake.contextId,
-      [CONTEXT_PREFIX + wake.contextId]: {
-        ...context,
-        nativeConversationId: input.completion.nativeConversationId,
-        runtimeWorkspaceFingerprint:
-          input.completion.runtimeWorkspaceFingerprint,
-      },
-      [key]: { ...wake, completion: input.completion },
-    });
+  }
+  await storage.put({
+    [nativeKey]: wake.contextId,
+    [CONTEXT_PREFIX + wake.contextId]: {
+      ...context,
+      nativeConversationId: input.completion.nativeConversationId,
+      runtimeWorkspaceFingerprint: input.completion.runtimeWorkspaceFingerprint,
+    },
+    ...(input.freezeCheckpoint
+      ? { [key]: { ...wake, completion: input.completion } }
+      : {}),
   });
 }

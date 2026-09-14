@@ -200,6 +200,31 @@ const normalizeContextId = (
   return normalized.length > 0 ? normalized : null;
 };
 
+export function assertLegacyAgentContextAssociation(input: {
+  key: Omit<AgentContextLookupKeyInput, "executionContextId">;
+  legacyNativeConversationId: string | null | undefined;
+  state: OpenMeldDaemonLedgerState;
+}): void {
+  const expectedNativeId = normalizeContextId(input.legacyNativeConversationId);
+  if (!expectedNativeId) {
+    return;
+  }
+  // Check only the selected pre-context lookup. Other retained workspaces or
+  // historical Space associations do not contradict this Binding's identity.
+  const selectedContext = listCompatibleAgentContextLookupKeys({
+    ...input.key,
+    executionContextId: undefined,
+  })
+    .map((lookupKey) => input.state.agentContextByLookupKey[lookupKey])
+    .find((context) => context !== undefined);
+  const localNativeId = normalizeContextId(
+    selectedContext?.agentControllerConversationId
+  );
+  if (localNativeId && localNativeId !== expectedNativeId) {
+    throw new Error("execution_context.legacy_native_identity_mismatch");
+  }
+}
+
 type IncompatibleAgentContextResolution = {
   previousAgentContext: OpenMeldDaemonAgentContextState;
   rotationReason: "controller_ref_changed" | "transport_mode_changed";

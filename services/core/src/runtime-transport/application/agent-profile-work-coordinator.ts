@@ -31,6 +31,7 @@ export type AgentProfileWorkRecoveryGate = {
 };
 
 export type AgentProfileWorkCoordinator = {
+  admissionMode?: "parallel" | "serial" | "draining";
   recoveryGate: AgentProfileWorkRecoveryGate | null;
   revision: number;
   targetProfileId: string;
@@ -570,7 +571,11 @@ function canReserveAgentProfileWork(
     );
   }
   if (
-    reserved.length >= AGENT_PROFILE_WORK_CONCURRENCY_LIMIT ||
+    coordinator.admissionMode === "draining" ||
+    reserved.length >=
+      (coordinator.admissionMode === "serial"
+        ? 1
+        : AGENT_PROFILE_WORK_CONCURRENCY_LIMIT) ||
     reserved.some(
       (active) =>
         !active.executionContextId ||
@@ -585,7 +590,7 @@ function canReserveAgentProfileWork(
     .some((waiter) => !waiter.executionContextId);
 }
 
-function refillAgentProfileWork(input: {
+export function refillAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
   previouslyReserved: readonly AgentProfileWorkCoordinatorItem[];
 }): {

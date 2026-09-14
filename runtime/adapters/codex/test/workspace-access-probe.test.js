@@ -47,8 +47,13 @@ it(
       await mkdtemp(join(tmpdir(), "openmeld-probe-test-"))
     );
     try {
-      for (const access of ["workspace", "read_only"]) {
+      for (const [access, executionMode] of [
+        ["workspace", "normal"],
+        ["read_only", "normal"],
+        ["workspace", "repair"],
+      ]) {
         await verifyCodexWorkspaceAccess({
+          executionMode,
           boundary: {
             mode: "only_selected_folders",
             folders: [root],
@@ -60,7 +65,7 @@ it(
           execute: async ({ command }) => {
             const outside = command[4];
             const inside = command[5];
-            const policy = `(version 1)(allow default)(deny file-read* file-write* (literal ${JSON.stringify(outside)}))${access === "read_only" ? `(deny file-write* (literal ${JSON.stringify(inside)}))` : ""}`;
+            const policy = `(version 1)(allow default)(deny file-read* file-write* (literal ${JSON.stringify(outside)}))${access === "read_only" || executionMode === "repair" ? `(deny file-write* (literal ${JSON.stringify(inside)}))` : ""}`;
             const result = await execute("/usr/bin/sandbox-exec", [
               "-p",
               policy,

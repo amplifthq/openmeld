@@ -14,10 +14,12 @@ import type {
 import type { RuntimeTaskResult } from "@openmeld/local-execution";
 import {
   appendLedgerHistoryEntry,
+  assertLegacyAgentContextAssociation,
   buildAgentContextLookupKey,
   buildRuntimeWorkspaceFingerprint,
   commitResolvedAgentContext,
   DEFAULT_TASK_LIFECYCLE_HEARTBEAT_INTERVAL_MS,
+  loadLedgerState,
   resolveConversationExecutionStateByLookupKey,
   runRuntimeTask,
   seedLegacyAgentContext,
@@ -201,7 +203,10 @@ import {
 } from "./execution-context-session";
 import {
   type ExecutionContextWorkspace,
+  type ExecutionContextWorkspaceUse,
+  markExecutionContextWorkspaceInUse,
   prepareExecutionContextWorkspace,
+  releaseExecutionContextWorkspace,
 } from "./execution-context-workspace";
 import {
   buildDispatchBootstrapTemplateFacts,
@@ -1106,8 +1111,13 @@ export async function handleDispatchDeliverFrame(input: {
     | null = null;
   let dispatchSpaceActionContext: DispatchSpaceActionContext | null = null;
   let nativeQuiescence: Promise<void> | undefined;
+  let workspaceUse: ExecutionContextWorkspaceUse | null = null;
+  const workspaceProcesses = new Map<number | null, boolean>();
+  const observeWorkspaceProcess = (event: AdapterRuntimeEvent) =>
+    observeExecutionContextWorkspaceProcess(workspaceProcesses, event);
   let completedTurnId: string | null = null;
-  let providerSucceeded = false;
+  let completedTurnConversationId: string | null = null;
+  let completedNativeResult: RuntimeTaskResult | null = null;
   let executionContextCompletion: ExecutionContextCompletion | undefined;
   const invalidStateStrategy = executionContextLedgerPolicy(
     parsedTask.executionContext
@@ -1150,6 +1160,11 @@ export async function handleDispatchDeliverFrame(input: {
     effectiveRuntimeContext = runtimePreparation.effectiveRuntimeContext;
     const originalWorkingDirectory =
       effectiveRuntimeContext.providerRuntimeWorkingDirectory;
+    await verifyDispatchLegacyContextAssociation({
+      parsedTask,
+      ledgerPaths: input.ledgerPaths,
+      originalWorkingDirectory,
+    });
     const taskWorkspace = await prepareDispatchTaskWorkspace({
       parsedTask,
       ledgerRootPath: input.ledgerPaths.rootDirPath,
@@ -1236,6 +1251,7 @@ export async function handleDispatchDeliverFrame(input: {
       contextStore: input.contextStore,
       ledgerPaths: input.ledgerPaths,
       parsedTask,
+      originalWorkingDirectory,
       runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
         activeRuntimeContext.providerRuntimeWorkingDirectory
       ),
@@ -1248,6 +1264,14 @@ export async function handleDispatchDeliverFrame(input: {
         agentControllerConversationId: parsedTask.agentControllerConversationId,
         existingContextId,
       });
+    workspaceUse = await markExecutionContextWorkspaceInUse({
+      context: parsedTask.executionContext,
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
+    });
+    runtimeEnvOverrides = {
+      ...runtimeEnvOverrides,
+      OPENMELD_PROCESS_SUPERVISION_ID: workspaceUse?.processSupervisionId,
+    };
     effectiveAgentControllerConversationId =
       await prepareExecutionContextConversation({
         computerFileAccessBoundary,
@@ -1259,6 +1283,8 @@ export async function handleDispatchDeliverFrame(input: {
         ledgerRootPath: input.ledgerPaths.rootDirPath,
         agentControllerRef: parsedTask.agentControllerRef,
         launchContract: routeConfig?.launchContract,
+        onRuntimeEvent: observeWorkspaceProcess,
+        processSupervisionId: workspaceUse?.processSupervisionId,
       });
     latestScopedExecutionState =
       dispatchLedgerContext.latestScopedExecutionState;
@@ -1586,6 +1612,7 @@ export async function handleDispatchDeliverFrame(input: {
         return;
       }
       completedTurnId = event.turnId;
+      completedTurnConversationId = event.agentControllerConversationId;
       if (
         providerAdmissionOwnsRunningLifecycle &&
         runtimeLifecyclePhase !== "running"
@@ -1603,6 +1630,152 @@ export async function handleDispatchDeliverFrame(input: {
         result: "accepted",
       });
     };
+    const onNativeTurnStarted = () => {
+      completedTurnId = null;
+      completedTurnConversationId = null;
+      executionContextCompletion = undefined;
+      completedNativeResult = null;
+    };
+    const onNativeTurnCompleted = (result: RuntimeTaskResult) => {
+      completedNativeResult = result;
+    };
+    const onRuntimeEvent = routeReasoningEvents(observeReasoning, (event) => {
+      observeWorkspaceProcess(event);
+      syncAgentControllerConversationOccupancyLifecycle(event);
+      syncProviderTurnAcceptedLifecycle(event);
+      if (event.phase === "tool_activity") {
+        agentToolActivitySequence += 1;
+        emitDispatchAgentToolActivityFrame({
+          currentSocketRef,
+          daemonSessionId: input.daemonSessionId,
+          deliverRequest: input.deliverRequest,
+          event,
+          parsedTask,
+          presenter: input.presenter,
+          sequence: agentToolActivitySequence,
+        });
+      }
+      if (event.phase === "provider_conversation_observed") {
+        recordProviderConversationObservation({
+          agentControllerConversation:
+            event.agentControllerConversation ?? null,
+          agentControllerConversationId: event.agentControllerConversationId,
+          source: "runtime_event",
+        });
+      }
+      if (
+        event.phase === "provider_usage_limits_observed" &&
+        routeConfig?.launchContract
+      ) {
+        const agentId = runtimeControllerSupport.runtimeAdapterMatch.adapterId;
+        const launchContract = routeConfig.launchContract;
+        usageObservationAuthPromise ??=
+          probeAgentControllerUsageObservationAuth({
+            agentId,
+            launchContract,
+          });
+        const recordUsageLimits = usageObservationAuthPromise.then(
+          (authSnapshot) =>
+            recordRuntimeProviderUsageLimits({
+              agentId,
+              authSnapshot,
+              launchContract,
+              usageLimits: event.usageLimits,
+            })
+        );
+        recordUsageLimits
+          .then((retained) => {
+            if (retained) {
+              return;
+            }
+            emitRunLine({
+              presenter: input.presenter,
+              code: "daemon.run.provider_usage_limits_observation_ignored",
+              text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
+              payload: {
+                agentControllerRef: parsedTask.agentControllerRef,
+                dispatchId: parsedTask.dispatchId,
+                observedLimitKeys: event.usageLimits.map((limit) => limit.key),
+                reasonCode: "provider_account_unconfirmed",
+                targetProfileId: parsedTask.targetProfileId,
+                taskId: parsedTask.taskId,
+              },
+            });
+          })
+          .catch((error) => {
+            emitRunLine({
+              presenter: input.presenter,
+              code: "daemon.run.provider_usage_limits_observation_ignored",
+              text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
+              payload: {
+                agentControllerRef: parsedTask.agentControllerRef,
+                dispatchId: parsedTask.dispatchId,
+                errorMessage: toErrorMessage(error),
+                observedLimitKeys: event.usageLimits.map((limit) => limit.key),
+                targetProfileId: parsedTask.targetProfileId,
+                taskId: parsedTask.taskId,
+              },
+            });
+          });
+      }
+      if (
+        !firstOutputEvidenceSent &&
+        (event.phase === "first_stdout" || event.phase === "first_stderr")
+      ) {
+        firstOutputEvidenceSent = true;
+        emitDispatchRuntimeEvidenceTransition({
+          currentSocketRef,
+          daemonSessionId: input.daemonSessionId,
+          deliverRequest: input.deliverRequest,
+          durationMs: Math.max(0, event.tsMs - runtimeStartedAtMs),
+          parsedTask,
+          phase: "first_output",
+          presenter: input.presenter,
+        });
+      }
+      const controlRegistrySyncResult =
+        syncRuntimeEventToInflightTaskControlRegistry({
+          event,
+          registry: input.inflightTaskControlRegistry,
+          taskId: parsedTask.taskId,
+        });
+      if (controlRegistrySyncResult.updated) {
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.control_registry_synced",
+          text: `control registry synced for task ${parsedTask.taskId}`,
+          payload: {
+            dispatchId: parsedTask.dispatchId,
+            phase: event.phase,
+            processId: controlRegistrySyncResult.processId,
+            targetProfileId: parsedTask.targetProfileId,
+            taskId: parsedTask.taskId,
+          },
+        });
+      }
+      if (event.phase === "process_spawned" || event.phase === "process_exit") {
+        emitDispatchLocalPhaseJournalEvent({
+          deliverRequest: input.deliverRequest,
+          metadata: buildProviderProcessJournalMetadata({
+            agentControllerRef: parsedTask.agentControllerRef,
+            event,
+            runtimeStartedAtMs,
+          }),
+          parsedTask,
+          phase: event.phase,
+          result: event.phase === "process_exit" ? "exited" : "spawned",
+        });
+      }
+      emitProviderRuntimePhaseLine({
+        agentControllerRef: parsedTask.agentControllerRef,
+        dispatchId: parsedTask.dispatchId,
+        event,
+        presenter: input.presenter,
+        runtimeStartedAtMs,
+        targetProfileId: parsedTask.targetProfileId,
+        taskId: parsedTask.taskId,
+      });
+    });
     clearReasoning();
     const runtimeExecutionPromise = Promise.resolve(
       runDispatchRuntimeExecution({
@@ -1612,6 +1785,9 @@ export async function handleDispatchDeliverFrame(input: {
         io: ledgerIo,
         ledgerPaths: input.ledgerPaths,
         onInteractionRequest,
+        onNativeTurnStarted,
+        onNativeTurnCompleted,
+        onRuntimeEvent,
         onPreview: (preview) => {
           emitDispatchPreviewFrame({
             attemptId: parsedTask.attemptId,
@@ -1625,151 +1801,6 @@ export async function handleDispatchDeliverFrame(input: {
             taskId: parsedTask.taskId,
           });
         },
-        onRuntimeEvent: routeReasoningEvents(observeReasoning, (event) => {
-          syncAgentControllerConversationOccupancyLifecycle(event);
-          syncProviderTurnAcceptedLifecycle(event);
-          if (event.phase === "tool_activity") {
-            agentToolActivitySequence += 1;
-            emitDispatchAgentToolActivityFrame({
-              currentSocketRef,
-              daemonSessionId: input.daemonSessionId,
-              deliverRequest: input.deliverRequest,
-              event,
-              parsedTask,
-              presenter: input.presenter,
-              sequence: agentToolActivitySequence,
-            });
-          }
-          if (event.phase === "provider_conversation_observed") {
-            recordProviderConversationObservation({
-              agentControllerConversation:
-                event.agentControllerConversation ?? null,
-              agentControllerConversationId:
-                event.agentControllerConversationId,
-              source: "runtime_event",
-            });
-          }
-          if (
-            event.phase === "provider_usage_limits_observed" &&
-            routeConfig?.launchContract
-          ) {
-            const agentId =
-              runtimeControllerSupport.runtimeAdapterMatch.adapterId;
-            const launchContract = routeConfig.launchContract;
-            usageObservationAuthPromise ??=
-              probeAgentControllerUsageObservationAuth({
-                agentId,
-                launchContract,
-              });
-            const recordUsageLimits = usageObservationAuthPromise.then(
-              (authSnapshot) =>
-                recordRuntimeProviderUsageLimits({
-                  agentId,
-                  authSnapshot,
-                  launchContract,
-                  usageLimits: event.usageLimits,
-                })
-            );
-            recordUsageLimits
-              .then((retained) => {
-                if (retained) {
-                  return;
-                }
-                emitRunLine({
-                  presenter: input.presenter,
-                  code: "daemon.run.provider_usage_limits_observation_ignored",
-                  text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
-                  payload: {
-                    agentControllerRef: parsedTask.agentControllerRef,
-                    dispatchId: parsedTask.dispatchId,
-                    observedLimitKeys: event.usageLimits.map(
-                      (limit) => limit.key
-                    ),
-                    reasonCode: "provider_account_unconfirmed",
-                    targetProfileId: parsedTask.targetProfileId,
-                    taskId: parsedTask.taskId,
-                  },
-                });
-              })
-              .catch((error) => {
-                emitRunLine({
-                  presenter: input.presenter,
-                  code: "daemon.run.provider_usage_limits_observation_ignored",
-                  text: `provider usage limit observation could not be retained for task ${parsedTask.taskId}`,
-                  payload: {
-                    agentControllerRef: parsedTask.agentControllerRef,
-                    dispatchId: parsedTask.dispatchId,
-                    errorMessage: toErrorMessage(error),
-                    observedLimitKeys: event.usageLimits.map(
-                      (limit) => limit.key
-                    ),
-                    targetProfileId: parsedTask.targetProfileId,
-                    taskId: parsedTask.taskId,
-                  },
-                });
-              });
-          }
-          if (
-            !firstOutputEvidenceSent &&
-            (event.phase === "first_stdout" || event.phase === "first_stderr")
-          ) {
-            firstOutputEvidenceSent = true;
-            emitDispatchRuntimeEvidenceTransition({
-              currentSocketRef,
-              daemonSessionId: input.daemonSessionId,
-              deliverRequest: input.deliverRequest,
-              durationMs: Math.max(0, event.tsMs - runtimeStartedAtMs),
-              parsedTask,
-              phase: "first_output",
-              presenter: input.presenter,
-            });
-          }
-          const controlRegistrySyncResult =
-            syncRuntimeEventToInflightTaskControlRegistry({
-              event,
-              registry: input.inflightTaskControlRegistry,
-              taskId: parsedTask.taskId,
-            });
-          if (controlRegistrySyncResult.updated) {
-            emitRunLine({
-              presenter: input.presenter,
-              code: "daemon.run.control_registry_synced",
-              text: `control registry synced for task ${parsedTask.taskId}`,
-              payload: {
-                dispatchId: parsedTask.dispatchId,
-                phase: event.phase,
-                processId: controlRegistrySyncResult.processId,
-                targetProfileId: parsedTask.targetProfileId,
-                taskId: parsedTask.taskId,
-              },
-            });
-          }
-          if (
-            event.phase === "process_spawned" ||
-            event.phase === "process_exit"
-          ) {
-            emitDispatchLocalPhaseJournalEvent({
-              deliverRequest: input.deliverRequest,
-              metadata: buildProviderProcessJournalMetadata({
-                agentControllerRef: parsedTask.agentControllerRef,
-                event,
-                runtimeStartedAtMs,
-              }),
-              parsedTask,
-              phase: event.phase,
-              result: event.phase === "process_exit" ? "exited" : "spawned",
-            });
-          }
-          emitProviderRuntimePhaseLine({
-            agentControllerRef: parsedTask.agentControllerRef,
-            dispatchId: parsedTask.dispatchId,
-            event,
-            presenter: input.presenter,
-            runtimeStartedAtMs,
-            targetProfileId: parsedTask.targetProfileId,
-            taskId: parsedTask.taskId,
-          });
-        }),
         parsedTask,
         instructionPrompt: runtimePromptPlan,
         prompt: runtimePromptPlan.fallbackPrompt,
@@ -1779,10 +1810,7 @@ export async function handleDispatchDeliverFrame(input: {
         runtimeControllerSupport,
         agentControllerConversationOverride,
       })
-    ).then((result) => {
-      providerSucceeded = result.resultPayload.status === "success";
-      return result;
-    });
+    );
     const controllerTurnCompletion = runtimeExecutionPromise.then(
       () => undefined,
       () => undefined
@@ -1820,6 +1848,10 @@ export async function handleDispatchDeliverFrame(input: {
     });
     const structuredSpaceActionOutcome =
       await resolveRuntimeResultStructuredSpaceAction({
+        onInteractionRequest,
+        onNativeTurnStarted,
+        onNativeTurnCompleted,
+        onRuntimeEvent,
         computerFileAccessBoundary,
         controllerTurnCompletion,
         inflightTaskControlRegistry: input.inflightTaskControlRegistry,
@@ -1949,66 +1981,94 @@ export async function handleDispatchDeliverFrame(input: {
     });
     const completedAgentControllerConversationOverride =
       agentControllerConversationOverride ?? null;
-    const buildCurrentResultPayload = (): OpenMeldDaemonTaskResultPayload => {
-      const currentContextDelta = resolveDispatchContextDeltaFromRuntimeResult(
-        runtimeResult.dispatchResult
-      );
-      const observedAgentControllerConversation =
-        resolveObservedDispatchAgentControllerConversation({
-          plannedAgentControllerConversation,
-          contextDelta: currentContextDelta,
-          contextResolution: runtimeResult.contextResolution ?? null,
-          agentControllerConversationOverride:
-            completedAgentControllerConversationOverride,
-        });
-      dispatchExecution = buildDispatchExecution({
-        bootstrapPlan: completedBootstrapPlan,
-        agentControllerConversationId: effectiveAgentControllerConversationId,
-        localRuntimeContextPlan: completedLocalRuntimeContextPlan,
-        observedAgentControllerConversation,
-        plannedAgentControllerConversation,
-      });
-      return {
-        ...resolveDispatchResultPayload({
-          attemptId: parsedTask.attemptId,
-          contextDelta: currentContextDelta,
-          contextResolution: runtimeResult.contextResolution ?? null,
-          basePayload: runtimeResult.resultPayload,
-          bootstrapTemplateFacts: bootstrapContext.bootstrapTemplateFacts,
-          agentControllerRef: parsedTask.agentControllerRef,
-          dispatchExecution,
-          existingContextId: contextIdForDispatch,
-          openClawBinding: runtimeOpenClawBinding,
-          openClawGatewayVisibility: runtimeOpenClawGatewayVisibility,
-          promptTrace: runtimePromptTrace,
-          agentControllerConversationForDispatch:
-            observedAgentControllerConversation ??
+    const buildCurrentResultPayload =
+      async (): Promise<OpenMeldDaemonTaskResultPayload> => {
+        if (parsedTask.executionContext) {
+          await controllerTurnCompletion;
+        }
+        const currentContextDelta =
+          resolveDispatchContextDeltaFromRuntimeResult(
+            runtimeResult.dispatchResult
+          );
+        const observedAgentControllerConversation =
+          resolveObservedDispatchAgentControllerConversation({
             plannedAgentControllerConversation,
+            contextDelta: currentContextDelta,
+            contextResolution: runtimeResult.contextResolution ?? null,
+            agentControllerConversationOverride:
+              completedAgentControllerConversationOverride,
+          });
+        const finalNativeResult =
+          completedNativeResult as RuntimeTaskResult | null;
+        const nativeConversationId =
+          (finalNativeResult
+            ? resolveDispatchContextDeltaFromRuntimeResult(
+                finalNativeResult.dispatchResult
+              )?.agentControllerConversationId
+            : null) ??
+          finalNativeResult?.contextResolution?.agentControllerConversationId ??
+          currentContextDelta?.agentControllerConversationId ??
+          runtimeResult.contextResolution?.agentControllerConversationId ??
+          observedAgentControllerConversation?.agentControllerConversationId ??
+          observedProviderConversationId;
+        executionContextCompletion = await captureExecutionContextCompletion({
+          context: parsedTask.executionContext,
+          nativeConversationId,
+          agentControllerRef: parsedTask.agentControllerRef,
           workingDirectory:
             activeRuntimeContext.providerRuntimeWorkingDirectory,
-          spaceAction: resolvedSpaceAction,
-          spaceActionProvenance: resolvedSpaceActionProvenance,
-          sourceEventId: parsedTask.sourceEventId,
-          targetProfileId: parsedTask.targetProfileId,
-          taskId: parsedTask.taskId,
-        }),
-        executionContextId: parsedTask.executionContext?.id,
-        executionContextCompletion,
+          completedTurnId:
+            completedTurnConversationId === nativeConversationId
+              ? completedTurnId
+              : null,
+          providerSucceeded:
+            finalNativeResult?.resultPayload.status === "success" ||
+            finalNativeResult?.resultPayload.status === "partial_success",
+        });
+        dispatchExecution = buildDispatchExecution({
+          bootstrapPlan: completedBootstrapPlan,
+          agentControllerConversationId: effectiveAgentControllerConversationId,
+          localRuntimeContextPlan: completedLocalRuntimeContextPlan,
+          observedAgentControllerConversation,
+          plannedAgentControllerConversation,
+        });
+        return {
+          ...resolveDispatchResultPayload({
+            attemptId: parsedTask.attemptId,
+            contextDelta: currentContextDelta,
+            contextResolution: runtimeResult.contextResolution ?? null,
+            basePayload: runtimeResult.resultPayload,
+            bootstrapTemplateFacts: bootstrapContext.bootstrapTemplateFacts,
+            agentControllerRef: parsedTask.agentControllerRef,
+            dispatchExecution,
+            existingContextId: contextIdForDispatch,
+            openClawBinding: runtimeOpenClawBinding,
+            openClawGatewayVisibility: runtimeOpenClawGatewayVisibility,
+            promptTrace: runtimePromptTrace,
+            agentControllerConversationForDispatch:
+              observedAgentControllerConversation ??
+              plannedAgentControllerConversation,
+            workingDirectory:
+              activeRuntimeContext.providerRuntimeWorkingDirectory,
+            spaceAction: resolvedSpaceAction,
+            spaceActionProvenance: resolvedSpaceActionProvenance,
+            sourceEventId: parsedTask.sourceEventId,
+            targetProfileId: parsedTask.targetProfileId,
+            taskId: parsedTask.taskId,
+          }),
+          executionContextId: parsedTask.executionContext?.id,
+          executionContextCompletion,
+        };
       };
-    };
-    executionContextCompletion = await captureExecutionContextCompletion({
-      context: parsedTask.executionContext,
-      nativeConversationId: observedProviderConversationId,
-      agentControllerRef: parsedTask.agentControllerRef,
-      workingDirectory: activeRuntimeContext.providerRuntimeWorkingDirectory,
-      completedTurnId,
-      providerSucceeded,
-    });
-    resultPayload = buildCurrentResultPayload();
+    resultPayload = await buildCurrentResultPayload();
     const replySettlement = await settleAgentReplyProposals({
       initialResultPayload: resultPayload,
       reconsider: async (agentReplyObservationCursor) => {
         const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
+          onInteractionRequest,
+          onNativeTurnStarted,
+          onNativeTurnCompleted,
+          onRuntimeEvent,
           agentReplyObservationCursor,
           computerFileAccessBoundary,
           controllerTurnCompletion,
@@ -2034,7 +2094,7 @@ export async function handleDispatchDeliverFrame(input: {
         resolvedSpaceAction = reconsidered.resolvedSpaceAction;
         resolvedSpaceActionProvenance =
           reconsidered.resolvedSpaceActionProvenance;
-        return buildCurrentResultPayload();
+        return await buildCurrentResultPayload();
       },
       submit: (payload) =>
         sendResultAndSummarize({
@@ -2148,6 +2208,13 @@ export async function handleDispatchDeliverFrame(input: {
     });
   } finally {
     await nativeQuiescence;
+    await releaseDispatchTaskWorkspace({
+      workspaceUse,
+      parsedTask,
+      ledgerRootPath: input.ledgerPaths.rootDirPath,
+      workspaceProcesses,
+      presenter: input.presenter,
+    });
     reasoningStream.dispose();
     currentSocketRef.reasoningPreferenceListeners?.delete(clearReasoning);
     lifecycleKeepalive.stop?.();
@@ -2402,11 +2469,41 @@ async function rollbackBootstrapExecutionStateAfterFailureIfNeeded(input: {
   });
 }
 
+async function verifyDispatchLegacyContextAssociation(input: {
+  parsedTask: ParsedDispatchTask;
+  ledgerPaths: LedgerPaths;
+  originalWorkingDirectory: string;
+}): Promise<void> {
+  const association = input.parsedTask.executionContext?.legacyAssociation;
+  if (!association) {
+    return;
+  }
+  const state = await loadLedgerState({
+    invalidStateStrategy: "throw",
+    io: createLedgerIo(),
+    paths: input.ledgerPaths,
+  });
+  assertLegacyAgentContextAssociation({
+    state,
+    legacyNativeConversationId: association.nativeConversationId,
+    key: {
+      spaceId: input.parsedTask.spaceId,
+      targetProfileId: input.parsedTask.targetProfileId,
+      agentControllerRef: input.parsedTask.agentControllerRef,
+      transportMode: input.parsedTask.transportMode,
+      runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
+        input.originalWorkingDirectory
+      ),
+    },
+  });
+}
+
 async function loadDispatchLedgerContext(input: {
   contextStore: Map<string, string>;
   ledgerPaths: LedgerPaths;
   parsedTask: ParsedDispatchTask;
   runtimeWorkspaceFingerprint: string;
+  originalWorkingDirectory: string;
 }): Promise<{
   contextLookupKey: string;
   currentExecutionState: ConversationExecutionState | null;
@@ -2441,6 +2538,18 @@ async function loadDispatchLedgerContext(input: {
         targetProfileId: input.parsedTask.targetProfileId,
         transportMode: input.parsedTask.transportMode,
       } as const;
+      assertLegacyAgentContextAssociation({
+        state,
+        legacyNativeConversationId:
+          input.parsedTask.executionContext?.legacyAssociation
+            ?.nativeConversationId,
+        key: {
+          ...scopeInput,
+          runtimeWorkspaceFingerprint: buildRuntimeWorkspaceFingerprint(
+            input.originalWorkingDirectory
+          ),
+        },
+      });
       const existingAgentContextMatch = resolveCompatibleAgentContextMatch({
         key: keyInput,
         state,
@@ -2775,6 +2884,58 @@ async function prepareDispatchTaskWorkspace(input: {
     currentWorkingDirectory: input.currentWorkingDirectory,
   });
   return { workingDirectory, boundaryRoot: workingDirectory };
+}
+
+async function releaseDispatchTaskWorkspace(input: {
+  workspaceUse: ExecutionContextWorkspaceUse | null;
+  parsedTask: ParsedDispatchTask;
+  ledgerRootPath: string;
+  workspaceProcesses: Map<number | null, boolean>;
+  presenter: Presenter;
+}): Promise<void> {
+  const context = input.parsedTask.executionContext;
+  if (!(input.workspaceUse && context)) {
+    return;
+  }
+  try {
+    const released = await releaseExecutionContextWorkspace({
+      ledgerRootPath: input.ledgerRootPath,
+      context,
+      use: input.workspaceUse,
+      // Codex reports process_spawned synchronously before native work. An
+      // empty set after a settled preflight error means no process was started.
+      ownedProcessesQuiescent: [...input.workspaceProcesses.values()].every(
+        Boolean
+      ),
+    });
+    emitRunLine({
+      presenter: input.presenter,
+      code: `daemon.run.workspace_${released.status}`,
+      text:
+        released.status === "released"
+          ? "Reclaimed the unchanged task workspace."
+          : "Retained the task workspace.",
+      payload: { contextId: context.id, ...released },
+    });
+  } catch (error) {
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.workspace_retained",
+      text: "Task workspace cleanup needs reconciliation.",
+      payload: { contextId: context.id, errorMessage: toErrorMessage(error) },
+    });
+  }
+}
+
+function observeExecutionContextWorkspaceProcess(
+  processes: Map<number | null, boolean>,
+  event: AdapterRuntimeEvent
+): void {
+  if (event.phase === "process_spawned") {
+    processes.set(event.processId, false);
+  } else if (event.phase === "process_exit") {
+    processes.set(event.processId, event.ownedProcessesQuiescent === true);
+  }
 }
 
 async function resolveDispatchComputerFileAccess(input: {
@@ -3548,6 +3709,12 @@ async function readCliSpaceActionRecordWithGrace(input: {
 }
 
 async function resolveRuntimeResultStructuredSpaceAction(input: {
+  onInteractionRequest?: Parameters<
+    typeof runRuntimeTask
+  >[0]["onInteractionRequest"];
+  onNativeTurnStarted: () => void;
+  onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
+  onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
   allowConcurrentReplyReconsideration?: boolean;
   cliEntry?: string | null;
@@ -3618,6 +3785,10 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
             input.agentControllerConversationOverride,
         });
         return runDispatchRuntimeExecution({
+          onInteractionRequest: input.onInteractionRequest,
+          onNativeTurnStarted: input.onNativeTurnStarted,
+          onNativeTurnCompleted: input.onNativeTurnCompleted,
+          onRuntimeEvent: input.onRuntimeEvent,
           computerFileAccessBoundary: input.computerFileAccessBoundary,
           contextId: repairContinuation.contextId,
           executionMode: "repair",
@@ -3781,6 +3952,12 @@ async function resolveRuntimeResultStructuredSpaceAction(input: {
 }
 
 async function coordinateConcurrentAgentReply(input: {
+  onInteractionRequest?: Parameters<
+    typeof runRuntimeTask
+  >[0]["onInteractionRequest"];
+  onNativeTurnStarted: () => void;
+  onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
+  onRuntimeEvent?: Parameters<typeof runRuntimeTask>[0]["onRuntimeEvent"];
   agentReplyObservationCursor?: string | null;
   cliEntry?: string | null;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
@@ -3950,6 +4127,10 @@ async function coordinateConcurrentAgentReply(input: {
         },
       });
       let runtimeResult = await runDispatchRuntimeExecution({
+        onInteractionRequest: input.onInteractionRequest,
+        onNativeTurnStarted: input.onNativeTurnStarted,
+        onNativeTurnCompleted: input.onNativeTurnCompleted,
+        onRuntimeEvent: input.onRuntimeEvent,
         agentControllerConversationOverride:
           continuation.agentControllerConversationOverride,
         computerFileAccessBoundary: input.computerFileAccessBoundary,
@@ -4567,7 +4748,9 @@ type DispatchRuntimeRoute = NonNullable<
 >;
 type DispatchRuntimeTask = Parameters<typeof runRuntimeTask>[0]["task"];
 
-function runDispatchRuntimeExecution(input: {
+async function runDispatchRuntimeExecution(input: {
+  onNativeTurnStarted: () => void;
+  onNativeTurnCompleted: (result: RuntimeTaskResult) => void;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary | null;
   contextId: string | null;
   executionMode: AdapterDispatchExecutionMode;
@@ -4588,7 +4771,8 @@ function runDispatchRuntimeExecution(input: {
   streamingModeOverride?: DispatchRuntimeRoute["streamingMode"];
   agentControllerConversationOverride?: AgentControllerConversationRef | null;
 }): Promise<Awaited<ReturnType<typeof runRuntimeTask>>> {
-  return runRuntimeTask({
+  input.onNativeTurnStarted();
+  const result = await runRuntimeTask({
     ...(input.parsedTask.executionContext ||
     input.agentControllerConversationOverride
       ? {
@@ -4624,6 +4808,8 @@ function runDispatchRuntimeExecution(input: {
       runtimeContext: input.runtimeContext,
     }),
   });
+  input.onNativeTurnCompleted(result);
+  return result;
 }
 
 function buildDispatchRuntimeRoute(input: {

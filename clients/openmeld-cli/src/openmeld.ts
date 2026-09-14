@@ -230,6 +230,7 @@ import {
 } from "./organization-skills/command";
 import { formatAgentControllerPermissionModeHelp } from "./profile/controller-permission-mode-input";
 import { runProfileCurrentSession } from "./profile/current-session-command";
+import { runProfileExecutionMode } from "./profile/execution-mode-command";
 import { hasExplicitProfileUpdateField } from "./profile/profile-update-cli-options";
 import {
   runProfileCreationRequestCancel,
@@ -4789,6 +4790,25 @@ const profileCmd = program
   .command("profiles")
   .alias("profile")
   .description("Manage OpenMeld profiles.");
+
+profileCmd
+  .command("execution-mode")
+  .description(
+    "Read or change independent-task admission for an Agent Profile."
+  )
+  .argument("<profile>", "Agent Profile ID")
+  .option(
+    "--mode <mode>",
+    "parallel or serial; serial lets existing tasks finish"
+  )
+  .action(async (profile: string, options: { mode?: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["profile", "execution-mode"],
+      view,
+      run: () => runProfileExecutionMode({ profile, mode: options.mode, view }),
+    });
+  });
 
 profileCmd.action(async () => {
   const view = getGlobalViewOption();

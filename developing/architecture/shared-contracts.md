@@ -176,6 +176,21 @@ versions. No migration, mandatory version floor, or cloud deploy order is
 introduced. A future CLI/Service release may deliver this as an available
 update; release manifest stamping stays with that release.
 
+The same dispatch-owned MCP server exposes `read_history` for a bounded Space
+text window. `dispatchSpaceHistoryRequestSchema` accepts no arguments;
+`dispatchSpaceHistoryResultSchema` owns its strict output with `spaceId`,
+`sourceSignalId`, literal `beforeCount: 20` and `afterCount: 0`, at most 21 text
+signals including the anchor, and `nextCursor`. Space, anchor, and acting Profile
+come from the active dispatch, never model input. Existing public Space readers
+still enforce access, and the local bridge rechecks active dispatch identity
+after the read. Wrong-Space, non-text, oversized, or expired results fail closed.
+The tool does not read local project files, grant shell access, or publish an
+action. It is an additive local MCP contract using existing cloud history
+receivers; it introduces no backend endpoint or data migration. Older local
+components retain their existing history commands. Scoped bootstrap guidance
+uses the MCP reader because native file isolation can prevent loading a local
+CLI and its dependencies.
+
 ### Thread continuation and file working context
 
 Space owns retained quoted-message lookup and the last explicit human thread
@@ -6130,12 +6145,19 @@ snapshots, or authoring. The existing singular workload reference remains a
 compatibility projection of the first reserved task; waiting counts exclude all
 reserved contexts. Per-Wake progress continues to show every actual execution.
 
-The fixed Profile ceiling is five reservations plus 50 waiting Wakes, owned by
-`packages/agent-runtime`. Raising the previous three-reservation ceiling changes
-admission and local slot policy without changing payload shapes or capability
-versions. A context-capable Service built with the previous ceiling still limits
-local execution to three; both Core and Service must be updated for five. Setup,
-dispatch-owned actions, status, trace, and self-rescue retain their contracts.
+The Profile admission ceiling is three reservations plus 50 waiting Wakes,
+owned by `packages/agent-runtime`. Readers retain the preceding candidate's five
+reservations and 55 total work items so the reduction never discards accepted
+work. Serial policy reduces future reservations to one while retaining Context
+identity and already reserved work. Setup, dispatch-owned actions, status,
+trace, and self-rescue retain their contracts.
+
+The local Space Action receipt is deliberately limited to
+`proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`. Its
+`coordinatorAcceptance` and `publication` fields remain `unconfirmed`; it does
+not implement remote `accepted_for_finalization` or `published` receipts. Core
+execution and Space publication must be read from their existing authorities.
+The separate Late reply presentation remains outside this implementation.
 
 Contract impact: HTTP signal/thread sends gain optional selection fields;
 accepted snapshots and RuntimeTransport gain version-1 context assignments;
@@ -6144,15 +6166,41 @@ and fork journal migrate to v2. Dispatch Space Action authority is unchanged.
 Setup, Service installation, CLI self-rescue, and managed Skill contracts are
 unchanged. Legacy unscoped execution keeps its existing payload and epoch.
 
-Scoped delivery requires a fresh Service adapter declaration of
-`executionContextVersion: 1`, as well as runtime-specific file-access verification.
-An older Service receives a visible update-required outcome for scoped work,
-never a delivery that silently reuses the Binding conversation. Older Core
-strictly rejects the new capability declaration, so deploy Core/Gateway support
+The owner-shard work-coordinator record advances to v3 for the durable migration
+marker and serial/parallel policy. Its reader accepts v1/v2 and the original
+legacy execution-admission record; it preserves previously accepted five-slot
+data. An earlier v2 binary is not a supported rollback reader for v3 policy.
+
+`GET` and `PATCH /v1/agent-profiles/:id/execution-mode` use the shared execution
+mode schemas. PATCH accepts only `serial` or `parallel`; the response reports
+Profile id, mode, migration phase, and revision. Core rechecks current
+Organization and Profile ownership, then mutates the existing owner-shard
+record under the same transaction/index-generation fences as admission. Clients
+cannot use this endpoint to supply native IDs, migration boundaries, or higher
+numeric capacity. An additive reader-first release is required before exposing
+the new CLI caller.
+
+Scoped delivery carrying the Core-owned legacy association requires a fresh
+Service adapter declaration of `executionContextVersion: 2`, as well as
+runtime-specific file-access verification. The reader still accepts version-1
+capability declarations and existing task envelopes without the additive legacy
+association. An older Service receives a visible update-required outcome when
+it cannot read the selected task contract, never a delivery that silently reuses
+the Binding conversation. Assignment/history version remains 1; the capability
+increment identifies the new Service-side migration guard. Older Core strictly
+rejects unknown capability declarations, so deploy Core/Gateway support
 before distributing this Service and Web/CLI feature. This ordered rollout is
 required; publishing the local component first is unsupported. Local-component
 release metadata is deferred in the feature PR and must be produced by the
 guarded release workflow before production rollout.
+
+The legacy association is server-owned metadata from a current primary Binding
+read under the owner-shard mutation lease. The local Service compares only the
+selected pre-isolation Profile/controller/transport/workspace ledger lookup;
+two known, unequal native IDs reject before execution. Missing evidence does
+not choose or rewrite an identity, and unrelated historical roots are not
+treated as conflicts. The association is omitted from local workspace identity
+and never grants the requesting member access to the legacy transcript.
 
 ## Agent Profile Binding Contract
 

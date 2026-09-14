@@ -23,7 +23,7 @@ and validation evidence have been incorporated into the scoped owner documents.
 | Identity | One Agent Profile and primary Binding; many retained execution contexts, created/resumed/forked on demand. |
 | Ordinary follow-up | Default to the requester's recent eligible context in the exact Profile/Organization/Space/main-or-thread scope. Show the choice; allow fresh work or fork in one action. Ambiguous parallel branches require a target choice. |
 | Background | Resume for follow-up; completed-prefix native fork for independent work with inherited background; fresh for explicitly new work or confirmed absence of an eligible prior context. Include five recent work references visible in the same discussion, across requesters. |
-| Capacity | Five reservations per Profile, 50 waiting Wakes; local memory/CPU and provider cooldown can admit fewer. No idle task-session pool. |
+| Capacity | Three reservations per Profile, 50 waiting Wakes; local memory/CPU and provider cooldown can admit fewer. No idle task-session pool. |
 | Authority | Existing Work Coordinator schedules, RuntimeCoordinator owns execution, Space owns publication. An inherited transcript conveys no live token or approval. |
 | Acknowledgement | Distinguish local proposal storage, Coordinator acceptance, and actual Space publication. Known-closed dispatches reject ordinary action submission explicitly. |
 | Quiet long-running tools | A freshly verified, in-flight tool invocation owned by this execution supplies running evidence even without model output. Idle Controller/daemon presence alone does not. |
@@ -69,7 +69,7 @@ While one task runs, another member can address the same Agent in the same Space
 and receive a visible acceptance and, when capacity and execution conditions
 permit, an independent response without waiting for the first task to finish.
 
-The agreed initial limit is **five concurrent work reservations per Agent
+The agreed initial limit is **three concurrent work reservations per Agent
 Profile**, across all its Spaces and Direct Messages, with at most **50 waiting
 Wakes**. The limit is a fixed product default, not a user setting or a measured
 performance guarantee. A reservation includes work that may be starting or still
@@ -94,7 +94,7 @@ owner documents describe the implementation; these rows are not current behavior
 | Current constraint | Evidence | Required change |
 | --- | --- | --- |
 | Binding holds one Controller conversation for a Profile. | [Binding schema](../../packages/db/src/core/agent-profile-binding.schema.ts), [Profile contract](../product/agent-profiles.md#collaboration-and-execution-connection) | Move current conversation selection to an execution context. Preserve Binding as execution connection and native launch settings. |
-| The first `workItems` entry owns the only slot; all later entries wait. | [Work Coordinator](../../services/core/src/runtime-transport/application/agent-profile-work-coordinator.ts) | Separate reserved work from waiting order; support five reservations. |
+| The first `workItems` entry owns the only slot; all later entries wait. | [Work Coordinator](../../services/core/src/runtime-transport/application/agent-profile-work-coordinator.ts) | Separate reserved work from waiting order; support three reservations. |
 | Coordinator state is a versioned Durable Object record with one recovery gate. | [Execution admission](../../services/core/src/runtime-transport/application/agent-profile-execution-admission.ts) | Upgrade persisted state and make interrupted work identifiable individually. |
 | Local context lookup uses Profile, Controller, transport, and working-folder fingerprint, without a work context identifier. | [Agent context policy](../../runtime/local-execution/src/agent-context-policy.ts) | Add explicit context identity so independent work cannot resume the same native conversation accidentally. |
 | Local lanes serialize a native conversation; when its ID is absent, the lane falls back to Profile identity. | [Queue routing](../../runtime/local-service/src/dispatch-queue-routing.ts), [execution slots](../../runtime/local-service/src/local-execution-slots.ts) | Preserve native single-writer behavior; use context identity before native conversation creation. |
@@ -148,7 +148,7 @@ flowchart LR
     L --> R2[Native conversation B]
 ```
 
-A Profile can have many contexts over time and at most five reservations now.
+A Profile can have many contexts over time and at most three reservations now.
 Each context has at most one native conversation writer. A native conversation
 belongs to one context and one Profile within its exact Runtime/Controller
 namespace. A process may host several native sessions only if the Controller
@@ -288,7 +288,7 @@ already applied to a running Controller.
 
 Progress can be read from the existing authorized execution projection without
 starting a model or consuming a work slot. A question requiring new reasoning
-is another Wake. There is no hidden sixth model slot when all five are busy.
+is another Wake. There is no hidden fourth model slot when all three are busy.
 
 Every dispatch brief includes up to **five** recent accessible Wakes from this
 exact Profile/Organization/Space/main-or-thread discussion scope: ID, bounded
@@ -445,7 +445,7 @@ Opening or dismissing an update grants no execution or context access. Preserve
 existing browser/email preferences and do not add a confirmation loop or an
 urgent notification merely because work is parallel.
 
-## One Scheduler, Five Reservations
+## One Scheduler, Three Reservations
 
 Agent Profile Work Coordinator remains the owner-shard admission and ordering
 authority. RuntimeCoordinator remains the owner of every concrete execution.
@@ -466,7 +466,7 @@ The admission algorithm is:
 2. Validate current access, Wakeability, selected Controller capability, and
    applicable recovery/mutation holds.
 3. In the existing owner-shard transaction, reserve capacity only if fewer than
-   five reservations exist and this context has no writer. Otherwise retain it
+   three reservations exist and this context has no writer. Otherwise retain it
    in the bounded waiting set. Queue overflow has an explicit visible outcome.
 4. Deliver the same authorized execution intent to the exact Service. Local
    admission atomically checks its global slots, Controller maintenance, native
@@ -498,25 +498,27 @@ contract proves the execution can no longer perform work. A visible reply by
 itself is not proof that its runtime process has stopped producing effects.
 
 The profile ceiling, existing Service-wide capacity, and Controller/resource
-limits all apply. Five is a ceiling, not a promise that every device can execute
-five arbitrary requests concurrently. Do not spawn more processes to bypass a
-Controller limit or allocate five idle instances in advance.
-An executing forked child consumes one of the same five reservations. Its parent
+limits all apply. Three is a ceiling, not a promise that every device can execute
+three arbitrary requests concurrently. Do not spawn more processes to bypass a
+Controller limit or allocate three idle instances in advance.
+An executing forked child consumes one of the same three reservations. Its parent
 consumes another only while the parent's work holds a reservation. Fork depth or
 history inheritance cannot create additional concurrency outside this limit.
 
 ### Limits and how to change them
 
 `packages/agent-runtime/src/work-policy.ts` owns the fixed
-`AGENT_PROFILE_WORK_CONCURRENCY_LIMIT = 5` and
+`AGENT_PROFILE_WORK_CONCURRENCY_LIMIT = 3` and
 `AGENT_PROFILE_WORK_MAX_WAITING = 50`. Core admission, persisted-state validation,
-Service slots, and client copy consume this shared policy. The stored work-item
-bound is their sum, 55. There is no server-controlled runtime override.
+Service slots, and client copy consume this shared policy. Readers also retain
+the preceding candidate's five reservations plus 50 waiting Wakes; lowering the
+target must not discard accepted work. The owner-controlled serial policy can
+lower new admission without changing existing Context or native identities.
 Do not maintain separate editable defaults in clients. The Service's global default
 (`DEFAULT_RUNTIME_DAEMON_GLOBAL_CONCURRENCY = 10`) is a different ceiling, not a
 claim that this computer has resources for ten executions.
 
-Changing 5 or 50 later is a policy/contract release with matching validation and
+Changing 3 or 50 later is a policy/contract release with matching validation and
 owner-doc updates. It needs no data migration if existing versioned records and
 receivers already represent the new bounds. Otherwise upgrade their schema first.
 A decrease never drops waiting work, kills running work, or invalidates a stored
@@ -636,7 +638,7 @@ temporary branches.
 
 | Work access | Parallel behavior |
 | --- | --- |
-| No local tools; bounded, authorized Space context only | May answer while a folder-writing task runs, if the Controller demonstrably enforces that tool policy. Uses one of the five slots. |
+| No local tools; bounded, authorized Space context only | May answer while a folder-writing task runs, if the Controller demonstrably enforces that tool policy. Uses one of the three slots. |
 | Enforced read-only local access | Multiple readers may run. A writer of an overlapping root excludes readers as well, so a review is not presented as a stable view while that root changes. |
 | Writes within known bounded roots | One writer per overlapping root; disjoint roots may run concurrently when the native sandbox enforces those roots. |
 | Unrestricted or unverified filesystem access | Conservatively exclusive within the local Service's filesystem execution scope. Do not call it isolated because its configured cwd is different. |
@@ -661,8 +663,8 @@ also count; different subdirectories alone are not isolation. Arbitrary external
 effects continue to use existing action authority and provider conflict rules;
 this design does not claim to detect every external-resource conflict.
 
-**Delivery implication:** five independent context-only requests in one Space
-must be able to run concurrently on a proven Controller. Five edits of the same
+**Delivery implication:** three independent context-only requests in one Space
+must be able to run concurrently on a proven Controller. Three edits of the same
 custom checkout may remain serial. At least one supported Controller must prove
 the responsive context-only path before this feature is presented as solving the
 busy-teammate problem. Broader concurrent repository editing requires a separate
@@ -682,7 +684,7 @@ final Wakeability from CPU/memory usage.
 | Memory | Estimate the full task-owned process tree; reserve host headroom and reject additional local starts when the budget does not fit. |
 | CPU or OS memory pressure | Temporarily defer starts; preserve current work and its progress. Sustained pressure is not an automatic kill request. |
 | Provider throttle | Share the verified account/Controller scope's cooldown and reduced capacity; a new context cannot escape it. |
-| Unknown support or unmeasurable resource envelope | Keep host execution at one concurrent task until the capability probe establishes a usable budget; do not label five sessions as supported from the Profile constant alone. |
+| Unknown support or unmeasurable resource envelope | Keep host execution at one concurrent task until the capability probe establishes a usable budget; do not label three sessions as supported from the Profile constant alone. |
 
 Initial **soft admission** parameters for capability validation are memory
 headroom of `max(2 GiB, 20% of physical RAM)`, using platform-appropriate available
@@ -749,8 +751,8 @@ eligibility evidence. This is a capacity constraint, not another Usage authority
 Usage/recovery rules. Anthropic documents both transient limits with retry hints
 and spend-cap 429s without them; this does not prove every Claude Code transport
 exposes those fields ([provider rate limits](https://platform.claude.com/docs/en/api/rate-limits)).
-The Claude Code **local-cli** five-session case must be tested explicitly, as
-well as any SDK path advertised separately, before claiming five-way support.
+The Claude Code **local-cli** three-session case must be tested explicitly, as
+well as any SDK path advertised separately, before claiming three-way support.
 
 ## Persistence And Single Ownership
 
@@ -816,7 +818,7 @@ that implementation-level claim.
 
 Profile count, active runtime resources, and historical context count are
 different quantities. A Profile can complete 100 independent Wakes while keeping
-one teammate identity and at most five reservations. It may retain 100 context
+one teammate identity and at most three reservations. It may retain 100 context
 associations without keeping 100 native sessions active.
 
 The first version has these concrete lifecycle rules:
@@ -831,10 +833,10 @@ The first version has these concrete lifecycle rules:
 3. When execution completes, release its owned runtime handles and task-specific
    processes through the adapter lifecycle. Do not keep an active task session
    merely because a follow-up might arrive. There is no idle-session warm pool
-   or preallocation of five native sessions in this version.
+   or preallocation of three native sessions in this version.
 4. The Service itself and a Controller's legitimately shared host may remain
    online. They must not retain growing numbers of idle task sessions. A count
-   of five work reservations is not a promise of exactly five OS processes;
+   of three work reservations is not a promise of exactly three OS processes;
    task-owned subprocesses must also finish or have explicit tracked ownership.
 5. A later authorized continuation restores the exact saved association on
    demand. If exact resume is unavailable, expose that outcome; do not present
@@ -908,7 +910,7 @@ target the relevant exact native sessions and report saved/applied honestly.
    mode; after commit it has one new authority. New Binding/settings/result
    writers consult that marker and cannot update the historical Profile-wide
    conversation association.
-6. Admit new work with the five-reservation model only on a compatible Service.
+6. Admit new work with the three-reservation model only on a compatible Service.
    Resume a legacy context only through an authorized exact continuation or
    recovery path whose original scope is known. New independent work uses fresh
    or explicitly forked background. A legacy context is eligible as a fork
@@ -942,7 +944,7 @@ scan arbitrary user transcripts or clear the local home as a migration step.
 | Profile mode | Service capability | Behavior |
 | --- | --- | --- |
 | Legacy | Old or compatible new Service | Existing one-slot behavior and existing wire contract. |
-| New | Compatible new Service and Controller | Five-reservation admission with context/resource guards. |
+| New | Compatible new Service and Controller | Three-reservation admission with context/resource guards. |
 | New | Context-scoped execution supported, exact fork contract unsupported | New/resume work remains available; native background fork is explicitly unavailable. An independently chosen fresh task can use authorized result references, but is not presented as Fork. |
 | New | Old or incompatible Service | Explicit required-update/recovery state; no dispatch with legacy conversation semantics. |
 
@@ -958,7 +960,7 @@ This document does not authorize deployment or replace release tooling.
 
 ### Rollback
 
-Turn off new-mode admissions first. Do not free the five reservations or replay
+Turn off new-mode admissions first. Do not free the three reservations or replay
 their work. Drain or resolve active and held work using code that understands the
 new schema. A compatible rollback build can limit new execution to one slot
 while retaining per-context associations; it must not merge contexts.
@@ -976,7 +978,7 @@ products or authorization to execute them from this design task.
 | Slice | Concrete scope | Exit evidence |
 | --- | --- | --- |
 | Context identity and compatibility | Shared Zod schemas, owner-shard association and fork provenance, local ledger key/version, completed-prefix native fork, child authority isolation, no Profile-wide result overwrite, legacy readers. | Distinct native contexts, exact continuation and fork cutoff, duplicate fencing, legacy fixture conversion. Activation remains off. |
-| Admission and local execution | Five reservations, context single-writer rules, filesystem/host-resource claims, shared provider cooldown, bounded eligibility scan, termination and release/recovery handling. | Same-Space independent work progresses concurrently; sixth waits; signals and uncertainty are distinguished; constrained hosts/providers admit fewer tasks honestly. |
+| Admission and local execution | Three reservations, context single-writer rules, filesystem/host-resource claims, shared provider cooldown, bounded eligibility scan, termination and release/recovery handling. | Same-Space independent work progresses concurrently; fourth waits; signals and uncertainty are distinguished; constrained hosts/providers admit fewer tasks honestly. |
 | Work history | Read-only API/CLI/tool projection over existing messages, Wakes, and results; bounded filters/pagination, authorization, evidence links, and lineage enrichment. | A current context can find accessible prior work and inspect its results without opening every native session or leaking another member's work. |
 | Product surfaces and authority | Scoped auto-continuation and visible continue/fork/fresh choices, recent-work brief, structured target validation, typed action receipts and eligible Late reply presentation, workload counts, lineage and Inbox updates. | Repeated plain mentions retain authorized background; closed-dispatch actions are explicit; related parallel requests have one authorized update per source/recipient. |
 | Migration and release readiness | Legacy drain, atomic switch, compatible component matrix, owner-doc updates, changelog, required local release validation. | State/restart/rollback tests plus real-user smoke on the exact candidate. |
@@ -992,14 +994,14 @@ orchestration framework to implement these slices.
 The feature is not complete with a concurrency constant change or unit tests
 alone. Required behavior includes:
 
-1. **Stable identity:** five independent requests create one Profile, one
+1. **Stable identity:** three independent requests create one Profile, one
    current Binding, and independent context associations; a restart creates no
    duplicate teammate.
-2. **Same-Space concurrency:** five admissible context-only tasks from at least
+2. **Same-Space concurrency:** three admissible context-only tasks from at least
    two real members enter execution before a held first task completes. Replies
    have the correct request/source association and no private context mixing.
-3. **Capacity:** a sixth independent request waits; a confirmed release promotes
-   eligible work. At most five reservations and 50 waiting entries exist under
+3. **Capacity:** a fourth independent request waits; a confirmed release promotes
+   eligible work. At most three reservations and 50 waiting entries exist under
    concurrent submissions, Stop, completion, and reconnect.
 4. **Context safety and ordinary follow-ups:** repeated plain mentions for edit,
    revision, failure explanation, and re-review continue the same requester's
@@ -1031,12 +1033,12 @@ alone. Required behavior includes:
 10. **Mixed versions:** exercise the compatibility table, including an old
     Service reconnect after activation. It must request an update, not attach
     independent work to the old shared conversation.
-11. **Lifecycle:** directory/controller changes cannot race any of the five
+11. **Lifecycle:** directory/controller changes cannot race any of the three
     active tasks; process or socket loss cannot manufacture a free slot.
 12. **Bounded history:** many completed contexts do not grow the hot queue record
     or keep idle processes alive; retained unresolved work survives collection.
     A sequence of 100 completed requests leaves no task-owned warm sessions or
-    abandoned subprocesses. Queueing the sixth request creates no native
+    abandoned subprocesses. Queueing the fourth request creates no native
     runtime, and a later continuation resumes its historical context on demand.
 13. **Background inheritance:** on at least one verified Controller, a child
     writing onboarding instructions inherits the selected completed product
@@ -1095,15 +1097,15 @@ alone. Required behavior includes:
     Controller limits, transient 429 with/without retry hints, hard quota 429,
     and native SDK retries. Shared local Profiles must not bypass cooldown by
     opening new contexts. No synthetic model probe or replay is used to recover.
-    Measure five independent **Claude Code local-cli** sessions on a real host,
-    including a long task, fork/continuation, cleanup, and a sixth waiter; assess
+    Measure three independent **Claude Code local-cli** sessions on a real host,
+    including a long task, fork/continuation, cleanup, and a fourth waiter; assess
     the SDK transport separately. A failed/unproven matrix retains the lower
-    advertised capacity rather than claiming generic five-session support.
+    advertised capacity rather than claiming generic three-session support.
     Measure starvation while an unrelated user build saturates host CPU. Compare
     sustained deferral with a bounded-delay/single-task option only when memory,
     ownership, and provider checks permit it. This is a validation experiment,
     not an enabled fallback or permission to bypass the existing resource policy.
-21. **Policy adjustment:** lower limits with five reserved and 50 waiting, then
+21. **Policy adjustment:** lower limits with three reserved and 50 waiting, then
     increase them across mixed-version peers. Accepted work remains valid and
     ordered; no dropped request, forced cancellation, or incompatible admission
     occurs. Verify schema migration is requested only if representation/receiver
@@ -1126,7 +1128,7 @@ Stop, access revocation, supersession, and publication-exhaustion fences remain.
 
 | Owner document | Required update |
 | --- | --- |
-| [Agent Profiles](../product/agent-profiles.md) | Context multiplicity and new/resume/fork semantics within one identity, five reservations, native conversation ownership, work-history access, legacy continuity, settings and multi-work recovery. |
+| [Agent Profiles](../product/agent-profiles.md) | Context multiplicity and new/resume/fork semantics within one identity, three reservations, native conversation ownership, work-history access, legacy continuity, settings and multi-work recovery. |
 | [Agent Transport](agent-transport-contract.md) | Admission/order, per-context guards, action receipts, verified in-flight-tool running evidence distinct from presentation activity, technical-loss Late reply supplements, process/finalization/release evidence, migration. |
 | [Local Service](local-openmeld-service.md) | Context-keyed dispatch, native fork cutoff and child authority isolation, owned-invocation observations during silent tools, host/resource budgets, throttle evidence, process-tree cleanup, capability gating, restart and unknown-outcome handling. |
 | [Space Collaboration](../product/space-collaboration.md) | Scoped automatic continuation, visible context choice, recent-work brief, author checks, ambiguity handling, progress and late-result presentation with existing fences. |
@@ -1145,7 +1147,7 @@ Before implementation activation, prove the chosen initial Controller's
 independent native sessions, completed-prefix fork during source work, child
 authority isolation, context-only tool restriction, resource admission, and exact
 stop/recovery behavior against its official API and a local smoke. Explicitly
-include Claude Code local-cli five-session behavior, task-tree resource use,
+include Claude Code local-cli three-session behavior, task-tree resource use,
 signal/Service loss, native retry behavior, and long-render final actions; SDK
 results cannot substitute for local-cli evidence. Also confirm
 which existing diagnostic payloads and indexes can support context references

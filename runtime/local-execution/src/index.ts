@@ -18,6 +18,7 @@ export {
   type AgentContextLookupKeyInput,
   type AgentContextResolutionResult,
   type AgentContextScopeInput,
+  assertLegacyAgentContextAssociation,
   buildAgentContextLookupKey,
   isAgentContextCompatibleWithLookupKeyInput,
   isAgentContextCompatibleWithScopeInput,

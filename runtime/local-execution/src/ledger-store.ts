@@ -196,6 +196,7 @@ export type LedgerFileIo = {
   ) => Promise<void>;
   readFile: (filePath: string, encoding: "utf8") => Promise<string>;
   rename: (fromPath: string, toPath: string) => Promise<void>;
+  syncPath: (fileOrDirectoryPath: string) => Promise<void>;
   rm: (
     filePath: string,
     options: {
@@ -947,7 +948,7 @@ export const parseLedgerState = (
   value: unknown
 ): OpenMeldDaemonLedgerState | null => decodeLedgerState(value);
 
-export const loadLedgerState = async (input: {
+const loadLedgerStateUnlocked = async (input: {
   invalidStateStrategy?: LedgerInvalidStateStrategy;
   io: LedgerFileIo;
   paths: LedgerPaths;
@@ -989,7 +990,70 @@ export const loadLedgerState = async (input: {
     });
   }
 
+  if (isRecord(parsedUnknown) && parsedUnknown.v === 1) {
+    await backupPriorVersionLedgerState({ ...input, rawState });
+  }
+
   return parsedState;
+};
+
+export const loadLedgerState = async (input: {
+  invalidStateStrategy?: LedgerInvalidStateStrategy;
+  io: LedgerFileIo;
+  paths: LedgerPaths;
+}): Promise<OpenMeldDaemonLedgerState> =>
+  enqueueLedgerStateWrite({
+    operation: () => loadLedgerStateUnlocked(input),
+    stateFilePath: input.paths.stateFilePath,
+  });
+
+const backupPriorVersionLedgerState = async (input: {
+  io: LedgerFileIo;
+  paths: LedgerPaths;
+  rawState: string;
+}): Promise<void> => {
+  // Keep the migration checkpoint separate from invalid-state recovery backups.
+  const backupPath = `${input.paths.stateFilePath}.v1.bak`;
+  let tempPath: string | undefined;
+  try {
+    let existingBackup: string | undefined;
+    try {
+      existingBackup = await input.io.readFile(backupPath, UTF8_ENCODING);
+    } catch (error) {
+      if (toErrorCode(error) !== "ENOENT") {
+        throw error;
+      }
+    }
+    if (existingBackup === undefined) {
+      tempPath = buildScopedStateTempFilePath({
+        stateTempFilePath: `${backupPath}.tmp`,
+      });
+      await input.io.copyFile(input.paths.stateFilePath, tempPath);
+      await input.io.syncPath(tempPath);
+      if (
+        (await input.io.readFile(tempPath, UTF8_ENCODING)) !== input.rawState
+      ) {
+        throw new Error(LEDGER_STATE_BACKUP_ERROR);
+      }
+      await input.io.rename(tempPath, backupPath);
+      tempPath = undefined;
+    } else if (existingBackup !== input.rawState) {
+      throw new Error(LEDGER_STATE_BACKUP_ERROR);
+    }
+    await input.io.syncPath(backupPath);
+    await input.io.syncPath(input.paths.rootDirPath);
+    if (
+      (await input.io.readFile(backupPath, UTF8_ENCODING)) !== input.rawState
+    ) {
+      throw new Error(LEDGER_STATE_BACKUP_ERROR);
+    }
+  } catch (error) {
+    throw new Error(LEDGER_STATE_BACKUP_ERROR, { cause: error });
+  } finally {
+    if (tempPath) {
+      await input.io.rm(tempPath, { force: true }).catch(() => undefined);
+    }
+  }
 };
 
 const handleInvalidLedgerState = async (input: {
@@ -1043,7 +1107,9 @@ const persistLedgerStateAtomic = async (input: {
       serializeLedgerState(normalizedState),
       UTF8_ENCODING
     );
+    await input.io.syncPath(scopedTempFilePath);
     await input.io.rename(scopedTempFilePath, input.paths.stateFilePath);
+    await input.io.syncPath(input.paths.rootDirPath);
   } catch (error) {
     await input.io.rm(scopedTempFilePath, {
       force: true,
@@ -1059,6 +1125,8 @@ export const persistLedgerState = async (input: {
 }): Promise<void> =>
   enqueueLedgerStateWrite({
     operation: async () => {
+      // Direct persistence must not bypass validation or the v1 checkpoint.
+      await loadLedgerStateUnlocked(input);
       await persistLedgerStateAtomic(input);
     },
     stateFilePath: input.paths.stateFilePath,
@@ -1076,7 +1144,7 @@ export const withLedgerStateTransaction = async <T>(input: {
 }): Promise<T> =>
   enqueueLedgerStateWrite({
     operation: async () => {
-      const state = await loadLedgerState({
+      const state = await loadLedgerStateUnlocked({
         invalidStateStrategy: input.invalidStateStrategy,
         io: input.io,
         paths: input.paths,

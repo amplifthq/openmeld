@@ -172,12 +172,25 @@ export const acquireRuntimeTransportAgentProfileFutureWorkSettingsMutation =
     });
   };
 
+export const acquireRuntimeTransportAgentProfileLegacyConversationMutation =
+  (input: {
+    env: CoreBindings;
+    operationId: string;
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> =>
+    acquireRuntimeTransportAgentProfileMutation({
+      ...input,
+      rpcMethod: "rpcAcquireAgentProfileLegacyConversationMutation",
+    });
+
 const acquireRuntimeTransportAgentProfileMutation = async (input: {
   env: CoreBindings;
   operationId: string;
   ownerUserId: string;
   rpcMethod:
     | "rpcAcquireAgentProfileControllerMutation"
+    | "rpcAcquireAgentProfileLegacyConversationMutation"
     | "rpcAcquireAgentProfileFutureWorkSettingsMutation";
   targetProfileId: string;
 }): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> => {

@@ -59,7 +59,11 @@ describe("Execution Context local authority", () => {
     ).rejects.toThrow("workspace_is_symlink");
   });
 
-  it("narrows the existing Computer policy and rejects both parent and descendant exclusions", () => {
+  it.each([
+    "workspace",
+    "read_only",
+  ] as const)("narrows the Computer policy for %s tasks and rejects parent and descendant exclusions", (access) => {
+    const localContext = { ...context, access };
     const policy = {
       mode: "only_selected_folders" as const,
       folders: ["/projects"],
@@ -68,17 +72,17 @@ describe("Execution Context local authority", () => {
     };
     expect(
       executionContextFileAccessBoundary({
-        context,
+        context: localContext,
         workingDirectory: "/projects/task",
         policy,
       })
     ).toMatchObject({
       folders: ["/projects/task"],
-      executionContextAccess: "workspace",
+      executionContextAccess: access,
     });
     expect(() =>
       executionContextFileAccessBoundary({
-        context,
+        context: localContext,
         workingDirectory: "/other",
         policy,
       })
@@ -86,7 +90,7 @@ describe("Execution Context local authority", () => {
     for (const folder of ["/projects", "/projects/task/private"]) {
       expect(() =>
         executionContextFileAccessBoundary({
-          context,
+          context: localContext,
           workingDirectory: "/projects/task",
           policy: {
             ...policy,
@@ -96,6 +100,33 @@ describe("Execution Context local authority", () => {
         })
       ).toThrow("overlaps_blocked_folder");
     }
+  });
+
+  it.each([
+    { mode: "only_selected_folders", folders: ["/projects/selected"] },
+    { mode: "block_selected_folders", folders: ["/projects", "/service"] },
+  ] as const)("keeps Space-only native access limited to its scratch folder under $mode", (restriction) => {
+    const scratch = `/service/execution-context-workspaces/${context.id}`;
+    const policy = {
+      ...restriction,
+      folders: [...restriction.folders],
+      revision: 2,
+      updatedAtMs: 10,
+    };
+    expect(
+      executionContextFileAccessBoundary({
+        context: { ...context, access: "space_context" },
+        workingDirectory: scratch,
+        taskWorkspace: { workingDirectory: scratch, boundaryRoot: scratch },
+        policy,
+      })
+    ).toEqual({
+      mode: "only_selected_folders",
+      folders: [scratch],
+      revision: 2,
+      updatedAtMs: 10,
+      executionContextAccess: "space_context",
+    });
   });
 
   it("never turns a saved reply after native failure into a completed fork checkpoint", async () => {

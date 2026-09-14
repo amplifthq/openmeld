@@ -8,6 +8,7 @@ import {
 import { forkCodexAppServerThread } from "@openmeld/adapter-codex";
 import type {
   AdapterComputerFileAccessBoundary,
+  AdapterRuntimeEventCallback,
   RuntimeAgentControllerLaunchContract,
 } from "@openmeld/adapter-core";
 import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
@@ -57,21 +58,25 @@ export function executionContextFileAccessBoundary(input: {
     );
   };
   const policy = input.policy;
-  const policySource =
-    input.taskWorkspace?.sourceWorkingDirectory ?? input.workingDirectory;
-  if (
-    policy.mode === "only_selected_folders" &&
-    !policy.folders.some((folder) => within(policySource, folder))
-  ) {
-    throw new Error("execution_context.workspace_outside_computer_policy");
-  }
-  if (
-    policy.mode === "block_selected_folders" &&
-    policy.folders.some(
-      (folder) => within(policySource, folder) || within(folder, policySource)
-    )
-  ) {
-    throw new Error("execution_context.workspace_overlaps_blocked_folder");
+  // Space-only work has no user-folder source. The native boundary still names
+  // only its Service-owned scratch root, regardless of the user's folder policy.
+  if (input.context.access !== "space_context") {
+    const policySource =
+      input.taskWorkspace?.sourceWorkingDirectory ?? input.workingDirectory;
+    if (
+      policy.mode === "only_selected_folders" &&
+      !policy.folders.some((folder) => within(policySource, folder))
+    ) {
+      throw new Error("execution_context.workspace_outside_computer_policy");
+    }
+    if (
+      policy.mode === "block_selected_folders" &&
+      policy.folders.some(
+        (folder) => within(policySource, folder) || within(folder, policySource)
+      )
+    ) {
+      throw new Error("execution_context.workspace_overlaps_blocked_folder");
+    }
   }
   return {
     mode: "only_selected_folders",
@@ -120,6 +125,8 @@ export async function prepareExecutionContextConversation(input: {
   ledgerRootPath: string;
   agentControllerRef: string;
   launchContract?: RuntimeAgentControllerLaunchContract | null;
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+  processSupervisionId?: string;
 }): Promise<string | null> {
   if (!input.context) {
     return input.unscopedNativeConversationId;
@@ -153,16 +160,18 @@ export async function prepareExecutionContextConversation(input: {
           contextId: source.contextId,
         })
       : null;
-  const sourceDirectory = await realpath(
-    source.workspace === "current"
-      ? input.currentWorkingDirectory
-      : (sourceWorkspace?.workingDirectory ??
-          join(
-            input.ledgerRootPath,
-            "execution-context-workspaces",
-            source.contextId
-          ))
-  );
+  const sourceDirectory =
+    sourceWorkspace?.workingDirectory ??
+    (await realpath(
+      source.workspace === "current"
+        ? input.currentWorkingDirectory
+        : (sourceWorkspace?.workingDirectory ??
+            join(
+              input.ledgerRootPath,
+              "execution-context-workspaces",
+              source.contextId
+            ))
+    ));
   if (
     buildRuntimeWorkspaceFingerprint(sourceDirectory) !==
     source.runtimeWorkspaceFingerprint
@@ -209,6 +218,8 @@ export async function prepareExecutionContextConversation(input: {
           sourceThreadId: source.nativeConversationId,
           sourceCompletedTurnId: source.completedHistoryId,
           targetWorkingDirectory: input.workingDirectory,
+          onRuntimeEvent: input.onRuntimeEvent,
+          env: { OPENMELD_PROCESS_SUPERVISION_ID: input.processSupervisionId },
         });
         return { childNativeSessionId: child.threadId };
       }

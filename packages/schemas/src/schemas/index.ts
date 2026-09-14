@@ -946,6 +946,12 @@ export {
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "./http/agent-profile-creation-request";
 export {
+  agentProfileExecutionModeResponseSchema,
+  agentProfileExecutionModeSchema,
+  runtimeTransportAgentProfileExecutionModeRequestSchema,
+  updateAgentProfileExecutionModeBodySchema,
+} from "./http/agent-profile-execution-mode";
+export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,
   reconcileDeletedAgentProfileResponseSchema,
@@ -2571,6 +2577,7 @@ export {
 export {
   executionContextAssignmentSchema,
   executionContextCompletionSchema,
+  executionContextLegacyAssociationSchema,
   executionContextRequestSchema,
   executionContextScopeSchema,
   executionContextSelectionSchema,
@@ -2897,6 +2904,10 @@ export {
   dispatchSpaceActionReceiptSchema,
   dispatchSpaceActionToolResultSchema,
 } from "./space-mesh/dispatch-space-action-receipt";
+export {
+  dispatchSpaceHistoryRequestSchema,
+  dispatchSpaceHistoryResultSchema,
+} from "./space-mesh/dispatch-space-history";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,

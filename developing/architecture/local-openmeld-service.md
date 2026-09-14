@@ -888,13 +888,47 @@ the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
 
-The existing local slot owner enforces the five-context Profile cap and local
+The existing local slot owner enforces the three-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
 must not be symlinks. Shared current-folder writers run exclusively; current-folder
 readers wait for potentially overlapping writers. These local checks implement
 Core's reservation, rather than creating another durable admission queue.
 The slot and scoped Core reservation stay occupied until native execution has
-settled, even when a Space Action proposal was saved earlier.
+settled, even when a Space Action proposal was saved earlier. Workspace deletion
+requires stronger, explicit process-tree quiescence evidence; a provider result
+or an expired shutdown grace period is not that evidence.
+
+Version-2 project workspace records distinguish preparation, native use,
+retirement, retained idle state, and released reproducible copies. Readers keep
+valid version-1 records, and records without a verified original baseline are
+retained. Preparation retries use the existing
+process-identity lock and the recorded source/base commit. They never choose a
+new source HEAD or overwrite ambiguous local changes. The Service may reclaim a
+generated checkout and its private repository only after quiescence and an
+unchanged content/metadata baseline are both verified. The exact retirement
+intent is persisted before moving the copy, and the fenced copy is checked
+again before deletion. Crash recovery uses that recorded path and preserves
+edits instead of adopting arbitrary sibling directories. Task edits, ignored or
+untracked files, new commits, and unknown ownership retain the workspace. An
+uncertain in-use record blocks another writer until ownership is reconciled.
+Continuation restores an eligible released copy at the same path and frozen
+commit; an unavailable source commit has an explicit failure. Native transcripts
+and task-created output are outside automatic deletion.
+
+An experimental version-1 record left in preparation has no durable process
+ownership evidence. It is retained with an explicit quiescence-unconfirmed
+failure; the Service does not invent safe deletion or silently recreate it.
+New version-2 preparations persist supervision identity before Git work so
+interruption and restart can be reconciled safely.
+
+Before replacing a valid v1 local ledger, the Service preserves and verifies a
+separate prior-version checkpoint. Copy, file flush, exact readback, and atomic
+rename must succeed before migration can replace the original; failure keeps
+the original or its verified checkpoint available. The checkpoint is distinct
+from an invalid-state recovery backup and must not be overwritten by it. Native
+conversation IDs and lookup keys are preserved. Windows file handles use write
+access for flushing; directory-entry durability across power loss is not claimed
+on Windows. Native Windows execution remains a separate validation gap.
 
 Explicit isolated project tasks use the already confirmed Project connection or
 Profile working folder as their source. The source must be the exact canonical
@@ -909,6 +943,19 @@ Its protected preparation record is outside the task's writable root and binds
 the context identity, source path, starting commit, owned paths, and completion.
 Retry verifies and reuses completed preparation. Incomplete or mismatched records
 are retained and rejected rather than rebuilding over possible task effects.
+
+Space-context-only tasks use a Service-owned scratch directory, not a user
+project source. A Computer policy that allows only selected project folders
+does not require adding the Service directory to that allowlist. Native access
+remains limited to the assigned scratch root. Codex treats that root as its
+project boundary using `project_root_markers=[]`, so project instruction
+discovery cannot walk into an unrelated parent repository. This does not disable
+global user instructions or change project discovery for local project tasks.
+The dispatch-owned `read_history` MCP tool provides the existing bounded text
+window without requiring a sandboxed shell to load Node, CLI code, or local
+authentication files. Its Space, source Wake, and acting Profile are fixed by
+the active dispatch, and it rechecks that context after the authorized read.
+This read does not complete or publish the Wake.
 
 Claude SDK Space-context invocations expose only dispatch-owned Space tools;
 built-in local tools, ambient MCP servers, and hooks are disabled. User settings
@@ -943,6 +990,15 @@ materializes committed project content as described above; it does not copy the
 parent's dirty working files or implicitly synchronize parent and child. A
 completion without a verified native checkpoint may
 preserve conversation identity but cannot authorize a fork.
+The Service observes completed turns across the initial invocation, reply repair,
+and reconsideration. Each invocation clears the previous completion evidence;
+each submitted proposal carries its own final verified turn. A missing final
+turn event cannot fall back to an earlier turn's checkpoint.
+Scoped Codex repair and reconsideration resume that Context's existing native
+conversation with read-only project permissions. Native file probes and thread
+attestation verify this same effective permission mode. A temporary repair fork
+must not replace or diverge from the scoped conversation's accepted history;
+legacy unscoped repair retains its existing behavior.
 Native history is located by its authorized session ID, independently of the
 task's current file workspace; a fork can retain history under its origin folder.
 

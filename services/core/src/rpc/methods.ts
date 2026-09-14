@@ -32,6 +32,7 @@ import {
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  agentProfileExecutionModeResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
   buildSpaceComposerPublishedFileId,
@@ -320,6 +321,7 @@ import {
   submitRuntimeRegistrationResponseSchema,
   summarizeComputerFileAccessPolicy,
   updateAgentProfileDefaultProjectRpcInputSchema,
+  updateAgentProfileExecutionModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema,
   updateAgentProfilePrimaryBindingModelSelectionBodySchema,
@@ -347,6 +349,7 @@ import type {
   AgentExecutionReadinessTargetRuntime,
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
+  AgentProfileExecutionModeResponse,
   AgentStreamToolPart,
   AgentTaskCompletionCondition,
   ArchiveProjectRpcInput,
@@ -3015,6 +3018,12 @@ export type ExecuteAgentProfileWorkRecoveryInput = {
   context?: CoreRpcContextInput;
 };
 
+export type AgentProfileExecutionModeInput = {
+  agentProfileId: string;
+  body?: { mode: "parallel" | "serial" };
+  context?: CoreRpcContextInput;
+};
+
 export type GetAgentProfileControllerChangeEligibilityInput = {
   agentProfileId: string;
   context?: CoreRpcContextInput;
@@ -5450,6 +5459,32 @@ export async function rpcExecuteAgentProfileWorkRecovery(
     action: recovery.action,
     status: "accepted",
   });
+}
+
+export async function rpcAgentProfileExecutionMode(
+  env: CoreBindings,
+  input: AgentProfileExecutionModeInput
+): Promise<AgentProfileExecutionModeResponse> {
+  const request = await requireAgentProfileWorkRecoveryScope(env, input);
+  const body =
+    input.body === undefined
+      ? undefined
+      : updateAgentProfileExecutionModeBodySchema.safeParse(input.body);
+  if (body && !body.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Execution mode must be parallel or serial.",
+      status: 400,
+    });
+  }
+  const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
+  return agentProfileExecutionModeResponseSchema.parse(
+    await ownerShard.rpcAgentProfileExecutionMode({
+      ownerUserId: request.owner.id,
+      targetProfileId: request.agentProfileId,
+      ...(body?.success ? { mode: body.data.mode } : {}),
+    })
+  );
 }
 
 async function executeAgentProfileInterruptedWorkSkip(input: {
@@ -17506,6 +17541,20 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
           }
           controllerMutationOperationId =
             controllerMutationAdmission.operationId;
+          if (body.data.agentControllerConversationId) {
+            const mode = await resolveRuntimeTransportOwnerShard(
+              env,
+              request.owner.id
+            ).rpcAgentProfileExecutionMode({
+              ownerUserId: request.owner.id,
+              targetProfileId: request.agentProfileId,
+            });
+            if (mode.migration !== "legacy") {
+              throw new AgentProfileExecutionTargetMutationAdmissionError(
+                "execution_context.legacy_association_frozen"
+              );
+            }
+          }
         },
         db,
         ...(body.data.sessionInventorySelection

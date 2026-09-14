@@ -320,7 +320,7 @@ cannot repeat a promotion. Route or Service `waiting` does not release a
 reservation.
 
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
-at most five contexts for one Agent Profile, with one writer per context and
+at most three contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 Context selection is explicit for new work and forks, and scoped to the exact
 requester, Organization, Space, discussion, Profile, Binding, and Runtime.
@@ -332,8 +332,12 @@ history checkpoint independently of the in-flight Head lifecycle. Head retiremen
 must not erase a source needed for continuation or a completed-prefix fork.
 These records describe identity and history; they do not decide current execution
 or publication. Validated task results must echo the assigned context, and native
-conversation ownership cannot move to another context. Local native completion
-is recorded before terminal promotion. Scoped results never overwrite the
+conversation ownership cannot move to another context. Receipt validation may
+reserve immutable native identity, but a proposal that still requires review
+does not freeze fork-visible history. The checkpoint is committed atomically
+with the accepted finalization command before terminal promotion, using the
+final repair or reconsideration turn when present. Accepted commands and their
+checkpoints remain immutable under replay. Scoped results never overwrite the
 Profile Binding's legacy native conversation.
 
 A structured `usage_exhausted` terminal outcome is the deliberate exception to

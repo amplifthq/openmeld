@@ -42,7 +42,7 @@ test("dispatch Space Action MCP config forwards only its bounded authority", asy
       OPENMELD_GATEWAY_URL: "http://lane.localhost:28897",
     },
     id: "openmeld_internal_dispatch_space_action",
-    toolNames: ["read_file", "reply", "status", "stay_silent"],
+    toolNames: ["read_file", "read_history", "reply", "status", "stay_silent"],
   });
 });
 

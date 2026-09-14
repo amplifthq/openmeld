@@ -45,6 +45,11 @@ export function buildCodexFileAccessBoundaryGlobalArgs(input: {
   }
 
   return [
+    // Scratch tasks do not inherit a surrounding project's AGENTS.md. An empty
+    // marker list makes their cwd the project root without disabling global docs.
+    ...(input.boundary.executionContextAccess === "space_context"
+      ? ["-c", "project_root_markers=[]"]
+      : []),
     ...(input.boundary.executionContextAccess
       ? [
           "-c",
@@ -87,7 +92,8 @@ export function buildCodexFileAccessBoundaryGlobalArgs(input: {
 export function isCodexExecutionContextFileAccessConfirmed(
   value: unknown,
   boundary: AdapterComputerFileAccessBoundary,
-  workingDirectory: string
+  workingDirectory: string,
+  executionMode?: AdapterDispatchExecutionMode
 ): boolean {
   if (!boundary.executionContextAccess) {
     return true;
@@ -111,7 +117,9 @@ export function isCodexExecutionContextFileAccessConfirmed(
   ) {
     return false;
   }
-  if (boundary.executionContextAccess !== "workspace") {
+  if (
+    resolveCodexExecutionContextAccess(boundary, executionMode) !== "workspace"
+  ) {
     return sandbox?.type === "readOnly";
   }
   return (
@@ -123,6 +131,16 @@ export function isCodexExecutionContextFileAccessConfirmed(
       (root) => typeof root === "string" && boundary.folders.includes(root)
     )
   );
+}
+
+export function resolveCodexExecutionContextAccess(
+  boundary: AdapterComputerFileAccessBoundary,
+  executionMode?: AdapterDispatchExecutionMode
+): AdapterComputerFileAccessBoundary["executionContextAccess"] {
+  return executionMode === "repair" &&
+    boundary.executionContextAccess === "workspace"
+    ? "read_only"
+    : boundary.executionContextAccess;
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -170,7 +188,10 @@ function resolveFileAccess(input: {
         '":minimal" = "read"',
         ...buildFolderEntries(
           input.boundary.folders,
-          !isRepair && input.boundary.executionContextAccess === "workspace"
+          resolveCodexExecutionContextAccess(
+            input.boundary,
+            input.executionMode
+          ) === "workspace"
             ? "write"
             : "read"
         ),

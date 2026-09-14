@@ -755,6 +755,7 @@ function renderMandatoryCompletionSection(
   return [
     "Mandatory completion:",
     "- Plain text is not a Space reply.",
+    "- For recent Space text history, discover and use read_history. It reads a bounded window anchored to this Wake as your Agent without terminal access to local login files. Use the supplied context first; a history read is not a final action.",
     "- For shared text attachments, discover and use the dispatch tool read_file with the file ID and revision. It reads the current Space as you without requiring terminal access to local login files. A file read is not a final action.",
     buildMandatoryCompletionActionLine(publicationRequirement),
     "- Use the Space Action tool first. If your harness offers tool search or discovery, look up the required action before declaring it unavailable. A tool missing from the initial list is not proof of unavailability. Do not read setup or onboarding guides merely to submit this result.",
@@ -1002,7 +1003,7 @@ function renderContinuityLine(input: {
   if (!sourceSignalId) {
     return `- Since your last public reply: ${parts.join(
       "; "
-    )} (run \`${buildSpaceHistoryCommand(input)}\` for content)`;
+    )} (use dispatch tool \`read_history\` for bounded context; only if unavailable and terminal access is permitted, run \`${buildSpaceHistoryCommand(input)}\`)`;
   }
   const readCommand = buildSpaceContextWindowCommand({
     cliEntry: input.cliEntry,
@@ -1012,7 +1013,7 @@ function renderContinuityLine(input: {
   });
   return `- Since your last public reply: ${parts.join(
     "; "
-  )} (run \`${readCommand}\` for bounded context)`;
+  )} (use dispatch tool \`read_history\` for bounded context; only if unavailable and terminal access is permitted, run \`${readCommand}\`)`;
 }
 
 function shouldRenderReplyTargetLine(replyTarget: string): boolean {

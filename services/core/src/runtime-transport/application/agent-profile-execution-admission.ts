@@ -1,6 +1,6 @@
 import {
-  AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
   AGENT_PROFILE_WORK_MAX_WAITING,
+  AGENT_PROFILE_WORK_READABLE_RESERVATION_LIMIT,
 } from "@openmeld/agent-runtime";
 import {
   buildRuntimeCoordinatorExecutionId,
@@ -15,6 +15,11 @@ import type {
   RuntimeTransportAgentProfileWorkRecoveryReadResponse,
 } from "@openmeld/schemas/types";
 import {
+  type AgentProfileContextMigration,
+  isAgentProfileContextMigration,
+  type LegacyContextAssociation,
+} from "./agent-profile-context-migration";
+import {
   type AgentProfileWorkCoordinator,
   type AgentProfileWorkCoordinatorItem,
   type AgentProfileWorkRecoveryGate,
@@ -25,7 +30,9 @@ import {
   markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
+  refillAgentProfileWork,
   removeAgentProfileWork,
+  reservedAgentProfileWork,
   settleAgentProfileWork,
   skipAgentProfileInterruptedWork,
   summarizeAgentProfileWorkCoordinator,
@@ -47,7 +54,10 @@ import {
   writeAgentProfileWorkRecoveryInboxProjectionIntent,
 } from "./agent-profile-work-recovery-inbox-projection";
 import {
+  attachLegacyAssociationToExecutionContext,
+  claimLegacyExecutionContext,
   ExecutionContextSelectionError,
+  hasRetainedExecutionContexts,
   prepareExecutionContextAssignment,
 } from "./execution-context-authority";
 import {
@@ -71,8 +81,10 @@ import {
 } from "./runtime-coordinator-authority";
 
 const EXECUTION_ADMISSION_MODEL_VERSION =
-  "openmeld.runtime_coordinator.agent_profile_work_coordinator.v2" as const;
+  "openmeld.runtime_coordinator.agent_profile_work_coordinator.v3" as const;
 const PREVIOUS_EXECUTION_ADMISSION_MODEL_VERSION =
+  "openmeld.runtime_coordinator.agent_profile_work_coordinator.v2";
+const ORIGINAL_WORK_COORDINATOR_MODEL_VERSION =
   "openmeld.runtime_coordinator.agent_profile_work_coordinator.v1";
 const LEGACY_EXECUTION_ADMISSION_MODEL_VERSION =
   "openmeld.runtime_coordinator.agent_profile_execution_admission.v1" as const;
@@ -117,6 +129,8 @@ type ExecutionTargetMutationLease = {
 };
 
 type AgentProfileExecutionAdmissionRecord = {
+  contextMigration?: AgentProfileContextMigration;
+  admissionMode?: "parallel" | "serial";
   activeExecutionIds: string[];
   activeHeadLifecycleIds: string[];
   executionTargetMutation: ExecutionTargetMutationLease | null;
@@ -178,6 +192,338 @@ type ActiveObservationsByProfile = Map<
   string,
   { executionIds: Set<string>; headLifecycleIds: Set<string> }
 >;
+
+export async function readOrUpdateAgentProfileExecutionMode(input: {
+  ownerUserId: string;
+  targetProfileId: string;
+  mode?: "parallel" | "serial";
+  nowMs: number;
+  storage: ExecutionAdmissionStorage;
+}): Promise<
+  import("@openmeld/schemas/types").AgentProfileExecutionModeResponse
+> {
+  const index = await ensureExecutionIndexReady(input);
+  if (index.status !== "ready") {
+    throw new Error(EXECUTION_INDEX_REBUILDING_REASON);
+  }
+  return await input.storage.transaction(async (transaction) => {
+    const currentIndex = parseExecutionIndexState(
+      await transaction.get(EXECUTION_INDEX_STORAGE_KEY)
+    );
+    if (
+      currentIndex?.status !== "ready" ||
+      currentIndex.ownerUserId !== input.ownerUserId ||
+      currentIndex.generation !== index.generation
+    ) {
+      throw new Error(EXECUTION_INDEX_REBUILDING_REASON);
+    }
+    const key = buildExecutionAdmissionStorageKey(input.targetProfileId);
+    const raw = await transaction.get<unknown>(key);
+    const parsed = parseExecutionAdmissionRecord(raw);
+    if (raw !== undefined && !parsed) {
+      throw new Error(EXECUTION_STATE_UNAVAILABLE_REASON);
+    }
+    let admission = carryExecutionAdmissionIntoGeneration({
+      admission: parsed,
+      generation: index.generation,
+      nowMs: input.nowMs,
+      targetProfileId: input.targetProfileId,
+    });
+    // Carrying within a ready generation must retain live reference ownership.
+    if (parsed?.generation === index.generation) {
+      admission = parsed;
+    }
+    if (input.mode && input.mode !== (admission.admissionMode ?? "parallel")) {
+      const before = projectAgentProfileWorkCoordinator(admission);
+      admission = {
+        ...admission,
+        admissionMode: input.mode,
+        revision: admission.revision + 1,
+        updatedAtMs: input.nowMs,
+      };
+      const refill = refillAgentProfileWork({
+        coordinator: projectAgentProfileWorkCoordinator(admission),
+        previouslyReserved: reservedAgentProfileWork(before),
+      });
+      admission = { ...admission, workItems: refill.coordinator.workItems };
+      for (const item of refill.promotedItems) {
+        admission = (
+          await promoteAgentProfileWorkItem({
+            admission,
+            item,
+            nowMs: input.nowMs,
+            transaction,
+          })
+        ).admission;
+      }
+      await transaction.put(key, admission);
+    }
+    return {
+      agentProfileId: input.targetProfileId,
+      mode: admission.admissionMode ?? "parallel",
+      migration: admission.contextMigration?.status ?? "legacy",
+      revision: admission.revision,
+    };
+  });
+}
+
+export async function listDrainingAgentProfileContextMigrations(
+  storage: Pick<DurableObjectStorage, "get">
+): Promise<Array<{ ownerUserId: string; targetProfileId: string }>> {
+  const index = parseExecutionIndexState(
+    await storage.get(EXECUTION_INDEX_STORAGE_KEY)
+  );
+  if (index?.status !== "ready") {
+    return [];
+  }
+  const active = parseActiveProfileIndexRecord(
+    await storage.get(EXECUTION_ACTIVE_PROFILE_INDEX_STORAGE_KEY),
+    index.generation
+  );
+  const result: Array<{ ownerUserId: string; targetProfileId: string }> = [];
+  for (const targetProfileId of active?.targetProfileIds ?? []) {
+    const admission = parseExecutionAdmissionRecord(
+      await storage.get(buildExecutionAdmissionStorageKey(targetProfileId))
+    );
+    if (admission?.contextMigration?.status === "draining") {
+      result.push({ ownerUserId: index.ownerUserId, targetProfileId });
+    }
+  }
+  return result;
+}
+
+export async function resolveNextAgentProfileContextMigrationAlarmAtMs(input: {
+  storage: ExecutionAdmissionStorage;
+  nowMs: number;
+}): Promise<number | null> {
+  let next: number | null = null;
+  for (const profile of await listDrainingAgentProfileContextMigrations(
+    input.storage
+  )) {
+    const admission = parseExecutionAdmissionRecord(
+      await input.storage.get(
+        buildExecutionAdmissionStorageKey(profile.targetProfileId)
+      )
+    );
+    if (
+      !admission ||
+      (await hasUnresolvedLegacyWork(admission, input.storage))
+    ) {
+      continue;
+    }
+    const leaseExpiry = admission.executionTargetMutation?.expiresAtMs ?? 0;
+    const retryAt =
+      leaseExpiry > input.nowMs ? leaseExpiry : input.nowMs + 5000;
+    next = next === null ? retryAt : Math.min(next, retryAt);
+  }
+  return next;
+}
+
+async function hasUnresolvedLegacyWork(
+  admission: AgentProfileExecutionAdmissionRecord,
+  storage: Pick<DurableObjectTransaction, "get">
+): Promise<boolean> {
+  if (
+    admission.workItems.some((item) => !item.executionContextId) ||
+    admission.recoveryGate
+  ) {
+    return true;
+  }
+  for (const id of admission.activeHeadLifecycleIds) {
+    const head = await storage.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(id)
+    );
+    if (!isRuntimeCoordinatorHeadLifecycleRecord(head)) {
+      throw new Error(EXECUTION_STATE_UNAVAILABLE_REASON);
+    }
+    if (
+      !(
+        head.acceptedDispatchSnapshot?.executionContext ||
+        isTerminalHeadLifecycleStatus(head.status)
+      )
+    ) {
+      return true;
+    }
+  }
+  for (const id of admission.activeExecutionIds) {
+    const state = await storage.get(
+      buildRuntimeCoordinatorRunCommandStateStorageKey(id)
+    );
+    if (!isRuntimeCoordinatorRunCommandState(state)) {
+      throw new Error(EXECUTION_STATE_UNAVAILABLE_REASON);
+    }
+    if (!state.sanitizedDeliveryRequest.payload.executionContext) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function freezeLegacyWakeIds(
+  admission: AgentProfileExecutionAdmissionRecord,
+  storage: Pick<DurableObjectTransaction, "get">
+): Promise<string[]> {
+  const ids = new Set(
+    admission.workItems
+      .filter((item) => !item.executionContextId)
+      .map((item) => item.targetWakeLifecycleId)
+  );
+  for (const id of admission.activeHeadLifecycleIds) {
+    const head = await storage.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(id)
+    );
+    if (!isRuntimeCoordinatorHeadLifecycleRecord(head)) {
+      throw new Error(EXECUTION_STATE_UNAVAILABLE_REASON);
+    }
+    if (!head.acceptedDispatchSnapshot?.executionContext) {
+      ids.add(id);
+    }
+  }
+  for (const item of admission.recoveryGate
+    ? [
+        admission.recoveryGate.interruptedWork,
+        ...(admission.recoveryGate.additionalInterruptedWork ?? []),
+      ]
+    : []) {
+    if (!item.executionContextId) {
+      ids.add(item.targetWakeLifecycleId);
+    }
+  }
+  return [...ids];
+}
+
+export async function acquireAgentProfileContextMigration(input: {
+  ownerUserId: string;
+  targetProfileId: string;
+  nowMs: number;
+  operationId: string;
+  storage: ExecutionAdmissionStorage;
+}): Promise<boolean> {
+  if ((await ensureExecutionIndexReady(input)).status !== "ready") {
+    return false;
+  }
+  return await input.storage.transaction(async (transaction) => {
+    const index = parseExecutionIndexState(
+      await transaction.get(EXECUTION_INDEX_STORAGE_KEY)
+    );
+    if (index?.status !== "ready" || index.ownerUserId !== input.ownerUserId) {
+      return false;
+    }
+    const key = buildExecutionAdmissionStorageKey(input.targetProfileId);
+    const admission = parseExecutionAdmissionRecord(await transaction.get(key));
+    if (
+      !admission ||
+      admission.contextMigration?.status !== "draining" ||
+      (admission.executionTargetMutation &&
+        admission.executionTargetMutation.expiresAtMs > input.nowMs) ||
+      (await hasUnresolvedLegacyWork(admission, transaction))
+    ) {
+      return false;
+    }
+    await transaction.put(key, {
+      ...admission,
+      executionTargetMutation: {
+        operationId: input.operationId,
+        startedAtMs: input.nowMs,
+        expiresAtMs: input.nowMs + EXECUTION_TARGET_MUTATION_LEASE_MS,
+      },
+    });
+    return true;
+  });
+}
+
+export async function activateAgentProfileContextMigration(input: {
+  ownerUserId: string;
+  targetProfileId: string;
+  nowMs: number;
+  operationId: string;
+  association: LegacyContextAssociation;
+  storage: ExecutionAdmissionStorage;
+}): Promise<boolean> {
+  return await input.storage.transaction(async (transaction) => {
+    const key = buildExecutionAdmissionStorageKey(input.targetProfileId);
+    const index = parseExecutionIndexState(
+      await transaction.get(EXECUTION_INDEX_STORAGE_KEY)
+    );
+    const admission = parseExecutionAdmissionRecord(await transaction.get(key));
+    if (
+      index?.status !== "ready" ||
+      index.ownerUserId !== input.ownerUserId ||
+      !admission ||
+      admission.contextMigration?.status !== "draining" ||
+      admission.executionTargetMutation?.operationId !== input.operationId ||
+      admission.executionTargetMutation.expiresAtMs <= input.nowMs ||
+      (await hasUnresolvedLegacyWork(admission, transaction))
+    ) {
+      return false;
+    }
+    for (const item of admission.workItems) {
+      const head = await transaction.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          item.targetWakeLifecycleId
+        )
+      );
+      if (
+        !isRuntimeCoordinatorHeadLifecycleRecord(head) ||
+        head.acceptedDispatchSnapshot?.controllerSnapshot.bindingId !==
+          input.association.bindingId ||
+        head.acceptedDispatchSnapshot.controllerSnapshot.agentControllerRef !==
+          input.association.agentControllerRef ||
+        head.acceptedDispatchSnapshot.openMeldServiceRuntimeId !==
+          input.association.openMeldServiceRuntimeId
+      ) {
+        throw new ExecutionContextSelectionError(
+          "execution_context.migration_binding_changed"
+        );
+      }
+    }
+    await claimLegacyExecutionContext({
+      association: input.association,
+      storage: transaction,
+    });
+    for (const contextId of new Set(
+      admission.workItems
+        .map((item) => item.executionContextId)
+        .filter((id): id is string => Boolean(id))
+    )) {
+      await attachLegacyAssociationToExecutionContext({
+        contextId,
+        association: input.association,
+        storage: transaction,
+      });
+    }
+    let next: AgentProfileExecutionAdmissionRecord = {
+      ...admission,
+      contextMigration: {
+        ...admission.contextMigration,
+        status: "contexts",
+        legacyAssociation: input.association,
+      },
+      executionTargetMutation: null,
+      revision: admission.revision + 1,
+      updatedAtMs: input.nowMs,
+    };
+    const refill = refillAgentProfileWork({
+      coordinator: projectAgentProfileWorkCoordinator(next),
+      previouslyReserved: reservedAgentProfileWork(
+        projectAgentProfileWorkCoordinator(admission)
+      ),
+    });
+    next = { ...next, workItems: refill.coordinator.workItems };
+    for (const item of refill.promotedItems) {
+      next = (
+        await promoteAgentProfileWorkItem({
+          admission: next,
+          item,
+          nowMs: input.nowMs,
+          transaction,
+        })
+      ).admission;
+    }
+    await transaction.put(key, next);
+    return true;
+  });
+}
 
 export async function readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission(input: {
   nowMs: number;
@@ -701,8 +1047,48 @@ export async function acquireRuntimeCoordinatorAgentProfileFutureWorkSettingsMut
   });
 }
 
+export async function acquireRuntimeCoordinatorAgentProfileLegacyConversationMutation(input: {
+  nowMs: number;
+  operationId: string;
+  ownerUserId: string;
+  storage: ExecutionAdmissionStorage;
+  targetProfileId: string;
+}): Promise<RuntimeTransportAgentProfileExecutionTargetMutationAcquireResponse> {
+  return await acquireRuntimeCoordinatorAgentProfileMutation({
+    ...input,
+    mutationKind: "legacy_conversation",
+  });
+}
+
+function mutationLeaseHeldByOther(
+  lease: ExecutionTargetMutationLease | null,
+  operationId: string,
+  nowMs: number
+): boolean {
+  return Boolean(
+    lease && lease.expiresAtMs > nowMs && lease.operationId !== operationId
+  );
+}
+
+function prepareMutationRecovery(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  preserveRecovery: boolean;
+  nowMs: number;
+}) {
+  const coordinator = projectAgentProfileWorkCoordinator(input.admission);
+  return input.preserveRecovery
+    ? { changed: false, coordinator }
+    : markAgentProfileWorkContinuationNeedsAttention({
+        coordinator,
+        nowMs: input.nowMs,
+      });
+}
+
 async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
-  mutationKind: "execution_target" | "future_work_settings";
+  mutationKind:
+    | "execution_target"
+    | "future_work_settings"
+    | "legacy_conversation";
   nowMs: number;
   operationId: string;
   ownerUserId: string;
@@ -785,6 +1171,15 @@ async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
     }
     const admission = prepared.admission;
     if (
+      input.mutationKind === "legacy_conversation" &&
+      admission.contextMigration?.status === "contexts"
+    ) {
+      return {
+        status: "blocked" as const,
+        reasonCode: "execution_context.legacy_association_frozen",
+      };
+    }
+    if (
       input.mutationKind === "execution_target" &&
       admissionBlocksExecutionTargetMutation(admission)
     ) {
@@ -795,9 +1190,7 @@ async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
     }
     const currentMutation = admission.executionTargetMutation;
     if (
-      currentMutation &&
-      currentMutation.expiresAtMs > input.nowMs &&
-      currentMutation.operationId !== input.operationId
+      mutationLeaseHeldByOther(currentMutation, input.operationId, input.nowMs)
     ) {
       return {
         reasonCode: EXECUTION_TARGET_MUTATION_IN_PROGRESS_REASON,
@@ -806,8 +1199,9 @@ async function acquireRuntimeCoordinatorAgentProfileMutation(input: {
     }
 
     const expiresAtMs = input.nowMs + EXECUTION_TARGET_MUTATION_LEASE_MS;
-    const marked = markAgentProfileWorkContinuationNeedsAttention({
-      coordinator: projectAgentProfileWorkCoordinator(admission),
+    const marked = prepareMutationRecovery({
+      admission,
+      preserveRecovery: input.mutationKind === "legacy_conversation",
       nowMs: input.nowMs,
     });
     const nextRecoveryGate = marked.changed
@@ -1713,6 +2107,9 @@ export async function skipRuntimeCoordinatorAgentProfileInterruptedWork(input: {
 }
 
 export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
+  resolveContextMigrationCapability?: (
+    record: RuntimeCoordinatorHeadLifecycleRecord
+  ) => string | null;
   blockForExecutionTargetMutation: boolean;
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
@@ -1726,7 +2123,90 @@ export async function writeRuntimeCoordinatorHeadLifecycleWithAdmission(input: {
   );
 }
 
+function rejectsNewLegacyAdmission(input: {
+  isNewAdmission: boolean;
+  contextModeActive: boolean;
+  admission: AgentProfileExecutionAdmissionRecord;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+}): boolean {
+  return Boolean(
+    input.isNewAdmission &&
+      input.contextModeActive &&
+      !input.record.acceptedDispatchSnapshot?.executionContext &&
+      input.admission.recoveryGate?.continuationClientMessageId !==
+        input.record.targetWakeLifecycleIdentity.clientMessageId
+  );
+}
+
+async function beginContextMigrationForAcceptedWork(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  isNewAdmission: boolean;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+  nowMs: number;
+  transaction: DurableObjectTransaction;
+}): Promise<AgentProfileExecutionAdmissionRecord> {
+  if (
+    !(
+      input.isNewAdmission &&
+      input.record.acceptedDispatchSnapshot?.executionContext
+    ) ||
+    input.admission.contextMigration
+  ) {
+    return input.admission;
+  }
+  return {
+    ...input.admission,
+    contextMigration: {
+      status: "draining",
+      boundaryAtMs: input.nowMs,
+      legacyWakeIds: await freezeLegacyWakeIds(
+        input.admission,
+        input.transaction
+      ),
+      legacyAssociation: null,
+    },
+  };
+}
+
+function resolveContextMigrationAdmission(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  contextModeActive: boolean;
+  isNewAdmission: boolean;
+  plan: Awaited<ReturnType<typeof prepareExecutionContextAssignment>>;
+  record: RuntimeCoordinatorHeadLifecycleRecord;
+  resolveCapability?: (
+    record: RuntimeCoordinatorHeadLifecycleRecord
+  ) => string | null;
+}): {
+  plan: Awaited<ReturnType<typeof prepareExecutionContextAssignment>>;
+  reasonCode: string | null;
+} {
+  if (
+    !input.isNewAdmission ||
+    input.admission.contextMigration ||
+    !input.plan.record.acceptedDispatchSnapshot?.executionContext
+  ) {
+    return { plan: input.plan, reasonCode: null };
+  }
+  const reasonCode = input.resolveCapability
+    ? input.resolveCapability(input.plan.record)
+    : "execution_context.service_capability_unavailable";
+  const request = input.record.acceptedDispatchSnapshot?.contextRequest;
+  if (
+    reasonCode === "service.update_required" &&
+    !input.contextModeActive &&
+    request?.required === false &&
+    request.selection.mode === "auto"
+  ) {
+    return { plan: { record: input.record, writes: {} }, reasonCode: null };
+  }
+  return { plan: input.plan, reasonCode };
+}
+
 async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(input: {
+  resolveContextMigrationCapability?: (
+    record: RuntimeCoordinatorHeadLifecycleRecord
+  ) => string | null;
   blockForExecutionTargetMutation: boolean;
   nowMs: number;
   record: RuntimeCoordinatorHeadLifecycleRecord;
@@ -1772,8 +2252,17 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
   let contextPlan: Awaited<
     ReturnType<typeof prepareExecutionContextAssignment>
   >;
+  const contextModeActive =
+    admission.contextMigration !== undefined ||
+    (await hasRetainedExecutionContexts({
+      targetProfileId: admission.targetProfileId,
+      storage: input.transaction,
+    }));
   try {
     contextPlan = await prepareExecutionContextAssignment({
+      contextModeActive,
+      legacyAssociation:
+        admission.contextMigration?.legacyAssociation ?? undefined,
       authorizedContinuationSourceWakeId:
         admission.recoveryGate?.status === "continuation_authorized" &&
         admission.recoveryGate.continuationClientMessageId ===
@@ -1789,8 +2278,43 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
     }
     throw error;
   }
-  const workPlan = planAgentProfileWorkAcceptance({
+  if (
+    rejectsNewLegacyAdmission({
+      isNewAdmission: input.blockForExecutionTargetMutation,
+      contextModeActive,
+      admission,
+      record: contextPlan.record,
+    })
+  ) {
+    return {
+      status: "context_rejected",
+      reasonCode: "execution_context.legacy_acceptance_closed",
+    };
+  }
+  const capabilityAdmission = resolveContextMigrationAdmission({
     admission,
+    contextModeActive,
+    isNewAdmission: input.blockForExecutionTargetMutation,
+    plan: contextPlan,
+    record: input.record,
+    resolveCapability: input.resolveContextMigrationCapability,
+  });
+  if (capabilityAdmission.reasonCode) {
+    return {
+      status: "context_rejected",
+      reasonCode: capabilityAdmission.reasonCode,
+    };
+  }
+  contextPlan = capabilityAdmission.plan;
+  const contextAdmission = await beginContextMigrationForAcceptedWork({
+    admission,
+    isNewAdmission: input.blockForExecutionTargetMutation,
+    record: contextPlan.record,
+    nowMs: input.nowMs,
+    transaction: input.transaction,
+  });
+  const workPlan = planAgentProfileWorkAcceptance({
+    admission: contextAdmission,
     blockForExecutionTargetMutation: input.blockForExecutionTargetMutation,
     nowMs: input.nowMs,
     proposedRecord: contextPlan.record,
@@ -1801,6 +2325,9 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
   const { admissionWithWork, effectiveRecord, workAcceptance } = workPlan;
   if (Object.keys(contextPlan.writes).length > 0) {
     await input.transaction.put(contextPlan.writes);
+  }
+  if (contextAdmission.contextMigration?.status === "draining") {
+    await input.transaction.setAlarm(input.nowMs);
   }
 
   const currentMutation = admissionWithWork.executionTargetMutation;
@@ -2805,6 +3332,10 @@ function projectAgentProfileWorkCoordinator(
   admission: AgentProfileExecutionAdmissionRecord
 ): AgentProfileWorkCoordinator {
   return {
+    admissionMode:
+      admission.contextMigration?.status === "draining"
+        ? "draining"
+        : admission.admissionMode,
     recoveryGate: admission.recoveryGate,
     revision: admission.revision,
     targetProfileId: admission.targetProfileId,
@@ -4015,6 +4546,9 @@ async function removeTerminalAgentProfileWorkAndPromoteSuccessor(input: {
     ]);
   }
   let pendingPromotion: PendingAgentProfileWorkPromotion | null = null;
+  if (nextAdmission.contextMigration?.status === "draining") {
+    await input.transaction.setAlarm(input.nowMs);
+  }
   for (const item of removal.promotedItems) {
     const promotion = await promoteAgentProfileWorkItem({
       admission: nextAdmission,
@@ -4226,6 +4760,7 @@ function parseExecutionAdmissionRecord(
   if (
     (modelVersion !== EXECUTION_ADMISSION_MODEL_VERSION &&
       modelVersion !== PREVIOUS_EXECUTION_ADMISSION_MODEL_VERSION &&
+      modelVersion !== ORIGINAL_WORK_COORDINATOR_MODEL_VERSION &&
       modelVersion !== LEGACY_EXECUTION_ADMISSION_MODEL_VERSION) ||
     !isPositiveInteger(record.generation) ||
     !isNonnegativeInteger(record.revision) ||
@@ -4240,6 +4775,10 @@ function parseExecutionAdmissionRecord(
     typeof record.referencesOverflowed !== "boolean" ||
     !isExecutionTargetMutationLeaseOrNull(record.executionTargetMutation) ||
     recoveryGate === undefined ||
+    !isAgentProfileContextMigration(record.contextMigration) ||
+    (record.admissionMode !== undefined &&
+      record.admissionMode !== "parallel" &&
+      record.admissionMode !== "serial") ||
     !isAgentProfileWorkCoordinatorItemsOrLegacy(record.workItems)
   ) {
     return null;
@@ -4316,7 +4855,8 @@ function isAgentProfileWorkCoordinatorItemsOrLegacy(
   if (
     !Array.isArray(value) ||
     value.length >
-      AGENT_PROFILE_WORK_CONCURRENCY_LIMIT + AGENT_PROFILE_WORK_MAX_WAITING
+      AGENT_PROFILE_WORK_READABLE_RESERVATION_LIMIT +
+        AGENT_PROFILE_WORK_MAX_WAITING
   ) {
     return false;
   }
@@ -4354,7 +4894,13 @@ function isAgentProfileWorkCoordinatorItemsOrLegacy(
     lifecycleIds.add(candidate.targetWakeLifecycleId);
     dispatchIds.add(candidate.dispatchId);
   }
-  return true;
+  return (
+    value.filter((item, index) =>
+      item.executionContextId
+        ? item.reservationState === "waiting"
+        : index !== 0
+    ).length <= AGENT_PROFILE_WORK_MAX_WAITING
+  );
 }
 
 function collectDistinctContextReservation(
@@ -4366,7 +4912,7 @@ function collectDistinctContextReservation(
   }
   if (
     reserved.has(item.executionContextId) ||
-    reserved.size >= AGENT_PROFILE_WORK_CONCURRENCY_LIMIT
+    reserved.size >= AGENT_PROFILE_WORK_READABLE_RESERVATION_LIMIT
   ) {
     return false;
   }
@@ -4679,6 +5225,8 @@ function shouldDeleteInactiveAdmission(
   nowMs: number
 ): boolean {
   return !(
+    admission.contextMigration ||
+    admission.admissionMode ||
     admissionHasActiveReferences(admission) ||
     (admission.executionTargetMutation &&
       admission.executionTargetMutation.expiresAtMs > nowMs)

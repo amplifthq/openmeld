@@ -229,6 +229,8 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "profile show": "profile.show",
   "profiles update": "profile.update",
   "profile update": "profile.update",
+  "profile execution-mode": "profile.execution-mode",
+  "profiles execution-mode": "profile.execution-mode",
   "profiles delete": "profile.delete",
   "profile delete": "profile.delete",
   "profile requests create": "profile.requests.create",

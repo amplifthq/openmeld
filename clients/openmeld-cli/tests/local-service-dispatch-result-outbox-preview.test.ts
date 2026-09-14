@@ -512,6 +512,203 @@ function createSiblingReplySignal(input: {
 }
 
 describe("dispatch result outbox around preview teardown", () => {
+  it.each([
+    true,
+    false,
+  ])("tracks repair and reviewed reply turns without reusing an unobserved final checkpoint (final event: %s)", async (emitFinalTurn) => {
+    await withTempHome(async () => {
+      const ledgerPaths = createLedgerPaths();
+      const presenter = createPresenter();
+      const proposals: Record<string, unknown>[] = [];
+      const socket = {
+        send: vi.fn((raw: string) => {
+          const frame = JSON.parse(raw);
+          if (frame.code !== "daemon.dispatch.result") {
+            return;
+          }
+          proposals.push(frame.payload.taskResult.payload);
+          queueMicrotask(() =>
+            acknowledgeDispatchResultOutboxRecord({
+              attemptId: "attempt-1",
+              dispatchId: "dispatch-1",
+              ledgerPaths,
+              presenter,
+              ok: proposals.length > 1,
+              status: proposals.length === 1 ? "review_required" : "accepted",
+              ...(proposals.length === 1
+                ? { reasonCode: "space.agent_reply.context_changed" }
+                : {}),
+            })
+          );
+        }),
+      };
+      const runtimeContext = {
+        providerRuntimeWorkingDirectory: ledgerPaths.rootDirPath,
+      };
+      resolveProfileWorkspaceRuntimeMock.mockResolvedValue({
+        runtimeContext,
+        status: "ready",
+      });
+      prepareProviderRuntimeMock.mockResolvedValue({
+        envOverrides: undefined,
+        preparationDetails: { kind: "none" },
+        runtimeContext,
+      });
+      const budgetUpdate: SignalEnvelope = {
+        v: 1,
+        id: "signal-budget-correction",
+        type: "signal.text",
+        spaceId: "space-1",
+        ts: Date.now(),
+        profile: {
+          kind: "human",
+          profileId: "user-profile-1",
+          profileName: "Owner",
+        },
+        data: { text: "Use the revised budget of 200." },
+      };
+      fetchSpaceUpdatesMock.mockImplementation(async (input) => ({
+        signals:
+          proposals.length > 0 && input.afterSignalId === "signal-1"
+            ? [budgetUpdate]
+            : [],
+      }));
+      const nativeTurn =
+        (turn: string, result: RuntimeTaskResult, observed = true) =>
+        (input: Parameters<typeof runRuntimeTaskMock>[0]) => {
+          input.onRuntimeEvent?.({
+            phase: "process_spawned",
+            processId: 987_654,
+            tsMs: Date.now(),
+          });
+          if (observed) {
+            input.onRuntimeEvent?.({
+              phase: "provider_turn_accepted",
+              agentControllerConversationId: "ctx-1",
+              turnId: turn,
+              tsMs: Date.now(),
+            });
+          }
+          input.onRuntimeEvent?.({
+            phase: "process_exit",
+            processId: 987_654,
+            exitCode: 0,
+            signal: null,
+            ownedProcessesQuiescent: true,
+            tsMs: Date.now(),
+          });
+          return result;
+        };
+      runRuntimeTaskMock
+        .mockImplementationOnce(
+          nativeTurn(
+            "initial-turn",
+            createRuntimeResult({ output: "Needs a structured action." })
+          )
+        )
+        .mockImplementationOnce(
+          nativeTurn("repair-turn", createRuntimeSuccessResult())
+        )
+        .mockImplementationOnce(
+          nativeTurn(
+            "corrected-turn",
+            createRuntimeResult({
+              output: "The revised budget is 200.",
+              spaceAction: {
+                type: "post_message",
+                messageEnvelope: {
+                  activationTargets: [],
+                  referenceTargets: [],
+                  text: "The revised budget is 200.",
+                },
+              },
+              spaceActionProvenance: "direct",
+            }),
+            emitFinalTurn
+          )
+        );
+      const deliverRequest = createDeliverRequest();
+      deliverRequest.payload.transportMode = "codex-app-server";
+      deliverRequest.payload.executionContext = {
+        version: 1,
+        id: "11111111-1111-4111-8111-111111111111",
+        access: "space_context",
+        workspace: "isolated",
+        nativeConversationId: "ctx-1",
+        runtimeWorkspaceFingerprint: null,
+        scope: {
+          organizationId: "org-1",
+          requesterProfileId: "user-profile-1",
+          spaceId: "space-1",
+          targetProfileId: "agent-profile-1",
+          threadId: null,
+        },
+      };
+      const routes = createCurrentRouteByProfileId(ledgerPaths.rootDirPath);
+      const route = routes.get("agent-profile-1");
+      if (!route) {
+        throw new Error("Expected route fixture");
+      }
+      route.transportMode = "codex-app-server";
+      const result = await handleDispatchDeliverFrame({
+        computerFileAccessStorePath: join(
+          ledgerPaths.rootDirPath,
+          "computer-policy.json"
+        ),
+        contextStore: new Map(),
+        currentSocketRef: { connectionGeneration: 1, socket: socket as never },
+        daemonSessionId: "daemon-session-1",
+        deliverRequest,
+        inflightDispatchMetaByTaskId: new Map(),
+        inflightTaskControlRegistry: createInflightTaskControlRegistry(),
+        pendingAgentInteractionRegistry:
+          createPendingAgentInteractionRegistry(),
+        ledgerPaths,
+        leasesByProfileId: new Map([["agent-profile-1", 1]]),
+        localAdapterContainer: {
+          getAdapter: () => ({
+            adapter: {
+              verifyComputerFileAccessBoundary: async () => ({
+                supported: true,
+              }),
+            },
+          }),
+        } as never,
+        profileOwnerName: "Owner",
+        profileOwnerUserId: "user-1",
+        presenter,
+        routeByProfileId: routes,
+        socket: socket as never,
+      });
+      expect(result.result).toBe("success");
+      expect(runRuntimeTaskMock).toHaveBeenCalledTimes(3);
+      expect(proposals).toHaveLength(2);
+      expect(proposals[0]).toMatchObject({
+        executionContextCompletion: {
+          nativeConversationId: "ctx-1",
+          completedHistoryId: "repair-turn",
+        },
+      });
+      expect(proposals[1]).toMatchObject({
+        output: "The revised budget is 200.",
+        executionContextCompletion: {
+          nativeConversationId: "ctx-1",
+          ...(emitFinalTurn ? { completedHistoryId: "corrected-turn" } : {}),
+        },
+      });
+      if (!emitFinalTurn) {
+        expect(proposals[1]?.executionContextCompletion).not.toHaveProperty(
+          "completedHistoryId"
+        );
+      }
+      expect(
+        presenter.events.filter(
+          (event) => event.code === "daemon.run.control_registry_synced"
+        ).length
+      ).toBeGreaterThanOrEqual(6);
+    });
+  });
+
   it("does not start the controller when a legacy dispatch has no current route working-folder fact", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();

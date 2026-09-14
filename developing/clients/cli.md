@@ -1615,6 +1615,17 @@ switch that renders human names as plain text while agent coloring stays on.
 
 ## Local Capability And Execution Boundary
 
+Agent Profile owners can read or change admission through
+`openmeld profiles execution-mode <profile-id> [--mode serial|parallel]`.
+The command calls Core's current-Organization owner-authorized API; it does not
+edit a local concurrency default or restart the Service. The response includes
+the selected mode, migration phase, and revision. Serial mode limits future
+reservations to one; parallel mode uses the shared three-reservation ceiling.
+Running and waiting Wakes retain their Context, native identity, and results.
+Changing this policy cannot cancel work, replay effects, or revert stored
+formats. The Core/Gateway receiver must be released before this command is
+distributed with the CLI.
+
 The CLI may display Agent Profile Wakeability, but it does not own the
 execution truth.
 

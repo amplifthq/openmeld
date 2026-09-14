@@ -894,7 +894,7 @@ outcome for that exact head and the Work Coordinator continues normal terminal
 promotion. Reconnect, recovery, or later re-enabling cannot revive that settled
 Wake.
 
-One Agent Profile may have up to five independent Execution Contexts reserved
+One Agent Profile may have up to three independent Execution Contexts reserved
 and at most 50 waiting Wakes. Follow-ups in one context remain serial. New task,
 completed-history fork, and independent discussion scopes can run together when
 the local Service verifies their resource isolation. Legacy work without a
@@ -905,6 +905,16 @@ A source message is visible in its conversation immediately; its Wake
 may show that it is queued, but Web does not hide or stack the message above the
 Composer until execution starts. Different Agent Profiles remain independently
 admissible and may work in parallel.
+
+For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
+native conversation model. The primary Binding still owns the connection and
+launch settings. Migration freezes a finite legacy boundary, preserves accepted
+legacy/recovery work, and retains the old native conversation as an unclassified
+legacy association. Current Binding identity is reread under the existing owner
+mutation boundary before Context mode activates. Switching to serial admission
+preserves existing Contexts, running reservations, waiting Wakes, and their
+source/result associations; it does not downgrade the persisted format or merge
+native histories.
 
 The Web Task menu offers new work and source-specific continuation or fork for
 supported local Agents. CLI sends use `--new-task`, `--continue-from <signal-id>`,

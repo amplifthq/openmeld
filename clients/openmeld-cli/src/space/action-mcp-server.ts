@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   dispatchSpaceActionToolResultSchema,
+  dispatchSpaceHistoryRequestSchema,
+  dispatchSpaceHistoryResultSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
 } from "@openmeld/schemas";
@@ -17,6 +19,7 @@ import {
   recordDispatchSpaceStatus,
 } from "./action-command";
 import { readDispatchSpaceFile } from "./dispatch-file-read";
+import { readDispatchSpaceHistory } from "./dispatch-history-read";
 
 const FINAL_STATUS_SCHEMA = z.enum([
   "done",
@@ -33,7 +36,43 @@ export function createSpaceActionMcpServer(): McpServer {
     },
     {
       instructions:
-        "Use read_file to read shared text files in the current Space. Then choose exactly one final OpenMeld Space Action for the current Wake: reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+        "Use read_history for the bounded text history around the current Wake, and read_file for shared text files in the current Space. Then choose exactly one final OpenMeld Space Action: reply for the exact public message, status for a final visible status, or stay_silent when no public message is needed. Private assistant output is not posted to the Space.",
+    }
+  );
+
+  server.registerTool(
+    "read_history",
+    {
+      title: "Read the current Wake's Space history",
+      description:
+        "Read up to 20 text messages before the current Wake, plus its source message. Space, Agent identity and source are fixed by the active dispatch. Use this instead of terminal CLI history. This read does not submit a reply or close the Wake.",
+      inputSchema: dispatchSpaceHistoryRequestSchema,
+      outputSchema: dispatchSpaceHistoryResultSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+    },
+    async () => {
+      try {
+        const result = await readDispatchSpaceHistory();
+        return {
+          structuredContent: result,
+          content: [{ type: "text" as const, text: JSON.stringify(result) }],
+        };
+      } catch (error) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: error instanceof Error ? error.message : String(error),
+            },
+          ],
+        };
+      }
     }
   );
 

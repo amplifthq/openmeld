@@ -40,21 +40,14 @@ describe("independent execution context reservations", () => {
       nowMs: 1_700_000_000_000 + index,
     });
 
-  it("starts five contexts and admits the sixth when a non-head execution finishes", () => {
+  it("starts three contexts and admits the fourth when a non-head execution finishes", () => {
     let coordinator = empty();
-    const statuses = [1, 2, 3, 4, 5, 6].map((index) => {
+    const statuses = [1, 2, 3, 4].map((index) => {
       const result = accept(coordinator, index, `context-${index}`);
       coordinator = result.coordinator;
       return result.status;
     });
-    expect(statuses).toEqual([
-      "start",
-      "start",
-      "start",
-      "start",
-      "start",
-      "queued",
-    ]);
+    expect(statuses).toEqual(["start", "start", "start", "queued"]);
     expect(summarizeAgentProfileWorkCoordinator(coordinator).waitingCount).toBe(
       1
     );
@@ -65,19 +58,13 @@ describe("independent execution context reservations", () => {
       outcome: "succeeded",
     });
     expect(settled.promotedItems.map((item) => item.dispatchId)).toEqual([
-      "dispatch-6",
+      "dispatch-4",
     ]);
     expect(
       summarizeAgentProfileWorkCoordinator(
         settled.coordinator
       ).currentWorks.map((item) => item.dispatchId)
-    ).toEqual([
-      "dispatch-1",
-      "dispatch-3",
-      "dispatch-4",
-      "dispatch-5",
-      "dispatch-6",
-    ]);
+    ).toEqual(["dispatch-1", "dispatch-3", "dispatch-4"]);
   });
 
   it("serializes one context without blocking independent work", () => {
@@ -146,7 +133,7 @@ describe("independent execution context reservations", () => {
 
   it("retains concurrent interrupted work and lets other reservations finish", () => {
     let coordinator = empty();
-    for (const index of [1, 2, 3, 4, 5, 6]) {
+    for (const index of [1, 2, 3, 4]) {
       coordinator = accept(coordinator, index, `context-${index}`).coordinator;
     }
     const firstFailure = settleAgentProfileWork({
@@ -159,7 +146,7 @@ describe("independent execution context reservations", () => {
     expect(
       summarizeAgentProfileWorkCoordinator(firstFailure.coordinator)
         .currentWorks
-    ).toHaveLength(4);
+    ).toHaveLength(2);
     const secondFailure = settleAgentProfileWork({
       coordinator: firstFailure.coordinator,
       nowMs: 1_700_000_000_101,
@@ -178,7 +165,7 @@ describe("independent execution context reservations", () => {
       summarizeAgentProfileWorkCoordinator(
         secondFailure.coordinator
       ).currentWorks.map((item) => item.dispatchId)
-    ).toEqual(["dispatch-1", "dispatch-4", "dispatch-5"]);
+    ).toEqual(["dispatch-1"]);
   });
 });
 

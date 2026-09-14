@@ -41,6 +41,8 @@ export type CliDriverLifecycleEvent =
   | {
       exitCode: number | null;
       phase: "process_exit";
+      // Local adapter evidence only. Exit alone does not prove descendants stopped.
+      ownedProcessesQuiescent?: true;
       processId: number | null;
       signal: NodeJS.Signals | null;
       signalTarget: AgentControllerProcessSignalTarget;
