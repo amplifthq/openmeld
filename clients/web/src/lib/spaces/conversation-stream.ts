@@ -1,6 +1,7 @@
 import { isAgentWorkActivityPresentable } from "@openmeld/schemas";
 import type {
 	AgentStreamToolPart,
+	LocalAgentReasoningState,
 	SpaceAgentStreamDeltaFrame,
 	SpaceAgentStreamPartFrame,
 	SpaceAgentStreamPresence,
@@ -30,6 +31,8 @@ export type SpaceConversationVisibleStreamProjection =
 			text: string;
 			textSequence: number;
 			thinking?: string;
+			thinkingActive?: boolean;
+			reasoningState?: LocalAgentReasoningState;
 	  })
 	| (SpaceConversationStreamCommon & {
 			reasonCode: string;
@@ -238,8 +241,14 @@ function toPresenceProjection(input: {
 		streamId: input.presence.streamId,
 		text: currentStreamingProjection?.text ?? "",
 		textSequence: currentStreamingProjection?.textSequence ?? 0,
+		...(currentStreamingProjection?.reasoningState
+			? { reasoningState: currentStreamingProjection.reasoningState }
+			: {}),
 		...(currentStreamingProjection?.thinking
-			? { thinking: currentStreamingProjection.thinking }
+			? {
+					thinking: currentStreamingProjection.thinking,
+					thinkingActive: currentStreamingProjection.thinkingActive,
+				}
 			: {}),
 		...(currentStreamingProjection?.toolParts
 			? { toolParts: currentStreamingProjection.toolParts }
@@ -269,6 +278,8 @@ export function clearSpaceConversationTransientStreams(
 		}
 		const {
 			thinking: _thinking,
+			thinkingActive: _thinkingActive,
+			reasoningState: _reasoningState,
 			toolParts: _toolParts,
 			...persistent
 		} = projection;
@@ -308,7 +319,21 @@ function toStreamingProjection(input: {
 			input.frame.kind === "thinking"
 				? (currentStreamingProjection?.textSequence ?? 0)
 				: input.frame.sequence,
-		...(thinking ? { thinking } : {}),
+		...(thinking
+			? { thinking, thinkingActive: input.frame.kind === "thinking" }
+			: {}),
+		...((
+			input.frame.kind === "thinking"
+				? input.frame.reasoningState
+				: currentStreamingProjection?.reasoningState
+		)
+			? {
+					reasoningState:
+						input.frame.kind === "thinking"
+							? input.frame.reasoningState
+							: currentStreamingProjection?.reasoningState,
+				}
+			: {}),
 		triggerMessageId: input.frame.triggerMessageId,
 		updatedAtMs: input.frame.updatedAtMs,
 		...(input.currentProjection?.toolParts
@@ -347,6 +372,10 @@ function toStreamingPartProjection(input: {
 	}
 	const boundedToolParts = toolParts.slice(-MAX_LIVE_AGENT_WORK_PARTS);
 	return {
+		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.reasoningState
+			? { reasoningState: input.currentProjection.reasoningState }
+			: {}),
 		createdAtMs: input.createdAtMs,
 		dispatchId: input.frame.dispatchId,
 		observedRevision: input.observedRevision,
@@ -366,7 +395,7 @@ function toStreamingPartProjection(input: {
 				: 0,
 		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.thinking
-			? { thinking: input.currentProjection.thinking }
+			? { thinking: input.currentProjection.thinking, thinkingActive: false }
 			: {}),
 		toolParts: boundedToolParts,
 		triggerMessageId: input.frame.triggerMessageId,
@@ -398,8 +427,15 @@ function toSnapshotProjection(input: {
 		text: input.snapshot.textSnapshot,
 		textSequence: input.snapshot.sequence,
 		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.reasoningState
+			? { reasoningState: input.currentProjection.reasoningState }
+			: {}),
+		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.thinking
-			? { thinking: input.currentProjection.thinking }
+			? {
+					thinking: input.currentProjection.thinking,
+					thinkingActive: input.currentProjection.thinkingActive,
+				}
 			: {}),
 		triggerMessageId: input.snapshot.triggerMessageId,
 		updatedAtMs: Math.max(

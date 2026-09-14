@@ -3617,7 +3617,6 @@ describe("space signal consistency matrix", () => {
     const deleteAlarm = vi.fn().mockResolvedValue(undefined);
 
     await syncSpaceBackgroundAlarm.call({
-      env: {},
       ctx: {
         storage: {
           sql,

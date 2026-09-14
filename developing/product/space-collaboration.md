@@ -324,9 +324,31 @@ Wake progress may expose a bounded public source context so Human View, Agent
 View, and the Center Agent can identify the requester's Profile, kind, display
 name, sanitized source-message preview, and thread. Space supplies those facts
 at read time; execution owners continue to supply lifecycle and freshness. This
-projection does not expose or retain private agent context. Future opt-in
-private streaming requires its own transient transport and privacy contract and
-is not part of this read model.
+projection does not expose or retain private agent context. Local Agent reasoning
+uses the separate transient stream described below, not this read model.
+
+Local Agent thinking and reasoning streaming is enabled by default. The Human
+account owner can disable it in Settings > Privacy & Safety for all of their
+local Agents across Organizations. Only thinking or reasoning text actually
+emitted through the provider's official integration is eligible; this does not
+authorize extracting hidden model state or streaming the private final answer.
+The setting explains that people with access to the Space can see live output.
+OpenClaw is excluded.
+
+The existing working title, elapsed time, and Stop control remain available.
+A bounded Thinking + Reasoning viewport below them opens for live output and
+lets the reader pause following by scrolling up. It collapses when the stream
+transitions to text or tool work, and opens when reasoning resumes. Center Agent
+and Remote Agent streams use the same component and interaction. Disabled streaming is explicitly
+attributed to the Agent owner; an unsupported connection is distinguished from
+waiting for a provider that has not emitted reasoning. Absence of reasoning is
+never evidence that a running Agent is stuck.
+
+Reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
+search input, notification, export, transcript, execution journal, or diagnostic
+body. OpenMeld retains no reasoning text in storage or browser persistence.
+The live tail is cleared on disconnect, navigation, privacy disable, and terminal
+outcome. Provider-owned local session retention is outside this OpenMeld promise.
 
 An ambient `Working` indicator identifies current Wake activity in that Space,
 not the author of an older reply or a historical **Work summary**. When Core has

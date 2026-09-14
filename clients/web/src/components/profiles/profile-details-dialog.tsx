@@ -36,6 +36,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactElement, ReactNode } from "react";
 import { toast } from "sonner";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { AgentTaskActivitySummary } from "#/components/agents/agent-task-activity";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import type {
 	DirectoryAgentProfileSummary,
@@ -137,6 +138,7 @@ export function AgentProfileDetailsContent(input: {
 				onOpen={input.onOpenDirectMessage}
 				profileName={input.entry.profileName}
 			/>
+			<AgentTaskActivitySummary profileId={input.entry.profileId} />
 		</div>
 	);
 }

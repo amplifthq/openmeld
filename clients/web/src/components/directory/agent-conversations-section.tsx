@@ -22,7 +22,10 @@ import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { SidebarConversationTime } from "#/components/spaces/sidebar-conversation-time";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	organizationAgentRuntimeOverviewQueryOptions,
+	organizationProfileDirectoryQueryOptions,
+} from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	type AgentConversation,
@@ -77,6 +80,20 @@ function OwnedAgentConversations(input: {
 	organizationId: string;
 	orgSlug: string;
 }) {
+	const runtime = useQuery(
+		organizationAgentRuntimeOverviewQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	);
+	const currentSpacesByAgent = new Map(
+		runtime.data?.agentProfiles.flatMap((agent) => {
+			const activity = agent.operationalContext;
+			return activity?.status === "working" && activity.currentWorkLocation
+				? [[agent.profileId, activity.currentWorkLocation.spaceId] as const]
+				: [];
+		})
+	);
 	const [agentId, setAgentId] = useState("all");
 	const query = useQuery(
 		accountSpaceItemsQueryOptions({
@@ -176,7 +193,7 @@ function OwnedAgentConversations(input: {
 									<TableHead className="w-[30%]">Agent</TableHead>
 								)}
 								<TableHead className="hidden w-24 text-right sm:table-cell">
-									Updated
+									Last message
 								</TableHead>
 							</TableRow>
 						</TableHeader>
@@ -187,6 +204,11 @@ function OwnedAgentConversations(input: {
 									conversation={conversation}
 									humanProfileId={input.viewerProfileId}
 									index={index}
+									isCurrentTask={conversation.agents.some(
+										(agent) =>
+											currentSpacesByAgent.get(agent.id) ===
+											conversation.space.spaceId
+									)}
 									key={conversation.space.spaceId}
 									orgSlug={input.orgSlug}
 									showAgent={!input.singleAgent}
@@ -201,6 +223,7 @@ function OwnedAgentConversations(input: {
 }
 
 function AgentConversationRow(input: {
+	isCurrentTask: boolean;
 	showAgent: boolean;
 	avatarUrls: ReadonlyMap<string | undefined, string | null>;
 	conversation: AgentConversation;
@@ -222,6 +245,9 @@ function AgentConversationRow(input: {
 					{...link}
 				>
 					<span className="block truncate font-medium">{space.spaceName}</span>
+					{input.isCurrentTask ? (
+						<span className="mt-1 block text-primary text-xs">Active task</span>
+					) : null}
 					{people.length > 0 ? (
 						<span className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
 							<span className="flex shrink-0 -space-x-1">

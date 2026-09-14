@@ -4,6 +4,10 @@ import {
   executionRecoveryDestinationSchema,
   executionRecoveryIdentitySchema,
 } from "../http/execution-recovery";
+import {
+  LOCAL_AGENT_REASONING_MAX_CHARS,
+  localAgentReasoningStateSchema,
+} from "../http/local-agent-reasoning";
 import { organizationProtectedInformationSchema } from "../http/organization-information-protection";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
@@ -2042,6 +2046,14 @@ export const runtimeTransportDispatchToolActivityRequestSchema = z.strictObject(
   }
 );
 
+export const runtimeTransportDispatchReasoningRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      thinkingSnapshot: z.string().max(LOCAL_AGENT_REASONING_MAX_CHARS),
+      reasoningState: localAgentReasoningStateSchema,
+    });
+
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
   runtimeCoordinatorExecutionId:
@@ -2240,6 +2252,8 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.dispatch.lifecycle",
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
+  "daemon.dispatch.reasoning",
+  "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",
   "daemon.dispatch.interaction_delivered",

@@ -2322,7 +2322,8 @@ model, permissions, queries, mutations, execution-target locks, and diagnostic
 facts as the existing About and edit surfaces. Read-only detail is the default.
 Its Agent Profile Operational Context includes one **Activity** section. Owners
 and other members see the same compact workload copy, for example
-**Working · 3 queued**. Selecting that summary keeps the user in Profile Details:
+**Active task · 3 queued**. A Work Coordinator slot is not proof that the
+provider is generating. Selecting a disclosed work location opens its Space:
 the owner may see the current Space and queued task references, while another
 member sees only neutral working and queue-count facts. Neither view infers work
 from Agent Activity, browser timers, or message age.
@@ -2336,11 +2337,11 @@ version 2; Core omits Skip from callers that do not advertise that receiver
 capability, including already-loaded older Web builds.
 Non-owners see the same neutral workload summary without the interrupted source
 or recovery action.
-The **Current activity** section renders a bound Local Agent Session only while
-the Work Coordinator projects that Profile as working. Binding a controller
-conversation is Runtime configuration, not evidence of current work. When a
-working bound Session is shown, Web displays its provider-native title,
-Conversation ID, and Computer name. The configuration grid keeps **Runtime** as
+The **Current activity** section consumes the existing authorized workload
+locations and task activity timestamp. It does not substitute the bound Local
+Agent Session for the current Wake destination. Binding a controller
+conversation is Runtime configuration, not evidence of current work.
+The configuration grid keeps **Runtime** as
 its final card and uses it to show the bound Computer and Conversation ID even
 when that Session is idle.
 **Chat with {Agent name}** is a primary header action. An authorized owner may choose
@@ -2356,6 +2357,15 @@ the canonical Agent route; it shows no edit affordance to other viewers. It
 does not add a second details dialog or an overflow-menu details action. Owners
 edit supported settings from the canonical route; other viewers keep the
 popover read-only.
+Both owner and observer popovers show the same compact activity summary and
+recorded `lastTaskActivityAt` when supplied by the runtime overview. Location
+links appear only when Core disclosed them. The timestamp is historical task
+evidence, not a live heartbeat, presence, or model progress; its tooltip gives
+the exact local date and time. Reads reuse the existing organization query and
+only mount with the visible surface. Agent conversations marks a Space with a
+current task and labels its message timestamp **Last message**. Session-writer
+conflicts say **Waiting for {Agent name}'s session**, never that another turn
+must still be running. The writer ownership and recovery mechanism is unchanged.
 Web must not maintain a separate About-versus-Edit presentation or mutation
 path. Disruptive Controller and working-folder changes keep the account-wide
 execution lock and Core writer guard described below.

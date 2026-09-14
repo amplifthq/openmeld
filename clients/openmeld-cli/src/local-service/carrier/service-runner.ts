@@ -15,6 +15,7 @@ import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
+  OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
 } from "@openmeld/schemas";
 import type {
@@ -177,6 +178,7 @@ function buildLocalServiceCapabilityHeaders(input: {
   localFolderPickerAvailable: boolean;
 }): Record<string, string> {
   return {
+    [OPENMELD_REASONING_STREAM_HEADER]: "1",
     ...(input.localFolderPickerAvailable
       ? {
           [OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER]:

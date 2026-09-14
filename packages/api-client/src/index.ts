@@ -295,6 +295,7 @@ export type {
   UpdateProjectInput,
 } from "./projects/types";
 export { publicSpaceUrls } from "./public-space-urls";
+export { createReasoningStreamApi } from "./reasoning-stream";
 export { createRoutinesApi } from "./routines/api";
 export {
   buildRoutinePath,

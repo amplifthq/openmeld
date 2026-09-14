@@ -2371,6 +2371,14 @@ Agent Space-stream paths:
   only after mapping the provider event to one admitted work key and, when
   useful, one explicitly safe bounded subject label. It never carries tool
   arguments, results, raw errors, command text, paths, or private Agent text.
+- `packages/schemas/src/schemas/http/local-agent-reasoning.ts` owns the account
+  reasoning-stream preference, live status, and negotiated Service header.
+  `daemon.dispatch.reasoning` uses the existing tool-activity execution identity
+  with a separate bounded thinking snapshot, never a durable tool part. The
+  preference is default-on, owner-controlled, and account-wide. Optional live
+  reasoning status is not execution truth; clients must not infer model support
+  or a stuck execution from silence. Old Service/Gateway combinations do not
+  negotiate the header and therefore continue without live reasoning.
 - `packages/schemas/src/schemas/protocol/agent-stream.ts` owns Space live text,
   thinking, tool-part, and terminal frames plus the active stream presence,
   active text snapshot, and durable privacy-bounded Agent reply work

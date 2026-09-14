@@ -229,6 +229,7 @@ import type {
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
+  LocalAgentReasoningPreferencesRpc,
   LocalRuntimeEnrollmentResponse,
   LocalRuntimesResponse,
   MarkAllInboxItemsReadResponse,
@@ -1050,6 +1051,7 @@ import {
   type WriteCurrentDeviceObservedMetadataInput,
   type WriteSpaceFileContentRpcInput,
 } from "./rpc/methods";
+import { reasoningPreferences } from "./runtime-transport/application/reasoning-preferences";
 import { RuntimeTransportHub } from "./runtime-transport/transport/do/runtime-transport-hub";
 import {
   ROUTINE_TICK_CRON,
@@ -1475,6 +1477,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return rpcGetInboxNotificationPreferences(this.env, input);
+  }
+
+  localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
+    return reasoningPreferences(this.env, input);
   }
 
   updateInboxNotificationPreferences(

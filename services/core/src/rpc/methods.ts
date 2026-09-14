@@ -2437,6 +2437,7 @@ export type ApplySpaceAgentStreamDeltaInput =
       | {
           kind: "thinking";
           thinkingSnapshot: string;
+          reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
         }
     );
 

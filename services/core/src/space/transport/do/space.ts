@@ -20115,6 +20115,7 @@ function buildAgentStreamThinkingDeltaFrame(
     dispatchId: input.dispatchId,
     kind: "thinking",
     thinkingSnapshot: input.thinkingSnapshot,
+    ...(input.reasoningState ? { reasoningState: input.reasoningState } : {}),
     state: "streaming",
     updatedAtMs,
   });

@@ -1599,6 +1599,26 @@ lease, task, authoritative Space, target Agent Profile, and source signal all
 match the pending RuntimeCoordinator execution.
 
 Core processes tool-activity and result frames in arrival order per dispatch.
+Local Agent reasoning uses `daemon.dispatch.reasoning` and the existing Space
+thinking delta channel, with the same execution-token and identity checks as
+tool activity. It never enters a tool part or persisted Work summary. The
+account owner preference defaults enabled and is stored by the owner-sharded
+RuntimeTransportHub. The Service announces support with
+`x-openmeld-reasoning-stream: 1`; Core sends the preference only to announcing
+connections. Until that negotiation succeeds, a Service sends no reasoning.
+Older peers continue to execute and publish Wakes normally.
+
+The Service sends a full latest snapshot capped at 8,192 characters: first
+output immediately, later changes at most every 100 ms. It retains at most
+eight bounded blocks, drops live output under socket backpressure, and clears
+the buffer when disabled or disconnected. The Hub permits at most one pending
+reasoning delivery per dispatch rather than building a backlog of private text.
+Live delivery failure must not fail execution. Space persists only the existing
+stream identity, cursor, and presence metadata for thinking, never its body.
+Web renders plain text in a bounded transient viewport, respecting manual
+scrolling and reduced motion. Neither private final replies nor tool inputs and
+outputs are added to this stream.
+
 The Space part RPC must finish before the matching result may retire execution
 authority or begin finalization. This ordering is dispatch-scoped: heartbeat
 handling and unrelated dispatches must not wait behind one slow Space stream
