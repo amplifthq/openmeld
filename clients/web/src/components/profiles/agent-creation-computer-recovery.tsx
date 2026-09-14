@@ -7,7 +7,13 @@ import { LocalAgentInstallEmptyState } from "#/components/agents/local-agent-ins
 import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 
 export type AgentCreationComputerRecovery = {
-	state: "checking" | "check_failed" | "connect" | "reconnect" | "local_agents";
+	state:
+		| "checking"
+		| "check_failed"
+		| "connect"
+		| "reconnect"
+		| "local_agents"
+		| "awaiting_agents";
 	computerName?: string;
 	onStart: () => void;
 	/** The existing setup workflow, shown directly when connection is required. */
@@ -27,6 +33,7 @@ export function agentCreationComputerActionLabel(
 		case "reconnect":
 			return "Reconnect Computer";
 		case "local_agents":
+		case "awaiting_agents":
 			return "Check again";
 		default:
 			return "Connect Computer";
@@ -98,9 +105,15 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 	switch (recovery.state) {
 		case "checking":
 			return {
-				title: "Checking the computer’s connection…",
+				title: "Checking this computer…",
 				description:
-					"Your Agent settings will stay here while OpenMeld checks the connection.",
+					"Your Agent settings will stay here while OpenMeld loads the connection and local agent details.",
+			};
+		case "awaiting_agents":
+			return {
+				title: "Waiting for local agent details",
+				description:
+					"Your computer is connected. Its local agent report has not arrived yet. Check again to refresh the list.",
 			};
 		case "check_failed":
 			return {
@@ -112,7 +125,7 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 			return {
 				title: `Reconnect ${recovery.computerName ?? "your computer"}`,
 				description:
-					"This computer is already added. Run the command below on it to reconnect.",
+					"This computer is already added. Continue below to reconnect it.",
 			};
 		case "local_agents":
 			return {
@@ -123,7 +136,8 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 		default:
 			return {
 				title: "Connect your computer",
-				description: "Run the command below on the computer you want to use.",
+				description:
+					"Connect the computer where you want your local agents to run.",
 			};
 	}
 }

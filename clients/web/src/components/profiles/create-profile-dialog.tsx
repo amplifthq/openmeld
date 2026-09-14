@@ -561,6 +561,16 @@ function resolveAllowedInitialSessionPreset(
 		: undefined;
 }
 
+function isLocalAgentReportMissing(
+	target: ReturnType<typeof resolveProfileBindingCatalogExecutionTarget>
+) {
+	return (
+		!target ||
+		target.status === "unknown" ||
+		target.localAgentCatalog.entries.length === 0
+	);
+}
+
 function useCreateProfileDialogController(
 	input: CreateProfileDialogProps,
 	options: { agentOnly: boolean; templateNaming: boolean }
@@ -865,6 +875,7 @@ function useCreateProfileDialogController(
 			guidance: creationGuidance,
 			hasLocalAgents: ownLocalAgentIds.length > 0,
 			isPending: creationComputerReadiness.isPending,
+			localAgentReportMissing: isLocalAgentReportMissing(bindingTarget),
 			sessionComputerId: sessionPreset?.computerId,
 			onRetry: retryCreationConnection,
 		});

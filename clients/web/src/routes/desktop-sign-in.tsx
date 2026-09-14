@@ -1,11 +1,13 @@
 import { electronProxyClient } from "@better-auth/electron/proxy";
 import { Button } from "@openmeld/ui/components/button";
+import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { createAuthClient } from "better-auth/client";
 import { useState } from "react";
 import { z } from "zod/v4";
 import { AuthPageShell } from "#/components/auth/auth-page-shell";
+import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { env, getRequiredServerEnv } from "#/env";
 import { ADD_ACCOUNT_AUTH_INTENT } from "#/lib/auth-intent";
 import { getSession } from "#/lib/auth-session";
@@ -46,12 +48,16 @@ export const Route = createFileRoute("/desktop-sign-in")({
 function DesktopSignIn() {
 	const query = Route.useSearch();
 	const { desktopIdentity, desktopEmail } = Route.useRouteContext();
-	const [message, setMessage] = useState(
-		`Continue as ${desktopEmail} in OpenMeld Desktop.`
-	);
+	const [message, setMessage] = useState<string | null>(null);
+	const [failed, setFailed] = useState(false);
 	const [pending, setPending] = useState(false);
+	const validRequest = Boolean(
+		query.state && query.code_challenge && query.code_challenge_method
+	);
 	async function continueInDesktop() {
 		setPending(true);
+		setFailed(false);
+		setMessage(null);
 		try {
 			const client = createAuthClient({
 				baseURL: window.location.origin,
@@ -77,9 +83,10 @@ function DesktopSignIn() {
 			}
 			client.ensureElectronRedirect();
 			setMessage("Return to OpenMeld Desktop to continue.");
-		} catch (error) {
+		} catch {
+			setFailed(true);
 			setMessage(
-				error instanceof Error ? error.message : "Could not sign in to Desktop."
+				"Could not complete this sign-in. Return to Desktop and start signing in again."
 			);
 		} finally {
 			setPending(false);
@@ -87,30 +94,53 @@ function DesktopSignIn() {
 	}
 	return (
 		<AuthPageShell>
-			<section className="space-y-4">
-				<h1 className="font-semibold text-xl">Sign in to Desktop</h1>
-				<output>{message}</output>
-				<Button
-					disabled={
-						pending ||
-						!query.state ||
-						!query.code_challenge ||
-						!query.code_challenge_method
-					}
-					onClick={continueInDesktop}
-				>
-					Continue in Desktop
-				</Button>
-				<Link
-					className="block text-sm underline"
-					search={{
-						intent: ADD_ACCOUNT_AUTH_INTENT,
-						redirect: `/desktop-sign-in?${new URLSearchParams(query).toString()}`,
-					}}
-					to="/login"
-				>
-					Use another account
-				</Link>
+			<section aria-busy={pending} className="w-full max-w-sm space-y-6">
+				<div className="w-fit">
+					<OpenMeldLogo colors={OPENMELD_LOGO_THEME_COLORS} scale={0.2} />
+				</div>
+				<div className="space-y-2">
+					<h1 className="font-semibold text-xl">Continue to Desktop</h1>
+					<p className="text-muted-foreground text-sm leading-relaxed">
+						Open your workspace in the OpenMeld Desktop app.
+					</p>
+				</div>
+				<div className="space-y-1 border-y py-3">
+					<p className="text-muted-foreground text-xs">Signed in as</p>
+					<p className="break-words font-medium text-sm">{desktopEmail}</p>
+				</div>
+				{!validRequest || message ? (
+					<p
+						className={
+							failed || !validRequest
+								? "text-destructive text-sm"
+								: "text-muted-foreground text-sm"
+						}
+						role={failed || !validRequest ? "alert" : "status"}
+					>
+						{validRequest
+							? message
+							: "This sign-in link is incomplete. Return to Desktop and start signing in again."}
+					</p>
+				) : null}
+				<div className="space-y-3">
+					<Button
+						className="w-full"
+						disabled={pending || !validRequest}
+						onClick={continueInDesktop}
+					>
+						{pending ? "Opening Desktop…" : "Continue in Desktop"}
+					</Button>
+					<Link
+						className="block py-2 text-center text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
+						search={{
+							intent: ADD_ACCOUNT_AUTH_INTENT,
+							redirect: `/desktop-sign-in?${new URLSearchParams(query).toString()}`,
+						}}
+						to="/login"
+					>
+						Use another account
+					</Link>
+				</div>
 			</section>
 		</AuthPageShell>
 	);

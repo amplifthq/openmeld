@@ -79,6 +79,30 @@ describe("Agent creation computer recovery", () => {
 			screen.getByRole("combobox", { name: "Computer to reconnect" })
 		);
 	});
+	it.each([
+		true,
+		false,
+	])("distinguishes missing local agent reports (missing=%s) from an empty result", (localAgentReportMissing) => {
+		const { result } = renderHook(() =>
+			useAgentCreationComputerRecovery({
+				enabled: true,
+				recovery: agentCreationRecoveryFixture({
+					computers: [agentCreationComputerFixture()],
+					deviceId: "office-mac",
+					onSelect: vi.fn(),
+				}),
+				guidance: "set_up_local_agents",
+				hasLocalAgents: false,
+				isPending: false,
+				localAgentReportMissing,
+				onRetry: vi.fn(),
+			})
+		);
+		expect(result.current.computerRecovery?.state).toBe(
+			localAgentReportMissing ? "awaiting_agents" : "local_agents"
+		);
+		expect(result.current.computerRecovery?.setup).toBeUndefined();
+	});
 	it("needs no computer setup when the selected computer has local agents", () => {
 		const { result } = renderHook(() =>
 			useAgentCreationComputerRecovery({

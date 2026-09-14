@@ -12,6 +12,7 @@ import {
 	buildConnectRouteSearch,
 } from "#/lib/connect/connect-route";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { formatDesktopError } from "./desktop-error";
 import { getDesktopPlatform, openDesktopWeb } from "./platform";
 
 export function DesktopComputerConnection(input: {
@@ -79,9 +80,7 @@ export function DesktopComputerConnection(input: {
 		} catch (error) {
 			setFailed(true);
 			setMessage(
-				error instanceof Error
-					? error.message
-					: "This computer could not connect. Try again."
+				formatDesktopError(error, "This computer could not connect. Try again.")
 			);
 		} finally {
 			setPending(false);
@@ -112,8 +111,8 @@ export function DesktopComputerConnection(input: {
 		return (
 			<div className="space-y-3">
 				<p className="text-sm">
-					Continue this computer recovery in Web to keep the selected computer,
-					agents, and update request.
+					Continue in your browser to finish this computer’s recovery. Your
+					selected computer and agents will stay the same.
 				</p>
 				<Button
 					onClick={() =>
@@ -141,11 +140,12 @@ export function DesktopComputerConnection(input: {
 	}
 	return (
 		<div className="space-y-3">
-			<div>
+			<div className="space-y-1">
 				<p className="font-medium text-sm">Connect this computer</p>
 				<p className="text-muted-foreground text-sm">
-					Desktop connects this Mac using OpenMeld Tools. Your agents can keep
-					working after you quit Desktop.
+					Connect this Mac to run local agents from your workspace. OpenMeld
+					installs any tools it needs, and your agents can keep working after
+					you quit Desktop.
 				</p>
 			</div>
 			<Button
@@ -155,6 +155,12 @@ export function DesktopComputerConnection(input: {
 			>
 				{pending ? "Connecting…" : "Connect this computer"}
 			</Button>
+			{pending ? (
+				<output className="block text-muted-foreground text-sm">
+					Connecting this Mac and checking its setup. This may take a few
+					minutes.
+				</output>
+			) : null}
 			{diagnosticId ? (
 				<details className="text-muted-foreground text-xs">
 					<summary>Connection details</summary>
