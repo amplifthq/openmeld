@@ -10225,7 +10225,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           generatedBy: "openmeld",
           reason: "The Agent Profile was deleted.",
           reasonCode: "runtime_coordinator.pre_agent_stop_requested",
-          text: "Wake was stopped for Codex Agent because its Agent Profile was deleted.",
+          text: "Wake cancelled. Codex Agent was deleted.",
         },
       },
     });
@@ -11669,7 +11669,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           generatedBy: "openmeld",
           reason: "The Agent Profile was deleted.",
           reasonCode: "adapter.cancel.accepted",
-          text: "Wake was stopped for Codex Agent because its Agent Profile was deleted.",
+          text: "Wake cancelled. Codex Agent was deleted.",
         },
       },
     });
