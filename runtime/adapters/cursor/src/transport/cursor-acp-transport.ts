@@ -733,6 +733,19 @@ class CursorAcpSession {
     }
     const params = toRecord(message.params);
     const update = toRecord(params?.update);
+    if (update?.sessionUpdate === "agent_thought_chunk") {
+      const thought = toRecord(update.content);
+      if (thought?.type === "text" && typeof thought.text === "string") {
+        this.#emitRuntimeEvent({
+          phase: "reasoning",
+          blockId: String(params?.sessionId),
+          text: thought.text,
+          mode: "append",
+          tsMs: Date.now(),
+        });
+      }
+      return;
+    }
     if (update?.sessionUpdate !== "agent_message_chunk") {
       return;
     }

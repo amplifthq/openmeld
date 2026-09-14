@@ -1540,6 +1540,19 @@ class CodexAppServerSession {
   }
 
   #handleNotification(message: JsonRpcMessage): void {
+    if (message.method === "item/reasoning/summaryTextDelta") {
+      const params = toRecord(message.params);
+      if (typeof params?.delta === "string" && params.delta.length > 0) {
+        this.#emitRuntimeEvent({
+          phase: "reasoning",
+          blockId: `${params.turnId}:${params.itemId}:${params.summaryIndex}`,
+          text: params.delta,
+          mode: "append",
+          tsMs: Date.now(),
+        });
+      }
+      return;
+    }
     this.#notifications.push(message);
     this.#observeContextTelemetry(message);
     this.#collectAgentMessageDelta(message);
