@@ -52,12 +52,11 @@ Web uses three navigation levels: a fixed 76px application rail, a contextual
 list inside the inset surface, and the current work area. Inbox, Spaces, and
 Team are the rail's destinations, in that order. Desk is temporarily hidden
 from navigation and remains accessible at `/o/{orgSlug}/desk`. Organization
-switching and Create remain circular controls at the top. Global search sits
+switching remains at the top; the global Create entry is temporarily hidden.
+Creation remains available in the Spaces and Team contextual headers. Global search sits
 above Settings in the footer, using the same compact utility styling. Inbox
 retains the shared attention badge and active-route treatment. The Organization
-avatar fills its circular trigger. Create opens New Agent and New Space to the
-right using Liquid Gooey, with Base UI menu keyboard and focus behavior; reduced
-motion opens the choices without travel. Account, theme, and Settings
+avatar fills its circular trigger. Account, theme, and Settings
 remain reachable from the rail. Spaces and its contextual sidebar heading always
 open `/o/{orgSlug}/spaces`. The directory contains Your Spaces, Direct messages,
 and Discover, in that order (Discover is absent in personal workspaces).
