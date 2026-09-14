@@ -47,7 +47,7 @@ describe("ledger-recovery ledger atomic write", () => {
 
     const raw = await readFile(paths.stateFilePath, "utf8");
     const parsed = JSON.parse(raw) as { v: number };
-    expect(parsed.v).toBe(1);
+    expect(parsed.v).toBe(2);
     expect(await exists(paths.stateTempFilePath)).toBe(false);
   });
 

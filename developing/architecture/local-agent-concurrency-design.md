@@ -10,7 +10,8 @@
 
 Status: IMPLEMENTATION IN DRAFT PR #956 — accepted context, admission, isolation,
 and compatibility rules are now recorded in the scoped owner documents. Local
-validation is in progress; this document does not claim production availability.
+acceptance has verified concurrent Codex project tasks and Claude Space-context
+tasks on macOS; this document does not claim production availability.
 
 Remove when this feature ships and its accepted rules, compatibility requirements,
 and validation evidence have been incorporated into the scoped owner documents.
@@ -29,7 +30,7 @@ and validation evidence have been incorporated into the scoped owner documents.
 | Late result | Retain evidence. Eligible technical-loss results can appear as a labeled, non-terminal Late reply; Stop, revocation, supersession, and publication fences are not bypassed. |
 | Process loss | Tool failure, confirmed Controller termination, and unknown execution ownership have different outcomes. Never infer OOM or free a Wake slot from exit 137 alone. |
 | History and migration | Query existing accessible Wake/message/result records, including retained legacy work. Never reclassify a mixed-scope transcript using its last Space. |
-| Delivery | Design reviewed and ready for capability validation; runtime capabilities remain unverified. Probes, migration tests, and real-user validation precede activation; Claude Code local-cli three-session validation is a named gate. |
+| Delivery | Draft implementation has passed scoped local acceptance. Native file and tool checks still gate every supported local execution; guarded production rollout remains pending. |
 
 The lifecycle below composes existing authorities; these are design labels, not
 new persisted state enums or another state machine. Publication repair is tracked
@@ -85,7 +86,10 @@ It includes explicit background inheritance through native fork and a bounded,
 authorized read of existing work records. Neither creates another teammate or
 automatically synchronizes private histories between contexts.
 
-## Current Constraints Verified In Source
+## Baseline Constraints Before Implementation
+
+This table records the baseline that motivated the proposal. The updated scoped
+owner documents describe the implementation; these rows are not current behavior.
 
 | Current constraint | Evidence | Required change |
 | --- | --- | --- |
@@ -101,7 +105,7 @@ automatically synchronizes private histories between contexts.
 | Core already retains selected token-matching late results after progress loss or local-runtime loss, and emits a recovery notice. | [Late-result eligibility](../../services/core/src/runtime-transport/application/runtime-coordinator-authority.ts), [result handling](../../services/core/src/runtime-transport/transport/do/runtime-transport-hub.ts) | Extend the existing result path with safe Late reply presentation, preserving Stop and final-outcome fences. |
 | Claude CLI transport records exit/signal and classifies process termination; the Service also has a global execution limit. | [Claude CLI transport](../../runtime/adapters/claude-code/src/transport/claude-cli-transport.ts), [Service configuration](../../clients/openmeld-cli/src/config/runtime-config.ts) | Prove end-to-end visible failure and cleanup; add host-resource admission and shared transient-capacity evidence rather than assume each signal kills the whole task. |
 
-These are current checkout facts, not evidence that a particular production Wake
+These were baseline checkout facts, not evidence that a particular production Wake
 failed. The reported busy-Agent experience still needs a trace or real-user
 reproduction before attributing a concrete incident to a particular gate.
 Reported long-render late actions, silent endings, subprocess exit 137, and
