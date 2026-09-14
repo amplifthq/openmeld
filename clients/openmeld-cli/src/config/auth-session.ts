@@ -1678,7 +1678,7 @@ function assertExpectedPreviousSession(input: {
   }
 }
 
-function buildStoredAuthSessionIdentity(
+export function buildStoredAuthSessionIdentity(
   session: AuthSessionMetadata | null
 ): string {
   if (!session) {

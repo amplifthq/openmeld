@@ -99,9 +99,54 @@ The renderer sends the displayed account as immutable intent. Main verifies the
 current native session, then passes that same account to the CLI admission owner.
 An account change never retargets an operation. Stop has no GUI execution timeout;
 the existing controlled shutdown owns drain and final completion.
-CLI login/logout, installation, setup, upgrades, autostart and agent mutations
-remain refused, and tray Service controls stay hidden. Clean-machine setup remains
-the normal Web/CLI onboarding path, not a completed Desktop flow.
+Generic CLI login/logout, upgrades, autostart and agent mutations remain refused,
+and tray Service controls stay hidden. Computer connection uses the bounded
+native operation below; it does not reopen the old npm installer or unscoped
+five-minute Setup wrapper.
+
+### Computer connection
+
+The shared Connect flow, including New Agent's embedded recovery, offers a
+fixed `connectComputer` operation in Desktop. Its strict request contains the
+displayed account and optional Human Profile/Space IDs only. Main validates its
+current native account, reads the CLI-owned `computer connection-review --json`
+projection, and reuses an account-aligned existing Service when that projection
+positively identifies it. Reuse selects its actual device/lane; it does not
+claim Agent Wakeability or rewrite a Computer session.
+
+When the managed CLI is absent or lacks the connection contract, main downloads
+the fixed Web origin's managed binary manifest and Apple silicon artifact.
+The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
+verifies transport and executable hashes and the production signing identity.
+The verified binary's `install-self` owns installation. No Node/npm prerequisite,
+arbitrary renderer executable, URL, path, or shell command is accepted.
+
+Main creates the existing Core Prepare Session and uses the shared API client's
+Device Authorization sequence with its authenticated native SDK transport. The
+grant creates an independent Computer session in the CLI; native cookies never
+become CLI credentials. A different known account requires a native confirmation
+dialog. Its intent names the exact reviewed old session identity and new account;
+CLI checks both before entering its existing locked commit/rollback flow.
+
+Setup runs without a GUI execution timeout, in a separate process group with
+file-backed output. GUI exit does not stop it or the OS-managed Service. The
+existing Prepare continuation journal and maintenance worker retain recovery
+ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
+snapshot; errors retain a shared local-machine action and diagnostic correlation.
+
+Production resolves the existing `~/.openmeld` managed installation. An installed
+disposable build must compile its already aligned test lane using
+`OPENMELD_DESKTOP_TEST_COMPUTER_HOME`, `OPENMELD_DESKTOP_TEST_AUTH_ORIGIN`, and
+`OPENMELD_DESKTOP_TEST_GATEWAY_ORIGIN`. The build rejects the production home and
+non-loopback test endpoints. These native-only values never enter the renderer
+bridge or come from its launch environment. A build without that configuration
+cannot connect a computer; it never creates a separate GUI-owned Service home.
+
+Computer pages retain the shared connection and per-local-agent projections.
+Native background controls are folded and appear only for a positively matching
+device. Missing, unreadable, and explicitly different accounts remain distinct;
+unavailable control capabilities are not evidence of an old version. A global
+Connect this Mac action does not identify a selected remote Computer as local.
 
 This pilot restriction applies to the shared Computer presentation and cloud
 transport as well as native IPC. `canConfigureLocalComputer` removes unsupported

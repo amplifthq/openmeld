@@ -16,6 +16,8 @@ import {
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -197,6 +199,16 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	return (
 		<>
 			<AppPageHeader
+				action={
+					getDesktopPlatform() ? (
+						<Link
+							className={buttonVariants({ size: "sm", variant: "outline" })}
+							to={buildConnectComputerPath({ orgSlug })}
+						>
+							Connect this Mac
+						</Link>
+					) : undefined
+				}
 				description={sectionDescription}
 				eyebrow="Run agents locally"
 				id="computers-heading"

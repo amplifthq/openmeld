@@ -91,6 +91,15 @@ export {
 } from "./compatibility/legacy-space-addressing-wire";
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
+  type ComputerConnectionIntent,
+  computerConnectionIntentSchema,
+  computerConnectionReviewSchema,
+  type DesktopComputerConnectionRequest,
+  type DesktopComputerConnectionResult,
+  desktopComputerConnectionRequestSchema,
+  desktopComputerConnectionResultSchema,
+} from "./computer-connection";
+export {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
   DESKTOP_COMPATIBILITY_PATH,

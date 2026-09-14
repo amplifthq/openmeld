@@ -8,7 +8,7 @@
   "main": "out/main/index.js",
   "description": "OpenMeld Desktop GUI (Electron) — thin local control surface for the OpenMeld Service. See developing/clients/desktop.md.",
   "scripts": {
-    "build:contract-deps": "pnpm -C ../.. exec turbo run build --filter=@openmeld/agent-runtime --filter=@openmeld/gateway-contract --filter=@openmeld/protocol --concurrency=1",
+    "build:contract-deps": "pnpm -C ../.. exec turbo run build --filter=@openmeld/api-client --filter=@openmeld/agent-runtime --filter=@openmeld/gateway-contract --filter=@openmeld/protocol --concurrency=1",
     "dev": "electron-vite dev",
     "build": "pnpm run build:contract-deps && electron-vite build",
     "icons:generate": "node scripts/generate-icons.mjs",
@@ -23,6 +23,7 @@
     "check": "biome check --no-errors-on-unmatched ./ && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@openmeld/api-client": "workspace:*",
     "@better-auth/electron": "1.6.30",
     "@better-auth/utils": "0.4.2",
     "@openmeld/agent-runtime": "workspace:*",
@@ -70,6 +71,7 @@
     }
   },
   "devDependencies": {
+    "@openmeld/local-service": "workspace:*",
     "@types/ws": "8.18.1",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/dom": "^10.4.0",

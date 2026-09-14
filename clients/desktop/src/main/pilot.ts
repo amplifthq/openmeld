@@ -9,6 +9,7 @@ import {
 import {
   app,
   type BrowserWindow,
+  dialog,
   type IpcMainInvokeEvent,
   ipcMain,
   protocol,
@@ -17,11 +18,13 @@ import {
   type WebContents,
 } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
+import { createComputerConnection } from "./computer-connection";
 import { checkDesktopCompatibility } from "./desktop-compatibility";
 import {
   resolveDesktopEnvPreset,
   resolveDesktopWebUrl,
 } from "./desktop-environment";
+import { installedCommandEnvironment } from "./installed-environment";
 import { resolvePilotAssets } from "./pilot-assets";
 import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
@@ -186,6 +189,34 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           return auth.signOut();
         },
       };
+      const connectComputer = createComputerConnection({
+        auth,
+        commandDeps: installedTarget
+          ? installedCommandEnvironment(
+              installedTarget,
+              app.getPath("userData")
+            )
+          : { env: process.env, openMeldBin: process.env.OPENMELD_BIN },
+        webOrigin,
+        webBuild: platform.webBuild,
+        installed: Boolean(installedTarget),
+        ensureCompatible,
+        confirmSwitch: async (previousAccount, nextAccount) => {
+          const result = await dialog.showMessageBox({
+            type: "warning",
+            message: "Switch this computer's account?",
+            detail: `This computer is connected as ${previousAccount}. Switching to ${nextAccount} changes the account used by its OpenMeld Service.`,
+            buttons: ["Keep current account", "Switch account"],
+            defaultId: 0,
+            cancelId: 0,
+          });
+          return result.response === 1;
+        },
+      });
+      ipcMain.handle(PILOT_IPC.connectComputer, (event, request: unknown) => {
+        authorize(event);
+        return connectComputer(request);
+      });
       for (const [channel, handler] of Object.entries(handlers)) {
         ipcMain.handle(channel, (event) => {
           authorize(event);

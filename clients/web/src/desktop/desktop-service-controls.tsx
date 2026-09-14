@@ -54,10 +54,19 @@ function LocalServiceControls({ deviceId }: { deviceId: string }) {
 	});
 	const service = query.data?.service;
 	const capabilities = service?.controlCapabilities;
-	if (capabilities?.deviceId && capabilities.deviceId !== deviceId) {
+	if (capabilities?.deviceId !== deviceId) {
 		return null;
 	}
-	const matches = query.data?.auth.accountId === currentUserId;
+	const auth = query.data?.auth;
+	const matches =
+		auth?.signedIn === true &&
+		!auth.problem &&
+		auth.accountId === currentUserId;
+	const differentAccount =
+		auth?.signedIn === true &&
+		!auth.problem &&
+		Boolean(auth.accountId) &&
+		auth.accountId !== currentUserId;
 	async function run(operation: "start" | "stop") {
 		// Capture the account the person is looking at, never substitute a later session.
 		const expectedAccount = currentUserId;
@@ -83,21 +92,36 @@ function LocalServiceControls({ deviceId }: { deviceId: string }) {
 		}
 	}
 	return (
-		<section className="space-y-2 rounded-md border p-4">
-			<h3 className="font-medium text-sm">OpenMeld Service on this Mac</h3>
+		<details className="order-last space-y-2 border-t pt-3">
+			<summary className="cursor-pointer text-muted-foreground text-sm">
+				Background service controls
+			</summary>
 			<output className="block text-muted-foreground text-sm">
 				{serviceStatusText(pending, query.isPending, service?.lifecycle)}
 			</output>
-			{query.data && !matches ? (
+			{differentAccount ? (
 				<p className="text-muted-foreground text-sm">
-					The CLI uses a different account. Sign in to the CLI with your Desktop
-					account to control this Service.
+					This computer is connected to another account. Use Connect this
+					computer to review an account switch.
+				</p>
+			) : null}
+			{auth?.signedIn === false && !auth.problem ? (
+				<p className="text-muted-foreground text-sm">
+					This computer is not signed in. Connect this computer to continue.
+				</p>
+			) : null}
+			{auth &&
+			(auth.problem ||
+				auth.signedIn === null ||
+				(auth.signedIn && !auth.accountId)) ? (
+				<p className="text-muted-foreground text-sm">
+					The account for this computer could not be checked. Check status to
+					try again.
 				</p>
 			) : null}
 			{query.data && !(capabilities?.start || capabilities?.stop) ? (
 				<p className="text-muted-foreground text-sm">
-					Protected controls are unavailable for this CLI and Service. Update
-					OpenMeld through Web, then check again.
+					Local controls are unavailable. Check status to try again.
 				</p>
 			) : null}
 			{error || query.error ? (
@@ -135,6 +159,6 @@ function LocalServiceControls({ deviceId }: { deviceId: string }) {
 					Check status
 				</Button>
 			</div>
-		</section>
+		</details>
 	);
 }

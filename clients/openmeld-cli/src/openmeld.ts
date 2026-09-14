@@ -1,4 +1,7 @@
-import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
+import {
+  computerConnectionIntentSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
+} from "@openmeld/schemas";
 import { Command, Option } from "commander";
 import {
   runActivityContext,
@@ -528,6 +531,10 @@ program
   .command("setup")
   .description("Set up this computer for OpenMeld Space Wake.")
   .option(
+    "--connection-intent <json>",
+    "Account and exact previous Computer session explicitly reviewed for this connection"
+  )
+  .option(
     "--profile <id>",
     "Existing OpenMeld agent profile ID to connect to this computer"
   )
@@ -573,6 +580,7 @@ program
   )
   .action(
     async (opts: {
+      connectionIntent?: string;
       agent?: string[];
       deviceCode?: string;
       humanProfile?: string;
@@ -584,12 +592,23 @@ program
       startSession?: string;
     }) => {
       const view = getGlobalViewOption();
+      const connectionIntent = opts.connectionIntent
+        ? computerConnectionIntentSchema.parse(
+            JSON.parse(opts.connectionIntent)
+          )
+        : undefined;
+      if (connectionIntent && !(opts.startSession && opts.deviceCode)) {
+        throw new Error(
+          "--connection-intent requires --start-session and --device-code."
+        );
+      }
       await runCommandWithEntryChecks({
         routeTokens: ["setup"],
         view,
         profile: opts.profile,
         run: async () => {
           await runSetup({
+            connectionIntent,
             agent: opts.agent,
             deviceCode: opts.deviceCode,
             humanProfile: opts.humanProfile,
@@ -5511,6 +5530,18 @@ async function main() {
     return;
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  if (
+    argv.length === 5 &&
+    argv[2] === "computer" &&
+    argv[3] === "connection-review" &&
+    argv[4] === "--json"
+  ) {
+    const { readComputerConnectionReview } = await import(
+      "./commands/computer-connection-review"
+    );
+    outLine(JSON.stringify(await readComputerConnectionReview()));
+    return;
+  }
   // Exact read-only probes precede managed delegation and layout repair. The
   // carrier probe must describe this executable, not a newer delegated CLI.
   if (argv.length === 5 && argv[2] === "service" && argv[4] === "--json") {

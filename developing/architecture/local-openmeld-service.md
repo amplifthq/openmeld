@@ -1076,7 +1076,7 @@ that decision.
   resume that intent, subject to the same Core Prepare outcome. Current explicit
   cancellation and abandonment clear the continuation before account recovery.
   A committed transition is never recovered backward. A cross-account switch requires explicit
-  interactive confirmation bound to the stable identity of the exact committed
+  confirmation in Terminal or the native Desktop dialog, bound to the stable identity of the exact committed
   session the user reviewed. The transition lock compares that identity before
   accepting the candidate; if it changed, setup requires fresh review. Before
   commit, ordinary CLI processes keep using the previous committed session and
@@ -1084,6 +1084,12 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  Desktop uses `computer connection-review --json` and
+  `setup --connection-intent <json>` for that same boundary. The intent contains
+  the expected new account and a non-secret hash of the reviewed old session;
+  it is accepted only with a Prepare token and Device Authorization grant.
+  Unknown or changed identity fails before a transition. This adds neither a
+  second session writer nor a second lifecycle owner.
   A missing or unreadable old bearer token does not veto a freshly authorized
   handoff when the committed account metadata is intact. Metadata is used only
   for account-switch consent and the locked identity comparison, never to

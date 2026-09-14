@@ -57,6 +57,8 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
   session: () => ipcRenderer.invoke(PILOT_IPC.session),
   signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),
   signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
+  connectComputer: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.connectComputer, input),
   onSessionChanged: (handler) => {
     const listener = () => handler();
     ipcRenderer.on(PILOT_IPC.sessionChanged, listener);
