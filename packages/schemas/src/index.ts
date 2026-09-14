@@ -77,6 +77,11 @@ export {
   resolveCenterAgentCompletedCallbackMessage,
 } from "./center-agent-publication-copy";
 export {
+  CLI_RELEASE_PATH,
+  type CliRelease,
+  cliReleaseSchema,
+} from "./cli-release";
+export {
   type ClientEnvironmentResponse,
   clientEnvironmentResponseSchema,
 } from "./client-environment";
@@ -88,12 +93,21 @@ export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wi
 export {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  DESKTOP_COMPATIBILITY_PATH,
+  DESKTOP_CONTRACT_HEADER,
+  DESKTOP_CONTRACT_VERSION,
+  DESKTOP_INSTALLED_AUTH_SCHEME,
+  DESKTOP_TEST_AUTH_SCHEME,
   DESKTOP_WEB_BUILD_HEADER,
+  type DesktopInstalledTarget,
   type DesktopPlatform,
   type DesktopSession,
   type DesktopSpaceStreamBridge,
   type DesktopSpaceStreamEvent,
   type DesktopSpaceStreamInput,
+  desktopAuthIdentity,
+  desktopCompatibilitySchema,
+  desktopInstalledTargetSchema,
   desktopPlatformSchema,
   desktopSessionSchema,
   desktopSpaceStreamEventSchema,

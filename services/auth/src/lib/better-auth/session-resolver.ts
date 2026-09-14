@@ -49,9 +49,12 @@ export async function resolveSessionFromHeaders(input: {
   try {
     const options = {
       headers: input.headers,
-      ...(input.disableCookieCache
-        ? { query: { disableCookieCache: true } }
-        : {}),
+      query: {
+        ...(input.disableCookieCache ? { disableCookieCache: true } : {}),
+        // Identity-only RPC callers have no HTTP response that can carry the
+        // vendor's renewal. Preserve its window for a cookie-capable caller.
+        ...(input.onSessionCookies ? {} : { disableRefresh: true }),
+      },
     };
     if (input.onSessionCookies) {
       const result = await input.auth.api.getSession({

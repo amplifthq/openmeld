@@ -3,6 +3,7 @@
   "compilerOptions": {
     "types": ["node"],
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "jsx": "react-jsx",
     "lib": ["ESNext", "DOM", "DOM.Iterable"]
   },

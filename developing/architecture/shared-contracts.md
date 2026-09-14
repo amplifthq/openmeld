@@ -25,7 +25,34 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
-## Desktop pilot platform contract
+## Desktop platform contract
+
+Installed Desktop contract version 1 uses the strict compatibility response at
+`GET /v1/desktop/compatibility` and `x-openmeld-desktop-contract: 1` on fixed-origin
+business requests and streams. The Web admission layer accepts this version
+independently of source-build fingerprints, rejects unsupported versions before
+business handling, and never grants authentication from this header. Packaged
+renderer/native fingerprint and target agreement still protects local assets.
+Private development clients retain their matching-build requirement.
+
+Installed target metadata and the bounded production/private/disposable Auth
+identity mapping live in `packages/schemas/src/desktop-client.ts`. Production
+compiles `https://openmeld.ai`; runtime renderer or lane configuration cannot
+select a different endpoint. Native owns SDK credentials and strips response
+cookies from renderer output. Generated server functions and generic Auth APIs
+remain unavailable to installed renderers.
+
+`GET /v1/cli/release` projects only `channels.stable.version` from the existing
+public CLI binary manifest. `cliReleaseSchema` and the shared API client own its
+portable representation. It adds no release source, update writer, fallback,
+or installation capability. Missing or invalid published metadata stays an error.
+
+Contract Impact Audit: Web/Auth must support the installed identity and contract
+before app distribution. Compatible Web deployments preserve version 1; older
+private clients still require their corresponding Web build. Browser clients keep
+their normal authorization paths. CLI, Service, Skills, Core, Gateway, Prepare,
+Wake, and Space action payloads and minimum versions are unchanged. Installing
+this entry does not establish Service readiness or authorize local setup.
 
 ### Account session read
 
@@ -45,12 +72,19 @@ including authentication failures, are `private, no-store` before session
 resolution. No Organization reads or new account/session writer are involved.
 
 This read preserves Better Auth's existing session renewal at the HTTP boundary.
-An opt-in cookie sink on the same session resolution forwards only the vendor's
+The authenticated HTTP middleware's cookie sink on the same session resolution forwards only the vendor's
 separate `Set-Cookie` headers after local-user validation succeeds, or its
 deletion cookies when the vendor reports no session. Local verification errors
 and stale-local-user refusals emit no successful renewal. The Web proxy preserves
 these headers; the Desktop transport keeps them out of renderer responses.
 No second session read, cookie rewriting, or independent session writer is added.
+Internal identity-only callers without a cookie sink use the vendor's
+`disableRefresh` query option so they cannot consume renewal before an HTTP
+caller can return it. Existing cache-bypass and local-user checks remain intact.
+HTTP business failures retain their original status/body and separate renewal
+or deletion cookies, with private/no-store responses. Native SDK response-cookie
+handling precedes status handling; its pinned patch is documented in the Desktop
+owner document. Neither a business error nor cached vendor data grants identity.
 
 The shared Web/Desktop account query uses the shared API-client decoder and the
 same `userQueryKeys.session`. Only 401 maps to null; backend, transport, and
@@ -119,7 +153,7 @@ change. The Desktop fingerprint and request admission rules remain in force.
 
 Auth's cookie-write guard preserves the exact `DESKTOP_APP_ORIGIN` before URL
 origin normalization and then checks the existing environment trust set. Only
-development admits that origin. Custom-scheme near matches, callback origins,
+the configured environment admits that exact origin. Custom-scheme near matches, callback origins,
 opaque/null origins, and custom-scheme Referers are not substitutes. Configured
 HTTP(S) Web origins and the existing HTTP(S) Referer behavior remain supported;
 session and membership checks still apply. No native Origin rewriting is used.

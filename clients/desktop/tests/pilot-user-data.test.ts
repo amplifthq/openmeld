@@ -2,7 +2,40 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { configurePilotUserData } from "../src/main/pilot-user-data";
+import { readInstalledDesktopTarget } from "../../../scripts/desktop/installed-target";
+import {
+  configureInstalledUserData,
+  configurePilotUserData,
+} from "../src/main/pilot-user-data";
+
+it("fixes installed storage under OS app data with separate production and disposable identities", () => {
+  const appData = mkdtempSync(join(tmpdir(), "desktop-installed-data-"));
+  let userData = "/launch-override";
+  const app = {
+    setPath: (_name: string, value: string) => {
+      userData = value;
+    },
+    getPath: (name: string) => (name === "appData" ? appData : userData),
+  };
+  try {
+    for (const [kind, directory] of [
+      ["production", "OpenMeld Desktop"],
+      ["disposable", "OpenMeld Desktop Test"],
+    ] as const) {
+      const target = readInstalledDesktopTarget({
+        OPENMELD_DESKTOP_TARGET: kind,
+        OPENMELD_DESKTOP_TEST_WEB_ORIGIN: "http://test.localhost:39990",
+      });
+      if (!target) {
+        throw new Error("Expected installed target");
+      }
+      configureInstalledUserData(app, target);
+      expect(userData).toBe(join(appData, directory));
+    }
+  } finally {
+    rmSync(appData, { recursive: true, force: true });
+  }
+});
 
 it("verifies the lane GUI directory is effective before callers may initialize auth storage", () => {
   const home = mkdtempSync(join(tmpdir(), "openmeld-desktop-data-"));

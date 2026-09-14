@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { stagePrivateRenderer } from "./private-package.mjs";
+import { stageDesktopRenderer } from "./private-package.mjs";
 import { desktopWebBuildIdentity } from "./web-build-identity.mjs";
 
 const unavailable = /missing, incomplete, or stale/u;
@@ -24,7 +24,7 @@ test("private staging rejects missing/stale Web builds and copies only local ren
     execFileSync("git", ["init", "--quiet"], { cwd: root });
     writeFileSync(join(root, ".gitignore"), "dist/\n");
     const source = join(root, "clients/web/dist/client");
-    assert.throws(() => stagePrivateRenderer(root), unavailable);
+    assert.throws(() => stageDesktopRenderer(root), unavailable);
     mkdirSync(join(source, "assets"), { recursive: true });
     const marker = join(source, "desktop-build.json");
     writeFileSync(marker, JSON.stringify({ webBuild: "0".repeat(64) }));
@@ -32,7 +32,7 @@ test("private staging rejects missing/stale Web builds and copies only local ren
       join(source, "_shell.html"),
       '<script src="/assets/index.js"></script>'
     );
-    assert.throws(() => stagePrivateRenderer(root), unavailable);
+    assert.throws(() => stageDesktopRenderer(root), unavailable);
     writeFileSync(
       marker,
       JSON.stringify({ webBuild: desktopWebBuildIdentity(root) })
@@ -46,7 +46,7 @@ test("private staging rejects missing/stale Web builds and copies only local ren
       "private diagnostic map"
     );
     writeFileSync(join(source, ".private"), "must not ship");
-    const { destination } = stagePrivateRenderer(root);
+    const { destination } = stageDesktopRenderer(root);
     assert.equal(
       readFileSync(join(destination, "assets/index.js"), "utf8"),
       "export const shared = true;"
@@ -54,10 +54,10 @@ test("private staging rejects missing/stale Web builds and copies only local ren
     assert.equal(existsSync(join(destination, "assets/index.js.map")), false);
     assert.equal(existsSync(join(destination, ".private")), false);
     writeFileSync(join(destination, "obsolete.js"), "old build");
-    stagePrivateRenderer(root);
+    stageDesktopRenderer(root);
     assert.equal(existsSync(join(destination, "obsolete.js")), false);
     symlinkSync(join(root, ".gitignore"), join(source, "outside"));
-    assert.throws(() => stagePrivateRenderer(root), symbolicLinks);
+    assert.throws(() => stageDesktopRenderer(root), symbolicLinks);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

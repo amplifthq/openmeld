@@ -1,6 +1,9 @@
 import { electron } from "@better-auth/electron";
 import { passkey } from "@better-auth/passkey";
-import { ORGANIZATION_INVITATION_LIFETIME_SECONDS } from "@openmeld/schemas";
+import {
+  desktopAuthIdentity,
+  ORGANIZATION_INVITATION_LIFETIME_SECONDS,
+} from "@openmeld/schemas";
 import { APIError, type BetterAuthOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
@@ -628,6 +631,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
     BETTER_AUTH_URL: env.BETTER_AUTH_URL,
     BETTER_AUTH_OPENMELD_SECRET: env.BETTER_AUTH_OPENMELD_SECRET,
     AUTH_WORKER_NODE_ENV: env.AUTH_WORKER_NODE_ENV,
+    AUTH_DESKTOP_DEVELOPMENT_TARGET: env.AUTH_DESKTOP_DEVELOPMENT_TARGET,
     AUTH_DEVICE_ALLOWED_CLIENT_IDS: env.AUTH_DEVICE_ALLOWED_CLIENT_IDS,
     AUTH_FROM_EMAIL: env.AUTH_FROM_EMAIL,
     AUTH_BRAND_NAME: env.AUTH_BRAND_NAME,
@@ -926,6 +930,7 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
         baseAuthUrl: validated.BETTER_AUTH_URL,
         appUrl: validated.WEB_APP_URL,
         env: validated.AUTH_WORKER_NODE_ENV,
+        developmentTarget: validated.AUTH_DESKTOP_DEVELOPMENT_TARGET,
         request,
       }),
     database: drizzleAdapter(db, {
@@ -1044,7 +1049,12 @@ export function createAuthConfig(env: AuthConfigEnv = {}): BetterAuthOptions {
       },
     },
     plugins: [
-      ...(validated.AUTH_WORKER_NODE_ENV === "development" ? [electron()] : []),
+      electron({
+        clientID: desktopAuthIdentity(
+          validated.AUTH_WORKER_NODE_ENV === "production",
+          validated.AUTH_DESKTOP_DEVELOPMENT_TARGET
+        ).clientId,
+      }),
       createSpaceOwnerDeparturePlugin({
         coreWorker: env.OPENMELD_CORE_WORKER,
         db: env.OPENMELD_DB,

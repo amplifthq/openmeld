@@ -2,6 +2,24 @@ import { describe, expect, it } from "vitest";
 import { resolveTrustedOrigins } from "../src/utils/trusted-origins";
 
 describe("resolveTrustedOrigins", () => {
+  it("trusts only the configured Desktop callback identity", () => {
+    for (const [env, developmentTarget, expected] of [
+      ["production", undefined, "sh.openmeld.desktop:/"],
+      ["development", undefined, "sh.openmeld.desktop.dev:/"],
+      ["development", "disposable", "sh.openmeld.desktop.test:/"],
+    ] as const) {
+      const origins = resolveTrustedOrigins({
+        baseAuthUrl: "https://auth.openmeld.invalid",
+        appUrl: "https://openmeld.invalid",
+        env,
+        developmentTarget,
+      });
+      expect(origins).toContain("openmeld-desktop://app");
+      expect(
+        origins.filter((origin) => origin.startsWith("sh.openmeld."))
+      ).toEqual([expected]);
+    }
+  });
   it("trusts loopback aliases only on the configured development Web port", () => {
     const origins = resolveTrustedOrigins({
       baseAuthUrl: "http://wt-example.localhost:30178",

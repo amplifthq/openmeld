@@ -7,6 +7,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target";
 // @ts-expect-error Build-only JavaScript helper.
 import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
 import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
@@ -15,11 +16,19 @@ import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts"
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
 
 const config = defineConfig(({ command }) => {
+	const installedTarget = readInstalledDesktopTarget(process.env);
+	if (installedTarget) {
+		Object.assign(process.env, {
+			VITE_BETTER_AUTH_URL: installedTarget.webOrigin,
+		});
+	}
 	const desktopPilotBuild =
 		process.env.OPENMELD_DESKTOP_PILOT === "1" &&
 		command === "build" &&
 		process.env.CLOUDFLARE_ENV !== "prod";
-	const desktopWebBuild = desktopPilotBuild
+	const desktopRendererBuild =
+		command === "build" && (desktopPilotBuild || Boolean(installedTarget));
+	const desktopWebBuild = desktopRendererBuild
 		? desktopWebBuildIdentity(path.resolve(import.meta.dirname, "../.."))
 		: "";
 	const isolatedListener = isolatedDev
@@ -69,16 +78,22 @@ const config = defineConfig(({ command }) => {
 			},
 		},
 		plugins: [
-			desktopPilotBuildPrerequisites(desktopPilotBuild),
+			desktopPilotBuildPrerequisites(
+				desktopRendererBuild,
+				installedTarget?.webOrigin
+			),
 			{
 				name: "openmeld-desktop-build-identity",
 				apply: "build",
 				generateBundle() {
-					if (desktopPilotBuild && this.environment.name === "client") {
+					if (desktopRendererBuild && this.environment.name === "client") {
 						this.emitFile({
 							type: "asset",
 							fileName: "desktop-build.json",
-							source: JSON.stringify({ webBuild: desktopWebBuild }),
+							source: JSON.stringify({
+								webBuild: desktopWebBuild,
+								...(installedTarget ? { installedTarget } : {}),
+							}),
 						});
 					}
 				},
@@ -104,7 +119,7 @@ const config = defineConfig(({ command }) => {
 			tsconfigPaths({ projects: ["./tsconfig.json"] }),
 			tanstackStart({
 				spa: {
-					enabled: desktopPilotBuild,
+					enabled: desktopRendererBuild,
 					maskPath: "/desktop-shell",
 				},
 			}),

@@ -27,21 +27,18 @@ export const authInstanceMiddleware = createMiddleware<AppContext>(
 
 export const authContextMiddleware = createMiddleware<AppContext>(
   async (c, next) => {
+    c.header("cache-control", "private, no-store");
     const sessionResolution = await resolveSessionFromHeaders({
       auth: c.var.betterAuth,
       headers: c.req.raw.headers,
       disableCookieCache:
         c.req.path === ACCOUNT_ORGANIZATION_CONTEXT_PATH ||
         c.req.path === ACCOUNT_SESSION_PATH,
-      ...(c.req.path === ACCOUNT_SESSION_PATH
-        ? {
-            onSessionCookies: (cookies: readonly string[]) => {
-              for (const cookie of cookies) {
-                c.header("set-cookie", cookie, { append: true });
-              }
-            },
-          }
-        : {}),
+      onSessionCookies: (cookies: readonly string[]) => {
+        for (const cookie of cookies) {
+          c.header("set-cookie", cookie, { append: true });
+        }
+      },
       verifyLocalUserExists: (userId) =>
         getLocalAuthUserStore(c.env).hasUserById(userId),
     });

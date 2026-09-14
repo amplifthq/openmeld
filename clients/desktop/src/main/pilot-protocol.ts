@@ -8,8 +8,13 @@ import {
   OPENMELD_HEADER_SPACE_ADDRESSING_VERSION,
 } from "@openmeld/gateway-contract";
 import {
+  ACCOUNT_SESSION_PATH,
+  accountSessionSchema,
   DESKTOP_APP_ORIGIN,
+  DESKTOP_CONTRACT_HEADER,
+  DESKTOP_CONTRACT_VERSION,
   DESKTOP_WEB_BUILD_HEADER,
+  SPACE_ACCESS_VERSION_HEADER,
 } from "@openmeld/schemas";
 import { isPilotLocalControlRequest } from "./pilot-local-control-policy";
 
@@ -24,6 +29,7 @@ const CONTENT_TYPES: Record<string, string> = {
   ".ico": "image/x-icon",
 };
 const FORWARDED_HEADERS = new Set([
+  SPACE_ACCESS_VERSION_HEADER,
   OPENMELD_HEADER_INBOX_ITEM_KIND_VERSION,
   OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION,
   OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
@@ -44,6 +50,12 @@ type PilotProtocolOptions = {
   webBuild: string;
   cookie: () => string;
   fetch: typeof fetch;
+  installed?: boolean;
+  cloudRequest?: (
+    path: string,
+    request: { method: string; headers: Headers; body?: ArrayBuffer }
+  ) => Promise<Response>;
+  ensureCompatible?: () => Promise<void>;
 };
 
 export function createPilotProtocol(input: PilotProtocolOptions) {
@@ -86,6 +98,15 @@ async function forwardCloud(
       { status: 403 }
     );
   }
+  if (input.installed && url.pathname.startsWith("/_serverFn/")) {
+    return new Response("Open this action in OpenMeld Web.", { status: 403 });
+  }
+  if (input.installed) {
+    if (!input.ensureCompatible) {
+      throw new Error("Desktop compatibility admission is unavailable.");
+    }
+    await input.ensureCompatible();
+  }
   if (url.pathname.startsWith("/_serverFn/") && request.method !== "GET") {
     return new Response("Desktop pilot mutations must use the shared API", {
       status: 403,
@@ -100,22 +121,51 @@ async function forwardCloud(
     }
   }
   headers.set("origin", DESKTOP_APP_ORIGIN);
-  headers.set(DESKTOP_WEB_BUILD_HEADER, input.webBuild);
-  headers.set("cookie", input.cookie());
-  const upstream = await input.fetch(
-    new URL(url.pathname + url.search, input.webOrigin),
-    {
-      method: request.method,
-      headers,
-      body:
-        request.method === "GET" || request.method === "HEAD"
-          ? undefined
-          : await request.arrayBuffer(),
-      redirect: "manual",
-    }
+  headers.set(
+    input.installed ? DESKTOP_CONTRACT_HEADER : DESKTOP_WEB_BUILD_HEADER,
+    input.installed ? DESKTOP_CONTRACT_VERSION : input.webBuild
   );
+  headers.set("cookie", input.cookie());
+  const nativeAccountRead =
+    url.pathname === ACCOUNT_SESSION_PATH &&
+    !url.search &&
+    request.method === "GET";
+  const cloudRequest = {
+    method: request.method,
+    headers,
+    body:
+      request.method === "GET" || request.method === "HEAD"
+        ? undefined
+        : await request.arrayBuffer(),
+  };
+  const upstream =
+    url.pathname.startsWith("/v1/") && input.cloudRequest
+      ? await input.cloudRequest(url.pathname + url.search, cloudRequest)
+      : await input.fetch(new URL(url.pathname + url.search, input.webOrigin), {
+          ...cloudRequest,
+          redirect: "manual",
+        });
+  return sanitizeCloudResponse(upstream, Boolean(nativeAccountRead));
+}
+
+async function sanitizeCloudResponse(
+  upstream: Response,
+  nativeAccountRead: boolean
+): Promise<Response> {
   if (upstream.status >= 300 && upstream.status < 400) {
     return new Response("Desktop cloud redirect refused", { status: 502 });
+  }
+  if (nativeAccountRead && upstream.ok) {
+    const body: unknown = await upstream
+      .clone()
+      .json()
+      .catch(() => null);
+    if (!accountSessionSchema.safeParse(body).success) {
+      return new Response("OpenMeld returned an invalid account response.", {
+        status: 502,
+        headers: { "cache-control": "private, no-store" },
+      });
+    }
   }
   const responseHeaders = new Headers();
   for (const name of [

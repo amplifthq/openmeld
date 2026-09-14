@@ -31,6 +31,7 @@ import {
 } from "../shared/ipc-contract";
 import type { CliProblem, ServiceView } from "../shared/view-types";
 import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
+import { installedCommandEnvironment } from "./installed-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
 import { initializeDesktopPilot } from "./pilot";
 import { createPilotServiceHandlers } from "./pilot-service";
@@ -624,7 +625,14 @@ function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
       pilot?.install(authorizeRenderer);
+      const commandDeps = pilot?.installedTarget
+        ? installedCommandEnvironment(
+            pilot.installedTarget,
+            app.getPath("userData")
+          )
+        : undefined;
       handlers = createDesktopHandlers({
+        commandDeps,
         openExternal: shell.openExternal,
         desktopSettings: {
           getOpenAtLogin: () => app.getLoginItemSettings().openAtLogin,
@@ -636,18 +644,24 @@ function bootstrapApp(): void {
           getStatus: () =>
             readDesktopUpdateStatus({
               currentVersion: app.getVersion(),
-              env: process.env,
+              env: commandDeps?.env ?? process.env,
             }),
           openDownloadPage: async () => {
             await shell.openExternal(
-              resolveDesktopDownloadPageUrl({ env: process.env })
+              resolveDesktopDownloadPageUrl({
+                env: commandDeps?.env ?? process.env,
+              })
             );
           },
         },
       });
       configureAppIdentity();
       if (pilot) {
-        handlers = createPilotServiceHandlers(handlers, pilot.auth);
+        handlers = createPilotServiceHandlers(
+          handlers,
+          pilot.auth,
+          commandDeps
+        );
       }
       ipcDisposer = registerOpenMeldIpcHandlers(
         createWindowIpcHandlers(handlers),

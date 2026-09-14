@@ -1,9 +1,16 @@
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { desktopWebBuildSchema } from "@openmeld/schemas";
+import {
+  type DesktopInstalledTarget,
+  desktopWebBuildSchema,
+} from "@openmeld/schemas";
 
 /** Shared by asset staging and native startup; a build marker alone is not a page. */
-export function validatePilotAssets(directory: string, webBuild: string) {
+export function validatePilotAssets(
+  directory: string,
+  webBuild: string,
+  installedTarget?: DesktopInstalledTarget
+) {
   const assets = resolve(directory);
   try {
     const result = desktopWebBuildSchema.safeParse(
@@ -11,6 +18,12 @@ export function validatePilotAssets(directory: string, webBuild: string) {
     );
     if (!result.success || result.data.webBuild !== webBuild) {
       throw new Error("Desktop page files do not match this native build.");
+    }
+    if (
+      JSON.stringify(result.data.installedTarget) !==
+      JSON.stringify(installedTarget)
+    ) {
+      throw new Error("Desktop page configuration does not match this app.");
     }
     if (
       !(
@@ -22,7 +35,9 @@ export function validatePilotAssets(directory: string, webBuild: string) {
     }
   } catch (cause) {
     throw new Error(
-      "Desktop shared page files are missing, incomplete, or stale. Rebuild Web with OPENMELD_DESKTOP_PILOT=1, then rebuild Desktop from the same source.",
+      installedTarget
+        ? "Desktop app files are missing, incomplete, or stale. Reinstall OpenMeld Desktop."
+        : "Desktop shared page files are missing, incomplete, or stale. Rebuild Web with OPENMELD_DESKTOP_PILOT=1, then rebuild Desktop from the same source.",
       { cause }
     );
   }
@@ -34,7 +49,15 @@ export function resolvePilotAssets(input: {
   resourcesPath: string;
   webBuild: string;
   env: NodeJS.ProcessEnv;
+  installedTarget?: DesktopInstalledTarget;
 }) {
+  if (input.installedTarget) {
+    return validatePilotAssets(
+      resolve(input.resourcesPath, "desktop-renderer"),
+      input.webBuild,
+      input.installedTarget
+    );
+  }
   if (input.privatePackage && input.env.OPENMELD_DESKTOP_PILOT !== "1") {
     throw new Error(
       "This private Desktop package requires the repo-root desktop:start:package command and an existing aligned local lane."

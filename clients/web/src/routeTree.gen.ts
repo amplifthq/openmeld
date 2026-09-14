@@ -79,6 +79,8 @@ import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/
 import { Route as V1AccountOrganizationContextRouteImport } from './routes/v1/account/organization-context'
 import { Route as V1AccountSessionRouteImport } from './routes/v1/account/session'
 import { Route as V1AccountSidebarRouteImport } from './routes/v1/account/sidebar'
+import { Route as V1CliReleaseRouteImport } from './routes/v1/cli/release'
+import { Route as V1DesktopCompatibilityRouteImport } from './routes/v1/desktop/compatibility'
 import { Route as V1ObservabilityApplicationErrorsRouteImport } from './routes/v1/observability/application-errors'
 import { Route as V1ObservabilityPerformanceRouteImport } from './routes/v1/observability/performance'
 import { Route as V1ProfilesProfileIdRouteImport } from './routes/v1/profiles/$profileId'
@@ -492,6 +494,16 @@ const V1AccountSessionRoute = V1AccountSessionRouteImport.update({
 const V1AccountSidebarRoute = V1AccountSidebarRouteImport.update({
   id: '/v1/account/sidebar',
   path: '/v1/account/sidebar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1CliReleaseRoute = V1CliReleaseRouteImport.update({
+  id: '/v1/cli/release',
+  path: '/v1/cli/release',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1DesktopCompatibilityRoute = V1DesktopCompatibilityRouteImport.update({
+  id: '/v1/desktop/compatibility',
+  path: '/v1/desktop/compatibility',
   getParentRoute: () => rootRouteImport,
 } as any)
 const V1ObservabilityApplicationErrorsRoute =
@@ -908,6 +920,8 @@ export interface FileRoutesByFullPath {
   '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/session': typeof V1AccountSessionRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
+  '/v1/cli/release': typeof V1CliReleaseRoute
+  '/v1/desktop/compatibility': typeof V1DesktopCompatibilityRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
@@ -1033,6 +1047,8 @@ export interface FileRoutesByTo {
   '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/session': typeof V1AccountSessionRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
+  '/v1/cli/release': typeof V1CliReleaseRoute
+  '/v1/desktop/compatibility': typeof V1DesktopCompatibilityRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
@@ -1164,6 +1180,8 @@ export interface FileRoutesById {
   '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/session': typeof V1AccountSessionRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
+  '/v1/cli/release': typeof V1CliReleaseRoute
+  '/v1/desktop/compatibility': typeof V1DesktopCompatibilityRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
@@ -1298,6 +1316,8 @@ export interface FileRouteTypes {
     | '/v1/account/organization-context'
     | '/v1/account/session'
     | '/v1/account/sidebar'
+    | '/v1/cli/release'
+    | '/v1/desktop/compatibility'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
@@ -1423,6 +1443,8 @@ export interface FileRouteTypes {
     | '/v1/account/organization-context'
     | '/v1/account/session'
     | '/v1/account/sidebar'
+    | '/v1/cli/release'
+    | '/v1/desktop/compatibility'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
@@ -1553,6 +1575,8 @@ export interface FileRouteTypes {
     | '/v1/account/organization-context'
     | '/v1/account/session'
     | '/v1/account/sidebar'
+    | '/v1/cli/release'
+    | '/v1/desktop/compatibility'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
     | '/v1/profiles/$profileId'
@@ -1665,6 +1689,8 @@ export interface RootRouteChildren {
   V1AccountOrganizationContextRoute: typeof V1AccountOrganizationContextRoute
   V1AccountSessionRoute: typeof V1AccountSessionRoute
   V1AccountSidebarRoute: typeof V1AccountSidebarRoute
+  V1CliReleaseRoute: typeof V1CliReleaseRoute
+  V1DesktopCompatibilityRoute: typeof V1DesktopCompatibilityRoute
   V1ObservabilityApplicationErrorsRoute: typeof V1ObservabilityApplicationErrorsRoute
   V1ObservabilityPerformanceRoute: typeof V1ObservabilityPerformanceRoute
   V1SpacesSpaceIdStreamRoute: typeof V1SpacesSpaceIdStreamRoute
@@ -2161,6 +2187,20 @@ declare module '@tanstack/react-router' {
       path: '/v1/account/sidebar'
       fullPath: '/v1/account/sidebar'
       preLoaderRoute: typeof V1AccountSidebarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/cli/release': {
+      id: '/v1/cli/release'
+      path: '/v1/cli/release'
+      fullPath: '/v1/cli/release'
+      preLoaderRoute: typeof V1CliReleaseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/desktop/compatibility': {
+      id: '/v1/desktop/compatibility'
+      path: '/v1/desktop/compatibility'
+      fullPath: '/v1/desktop/compatibility'
+      preLoaderRoute: typeof V1DesktopCompatibilityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/observability/application-errors': {
@@ -3020,6 +3060,8 @@ const rootRouteChildren: RootRouteChildren = {
   V1AccountOrganizationContextRoute: V1AccountOrganizationContextRoute,
   V1AccountSessionRoute: V1AccountSessionRoute,
   V1AccountSidebarRoute: V1AccountSidebarRoute,
+  V1CliReleaseRoute: V1CliReleaseRoute,
+  V1DesktopCompatibilityRoute: V1DesktopCompatibilityRoute,
   V1ObservabilityApplicationErrorsRoute: V1ObservabilityApplicationErrorsRoute,
   V1ObservabilityPerformanceRoute: V1ObservabilityPerformanceRoute,
   V1SpacesSpaceIdStreamRoute: V1SpacesSpaceIdStreamRoute,
@@ -3029,17 +3071,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-
-import type { startInstance } from './start.ts'
-
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-
-    router: Awaited<ReturnType<typeof getRouter>>
-
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

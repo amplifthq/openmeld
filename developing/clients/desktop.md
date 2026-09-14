@@ -130,9 +130,20 @@ evidence. Old, npm, non-macOS and unverifiable pairs omit usable controls.
 
 ## Cloud transport and compatibility
 
+Native admitted `/v1/` requests use the Better Auth SDK's public fetch pipeline
+and return the original response status/body through the credential-stripping
+adapter. `patches/@better-auth__electron@1.6.30.patch` moves only the vendor's
+response-cookie persistence and session signal from `onSuccess` to `onResponse`.
+The pinned upstream otherwise loses legitimate renewal on 403/500 and deletion
+on 401. Successful session-data caching and existing error notifications remain
+unchanged. There is no app-side cookie jar or private SDK hook invocation.
+Remove this patch when an adopted upstream version processes these cookies
+before status handling, after rerunning the expiry/recreation and error matrix.
+SDK recreation in tests does not prove real macOS safeStorage or OS restart.
+
 `pilot-protocol.ts` owns a fixed-endpoint request adapter:
 
-Its header allowlist preserves shared Inbox and Space addressing capability
+Its header allowlist preserves shared Inbox, Space addressing, and Space access capability
 negotiation. These version headers select an existing response contract; they
 do not grant authorization. Renderer cookies and authorization remain excluded.
 
@@ -279,6 +290,57 @@ Electron is deliberately separate from the root Worker development stack.
 
 Public Desktop distribution remains paused: `/desktop` returns 404. Do not
 publish or deploy this pilot as a production release.
+
+### Installed macOS entry
+
+`OPENMELD_DESKTOP_TARGET=production` compiles the installed entry for
+`https://openmeld.ai`. The shared renderer, native main, and package marker must
+agree on this target and source fingerprint. The fingerprint verifies local
+assets; it is not an installed client's server admission token. Finder launch
+reads packaged assets and normal macOS application data without a repository,
+pnpm, CLI prerequisite, or launch-time lane/URL/storage configuration.
+
+Production uses app ID and callback scheme `sh.openmeld.desktop`, SDK client ID
+`openmeld-desktop`, and `OpenMeld Desktop` under the OS application-data directory.
+User data is fixed before initializing the SDK's encrypted cookie storage.
+`OPENMELD_DESKTOP_TARGET=disposable` is a separately compiled local test target:
+its fixed loopback Web origin comes from `OPENMELD_DESKTOP_TEST_WEB_ORIGIN`, and
+its app ID, callback, SDK client ID, and data directory use the distinct test
+identity. The production target never consumes that endpoint override.
+
+An isolated disposable Web/Auth backend must explicitly configure
+`AUTH_DESKTOP_DEVELOPMENT_TARGET=disposable` on both services. Empty or `private`
+development configuration preserves the existing `electron` client and
+`sh.openmeld.desktop.dev` callback. Production rejects a nonempty development
+target. Better Auth supports one Electron client identity per Auth instance;
+do not combine test and private identities by registering duplicate plugins.
+Browser sign-in validates that configured identity, displays the intended
+account, and preserves the normal add-account entry when another account is
+needed. Invalid or expired native returns require a fresh browser sign-in.
+
+Installed requests carry `x-openmeld-desktop-contract: 1`; before authenticated
+business reads or streams, native verifies the strict, no-store
+`GET /v1/desktop/compatibility` response. Compatible Web deployments retain
+contract version 1 without requiring identical build fingerprints. Missing,
+unknown, or malformed compatibility blocks admission; connectivity failures
+remain distinct from unsupported-version messages. This admits representations,
+not users: existing Auth/Core/Space authorization remains authoritative.
+Installed renderers cannot call generated `/_serverFn/` or generic `/api/`
+endpoints. They consume explicit `/v1/` contracts, including CLI release metadata
+from the existing binary-channel manifest at `GET /v1/cli/release`.
+
+After building the matching shared Web renderer, `pnpm desktop:package:installed`
+stages it and builds a local unsigned arm64 DMG with no publication target.
+Installable entry is separate from Service bootstrap and signed distribution:
+existing-user Service reuse, new-user zero-setup connection, actual Wake outcomes,
+signing, notarization, and installed native acceptance remain separate gates.
+Do not expose the paused public download page based on package construction.
+
+Release ordering is server first: deploy the matching Web admission/metadata
+routes and Auth identity before distributing an installed app. Keep contract 1
+available while supported installed apps use it. Roll back incompatible Web/Auth
+changes before withdrawing a supported representation; never redirect native
+credentials to another origin or use a fingerprint bypass as recovery.
 
 ### Private local macOS package
 

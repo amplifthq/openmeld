@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { readInstalledDesktopTarget } from "../../../scripts/desktop/installed-target";
 import { resolvePilotAssets } from "../src/main/pilot-assets";
 import { createPilotProtocol } from "../src/main/pilot-protocol";
 
@@ -17,6 +18,52 @@ afterEach(() => {
 });
 
 describe("private packaged renderer", () => {
+  it("loads installed resources without a lane and rejects mismatched compiled targets", () => {
+    const resourcesPath = mkdtempSync(
+      join(tmpdir(), "desktop-installed-assets-")
+    );
+    roots.push(resourcesPath);
+    const assets = join(resourcesPath, "desktop-renderer");
+    mkdirSync(join(assets, "assets"), { recursive: true });
+    const installedTarget = readInstalledDesktopTarget({
+      OPENMELD_DESKTOP_TARGET: "production",
+      OPENMELD_DESKTOP_TEST_WEB_ORIGIN: "https://untrusted.invalid",
+    });
+    if (!installedTarget) {
+      throw new Error("Expected installed target");
+    }
+    expect(installedTarget.webOrigin).toBe("https://openmeld.ai");
+    writeFileSync(join(assets, "_shell.html"), "<html>Installed</html>");
+    writeFileSync(
+      join(assets, "desktop-build.json"),
+      JSON.stringify({ webBuild, installedTarget })
+    );
+    const input = {
+      privatePackage: false,
+      resourcesPath,
+      webBuild,
+      installedTarget,
+      env: {},
+    };
+    expect(resolvePilotAssets(input)).toBe(assets);
+    expect(
+      resolvePilotAssets({
+        ...input,
+        env: {
+          OPENMELD_DESKTOP_RENDERER_DIR: "/untrusted",
+          OPENMELD_DESKTOP_PILOT: "1",
+          WEB_APP_URL: "https://untrusted.invalid",
+        },
+      })
+    ).toBe(assets);
+    writeFileSync(
+      join(assets, "desktop-build.json"),
+      JSON.stringify({ webBuild })
+    );
+    expect(() => resolvePilotAssets(input)).toThrow(
+      "Reinstall OpenMeld Desktop"
+    );
+  });
   it("serves its own shared shell and chunks even when an external renderer override is set", async () => {
     const resourcesPath = mkdtempSync(
       join(tmpdir(), "desktop-package-assets-")

@@ -55,6 +55,7 @@
     "desktop:start:canary": "node scripts/dev/desktop-pilot.mjs canary",
     "desktop:canary": "pnpm run desktop:start:canary",
     "desktop:package:private": "pnpm --dir clients/desktop build:contract-deps && node scripts/desktop/private-package.mjs",
+    "desktop:package:installed": "pnpm --dir clients/desktop build:contract-deps && node scripts/desktop/installed-package.mjs",
     "desktop:start:package": "node scripts/dev/desktop-pilot.mjs --app",
     "openmeld:dev": "node scripts/dev/openmeld-dev.mjs",
     "openmeld:dev:install": "node scripts/dev/openmeld-dev-shortcut.mjs install",

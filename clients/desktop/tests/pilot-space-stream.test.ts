@@ -16,6 +16,29 @@ import { createPilotSpaceStreams } from "../src/main/pilot-space-stream";
 
 const id = "10000000-0000-4000-8000-000000000001";
 
+it("cancels pending compatibility admission before sign-out can open a socket", async () => {
+  const admitted = Promise.withResolvers<void>();
+  const streams = createPilotSpaceStreams({
+    installed: true,
+    webOrigin: "http://127.0.0.1:1",
+    webBuild: "a".repeat(64),
+    ensureCompatible: () => admitted.promise,
+    cookie: () => {
+      throw new Error("Canceled streams must not read credentials");
+    },
+  });
+  const opening = streams.open(
+    { id, spaceId: "space-a", profileId: "profile-a" },
+    () => {
+      throw new Error("Canceled stream emitted an event");
+    }
+  );
+  streams.closeAll();
+  admitted.resolve();
+  await opening;
+  expect(() => streams.ping(id)).toThrow("not open");
+});
+
 it("opens only the fixed authenticated Space stream and carries the existing keepalive frames", async () => {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");

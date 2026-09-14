@@ -1,11 +1,22 @@
 import type { Plugin } from "vite";
 import { z } from "zod/v4";
 
-export function desktopPilotBuildPrerequisites(enabled: boolean): Plugin {
+export function desktopPilotBuildPrerequisites(
+	enabled: boolean,
+	installedWebOrigin?: string
+): Plugin {
 	return {
 		name: "openmeld-desktop-pilot-prerequisites",
 		apply: "build",
 		configResolved(config) {
+			if (
+				installedWebOrigin &&
+				config.env.VITE_BETTER_AUTH_URL !== installedWebOrigin
+			) {
+				throw new Error(
+					"Installed Desktop renderer Auth configuration must match its fixed Web target."
+				);
+			}
 			// Use Vite's resolved client env, including mode files and process priority.
 			// Ordinary Web permits this value to be absent; Desktop initializes its
 			// shared Auth client before hydration and requires the compiled URL.

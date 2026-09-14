@@ -10,22 +10,19 @@ import {
 	createStart,
 } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
+import { admitDesktopRequest } from "./lib/desktop-admission";
 import { reportServerApplicationError } from "./lib/observability/application-error-server";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
 declare const __OPENMELD_DESKTOP_PILOT__: boolean;
 
 const requestErrors = createMiddleware().server(async ({ request, next }) => {
-	if (
-		request.headers.get("origin") === DESKTOP_APP_ORIGIN &&
-		(!__OPENMELD_DESKTOP_PILOT__ ||
-			request.headers.get(DESKTOP_WEB_BUILD_HEADER) !==
-				__OPENMELD_DESKTOP_WEB_BUILD__)
-	) {
-		return new Response(
-			"Desktop and Web versions do not match. Rebuild the Desktop pilot before continuing.",
-			{ status: 409 }
-		);
+	const refusal = admitDesktopRequest(request, {
+		enabled: __OPENMELD_DESKTOP_PILOT__,
+		webBuild: __OPENMELD_DESKTOP_WEB_BUILD__,
+	});
+	if (refusal) {
+		return refusal;
 	}
 	try {
 		const result = await next();

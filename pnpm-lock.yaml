@@ -29,6 +29,9 @@ overrides:
 packageExtensionsChecksum: sha256-KgO1AEvxWG2BkZwreCUQEKVuZnpDPXJ+xMuK4j1L8pE=
 
 patchedDependencies:
+  '@better-auth/electron@1.6.30':
+    hash: a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda
+    path: patches/@better-auth__electron@1.6.30.patch
   '@cloudflare/computer@0.2.1':
     hash: 77916b6fd5a867f352e8dd22c3838077b297df43ed09eefccdd8fb9b9d9aae64
     path: patches/@cloudflare__computer@0.2.1.patch
@@ -83,7 +86,7 @@ importers:
     dependencies:
       '@better-auth/electron':
         specifier: 1.6.30
-        version: 1.6.30(94c7268fd3f300ebd842f2e8c13b2a5b)
+        version: 1.6.30(patch_hash=a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda)(94c7268fd3f300ebd842f2e8c13b2a5b)
       '@better-auth/utils':
         specifier: 0.4.2
         version: 0.4.2
@@ -319,7 +322,7 @@ importers:
         version: 1.2.0(@types/react@19.2.14)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
       '@better-auth/electron':
         specifier: 1.6.30
-        version: 1.6.30(528af3534608e202f39513f67abd1021)
+        version: 1.6.30(patch_hash=a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda)(528af3534608e202f39513f67abd1021)
       '@better-auth/utils':
         specifier: 0.4.2
         version: 0.4.2
@@ -728,7 +731,7 @@ importers:
     dependencies:
       '@better-auth/electron':
         specifier: 1.6.30
-        version: 1.6.30(7a17261bebbb8ff9bdc5cf6fad85e4bd)
+        version: 1.6.30(patch_hash=a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda)(7a17261bebbb8ff9bdc5cf6fad85e4bd)
       '@better-auth/passkey':
         specifier: 1.6.30
         version: 1.6.30(8a3efc8d8560ede7a33c9c17bb3a3e35)
@@ -14224,7 +14227,7 @@ snapshots:
     optionalDependencies:
       drizzle-orm: 0.45.2(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(@types/better-sqlite3@7.6.13)(better-sqlite3@12.6.2)(kysely@0.29.2)(sql.js@1.14.1)
 
-  '@better-auth/electron@1.6.30(528af3534608e202f39513f67abd1021)':
+  '@better-auth/electron@1.6.30(patch_hash=a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda)(528af3534608e202f39513f67abd1021)':
     dependencies:
       '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.4.0)
       '@better-auth/utils': 0.4.2
@@ -14236,7 +14239,7 @@ snapshots:
       conf: 15.1.0
       electron: 44.3.0
 
-  '@better-auth/electron@1.6.30(7a17261bebbb8ff9bdc5cf6fad85e4bd)':
+  '@better-auth/electron@1.6.30(patch_hash=a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda)(7a17261bebbb8ff9bdc5cf6fad85e4bd)':
     dependencies:
       '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.4.3))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.4.0)
       '@better-auth/utils': 0.4.2
@@ -14248,7 +14251,7 @@ snapshots:
       conf: 15.1.0
       electron: 44.3.0
 
-  '@better-auth/electron@1.6.30(94c7268fd3f300ebd842f2e8c13b2a5b)':
+  '@better-auth/electron@1.6.30(patch_hash=a17b71a0ae3c0c484d6a40458c00fd006034b8082ff7a03e604e3745ed376fda)(94c7268fd3f300ebd842f2e8c13b2a5b)':
     dependencies:
       '@better-auth/core': 1.6.30(@better-auth/utils@0.4.2)(@better-fetch/fetch@1.3.1)(@cloudflare/workers-types@5.20260908.1)(@opentelemetry/api@1.9.1)(better-call@1.4.0(zod@4.3.6))(jose@6.1.3)(kysely@0.29.2)(nanostores@1.4.0)
       '@better-auth/utils': 0.4.2

@@ -1,7 +1,20 @@
 import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import type { DesktopInstalledTarget } from "@openmeld/schemas";
 import type { App } from "electron";
+
+export function configureInstalledUserData(
+  app: Pick<App, "setPath" | "getPath">,
+  target: DesktopInstalledTarget
+) {
+  const directory = join(app.getPath("appData"), target.dataDirectory);
+  mkdirSync(directory, { recursive: true });
+  app.setPath("userData", directory);
+  if (resolve(app.getPath("userData")) !== resolve(directory)) {
+    throw new Error("Desktop could not open its private application storage.");
+  }
+}
 
 /** Must run before Better Auth creates its encrypted storage. */
 export function configurePilotUserData(

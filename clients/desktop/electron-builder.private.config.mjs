@@ -8,6 +8,7 @@ const { build } = JSON.parse(
 // Private existing-Service pilot; no preview metadata or publishing target.
 export default {
   ...build,
+  appId: "sh.openmeld.desktop.dev",
   productName: "OpenMeld Desktop Private",
   directories: { output: "dist/private" },
   files: build.files

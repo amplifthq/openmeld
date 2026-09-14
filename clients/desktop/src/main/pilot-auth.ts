@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import { electronClient, handleDeepLink } from "@better-auth/electron/client";
 import { storage } from "@better-auth/electron/storage";
-import { DESKTOP_AUTH_SCHEME, desktopSessionSchema } from "@openmeld/schemas";
+import {
+  DESKTOP_AUTH_SCHEME,
+  type DesktopInstalledTarget,
+  desktopSessionSchema,
+} from "@openmeld/schemas";
 import {
   type BetterAuthClientPlugin,
   createAuthClient,
@@ -12,8 +16,11 @@ import { app, type BrowserWindow } from "electron";
 export function createPilotAuth(
   webOrigin: string,
   getWindow: () => BrowserWindow | null,
-  onSessionChanged: () => void
+  onSessionChanged: () => void,
+  installedTarget?: DesktopInstalledTarget
 ) {
+  let signInError: string | null = null;
+  const authScheme = installedTarget?.authScheme ?? DESKTOP_AUTH_SCHEME;
   const sessionNotifications: BetterAuthClientPlugin = {
     id: "desktop-session-notifications",
     fetchPlugins: [
@@ -32,7 +39,8 @@ export function createPilotAuth(
     ],
   };
   const electronOptions = {
-    protocol: DESKTOP_AUTH_SCHEME,
+    protocol: authScheme,
+    ...(installedTarget ? { clientID: installedTarget.clientId } : {}),
     signInURL: new URL("/desktop-sign-in", webOrigin).href,
     storage: storage({
       configName: `desktop-auth-${createHash("sha256").update(webOrigin).digest("hex").slice(0, 16)}`,
@@ -41,6 +49,7 @@ export function createPilotAuth(
   };
   const client = createAuthClient({
     baseURL: webOrigin,
+    fetchOptions: { redirect: "manual" },
     plugins: [
       electronClient(electronOptions),
       // Better Fetch awaits success hooks in plugin order. The Electron
@@ -55,20 +64,29 @@ export function createPilotAuth(
   client.setupMain({ bridges: false, csp: false, scheme: false, getWindow });
   const registered =
     process.defaultApp && process.argv[1]
-      ? app.setAsDefaultProtocolClient(DESKTOP_AUTH_SCHEME, process.execPath, [
+      ? app.setAsDefaultProtocolClient(authScheme, process.execPath, [
           resolve(process.argv[1]),
         ])
-      : app.setAsDefaultProtocolClient(DESKTOP_AUTH_SCHEME);
+      : app.setAsDefaultProtocolClient(authScheme);
   if (!registered) {
     throw new Error("Desktop sign-in callback registration failed");
   }
-  const acceptReturn = (url: string) =>
-    handleDeepLink({
-      $fetch: client.$fetch,
-      options: electronOptions,
-      url,
-      getWindow,
-    });
+  const acceptReturn = async (url: string) => {
+    try {
+      await handleDeepLink({
+        $fetch: client.$fetch,
+        options: electronOptions,
+        url,
+        getWindow,
+      });
+    } catch {
+      // PKCE verifiers are vendor-owned and process-local. Never recover a
+      // stale/replayed callback by persisting a verifier or exposing its token.
+      signInError =
+        "This sign-in could not be completed. Sign in with your browser again.";
+      onSessionChanged();
+    }
+  };
   if (app.requestSingleInstanceLock()) {
     app.on("open-url", (event, url) => {
       event.preventDefault();
@@ -81,9 +99,7 @@ export function createPilotAuth(
       }
       window?.focus();
       if (process.platform !== "darwin") {
-        const url = argv.find((arg) =>
-          arg.startsWith(`${DESKTOP_AUTH_SCHEME}:`)
-        );
+        const url = argv.find((arg) => arg.startsWith(`${authScheme}:`));
         if (url) {
           return acceptReturn(url);
         }
@@ -92,7 +108,7 @@ export function createPilotAuth(
     app.whenReady().then(() => {
       if (process.platform !== "darwin") {
         const url = process.argv.find((arg) =>
-          arg.startsWith(`${DESKTOP_AUTH_SCHEME}:`)
+          arg.startsWith(`${authScheme}:`)
         );
         if (url) {
           return acceptReturn(url);
@@ -103,8 +119,41 @@ export function createPilotAuth(
     app.quit();
   }
   return {
-    signIn: () => client.requestAuth(),
+    signIn: () => {
+      signInError = null;
+      return client.requestAuth();
+    },
+    async cloudRequest(
+      path: string,
+      request: { method: string; headers: Headers; body?: ArrayBuffer }
+    ): Promise<Response> {
+      let raw: Response | undefined;
+      // The pinned Electron patch persists response cookies in onResponse,
+      // before status handling. Await the SDK before returning the raw clone;
+      // business errors retain their status/body and never reach the renderer
+      // with credentials. The SDK remains the only cookie writer.
+      await client.$fetch(path, {
+        baseURL: webOrigin,
+        method: request.method,
+        redirect: "manual",
+        retry: 0,
+        headers: Object.fromEntries(request.headers),
+        body: request.body,
+        onResponse({ response }) {
+          raw = response.clone();
+        },
+      });
+      if (!raw) {
+        throw new Error("OpenMeld did not return a response.");
+      }
+      return raw;
+    },
     async session() {
+      if (signInError) {
+        const message = signInError;
+        signInError = null;
+        throw new Error(message);
+      }
       const result = await client.getSession({
         query: { disableCookieCache: true },
       });

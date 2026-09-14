@@ -234,6 +234,8 @@ describe("Account Organization preference HTTP API", () => {
       `${DESKTOP_APP_ORIGIN}.evil`,
       "openmeld-desktop://other",
       "sh.openmeld.desktop.dev:/",
+      "sh.openmeld.desktop:/",
+      "sh.openmeld.desktop.test:/",
       "file://app",
       "http://localhost:39999",
       `blob:${WEB_APP_URL}/id`,
@@ -261,9 +263,7 @@ describe("Account Organization preference HTTP API", () => {
         context.env,
         TEST_EXECUTION_CONTEXT
       );
-      const allowed =
-        origin === WEB_APP_URL ||
-        (environment === "development" && origin === DESKTOP_APP_ORIGIN);
+      const allowed = origin === WEB_APP_URL || origin === DESKTOP_APP_ORIGIN;
       expect({
         origin,
         status: response.status,

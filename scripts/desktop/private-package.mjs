@@ -7,27 +7,32 @@ import { desktopWebBuildIdentity } from "./web-build-identity.mjs";
 
 const repoRoot = fileURLToPath(new URL("../../", import.meta.url));
 
-export function stagePrivateRenderer(root = repoRoot) {
+export function stageDesktopRenderer(
+  root = repoRoot,
+  installedTarget = undefined
+) {
   const webBuild = desktopWebBuildIdentity(root);
   const source = validatePilotAssets(
     join(root, "clients/web/dist/client"),
-    webBuild
+    webBuild,
+    installedTarget
   );
-  const destination = join(root, "clients/desktop/dist/private-renderer");
+  const destination = join(
+    root,
+    `clients/desktop/dist/${installedTarget ? "installed" : "private"}-renderer`
+  );
   rmSync(destination, { recursive: true, force: true });
   cpSync(source, destination, {
     recursive: true,
     filter(file) {
       if (lstatSync(file).isSymbolicLink()) {
-        throw new Error(
-          "Private Desktop assets must not contain symbolic links."
-        );
+        throw new Error("Desktop assets must not contain symbolic links.");
       }
       // Source maps are diagnostics, not renderer prerequisites.
       return !(file.endsWith(".map") || basename(file).startsWith("."));
     },
   });
-  validatePilotAssets(destination, webBuild);
+  validatePilotAssets(destination, webBuild, installedTarget);
   return { destination, webBuild };
 }
 
@@ -39,7 +44,7 @@ async function main() {
   ) {
     throw new Error("Run pnpm desktop:package:private on macOS Apple Silicon.");
   }
-  const staged = stagePrivateRenderer();
+  const staged = stageDesktopRenderer();
   const options = {
     cwd: repoRoot,
     env: {

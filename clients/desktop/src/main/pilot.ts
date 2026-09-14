@@ -2,6 +2,8 @@ import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  type DesktopInstalledTarget,
+  desktopInstalledTargetSchema,
   desktopPlatformSchema,
 } from "@openmeld/schemas";
 import {
@@ -15,6 +17,7 @@ import {
   type WebContents,
 } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
+import { checkDesktopCompatibility } from "./desktop-compatibility";
 import {
   resolveDesktopEnvPreset,
   resolveDesktopWebUrl,
@@ -24,31 +27,43 @@ import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
 import { installPilotTransport } from "./pilot-transport";
-import { configurePilotUserData } from "./pilot-user-data";
+import {
+  configureInstalledUserData,
+  configurePilotUserData,
+} from "./pilot-user-data";
 
 declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
 declare const __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: boolean;
+declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | null;
 
 export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
+  const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
+    ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
+    : undefined;
   const sharedAssets = resolvePilotAssets({
     privatePackage: __OPENMELD_DESKTOP_PRIVATE_PACKAGE__,
     resourcesPath: process.resourcesPath,
     webBuild: __OPENMELD_DESKTOP_WEB_BUILD__,
     env: process.env,
+    installedTarget,
   });
-  if (process.env.OPENMELD_DESKTOP_PILOT !== "1") {
+  if (!installedTarget && process.env.OPENMELD_DESKTOP_PILOT !== "1") {
     return null;
   }
-  const lane = resolveDesktopEnvPreset();
-  const webOrigin = new URL(resolveDesktopWebUrl()).origin;
+  const installedLane =
+    installedTarget?.kind === "production" ? "prod" : "dev-local";
+  const lane = installedTarget ? installedLane : resolveDesktopEnvPreset();
+  const webOrigin =
+    installedTarget?.webOrigin ?? new URL(resolveDesktopWebUrl()).origin;
   const hostname = new URL(webOrigin).hostname;
   if (
-    lane === "prod" ||
-    !(
-      hostname === "localhost" ||
-      hostname === "127.0.0.1" ||
-      hostname.endsWith(".localhost")
-    )
+    !installedTarget &&
+    (lane === "prod" ||
+      !(
+        hostname === "localhost" ||
+        hostname === "127.0.0.1" ||
+        hostname.endsWith(".localhost")
+      ))
   ) {
     throw new Error(
       "The Desktop pilot requires an aligned local development lane."
@@ -59,10 +74,24 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     lane,
     webOrigin,
     webBuild: __OPENMELD_DESKTOP_WEB_BUILD__,
+    ...(installedTarget ? { installedTarget } : {}),
   });
+  let compatibility: Promise<void> | undefined;
+  const ensureCompatible = () => {
+    if (!installedTarget) {
+      return Promise.resolve();
+    }
+    compatibility ??= checkDesktopCompatibility(webOrigin).catch(
+      (error: unknown) => {
+        compatibility = undefined;
+        throw error;
+      }
+    );
+    return compatibility;
+  };
   protocol.registerSchemesAsPrivileged([
     {
-      scheme: DESKTOP_AUTH_SCHEME,
+      scheme: installedTarget?.authScheme ?? DESKTOP_AUTH_SCHEME,
       privileges: { standard: false, secure: true },
     },
     {
@@ -75,18 +104,29 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       },
     },
   ]);
-  configurePilotUserData(app, process.env);
-  const auth = createPilotAuth(webOrigin, getWindow, () => {
-    streams.closeAll();
-    const owner = getWindow()?.webContents;
-    if (owner && !owner.isDestroyed()) {
-      owner.send(PILOT_IPC.sessionChanged);
-    }
-  });
+  if (installedTarget) {
+    configureInstalledUserData(app, installedTarget);
+  } else {
+    configurePilotUserData(app, process.env);
+  }
+  const auth = createPilotAuth(
+    webOrigin,
+    getWindow,
+    () => {
+      streams.closeAll();
+      const owner = getWindow()?.webContents;
+      if (owner && !owner.isDestroyed()) {
+        owner.send(PILOT_IPC.sessionChanged);
+      }
+    },
+    installedTarget
+  );
   const streams = createPilotSpaceStreams({
     webOrigin,
     webBuild: platform.webBuild,
     cookie: auth.cookie,
+    installed: Boolean(installedTarget),
+    ensureCompatible,
   });
   let transportSession: Session | undefined;
   let disposeTransport: (() => void) | undefined;
@@ -94,6 +134,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
     auth,
+    installedTarget,
     diagnosticsEnabled,
     getSession() {
       if (!transportSession) {
@@ -125,11 +166,17 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           webBuild: platform.webBuild,
           cookie: auth.cookie,
           fetch,
+          installed: Boolean(installedTarget),
+          cloudRequest: auth.cloudRequest,
+          ensureCompatible,
         }
       );
       const handlers = {
         [PILOT_IPC.platform]: () => platform,
-        [PILOT_IPC.session]: auth.session,
+        [PILOT_IPC.session]: async () => {
+          await ensureCompatible();
+          return auth.session();
+        },
         [PILOT_IPC.signIn]: () => {
           streams.closeAll();
           return auth.signIn();
@@ -156,7 +203,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           owner.on("did-navigate", streams.closeAll);
           owner.on("render-process-gone", streams.closeAll);
         }
-        streams.open(raw, (value) => {
+        return streams.open(raw, (value) => {
           if (
             !owner.isDestroyed() &&
             getWindow()?.webContents === owner &&

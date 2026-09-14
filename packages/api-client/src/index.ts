@@ -2,7 +2,6 @@
 
 export { readAccountOrganizationContext } from "./account-organization-context";
 export { readAccountSession } from "./account-session";
-
 export { createAccountSpaceIndexApi } from "./account-space-index/api";
 export {
   buildAccountSpaceActiveWakeSummaryPath,
@@ -69,6 +68,7 @@ export type {
   CreateCenterAgentApi,
   ListCenterAgentAuditJournalInput,
 } from "./center-agent/types";
+export { readCliRelease } from "./cli-release";
 export type {
   OpenMeldApiClientConfig,
   OpenMeldApiClientFoundation,
