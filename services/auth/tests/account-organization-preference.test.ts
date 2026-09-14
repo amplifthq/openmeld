@@ -1,4 +1,7 @@
-import { selectLastSelectedOrganizationErrorResponseSchema } from "@openmeld/schemas";
+import {
+  accountOrganizationContextSchema,
+  selectLastSelectedOrganizationErrorResponseSchema,
+} from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AuthBindings } from "../src/lib/bindings";
 import { createHonoApp } from "../src/lib/hono/create-hono-app";
@@ -31,6 +34,115 @@ afterEach(() => {
 });
 
 describe("Account Organization preference HTTP API", () => {
+  it("reads only the current account and follows membership-checked entry preferences", async () => {
+    const context = createTestContext({ environment: "production" });
+    const account = await createSignedInUser(context, {
+      email: "context@example.com",
+      name: "Context",
+    });
+    const other = await createSignedInUser(context, {
+      email: "other-context@example.com",
+      name: "Other",
+    });
+    const otherOrganizationId = await createOrganization(context, {
+      headers: other.headers,
+      name: "Private",
+      slug: "private",
+    });
+    const beta = await createOrganization(context, {
+      headers: account.headers,
+      name: "Beta",
+      slug: "context-beta",
+    });
+    const read = async () => {
+      const response = await context.app.fetch(
+        new Request(
+          `${AUTH_BASE_URL}/v1/account/organization-context?userId=other&profileId=other`,
+          { headers: account.headers }
+        ),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      const payload = await response.json();
+      expect(accountOrganizationContextSchema.safeParse(payload).success).toBe(
+        true
+      );
+      return accountOrganizationContextSchema.parse(payload);
+    };
+    const initial = await read();
+    expect(initial.account).toEqual({
+      email: account.email,
+      name: "Context",
+      image: null,
+    });
+    expect(
+      initial.organizations.some(
+        (organization) => organization.id === otherOrganizationId
+      )
+    ).toBe(false);
+    expect(initial.defaultOrganizationId).toBe(initial.organizations[0]?.id);
+    const selection = await patchJson(
+      context,
+      "/v1/account/last-selected-organization",
+      { organizationId: beta },
+      account.headers
+    );
+    expect(selection.status).toBe(200);
+    expect((await read()).defaultOrganizationId).toBe(beta);
+    context.harness.run({
+      sql: "UPDATE users SET last_selected_organization_id = ? WHERE id = ?",
+      params: [otherOrganizationId, initial.currentUserId],
+    });
+    const activeSelection = await postJson(
+      context,
+      "/api/auth/organization/set-active",
+      { organizationId: beta },
+      account.headers
+    );
+    expect(activeSelection.status).toBe(200);
+    expect((await read()).defaultOrganizationId).toBe(beta);
+    context.harness.run({
+      sql: "DELETE FROM members WHERE user_id = ? AND organization_id = ?",
+      params: [initial.currentUserId, beta],
+    });
+    expect((await read()).defaultOrganizationId).toBe(
+      initial.organizations[0]?.id
+    );
+    context.harness.run({
+      sql: "DELETE FROM members WHERE user_id = ?",
+      params: [initial.currentUserId],
+    });
+    expect(await read()).toMatchObject({
+      organizations: [],
+      defaultOrganizationId: null,
+    });
+  });
+
+  it("distinguishes missing authentication from unavailable account reads", async () => {
+    const context = createTestContext();
+    const request = (headers = new Headers()) =>
+      context.app.fetch(
+        new Request(`${AUTH_BASE_URL}/v1/account/organization-context`, {
+          headers,
+        }),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+    expect((await request()).status).toBe(401);
+    const account = await createSignedInUser(context, {
+      email: "context-failure@example.com",
+      name: "Context Failure",
+    });
+    context.env.OPENMELD_DB = createLocalUserVerificationFailureDatabase(
+      context.env.OPENMELD_DB,
+      new Error("local verification unavailable")
+    );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect((await request(account.headers)).status).toBe(500);
+  });
+
   it("returns the shared error contract when the authenticated session is missing", async () => {
     const context = createTestContext();
 

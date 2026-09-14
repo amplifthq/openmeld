@@ -38,6 +38,7 @@ export type SessionResolutionResult =
 export async function resolveSessionFromHeaders(input: {
   auth: AuthInstance;
   headers: Headers;
+  disableCookieCache?: boolean;
   verifyLocalUserExists?: (userId: string) => Promise<boolean>;
 }): Promise<SessionResolutionResult> {
   let sessionData: Awaited<ReturnType<AuthInstance["api"]["getSession"]>>;
@@ -45,6 +46,9 @@ export async function resolveSessionFromHeaders(input: {
   try {
     sessionData = await input.auth.api.getSession({
       headers: input.headers,
+      ...(input.disableCookieCache
+        ? { query: { disableCookieCache: true } }
+        : {}),
     });
   } catch (cause) {
     return {

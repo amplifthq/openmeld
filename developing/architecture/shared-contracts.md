@@ -27,6 +27,32 @@
 
 ## Desktop pilot platform contract
 
+### Account Organization context
+
+Auth owns `GET /v1/account/organization-context`, a credential-free read
+projection defined in `packages/schemas`. It returns the authenticated account's
+display fields and user ID, normalized membership Organization summaries, and
+the resolved default Organization ID. It accepts no identity selector. Auth
+reuses its session resolver (bypassing the cookie cache), membership-list API,
+and existing account preference repository; no new identity or preference store
+is introduced. Responses are private and not cacheable.
+
+Default selection remains: member-matched `lastSelectedOrganizationId`, then
+member-matched session `activeOrganizationId`, then the first membership.
+Missing authentication is 401; unavailable backend state stays an error. An
+authenticated empty list has a null default. Web/shared client code owns URL
+construction, login redirects, and the authorized/denied route projection.
+
+Contract impact: this additive Auth route must be available before releasing
+the new Web/Desktop consumers. Old clients retain their existing reads and
+preference writes. CLI, Service, Skills, Core, Gateway, setup, Wake, Space
+actions, diagnostics, and contract epochs are unchanged. No data migration or
+local component release is required by this slice. Other pilot reads still use
+matching-build server functions; this route alone does not establish full
+cross-build compatibility or relax pilot admission.
+
+### Remaining pilot transport
+
 `packages/schemas/src/desktop-client.ts` owns the Desktop origin, build header,
 sanitized session identity, and platform metadata. The native process owns
 credentials; renderer session responses contain no session token. Existing

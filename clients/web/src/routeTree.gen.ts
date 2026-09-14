@@ -74,6 +74,7 @@ import { Route as SlackOauthResultRouteImport } from './routes/slack/oauth/resul
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
+import { Route as V1AccountOrganizationContextRouteImport } from './routes/v1/account/organization-context'
 import { Route as V1AccountSidebarRouteImport } from './routes/v1/account/sidebar'
 import { Route as V1ObservabilityApplicationErrorsRouteImport } from './routes/v1/observability/application-errors'
 import { Route as V1ObservabilityPerformanceRouteImport } from './routes/v1/observability/performance'
@@ -462,6 +463,12 @@ const V1AccountLastSelectedOrganizationRoute =
   V1AccountLastSelectedOrganizationRouteImport.update({
     id: '/v1/account/last-selected-organization',
     path: '/v1/account/last-selected-organization',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1AccountOrganizationContextRoute =
+  V1AccountOrganizationContextRouteImport.update({
+    id: '/v1/account/organization-context',
+    path: '/v1/account/organization-context',
     getParentRoute: () => rootRouteImport,
   } as any)
 const V1AccountSidebarRoute = V1AccountSidebarRouteImport.update({
@@ -878,6 +885,7 @@ export interface FileRoutesByFullPath {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
@@ -999,6 +1007,7 @@ export interface FileRoutesByTo {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
@@ -1126,6 +1135,7 @@ export interface FileRoutesById {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
@@ -1256,6 +1266,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/account/organization-context'
     | '/v1/account/sidebar'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
@@ -1377,6 +1388,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/account/organization-context'
     | '/v1/account/sidebar'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
@@ -1503,6 +1515,7 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/account/organization-context'
     | '/v1/account/sidebar'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
@@ -1611,6 +1624,7 @@ export interface RootRouteChildren {
   SlackOauthStartRoute: typeof SlackOauthStartRoute
   V1AccountDisplayNameRoute: typeof V1AccountDisplayNameRoute
   V1AccountLastSelectedOrganizationRoute: typeof V1AccountLastSelectedOrganizationRoute
+  V1AccountOrganizationContextRoute: typeof V1AccountOrganizationContextRoute
   V1AccountSidebarRoute: typeof V1AccountSidebarRoute
   V1ObservabilityApplicationErrorsRoute: typeof V1ObservabilityApplicationErrorsRoute
   V1ObservabilityPerformanceRoute: typeof V1ObservabilityPerformanceRoute
@@ -2074,6 +2088,13 @@ declare module '@tanstack/react-router' {
       path: '/v1/account/last-selected-organization'
       fullPath: '/v1/account/last-selected-organization'
       preLoaderRoute: typeof V1AccountLastSelectedOrganizationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/account/organization-context': {
+      id: '/v1/account/organization-context'
+      path: '/v1/account/organization-context'
+      fullPath: '/v1/account/organization-context'
+      preLoaderRoute: typeof V1AccountOrganizationContextRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/account/sidebar': {
@@ -2923,6 +2944,7 @@ const rootRouteChildren: RootRouteChildren = {
   V1AccountDisplayNameRoute: V1AccountDisplayNameRoute,
   V1AccountLastSelectedOrganizationRoute:
     V1AccountLastSelectedOrganizationRoute,
+  V1AccountOrganizationContextRoute: V1AccountOrganizationContextRoute,
   V1AccountSidebarRoute: V1AccountSidebarRoute,
   V1ObservabilityApplicationErrorsRoute: V1ObservabilityApplicationErrorsRoute,
   V1ObservabilityPerformanceRoute: V1ObservabilityPerformanceRoute,
@@ -2936,11 +2958,15 @@ export const routeTree = rootRouteImport
   ._addFileTypes<FileRouteTypes>()
 
 import type { getRouter } from './router.tsx'
+
 import type { startInstance } from './start.ts'
+
 declare module '@tanstack/react-start' {
   interface Register {
     ssr: true
+
     router: Awaited<ReturnType<typeof getRouter>>
+
     config: Awaited<ReturnType<typeof startInstance.getOptions>>
   }
 }

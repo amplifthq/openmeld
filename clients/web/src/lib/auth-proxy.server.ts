@@ -63,6 +63,7 @@ export function buildUpstreamHeaders(requestHeaders: Headers): Headers {
 export async function proxyAuthOwnedRequest(input: {
 	request: Request;
 	upstreamPath: string;
+	preserveUnauthorizedStatus?: boolean;
 }): Promise<Response> {
 	const { readWebProxyCloudflareRuntimeEvidence } = await import(
 		"#/lib/openmeld-api/proxy-cloudflare-runtime.server"
@@ -105,6 +106,7 @@ export async function proxyAuthOwnedRequest(input: {
 			diagnostics.setLastStage("process_upstream_response");
 			return await buildBufferedAuthProxyResponse({
 				method,
+				preserveUnauthorizedStatus: input.preserveUnauthorizedStatus,
 				requestUrl: input.request.url,
 				upstreamResponse,
 			});
@@ -124,6 +126,7 @@ async function readAuthProxyRequestBody(
 
 export async function buildBufferedAuthProxyResponse(input: {
 	method: string;
+	preserveUnauthorizedStatus?: boolean;
 	requestUrl?: string;
 	upstreamResponse: Response;
 }): Promise<Response> {
@@ -230,6 +233,7 @@ function readRedirectAuthError(location: string | null): {
 
 async function buildAuthProxyErrorResponse(input: {
 	upstreamResponse: Response;
+	preserveUnauthorizedStatus?: boolean;
 }): Promise<Response> {
 	const contentType = input.upstreamResponse.headers.get("content-type") ?? "";
 	const upstreamBody = contentType.includes("application/json")
@@ -256,7 +260,9 @@ async function buildAuthProxyErrorResponse(input: {
 
 	return new Response(body, {
 		headers,
-		status: resolveAuthProxyErrorStatus(input.upstreamResponse.status),
+		status: input.preserveUnauthorizedStatus
+			? input.upstreamResponse.status
+			: resolveAuthProxyErrorStatus(input.upstreamResponse.status),
 	});
 }
 

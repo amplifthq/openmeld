@@ -1,6 +1,13 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+  type AccountOrganizationContext,
+  accountOrganizationContextSchema,
+  type OrganizationSummary,
+  organizationSummarySchema,
+} from "./account-organization-context";
+export {
   AGENT_CONTEXT_ENVELOPE_VERSION,
   AGENT_CONTEXT_PROGRESSIVE_POLICY_VERSION,
   type AgentContextEnvelope,
@@ -121,6 +128,7 @@ export {
   organizationJoinRequestRpcInputSchema,
   organizationJoinRequestSchema,
 } from "./organization-join-request";
+export { normalizeOrganizationList } from "./organization-list";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,

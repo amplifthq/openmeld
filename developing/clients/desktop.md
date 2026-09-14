@@ -16,6 +16,14 @@
 
 ## Product boundary
 
+Organization entry and route scope use the shared Auth-owned
+`GET /v1/account/organization-context` projection rather than generated
+server-function IDs. The native credential transport remains unchanged; the
+renderer receives account display facts, membership summaries, and a default
+Organization ID only. Deploy the additive Auth route before releasing these
+consumers. Residual session and other server-function reads still require the
+existing pilot build compatibility gate.
+
 Desktop and Web share complete business views and application logic. They have
 separate build entries and platform adapters. Desktop ships its renderer assets
 locally; loading the hosted Web page in an Electron window is not the target.

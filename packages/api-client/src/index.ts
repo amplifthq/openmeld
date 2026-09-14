@@ -1,5 +1,7 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes a single public entrypoint.
 
+export { readAccountOrganizationContext } from "./account-organization-context";
+
 export { createAccountSpaceIndexApi } from "./account-space-index/api";
 export {
   buildAccountSpaceActiveWakeSummaryPath,

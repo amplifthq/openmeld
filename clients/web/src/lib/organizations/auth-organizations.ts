@@ -3,6 +3,7 @@ import {
 	createdOrganizationResponseSchema,
 	createOrganizationBodySchema,
 	getOrganizationJoinLinkResponseSchema,
+	normalizeOrganizationList,
 	previewOrganizationJoinLinkResponseSchema,
 	revokeOrganizationJoinLinkResponseSchema,
 } from "@openmeld/schemas";
@@ -17,7 +18,6 @@ import type {
 import { openMeldAuthClient } from "#/lib/auth-client";
 import type { AuthClientError } from "#/lib/auth-client-types";
 import { requestAuthEndpoint, resolveClientResult } from "#/lib/auth-transport";
-import { normalizeOrganizationList } from "./organization-list";
 import type { OrganizationSummary } from "./organization-types";
 
 type OrganizationClientApi = {

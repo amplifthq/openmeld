@@ -349,7 +349,21 @@ Organization selection remains URL-owned per tab after the newly active account
 loads; account switching must not add Better Auth active-Organization state.
 
 For `/o/{orgSlug}` routes, the URL selects the current tab's Organization after
-the route loader freshly confirms that the signed-in account is a member. The
+the route loader freshly confirms that the signed-in account is a member.
+Shared Organization scope and optional account entry reads use Auth's
+`GET /v1/account/organization-context` through the existing API client. SSR
+forwards the current request cookie directly to Auth; browser and Desktop use
+the same Web HTTP route. Both use the same strict projection without a new
+cache, preference writer, or account store. Existing query keys and account
+reset/invalidation policy remain unchanged. Optional anonymous entry returns
+null, authenticated entry without Organizations remains an explicit error,
+and an unknown Organization URL remains a denied scope. Required anonymous
+scope retains its sanitized login redirect. This read opts into preserving Auth
+401 responses through the Web proxy; existing Auth form status normalization
+is unchanged. Infrastructure errors are not
+converted to anonymous or denied state.
+
+The
 Auth-owned account `lastSelectedOrganizationId` is the default entry preference
 for routes without an explicit Organization. A valid Better Auth Session active
 Organization remains only a backward-compatible recovery preference. Neither is
