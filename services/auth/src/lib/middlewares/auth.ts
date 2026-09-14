@@ -1,4 +1,7 @@
-import { ACCOUNT_ORGANIZATION_CONTEXT_PATH } from "@openmeld/schemas";
+import {
+  ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+  ACCOUNT_SESSION_PATH,
+} from "@openmeld/schemas";
 import { createMiddleware } from "hono/factory";
 import { loadBetterAuthRuntime } from "../../lazy-runtime-modules";
 import { getLocalAuthUserStore } from "../better-auth/local-auth-user-store";
@@ -27,7 +30,18 @@ export const authContextMiddleware = createMiddleware<AppContext>(
     const sessionResolution = await resolveSessionFromHeaders({
       auth: c.var.betterAuth,
       headers: c.req.raw.headers,
-      disableCookieCache: c.req.path === ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+      disableCookieCache:
+        c.req.path === ACCOUNT_ORGANIZATION_CONTEXT_PATH ||
+        c.req.path === ACCOUNT_SESSION_PATH,
+      ...(c.req.path === ACCOUNT_SESSION_PATH
+        ? {
+            onSessionCookies: (cookies: readonly string[]) => {
+              for (const cookie of cookies) {
+                c.header("set-cookie", cookie, { append: true });
+              }
+            },
+          }
+        : {}),
       verifyLocalUserExists: (userId) =>
         getLocalAuthUserStore(c.env).hasUserById(userId),
     });

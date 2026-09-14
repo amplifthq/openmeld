@@ -942,6 +942,17 @@ CLI controls.
 
 ### Settings structure
 
+Account display reads use Auth's `/v1/account/session` projection through the
+shared API client and the existing `userQueryKeys.session` cache. The projection
+preserves the Joined date, verification badge, name/avatar identity updates, and
+current-session row identifier. SSR forwards only the current request's cookie
+to configured Auth. A 401 means no session; backend or malformed-response failures
+remain visible query errors. Security, device switching, and token-based session
+revocation keep their separate existing Web contracts. See the
+[Account session contract](../architecture/shared-contracts.md#account-session-read).
+The Auth read preserves vendor-owned browser session renewal and deletion cookies
+through the HTTP proxy, separate from the credential-free JSON projection.
+
 The application rail keeps Settings and theme controls visible above the account
 trigger. Their hit areas and keyboard order are stable; footer hover does not
 reveal, hide, or move them.

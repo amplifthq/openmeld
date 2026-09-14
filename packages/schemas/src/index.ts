@@ -8,6 +8,11 @@ export {
   organizationSummarySchema,
 } from "./account-organization-context";
 export {
+  ACCOUNT_SESSION_PATH,
+  type AccountSession,
+  accountSessionSchema,
+} from "./account-session";
+export {
   AGENT_CONTEXT_ENVELOPE_VERSION,
   AGENT_CONTEXT_PROGRESSIVE_POLICY_VERSION,
   type AgentContextEnvelope,

@@ -165,8 +165,14 @@ storage; it never invokes CLI, Service, login, or a real Wake.
   origin must never supply this history namespace. Missing or invalid metadata
   stops the dependent request. The response is not persisted or an authority
   for identity, access, routing or execution.
+- The shared account query reads Auth's strict `/v1/account/session` display
+  projection through the shared API client, preserving the Joined date, email
+  verification, and existing name/avatar cache updates. It never reads a generated
+  server-function ID or receives credentials. Native entry/session/account fences
+  retain their existing narrow bridge; account changes still reset the existing
+  account query cache before rereading.
 - Read-only `/_serverFn/*` calls are a bounded pilot compatibility dependency
-  for remaining Web loaders, including session and Organization scope.
+  for remaining Web entry and public-Space handoff loaders.
   Sidebar geometry reads its local cookie during client navigation.
   Server-function mutations are refused;
   business writes must use the shared APIs.

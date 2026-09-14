@@ -17,18 +17,16 @@ import type {
 	AccountAvatarResponse,
 	UpdateAccountDisplayNameResponse,
 } from "@openmeld/schemas/types";
-import { getDesktopPlatform } from "#/desktop/platform";
+import { readCurrentAccountSession } from "#/lib/account-session";
 import { openMeldAuthClient } from "#/lib/auth-client";
 import type {
 	AuthAccount,
 	AuthClientError,
 	AuthDeviceSession,
 	AuthPasskey,
-	AuthSession,
 	AuthSessionRecord,
 } from "#/lib/auth-client-types";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
-import { getSession as getServerSession } from "#/lib/auth-session";
 import { requestAuthEndpoint, resolveClientResult } from "#/lib/auth-transport";
 import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
 import {
@@ -95,33 +93,7 @@ function throwAuthError(
 	throw new Error(getAuthErrorMessage(error, fallback));
 }
 
-export async function getSession(): Promise<AuthSession | null> {
-	if (getDesktopPlatform()) {
-		return getServerSession({
-			data: {
-				routeFamily: "desktop-session",
-				currentUserSessionExpectation: "optional",
-				sessionCacheMode: "bypass",
-			},
-		});
-	}
-	const response = await resolveClientResult<AuthSession | null>(
-		() =>
-			openMeldAuthClient.getSession({
-				query: { disableCookieCache: true },
-			}),
-		"Failed to fetch session."
-	);
-
-	if (response.error) {
-		if (isUnauthorizedError(response.error)) {
-			return null;
-		}
-		throwAuthError(response.error, "Failed to fetch session.");
-	}
-
-	return response.data ?? null;
-}
+export const getSession = readCurrentAccountSession;
 
 export async function listAccounts(): Promise<AuthAccount[]> {
 	if (!authClientWithAccountApi.listAccounts) {

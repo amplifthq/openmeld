@@ -1,3 +1,4 @@
+import { accountSessionSchema } from "@openmeld/schemas";
 import {
 	cleanup,
 	fireEvent,
@@ -11,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { UserAvatarCard } from "./user-avatar-card";
 
 const LOG_OUT_LINK_NAME_PATTERN = /log out/i;
+const JOINED_DATE_PATTERN = /^Joined January \d+, 2024$/;
 
 const useAccountAvatarMock = vi.hoisted(() => vi.fn());
 const useAccountSessionMock = vi.hoisted(() => vi.fn());
@@ -154,15 +156,17 @@ describe("UserAvatarCard", () => {
 			isPending: false,
 		});
 		useAccountSessionMock.mockReturnValue({
-			data: {
+			data: accountSessionSchema.parse({
+				session: { id: "current-session" },
 				user: {
+					id: "account",
 					createdAt: "2024-01-02T00:00:00.000Z",
 					email: "ada@example.com",
 					emailVerified: true,
 					image: "https://example.com/ada.png",
 					name: "Ada Lovelace",
 				},
-			},
+			}),
 			isPending: false,
 		});
 
@@ -176,6 +180,7 @@ describe("UserAvatarCard", () => {
 		expect(screen.getByText("Ada Lovelace")).toBeTruthy();
 		expect(screen.getByText("ada@example.com")).toBeTruthy();
 		expect(screen.getByText("Verified")).toBeTruthy();
+		expect(screen.getByText(JOINED_DATE_PATTERN)).toBeTruthy();
 		expect(
 			screen
 				.getByRole("link", { name: LOG_OUT_LINK_NAME_PATTERN })

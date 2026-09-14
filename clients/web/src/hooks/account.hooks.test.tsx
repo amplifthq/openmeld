@@ -1,3 +1,4 @@
+import { accountSessionSchema } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
@@ -243,15 +244,20 @@ function createWrapper(queryClient: QueryClient) {
 
 function seedIdentityQueries(queryClient: QueryClient) {
 	const profileQueryKey = startQueryKeys.profilesForStorageScope("account-1");
-	queryClient.setQueryData(userQueryKeys.session, {
-		session: { id: "session-1" },
-		user: {
-			email: "ada@example.com",
-			id: "user-1",
-			image: "https://example.com/old-avatar.webp",
-			name: "Ada Lovelace",
-		},
-	});
+	queryClient.setQueryData(
+		userQueryKeys.session,
+		accountSessionSchema.parse({
+			session: { id: "session-1" },
+			user: {
+				email: "ada@example.com",
+				id: "user-1",
+				image: "https://example.com/old-avatar.webp",
+				name: "Ada Lovelace",
+				emailVerified: true,
+				createdAt: "2024-01-02T00:00:00.000Z",
+			},
+		})
+	);
 	queryClient.setQueryData(userQueryKeys.accountAvatar, {
 		avatar: "https://example.com/old-avatar.webp",
 		defaultHumanProfileId: "human-profile-1",

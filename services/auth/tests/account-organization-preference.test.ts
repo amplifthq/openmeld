@@ -1,10 +1,15 @@
 import {
   accountOrganizationContextSchema,
+  accountSessionSchema,
   accountSidebarResponseSchema,
   DESKTOP_APP_ORIGIN,
   selectLastSelectedOrganizationErrorResponseSchema,
 } from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildBufferedAuthProxyResponse } from "../../../clients/web/src/lib/auth-proxy.server";
+import { loadBetterAuthRuntime } from "../src/lazy-runtime-modules";
+import { getAccountOrganizationPreferenceRepository } from "../src/lib/account/organization-preference-service";
+import { getLocalAuthUserStore } from "../src/lib/better-auth/local-auth-user-store";
 import type { AuthBindings } from "../src/lib/bindings";
 import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import {
@@ -28,6 +33,10 @@ type TestContext = ReturnType<typeof createTestContext>;
 
 const contexts: TestContext[] = [];
 
+vi.mock("../../../clients/web/src/env", () => ({
+  getRequiredServerEnv: () => "http://localhost:8788",
+}));
+
 afterEach(() => {
   for (const context of contexts.splice(0)) {
     context.harness.close();
@@ -36,6 +45,158 @@ afterEach(() => {
 });
 
 describe("Account Organization preference HTTP API", () => {
+  it.each([
+    "revoked",
+    "expired",
+  ])("reads a fresh credential-free account session and rejects %s credentials", async (ending) => {
+    const context = createTestContext();
+    const account = await createSignedInUser(context, {
+      email: "account-session@example.com",
+      name: "Account Session",
+    });
+    const { createAuth } = await loadBetterAuthRuntime();
+    const { response: vendor, headers: vendorHeaders } = await createAuth(
+      context.env
+    ).api.getSession({
+      headers: account.headers,
+      query: { disableCookieCache: true },
+      returnHeaders: true,
+    });
+    if (!vendor) {
+      throw new Error("The real sign-in must establish a session.");
+    }
+    expect(vendorHeaders.getSetCookie().length).toBeGreaterThan(0);
+    const preferenceRead = vi
+      .spyOn(
+        getAccountOrganizationPreferenceRepository(context.env),
+        "getLastSelectedOrganizationId"
+      )
+      .mockRejectedValue(new Error("Preferences are unavailable"));
+    // Membership storage is deliberately unavailable: a pure session read
+    // must not depend on it, even for an account with no memberships.
+    context.harness.run({ sql: "DROP TABLE members" });
+    context.harness.run({
+      sql: "UPDATE users SET name = ?, email_verified = ? WHERE id = ?",
+      params: ["Fresh Account Name", 0, vendor.user.id],
+    });
+    const request = () =>
+      context.app.fetch(
+        new Request(
+          `${AUTH_BASE_URL}/v1/account/session?userId=other&sessionId=other`,
+          {
+            headers: account.headers,
+          }
+        ),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(response.headers.getSetCookie().length).toBeGreaterThan(0);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const body = await response.json();
+    expect(accountSessionSchema.parse(body)).toEqual({
+      session: { id: vendor.session.id },
+      user: {
+        id: vendor.user.id,
+        email: vendor.user.email,
+        name: "Fresh Account Name",
+        image: vendor.user.image ?? null,
+        emailVerified: false,
+        createdAt: vendor.user.createdAt.toISOString(),
+      },
+    });
+    expect(preferenceRead).not.toHaveBeenCalled();
+    const getSession = vi.spyOn(createAuth(context.env).api, "getSession");
+    // Due for the vendor's normal updateAge renewal, but still valid. Do not
+    // read via a vendor oracle after this point: the route must own the read.
+    const dueExpiry = Date.now() + 60 * 60 * 1000;
+    context.harness.run({
+      sql: "UPDATE sessions SET expires_at = ? WHERE id = ?",
+      params: [dueExpiry, vendor.session.id],
+    });
+    const renewed = await request();
+    expect(renewed.status).toBe(200);
+    expect(getSession).toHaveBeenCalledTimes(1);
+    expect(getSession.mock.calls[0]?.[0]?.returnHeaders).toBe(true);
+    const renewedCookies = renewed.headers.getSetCookie();
+    const sessionCookieName = (await createAuth(context.env).$context)
+      .authCookies.sessionToken.name;
+    const renewedSessionCookie = renewedCookies.find((cookie) =>
+      cookie.startsWith(`${sessionCookieName}=`)
+    );
+    expect(Boolean(renewedSessionCookie?.includes("Max-Age="))).toBe(true);
+    expect(Boolean(renewedSessionCookie?.includes("HttpOnly"))).toBe(true);
+    const stored = context.harness.queryFirst<{ expires_at: number }>({
+      sql: "SELECT expires_at FROM sessions WHERE id = ?",
+      params: [vendor.session.id],
+    });
+    expect(stored?.expires_at).toBeGreaterThan(dueExpiry);
+    const proxied = await buildBufferedAuthProxyResponse({
+      method: "GET",
+      preserveUnauthorizedStatus: true,
+      upstreamResponse: renewed,
+    });
+    // Compare without printing generated fixture credentials on failure.
+    expect(
+      JSON.stringify(proxied.headers.getSetCookie()) ===
+        JSON.stringify(renewedCookies)
+    ).toBe(true);
+    expect(renewedCookies.length).toBeGreaterThan(1);
+    expect(proxied.headers.get("cache-control")).toBe("private, no-store");
+
+    // Local verification refuses renewal even when the vendor session is valid.
+    const localUser = vi.spyOn(
+      getLocalAuthUserStore(context.env),
+      "hasUserById"
+    );
+    for (const failure of [false, new Error("local user store unavailable")]) {
+      context.harness.run({
+        sql: "UPDATE sessions SET expires_at = ? WHERE id = ?",
+        params: [Date.now() + 60 * 60 * 1000, vendor.session.id],
+      });
+      if (failure === false) {
+        localUser.mockResolvedValueOnce(false);
+      } else {
+        localUser.mockRejectedValueOnce(failure);
+      }
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const denied = await request();
+      const refusedVendorResult = await getSession.mock.results.at(-1)?.value;
+      expect(
+        Boolean(
+          refusedVendorResult.headers
+            .getSetCookie()
+            .some((cookie: string) =>
+              cookie.startsWith(`${sessionCookieName}=`)
+            )
+        )
+      ).toBe(true);
+      expect(denied.status).toBe(failure === false ? 401 : 500);
+      expect(denied.headers.getSetCookie()).toEqual([]);
+      expect(denied.headers.get("cache-control")).toBe("private, no-store");
+    }
+
+    // Reusing the same signed cookies cannot revive a revoked session.
+    context.harness.run(
+      ending === "revoked"
+        ? {
+            sql: "DELETE FROM sessions WHERE id = ?",
+            params: [vendor.session.id],
+          }
+        : {
+            sql: "UPDATE sessions SET expires_at = ? WHERE id = ?",
+            params: [Date.now() - 1000, vendor.session.id],
+          }
+    );
+    const expired = await request();
+    expect(expired.status).toBe(401);
+    expect(expired.headers.get("cache-control")).toBe("private, no-store");
+    const deletion = expired.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+    expect(Boolean(deletion?.includes("Max-Age=0"))).toBe(true);
+  });
   it.each([
     "development",
     "production",
@@ -261,27 +422,48 @@ describe("Account Organization preference HTTP API", () => {
     });
   });
 
-  it("distinguishes missing authentication from unavailable account reads", async () => {
+  it.each([
+    ["organization-context", 500],
+    ["session", 500],
+    ["session", 503],
+  ] as const)("distinguishes missing authentication from %s failure %s", async (path, failureStatus) => {
     const context = createTestContext();
     const request = (headers = new Headers()) =>
       context.app.fetch(
-        new Request(`${AUTH_BASE_URL}/v1/account/organization-context`, {
+        new Request(`${AUTH_BASE_URL}/v1/account/${path}`, {
           headers,
         }),
         context.env,
         TEST_EXECUTION_CONTEXT
       );
-    expect((await request()).status).toBe(401);
+    const anonymous = await request();
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.headers.get("cache-control")).toBe("private, no-store");
     const account = await createSignedInUser(context, {
       email: "context-failure@example.com",
       name: "Context Failure",
     });
-    context.env.OPENMELD_DB = createLocalUserVerificationFailureDatabase(
-      context.env.OPENMELD_DB,
-      new Error("local verification unavailable")
-    );
+    context.env.OPENMELD_DB =
+      failureStatus === 503
+        ? new Proxy(context.env.OPENMELD_DB, {
+            get(target, property, receiver) {
+              if (property === "prepare") {
+                return () =>
+                  createRejectedD1PreparedStatement(
+                    new Error("Auth database unavailable")
+                  );
+              }
+              return Reflect.get(target, property, receiver);
+            },
+          })
+        : createLocalUserVerificationFailureDatabase(
+            context.env.OPENMELD_DB,
+            new Error("local verification unavailable")
+          );
     vi.spyOn(console, "error").mockImplementation(() => undefined);
-    expect((await request(account.headers)).status).toBe(500);
+    const failed = await request(account.headers);
+    expect(failed.status).toBe(failureStatus);
+    expect(failed.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("returns the shared error contract when the authenticated session is missing", async () => {

@@ -27,6 +27,45 @@
 
 ## Desktop pilot platform contract
 
+### Account session read
+
+Auth owns `GET /v1/account/session`, defined by the strict `accountSessionSchema`
+in `packages/schemas`. It returns only `user.id`, `email`, `name`, nullable
+`image`, `emailVerified`, ISO `createdAt`, and `session.id`. The user creation
+date preserves the Account Joined display. The session ID identifies the current
+row in Web Account Settings; it is never a credential or revocation authority.
+No vendor object, token, cookie, session dates, IP address, user agent, membership,
+or preference enters this projection. The route accepts no identity selector.
+
+The existing Auth session resolver bypasses its cookie cache for this read and
+checks the current local user. Missing or expired authentication returns 401;
+local-state failure remains 500 and unavailable Auth remains 503. Invalid required
+source facts fail rather than producing an invented session or date. Responses,
+including authentication failures, are `private, no-store` before session
+resolution. No Organization reads or new account/session writer are involved.
+
+This read preserves Better Auth's existing session renewal at the HTTP boundary.
+An opt-in cookie sink on the same session resolution forwards only the vendor's
+separate `Set-Cookie` headers after local-user validation succeeds, or its
+deletion cookies when the vendor reports no session. Local verification errors
+and stale-local-user refusals emit no successful renewal. The Web proxy preserves
+these headers; the Desktop transport keeps them out of renderer responses.
+No second session read, cookie rewriting, or independent session writer is added.
+
+The shared Web/Desktop account query uses the shared API-client decoder and the
+same `userQueryKeys.session`. Only 401 maps to null; backend, transport, and
+malformed-response errors remain errors. SSR captures each request's cookie and
+uses the configured Auth origin through the same standalone fetch transport.
+Native Desktop entry and account fences retain their narrower session bridge;
+they do not populate the shared account query. Web-only session/device management
+continues using its existing credential-bearing contracts.
+
+Contract impact: deploy the additive Auth endpoint and exact Web GET proxy before
+the new consumers. Old clients keep working. There is no new store, writer, data
+migration, CLI/Service/Skills/Core/Gateway epoch, or setup/Wake/Space action change.
+Remaining browser entry server functions and pilot matching-build admission are
+unchanged; this read does not establish general cross-build compatibility.
+
 ### Account Organization context
 
 The shared fetch transport invokes its injected fetch as a standalone callable,
