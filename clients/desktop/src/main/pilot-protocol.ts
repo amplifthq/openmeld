@@ -5,6 +5,7 @@ import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_WEB_BUILD_HEADER,
 } from "@openmeld/schemas";
+import { isPilotLocalControlRequest } from "./pilot-local-control-policy";
 
 const CONTENT_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -69,6 +70,12 @@ async function forwardCloud(
   url: URL,
   input: PilotProtocolOptions
 ): Promise<Response> {
+  if (isPilotLocalControlRequest(url, request.method)) {
+    return new Response(
+      "Manage this computer in OpenMeld Web. Desktop only supports protected Service Start and Stop.",
+      { status: 403 }
+    );
+  }
   if (url.pathname.startsWith("/_serverFn/") && request.method !== "GET") {
     return new Response("Desktop pilot mutations must use the shared API", {
       status: 403,

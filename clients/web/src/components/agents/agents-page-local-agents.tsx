@@ -87,6 +87,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
@@ -627,7 +628,10 @@ function resolveLocalAgentsCatalogState(input: {
 	replyReadiness: ComputerReplyReadiness | null;
 }): LocalAgentsCatalogState {
 	const target = resolveLocalAgentsCatalogTarget(input);
-	const controls = input.controlCapabilities ?? target?.localAgentControl;
+	const canConfigure = canConfigureLocalComputer();
+	const controls = canConfigure
+		? (input.controlCapabilities ?? target?.localAgentControl)
+		: undefined;
 	const serviceDependency = resolveLocalAgentsServiceDependency(
 		input.replyReadiness
 	);
@@ -689,7 +693,7 @@ function resolveLocalAgentsCatalogState(input: {
 					tone: "checking",
 				}
 			: notice,
-		primaryActionLabel: checking ? null : primaryActionLabel,
+		primaryActionLabel: checking || !canConfigure ? null : primaryActionLabel,
 		rowsMuted:
 			!input.hasSelectedEnvironment ||
 			(serviceDependency !== null &&

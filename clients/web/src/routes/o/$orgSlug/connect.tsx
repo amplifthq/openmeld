@@ -8,6 +8,8 @@ import { appShellStaticData } from "#/components/app/shell-layout";
 import { useStartFlowGuard } from "#/components/app/start-flow-guard";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
 import { StartBringAgentsSetupPage } from "#/components/connect/start-bring-agents-setup-page";
+import { ComputerManagementHandoff } from "#/desktop/computer-management-handoff";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import {
 	buildConnectRouteSearch,
 	type ConnectRouteIntent,
@@ -56,6 +58,25 @@ function AppConnectRoute() {
 }
 
 export function AppConnectContent(input: {
+	initialOuterSidebarState?: SidebarPersistedState;
+	orgSlug: string;
+	search: ConnectRouteSearch;
+}) {
+	if (!canConfigureLocalComputer()) {
+		return (
+			<AppFullWidthLayout
+				initialOuterSidebarState={
+					input.initialOuterSidebarState ?? APP_SIDEBAR_DEFAULT_STATES.outer
+				}
+			>
+				<ComputerManagementHandoff />
+			</AppFullWidthLayout>
+		);
+	}
+	return <WebConnectContent {...input} />;
+}
+
+function WebConnectContent(input: {
 	initialOuterSidebarState?: SidebarPersistedState;
 	orgSlug: string;
 	search: ConnectRouteSearch;

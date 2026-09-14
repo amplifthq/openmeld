@@ -2403,7 +2403,8 @@ async function runDaemonRunInteractivePreflightBeforeModePrompt(input: {
 }
 
 export async function runDaemonStop(
-  input: DaemonStopInput
+  input: DaemonStopInput,
+  internal: { completedControlledShutdownOwnerPid?: number } = {}
 ): Promise<SharedDaemonStopResult> {
   const runtime = await resolveRuntimeContext({
     view: input.view,
@@ -2434,6 +2435,8 @@ export async function runDaemonStop(
             await uninstallDaemonServiceUpdateWorker();
           }
           const stopped = await executeDaemonStopCommand({
+            completedControlledShutdownOwnerPid:
+              internal.completedControlledShutdownOwnerPid,
             force: input.force,
             presenter,
             profile: input.profile,
@@ -2579,12 +2582,15 @@ export async function runDaemonAutostart(
 }
 
 async function executeDaemonStopCommand(input: {
+  completedControlledShutdownOwnerPid?: number;
   force?: boolean;
   presenter: ReturnType<typeof createPresenter>;
   profile?: string;
   runtime: RuntimeContext;
 }): Promise<SharedDaemonStopResult> {
   const stopResult = await stopCurrentLaneDaemonService({
+    completedControlledShutdownOwnerPid:
+      input.completedControlledShutdownOwnerPid,
     force: input.force,
     mode: "interactive",
     runtime: input.runtime,

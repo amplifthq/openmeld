@@ -24,3 +24,9 @@ export function openDesktopWeb(path: string): Promise<void> {
 	}
 	return getBridge().openWeb(path);
 }
+
+// Presentation capability only. Native transport independently rejects these
+// operations; it never trusts a renderer's decision to hide a control.
+export function canConfigureLocalComputer(eligible = true): boolean {
+	return eligible && getDesktopPlatform() === null;
+}

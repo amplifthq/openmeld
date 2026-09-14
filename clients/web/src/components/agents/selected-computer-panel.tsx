@@ -14,7 +14,9 @@ import {
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { ComputerManagementHandoff } from "#/desktop/computer-management-handoff";
 import { DesktopServiceControls } from "#/desktop/desktop-service-controls";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
 import { refreshWebAgentReadinessSharedCaches } from "#/query/agents/execution-readiness";
 import { currentLocalRuntimeReplyReadinessQueryOptions } from "#/query/connect/local-runtimes";
@@ -102,11 +104,13 @@ export function SelectedComputerPanel(input: {
 		? null
 		: (selectedReadinessQuery.data ?? null);
 	const canManageComputerFileAccess =
+		canConfigureLocalComputer() &&
 		selectedSession?.controls?.computerFileAccess?.readPolicy === true &&
 		selectedSession.controls.computerFileAccess.updatePolicy === true;
 	return (
 		<div className="flex flex-col gap-4">
 			<DesktopServiceControls deviceId={input.computer.deviceId} />
+			<ComputerManagementHandoff />
 			{environments.length > 1 ? (
 				<details
 					className="order-last space-y-3 rounded-md border p-4"

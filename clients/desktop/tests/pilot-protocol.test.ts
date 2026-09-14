@@ -73,6 +73,44 @@ it("serves local page files and confines credentials to the configured cloud ori
       expect((await handle(request)).status).toBe(403);
     }
     expect(fetchCloud).toHaveBeenCalledTimes(1);
+    // Same Computer controls have both current-device and explicit-lane routes.
+    for (const [method, path] of [
+      ["POST", "/v1/local-runtimes/current/openmeld-tools/update"],
+      [
+        "POST",
+        "/v1/people-computers/device/lanes/dev-local/openmeld-tools/update",
+      ],
+      [
+        "PUT",
+        "/v1/people-computers/device/lanes/dev-local/local-agents/codex/enabled",
+      ],
+      ["PUT", "/v1/local-runtimes/current/local-agents/codex/installations"],
+      ["POST", "/v1/devices/current/forget"],
+      ["POST", "/v1/devices/device/forget"],
+      ["PUT", "/v1/local-runtimes/current/openmeld-tools/maintenance"],
+      ["POST", "/v1/prepare/sessions"],
+      ["POST", "/v1/local-runtimes/current/openmeld-tools/%75pdate"],
+      ["GET", "/v1/local-runtimes?connectionIdentityAdoption=token"],
+    ]) {
+      expect(
+        (await handle(new Request(`${DESKTOP_APP_ORIGIN}${path}`, { method })))
+          .status
+      ).toBe(403);
+    }
+    expect(fetchCloud).toHaveBeenCalledTimes(1);
+    for (const [method, path] of [
+      [
+        "GET",
+        "/v1/people-computers/device/lanes/dev-local/local-agents/codex/installations",
+      ],
+      ["POST", "/v1/spaces/space/messages"],
+    ]) {
+      expect(
+        (await handle(new Request(`${DESKTOP_APP_ORIGIN}${path}`, { method })))
+          .status
+      ).toBe(200);
+    }
+    expect(fetchCloud).toHaveBeenCalledTimes(3);
   } finally {
     await rm(assets, { recursive: true, force: true });
   }

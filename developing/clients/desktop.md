@@ -95,6 +95,22 @@ CLI login/logout, installation, setup, upgrades, autostart and agent mutations
 remain refused, and tray Service controls stay hidden. Clean-machine setup remains
 the normal Web/CLI onboarding path, not a completed Desktop flow.
 
+This pilot restriction applies to the shared Computer presentation and cloud
+transport as well as native IPC. `canConfigureLocalComputer` removes unsupported
+configuration actions while retaining reported status, details, and a Web handoff.
+`pilot-local-control-policy.ts` rejects the exact Gateway method/path families
+before attaching credentials: current and explicit Computer updates, local agent
+configuration, maintenance, file access, local Project controls, enrollment,
+rename/forget, and Prepare mutations. Catalog refresh is also unavailable in this
+pilot; reading existing reports remains available. Ordinary Web and Space/Wake
+mutations retain their existing contracts. These are pilot capability limits, not
+new Core authorization rules.
+
+After a positively acknowledged account-admitted Stop, CLI manager cleanup reuses
+the completed drain instead of sending another shutdown to an exited carrier.
+It rejects a different observed process owner; missing or failed drain evidence
+does not enter this completion path.
+
 The CLI prerequisite accepts `service start|stop --json --expected-account <id>`
 for an already connected POSIX Service. Its owning admission contract is in
 [Local OpenMeld Service](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop).

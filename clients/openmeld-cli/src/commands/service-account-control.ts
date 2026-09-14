@@ -277,7 +277,12 @@ async function stopReservedService(
       "Another Service instance is now running. Its state was left unchanged."
     );
   }
-  await runDaemonStop({ json: true, view: "agent" });
+  await runDaemonStop(
+    { json: true, view: "agent" },
+    {
+      completedControlledShutdownOwnerPid: pid,
+    }
+  );
 }
 
 export async function requestAccountCheckedServiceStop({
@@ -296,7 +301,7 @@ export async function requestAccountCheckedServiceStop({
   }
   // No compatibility fallback: only the verified carrier may admit this stop.
   try {
-    await requestLocalDaemonShutdown({
+    const shutdown = await requestLocalDaemonShutdown({
       payload: {
         accountAdmissionId: id,
         mode: "graceful",
@@ -304,6 +309,9 @@ export async function requestAccountCheckedServiceStop({
       },
       timeoutMs: CONTROLLED_SHUTDOWN_REQUEST_TIMEOUT_MS,
     });
+    if (!shutdown.accepted) {
+      throw new Error("The Service did not confirm controlled shutdown.");
+    }
   } catch (error) {
     if (
       manager &&
