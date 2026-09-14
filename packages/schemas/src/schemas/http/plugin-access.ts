@@ -62,7 +62,8 @@ export const pluginAccessUpdateBodySchema = z.strictObject({
   expectedRevision: z.number().int().nonnegative(),
   policy: pluginAccessPolicySchema,
 });
-export const pluginAccessUpdateRpcInputSchema =
+export const pluginAccessUpdateRpcInputSchema = z.lazySchema(() =>
   pluginAccessListRpcInputSchema.extend({
     ...pluginAccessUpdateBodySchema.shape,
-  });
+  })
+);

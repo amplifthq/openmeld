@@ -1,4 +1,5 @@
-import * as z from "zod/v4";
+import type * as zod from "zod/v4";
+import * as z from "../../lazy-zod";
 import { peopleComputerTargetSchema } from "../http/people-computers";
 import { openMeldRequestContextSchema } from "./profile-identity";
 import { daemonServiceLaneSchema } from "./service-contract";
@@ -16,7 +17,7 @@ export const serviceConnectionEvidenceEventSchema = z.strictObject({
     "credential_cache",
     "reply_reconsideration",
   ]),
-  connectionId: z.uuid(),
+  connectionId: z.string().uuid(),
   firstAtMs: timestamp,
   lastAtMs: timestamp,
   count: z.int().min(1).max(10_000_000),
@@ -73,10 +74,10 @@ export const serviceConnectionEvidenceEventSchema = z.strictObject({
 export const serviceConnectionIncidentSchema = z
   .strictObject({
     v: z.literal(1),
-    incidentId: z.uuid(),
+    incidentId: z.string().uuid(),
     deviceId: identifier,
     runtimeLane: daemonServiceLaneSchema,
-    serviceSessionId: z.uuid(),
+    serviceSessionId: z.string().uuid(),
     serviceVersion: z.string().regex(/^[0-9][0-9A-Za-z.+-]{0,63}$/u),
     startedAtMs: timestamp,
     endedAtMs: timestamp,
@@ -89,12 +90,12 @@ export const serviceConnectionIncidentSchema = z
   });
 
 export const serviceConnectionIncidentReportSchema = z.strictObject({
-  uploaderServiceSessionId: z.uuid(),
+  uploaderServiceSessionId: z.string().uuid(),
   incident: serviceConnectionIncidentSchema,
 });
 
 export const serviceConnectionIncidentReceiptSchema = z.strictObject({
-  incidentId: z.uuid(),
+  incidentId: z.string().uuid(),
   receivedAtMs: timestamp,
 });
 
@@ -130,7 +131,7 @@ export const serviceConnectionTraceDiagnosticsSchema = z.strictObject({
   incidents: z
     .array(
       z.strictObject({
-        incidentId: z.uuid(),
+        incidentId: z.string().uuid(),
         deviceId: identifier,
         runtimeLane: daemonServiceLaneSchema,
         startedAtMs: timestamp,
@@ -141,27 +142,27 @@ export const serviceConnectionTraceDiagnosticsSchema = z.strictObject({
     .max(20),
 });
 
-export type ServiceConnectionEvidenceEvent = z.infer<
+export type ServiceConnectionEvidenceEvent = zod.infer<
   typeof serviceConnectionEvidenceEventSchema
 >;
-export type ServiceConnectionIncident = z.infer<
+export type ServiceConnectionIncident = zod.infer<
   typeof serviceConnectionIncidentSchema
 >;
-export type ServiceConnectionIncidentReport = z.infer<
+export type ServiceConnectionIncidentReport = zod.infer<
   typeof serviceConnectionIncidentReportSchema
 >;
-export type ServiceConnectionIncidentReceipt = z.infer<
+export type ServiceConnectionIncidentReceipt = zod.infer<
   typeof serviceConnectionIncidentReceiptSchema
 >;
-export type ServiceConnectionIncidentsResponse = z.infer<
+export type ServiceConnectionIncidentsResponse = zod.infer<
   typeof serviceConnectionIncidentsResponseSchema
 >;
-export type ServiceConnectionIncidentsReadRpcInput = z.infer<
+export type ServiceConnectionIncidentsReadRpcInput = zod.infer<
   typeof serviceConnectionIncidentsReadRpcInputSchema
 >;
-export type ServiceConnectionIncidentReportRpcInput = z.infer<
+export type ServiceConnectionIncidentReportRpcInput = zod.infer<
   typeof serviceConnectionIncidentReportRpcInputSchema
 >;
-export type ServiceConnectionEvidenceJournal = z.infer<
+export type ServiceConnectionEvidenceJournal = zod.infer<
   typeof serviceConnectionEvidenceJournalSchema
 >;

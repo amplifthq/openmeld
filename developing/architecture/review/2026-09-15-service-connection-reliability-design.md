@@ -78,6 +78,16 @@ Implementation checkpoints:
   preserves the current stable CLI projection during staged Core delivery;
   all 77 release-planning cases pass. Final cloud Staging acceptance, push gate,
   exact Final Candidate, release and production smoke remain required.
+- The complete push gate passed for `110d7d5d2`. Its original Staging task
+  crossed cloud object replacement and published one visible reply after recovery.
+  Cloudflare accepted the Core upload, but the first deployment command then lost
+  its network response. A guarded retry exposed startup admission error `10021`.
+  The generated profile showed eager Zod construction; the existing startup
+  boundary test reproduced eager connection-diagnostic construction and a Plugin
+  RPC shape read. Both now use the existing lazy schema mechanism, preserving
+  validation and authorization contracts. Startup and lazy identity checks pass,
+  as do the real-D1 incident/ownership tests. Final cloud admission and signed
+  artifact validation must include this initialization-only correction.
 
 ## Evidence and limits
 
