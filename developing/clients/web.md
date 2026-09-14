@@ -4694,23 +4694,45 @@ Current MVP routes:
 
 - `/desktop` is the retained public download-page route and stays behind the
   distribution pause gate until release approval.
-- `/desktop/download` streams the current unsigned Apple silicon DMG from the
+- `/desktop/download` streams the manifest-selected Apple silicon DMG from the
   private R2 bucket binding `OPENMELD_DESKTOP_DOWNLOADS`.
 - `/desktop/update.json` returns the Desktop app update-awareness manifest.
 
-The page must make the preview contract explicit:
+The page describes the installed Mac app, shared Web/Desktop account and Spaces,
+and local-project work. Only macOS Apple silicon is offered. Do not publish
+legacy Node/npm/global-CLI installation steps or unverified signing,
+notarization, stability, or zero-setup claims. Release-specific notices come
+from the existing manifest `message`; the release owner must ensure they match
+the actual approved artifact. The retained legacy preview uploader does not
+establish that the installed app is ready to distribute.
 
-- the build is macOS Apple silicon only;
-- the build is unsigned and not notarized;
-- Node.js LTS with npm is required for this preview;
-- Desktop will install or upgrade the global OpenMeld CLI when Node/npm is present;
-- users may need to approve the first launch in macOS Privacy & Security or by
-  Control-clicking the app and choosing Open.
+In Vite development only, `/desktop` renders for local review. Both the route
+and its server function retain a production 404 gate. There is no query-string
+override. The page reads `desktop/update.json` through the existing manifest
+parser and checks the referenced artifact with R2 `head`. Missing bucket,
+manifest, artifact, or an empty artifact shows an unavailable state with a Web
+entry instead of a download link. Malformed metadata and storage failures
+propagate to the route error boundary rather than becoming a release claim.
+Version, size, and release notice come from that manifest; Web maintains no
+second release version or object key.
 
-Web must not claim setup success because the app was downloaded. The successful
-first-round path is: user opens OpenMeld Desktop, Desktop drives CLI/service setup,
-OpenMeld Web Spaces can create a Space and Profiles, and a local agent can be woken
-through the local OpenMeld Service.
+Local review matrix for A4: review `/desktop` at narrow and wide widths in light
+and dark themes; check keyboard focus and Web entry; no local R2 manifest must
+show no download link. With an actual local DMG and its manifest, check displayed
+version/size/message and the download round trip. Remove the local artifact to
+check unavailable behavior; malformed metadata must show an error. A production
+build must still return 404 for `/desktop`. Do not use a placeholder file as
+evidence of an installable download.
+
+To activate the page later, obtain explicit release approval after native and
+human UI acceptance, publish the approved artifact and its real manifest using
+the established release owner, then remove the two production page gates in an
+authorized Web release. Metadata alone cannot open the paused page. Download
+and update endpoint contracts are unchanged by this page redesign.
+
+Web must not claim setup success because the app was downloaded. A local Wake
+still requires computer/agent setup and a reply or explicit outcome through the
+existing OpenMeld Service and Space owners.
 
 ### OpenMeld Agent Interface
 
