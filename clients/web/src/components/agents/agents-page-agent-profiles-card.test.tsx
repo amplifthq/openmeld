@@ -518,7 +518,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			})
 		).toBeNull();
 		const workingBadge = within(currentActivity as HTMLElement).getByText(
-			"Working",
+			"Active task",
 			{ exact: true }
 		);
 		expect(workingBadge.closest('[data-slot="badge"]')).toBeTruthy();
@@ -733,7 +733,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const currentActivity = screen
 			.getByRole("heading", { name: "Current activity" })
 			.closest("section");
-		expect(currentActivity?.textContent).toContain("Working");
+		expect(currentActivity?.textContent).toContain("Active task");
 	});
 
 	it("keeps cached Unavailable Wakeability while Activity is Working and refreshes", () => {
@@ -775,7 +775,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const currentActivity = screen
 			.getByRole("heading", { name: "Current activity" })
 			.closest("section");
-		expect(currentActivity?.textContent).toContain("Working");
+		expect(currentActivity?.textContent).toContain("Active task");
 	});
 
 	it("keeps one local-agent connection action beside the unbound Wakeability blocker", async () => {
@@ -1401,7 +1401,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		expect(
 			screen.getByRole("heading", { name: "Current activity" })
 		).toBeTruthy();
-		expect(screen.getByText("Working · 2 queued")).toBeTruthy();
+		expect(screen.getByText("Active task · 2 queued")).toBeTruthy();
 		const presence = screen.getByTestId("agent-profile-presence");
 		expect(within(presence).getByText("Unavailable")).toBeTruthy();
 		expect(within(presence).queryByText("Working")).toBeNull();
@@ -1701,7 +1701,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 	});
 
-	it("does not treat an idle bound Session as current activity", async () => {
+	it("does not treat an idle bound Session as current activity", () => {
 		const baseBinding =
 			createPrimaryBindingResponse("codex:approveForMe").binding;
 		const primaryBinding = {
@@ -1749,16 +1749,14 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		});
 		renderAgentProfilesCard({}, primaryBinding, { presentation: "detail" });
 
-		await waitFor(() => {
-			expect(readCurrentAgentActivitySessionsMock).toHaveBeenCalled();
-		});
+		expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
 		expect(
 			screen.queryByRole("heading", { name: "Current activity" })
 		).toBeNull();
 		expect(screen.queryByText("Ship the Agent Profile upgrade")).toBeNull();
 	});
 
-	it("shows a working bound Session with its title, conversation, and computer", async () => {
+	it("does not present a bound Session as the current Wake destination", () => {
 		const baseBinding =
 			createPrimaryBindingResponse("codex:approveForMe").binding;
 		const primaryBinding = {
@@ -1820,24 +1818,10 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			presentation: "detail",
 		});
 
-		const sessionLinks = await screen.findAllByRole("link", {
-			name: "Open Computer: Ship the Agent Profile upgrade",
-		});
-		const sessionLink = sessionLinks.find((link) =>
-			link.closest('[role="list"][aria-label="Current activity"]')
-		);
-		expect(sessionLink).toBeTruthy();
-		if (!sessionLink) {
-			throw new Error("Expected the working Session in Current activity.");
-		}
-		expect(sessionLink.textContent).toContain(
-			"Ship the Agent Profile upgrade · native-session-1"
-		);
-		expect(within(sessionLink).getByText("Mira's MacBook Pro")).toBeTruthy();
-		expect(within(sessionLink).getByText("Working")).toBeTruthy();
-		expect(sessionLink.getAttribute("href")).toBe(
-			"/o/acme/agent-activity/sessions?query=native-session-1"
-		);
+		expect(readCurrentAgentActivitySessionsMock).not.toHaveBeenCalled();
+		const activity = screen.getByTestId("agent-current-activity");
+		expect(within(activity).getByText("Active task")).toBeTruthy();
+		expect(within(activity).queryByRole("link")).toBeNull();
 	});
 
 	it("shows a large create card when there are no Agents", () => {

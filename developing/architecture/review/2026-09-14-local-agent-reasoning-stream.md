@@ -114,3 +114,26 @@ smoke. Capture first-output timing without retaining output content.
 - Scoped architecture review: execution, routing, identity, and publication
   authority remain unchanged. The default-on transient-text exception is recorded
   in the owning contracts; reasoning is not a second execution-state authority.
+# Agent activity UI follow-up
+
+The shared profile popover now shows the existing Core-owned task status and
+recorded task activity time. The detail page and conversation list use the same
+runtime overview. Owner-disclosed current work links open the corresponding
+Space; the current projection does not provide an exact Wake message anchor.
+An assigned native conversation is configuration, not evidence of the current
+Wake destination. Session occupancy copy no longer claims another task is
+running. Issue #1023 remains open for the separate writer-ownership problem.
+
+On September 14, the isolated localhost lane exercised a real OpenCode Wake:
+the live reasoning bubble, active-task popover, last task activity timestamp,
+detail-page Space link, and active conversation row were visible together.
+Following the detail link returned to Welcome Space. Stop completed with the
+explicit stopped outcome and removed live reasoning. This supplements the
+earlier Codex and OpenCode stream smoke below; it does not establish that an
+idle Codex App session can be reclaimed.
+
+Focused UI validation: 140 tests passed across the profile card, task navigation,
+conversation sidebar, and Wake progress suites. Web typecheck and scoped Biome
+checks passed. No new polling endpoint or per-conversation query was added;
+visible consumers share the existing 30-second runtime overview query. Native
+session inventory is no longer fetched merely to render Agent detail activity.
