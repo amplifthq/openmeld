@@ -59,7 +59,7 @@ owner documents and the design document is deleted.
 ## Implemented Slices (activation off)
 
 1. Shared work-capacity policy module: `packages/agent-runtime/src/work-policy.ts` exports `AGENT_PROFILE_WORK_CONCURRENCY_LIMIT = 3`, `AGENT_PROFILE_WORK_MAX_WAITING = 50`, a policy type, frozen default, and guard. The coordinator's waiting constant now imports the shared value; the one-slot rule is untouched and the concurrency limit is not consumed anywhere. Tests: `packages/agent-runtime/tests/work-policy.test.ts`, `services/core/src/__tests__/agent-profile-work-coordinator.test.ts`.
-2. Typed Space Action receipts at the local recorder and MCP boundary: `dispatchSpaceActionReceiptKindSchema` (`proposal_saved_locally | rejected_closed | outcome_unknown`), closed-reason codes, `DispatchSpaceActionClosedError`. A known-expired or mismatched context now returns an MCP error with `receipt: rejected_closed` and a reason code; a saved proposal is reported as local only, with Coordinator acceptance and Space publication explicitly unconfirmed. The "Action recorded" text no longer exists at the MCP boundary. Exact replay returns the identical receipt. Test: `clients/openmeld-cli/tests/space-action-command.test.ts`.
+2. Local Space Action receipts use `dispatchSpaceActionToolResultSchema` from `packages/schemas` as the MCP output schema and structured result. `receipt.status` distinguishes `proposal_saved_locally`, `rejected_closed`, and `outcome_unknown`. Exact replay after local expiry preserves the original record and identity while reporting the expired local context; different or new actions stay rejected. Runtime identity and record nonce checks remain enforced, and expiry never admits file reads or uploads. Invalid records are preserved with an unknown receipt. Coordinator acceptance and Space publication remain unconfirmed in every local receipt. Tests: `clients/openmeld-cli/tests/space-action-command.test.ts` and `packages/schemas/tests/dispatch-space-action-receipt.test.ts`.
 
 ## Not Implemented Yet
 
@@ -71,5 +71,16 @@ owner documents and the design document is deleted.
 
 ## Contract Impact Notes
 
+Receipt correction validation (2026-09-14): 36 CLI action tests, six dispatch
+file-read tests, five schema tests, and three packaged CLI/stdio MCP integration
+tests passed. The packaged test starts a new server with an already-expired
+context, recovers the original receipt, and rejects a different action without
+changing the record. CLI and schema typechecks, focused Biome, documentation
+and Changelog checks passed. Deferred release-ready verification rebuilt the
+CLI/Service facts against `982cbc5bae40a8803465cb8a7f07569c56e0508b` and passed;
+the release version and manifest remain unchanged. These are isolated local
+checks, not real Space publication, three-way Wake execution, or Final Candidate
+certification.
+
 - MCP tool result text changed; anything string-matching "Action recorded" (skills, prompts, tests) must update. Error path is additive. On-disk record format and Service/Coordinator wire payloads are unchanged, so old and new CLI/Service interoperate; old CLIs keep the misleading wording.
-- No shared schema, daemon contract, or D1 change in this slice.
+- Shared schemas now own the additive MCP receipt contract. No on-disk format, daemon/Coordinator payload, CLI JSON, or D1 change is required. Old and new local/cloud components remain interoperable; no mandatory version floor or deployment order is introduced. Receipt recovery never grants new action or publication authority. See the scoped Shared Contracts and CLI owner documents.

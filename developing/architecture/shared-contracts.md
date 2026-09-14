@@ -125,6 +125,31 @@ requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Boundary
 
+### Dispatch Space Action receipts
+
+`@openmeld/schemas` owns `dispatchSpaceActionToolResultSchema` and its inferred
+types for the local recorder's MCP result. Its `receipt.status` is
+`proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`. All variants
+leave Coordinator acceptance and Space publication `unconfirmed`; a local
+process cannot infer either fact from expiry, a saved file, or an error.
+Saved receipts carry the original context/dispatch/attempt identity, action
+type, and recording timestamp. Context nonces remain private to local records.
+
+Exact receipt recovery after local expiry is read-only. It retains runtime
+identity checks and record nonce validation and cannot create a different
+action, upload a file, renew execution, or bypass RuntimeCoordinator or Space
+publication. Corrupt or unreadable evidence is preserved with an unknown
+receipt. New actions remain subject to the existing active-context writer.
+
+This is an additive MCP output contract with retained text content. On-disk
+context/action formats, CLI JSON, Service/Coordinator payloads, setup, Wake,
+trace, and diagnostics contracts are unchanged. Old cloud/Service and new CLI,
+or new cloud/Service and old CLI, can interoperate; older MCP clients may read
+the text, and consumers must not require structured receipts from older CLI
+versions. No migration, mandatory version floor, or cloud deploy order is
+introduced. A future CLI/Service release may deliver this as an available
+update; release manifest stamping stays with that release.
+
 ### Thread continuation and file working context
 
 Space owns retained quoted-message lookup and the last explicit human thread

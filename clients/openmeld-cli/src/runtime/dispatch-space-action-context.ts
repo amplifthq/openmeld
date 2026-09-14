@@ -14,12 +14,12 @@ import {
   spaceMemberDirectoryEntrySchema,
 } from "@openmeld/schemas";
 import type {
+  DispatchSpaceActionClosedReasonCode,
   OpenMeldSpaceEgressAction,
   SpaceContract,
   SpaceMemberDirectoryEntry,
 } from "@openmeld/schemas/types";
 import { isSelfWakeSpaceAction } from "@openmeld/space-mesh";
-import { z } from "zod/v4";
 import { daemonRuntimeRootPath } from "../config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../config/paths";
 import {
@@ -31,27 +31,6 @@ import {
 
 export const OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV =
   "OPENMELD_SPACE_ACTION_CONTEXT_PATH";
-
-// Local receipt discriminator for the recorder + MCP boundary. Kept in the CLI
-// (not packages/schemas) because no shared payload carries it yet; the remote
-// "accepted_for_finalization" / "published" receipts belong to the
-// Service/Coordinator path and are intentionally not modelled here.
-export const dispatchSpaceActionReceiptKindSchema = z.enum([
-  "proposal_saved_locally",
-  "rejected_closed",
-  "outcome_unknown",
-]);
-export type DispatchSpaceActionReceiptKind = z.infer<
-  typeof dispatchSpaceActionReceiptKindSchema
->;
-
-export const dispatchSpaceActionClosedReasonCodeSchema = z.enum([
-  "space_action.context_expired",
-  "space_action.context_mismatch",
-]);
-export type DispatchSpaceActionClosedReasonCode = z.infer<
-  typeof dispatchSpaceActionClosedReasonCodeSchema
->;
 
 /** The local action context is known expired/closed/mismatched: a new ordinary action must be rejected, never recorded. */
 export class DispatchSpaceActionClosedError extends Error {
@@ -187,6 +166,18 @@ export function createDispatchSpaceActionContext(input: {
 export function readDispatchSpaceActionContextFromEnv(
   env: NodeJS.ProcessEnv = process.env
 ): DispatchSpaceActionContext {
+  const context = readDispatchSpaceActionContextForReceiptFromEnv(env);
+  assertContextActive(context, Date.now());
+  return context;
+}
+
+// Expiry does not erase a prior receipt. Callers may use this context to compare
+// an exact existing action; writeDispatchSpaceActionRecord still rejects new
+// actions after expiry. File reads/uploads and target listing use the active
+// context reader instead.
+export function readDispatchSpaceActionContextForReceiptFromEnv(
+  env: NodeJS.ProcessEnv = process.env
+): DispatchSpaceActionContext {
   const contextPath = normalizeOptionalText(
     env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
   );
@@ -197,7 +188,6 @@ export function readDispatchSpaceActionContextFromEnv(
   }
   const context = readDispatchSpaceActionContext(contextPath);
   assertDispatchRuntimeEnvMatchesContext({ context, env });
-  assertContextActive(context, Date.now());
   return context;
 }
 
@@ -213,7 +203,6 @@ export function writeDispatchSpaceActionRecord(input: {
   context: DispatchSpaceActionContext;
   nowMs?: number;
 }): DispatchSpaceActionRecord {
-  assertContextActive(input.context, input.nowMs ?? Date.now());
   const parsedAction = openMeldSpaceEgressActionSchema.safeParse(input.action);
   if (!parsedAction.success) {
     throw parsedAction.error;
@@ -223,6 +212,18 @@ export function writeDispatchSpaceActionRecord(input: {
       "An Agent cannot Wake itself. To reply to the current message, omit wakeTargets (CLI: --wake) and submit the reply again. No action was recorded."
     );
   }
+
+  const existing = readDispatchSpaceActionRecord({ context: input.context });
+  if (existing.status === "invalid") {
+    throw new Error(existing.errorMessage);
+  }
+  if (
+    existing.status === "loaded" &&
+    isDeepStrictEqual(existing.record.action, parsedAction.data)
+  ) {
+    return existing.record;
+  }
+  assertContextActive(input.context, input.nowMs ?? Date.now());
 
   const record: DispatchSpaceActionRecord = {
     version: DISPATCH_SPACE_ACTION_RECORD_VERSION,

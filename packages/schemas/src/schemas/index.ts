@@ -2866,6 +2866,11 @@ export {
   dispatchResultPublicOutcomeSchema,
   dispatchResultSchema,
 } from "./space-mesh/dispatch-result";
+export {
+  dispatchSpaceActionClosedReasonCodeSchema,
+  dispatchSpaceActionReceiptSchema,
+  dispatchSpaceActionToolResultSchema,
+} from "./space-mesh/dispatch-space-action-receipt";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,

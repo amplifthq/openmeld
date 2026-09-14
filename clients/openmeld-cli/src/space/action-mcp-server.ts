@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
+  dispatchSpaceActionToolResultSchema,
   spaceFileEntryIdSchema,
   spaceFileRevisionNumberSchema,
 } from "@openmeld/schemas";
@@ -8,7 +9,7 @@ import { z } from "zod/v4";
 import type { DispatchSpaceActionRecord } from "../runtime/dispatch-space-action-context";
 import {
   DispatchSpaceActionClosedError,
-  readDispatchSpaceActionContextFromEnv,
+  readDispatchSpaceActionContextForReceiptFromEnv,
 } from "../runtime/dispatch-space-action-context";
 import {
   recordDispatchSpaceReply,
@@ -85,6 +86,7 @@ export function createSpaceActionMcpServer(): McpServer {
         referenceTargets: z.array(z.string().min(1)).optional(),
         wakeTargets: z.array(z.string().min(1)).optional(),
       },
+      outputSchema: dispatchSpaceActionToolResultSchema,
       annotations: {
         destructiveHint: false,
         idempotentHint: false,
@@ -113,6 +115,7 @@ export function createSpaceActionMcpServer(): McpServer {
         status: FINAL_STATUS_SCHEMA,
         text: z.string().min(1),
       },
+      outputSchema: dispatchSpaceActionToolResultSchema,
       annotations: {
         destructiveHint: false,
         idempotentHint: false,
@@ -133,6 +136,7 @@ export function createSpaceActionMcpServer(): McpServer {
       inputSchema: {
         reason: z.string().min(1),
       },
+      outputSchema: dispatchSpaceActionToolResultSchema,
       annotations: {
         destructiveHint: false,
         idempotentHint: false,
@@ -148,7 +152,7 @@ export function createSpaceActionMcpServer(): McpServer {
 }
 
 export async function runSpaceActionMcpServer(): Promise<void> {
-  readDispatchSpaceActionContextFromEnv();
+  readDispatchSpaceActionContextForReceiptFromEnv();
   const server = createSpaceActionMcpServer();
   await server.connect(new StdioServerTransport());
 }
@@ -157,34 +161,74 @@ export async function executeSpaceAction(
   action: () => DispatchSpaceActionRecord | Promise<DispatchSpaceActionRecord>
 ) {
   try {
+    const context = readDispatchSpaceActionContextForReceiptFromEnv();
     const record = await action();
-    // Receipt: proposal_saved_locally. This is explicitly local-only; it must
-    // not read as generic action success (design: Wake Completion And Action Receipts).
+    if (
+      record.contextId !== context.contextId ||
+      record.nonce !== context.nonce
+    ) {
+      throw new DispatchSpaceActionClosedError(
+        "space_action.context_mismatch",
+        "The saved action does not match the current dispatch context."
+      );
+    }
+    const contextState =
+      Date.now() > context.expiresAtMs ? "expired" : "active";
+    const structuredContent = dispatchSpaceActionToolResultSchema.parse({
+      receipt: {
+        status: "proposal_saved_locally",
+        actionType: record.action.type,
+        attemptId: context.attemptId,
+        contextId: context.contextId,
+        dispatchId: context.dispatchId,
+        recordedAtMs: record.createdAtMs,
+        contextState,
+        coordinatorAcceptance: "unconfirmed",
+        publication: "unconfirmed",
+      },
+    });
     return {
+      structuredContent,
       content: [
         {
           type: "text" as const,
-          text: `Local proposal saved (receipt: proposal_saved_locally, action: ${record.action.type}). OpenMeld has only recorded this Space action proposal on this computer for the current Wake. Coordinator acceptance and Space publication are NOT yet confirmed; do not report it as posted.`,
+          text: `Local proposal saved (receipt: proposal_saved_locally, action: ${record.action.type}). OpenMeld has recorded this unpublished Space action proposal on this computer. ${contextState === "expired" ? "The local context has expired. This receipt identifies the existing record and does not extend action authority. " : ""}Coordinator acceptance and Space publication are NOT yet confirmed; do not report it as posted.`,
         },
       ],
     };
   } catch (error) {
     if (error instanceof DispatchSpaceActionClosedError) {
       return {
+        structuredContent: dispatchSpaceActionToolResultSchema.parse({
+          receipt: {
+            status: "rejected_closed",
+            reasonCode: error.reasonCode,
+            coordinatorAcceptance: "unconfirmed",
+            publication: "unconfirmed",
+          },
+        }),
         content: [
           {
             type: "text" as const,
-            text: `Action rejected (receipt: rejected_closed, reason: ${error.reasonCode}). ${error.message} Nothing was recorded or published.`,
+            text: `Action rejected (receipt: rejected_closed, reason: ${error.reasonCode}). ${error.message} New actions are not permitted in this context. Existing records are preserved; Coordinator acceptance and Space publication are unconfirmed.`,
           },
         ],
         isError: true,
       };
     }
     return {
+      structuredContent: dispatchSpaceActionToolResultSchema.parse({
+        receipt: {
+          status: "outcome_unknown",
+          reasonCode: "space_action.recording_outcome_unknown",
+          coordinatorAcceptance: "unconfirmed",
+          publication: "unconfirmed",
+        },
+      }),
       content: [
         {
           type: "text" as const,
-          text: error instanceof Error ? error.message : String(error),
+          text: `Action receipt unavailable (receipt: outcome_unknown). ${error instanceof Error ? error.message : String(error)} Existing records are preserved; Coordinator acceptance and Space publication are unconfirmed.`,
         },
       ],
       isError: true,

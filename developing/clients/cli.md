@@ -1083,6 +1083,20 @@ current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that
 claim.
 
+The `reply`, `status`, and `stay_silent` MCP tools advertise the shared
+`dispatchSpaceActionToolResultSchema` and return it as `structuredContent`.
+The receipt distinguishes `proposal_saved_locally`, `rejected_closed`, and
+`outcome_unknown`; Coordinator acceptance and Space publication remain
+`unconfirmed`. Local receipts include the original context, dispatch, attempt,
+action type, and recording time, but never the context nonce.
+
+After local context expiry, an exact already-recorded action may recover its
+original local receipt without changing the record or extending execution
+authority. Dispatch and target identity checks still apply. Different or new
+actions are rejected, and file reads, uploads, and target listing still require
+an active context. Invalid or unreadable records stay preserved and produce an
+unknown receipt rather than a claim that nothing was recorded or published.
+
 `wake` and `reply --wake` are `post_message` outcomes with
 `messageEnvelope.activationTargets`. They close the current Wake with a visible
 handoff message and start the next ready Agent Profile through normal Space
