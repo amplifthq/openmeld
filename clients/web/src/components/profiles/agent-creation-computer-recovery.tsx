@@ -3,17 +3,10 @@
 import { Button } from "@openmeld/ui/components/button";
 import { DesktopTowerIcon } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
-import { LocalAgentInstallEmptyState } from "#/components/agents/local-agent-install-empty-state";
 import { LOCAL_AGENTS_GUIDE_PATH } from "#/lib/local-agent-install-guides";
 
 export type AgentCreationComputerRecovery = {
-	state:
-		| "checking"
-		| "check_failed"
-		| "connect"
-		| "reconnect"
-		| "local_agents"
-		| "awaiting_agents";
+	state: "checking" | "check_failed" | "connect" | "reconnect" | "local_agents";
 	computerName?: string;
 	onStart: () => void;
 	/** The existing setup workflow, shown directly when connection is required. */
@@ -33,7 +26,6 @@ export function agentCreationComputerActionLabel(
 		case "reconnect":
 			return "Reconnect Computer";
 		case "local_agents":
-		case "awaiting_agents":
 			return "Check again";
 		default:
 			return "Connect Computer";
@@ -44,26 +36,6 @@ export function AgentCreationComputerRecoveryPanel(input: {
 	recovery: AgentCreationComputerRecovery;
 }) {
 	const recovery = input.recovery;
-	if (recovery.state === "local_agents") {
-		return (
-			<LocalAgentInstallEmptyState
-				description={`Your computer is connected. Install a supported local agent${recovery.computerName ? ` on ${recovery.computerName}` : " on this computer"}, then check again to continue.`}
-				installGuide={
-					<a
-						className="inline-flex min-h-9 items-center gap-1 font-medium text-sm underline underline-offset-4"
-						href={LOCAL_AGENTS_GUIDE_PATH}
-						rel="noopener noreferrer"
-						target="_blank"
-					>
-						See the install guide{" "}
-						<span className="text-muted-foreground text-xs">
-							(opens in a new tab)
-						</span>
-					</a>
-				}
-			/>
-		);
-	}
 	const copy = recoveryCopy(recovery);
 	return (
 		<section aria-label="Computer connection" className="grid gap-4 py-2">
@@ -82,6 +54,22 @@ export function AgentCreationComputerRecoveryPanel(input: {
 				</div>
 			</div>
 			{recovery.computerChoices}
+			{recovery.state === "local_agents" ? (
+				<div className="space-y-1 text-muted-foreground text-sm">
+					<p>
+						If you haven’t installed a local agent, install one such as Codex or
+						Claude Code, then check again.
+					</p>
+					<a
+						className="inline-flex min-h-9 items-center font-medium text-foreground underline underline-offset-4"
+						href={LOCAL_AGENTS_GUIDE_PATH}
+						rel="noopener noreferrer"
+						target="_blank"
+					>
+						See the install guide (opens in a new tab)
+					</a>
+				</div>
+			) : null}
 			{recovery.setup ? (
 				<div className="grid gap-3">
 					{recovery.setup}
@@ -109,12 +97,6 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 				description:
 					"Your Agent settings will stay here while OpenMeld loads the connection and local agent details.",
 			};
-		case "awaiting_agents":
-			return {
-				title: "Waiting for local agent details",
-				description:
-					"Your computer is connected. Local agent details aren’t available yet. Check again to refresh the list.",
-			};
 		case "check_failed":
 			return {
 				title: "Couldn’t check the computer’s connection",
@@ -129,9 +111,9 @@ function recoveryCopy(recovery: AgentCreationComputerRecovery) {
 			};
 		case "local_agents":
 			return {
-				title: "Connect a local agent to continue",
+				title: "Local agent details aren’t available",
 				description:
-					"Your computer is connected. Set up or enable a local agent, such as Codex or Claude Code, to use it here.",
+					"Your computer is connected, but OpenMeld hasn’t received usable local agent details. Check again to refresh the list.",
 			};
 		default:
 			return {

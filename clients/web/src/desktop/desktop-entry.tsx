@@ -81,7 +81,7 @@ export function DesktopEntry() {
 		browserOpened && !error
 	);
 	return (
-		<main className="flex min-h-svh items-center justify-center bg-background p-6">
+		<main className="flex min-h-svh items-center justify-center bg-[var(--app-canvas)] p-6">
 			<section
 				aria-busy={pending}
 				className="w-full max-w-sm space-y-6 text-center"

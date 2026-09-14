@@ -20,7 +20,6 @@ type RecoveryInput = {
 	recovery: ReturnType<typeof useLocalAgentRecoveryController>;
 	guidance: ReturnType<typeof resolveLocalAgentCreationGuidance>;
 	hasLocalAgents: boolean;
-	localAgentReportMissing?: boolean;
 	isPending: boolean;
 	sessionComputerId?: string;
 	onRetry: () => void;
@@ -162,7 +161,7 @@ function resolveRecoveryState(
 		return "check_failed";
 	}
 	if (input.guidance === "set_up_local_agents") {
-		return input.localAgentReportMissing ? "awaiting_agents" : "local_agents";
+		return "local_agents";
 	}
 	return target.connectedComputerId ? "reconnect" : "connect";
 }
