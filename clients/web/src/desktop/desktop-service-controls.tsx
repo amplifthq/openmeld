@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { getBridge } from "../../../desktop/src/renderer/ipc";
+import { formatDesktopError } from "./desktop-error";
 import { getDesktopPlatform } from "./platform";
 
 function serviceStatusText(
@@ -83,9 +84,10 @@ function LocalServiceControls({ deviceId }: { deviceId: string }) {
 			await queryClient.invalidateQueries({ queryKey });
 		} catch (cause) {
 			setError(
-				cause instanceof Error
-					? cause.message
-					: "Check Service status and try again."
+				formatDesktopError(
+					cause,
+					"Could not complete this action. Check status before trying again."
+				)
 			);
 		} finally {
 			setPending(null);
@@ -96,6 +98,10 @@ function LocalServiceControls({ deviceId }: { deviceId: string }) {
 			<summary className="cursor-pointer text-muted-foreground text-sm">
 				Background service controls
 			</summary>
+			<p className="text-muted-foreground text-xs leading-5">
+				OpenMeld Service runs local agents in the background, even after you
+				quit Desktop.
+			</p>
 			<output className="block text-muted-foreground text-sm">
 				{serviceStatusText(pending, query.isPending, service?.lifecycle)}
 			</output>
@@ -126,7 +132,11 @@ function LocalServiceControls({ deviceId }: { deviceId: string }) {
 			) : null}
 			{error || query.error ? (
 				<p className="text-destructive text-sm" role="alert">
-					{error ?? query.error?.message}
+					{error ??
+						formatDesktopError(
+							query.error,
+							"Could not check the background service. Check status to try again."
+						)}
 				</p>
 			) : null}
 			<div className="flex gap-2">

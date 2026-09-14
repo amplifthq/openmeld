@@ -1,23 +1,29 @@
 import { Button } from "@openmeld/ui/components/button";
+import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { resolveOptionalActiveOrganizationEntryPath } from "#/lib/organizations/organization-scope";
 import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
+import { formatDesktopError } from "./desktop-error";
 import { getDesktopPlatform } from "./platform";
 
 export function DesktopEntry() {
 	const router = useRouter();
 	const queryClient = useQueryClient();
 	const { redirect: returnPath } = useSearch({ from: "/desktop-shell" });
-	const [pending, setPending] = useState(true);
+	const [pendingOperation, setPendingOperation] = useState<
+		"session" | "browser" | null
+	>("session");
+	const pending = pendingOperation !== null;
 	const [error, setError] = useState<string | null>(null);
+	const [browserOpened, setBrowserOpened] = useState(false);
 	const bridge = getDesktopPlatform();
 
 	useEffect(() => {
 		if (!bridge) {
-			setPending(false);
+			setPendingOperation(null);
 			return;
 		}
 		let disposed = false;
@@ -25,6 +31,8 @@ export function DesktopEntry() {
 		let prepared = Promise.resolve();
 		const refresh = (sessionChanged = false) => {
 			if (sessionChanged) {
+				setPendingOperation("session");
+				setError(null);
 				revision++;
 				prepared = resetAccountScopedQueriesAfterAuthChange(queryClient);
 			}
@@ -43,15 +51,16 @@ export function DesktopEntry() {
 				.catch((failure: unknown) => {
 					if (active()) {
 						setError(
-							failure instanceof Error
-								? failure.message
-								: "Could not check your sign-in. Try again."
+							formatDesktopError(
+								failure,
+								"Could not open your workspace. Try signing in again."
+							)
 						);
 					}
 				})
 				.finally(() => {
 					if (active()) {
-						setPending(false);
+						setPendingOperation(null);
 					}
 				});
 		};
@@ -66,17 +75,25 @@ export function DesktopEntry() {
 		};
 	}, [bridge, router, returnPath, queryClient]);
 
+	const copy = desktopEntryCopy(
+		Boolean(bridge),
+		pendingOperation,
+		browserOpened && !error
+	);
 	return (
-		<main className="flex min-h-svh items-center justify-center bg-background p-6">
-			<section className="w-full max-w-sm space-y-5">
-				<OpenMeldLogo scale={0.2} />
+		<main className="flex min-h-svh items-center justify-center bg-[var(--app-canvas)] p-6">
+			<section
+				aria-busy={pending}
+				className="w-full max-w-sm space-y-6 text-center"
+			>
+				<div className="mx-auto w-fit">
+					<OpenMeldLogo colors={OPENMELD_LOGO_THEME_COLORS} scale={0.2} />
+				</div>
 				<div className="space-y-2">
-					<h1 className="font-medium text-xl">OpenMeld Desktop</h1>
-					<p className="text-muted-foreground text-sm">
-						{bridge
-							? "Sign in with your browser to open your workspace."
-							: "Open the Desktop app to sign in."}
-					</p>
+					<h1 className="font-semibold text-xl">{copy.title}</h1>
+					<output className="block text-muted-foreground text-sm leading-relaxed">
+						{copy.description}
+					</output>
 				</div>
 				{error && (
 					<p className="text-destructive text-sm" role="alert">
@@ -85,29 +102,75 @@ export function DesktopEntry() {
 				)}
 				{bridge && (
 					<Button
+						className="w-full"
 						disabled={pending}
 						onClick={async () => {
 							setError(null);
-							setPending(true);
+							setPendingOperation("browser");
 							try {
 								await bridge.signIn();
+								setBrowserOpened(true);
 							} catch (failure) {
 								setError(
-									failure instanceof Error
-										? failure.message
-										: "Could not open your browser. Try again."
+									formatDesktopError(
+										failure,
+										"Could not open your browser. Try again."
+									)
 								);
 							} finally {
-								setPending(false);
+								setPendingOperation(null);
 							}
 						}}
 					>
-						{pending ? "Checking sign-in…" : "Sign in with browser"}
+						{copy.action}
 					</Button>
 				)}
 			</section>
 		</main>
 	);
+}
+
+function desktopEntryCopy(
+	available: boolean,
+	pending: "session" | "browser" | null,
+	browserOpened: boolean
+) {
+	if (!available) {
+		return {
+			title: "Sign in to Desktop",
+			description: "Open the Desktop app to sign in.",
+			action: "Sign in with browser",
+		};
+	}
+	if (pending === "browser") {
+		return {
+			title: "Opening your browser",
+			description:
+				"Continue signing in with your OpenMeld account in the browser.",
+			action: "Opening browser…",
+		};
+	}
+	if (pending === "session") {
+		return {
+			title: "Opening your workspace",
+			description: "Checking your sign-in…",
+			action: "Please wait…",
+		};
+	}
+	if (browserOpened) {
+		return {
+			title: "Continue in your browser",
+			description:
+				"Finish signing in, then choose Continue in Desktop. Your workspace will open here.",
+			action: "Open browser again",
+		};
+	}
+	return {
+		title: "Sign in to Desktop",
+		description:
+			"Use your OpenMeld account to access the same workspaces and agents.",
+		action: "Sign in with browser",
+	};
 }
 
 async function resolveDesktopEntry(

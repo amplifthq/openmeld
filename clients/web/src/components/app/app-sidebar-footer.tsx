@@ -263,7 +263,7 @@ function AccountAvatarWithComputerAttention({
 			{showAttention ? (
 				<>
 					<span className="sr-only">{computer.accessibleLabel}</span>
-					<span className="absolute -top-0.5 -right-0.5 rounded-full bg-sidebar p-0.5">
+					<span className="absolute -top-0.5 -right-0.5 flex size-2.5 items-center justify-center rounded-full bg-sidebar leading-none">
 						<CurrentComputerAttentionIndicator status={computer.status} />
 					</span>
 				</>

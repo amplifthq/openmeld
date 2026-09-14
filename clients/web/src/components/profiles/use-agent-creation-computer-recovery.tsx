@@ -150,7 +150,11 @@ function resolveRecoveryState(
 	input: RecoveryInput,
 	target: SetupTarget
 ): AgentCreationComputerRecovery["state"] {
-	if (input.isPending || input.guidance === "checking") {
+	if (
+		input.isPending ||
+		input.recovery.localRuntimesQuery.isPending ||
+		input.guidance === "checking"
+	) {
 		return "checking";
 	}
 	if (input.guidance === "check_failed") {

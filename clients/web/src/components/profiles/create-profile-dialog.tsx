@@ -69,6 +69,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AgentCreationComputerSetup } from "#/components/connect/agent-creation-computer-setup";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
@@ -846,7 +847,9 @@ function useCreateProfileDialogController(
 	});
 	const retryCreationConnection = () => {
 		Promise.all([
-			creationGuidance === "set_up_local_agents" && bindingTarget
+			creationGuidance === "set_up_local_agents" &&
+			bindingTarget &&
+			canConfigureLocalComputer()
 				? recovery.refreshLocalAgentCatalog({
 						deviceId: bindingTarget.deviceId,
 						runtimeLane: bindingTarget.runtimeLane,

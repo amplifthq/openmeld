@@ -1,4 +1,9 @@
 import {
+	type LocalAgentCatalogCapability,
+	projectLocalAgentCatalogFromCapabilities,
+	resolveSelectableCandidates,
+} from "@openmeld/agent-runtime";
+import {
 	act,
 	cleanup,
 	fireEvent,
@@ -12,6 +17,7 @@ import {
 	agentCreationComputerFixture,
 	agentCreationRecoveryFixture,
 } from "#/test-support/agent-creation-computer-fixtures";
+import { AgentCreationComputerRecoveryPanel } from "./agent-creation-computer-recovery";
 import { useAgentCreationComputerRecovery } from "./use-agent-creation-computer-recovery";
 
 afterEach(cleanup);
@@ -78,6 +84,76 @@ describe("Agent creation computer recovery", () => {
 		expect(screen.getByDisplayValue("Connect a new computer")).toBe(
 			screen.getByRole("combobox", { name: "Computer to reconnect" })
 		);
+	});
+	// The Service sync filters unregistered controllers and submits no report
+	// when none are installed. Thus both fresh/no-report and checked/no-install
+	// reach the catalog projector with []: neither proves an installation result.
+	it.each<{ scenario: string; capabilities: LocalAgentCatalogCapability[] }>([
+		{ scenario: "new computer before its first report", capabilities: [] },
+		{
+			scenario: "no installed controllers (sync submits no reports)",
+			capabilities: [],
+		},
+		{
+			scenario: "reported controller with unknown status",
+			capabilities: [
+				{
+					agentControllerRef: "builtin:codex",
+					status: "unknown",
+					enabled: true,
+				},
+			],
+		},
+		{
+			scenario: "discovered ready controller",
+			capabilities: [
+				{ agentControllerRef: "builtin:codex", status: "ready", enabled: true },
+			],
+		},
+	])("uses real catalog projections for $scenario", ({ capabilities }) => {
+		const catalog = projectLocalAgentCatalogFromCapabilities({ capabilities });
+		const candidates = resolveSelectableCandidates(
+			catalog.entries.map((entry) => ({ ...entry, registered: entry.detected }))
+		);
+		const { result } = renderHook(() =>
+			useAgentCreationComputerRecovery({
+				enabled: true,
+				recovery: agentCreationRecoveryFixture({
+					computers: [agentCreationComputerFixture()],
+					deviceId: "office-mac",
+					onSelect: vi.fn(),
+				}),
+				guidance: "set_up_local_agents",
+				hasLocalAgents: candidates.length > 0,
+				isPending: false,
+				onRetry: vi.fn(),
+			})
+		);
+		if (capabilities[0]?.status === "ready") {
+			expect(result.current.computerRecovery).toBeUndefined();
+			return;
+		}
+		const recovery = result.current.computerRecovery;
+		if (!recovery) {
+			throw new Error("Expected recovery guidance for unavailable details");
+		}
+		render(<AgentCreationComputerRecoveryPanel recovery={recovery} />);
+		expect(
+			screen.getByText("Local agent details aren’t available")
+		).toBeTruthy();
+		expect(screen.queryByText("No supported agents detected")).toBeNull();
+		expect(
+			screen.getByText(
+				"If you haven’t installed a local agent, install one such as Codex or Claude Code, then check again."
+			)
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("link", {
+					name: "See the install guide (opens in a new tab)",
+				})
+				.getAttribute("href")
+		).toBe("/guides/local-agents");
 	});
 	it("needs no computer setup when the selected computer has local agents", () => {
 		const { result } = renderHook(() =>
