@@ -6,6 +6,71 @@ import { describe, expect, it } from "vitest";
 import { resolveLocalComponentUpdateProjection } from "../local-components/update-projection";
 
 describe("local component update projection", () => {
+  it.each([
+    "restored",
+    "needs_help",
+  ] as const)("projects only the first allowlisted Service CLI update failure reason for %s", (phase) => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliPackageVersion: "0.7.27",
+        cliReasonCodes: [
+          "OpenMeld update process exited with status 1 at /private/path",
+          "cli.update.download_stalled",
+          "cli.update.failed",
+          "cli.update.download_stalled",
+        ],
+        includeUpdateOperation: true,
+        updateOperationPhase: phase,
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection.cli.reasonCodes).toEqual([
+      "cli.package_update_available",
+      "cli.update.download_stalled",
+    ]);
+  });
+
+  it("drops Service CLI update failure reasons without an update operation", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliPackageVersion: "0.7.27",
+        cliReasonCodes: ["cli.update.download_stalled"],
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection.cli.reasonCodes).toEqual([
+      "cli.package_update_available",
+    ]);
+  });
+
+  it.each([
+    "waiting_for_work",
+    "updating",
+    "updated",
+  ] as const)("drops Service CLI update failure reasons while the operation is %s", (phase) => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliReasonCodes: ["cli.update.download_stalled"],
+        includeUpdateOperation: true,
+        updateOperationPhase: phase,
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection.cli.reasonCodes).toEqual([]);
+  });
+
   it("does not describe unknown installed versions as up to date and preserves the command lane", () => {
     const result = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-09-07T00:00:00.000Z",
@@ -642,11 +707,15 @@ function createReleaseManifest(input: {
 function createLocalComponentsStatus(input: {
   automaticUpdatesEnabled?: boolean;
   cliPackageVersion?: string;
+  cliReasonCodes?: string[];
   includeCompletedUpdateOperation?: boolean;
   includeUpdateOperation?: boolean;
   serviceBundleHash?: string | null;
   skillsBundleHash?: string | null;
   updateTargetVersion?: string;
+  updateOperationPhase?: NonNullable<
+    LocalComponentsStatus["updateOperation"]
+  >["phase"];
   updateUrgency?: "available" | "required";
 }): LocalComponentsStatus {
   return {
@@ -672,7 +741,7 @@ function createLocalComponentsStatus(input: {
       ? {
           updateOperation: {
             operationId: "update-1",
-            phase: "waiting_for_work" as const,
+            phase: input.updateOperationPhase ?? "waiting_for_work",
             requestSource: "automatic" as const,
             requestedAt: "2026-06-04T00:00:00.000Z",
             targetVersion: input.updateTargetVersion ?? "0.7.28",
@@ -698,7 +767,7 @@ function createLocalComponentsStatus(input: {
       commandContractVersion: "cli-contract-v1",
       latestPackageVersion: "0.7.28",
       packageVersion: input.cliPackageVersion ?? "0.7.28",
-      reasonCodes: [],
+      reasonCodes: input.cliReasonCodes ?? [],
       requiredCommandContractVersion: null,
       status: "ok",
     },

@@ -7,8 +7,16 @@ import {
   buildOpenMeldToolsUpdateContextEnv,
   type OpenMeldToolsUpdateContext,
 } from "./openmeld-tools-update-context";
+import {
+  appendBoundedOpenMeldToolsUpdateProcessOutput,
+  type OpenMeldToolsUpdateProcessFailure,
+  parseOpenMeldToolsUpdateFailureFrame,
+} from "./openmeld-tools-update-process-frame";
 
-export type OpenMeldToolsUpgradeProcessResult = { exitCode: number };
+export type OpenMeldToolsUpgradeProcessResult = {
+  exitCode: number;
+  processFailure?: OpenMeldToolsUpdateProcessFailure;
+};
 
 export async function resolveMaintenanceCliInstallation(): Promise<{
   version: string;
@@ -38,6 +46,7 @@ export async function runOpenMeldToolsUpgradeProcess(
       : process.execPath,
   });
   return await new Promise((resolve, reject) => {
+    let stdout = "";
     const child = spawn(command, [...argsPrefix, "maintenance-upgrade"], {
       env: {
         ...process.env,
@@ -45,12 +54,25 @@ export async function runOpenMeldToolsUpgradeProcess(
         OPENMELD_INTERNAL_SKIP_STARTUP_UPGRADE: "1",
         OPENMELD_INTERNAL_MAINTENANCE_WORKER: "1",
       },
-      // The OS-owned worker log retains the installer's actual failure reason.
-      stdio: ["ignore", "inherit", "inherit"],
+      // Tee output into the OS-owned worker log while retaining only a bounded
+      // stdout tail so the typed terminal failure frame can reach the owner.
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      const text = chunk.toString();
+      stdout = appendBoundedOpenMeldToolsUpdateProcessOutput(stdout, text);
+      process.stdout.write(text);
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      process.stderr.write(chunk);
     });
     child.once("error", reject);
     child.once("close", (code) => {
-      resolve({ exitCode: Number(code ?? 1) });
+      const processFailure = parseOpenMeldToolsUpdateFailureFrame(stdout);
+      resolve({
+        exitCode: Number(code ?? 1),
+        ...(processFailure ? { processFailure } : {}),
+      });
     });
   });
 }

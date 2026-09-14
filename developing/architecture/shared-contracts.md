@@ -1475,9 +1475,14 @@ managed skill target count. It may also include the computer-owned OpenMeld
 Tools maintenance preference as `maintenance.automaticUpdatesEnabled` plus a
 bounded `ready | needs_help` status. When an OpenMeld Tools update exists, the same
 object may include the Service-owned safe operation projection: opaque id,
-phase, request source, target version, urgency, and timestamps. Core passes
-the maintenance and operation projections through unchanged; it does not create
-another update state.
+phase, request source, target version, urgency, and timestamps. The operation
+shape remains unchanged. A fully-prefixed, allowlisted update failure code may
+travel through the existing CLI component `reasonCodes`; Core carries only the
+first recognized code when the associated operation is `restored` or
+`needs_help`. It drops the code when the operation is absent or non-terminal,
+and drops every other Service-provided diagnostic string. Web maps the surviving
+code to fixed user-safe copy under the same terminal-phase gate. Raw stderr and
+diagnostic error text remain local. Core does not create another update state.
 
 `local-components.ts`, `daemon/runtime-transport.ts`, and
 `http/local-runtimes.ts` also own the strict OpenMeld Tools control contract.

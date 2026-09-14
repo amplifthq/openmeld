@@ -6,9 +6,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const LIVE_SKILLS_BUNDLE_HASH = "b".repeat(64);
 const STALE_SKILLS_BUNDLE_HASH = "a".repeat(64);
+const resolveOpenMeldToolsUpdateOperationProjectionMock = vi.fn();
 
 describe("local components status", () => {
   beforeEach(() => {
+    resolveOpenMeldToolsUpdateOperationProjectionMock
+      .mockReset()
+      .mockResolvedValue(null);
     vi.doMock("../src/local-components/managed-install", () => ({
       readManagedCliInstallation: async () => null,
     }));
@@ -24,7 +28,8 @@ describe("local components status", () => {
     vi.doMock(
       "../src/local-service/maintenance/openmeld-tools-update-operation",
       () => ({
-        resolveOpenMeldToolsUpdateOperation: vi.fn(async () => null),
+        resolveOpenMeldToolsUpdateOperationProjection:
+          resolveOpenMeldToolsUpdateOperationProjectionMock,
       })
     );
   });
@@ -160,6 +165,28 @@ describe("local components status", () => {
       commandContractVersion: "new-cli-contract",
       status: "ok",
       reasonCodes: [],
+    });
+
+    resolveOpenMeldToolsUpdateOperationProjectionMock.mockResolvedValueOnce({
+      failureCode: "cli.update.download_stalled",
+      operation: {
+        operationId: "update-1",
+        phase: "needs_help",
+        requestSource: "web",
+        requestedAt: "2026-09-14T00:00:00.000Z",
+        targetVersion: "99.0.1",
+        updatedAt: "2026-09-14T00:01:00.000Z",
+        urgency: "available",
+      },
+    });
+    const failed = await resolveLocalComponentsStatus({
+      latestPackageVersion: "99.0.0",
+      requiredCommandContractVersion: "new-cli-contract",
+    });
+    expect(failed.cli.reasonCodes).toContain("cli.update.download_stalled");
+    expect(failed.updateOperation).toMatchObject({
+      operationId: "update-1",
+      phase: "needs_help",
     });
   });
 

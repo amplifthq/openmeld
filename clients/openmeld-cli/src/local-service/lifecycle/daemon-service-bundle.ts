@@ -49,6 +49,7 @@ import {
   resolveCliSelfVersion,
 } from "../../local-components/managed-install";
 import {
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
@@ -565,7 +566,7 @@ async function prepareSelectedBinaryDaemonServiceBundle(input: {
     release: input.release,
   });
   const bytes = await downloadCliBinaryUpdateArtifact({
-    downloadTimeoutMs: 60_000,
+    downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
     fetchImpl: fetch,
     onDeltaFallback,
     plan,

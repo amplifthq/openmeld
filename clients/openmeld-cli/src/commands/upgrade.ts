@@ -3,7 +3,10 @@ import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
-import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
+import type {
+  OpenMeldToolsUpdateFailureCode,
+  OpenMeldToolsUpdateOperation,
+} from "@openmeld/schemas/types";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import { hasIndependentMaintenanceRegistration } from "../config/daemon-service-update-worker-registration";
 import {
@@ -29,9 +32,15 @@ import { scheduleDaemonServiceUpdate } from "../local-service/lifecycle/daemon-s
 import { resolveVersionChangeDirection } from "../local-service/lifecycle/version-change-direction";
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import { createOpenMeldToolsUpdateCoordinator } from "../local-service/maintenance/openmeld-tools-update-coordinator";
+import {
+  OpenMeldToolsUpdateFailureError,
+  withOpenMeldToolsUpdateFailure,
+} from "../local-service/maintenance/openmeld-tools-update-failure";
 import { resolveExternalOpenMeldToolsUpdate } from "../local-service/maintenance/openmeld-tools-update-join";
+import { parseOpenMeldToolsUpdateFailureFrame } from "../local-service/maintenance/openmeld-tools-update-process-frame";
 import {
   type CliBinaryUpdatePlan,
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
@@ -64,7 +73,6 @@ import { formatElapsedTime, resolveElapsedTimeMs } from "../ui/elapsed-time";
 import { emitTopLevelAgentOverview } from "./top-level-agent-overview";
 
 const OPENMELD_PACKAGE_NAME = "openmeld";
-const CLI_BINARY_DOWNLOAD_TIMEOUT_MS = 60_000;
 const BINARY_MANUAL_OPENMELD_UPGRADE_COMMAND =
   "curl -fsSL 'https://openmeld.ai/setup?dist=binary' | sh";
 const STAGING_BINARY_MANIFEST_URL =
@@ -88,13 +96,19 @@ class UpgradeOutputHandledError extends Error {
 export function isUpgradeOutputHandledError(
   error: unknown
 ): error is UpgradeOutputHandledError {
-  return (
-    error instanceof UpgradeOutputHandledError ||
-    (typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as { code?: unknown }).code === "openmeld.upgrade.output_handled")
-  );
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    if (
+      current instanceof UpgradeOutputHandledError ||
+      (current as { code?: unknown }).code === "openmeld.upgrade.output_handled"
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 type UpgradeDistribution = "npm" | "binary";
@@ -326,13 +340,20 @@ async function alignServiceWithCurrentCli(input: {
   presenter: ReturnType<typeof createPresenter>;
   resolvedView: "human" | "agent";
 }): Promise<void> {
-  await runInternalUpgradeServiceAlignment({
-    ...input,
-    daemonVersion: await resolveCurrentDaemonExpectedVersion(),
-    ...(process.argv[1] && !isBinaryDistribution()
-      ? { cliScriptPath: process.argv[1] }
-      : {}),
-  });
+  try {
+    await runInternalUpgradeServiceAlignment({
+      ...input,
+      daemonVersion: await resolveCurrentDaemonExpectedVersion(),
+      ...(process.argv[1] && !isBinaryDistribution()
+        ? { cliScriptPath: process.argv[1] }
+        : {}),
+    });
+  } catch (error) {
+    throw withOpenMeldToolsUpdateFailure(
+      error,
+      "cli.update.service_alignment_failed"
+    );
+  }
 }
 
 async function requestMaintainedUpgrade(input: {
@@ -523,6 +544,7 @@ async function installAndReconcileBinaryUpgrade(input: {
       distribution: input.upgradeStatus.distribution,
       preferredTransport: updatePlan.transport,
     },
+    failureCode: "cli.update.install_failed",
     run: async () =>
       await installLatestCliBinary({
         release: binaryRelease,
@@ -547,6 +569,7 @@ async function installAndReconcileBinaryUpgrade(input: {
     code: "upgrade.service_alignment",
     startedText: SERVICE_CHECK_STARTED_TEXT,
     completedText: SERVICE_CHECK_COMPLETED_TEXT,
+    failureCode: "cli.update.service_alignment_failed",
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
@@ -588,6 +611,7 @@ async function installAndReconcileNpmUpgrade(input: {
       command: input.manualUpgradeCommand,
       distribution: input.upgradeStatus.distribution,
     },
+    failureCode: "cli.update.install_failed",
     run: async () =>
       await installLatestPackage({
         npmCommandSpec,
@@ -613,6 +637,7 @@ async function installAndReconcileNpmUpgrade(input: {
     code: "upgrade.service_alignment",
     startedText: SERVICE_CHECK_STARTED_TEXT,
     completedText: SERVICE_CHECK_COMPLETED_TEXT,
+    failureCode: "cli.update.service_alignment_failed",
     run: async () =>
       await handoffUpgradeServiceAlignmentToLatestBinary({
         resolvedView: input.resolvedView,
@@ -850,7 +875,7 @@ async function installLatestCliBinary(input: {
   const tmpDir = await mkdtemp(join(tmpdir(), "openmeld-cli-upgrade-"));
   try {
     const artifactBytes = await downloadCliBinaryUpdateArtifact({
-      downloadTimeoutMs: CLI_BINARY_DOWNLOAD_TIMEOUT_MS,
+      downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
       fetchImpl: fetch,
       onDeltaFallback: (error) => {
         process.stderr.write(
@@ -1102,6 +1127,15 @@ async function handoffUpgradeServiceAlignmentToLatestBinary(input: {
     useInheritedOutput
   );
   if (handoffResult.code !== 0) {
+    const processFailure = parseOpenMeldToolsUpdateFailureFrame(
+      handoffResult.stdout
+    );
+    if (processFailure) {
+      throw new OpenMeldToolsUpdateFailureError({
+        failureCode: processFailure.failureCode,
+        message: processFailure.detail,
+      });
+    }
     if (useInheritedOutput) {
       throw new Error(
         formatUpgradeReconcileFailureMessage({
@@ -1462,6 +1496,7 @@ async function runUpgradeStage<T>(input: {
   startedText: string;
   completedText: string;
   failedText?: string;
+  failureCode?: OpenMeldToolsUpdateFailureCode;
   data?: Record<string, unknown>;
   run: () => Promise<T>;
 }): Promise<T> {
@@ -1472,7 +1507,9 @@ async function runUpgradeStage<T>(input: {
     return result;
   } catch (error) {
     stage.fail(input.failedText ?? `${input.startedText} failed.`);
-    throw error;
+    throw input.failureCode
+      ? withOpenMeldToolsUpdateFailure(error, input.failureCode)
+      : error;
   }
 }
 

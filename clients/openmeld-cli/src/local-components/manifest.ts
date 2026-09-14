@@ -30,7 +30,7 @@ import {
   inspectDaemonServiceInventory,
 } from "../local-service/lifecycle/daemon-service-inventory";
 import { resolveOpenMeldToolsMaintenanceProjection } from "../local-service/maintenance/openmeld-tools-maintenance-policy";
-import { resolveOpenMeldToolsUpdateOperation } from "../local-service/maintenance/openmeld-tools-update-operation";
+import { resolveOpenMeldToolsUpdateOperationProjection } from "../local-service/maintenance/openmeld-tools-update-operation";
 import { resolveDaemonServiceParticipationStatus } from "../local-service/status/service-participation-status";
 import { isBinaryDistribution } from "../runtime/distribution";
 import { OPENMELD_VERSION } from "../runtime/version";
@@ -159,15 +159,23 @@ export async function writeInstalledLocalComponentsSnapshot(input: {
 export async function resolveLocalComponentsStatus(
   input: CliUpdateInput = {}
 ): Promise<LocalComponentsStatus> {
-  const [expectedManifest, service, skills, maintenance, updateOperation] =
+  const [expectedManifest, service, skills, maintenance, updateProjection] =
     await Promise.all([
       buildExpectedLocalComponentsManifest(),
       resolveServiceComponentState(),
       resolveSkillsComponentState(),
       resolveOpenMeldToolsMaintenanceProjection(),
-      resolveOpenMeldToolsUpdateOperation(),
+      resolveOpenMeldToolsUpdateOperationProjection(),
     ]);
-  const cli = await resolveCliComponentStatus(input);
+  const resolvedCli = await resolveCliComponentStatus(input);
+  const cli = updateProjection?.failureCode
+    ? {
+        ...resolvedCli,
+        reasonCodes: Array.from(
+          new Set([...resolvedCli.reasonCodes, updateProjection.failureCode])
+        ),
+      }
+    : resolvedCli;
   const selectedSkill = await loadSelectedSkillAssets();
   const setupAction = resolveLocalComponentsSetupAction({
     cliStatus: cli.status,
@@ -192,7 +200,9 @@ export async function resolveLocalComponentsStatus(
     setupActionLabel: formatLocalSetupActionLabel(setupAction),
     setupActionDescription: formatLocalSetupActionDescription(setupAction),
     maintenance,
-    ...(updateOperation ? { updateOperation } : {}),
+    ...(updateProjection
+      ? { updateOperation: updateProjection.operation }
+      : {}),
     cli,
     service: {
       expectedBundleHash: expectedManifest.service.bundleHash,

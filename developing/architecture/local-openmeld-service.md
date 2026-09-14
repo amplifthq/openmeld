@@ -2154,10 +2154,16 @@ override or second update/setup state machine is involved.
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
 the opaque operation id, request source, target version, urgency, and
-timestamps. The Service includes this projection in its normal local-component
-capability report; Core, Web, CLI, and Center Agent must read that projection
-instead of inferring progress from connectivity, component versions, or their
-own request lifetime. Local paths, commands, and raw error text remain local.
+timestamps. The operation shape does not carry failure detail. A stable,
+fully-prefixed update failure code may instead appear in the existing CLI
+component `reasonCodes`. Core projects only the first recognized allowlisted
+code when the operation is in `restored` or `needs_help`; it drops the code when
+the operation is absent or non-terminal. Web maps the surviving code to fixed
+user-safe copy under that same terminal-phase gate. The Service includes these
+projections in its normal local-component capability report; Core, Web, CLI,
+and Center Agent must read them instead of inferring progress from connectivity,
+component versions, or their own request lifetime. Local paths, commands,
+stderr, unrecognized reason strings, and raw error text remain local.
 Completed operation phases remain visible for at most 24 hours. Core must omit
 an older `updated` phase when current component evidence already shows another
 actionable update. A completed historical operation must never contradict the

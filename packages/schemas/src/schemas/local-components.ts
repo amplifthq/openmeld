@@ -40,6 +40,27 @@ export const openMeldToolsUpdateRequestSourceSchema = z.enum([
   "web",
 ]);
 
+export const OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS = 2048 as const;
+
+export const openMeldToolsUpdateFailureCodeSchema = z.enum([
+  "cli.update.download_stalled",
+  "cli.update.download_timed_out",
+  "cli.update.download_failed",
+  "cli.update.integrity_check_failed",
+  "cli.update.install_failed",
+  "cli.update.service_alignment_failed",
+  "cli.update.failed",
+]);
+
+export const openMeldToolsUpdateProcessFailureFrameSchema = z.strictObject({
+  detail: nonEmptyStringSchema.max(
+    OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS
+  ),
+  failureCode: openMeldToolsUpdateFailureCodeSchema,
+  schema: z.literal("openmeld-tools-update-process-failure-v1"),
+  v: z.literal(1),
+});
+
 export const openMeldToolsUpdateOperationSchema = z.strictObject({
   operationId: nonEmptyStringSchema,
   phase: openMeldToolsUpdateOperationPhaseSchema,
@@ -309,6 +330,43 @@ export function formatLocalSetupActionLabel(
       return exhaustive;
     }
   }
+}
+
+export function formatOpenMeldToolsUpdateFailureMessage(
+  code: zod.infer<typeof openMeldToolsUpdateFailureCodeSchema>
+): string {
+  switch (code) {
+    case "cli.update.download_stalled":
+      return "The update download stopped making progress. Check this computer's connection and try again.";
+    case "cli.update.download_timed_out":
+      return "The update download exceeded its recovery time. Check this computer's connection and try again.";
+    case "cli.update.download_failed":
+      return "The update could not be downloaded. Check this computer's connection and try again.";
+    case "cli.update.integrity_check_failed":
+      return "The downloaded update did not pass integrity checks, so it was not installed.";
+    case "cli.update.install_failed":
+      return "The update was downloaded but could not be installed.";
+    case "cli.update.service_alignment_failed":
+      return "OpenMeld CLI is ready, but OpenMeld Service could not finish updating.";
+    case "cli.update.failed":
+      return "The update could not be completed. Try again or update manually.";
+    default: {
+      const exhaustive: never = code;
+      return exhaustive;
+    }
+  }
+}
+
+export function findOpenMeldToolsUpdateFailureCode(
+  reasonCodes: readonly string[]
+): zod.infer<typeof openMeldToolsUpdateFailureCodeSchema> | null {
+  for (const reasonCode of reasonCodes) {
+    const parsed = openMeldToolsUpdateFailureCodeSchema.safeParse(reasonCode);
+    if (parsed.success) {
+      return parsed.data;
+    }
+  }
+  return null;
 }
 
 export function formatLocalComponentsSummaryLabel(input: {

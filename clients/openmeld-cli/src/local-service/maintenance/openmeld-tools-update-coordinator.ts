@@ -33,6 +33,11 @@ import {
 } from "./openmeld-tools-update-attempt-state";
 import type { OpenMeldToolsUpdateContext } from "./openmeld-tools-update-context";
 import {
+  encodePersistedOpenMeldToolsUpdateFailure,
+  OpenMeldToolsUpdateFailureError,
+  resolveOpenMeldToolsUpdateFailure,
+} from "./openmeld-tools-update-failure";
+import {
   type OpenMeldToolsUpgradeProcessResult,
   resolveMaintenanceCliInstallation,
   runOpenMeldToolsUpgradeProcess,
@@ -236,9 +241,11 @@ async function runAttempt(
       requestSource: running.operation.requestSource,
     });
     if (result.exitCode !== 0) {
-      throw new Error(
-        `OpenMeld update process exited with status ${String(result.exitCode)}.`
-      );
+      const fallbackMessage = `OpenMeld update process exited with status ${String(result.exitCode)}.`;
+      throw new OpenMeldToolsUpdateFailureError({
+        failureCode: result.processFailure?.failureCode ?? "cli.update.failed",
+        message: result.processFailure?.detail ?? fallbackMessage,
+      });
     }
     const serviceJob = await deps.readPendingServiceJob();
     if (serviceJob) {
@@ -255,9 +262,14 @@ async function runAttempt(
       },
     });
   } catch (error) {
+    const failureCode =
+      resolveOpenMeldToolsUpdateFailure(error) ?? "cli.update.failed";
     await deps.completeAttempt({
       ...running,
-      errorMessage: toErrorMessage(error),
+      errorMessage: encodePersistedOpenMeldToolsUpdateFailure({
+        detail: toErrorMessage(error),
+        failureCode,
+      }),
       operation: {
         ...running.operation,
         phase: "needs_help",

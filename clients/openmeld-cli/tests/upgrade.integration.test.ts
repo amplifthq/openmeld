@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
 import {
+  isUpgradeOutputHandledError,
   runUpgrade,
   UPGRADE_INTERNAL_ALIGN_SERVICE_FLAG,
 } from "../src/commands/upgrade";
@@ -12,6 +13,7 @@ import {
   readVersionState,
   resetVersionCheckCacheForTests,
 } from "../src/config/version-state";
+import { resolveOpenMeldToolsUpdateFailure } from "../src/local-service/maintenance/openmeld-tools-update-failure";
 import { MANUAL_OPENMELD_UPGRADE_COMMAND } from "../src/runtime/manual-upgrade";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { seedVersionState } from "./helpers/version";
@@ -234,6 +236,36 @@ describe("openmeld upgrade", () => {
         expect.objectContaining({ targetVersion: packageJson.version })
       );
       expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+    });
+  });
+
+  it("classifies a current-CLI alignment failure without losing handled output", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ version: packageJson.version }), {
+          status: 200,
+        })
+      );
+      resolveDaemonServiceAlignmentDecisionMock.mockReturnValue({
+        status: "blocked",
+        reasonCodes: ["duplicate_ownership_uncertain"],
+      });
+      let thrown: unknown;
+
+      const { stdout } = await withCapturedStdio(async () => {
+        try {
+          await runUpgrade({ view: "agent", yes: true });
+        } catch (error) {
+          thrown = error;
+        }
+      });
+
+      expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
+        "cli.update.service_alignment_failed"
+      );
+      expect(isUpgradeOutputHandledError(thrown)).toBe(true);
+      expect(stdout).toContain('"code":"upgrade.reconcile.failed"');
     });
   });
 
