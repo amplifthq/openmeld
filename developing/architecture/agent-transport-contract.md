@@ -1626,8 +1626,11 @@ restart, or tail expiry loses this optional replay; subsequent producer output
 is still needed in those cases. Replay is presentation only and cannot advance
 execution state. Web may fill a missing transient tail behind a newer presence
 cursor, but must not overwrite a received tail or disabled state.
-Web renders plain text in a bounded transient viewport, respecting manual
-scrolling and reduced motion. Neither private final replies nor tool inputs and
+Web renders lightweight sanitized Markdown in a bounded transient viewport,
+reusing the message renderer without raw HTML, images, code highlighting,
+code controls, or per-token animation. The first tail opens automatically;
+tool/reasoning phase changes preserve the user's disclosure choice and manual
+scroll position. Collapsed tails do not mount the Markdown renderer. Neither private final replies nor tool inputs and
 outputs are added to this stream.
 
 The Space part RPC must finish before the matching result may retire execution
