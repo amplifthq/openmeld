@@ -20,7 +20,13 @@ import {
 
 const execFileAsync = promisify(execFile);
 const DISPATCH_SERVER = "openmeld_internal_dispatch_space_action";
-const TOOL_NAMES = ["reply", "stay_silent", "read_file", "status"];
+const TOOL_NAMES = [
+  "reply",
+  "stay_silent",
+  "read_file",
+  "read_history",
+  "status",
+];
 const ISOLATION_ERROR = /context\.mcp_isolation_unverified/;
 const NAMESPACE_CONFLICT_ERROR =
   /execution_context\.mcp_server_namespace_conflict/;
