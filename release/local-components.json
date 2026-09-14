@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T08:19:07.938Z",
+  "updatedAt": "2026-09-14T08:41:32.008Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
       "packageVersion": "0.3.204",
       "updatePolicy": "available",
-      "reason": "Adds an opt-in connection review probe and reviewed setup intent; existing CLI commands and cloud contracts remain compatible."
+      "reason": "Adds opt-in connection review and setup intent while preserving existing CLI and cloud contracts."
     },
     "service": {
       "bundleHash": "4eeda241394c1c56904320ce7e48ffae194c8bfb3ec6cd33928374338f5dbd97",
@@ -14,7 +14,7 @@
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Reuses existing Prepare and atomic account transition with no Service protocol or runtime floor change."
+      "reason": "Reuses Prepare and atomic account transition without changing the Service protocol or required floor."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
