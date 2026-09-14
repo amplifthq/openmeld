@@ -400,7 +400,7 @@ describe("AppOuterRail", () => {
 			const link = screen.getByRole("link", { name: label });
 			expect(link.textContent).toContain(label);
 		}
-		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
 	});
 
 	it("hides Desk from primary navigation", () => {
@@ -476,18 +476,6 @@ describe("AppOuterRail", () => {
 		expect(peopleLink.getAttribute("href")).toBe("/o/acme/people");
 	});
 
-	it("offers Agent and Space creation in the current organization", async () => {
-		renderRail();
-		fireEvent.click(screen.getByRole("button", { name: "Create" }));
-		const newAgentLink = await screen.findByRole("menuitem", {
-			name: "New Agent",
-		});
-		expect(newAgentLink.getAttribute("href")).toBe("/o/acme/new-agent");
-		expect(
-			screen.getByRole("menuitem", { name: "New Space" }).getAttribute("href")
-		).toBe("/o/acme/new-space");
-	});
-
 	it("opens the canonical Spaces home", () => {
 		appShellSection = "settings";
 		routerLocation = { pathname: "/o/acme/settings", searchStr: "" };
@@ -557,7 +545,7 @@ describe("AppOuterRail", () => {
 			width: "13.75rem",
 		});
 
-		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Create" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Desk" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
