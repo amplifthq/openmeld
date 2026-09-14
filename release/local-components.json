@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-13T15:17:24.471Z",
+  "updatedAt": "2026-09-14T08:19:07.938Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.203",
+      "packageVersion": "0.3.204",
       "updatePolicy": "available",
-      "reason": "Conversation-independent CLI repair selection and hosted Profile diagnostics remain compatible with existing cloud and Service contracts; setup, Wake and Space actions are unchanged."
+      "reason": "Adds an opt-in connection review probe and reviewed setup intent; existing CLI commands and cloud contracts remain compatible."
     },
     "service": {
-      "bundleHash": "b9dbd1082b6cad1487184a6a6e5a8911e886474caca50edcecac68a4f189f652",
-      "bundleVersion": "0.3.203",
+      "bundleHash": "4eeda241394c1c56904320ce7e48ffae194c8bfb3ec6cd33928374338f5dbd97",
+      "bundleVersion": "0.3.204",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services can safely continue Wake execution with old and new cloud code; artifact integrity and update ownership improve without changing Runtime Transport or execution authority."
+      "reason": "Reuses existing Prepare and atomic account transition with no Service protocol or runtime floor change."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
