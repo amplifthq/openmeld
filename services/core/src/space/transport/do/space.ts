@@ -478,7 +478,10 @@ import { buildSpaceFileAuditEvent } from "../../application/space-file-audit";
 import { hashSpaceFileStream } from "../../application/space-file-stream";
 import { SpaceFileUploads } from "../../application/space-file-uploads";
 import { prepareSpaceInboxCandidateForCenterAgent } from "../../application/space-inbox-center-agent-candidate";
-import { buildSpaceInboxProjectionOutboxRecord } from "../../application/space-inbox-projection";
+import {
+  buildSpaceInboxProjectionOutboxRecord,
+  buildSpaceReactionInboxProjectionOutboxRecord,
+} from "../../application/space-inbox-projection";
 import {
   attemptSpaceInboxProjectionOutboxRecord,
   resolveSpaceInboxRecipientEligibility,
@@ -8004,7 +8007,7 @@ export class Space extends DurableObject<CoreBindings> {
             "This message has reached its limit of 30 different reactions. Choose an existing reaction.",
         });
       }
-      return setSpaceReaction(this.ctx.storage.sql, {
+      const changed = setSpaceReaction(this.ctx.storage.sql, {
         signalId: input.signalId,
         ...emoji,
         active: input.active,
@@ -8014,8 +8017,47 @@ export class Space extends DurableObject<CoreBindings> {
           profileKind: "human",
         },
       });
+      if (changed && input.active) {
+        const signal = this.requireReactionMessage(input.signalId);
+        const meta = readSpaceMetaRecordFromSql(
+          this.ctx.storage.sql,
+          this.spaceId
+        );
+        if (!meta) {
+          throw new Error(
+            "Space metadata is required for reaction Inbox projection"
+          );
+        }
+        const placement = readSpaceThreadSignalPlacementBySignalId(
+          this.ctx.storage.sql,
+          signal.id
+        );
+        const thread =
+          placement?.placement === "thread"
+            ? readSpaceThread(this.ctx.storage.sql, placement.threadId)
+            : null;
+        const record = buildSpaceReactionInboxProjectionOutboxRecord({
+          actor: member,
+          author: readSpaceMemberRecord(
+            this.ctx.storage.sql,
+            signal.profile.profileId
+          ),
+          emoji: emoji.emoji,
+          nowMs: Date.now(),
+          organizationId: meta.organizationId,
+          signal,
+          spaceName: meta.name ?? null,
+          threadRootSignalId: thread?.rootSignalId,
+          version: existing.version + 1,
+        });
+        if (record) {
+          insertSpaceInboxProjectionOutboxRecord(this.ctx.storage.sql, record);
+        }
+      }
+      return changed;
     });
     if (changed) {
+      await this.syncSpaceBackgroundAlarm();
       this.broadcast({
         type: "space.reactions.changed",
         spaceId: this.spaceId,
@@ -8033,7 +8075,9 @@ export class Space extends DurableObject<CoreBindings> {
     };
   }
 
-  private requireReactionMessage(signalId: string): void {
+  private requireReactionMessage(
+    signalId: string
+  ): Extract<SignalEnvelope, { type: "signal.text" }> {
     const signal = this.readSignalById(signalId);
     if (
       !signal ||
@@ -8047,6 +8091,7 @@ export class Space extends DurableObject<CoreBindings> {
         reason: "This message is no longer available.",
       });
     }
+    return signal;
   }
 
   async rpcGetMessageLinks(
@@ -16179,6 +16224,12 @@ export class Space extends DurableObject<CoreBindings> {
       signal: input.signal,
       signalContext: input.signalContext,
       spaceName: metaRecord.name ?? null,
+      threadParticipantProfileIds: input.signalContext?.threadContext
+        ? readThreadParticipants(
+            this.ctx.storage.sql,
+            input.signalContext.threadContext.threadId
+          ).map((participant) => participant.profileId)
+        : undefined,
       threadRootAuthorUserId: this.resolveSpaceInboxThreadRootAuthorUserId({
         activeMemberRecords,
         signalContext: input.signalContext,

@@ -1011,9 +1011,11 @@ message action bar opens a compact set of common emoji and an optional full
 picker. Existing reactions show counts and the viewer's selected state. Members
 can inspect who reacted, including a paginated complete list when needed.
 
-Reactions are quiet feedback. They do not create messages, unread activity, Wakes,
-task completion, or execution approval. Removing the last reaction removes its
-chip. Failed changes restore the confirmed state and offer a retry.
+Reactions to Human messages create ordinary unread Inbox updates for the author,
+except self-reactions, in both the main conversation and threads. They do not
+create messages, Wakes, task completion, or execution approval. Removing the last
+reaction removes its chip. Failed changes restore the confirmed state and offer
+a retry. The Inbox owner document defines recipient and delivery semantics.
 
 Authorized Human and Agent message reads include the current reaction state,
 participant identities, and explicit preview truncation. This applies to Local,

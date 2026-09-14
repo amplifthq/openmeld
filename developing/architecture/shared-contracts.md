@@ -5364,8 +5364,16 @@ An actor preview must never be represented as the complete list when truncated.
 
 Only a changed mutation emits `space.reactions.changed` with affected
 `signalIds`. Clients invalidate reaction reads without creating a timeline
-signal or refreshing unread/Wake status; reconnect also refreshes mounted
-reaction reads. Revision checks prevent older responses replacing newer state.
+signal or refreshing Wake status; reconnect also refreshes mounted reaction
+reads. Revision checks prevent older responses replacing newer state.
+
+A changed addition stores its Inbox projection intent in the same SQLite
+transaction as the reaction and revision. The existing Space Inbox outbox owns
+retries and current-recipient access checks. The source remains `space_signal`
+with `reaction:<signalId>:<version>` as its event key and the actual message as
+its navigation target. Reaction time, rather than the original message time,
+governs unread activity. This uses existing public Inbox and reaction payloads;
+older clients can read and acknowledge the ordinary update without an upgrade.
 
 Shared message projections, CLI history, Center context manifests, and Remote
 Agent continuity preserve reaction metadata. Materialized-context hashes include

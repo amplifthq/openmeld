@@ -196,6 +196,19 @@ or tombstone.
 
 The first release creates items for these explicit user-visible events:
 
+Thread reply updates are scoped to current members who authored the root or a
+retained reply, including the current owners of participating personal Agents.
+Space membership, viewing a thread, and owning a nonparticipating Agent do not
+subscribe a person. This audience restriction also applies to explicit mentions
+inside thread replies; main-timeline addressing keeps its existing audience.
+
+A changed reaction addition to a Human member's message creates one ordinary
+unread update for that message's current Human owner, excluding self-reactions.
+This applies to main messages and thread replies independently of participation.
+The item links to the reacted message, uses the reaction time, and follows normal
+Inbox notification preferences. Removal does not create another notification;
+adding it again creates a new event. Existing delivered items remain history.
+
 1. A visible Space message, including a Human member's own messages published
    through CLI or automation without an explicit author read confirmation,
    with a targeted reply or
