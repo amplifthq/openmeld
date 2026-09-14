@@ -337,7 +337,9 @@ OpenClaw is excluded.
 
 The existing working title, elapsed time, and Stop control remain available.
 A bounded Thinking + Reasoning viewport below them opens for live output and
-lets the reader pause following by scrolling up. Disabled streaming is explicitly
+lets the reader pause following by scrolling up. It collapses when the stream
+transitions to text or tool work, and opens when reasoning resumes. Center Agent
+and Remote Agent streams use the same component and interaction. Disabled streaming is explicitly
 attributed to the Agent owner; an unsupported connection is distinguished from
 waiting for a provider that has not emitted reasoning. Absence of reasoning is
 never evidence that a running Agent is stuck.

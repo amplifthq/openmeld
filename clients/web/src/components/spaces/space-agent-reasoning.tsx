@@ -10,7 +10,9 @@ export function SpaceAgentReasoning({ item }: { item: SpaceTimelineItem }) {
 		return (
 			<ThinkingReasoning
 				firstOutputMs={stream.reasoningState?.firstOutputMs}
-				streaming={stream.status === "streaming"}
+				streaming={
+					stream.status === "streaming" && stream.thinkingActive !== false
+				}
 				text={stream.thinking}
 			/>
 		);

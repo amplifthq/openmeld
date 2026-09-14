@@ -31,6 +31,7 @@ export type SpaceConversationVisibleStreamProjection =
 			text: string;
 			textSequence: number;
 			thinking?: string;
+			thinkingActive?: boolean;
 			reasoningState?: LocalAgentReasoningState;
 	  })
 	| (SpaceConversationStreamCommon & {
@@ -271,6 +272,7 @@ export function clearSpaceConversationTransientStreams(
 		}
 		const {
 			thinking: _thinking,
+			thinkingActive: _thinkingActive,
 			reasoningState: _reasoningState,
 			toolParts: _toolParts,
 			...persistent
@@ -311,7 +313,9 @@ function toStreamingProjection(input: {
 			input.frame.kind === "thinking"
 				? (currentStreamingProjection?.textSequence ?? 0)
 				: input.frame.sequence,
-		...(thinking ? { thinking } : {}),
+		...(thinking
+			? { thinking, thinkingActive: input.frame.kind === "thinking" }
+			: {}),
 		...((
 			input.frame.kind === "thinking"
 				? input.frame.reasoningState
@@ -385,7 +389,7 @@ function toStreamingPartProjection(input: {
 				: 0,
 		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.thinking
-			? { thinking: input.currentProjection.thinking }
+			? { thinking: input.currentProjection.thinking, thinkingActive: false }
 			: {}),
 		toolParts: boundedToolParts,
 		triggerMessageId: input.frame.triggerMessageId,

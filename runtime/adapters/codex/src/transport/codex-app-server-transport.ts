@@ -318,6 +318,9 @@ export async function invokeCodexAppServerTransport(input: {
   }
 
   const invokedAtMs = Date.now();
+  const reasoningSummary = input.onRuntimeEvent
+    ? { summary: "auto" as const }
+    : {};
   const permissionModeParams = resolveCodexAppServerPermissionModeParams(
     input.agentControllerPermissionMode,
     input.executionMode,
@@ -378,6 +381,7 @@ export async function invokeCodexAppServerTransport(input: {
           ...(collaborationMode ? { collaborationMode } : {}),
           cwd: input.codexWorkdir,
           ...conversationPolicyParams,
+          ...reasoningSummary,
           input: [
             {
               text: turnPrompt,

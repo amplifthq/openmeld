@@ -1670,8 +1670,11 @@ final-outcome authority.
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
 typed stream callback. Text WebSocket frames keep their legacy shape. Web also
-ignores any legacy thinking frame so a stale producer cannot expose private
-reasoning. Rollback removes the Remote Agent producer before Core or Web
+renders provider-emitted thinking in the same transient Thinking + Reasoning
+component used for Local Agents. Center Agent and Remote Agent conversations
+share its bounded viewport, manual scroll control, and reduced-motion behavior.
+Thinking keeps a bounded latest tail during long turns and never enters persisted
+stream state or final message metadata. Rollback removes the Remote Agent producer before Core or Web
 consumers.
 
 Workstation Local Agents may use the same downstream Space tool-part and

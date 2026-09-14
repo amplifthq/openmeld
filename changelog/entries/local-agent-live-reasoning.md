@@ -1,13 +1,13 @@
 ---
 id: local-agent-live-reasoning
-title: See local Agent reasoning as it happens
+title: See Agent reasoning as it happens
 kind: new
 areas: ["spaces", "local-agents", "privacy"]
 audiences: ["members"]
 ---
 
-Local Agents can show thinking and reasoning in their working message while a
-task runs, with a compact scrolling view beside the existing elapsed time and
-Stop control. Streaming is enabled by default and can be turned off by the
-Agent owner in Privacy & Safety. OpenMeld does not save the live text or stream
-the Agent's private final answer.
+Local Agents, the Center Agent, and Remote Agents show thinking and reasoning
+with the same compact scrolling view while a task runs. Existing elapsed time
+and Stop controls remain available. Local Agent streaming is enabled by default
+and can be turned off by the Agent owner in Privacy & Safety. OpenMeld does not
+save the live reasoning or stream a Local Agent's private final answer.
