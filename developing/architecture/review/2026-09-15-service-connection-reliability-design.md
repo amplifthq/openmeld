@@ -49,17 +49,35 @@ Implementation checkpoints:
   at nine minutes and 31 seconds, then passed with the original execution.
   Twenty-six focused recovery/Stop/replacement cases, six isolated journal
   cases, and two component-observation cases passed. Diagnostic upload also
-  retries promptly after a subsequent reconnection. Packaged validation,
-  Staging, release and production smoke remain pending.
+  retries promptly after a subsequent reconnection.
 - The guarded Staging deployment from `36ab6395b` applied the additive migration
   and deployed the compatible cloud receivers; public health checks passed.
-  Signed artifact publication and real connection/Wake acceptance are still
-  required. Subsequent scheduler and Trace changes only correct test fixtures.
+  Subsequent scheduler and Trace changes only correct test fixtures.
   The Core boundary batch passed 1,537 cases; its three scheduler failures
   exposed the missing retention mock, corrected with ten focused cases passing.
   The CLI push batch passed 1,622 cases; its remaining Trace URL expectation
   was corrected, with all three focused Trace cases passing. The pre-push gate
   must complete before these commits become the remote candidate.
+- The signed Staging package passed public archive/binary integrity and signature
+  verification. The existing Canary updated through its normal maintenance owner
+  while preserving its device identity. A separate foreground fixture retained
+  its running Wake and heartbeats through an Organization switch and 75 seconds
+  of inaccessible credential storage. After a nine-minute carrier pause, the
+  original execution published exactly one reply and its connection incident
+  appeared in owner-scoped Trace. A Stop requested during a separate carrier
+  pause completed after resumption. These process-pause checks do not establish
+  the cause of Monica's network interruption.
+- Real Staging recovery exposed another transient-cache dependency: tool progress
+  was rejected after the cloud object lost its pending transport entry. A cold
+  transport reproduction failed before correction. Progress now reads the
+  existing durable command, retaining token/lease/source/current-socket checks;
+  evidence recording uses the same projection instead of rereading lost memory.
+  Forty-two focused progress, Stop and recovery cases pass, including cold-state
+  rejection of missing credentials, foreign source messages and replaced
+  connections. The release planner also recognizes this receiver contract and
+  preserves the current stable CLI projection during staged Core delivery;
+  all 77 release-planning cases pass. Final cloud Staging acceptance, push gate,
+  exact Final Candidate, release and production smoke remain required.
 
 ## Evidence and limits
 

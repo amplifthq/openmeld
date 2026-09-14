@@ -472,6 +472,12 @@ Important execution rules:
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
   reconciliation take precedence. Window expiry retains `runtime.progress_stale`
   and the existing owner-mediated late-result recovery, never automatic rerun.
+- After transport hibernation, accepted runtime evidence and tool/reasoning
+  progress read the durable command when its transient transport entry is gone.
+  This read projection does not recreate execution authority. Lease, source
+  message, execution identity, token and owned-reconnection checks still apply.
+  Tool/reasoning publication additionally requires the current session socket
+  and connection generation. Missing durable command state remains an explicit rejection.
 - Watchdog scheduling is a bounded Durable Object projection of command and token
   authority. Command writes and terminal transitions update it transactionally.
   Existing history is repaired in pages with a durable cursor, without deleting

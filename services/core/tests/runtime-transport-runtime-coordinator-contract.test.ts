@@ -13338,7 +13338,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).toBe(true);
   });
 
-  it("rejects runtime evidence that omits the execution token before writing evidence", async () => {
+  it.each([
+    false,
+    true,
+  ])("rejects runtime evidence that omits the execution token before writing evidence (lost transient state: %s)", async (lostTransientState) => {
     const { hub, recordingD1, sentFrames, socket, state } = createHarness();
     await issueDeliveryToken({
       hub,
@@ -13346,6 +13349,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       state,
     });
+    if (lostTransientState) {
+      state.pendingDispatches.clear();
+    }
     recordingD1.calls.length = 0;
     sentFrames.length = 0;
 
@@ -13376,6 +13382,40 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
     expect(eventTypes).toContain("execution_token_validation_failed");
     expect(eventTypes).not.toContain("runtime_evidence_observed");
+  });
+
+  it("accepts authority-bound runtime evidence after losing transient transport state", async () => {
+    const { hub, recordingD1, sentFrames, socket, state } = createHarness();
+    const executionToken = await issueDeliveryToken({
+      hub,
+      sentFrames,
+      socket,
+      state,
+    });
+    state.pendingDispatches.clear();
+    recordingD1.calls.length = 0;
+    sentFrames.length = 0;
+    await (
+      hub as unknown as {
+        handleDispatchRuntimeEvidenceFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchRuntimeEvidenceFrame(
+      socket,
+      buildRuntimeEvidenceRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
+    expect(sentFrames).toEqual([]);
+    expect(
+      getRuntimeCoordinatorEventCalls(recordingD1.calls).map(
+        (call) => call.params[2]
+      )
+    ).toContain("runtime_evidence_observed");
+    expect(state.pendingDispatches.size).toBe(0);
   });
 
   it("applies authority-bound Local Agent tool activity to the shared Space stream", async () => {
@@ -14569,9 +14609,15 @@ describe("runtime transport runtime coordinator transport contract", () => {
     });
   });
 
-  it("rejects Local Agent tool activity without an execution token", async () => {
+  it.each([
+    false,
+    true,
+  ])("rejects Local Agent tool activity without an execution token (lost transient state: %s)", async (lostTransientState) => {
     const { hub, sentFrames, socket, spaceStub, state } = createHarness();
     await issueDeliveryToken({ hub, sentFrames, socket, state });
+    if (lostTransientState) {
+      state.pendingDispatches.clear();
+    }
     sentFrames.length = 0;
 
     const request = buildToolActivityRequest();
@@ -14598,7 +14644,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("rejects Local Agent tool activity that targets another source message", async () => {
+  it.each([
+    false,
+    true,
+  ])("rejects Local Agent tool activity that targets another source message (lost transient state: %s)", async (lostTransientState) => {
     const { hub, sentFrames, socket, spaceStub, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -14606,6 +14655,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
       socket,
       state,
     });
+    if (lostTransientState) {
+      state.pendingDispatches.clear();
+    }
     sentFrames.length = 0;
 
     await (
@@ -14632,7 +14684,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("rejects Local Agent tool activity from a replaced connection after execution starts", async () => {
+  it.each([
+    false,
+    true,
+  ])("rejects Local Agent tool activity from a replaced connection after execution starts (lost transient state: %s)", async (lostTransientState) => {
     const { hub, sentFrames, socket, spaceStub, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -14646,6 +14701,9 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
     pending.phase = "running";
     pending.runningAtMs = 1_700_000_000_100;
+    if (lostTransientState) {
+      state.pendingDispatches.clear();
+    }
     sentFrames.length = 0;
 
     await (
@@ -14674,7 +14732,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
     );
   });
 
-  it("accepts Local Agent tool activity from the current reconnected owner", async () => {
+  it.each([
+    false,
+    true,
+  ])("accepts Local Agent tool activity from the current reconnected owner (lost transient state: %s)", async (lostTransientState) => {
     const { hub, sentFrames, socket, spaceStub, state } = createHarness();
     const executionToken = await issueDeliveryToken({
       hub,
@@ -14689,7 +14750,24 @@ describe("runtime transport runtime coordinator transport contract", () => {
     }
     pending.phase = "running";
     pending.runningAtMs = 1_700_000_000_100;
+    await (
+      hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      }
+    ).handleDispatchLifecycleFrame(
+      socket,
+      buildLifecycleRequest({
+        executionTokenEcho: buildExecutionTokenEcho(executionToken),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      })
+    );
     session.connectionGeneration = pending.connectionGeneration + 1;
+    if (lostTransientState) {
+      state.pendingDispatches.clear();
+    }
     sentFrames.length = 0;
 
     await (

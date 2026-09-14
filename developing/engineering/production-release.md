@@ -530,7 +530,8 @@ checks.
 ## Local Scoped Release
 
 The `people-computers-receivers-first` profile recognizes the shared computer
-schema, Core projection, and Gateway endpoint together. It deploys selected
+schema, Core projection, and Gateway endpoint together, or the shared Service
+connection evidence schema with its Core and Gateway receivers. It deploys selected
 Auth, Core, Gateway, Web, Remote Agent, then CLI scopes (Database remains first
 when selected). Core and Gateway must precede new computer callers. A staged
 Core receiver deploy uses the immutable current stable CLI projection even when
