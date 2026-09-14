@@ -1615,6 +1615,17 @@ the buffer when disabled or disconnected. The Hub permits at most one pending
 reasoning delivery per dispatch rather than building a backlog of private text.
 Live delivery failure must not fail execution. Space persists only the existing
 stream identity, cursor, and presence metadata for thinking, never its body.
+Space may retain the latest accepted thinking frame in instance memory for
+authenticated live-connection replay. This tail is bounded to 8,192 characters
+per stream, 128 streams per Space, and 30 minutes since its last thinking
+frame. Replay checks the active stream identity and uses the existing viewer
+reply-placement projection. A disabled frame replaces the private tail with
+empty text, and stream closure removes it. No tail is written to Durable Object
+storage, WebSocket attachments, or browser persistence. Instance eviction,
+restart, or tail expiry loses this optional replay; subsequent producer output
+is still needed in those cases. Replay is presentation only and cannot advance
+execution state. Web may fill a missing transient tail behind a newer presence
+cursor, but must not overwrite a received tail or disabled state.
 Web renders plain text in a bounded transient viewport, respecting manual
 scrolling and reduced motion. Neither private final replies nor tool inputs and
 outputs are added to this stream.

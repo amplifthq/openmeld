@@ -450,6 +450,7 @@ import {
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
 import { resolveOrganizationSpaceSelfJoinUserId } from "../../application/organization-space-self-join";
+import { ReasoningReplay } from "../../application/reasoning-replay";
 import {
   assertSpaceAccessMatchesSpace,
   authorizeProtectedSpaceAccess,
@@ -2403,6 +2404,7 @@ export class Space extends DurableObject<CoreBindings> {
     CreatorProfileIdsByProfileId
   >();
   private readonly sessions: Map<WebSocket, Session> = new Map();
+  private readonly reasoningReplay = new ReasoningReplay();
   private readonly activeReplyingSignalsByDispatchId = new Map<
     string,
     {
@@ -6632,6 +6634,31 @@ export class Space extends DurableObject<CoreBindings> {
         webSocket.send(JSON.stringify(buildAgentStreamDeltaFrame(projected)));
       }
     }
+    const presences = new Map(
+      (await this.readActiveAgentStreamPresences()).map((presence) => [
+        presence.streamId,
+        presence,
+      ])
+    );
+    for (const frame of this.reasoningReplay.read(Date.now())) {
+      const presence = presences.get(frame.streamId);
+      if (
+        !presence ||
+        presence.dispatchId !== frame.dispatchId ||
+        presence.profileId !== frame.profileId ||
+        presence.triggerMessageId !== frame.triggerMessageId
+      ) {
+        this.reasoningReplay.forget(frame.streamId);
+        continue;
+      }
+      const projected = agentStreamForReplyPlacementReader(
+        frame,
+        session.supportsAgentReplyPlacement === true
+      );
+      if (projected) {
+        webSocket.send(JSON.stringify(projected));
+      }
+    }
   }
 
   async rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
@@ -7040,7 +7067,9 @@ export class Space extends DurableObject<CoreBindings> {
         nowMs,
       });
       if (result.status === "accepted") {
-        this.broadcast(buildAgentStreamThinkingDeltaFrame(input, nowMs));
+        const frame = buildAgentStreamThinkingDeltaFrame(input, nowMs);
+        this.reasoningReplay.remember(frame);
+        this.broadcast(frame);
         await this.syncSpaceBackgroundAlarm();
         return {
           status: "accepted",
@@ -7116,6 +7145,7 @@ export class Space extends DurableObject<CoreBindings> {
       terminal: input.terminal,
       nowMs,
     });
+    this.reasoningReplay.forget(input.streamId);
     if (!result.stream) {
       await this.syncSpaceBackgroundAlarm();
       return null;

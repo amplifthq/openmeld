@@ -6570,6 +6570,21 @@ describe("OpenMeld Core", () => {
       gapDetected: true,
     });
 
+    const thinkingStreamId = `${delta.streamId}:thinking`;
+    await namespace
+      .get(namespace.idFromString(spaceId))
+      .rpcApplyAgentStreamDelta({
+        v: 1,
+        spaceId,
+        streamId: thinkingStreamId,
+        sequence: 1,
+        profileId: delta.profileId,
+        triggerMessageId: delta.triggerMessageId,
+        dispatchId: `${delta.dispatchId}:thinking`,
+        kind: "thinking",
+        thinkingSnapshot: "Transient replay tail",
+        reasoningState: { status: "streaming" },
+      });
     const bootstrap = await stub.rpcGetBootstrap({
       spaceId,
       recent: true,
@@ -6595,6 +6610,9 @@ describe("OpenMeld Core", () => {
       },
     ]);
 
+    let replayedThinkingFrame:
+      | ReturnType<typeof waitForJsonMessage>
+      | undefined;
     let replayedStreamFrame: ReturnType<typeof waitForJsonMessage> | undefined;
     const restoredViewer = await openSpaceSocket(
       spaceId,
@@ -6606,6 +6624,12 @@ describe("OpenMeld Core", () => {
       undefined,
       undefined,
       (socket) => {
+        replayedThinkingFrame = waitForJsonMessage(
+          socket,
+          (data) =>
+            data.type === "space.agent_stream_delta" &&
+            data.streamId === thinkingStreamId
+        );
         replayedStreamFrame = waitForJsonMessage(
           socket,
           (data) =>
@@ -6619,6 +6643,21 @@ describe("OpenMeld Core", () => {
       streamId: delta.streamId,
       sequence: 3,
       textSnapshot: "Hello from the latest snapshot",
+    });
+    await expect(replayedThinkingFrame).resolves.toMatchObject({
+      kind: "thinking",
+      thinkingSnapshot: "Transient replay tail",
+      reasoningState: { status: "streaming" },
+    });
+    expect(JSON.stringify(bootstrap)).not.toContain("Transient replay tail");
+    await stub.rpcCloseAgentStream({
+      spaceId,
+      streamId: thinkingStreamId,
+      terminal: {
+        kind: "failed",
+        reasonCode: "test.closed",
+        noticeText: "Closed",
+      },
     });
 
     const readModel = await stub.rpcGetConversationState({
