@@ -912,6 +912,13 @@ or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
 never copies permissions, active work, or publication authority. Multiple retained
 branches in the same discussion require an explicit source choice.
 
+Connected harnesses without Execution Context support retain their ordinary
+thread Wake behavior: work for one Profile remains serial through its existing
+Binding. Explicit task/context selections fail visibly until the harness supports
+them; a thread alone does not opt an unsupported harness into the new protocol.
+This compatibility rule does not enable suspended controllers or bypass current
+connection, permissions, or readiness requirements.
+
 New tasks default to Space context without requiring a local repository. Forks
 inherit the source context's access unless an explicit supported choice changes
 it. Claude Code supports independent Space-context tasks with local tools disabled.

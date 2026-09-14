@@ -6073,6 +6073,15 @@ before materialization, and native project access is probed before execution.
 Native platform temporary-directory access remains in effect; this contract
 does not promise complete temporary-directory isolation.
 
+Core sets `contextRequest.required` only for an explicit client selection. An
+ordinary thread Wake carries its discussion scope with `required: false`; the
+Context authority creates implicit thread contexts only for supported harnesses.
+Other harnesses retain their existing serial Binding path and do not select
+retained Context history from a previously configured harness. Explicit
+new/resume/fork/auto selections never fall back to that path. This changes Core's
+request-selection policy without changing the wire shape or Service capability
+version, and leaves existing Binding, lifecycle, and readiness checks in effect.
+
 The public signal read encoder omits `contextSelection` so older strict history
 readers remain usable. This encoder must never be used for persistence, dispatch
 snapshots, or authoring. The existing singular workload reference remains a

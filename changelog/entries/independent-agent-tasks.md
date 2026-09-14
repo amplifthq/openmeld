@@ -11,6 +11,10 @@ new task, fork completed history, or work in different discussion threads.
 Follow-ups in the same task wait their turn, and each reply stays with its
 original message.
 
+Other connected harnesses keep their existing serial execution in discussion
+threads. Explicit task branching and parallel execution require a supported
+harness.
+
 Codex also supports independent project worktrees with separate files and Git
 metadata. Each starts from the connected repository's committed state and keeps
 its changes when the task continues. Unsaved changes and local configuration are

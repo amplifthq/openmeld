@@ -286,6 +286,19 @@ export async function prepareExecutionContextAssignment(
       "execution_context.scope_mismatch"
     );
   }
+  const implicitRequest =
+    request.selection.mode === "auto" && request.required === false;
+  if (
+    implicitRequest &&
+    !supportsContextAccess(
+      snapshot.controllerSnapshot.agentControllerRef,
+      "space_context"
+    )
+  ) {
+    // An unsupported harness keeps its existing Binding conversation. Do not
+    // select retained Context history from a previously configured harness.
+    return { record: input.record, writes: {} };
+  }
   const source = await resolveContextSource(input, request);
   if (source) {
     assertContextBinding(source.context, snapshot);
@@ -295,11 +308,7 @@ export async function prepareExecutionContextAssignment(
       );
     }
   }
-  if (
-    !source &&
-    request.selection.mode === "auto" &&
-    request.required === false
-  ) {
+  if (!source && implicitRequest && request.scope.threadId === null) {
     return { record: input.record, writes: {} };
   }
   const createsContext =
@@ -522,19 +531,23 @@ function createContext(
   };
 }
 
+function supportsContextAccess(
+  agentControllerRef: string,
+  access: ExecutionContextAssignment["access"]
+): boolean {
+  return (
+    agentControllerRef === "builtin:codex" ||
+    (agentControllerRef === "builtin:claude-code" && access === "space_context")
+  );
+}
+
 function assertContextPreferences(
   context: ContextRecord,
   request: ContextRequest,
   createsContext: boolean
 ): void {
   const assignment = context.assignment;
-  if (
-    context.agentControllerRef !== "builtin:codex" &&
-    !(
-      context.agentControllerRef === "builtin:claude-code" &&
-      assignment.access === "space_context"
-    )
-  ) {
+  if (!supportsContextAccess(context.agentControllerRef, assignment.access)) {
     throw new ExecutionContextSelectionError(
       "execution_context.controller_access_unsupported"
     );

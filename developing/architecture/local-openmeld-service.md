@@ -750,6 +750,11 @@ error semantics. Stop is terminal only after the adapter cancels the live ACP
 session, closes it when supported, and the supervised controller process and
 descendants are reaped; a successful protocol cancellation alone is not final.
 
+ACP transport support alone does not declare Execution Context support. Context
+concurrency, completed-history forks, exclusive tool access, and project-file
+confinement require verified adapter capabilities; they must not be enabled by a
+generic ACP flag.
+
 Codex App Server maps current and legacy command/file approvals,
 `requestUserInput`, additional-permission approval, and MCP form or URL
 elicitation into the same contract. Claude Agent SDK maps `canUseTool`,

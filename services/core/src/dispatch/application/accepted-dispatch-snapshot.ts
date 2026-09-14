@@ -31,9 +31,9 @@ export async function buildAcceptedDispatchSnapshot(input: {
     input.message.sourceSignalSnapshot?.profileId
       ? {
           contextRequest: {
-            required: Boolean(
-              input.message.contextSelection || input.message.threadContext
-            ),
+            // Explicit intent must never fall back to a Binding conversation.
+            // Core chooses implicit thread isolation only for supported harnesses.
+            required: Boolean(input.message.contextSelection),
             scope: {
               organizationId: input.message.organizationId,
               requesterProfileId: input.message.sourceSignalSnapshot.profileId,

@@ -3604,6 +3604,114 @@ const completeLatestAutomaticUpdateRequest = async (input: {
 };
 
 describe("runtime transport runtime coordinator transport contract", () => {
+  it.each([
+    "builtin:cursor",
+    "builtin:grok-build",
+    "builtin:opencode",
+    "builtin:openclaw",
+    "custom:reviewer",
+  ])("keeps ordinary thread Wakes serial for %s and refuses explicit context requests", async (agentControllerRef) => {
+    const { hub, storageRecords } = createHarness();
+    const replies: Array<{ status: string; executionContext?: unknown }> = [];
+    let firstHead: RuntimeCoordinatorHeadLifecycleRecord | undefined;
+    for (let index = 0; index < 2; index += 1) {
+      const dispatchId = `dispatch-thread-legacy-${index}`;
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-thread-legacy-${index}`,
+        dispatchId,
+        sourceSignalId: `signal-thread-legacy-${index}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      const request = buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId,
+        idempotencyKey: `thread-legacy-${index}`,
+        targetWakeLifecycleIdentity: identity,
+        acceptedDispatchSnapshot: {
+          ...buildAcceptedDispatchSnapshot({
+            agentControllerRef,
+            fingerprint: String(index + 1),
+          }),
+          contextRequest: {
+            required: false,
+            scope: {
+              organizationId: "org",
+              requesterProfileId: "human",
+              spaceId: HEX_SPACE_ID,
+              targetProfileId: TARGET_AGENT_PROFILE_ID,
+              threadId: `thread-${index}`,
+            },
+            selection: { mode: "auto" },
+          },
+        },
+      });
+      replies.push(
+        (await (
+          await fetchRuntimeTransportJson(
+            hub,
+            "/runtime-coordinator/head/accept",
+            request
+          )
+        ).json()) as { status: string; executionContext?: unknown }
+      );
+      if (index === 0) {
+        firstHead = storageRecords.get(
+          buildRuntimeCoordinatorHeadLifecycleStorageKey(
+            identity.targetWakeLifecycleId
+          )
+        ) as RuntimeCoordinatorHeadLifecycleRecord;
+      }
+    }
+    expect(replies.map((reply) => reply.status)).toEqual([
+      "accepted",
+      "queued",
+    ]);
+    expect(replies.every((reply) => reply.executionContext === undefined)).toBe(
+      true
+    );
+    if (!firstHead?.acceptedDispatchSnapshot?.contextRequest) {
+      throw new Error("Expected the accepted legacy head");
+    }
+    expect(firstHead.acceptedDispatchSnapshot.executionContext).toBeUndefined();
+    const snapshot = firstHead.acceptedDispatchSnapshot;
+    const head = firstHead;
+    const request = firstHead.acceptedDispatchSnapshot.contextRequest;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    for (const mode of ["new", "auto"] as const) {
+      const dispatchId = `dispatch-explicit-${mode}`;
+      const identity = projectTargetWakeLifecycleIdentity({
+        clientMessageId: `client-explicit-${mode}`,
+        dispatchId: `dispatch-explicit-${mode}`,
+        sourceSignalId: `signal-explicit-${mode}`,
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      });
+      await expect(
+        storage.transaction((transaction) =>
+          prepareExecutionContextAssignment({
+            storage: transaction,
+            record: {
+              ...head,
+              primaryDispatchId: dispatchId,
+              targetWakeLifecycleId: identity.targetWakeLifecycleId,
+              targetWakeLifecycleIdentity: identity,
+              acceptedDispatchSnapshot: {
+                ...snapshot,
+                contextRequest: {
+                  ...request,
+                  required: true,
+                  selection: { mode },
+                },
+              },
+            },
+          })
+        )
+      ).rejects.toThrow("controller_access_unsupported");
+    }
+  });
+
   it("keeps the accepted context through linking and retains its fork checkpoint after Head retirement", async () => {
     const { hub, storageRecords } = createHarness();
     const request = buildRuntimeCoordinatorHeadAcceptRequest({
@@ -3738,9 +3846,22 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ).rejects.toThrow("result_mismatch");
   });
   it.each([
-    "new",
-    "threads",
-  ] as const)("admits three independent %s contexts and queues a fourth and same-context continuation", async (mode) => {
+    { mode: "new", agentControllerRef: "builtin:codex", access: "workspace" },
+    {
+      mode: "threads",
+      agentControllerRef: "builtin:codex",
+      access: "space_context",
+    },
+    {
+      mode: "threads",
+      agentControllerRef: "builtin:claude-code",
+      access: "space_context",
+    },
+  ] as const)("admits three independent $agentControllerRef $mode contexts and queues a fourth and same-context continuation", async ({
+    mode,
+    agentControllerRef,
+    access,
+  }) => {
     const { hub } = createHarness();
     const requests = Array.from({ length: 4 }, (_, index) =>
       buildRuntimeCoordinatorHeadAcceptRequest({
@@ -3754,9 +3875,12 @@ describe("runtime transport runtime coordinator transport contract", () => {
           targetProfileId: TARGET_AGENT_PROFILE_ID,
         }),
         acceptedDispatchSnapshot: {
-          ...buildAcceptedDispatchSnapshot({ fingerprint: String(index + 1) }),
+          ...buildAcceptedDispatchSnapshot({
+            agentControllerRef,
+            fingerprint: String(index + 1),
+          }),
           contextRequest: {
-            required: true,
+            required: mode === "new",
             scope: {
               organizationId: "org-1",
               requesterProfileId: "requester-1",
@@ -3766,7 +3890,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
             },
             selection: {
               mode: mode === "new" ? "new" : "auto",
-              access: "workspace",
+              access,
               workspace: "isolated",
             },
           },
