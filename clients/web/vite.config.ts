@@ -9,6 +9,7 @@ import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 // @ts-expect-error Build-only JavaScript helper.
 import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
+import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
 
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
@@ -68,6 +69,7 @@ const config = defineConfig(({ command }) => {
 			},
 		},
 		plugins: [
+			desktopPilotBuildPrerequisites(desktopPilotBuild),
 			{
 				name: "openmeld-desktop-build-identity",
 				apply: "build",

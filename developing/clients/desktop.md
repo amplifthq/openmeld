@@ -260,8 +260,14 @@ publish or deploy this pilot as a production release.
 `pnpm desktop:package:private` builds the private unsigned macOS arm64 app and
 DMG with the existing electron-builder. It requires installed workspace
 dependencies and current pilot Web output in `clients/web/dist/client` (build
-with `OPENMELD_DESKTOP_PILOT=1`, as in the lane workflow above). Missing,
-incomplete, or stale Web output stops packaging. It never starts Web or a Service.
+through `OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree` in the configured lane,
+as in the lane workflow above). Setting the pilot flag alone is insufficient:
+the guarded Web entry supplies the actual lane's `VITE_BETTER_AUTH_URL` and
+other aligned build values. Pilot builds reject a missing or invalid client Auth
+URL after normal Vite environment loading, before emitting output. Runtime
+native environment variables cannot repair a missing compiled renderer value.
+Missing, incomplete, or stale Web output stops packaging. The package command
+never starts Web or a Service.
 
 The build stages the shared client output without source maps or hidden files,
 rejects symbolic links, and includes it at `Contents/Resources/desktop-renderer`.

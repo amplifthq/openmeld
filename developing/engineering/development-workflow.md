@@ -615,6 +615,11 @@ mode. Preview binds loopback for TanStack shell prerender; configured account
 and service endpoints retain the actual worktree hostname and ports. Stop the
 owned old Web process before switching modes. A Vite dev server is not a matching
 Desktop RPC registry. See [Desktop](../clients/desktop.md) for identity checks.
+For private packaging, use this guarded Web build path rather than only setting
+the pilot flag on a package-local build. The client requires the lane's compiled
+`VITE_BETTER_AUTH_URL`; pilot builds reject missing or invalid values after Vite
+loads its environment. The native launch environment cannot supply that value
+retroactively to an already built renderer.
 
 ## `OPENMELD_HOME` And Production-State Safety
 
