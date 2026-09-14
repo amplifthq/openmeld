@@ -527,9 +527,13 @@ exact App Server `-32600` response `thread <id> already has an active writer`
 for that resume is structured Agent Controller conversation occupancy, not a
 Wake failure. OpenMeld keeps the task at the Profile FIFO head, observes the
 official lock release, and retries that same metadata-only resume immediately.
-A low-frequency recovery check handles a missed filesystem event or abrupt
-writer exit without starting another App Server process while the official lock
-still exists. If the exact lock is unexpectedly not visible after Codex reports
+A low-frequency recovery retry (30 seconds) asks official admission again even
+when the lock file still exists: an abrupt writer exit releases the OS lock but
+can leave that file behind. This retry is not release evidence and does not clear
+the occupied projection. Only the provider may acquire or clean its own lock.
+Normal release events still retry immediately. This adds at most one admission
+attempt per recovery interval for an occupied FIFO head and no polling to normal
+execution. If the exact lock is unexpectedly not visible after Codex reports
 writer occupancy, the retry uses a short bounded backoff instead of spinning.
 Wake Stop aborts the task's lock watcher and retry boundary immediately, and
 that task must not issue another `thread/resume`. Normal execution adds no extra

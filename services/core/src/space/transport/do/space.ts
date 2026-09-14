@@ -33,6 +33,7 @@ import {
   buildSpaceFileObjectKey,
   buildSpaceFileRevisionIdFromDigest,
   CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
+  clearSpaceReasoningReplaySchema,
   commitSpaceFileWriteInputSchema,
   createSpaceDiagnosticReportBodySchema,
   createSpaceDiagnosticReportResponseSchema,
@@ -133,6 +134,7 @@ import {
   wakeDeviceWaitAccessRequestSchema,
 } from "@openmeld/schemas";
 import type {
+  ClearSpaceReasoningReplay,
   ConvertDirectMessageToSpaceResponse,
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderResponse,
@@ -420,6 +422,7 @@ import {
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   type RuntimeCoordinatorExecutionWakeProgressSelector,
   readRuntimeCoordinatorExecutionProjectionById,
+  readRuntimeCoordinatorExecutionRunningAtMs,
 } from "../../../runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
 import {
   readResolvedOpenMeldContext,
@@ -450,6 +453,7 @@ import {
   processDispatchOutboxCandidates,
 } from "../../application/dispatch-outbox-batch-service";
 import { resolveOrganizationSpaceSelfJoinUserId } from "../../application/organization-space-self-join";
+import { ReasoningReplay } from "../../application/reasoning-replay";
 import {
   assertSpaceAccessMatchesSpace,
   authorizeProtectedSpaceAccess,
@@ -2403,6 +2407,7 @@ export class Space extends DurableObject<CoreBindings> {
     CreatorProfileIdsByProfileId
   >();
   private readonly sessions: Map<WebSocket, Session> = new Map();
+  private readonly reasoningReplay = new ReasoningReplay();
   private readonly activeReplyingSignalsByDispatchId = new Map<
     string,
     {
@@ -6632,6 +6637,68 @@ export class Space extends DurableObject<CoreBindings> {
         webSocket.send(JSON.stringify(buildAgentStreamDeltaFrame(projected)));
       }
     }
+    const presences = new Map(
+      (await this.readActiveAgentStreamPresences()).map((presence) => [
+        presence.streamId,
+        presence,
+      ])
+    );
+    for (const frame of this.reasoningReplay.read(Date.now())) {
+      const presence = presences.get(frame.streamId);
+      if (
+        !presence ||
+        presence.dispatchId !== frame.dispatchId ||
+        presence.profileId !== frame.profileId ||
+        presence.triggerMessageId !== frame.triggerMessageId
+      ) {
+        this.reasoningReplay.forget(frame.streamId);
+        continue;
+      }
+      const projected = agentStreamForReplyPlacementReader(
+        frame,
+        session.supportsAgentReplyPlacement === true
+      );
+      if (!projected) {
+        continue;
+      }
+      if (!(await this.canReplayReasoning(frame))) {
+        continue;
+      }
+      if (
+        (await this.authorizeLiveSession(session)) &&
+        this.reasoningReplay.isCurrent(frame)
+      ) {
+        webSocket.send(JSON.stringify(projected));
+      }
+    }
+  }
+
+  private async canReplayReasoning(
+    frame: Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }>
+  ): Promise<boolean> {
+    if (!frame.reasoningState) {
+      return true;
+    }
+    try {
+      const owner = await this.resolveOutboxActiveAttemptOwnerUserId(
+        frame.profileId
+      );
+      if (
+        owner.status === "ok" &&
+        (
+          await resolveRuntimeTransportOwnerShard(
+            this.bindings,
+            owner.ownerUserId
+          ).rpcReasoningPreferences({})
+        ).enabled
+      ) {
+        return true;
+      }
+      this.reasoningReplay.forget(frame.streamId);
+    } catch {
+      // Private replay fails closed when the preference owner is unavailable.
+    }
+    return false;
   }
 
   async rpcGetMeta(input: GetSpaceMetaInput): Promise<SpaceMeta> {
@@ -7024,6 +7091,12 @@ export class Space extends DurableObject<CoreBindings> {
     return result;
   }
 
+  rpcClearReasoningReplay(input: ClearSpaceReasoningReplay): void {
+    const parsed = clearSpaceReasoningReplaySchema.parse(input);
+    this.applySpaceRef(parsed.spaceId);
+    this.reasoningReplay.clearProfile(parsed.profileId);
+  }
+
   async rpcApplyAgentStreamDelta(
     input: ApplySpaceAgentStreamDeltaInput
   ): Promise<
@@ -7034,13 +7107,18 @@ export class Space extends DurableObject<CoreBindings> {
     this.applySpaceRef(input.spaceId);
     if (input.kind === "thinking") {
       const nowMs = Date.now();
+      const replayRevision = this.reasoningReplay.revision;
       const result = await applyAgentStreamThinkingDelta({
         storage: this.agentStreamProjectionStorage,
         delta: input,
         nowMs,
       });
       if (result.status === "accepted") {
-        this.broadcast(buildAgentStreamThinkingDeltaFrame(input, nowMs));
+        const frame = buildAgentStreamThinkingDeltaFrame(input, nowMs);
+        if (replayRevision === this.reasoningReplay.revision) {
+          this.reasoningReplay.remember(frame);
+        }
+        this.broadcast(frame);
         await this.syncSpaceBackgroundAlarm();
         return {
           status: "accepted",
@@ -7116,6 +7194,7 @@ export class Space extends DurableObject<CoreBindings> {
       terminal: input.terminal,
       nowMs,
     });
+    this.reasoningReplay.forget(input.streamId);
     if (!result.stream) {
       await this.syncSpaceBackgroundAlarm();
       return null;
@@ -18402,6 +18481,7 @@ export class Space extends DurableObject<CoreBindings> {
 
   private async readActiveWakeProgressOwnerEvidence(input: {
     db: D1Database;
+    includeTiming?: boolean;
     includePageInfo: boolean;
     sourceProfileId: string | null;
     targetProfileId: string | null;
@@ -18428,6 +18508,7 @@ export class Space extends DurableObject<CoreBindings> {
     const [executions, activeNativeDeliveries] = await Promise.all([
       listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace({
         db: input.db,
+        includeTiming: input.includeTiming,
         limit: ownerReadLimit,
         ...sourceFilter,
         spaceId: this.spaceId,
@@ -18468,6 +18549,7 @@ export class Space extends DurableObject<CoreBindings> {
     const { activeNativeDeliveries, executions, outboxRecords } =
       await this.readActiveWakeProgressOwnerEvidence({
         db: input.db,
+        includeTiming: input.includeTiming,
         includePageInfo: input.includePageInfo === true,
         sourceProfileId,
         targetProfileId,
@@ -18526,8 +18608,8 @@ export class Space extends DurableObject<CoreBindings> {
                 sourceSignalId ??
                 outboxRecord?.sourceEventId ??
                 null,
-              ...(input.includeTiming === true
-                ? { startedAtMs: execution.createdAtMs }
+              ...(input.includeTiming === true && execution.runningAtMs !== null
+                ? { startedAtMs: execution.runningAtMs }
                 : {}),
               targetLabel,
               targetProfileId: execution.targetProfileId,
@@ -18782,6 +18864,15 @@ export class Space extends DurableObject<CoreBindings> {
     }
     const runtimeCoordinatorExecution =
       trace?.runtimeCoordinatorExecution ?? null;
+    const timingDb = input.includeTiming ? wakeEvidenceDb(this.env) : null;
+    const runningAtMs =
+      timingDb && runtimeCoordinatorExecution
+        ? await readRuntimeCoordinatorExecutionRunningAtMs({
+            db: timingDb,
+            runtimeCoordinatorExecutionId:
+              runtimeCoordinatorExecution.runtimeCoordinatorExecutionId,
+          })
+        : null;
     const pendingInteraction = runtimeCoordinatorExecution
       ? await this.readWakeProgressPendingAgentInteraction({
           actorOwnerUserId: input.actorOwnerUserId,
@@ -18791,6 +18882,7 @@ export class Space extends DurableObject<CoreBindings> {
     return buildWakeProgressItemFromDispatchEvidence({
       clientMessageId: input.clientMessageId,
       includeTiming: input.includeTiming === true,
+      runningAtMs,
       includeWaitReason: input.includeWaitReason === true,
       includeDeviceWait: input.includeDeviceWait === true,
       lookupMatch: input.lookupMatch,
@@ -20765,6 +20857,7 @@ function buildWakeProgressItemFromTerminalFailureNotice(input: {
 function buildWakeProgressItemFromDispatchEvidence(input: {
   clientMessageId: string | null;
   includeTiming: boolean;
+  runningAtMs: number | null;
   includeWaitReason: boolean;
   includeDeviceWait?: boolean;
   lookupMatch: SpaceDispatchLookupMatch;
@@ -20833,9 +20926,9 @@ function buildWakeProgressItemFromDispatchEvidence(input: {
       input.sourceSignal?.id ??
       input.outboxRecord?.sourceEventId ??
       null,
-    ...(input.includeTiming && input.trace?.runtimeCoordinatorExecution
+    ...(input.includeTiming && input.runningAtMs !== null
       ? {
-          startedAtMs: input.trace.runtimeCoordinatorExecution.createdAtMs,
+          startedAtMs: input.runningAtMs,
         }
       : {}),
     targetLabel: input.targetLabel,

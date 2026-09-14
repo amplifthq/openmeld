@@ -94,10 +94,9 @@ export function resolveWakeProgressStatus(
 		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
 	) {
 		return {
-			description:
-				"Another client holds this Agent’s session. This Wake is waiting for the session to become available.",
+			description: "Another app is using this conversation.",
 			kind: "waiting_for_controller",
-			label: `Waiting for ${targetName}’s session`,
+			label: `Waiting for ${targetName}`,
 			status: "active",
 		};
 	}

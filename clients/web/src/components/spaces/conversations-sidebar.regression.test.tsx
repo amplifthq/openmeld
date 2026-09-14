@@ -1397,7 +1397,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("img", {
-				name: "Waiting for Clico Codex’s session",
+				name: "Waiting for Clico Codex",
 			})
 		).toBeTruthy();
 		expect(

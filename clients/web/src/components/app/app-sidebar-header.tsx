@@ -3,7 +3,6 @@
 import { SidebarHeader } from "@openmeld/ui/fluid/sidebar";
 import type { SidebarMode } from "@openmeld/ui/fluid/sidebar-state";
 import { cn } from "@openmeld/ui/lib/utils";
-import { AppCreateMenu } from "./app-create-menu";
 import { useAppNavigationPresentation } from "./app-navigation-presentation";
 import {
 	type AppOuterRailAccount,
@@ -15,12 +14,10 @@ export function AppSidebarHeader({
 	account,
 	humanProfileAvatar,
 	mode,
-	orgSlug,
 }: {
 	account: AppOuterRailAccount;
 	humanProfileAvatar: HumanProfileAvatarIdentity | null;
 	mode: SidebarMode;
-	orgSlug: string;
 }) {
 	const { presentation } = useAppNavigationPresentation();
 	const iconOnly = mode === "icon";
@@ -38,9 +35,6 @@ export function AppSidebarHeader({
 					humanProfileAvatar={humanProfileAvatar}
 					tier={mode === "hidden" ? "expanded" : mode}
 				/>
-			</div>
-			<div className="flex flex-col items-center gap-2 py-1">
-				<AppCreateMenu orgSlug={orgSlug} />
 			</div>
 		</SidebarHeader>
 	);

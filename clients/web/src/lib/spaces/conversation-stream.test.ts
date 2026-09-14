@@ -419,6 +419,38 @@ describe("space conversation stream state", () => {
 		expect(listVisibleSpaceConversationStreams(cleared)[0]).not.toHaveProperty(
 			"toolParts"
 		);
+		const replayed = applySpaceConversationStreamFrame({
+			current: cleared,
+			frame: createThinkingDeltaFrame({
+				sequence: 2,
+				thinkingSnapshot: "Private transient thought",
+			}),
+			observedRevision: 4,
+		});
+		expect(replayed[0]).toMatchObject({
+			sequence: 3,
+			text: "Working",
+			thinking: "Private transient thought",
+			thinkingActive: false,
+		});
+		const disabled = applySpaceConversationStreamFrame({
+			current: replayed,
+			frame: {
+				...createThinkingDeltaFrame({ sequence: 4, thinkingSnapshot: "" }),
+				reasoningState: { status: "disabled" },
+			},
+			observedRevision: 5,
+		});
+		expect(
+			applySpaceConversationStreamFrame({
+				current: disabled,
+				frame: createThinkingDeltaFrame({
+					sequence: 2,
+					thinkingSnapshot: "Private transient thought",
+				}),
+				observedRevision: 6,
+			})
+		).toEqual(disabled);
 	});
 });
 
@@ -448,7 +480,7 @@ function createThinkingDeltaFrame(input: {
 	sequence: number;
 	thinkingSnapshot: string;
 	reasoningState?: LocalAgentReasoningState;
-}): SpaceAgentStreamDeltaFrame {
+}): Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }> {
 	return {
 		type: "space.agent_stream_delta",
 		v: 1,

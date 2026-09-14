@@ -75,7 +75,7 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
             runtime_states.append({"spaceId":sid,"profileId":"agt_"+ident(f"agent:{i}"),
                                    "profileName":agent_name,
                                    "sourceSignalId":str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:0")),
-                                   "scenario":"plan_review" if i == 3 else "permission" if i == 10 else "question" if i == 9 else "working",
+                                   "scenario":"plan_review" if i == 3 else "permission" if i == 10 else "question" if i == 9 else "conversation_wait" if i == 2 else "working",
                                    "needsInput":i in (3,9,10)})
 
     return runtime_states

@@ -804,10 +804,12 @@ describe("SpaceLanding", () => {
 			isPending: false,
 		});
 		useQueryClientMock.mockReset().mockReturnValue({
+			getQueryCache: () => ({ subscribe: () => () => undefined }),
 			getQueryState: vi.fn(() => undefined),
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
 			fetchQuery: vi.fn().mockResolvedValue(undefined),
 			getQueryData: vi.fn(() => undefined),
+			getQueriesData: vi.fn(() => []),
 			invalidateQueries: vi.fn().mockResolvedValue(undefined),
 			resetQueries: vi.fn().mockResolvedValue(undefined),
 			setQueriesData: vi.fn(),
@@ -2918,11 +2920,14 @@ describe("SpaceLanding", () => {
 		expect(useNavigateMock).not.toHaveBeenCalled();
 	});
 
-	it("deletes a space, cleans account space history, and navigates away", async () => {
-		const deleteSpaceMock = vi.fn().mockResolvedValue({
-			deleted: true,
-			spaceId: "space-123",
-		});
+	it("navigates away before delete finishes, then cleans account space history", async () => {
+		let finishDelete!: (value: { deleted: true; spaceId: string }) => void;
+		const pendingDelete = new Promise<{ deleted: true; spaceId: string }>(
+			(resolve) => {
+				finishDelete = resolve;
+			}
+		);
+		const deleteSpaceMock = vi.fn(() => pendingDelete);
 		const invalidateQueriesMock = vi.fn().mockResolvedValue(undefined);
 		createWebSpaceApiMock.mockReturnValue({
 			deleteSpace: deleteSpaceMock,
@@ -2933,13 +2938,22 @@ describe("SpaceLanding", () => {
 			postNormalMessage: vi.fn(),
 		});
 		useQueryClientMock.mockReturnValue({
+			cancelQueries: vi.fn().mockResolvedValue(undefined),
+			getQueriesData: vi.fn(() => []),
+			getQueryData: vi.fn(() => undefined),
+			getQueryState: vi.fn(() => undefined),
 			invalidateQueries: invalidateQueriesMock,
+			getQueryCache: () => ({ subscribe: () => () => undefined }),
+			setQueriesData: vi.fn(),
 			setQueryData: vi.fn(),
 		});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
-				data: createSpaceStatus(),
+				data: {
+					...createSpaceStatus(),
+					ownerUserIds: ["user-mira"],
+				},
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -2964,19 +2978,23 @@ describe("SpaceLanding", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
 
 		await waitFor(() => {
-			expect(deleteSpaceMock).toHaveBeenCalledWith({
-				spaceId: "space-123",
-			});
-		});
-		expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
-			currentProfileId: DEFAULT_SPACE_PROFILE_ID,
-			reason: "deleted_space",
-			spaceId: "space-123",
+			expect(
+				screen.queryByRole("dialog", { name: "Space settings" })
+			).toBeNull();
 		});
 		await waitFor(() => {
 			expect(useNavigateMock).toHaveBeenCalledWith({
 				to: "/o/acme/spaces",
 				replace: true,
+			});
+		});
+		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
+		finishDelete({ deleted: true, spaceId: "space-123" });
+		await waitFor(() => {
+			expect(removeDeletedSpaceFromAccountHistoryMock).toHaveBeenCalledWith({
+				currentProfileId: DEFAULT_SPACE_PROFILE_ID,
+				reason: "deleted_space",
+				spaceId: "space-123",
 			});
 		});
 		expect(invalidateQueriesMock).toHaveBeenCalledWith({
@@ -2990,7 +3008,7 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("shows delete authorization errors without navigating away", async () => {
+	it("restores a failed delete after optimistic navigation", async () => {
 		const deleteSpaceMock = vi.fn().mockRejectedValue({
 			code: "space.forbidden",
 			message: "only space creator can delete this space",
@@ -3006,7 +3024,10 @@ describe("SpaceLanding", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
-				data: createSpaceStatus(),
+				data: {
+					...createSpaceStatus(),
+					ownerUserIds: ["user-mira"],
+				},
 			}),
 			members: createQueryResult({
 				isSuccess: true,
@@ -3030,11 +3051,20 @@ describe("SpaceLanding", () => {
 		});
 		fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
 
-		expect(
-			await screen.findByText("Only the space creator can delete this space.")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"Delete failed: Only the space creator can delete this space.",
+				expect.objectContaining({
+					duration: Number.POSITIVE_INFINITY,
+					action: { label: "Open Space", onClick: expect.any(Function) },
+				})
+			);
+		});
 		expect(removeDeletedSpaceFromAccountHistoryMock).not.toHaveBeenCalled();
-		expect(useNavigateMock).not.toHaveBeenCalled();
+		expect(useNavigateMock).toHaveBeenCalledWith({
+			to: "/o/acme/spaces",
+			replace: true,
+		});
 	});
 
 	it("hides delete space when the current profile is not the creator or owner", () => {
@@ -15405,7 +15435,10 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("opens an Inbox source at the exact loaded Space message", () => {
+	it("opens an Inbox source at the highlighted message", () => {
+		const offsetHeightSpy = vi
+			.spyOn(HTMLElement.prototype, "offsetHeight", "get")
+			.mockReturnValue(500);
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -15457,6 +15490,7 @@ describe("SpaceLanding", () => {
 		).toBe(480);
 		expect(document.activeElement).toBe(target);
 		rectSpy.mockRestore();
+		offsetHeightSpy.mockRestore();
 	});
 
 	it("opens a terminal Wake failure Inbox target at the source message that presents its outcome", () => {
@@ -15504,7 +15538,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("loads bounded earlier history to open an older Inbox source message", async () => {
+	it("opens an old Inbox message directly without loading the intervening history", async () => {
 		const recentSignal = createTextSignal({
 			id: "sig-recent",
 			text: "Recent message",
@@ -15515,10 +15549,12 @@ describe("SpaceLanding", () => {
 			text: "Older linked message",
 			ts: 10,
 		});
-		const listSignalEnvelopesMock = vi.fn().mockResolvedValue({
-			envelopes: [olderTarget, recentSignal],
-			nextCursor: null,
-		});
+		const listSignalEnvelopesMock = vi.fn().mockImplementation(({ query }) =>
+			Promise.resolve({
+				envelopes: query.aroundSignalId === olderTarget.id ? [olderTarget] : [],
+				nextCursor: null,
+			})
+		);
 		createWebSpaceApiMock.mockReturnValue({
 			listSignalEnvelopes: listSignalEnvelopesMock,
 			postNormalMessage: vi.fn(),
@@ -15544,28 +15580,41 @@ describe("SpaceLanding", () => {
 					?.getAttribute("data-highlighted")
 			).toBe("true");
 		});
+		expect(screen.queryByText("Recent message")).toBeNull();
+		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+			olderTarget.id
+		);
+		expect(listSignalEnvelopesMock).toHaveBeenCalledTimes(1);
 		expect(listSignalEnvelopesMock).toHaveBeenCalledWith({
 			spaceId: "space-123",
+			signal: expect.any(AbortSignal),
 			query: {
-				afterCount: 0,
-				aroundSignalId: recentSignal.id,
-				beforeCount: 20,
+				afterCount: 30,
+				aroundSignalId: olderTarget.id,
+				beforeCount: 30,
 				kinds: ["text", "status", "system_notice"],
 			},
 		});
 	});
 
-	it("explains when an older Inbox source message is unavailable", async () => {
+	it.each([
+		"missing",
+		"network failure",
+	])("explains an old Inbox lookup failure: %s", async (failure) => {
 		const recentSignal = createTextSignal({
 			id: "sig-only-recent",
 			text: "Only recent message",
 			ts: 20,
 		});
 		createWebSpaceApiMock.mockReturnValue({
-			listSignalEnvelopes: vi.fn().mockResolvedValue({
-				envelopes: [recentSignal],
-				nextCursor: null,
-			}),
+			listSignalEnvelopes:
+				failure === "missing"
+					? vi.fn().mockResolvedValue({ envelopes: [], nextCursor: null })
+					: vi
+							.fn()
+							.mockRejectedValue(
+								new Error("The connection was interrupted. Try again.")
+							),
 			postNormalMessage: vi.fn(),
 		});
 		mockSpaceQueries({
@@ -15583,13 +15632,15 @@ describe("SpaceLanding", () => {
 		renderSpaceLanding({ initialFocusSignalId: "sig-missing-inbox-target" });
 
 		expect(
-			await screen.findByRole("status", {
-				name: "Linked message isn't available",
-			})
+			await screen.findByText(
+				failure === "missing"
+					? "This message is no longer available."
+					: "The connection was interrupted. Try again."
+			)
 		).toBeTruthy();
 	});
 
-	it("opens a linked thread and highlights the exact Inbox reply", async () => {
+	it("opens the linked thread shell before its catalog and replies load, then focuses the exact Inbox reply", async () => {
 		const rootSignal = createTextSignal({
 			id: "sig-linked-thread-root",
 			text: "Thread root",
@@ -15600,6 +15651,8 @@ describe("SpaceLanding", () => {
 			text: "Exact linked reply",
 			ts: 20,
 		});
+		const threadSignals = createQueryResult({ isPending: true });
+		const threads = createQueryResult({ isPending: true, isFetching: true });
 		mockSpaceQueries({
 			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
 			members: createQueryResult({
@@ -15610,7 +15663,26 @@ describe("SpaceLanding", () => {
 				isSuccess: true,
 				data: { envelopes: [rootSignal], nextCursor: null },
 			}),
-			threads: createQueryResult({
+			threads,
+			threadSignals,
+		});
+
+		const view = renderSpaceLanding({
+			initialFocusSignalId: replySignal.id,
+			initialFocusThreadRootSignalId: rootSignal.id,
+		});
+
+		const threadPanel = await screen.findByRole("complementary", {
+			name: "Thread",
+		});
+		expect(
+			within(threadPanel).getByText("Thread", { exact: true })
+		).toBeTruthy();
+		expect(within(threadPanel).getByRole("textbox")).toBeTruthy();
+		expect(within(threadPanel).queryByText("Exact linked reply")).toBeNull();
+		Object.assign(
+			threads,
+			createQueryResult({
 				isSuccess: true,
 				data: {
 					previews: [],
@@ -15625,30 +15697,37 @@ describe("SpaceLanding", () => {
 						},
 					],
 				},
-			}),
-			threadSignals: createQueryResult({
-				isSuccess: true,
-				data: { signals: [replySignal] },
-			}),
-		});
-
-		renderSpaceLanding({
-			initialFocusSignalId: replySignal.id,
-			initialFocusThreadRootSignalId: rootSignal.id,
-		});
-
-		const threadPanel = await screen.findByRole("complementary", {
-			name: "Thread",
-		});
+			})
+		);
+		view.rerender(
+			<SpaceLanding
+				initialFocusSignalId={replySignal.id}
+				initialFocusThreadRootSignalId={rootSignal.id}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		expect(within(threadPanel).getByText("Loading thread…")).toBeTruthy();
+		Object.assign(
+			threadSignals,
+			createQueryResult({ isSuccess: true, data: { signals: [replySignal] } })
+		);
+		view.rerender(
+			<SpaceLanding
+				initialFocusSignalId={replySignal.id}
+				initialFocusThreadRootSignalId={rootSignal.id}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
 		await waitFor(() => {
 			const target = threadPanel.querySelector(
 				`[data-signal-id="${replySignal.id}"]`
 			);
 			expect(target?.getAttribute("data-highlighted")).toBe("true");
 			expect(target?.className).toContain("motion-reduce:transition-none");
-		});
-		expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalledWith({
-			block: "center",
 		});
 		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
 			replySignal.id
