@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 const reference = z.string().trim().min(1).max(2048);
 export const executionContextAccessSchema = z.enum([

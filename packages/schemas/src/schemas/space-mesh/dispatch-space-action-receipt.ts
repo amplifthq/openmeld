@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const dispatchSpaceActionClosedReasonCodeSchema = z.enum([
   "space_action.context_expired",
