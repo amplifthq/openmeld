@@ -27,6 +27,25 @@
 
 ## Desktop pilot platform contract
 
+`packages/schemas/src/client-environment.ts` owns the Web runtime publication
+`GET /v1/client-environment`. Its strict response contains only `gatewayHost`,
+normalized from the served Web environment's existing `OPENMELD_GATEWAY_URL`.
+It has no account, session, credentials or caller-selected configuration. Web
+returns `Cache-Control: no-store`; clients do not persist it. This metadata
+selects the existing account/profile-Space history namespace and grants no
+authorization. SSR retains its request-aware server boundary and reads the
+same runtime setting directly.
+
+Web also forwards only `GET /v1/profiles` to Auth's existing profile-list
+endpoint through its established Auth-owned request proxy; it does not expose
+generic Auth session operations.
+
+Deploy the additive Web routes before clients that depend on them. Existing
+HTTP/RPC payloads and old clients remain unchanged; an unavailable or malformed
+response fails the new dependent operation without an RPC/default fallback.
+CLI, Service, Skills, Core and Gateway require no protocol or version-floor
+change. The Desktop fingerprint and request admission rules remain in force.
+
 `packages/schemas/src/desktop-client.ts` owns the Desktop origin, build header,
 sanitized session identity, and platform metadata. The native process owns
 credentials; renderer session responses contain no session token. Existing
