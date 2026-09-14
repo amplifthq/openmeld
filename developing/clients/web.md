@@ -25,6 +25,24 @@
 
 ## Boundary
 
+### Shared Profile and Organization actions
+
+Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
+`lib/auth-business.server.ts` validates public inputs and safe response projections
+while retaining Auth's original HTTP handlers, permissions, middleware, cookies,
+and mutation effects. Organization settings endpoints accept only name/slug,
+member admin/member roles, and the existing invitation operations. They expose no
+vendor session object or caller-selected upstream route. Invitation URLs remain
+legitimate permission-checked domain results.
+
+Agent removal uses `DELETE /v1/profiles/agents/:profileId`: Auth checks owner and
+Agent kind before deleting through its existing owner service. Generic Auth/RPC
+Profile deletion retains its existing consumers and semantics. Auth owns deletion
+reconciliation; Web retains warning-only catalog refresh on success or 404 and
+the shared UI retains optimistic rollback/invalidation. Profile creation remains
+a durable commit before local setup. No new Organization active-session writer
+or membership store is introduced.
+
 ### Center Agent selected sessions (Flue 2 candidate)
 
 The Center Agent chat at `/o/{orgSlug}/chats/center-agent` accepts `?session=<space-id>`. This selects an exact

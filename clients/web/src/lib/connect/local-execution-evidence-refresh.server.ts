@@ -26,11 +26,18 @@ export async function notifyLocalExecutionEvidenceChanged(input: {
 	if (cookie) {
 		headers.set("cookie", cookie);
 	}
+	for (const name of ["origin", "referer"] as const) {
+		const value = input.requestHeaders.get(name);
+		if (value !== null) {
+			headers.set(name, value);
+		}
+	}
 
 	const response = await (input.fetchImpl ?? fetch)(
 		new URL("/v1/agent-profiles/route-catalog-sync", input.gatewayUrl),
 		{
 			method: "POST",
+			redirect: "error",
 			headers,
 			body: JSON.stringify({
 				agentProfileIds: [normalizedProfileId],

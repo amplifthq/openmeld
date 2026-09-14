@@ -6551,6 +6551,31 @@ into `packages/agent-profile`.
 
 ## Cross-Client Reuse Policy
 
+### Profile and Organization business HTTP adapters
+
+`organization-actions.ts` defines strict safe Organization management inputs,
+invitation display results and error code/message envelopes. Existing Profile,
+join-link, public join-request, Space-invitation and account-context schemas stay
+their respective owners. Fixed Web handlers call existing Auth HTTP endpoints;
+Auth/Core remain the only authorization and mutation owners. Never expose the
+internal invitation RPC union through these adapters.
+
+Contract impact: these are additive Web HTTP routes and an additive Auth Agent-only
+DELETE route. The Agent precondition is internal to the deletion service, not a
+caller-selectable field. No CLI/Service/Skills runtime contract, Wake envelope,
+setup command, trace response, database schema or execution epoch changes.
+Old and new local components retain their existing cloud setup/Wake/Space-action
+and diagnostic contracts. No local component stamp is needed.
+
+Rollout: deploy Auth before the new Web handlers, then release Desktop with its
+separately accepted native API/trust contract. Cookie Profile creation now requires
+the existing trusted-origin check: old generated Web create helpers did not
+forward Origin, so minimize the Auth-to-Web deployment window (those old helpers
+fail closed until Web is updated). Verified bearer callers without cookies retain
+their behavior. Roll back new Web/Desktop callers before Auth; do not remove
+cookie-origin enforcement to restore an older unsafe helper. Browser security
+and account session endpoints remain outside this change.
+
 OpenMeld has both Web and CLI clients. New feature work must classify touched logic
 before implementation.
 
