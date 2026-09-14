@@ -480,7 +480,7 @@ function createThinkingDeltaFrame(input: {
 	sequence: number;
 	thinkingSnapshot: string;
 	reasoningState?: LocalAgentReasoningState;
-}): SpaceAgentStreamDeltaFrame {
+}): Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }> {
 	return {
 		type: "space.agent_stream_delta",
 		v: 1,
