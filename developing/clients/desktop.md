@@ -16,6 +16,13 @@
 
 ## Product boundary
 
+The native frame waits for hydration before adding its titlebar and content
+wrapper. Its first client tree must match the prerendered shell, where no native
+bridge exists. A document-level hydration replacement clears the shared Web
+Appearance bootstrap attributes, including conversation width and self-message
+alignment. Preserve that initialization rather than deriving Desktop-specific
+preferences or compensating with local CSS.
+
 Organization entry and route scope use the shared Auth-owned
 `GET /v1/account/organization-context` projection rather than generated
 server-function IDs. The native credential transport remains unchanged; the

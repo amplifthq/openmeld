@@ -1,12 +1,13 @@
 import type { DesktopSession } from "@openmeld/schemas";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLocation, useRouter } from "@tanstack/react-router";
+import { useHydrated, useLocation, useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect } from "react";
 import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
 import { getDesktopPlatform } from "./platform";
 import "./desktop.css";
 
 export function DesktopFrame({ children }: { children: ReactNode }) {
+	const hydrated = useHydrated();
 	const bridge = getDesktopPlatform();
 	const router = useRouter();
 	const queryClient = useQueryClient();
@@ -67,7 +68,9 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 			window.removeEventListener("focus", onFocus);
 		};
 	}, [bridge, router, queryClient, pathname]);
-	if (!bridge) {
+	// The prerendered shell has no native bridge. Match that document during
+	// hydration so React preserves the shared Appearance bootstrap attributes.
+	if (!(bridge && hydrated)) {
 		return children;
 	}
 	return (

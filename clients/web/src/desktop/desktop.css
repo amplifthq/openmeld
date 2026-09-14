@@ -5,7 +5,7 @@
 
 .desktop-titlebar {
 	height: 38px;
-	background: var(--background);
+	background: var(--app-canvas);
 	-webkit-app-region: drag;
 }
 
