@@ -1,6 +1,7 @@
 import { isAgentWorkActivityPresentable } from "@openmeld/schemas";
 import type {
 	AgentStreamToolPart,
+	LocalAgentReasoningState,
 	SpaceAgentStreamDeltaFrame,
 	SpaceAgentStreamPartFrame,
 	SpaceAgentStreamPresence,
@@ -30,6 +31,7 @@ export type SpaceConversationVisibleStreamProjection =
 			text: string;
 			textSequence: number;
 			thinking?: string;
+			reasoningState?: LocalAgentReasoningState;
 	  })
 	| (SpaceConversationStreamCommon & {
 			reasonCode: string;
@@ -269,6 +271,7 @@ export function clearSpaceConversationTransientStreams(
 		}
 		const {
 			thinking: _thinking,
+			reasoningState: _reasoningState,
 			toolParts: _toolParts,
 			...persistent
 		} = projection;
@@ -309,6 +312,18 @@ function toStreamingProjection(input: {
 				? (currentStreamingProjection?.textSequence ?? 0)
 				: input.frame.sequence,
 		...(thinking ? { thinking } : {}),
+		...((
+			input.frame.kind === "thinking"
+				? input.frame.reasoningState
+				: currentStreamingProjection?.reasoningState
+		)
+			? {
+					reasoningState:
+						input.frame.kind === "thinking"
+							? input.frame.reasoningState
+							: currentStreamingProjection?.reasoningState,
+				}
+			: {}),
 		triggerMessageId: input.frame.triggerMessageId,
 		updatedAtMs: input.frame.updatedAtMs,
 		...(input.currentProjection?.toolParts
@@ -347,6 +362,10 @@ function toStreamingPartProjection(input: {
 	}
 	const boundedToolParts = toolParts.slice(-MAX_LIVE_AGENT_WORK_PARTS);
 	return {
+		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.reasoningState
+			? { reasoningState: input.currentProjection.reasoningState }
+			: {}),
 		createdAtMs: input.createdAtMs,
 		dispatchId: input.frame.dispatchId,
 		observedRevision: input.observedRevision,

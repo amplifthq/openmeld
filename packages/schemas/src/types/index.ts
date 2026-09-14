@@ -1,6 +1,10 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
 export type {
+  LocalAgentReasoningPreferencesRpc,
+  LocalAgentReasoningState,
+} from "../schemas/http/local-agent-reasoning";
+export type {
   SpaceMessageMutationBody,
   SpaceMessageMutationResponse,
 } from "../schemas/http/space-message-mutation";

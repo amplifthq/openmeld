@@ -1553,6 +1553,14 @@ class CodexAppServerSession {
       }
       return;
     }
+    if (
+      message.method?.startsWith("item/reasoning/") ||
+      toRecord(toRecord(message.params)?.item)?.type === "reasoning"
+    ) {
+      // Reasoning has no role in turn completion or reply extraction. Do not
+      // retain raw deltas or full completed reasoning items in the event queue.
+      return;
+    }
     this.#notifications.push(message);
     this.#observeContextTelemetry(message);
     this.#collectAgentMessageDelta(message);
