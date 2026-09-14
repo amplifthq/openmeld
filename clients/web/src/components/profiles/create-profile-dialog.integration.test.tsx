@@ -2440,7 +2440,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Approve for me" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Reduce approval prompts with Codex Auto-review. Native mode: Approve for me",
+			})
+		);
 		await waitFor(() => {
 			expect(screen.getByRole("combobox", { name: "Model" })).toBeTruthy();
 		});
@@ -2800,7 +2804,7 @@ describe("CreateProfileDialog", () => {
 			expect(
 				screen.getByRole("combobox", { name: "Codex permissions mode" })
 					.textContent
-			).toContain("Full access");
+			).toContain("Run without Codex sandbox or approval prompts");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
 			).toContain("GPT-5.4 Mini");
@@ -2815,7 +2819,7 @@ describe("CreateProfileDialog", () => {
 		expect(
 			(
 				screen.getByRole("checkbox", {
-					name: "I understand this permissions mode can run with dangerous full access.",
+					name: "I understand this mode may run dangerous actions without asking.",
 				}) as HTMLInputElement
 			).checked
 		).toBe(true);
@@ -2838,7 +2842,7 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", {
 					name: "Claude Code permissions mode",
 				}).textContent
-			).toContain("Ask permissions");
+			).toContain("Ask before restricted actions");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
 			).toContain("Claude Opus 4.8 (default)");
@@ -2919,7 +2923,7 @@ describe("CreateProfileDialog", () => {
 			);
 			fireEvent.click(
 				await screen.findByRole("checkbox", {
-					name: "I understand this permissions mode can run with dangerous full access.",
+					name: "I understand this mode may run dangerous actions without asking.",
 				})
 			);
 			fireEvent.click(screen.getByRole("button", { name: "Close dialog" }));
@@ -3106,11 +3110,15 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Approve for me" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Reduce approval prompts with Codex Auto-review. Native mode: Approve for me",
+			})
+		);
 		expect(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 				.textContent
-		).toContain("Approve for me");
+		).toContain("Reduce approval prompts with Codex Auto-review");
 
 		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));
 
@@ -3119,7 +3127,7 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", {
 					name: "Claude Code permissions mode",
 				}).textContent
-			).toContain("Ask permissions");
+			).toContain("Ask before restricted actions");
 		});
 	});
 
@@ -3235,7 +3243,11 @@ describe("CreateProfileDialog", () => {
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
-		fireEvent.click(screen.getByRole("option", { name: "Full access" }));
+		fireEvent.click(
+			screen.getByRole("option", {
+				name: "Run without Codex sandbox or approval prompts. Native mode: Full access",
+			})
+		);
 
 		const submitButton = screen.getByRole("button", {
 			name: CREATE_PROFILE_BUTTON_PATTERN,
@@ -3245,7 +3257,7 @@ describe("CreateProfileDialog", () => {
 		expect(createAgentProfileCreationRequestMock).not.toHaveBeenCalled();
 		fireEvent.click(
 			screen.getByLabelText(
-				"I understand this permissions mode can run with dangerous full access."
+				"I understand this mode may run dangerous actions without asking."
 			)
 		);
 		await waitFor(() => {

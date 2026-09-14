@@ -443,6 +443,11 @@ Codex, Grok Build, and future controllers use different permission names and
 enforcement models. Grok Build uses its native `default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk`, and `bypassPermissions` modes. Plan remains a controller
 execution mode, not proof of a filesystem boundary.
+Owner-facing selection surfaces lead with the outcome of each mode in plain
+language, while keeping the controller-native label visible as a secondary fact
+and its relevant controller-native launch settings inside technical details.
+Outcome copy must not imply that Agent Controller Permission Mode changes Space
+access, Agent availability, or separate Computer file-access limits.
 
 Owners may edit Binding-level runtime settings while a Wake is running. The
 accepted Binding id and configuration revision remain the dispatch's immutable

@@ -33,8 +33,13 @@ describe("Agent Controller Permission Mode", () => {
         agentControllerRef: "builtin:claude-code",
       })
     ).toMatchObject({
+      description:
+        "Claude Code asks you in the Space before actions that need permission.",
       fieldLabel: "Claude Code permissions mode",
       label: "Ask permissions",
+      outcomeLabel: "Ask before restricted actions",
+      technicalDetail:
+        'claude --permission-mode default --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
       tone: "neutral",
     });
 
@@ -43,8 +48,12 @@ describe("Agent Controller Permission Mode", () => {
         agentControllerRef: "builtin:codex",
       })
     ).toMatchObject({
+      description:
+        "Codex asks before editing files outside its working folder or using the internet.",
       fieldLabel: "Codex permissions mode",
       label: "Ask for approval",
+      outcomeLabel: "Ask before external access",
+      technicalDetail: "codex -s workspace-write -a untrusted",
       tone: "neutral",
     });
 
@@ -65,6 +74,8 @@ describe("Agent Controller Permission Mode", () => {
     ).toMatchObject({
       fieldLabel: "Cursor permissions mode",
       label: "Auto-review (Smart Auto)",
+      outcomeLabel: "Automatically run actions Cursor reviews as safe",
+      technicalDetail: "cursor-agent --auto-review acp",
       tone: "neutral",
     });
 
@@ -75,8 +86,43 @@ describe("Agent Controller Permission Mode", () => {
     ).toMatchObject({
       fieldLabel: "Grok Build permissions mode",
       label: "Ask permissions",
+      outcomeLabel: "Ask before restricted actions",
+      technicalDetail: null,
       tone: "neutral",
     });
+  });
+
+  it("keeps Codex native modes distinct from their outcome-first copy", () => {
+    expect(
+      listAgentControllerPermissionModeOptions({
+        agentControllerRef: "builtin:codex",
+      }).map((option) => ({
+        label: option.label,
+        outcomeLabel: option.outcomeLabel,
+        value: option.value,
+      }))
+    ).toEqual([
+      {
+        label: "Ask for approval",
+        outcomeLabel: "Ask before external access",
+        value: "codex:askForApproval",
+      },
+      {
+        label: "Approve for me",
+        outcomeLabel: "Reduce approval prompts with Codex Auto-review",
+        value: "codex:approveForMe",
+      },
+      {
+        label: "Full access",
+        outcomeLabel: "Run without Codex sandbox or approval prompts",
+        value: "codex:fullAccess",
+      },
+      {
+        label: "Custom (config.toml)",
+        outcomeLabel: "Use your Codex configuration",
+        value: "codex:customConfig",
+      },
+    ]);
   });
 
   it("marks bypass as a warning option that requires explicit confirmation", () => {
