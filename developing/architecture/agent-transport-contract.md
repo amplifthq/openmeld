@@ -460,6 +460,31 @@ RuntimeCoordinator execution follows one authority path:
 
 Important execution rules:
 
+- For an accepted/running execution whose current Service transport is unavailable,
+  RuntimeCoordinator retains the same execution for a 30-minute communication
+  recovery window, anchored to its last accepted local progress. This is not a
+  total runtime deadline. Opening a socket or checking a watchdog cannot extend
+  that baseline; fresh accepted progress from the same token run ends the old
+  uncertainty. A reconnection after the last accepted progress also retains that
+  window when the watchdog missed the offline interval; registration alone does
+  not prove that execution evidence has caught up. A continuously connected
+  controller with stale progress keeps the ordinary
+  five-minute policy. Stop, revocation, confirmed failure, and replacement-process
+  reconciliation take precedence. Window expiry retains `runtime.progress_stale`
+  and the existing owner-mediated late-result recovery, never automatic rerun.
+- After transport hibernation, accepted runtime evidence and tool/reasoning
+  progress read the durable command when its transient transport entry is gone.
+  This read projection does not recreate execution authority. Lease, source
+  message, execution identity, token and owned-reconnection checks still apply.
+  Tool/reasoning publication additionally requires the current session socket
+  and connection generation. Missing durable command state remains an explicit rejection.
+- Watchdog scheduling is a bounded Durable Object projection of command and token
+  authority. Command writes and terminal transitions update it transactionally.
+  Existing history is repaired in pages with a durable cursor, without deleting
+  history. Each alarm reads at most ten due items and repairs at most ten legacy
+  records; authoritative eligibility is rechecked before spending execution
+  budget. Failed items receive a bounded retry timestamp so later work can advance.
+  Scheduling timestamps are not progress evidence or execution authority.
 - A controlled OpenMeld Service update, reinstall, or repair first marks the
   current Runtime Transport route as not accepting new dispatches. The existing
   socket remains connected while owned local executions continue to report

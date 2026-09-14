@@ -5,6 +5,8 @@ import {
   OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER,
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
+  SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
 import type {
   DaemonRouteObservationResponse,
@@ -102,31 +104,38 @@ export function registerDaemonRoutes(app: Hono<HonoBindings>): void {
       LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY
         ? LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY
         : null;
-    const shardRequest = new Request(
-      "https://runtime-transport.internal/stream",
-      {
-        method: "GET",
-        headers: {
-          Upgrade: "websocket",
-          ...(c.req.header(OPENMELD_REASONING_STREAM_HEADER) === "1"
-            ? { [OPENMELD_REASONING_STREAM_HEADER]: "1" }
-            : {}),
-          [RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER]: ownerUserId,
-          ...(computerFileAccessCapability
-            ? {
-                [OPENMELD_RUNTIME_CAPABILITIES_HEADER]:
-                  computerFileAccessCapability,
-              }
-            : {}),
-          ...(localFolderPickerCapability
-            ? {
-                [OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER]:
-                  localFolderPickerCapability,
-              }
-            : {}),
-        },
-      }
+    const shardUrl = new URL("https://runtime-transport.internal/stream");
+    const connectionId = serviceConnectionDiagnosticIdSchema.safeParse(
+      c.req.query(SERVICE_CONNECTION_ID_QUERY_PARAMETER)
     );
+    if (connectionId.success) {
+      shardUrl.searchParams.set(
+        SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+        connectionId.data
+      );
+    }
+    const shardRequest = new Request(shardUrl, {
+      method: "GET",
+      headers: {
+        Upgrade: "websocket",
+        ...(c.req.header(OPENMELD_REASONING_STREAM_HEADER) === "1"
+          ? { [OPENMELD_REASONING_STREAM_HEADER]: "1" }
+          : {}),
+        [RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER]: ownerUserId,
+        ...(computerFileAccessCapability
+          ? {
+              [OPENMELD_RUNTIME_CAPABILITIES_HEADER]:
+                computerFileAccessCapability,
+            }
+          : {}),
+        ...(localFolderPickerCapability
+          ? {
+              [OPENMELD_LOCAL_FOLDER_PICKER_CAPABILITY_HEADER]:
+                localFolderPickerCapability,
+            }
+          : {}),
+      },
+    });
 
     return await shard.fetch(shardRequest);
   });

@@ -456,14 +456,25 @@ export const writeRuntimeCoordinatorExecutionEventFromParts = async (input: {
   runtimeCoordinatorExecutionId: string;
   statusAfter?: RuntimeCoordinatorExecutionStatus | null;
 }): Promise<void> => {
+  const legacyEventId = buildRuntimeCoordinatorExecutionEventId(input);
+  // Preserve every previously valid identity across replay and rolling deploys.
+  // Oversized identities never passed the event schema and cannot exist in D1.
+  const eventId =
+    legacyEventId.length <= 512
+      ? legacyEventId
+      : `rce_event_sha256:${Array.from(
+          new Uint8Array(
+            await crypto.subtle.digest(
+              "SHA-256",
+              new TextEncoder().encode(legacyEventId)
+            )
+          ),
+          (byte) => byte.toString(16).padStart(2, "0")
+        ).join("")}`;
   await writeRuntimeCoordinatorExecutionEvent({
     db: input.db,
     event: {
-      eventId: buildRuntimeCoordinatorExecutionEventId({
-        eventType: input.eventType,
-        idempotencyKey: input.idempotencyKey,
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-      }),
+      eventId,
       eventType: input.eventType,
       idempotencyKey: input.idempotencyKey,
       observedAtMs: input.observedAtMs,

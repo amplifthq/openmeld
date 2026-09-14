@@ -241,7 +241,6 @@ describe("local service provider conversation proof sync", () => {
       family: "provider_conversation_proof",
       message: null,
       reasonCode: "provider_conversation.proof.no_applicable_routes",
-      requiresCarrierHandshake: false,
       status: "not_applicable",
     });
   });
@@ -302,7 +301,6 @@ describe("local service provider conversation proof sync", () => {
       family: "provider_conversation_proof",
       message: "Provider conversation proof collection failed.",
       reasonCode: "provider_conversation.runtime_reporting.collection_failed",
-      requiresCarrierHandshake: false,
       status: "failed",
     });
   });

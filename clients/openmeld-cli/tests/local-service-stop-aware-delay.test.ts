@@ -54,6 +54,30 @@ describe("createStopAwareDelay", () => {
     await expect(delay.wait(60_000)).resolves.toBe("interrupted");
   });
 
+  it.each([
+    false,
+    true,
+  ])("wakes once for recovery without disabling later backoff: %s", async (beforeWait) => {
+    const delay = createStopAwareDelay();
+    if (beforeWait) {
+      delay.wake();
+    }
+    const first = delay.wait(30_000);
+    if (!beforeWait) {
+      delay.wake();
+    }
+    await expect(first).resolves.toBe("interrupted");
+    let finished = false;
+    const second = delay.wait(1000).then(() => {
+      finished = true;
+    });
+    await vi.advanceTimersByTimeAsync(999);
+    expect(finished).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await second;
+    expect(finished).toBe(true);
+  });
+
   it("interrupts every pending wait at once", async () => {
     const delay = createStopAwareDelay();
     const results: string[] = [];

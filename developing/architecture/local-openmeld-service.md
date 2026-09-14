@@ -898,6 +898,13 @@ the normal handshake can refresh authentication. That recovery must preserve
 the per-channel failure evidence, reject stale-socket recovery requests, and
 remain separate from read-only status and doctor commands.
 
+A local credential-store failure or expiry preflight does not prove a server
+rejected the carrier's credential and must not close that connection. Reporting
+preserves the typed local failure reason and may refresh expired credentials
+through the auth-session owner. Authentication recovery requires an actual
+rejection of the exact credential attached to the current socket; its ephemeral
+correlation fingerprint must never enter logs or uploaded diagnostics.
+
 ## Agent Activity Session Inventory Carrier
 
 The local Service performs a periodic full reconciliation for every explicitly
@@ -1503,11 +1510,17 @@ Catalog consumption rules:
 - One catalog load resolves its account context once and reuses it for every
   Profile workspace inspection. It must not fan out identical Keychain reads
   per Profile.
-- One OpenMeld Service process reloads the unchanged local auth session from
-  secure storage once and reuses it while the persisted session payload is
-  unchanged. Clearing, replacing, or editing that payload invalidates the
-  in-process copy; a new Service process reloads it from secure storage. Remote
-  authorization checks still decide whether the bearer session is valid.
+- One OpenMeld Service process reuses a verified credential for the same
+  committed login, storage reference, lane, auth origin, client and account.
+  Organization selection and display-only profile changes update context
+  without evicting that credential. Security-relevant metadata, including
+  expiry and scope, retains conservative invalidation for supported legacy
+  same-reference writers. New credential rotations use unique references.
+  Full-payload transaction fences remain separate and unchanged. Clearing or
+  replacing the login invalidates its cached identity; a slow read rechecks
+  current metadata before returning. Concurrent reads of the same credential
+  are coalesced. A new Service process reloads from secure storage, and remote
+  authorization remains authoritative.
 - Reading a committed local session does not acquire the account-transition
   mutation lock when no durable transition journal exists. Recovery acquires
   that lock only after observing a journal and rereads it under ownership before
@@ -1527,8 +1540,11 @@ Catalog consumption rules:
   of opening a macOS authorization window. Normal setup and login writes remain
   silent; if macOS requires interaction, setup uses the documented private-file
   fallback. If Security.framework never returns, the parent terminates that
-  child, caches the timeout, and does not query Keychain again during the same
-  CLI or Service process. A command authentication check may re-evaluate the
+  child and observes a 30-second cooldown before another Keychain attempt.
+  The existing carrier recovery scheduler honors this retry eligibility;
+  successful credential recovery wakes a waiting transient retry. Local
+  unavailability remains degraded connection evidence and does not consume
+  the invalid-login backoff ladder. A command authentication check may re-evaluate the
   CLI-owned session once after `session_token_unavailable`; the cached timeout
   makes that re-evaluation fail immediately without another Keychain query,
   while another one-off helper failure may recover through the single bounded
@@ -2422,6 +2438,33 @@ status immediately. Disconnect, subsequent connection attempts, and the next
 acknowledged connection share a recovery identifier and elapsed time in the
 existing local lifecycle journal, including while offline. These are observations,
 not another recovery controller or a claim about the original cause of an outage.
+
+The carrier also records a strict, account-partitioned connection-evidence
+journal under its existing runtime-state directory. It retains at most 32
+incidents, 100 events per incident and 1 MiB, pruning records older than seven
+days on load/write. Repeated adjacent observations are aggregated; truncation
+is explicit. Pending event writes are capped at 128 so a stalled filesystem
+cannot accumulate unbounded work. Writes and uploads never block registration
+or heartbeat.
+Completed incidents upload after registration, and an interrupted incident from
+a previous Service process uploads on its next connection. Receipt replay is
+idempotent. Upload retries have their own bounded backoff, retry promptly on
+reconnection, and cannot reconnect the carrier; an account change prevents uploading old evidence with new account
+credentials. Safe native network codes and observed phase are retained when
+available. Unknown runtime errors remain unknown. Retry scheduling delay does
+not prove OS sleep, a DNS problem, or a provider outage.
+
+Reply reconsideration retains its existing exact-conversation behavior. Its
+existing dispatch journal additionally records the relevant signal IDs/count,
+typed reason, start and duration, without signal text or prompts. A finished
+reconsideration observation is not evidence that a Space reply was published.
+
+Registration and heartbeat never await optional local-component inspection.
+One Service-lifetime observation coalesces that inspection across reconnects
+and may reuse a result for at most 30 seconds; absent or expired observations are omitted rather than
+renewed as fresh component evidence. A completed observation can schedule a
+heartbeat after registration. Missing component evidence does not grant
+component readiness or bypass the Core-owned update projection.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.
 A Service advertises it only when it can keep a `post_message` result as an

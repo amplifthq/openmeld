@@ -1,6 +1,17 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
 
 export type {
+  ServiceConnectionEvidenceEvent,
+  ServiceConnectionEvidenceJournal,
+  ServiceConnectionIncident,
+  ServiceConnectionIncidentReceipt,
+  ServiceConnectionIncidentReport,
+  ServiceConnectionIncidentReportRpcInput,
+  ServiceConnectionIncidentsReadRpcInput,
+  ServiceConnectionIncidentsResponse,
+} from "../schemas/daemon/service-connection-evidence";
+
+export type {
   LocalAgentReasoningPreferences,
   LocalAgentReasoningPreferencesRpc,
   LocalAgentReasoningState,
