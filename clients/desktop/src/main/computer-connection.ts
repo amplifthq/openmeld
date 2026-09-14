@@ -66,7 +66,9 @@ export function createComputerConnection(input: {
         return { status: "cancelled" };
       }
       const canReuse = !(
-        intent.resetThisComputer || intent.sourceNavigationAction
+        intent.resetThisComputer ||
+        intent.sourceNavigationAction ||
+        intent.connectedComputerId
       );
       if (
         canReuse &&
@@ -111,6 +113,7 @@ export function createComputerConnection(input: {
           targetSpaceId: intent.targetSpaceId,
           selectedLocalAgentIds: [],
           sourceNavigationAction: intent.sourceNavigationAction,
+          connectedComputerId: intent.connectedComputerId,
         })
       );
       return await withPrepareDiagnostics(

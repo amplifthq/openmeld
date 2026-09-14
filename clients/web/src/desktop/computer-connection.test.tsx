@@ -38,7 +38,6 @@ afterEach(() => {
 
 it.each([
 	"update",
-	"computer",
 	"space",
 	"source_action",
 ] as const)("does not replace %s recovery with ordinary native connection", async (kind) => {
@@ -48,9 +47,6 @@ it.each([
 	};
 	if (kind === "update") {
 		state.routeIntent.serviceAction = "update_service";
-	}
-	if (kind === "computer") {
-		state.routeIntent.connectedComputerId = "computer-b";
 	}
 	if (kind === "space" || kind === "source_action") {
 		state.routeIntent = {
@@ -86,7 +82,6 @@ it.each([
 	expect(path).toContain(
 		{
 			update: "serviceAction=update_service",
-			computer: "connectedComputerId=computer-b",
 			space: "agentProfileIds=agent-b",
 			source_action: "/spaces/space-b",
 		}[kind]
@@ -95,11 +90,15 @@ it.each([
 	expect(onCompleted).not.toHaveBeenCalled();
 });
 
-it("carries a fresh New Agent connection and its source action into native Prepare", async () => {
+it.each([
+	undefined,
+	"computer-b",
+])("carries New Agent reconnect target %s and its source action into native Prepare", async (connectedComputerId) => {
 	state.routeIntent = {
 		kind: "account_computer_setup",
 		resetThisComputer: true,
 		returnTo: "agent_creation",
+		connectedComputerId,
 	};
 	state.connect.mockResolvedValue({ status: "cancelled" });
 	const sourceNavigationAction = { spaceId: "space-a", signalId: "signal-a" };
@@ -116,6 +115,7 @@ it("carries a fresh New Agent connection and its source action into native Prepa
 			expect.objectContaining({
 				resetThisComputer: true,
 				sourceNavigationAction,
+				connectedComputerId,
 			})
 		)
 	);

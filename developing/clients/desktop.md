@@ -123,8 +123,16 @@ claim Agent Wakeability or rewrite a Computer session.
 
 Fresh-session requests (including New Agent recovery) and source navigation
 actions bypass that reuse shortcut. Source actions enter the existing Prepare
-request unchanged. Explicit Computer targeting, Service updates, and Space
-recovery stay in the Web flow until the native path supports their full intent;
+request unchanged. A requested `connectedComputerId` also bypasses reuse and
+enters Prepare unchanged: Core validates account ownership, and the existing CLI
+executor enrolls the current Service against that stable Computer identity.
+New Agent must not derive this reconnect intent from a sole enrolled Computer,
+account routing, a catalog selection, or a completed browser handoff. Ordinary
+native connection leaves the target unspecified so the CLI uses its own Service
+identity. The recovery picker (shown even for one saved Computer) and an explicit
+session intent can select an existing Computer; the same resolved intent drives
+both embedded setup and its recovery link.
+Service updates and Space recovery stay in the Web flow until the native path supports their full intent;
 Desktop offers the original route, or the original Space for a source action,
 without reporting native completion. Once Prepare exists, later authorization,
 account, execution, or snapshot failures retain its diagnostic correlation ID.

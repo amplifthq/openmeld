@@ -32,7 +32,6 @@ export function DesktopComputerConnection(input: {
 	const intent = setup.routeIntent;
 	const requiresWeb =
 		intent.serviceAction === "update_service" ||
-		intent.connectedComputerId !== undefined ||
 		intent.kind === "space_recovery";
 	const connect = async () => {
 		if (requiresWeb) {
@@ -54,6 +53,7 @@ export function DesktopComputerConnection(input: {
 					targetSpaceId: setup.targetSpaceId,
 					resetThisComputer: intent.resetThisComputer,
 					sourceNavigationAction: input.sourceNavigationAction,
+					connectedComputerId: intent.connectedComputerId,
 				})
 			);
 			if (result.status === "cancelled") {

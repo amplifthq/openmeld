@@ -1,4 +1,11 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	renderHook,
+	screen,
+} from "@testing-library/react";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
@@ -12,7 +19,7 @@ afterEach(cleanup);
 describe("Agent creation computer recovery", () => {
 	it.each([
 		["connect_computer", false, "connect"],
-		["connect_computer", true, "reconnect"],
+		["connect_computer", true, "connect"],
 		["check_failed", true, "check_failed"],
 		["checking", true, "checking"],
 		["set_up_local_agents", true, "local_agents"],
@@ -42,6 +49,35 @@ describe("Agent creation computer recovery", () => {
 			expect(onRetry).toHaveBeenCalledOnce();
 			expect(result.current.computerRecovery?.setup).toBeUndefined();
 		}
+	});
+	it.each([
+		null,
+		"office-mac",
+	])("does not attach a new machine to the sole offline account Computer (routing=%s)", (deviceId) => {
+		const { result } = renderHook(() =>
+			useAgentCreationComputerRecovery({
+				enabled: true,
+				recovery: agentCreationRecoveryFixture({
+					computers: [agentCreationComputerFixture()],
+					deviceId,
+					onSelect: vi.fn(),
+				}),
+				guidance: "connect_computer",
+				hasLocalAgents: false,
+				isPending: false,
+				onRetry: vi.fn(),
+			})
+		);
+		const provider = result.current.computerRecovery?.setup as ReactElement<{
+			routeIntent: { connectedComputerId?: string };
+		}>;
+		expect(result.current.computerRecovery?.state).toBe("connect");
+		expect(provider.props.routeIntent.connectedComputerId).toBeUndefined();
+		expect(result.current.reconnectComputerId).toBeUndefined();
+		render(result.current.computerRecovery?.computerChoices);
+		expect(screen.getByDisplayValue("Connect a new computer")).toBe(
+			screen.getByRole("combobox", { name: "Computer to reconnect" })
+		);
 	});
 	it("needs no computer setup when the selected computer has local agents", () => {
 		const { result } = renderHook(() =>
@@ -80,6 +116,11 @@ describe("Agent creation computer recovery", () => {
 				isPending: false,
 				onRetry,
 			})
+		);
+		render(result.current.computerRecovery?.computerChoices);
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "Computer to reconnect" }),
+			{ target: { value: "office-mac" } }
 		);
 		const provider = result.current.computerRecovery?.setup as ReactElement<{
 			routeIntent: { connectedComputerId: string };
