@@ -1,4 +1,6 @@
 import type {
+  DesktopComputerConnectionRequest,
+  DesktopComputerConnectionResult,
   DesktopPlatform,
   DesktopSession,
   DesktopSpaceStreamBridge,
@@ -16,6 +18,7 @@ export const PILOT_IPC = {
   session: "desktop:session",
   signIn: "desktop:sign-in",
   signOut: "desktop:sign-out",
+  connectComputer: "desktop:connect-computer",
   sessionChanged: "desktop:session-changed",
   spaceStreamOpen: "desktop:space-stream-open",
   spaceStreamClose: "desktop:space-stream-close",
@@ -27,5 +30,8 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
   session(): Promise<DesktopSession>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
+  connectComputer(
+    input: DesktopComputerConnectionRequest
+  ): Promise<DesktopComputerConnectionResult>;
   onSessionChanged(handler: () => void): () => void;
 };

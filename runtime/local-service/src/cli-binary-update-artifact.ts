@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { gunzipSync } from "node:zlib";
-import type { CliBinaryReleaseInfo } from "../config/version-state";
-import { reconstructCliBinaryDelta } from "./cli-binary-delta";
+import type { CliBinaryRelease } from "@openmeld/schemas";
+import { reconstructCliBinaryDelta } from "./cli-binary-delta.js";
 
 type CommandResult = {
   code: number;
@@ -13,7 +13,7 @@ type CommandResult = {
 const HARDENED_RUNTIME_FLAG_RE = /flags=.*runtime/iu;
 const SIGNING_TIMESTAMP_RE = /^Timestamp=/mu;
 
-type CliBinaryDelta = NonNullable<CliBinaryReleaseInfo["deltas"]>[number];
+type CliBinaryDelta = NonNullable<CliBinaryRelease["deltas"]>[number];
 type CliBinaryFullUpdatePlan =
   | {
       downloadSha256: string;
@@ -41,7 +41,7 @@ export async function resolveCliBinaryUpdatePlan(input: {
   baseBinaryPath: string;
   currentVersion: string;
   onDeltaFallback: (error: Error) => void;
-  release: CliBinaryReleaseInfo;
+  release: CliBinaryRelease;
 }): Promise<CliBinaryUpdatePlan> {
   const fullDownloadPlan = resolveFullCliBinaryUpdatePlan(input.release);
   const versionDeltas = input.release.deltas?.filter(
@@ -80,7 +80,7 @@ export async function downloadCliBinaryUpdateArtifact(input: {
   fetchImpl: typeof fetch;
   onDeltaFallback: (error: Error) => void;
   plan: CliBinaryUpdatePlan;
-  release: CliBinaryReleaseInfo;
+  release: CliBinaryRelease;
 }): Promise<Buffer> {
   if (input.plan.transport === "delta") {
     try {
@@ -102,7 +102,7 @@ export async function downloadCliBinaryUpdateArtifact(input: {
 
 export async function verifyCliBinaryCodeSignature(input: {
   artifactPath: string;
-  release: CliBinaryReleaseInfo;
+  release: CliBinaryRelease;
   runCommand: (command: string, args: string[]) => Promise<CommandResult>;
 }): Promise<void> {
   const { codeIdentifier, teamIdentifier } = input.release;
@@ -160,7 +160,7 @@ async function downloadCliBinaryDelta(input: {
   delta: CliBinaryDelta;
   downloadTimeoutMs: number;
   fetchImpl: typeof fetch;
-  release: CliBinaryReleaseInfo;
+  release: CliBinaryRelease;
 }): Promise<Buffer> {
   const response = await input.fetchImpl(input.delta.patchUrl, {
     method: "GET",
@@ -205,8 +205,8 @@ async function downloadCliBinaryDelta(input: {
   });
 }
 
-function resolveFullCliBinaryUpdatePlan(
-  release: CliBinaryReleaseInfo
+export function resolveFullCliBinaryUpdatePlan(
+  release: CliBinaryRelease
 ): CliBinaryFullUpdatePlan {
   if (hasCompressedCliBinaryTransport(release)) {
     return {
@@ -228,7 +228,7 @@ async function downloadFullCliBinaryArtifact(input: {
   downloadTimeoutMs: number;
   fetchImpl: typeof fetch;
   plan: CliBinaryFullUpdatePlan;
-  release: CliBinaryReleaseInfo;
+  release: CliBinaryRelease;
 }): Promise<Buffer> {
   const response = await input.fetchImpl(input.plan.downloadUrl, {
     method: "GET",
@@ -270,8 +270,8 @@ async function downloadFullCliBinaryArtifact(input: {
 }
 
 function hasCompressedCliBinaryTransport(
-  release: CliBinaryReleaseInfo
-): release is CliBinaryReleaseInfo & {
+  release: CliBinaryRelease
+): release is CliBinaryRelease & {
   archiveFormat: "gzip";
   archiveUrl: string;
   archiveSha256: string;

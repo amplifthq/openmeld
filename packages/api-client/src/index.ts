@@ -75,6 +75,7 @@ export type {
   OpenMeldApiClientRequestOptions,
 } from "./client";
 export { createOpenMeldApiClient } from "./client";
+export { createComputerAuthorizationGrant } from "./computer-authorization";
 export { createComputerFileAccessApi } from "./computer-file-access/api";
 export {
   buildComputerFileAccessReadPath,

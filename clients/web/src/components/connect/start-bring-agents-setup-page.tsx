@@ -69,6 +69,8 @@ import {
 } from "#/components/connect/start-bring-agents-error-state";
 import { StartChoicePage } from "#/components/connect/start-choice-page";
 import { StartSetupCommandCard } from "#/components/connect/start-setup-command-card";
+import { DesktopComputerConnection } from "#/desktop/computer-connection";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	buildWebSetupCommand,
 	copyCliEntryCommand,
@@ -157,7 +159,9 @@ export type StartBringAgentsSetupPageProps = {
 
 type ComputerSetupFlowProps = StartBringAgentsSetupPageProps & {
 	onContinue?: () => void;
-	onCompleted?: (snapshot: PrepareSessionSnapshot) => void;
+	onCompleted?: (
+		snapshot: Pick<PrepareSessionSnapshot, "deviceId" | "runtimeLane">
+	) => void;
 	onNavigationActionAlreadyStarted?: () => void;
 	preferExistingConnection?: boolean;
 	presentation: "conversation" | "embedded" | "page";
@@ -174,6 +178,14 @@ export function StartBringAgentsSetupPage(
 
 export function ComputerSetupFlow(input: ComputerSetupFlowProps) {
 	const bringAgentsSetup = useBringAgentsSetupContext();
+	if (getDesktopPlatform()) {
+		return (
+			<DesktopComputerConnection
+				onCompleted={input.onCompleted}
+				onContinue={input.onContinue}
+			/>
+		);
+	}
 	if (input.presentation === "conversation") {
 		return (
 			<ConversationComputerConnectionGate

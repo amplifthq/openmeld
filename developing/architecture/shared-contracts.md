@@ -173,6 +173,23 @@ existing paths; the pilot cannot target production or a Vite dev registry.
 
 ## Local Service account admission
 
+`computer-connection.ts` owns the opt-in CLI review/intent and fixed Desktop
+connection request/result. Review exposes an exact non-secret session identity
+and optional owner-validated device/lane reuse evidence. Desktop does not derive
+that identity from credentials or Service files. Generic Prepare writes remain
+blocked in the renderer; the native fixed operation uses existing cloud APIs.
+
+Contract Impact Audit: the CLI gains an opt-in connection command/flag and the
+Desktop bundle gains an IPC method. Existing CLI setup, Wake, Space actions,
+status, diagnostics, Service transport, Skills, and Core/Gateway/Prepare payloads
+remain compatible in both directions. The shared binary artifact extraction
+preserves existing update and signature behavior. CLI/Service changes are
+advisory `available`; no global command/Service/Skills floor changes. The binary
+channel must contain the new CLI connection protocol before distributing this
+Desktop capability. Older binaries cannot be treated as capable from version
+strings and must pass the explicit review probe after managed installation.
+No cloud migration or new Computer/Profile/Service owner is introduced.
+
 `packages/schemas/src/service-account-admission.ts` owns the expected-account
 request and local admission record. The authenticated local shutdown payload
 has an optional `accountAdmissionId`; ordinary shutdown requests are unchanged.
