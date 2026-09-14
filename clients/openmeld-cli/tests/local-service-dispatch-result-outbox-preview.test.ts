@@ -1259,7 +1259,7 @@ describe("dispatch result outbox around preview teardown", () => {
     });
   });
 
-  it("finalizes a dispatch from a CLI Space action even if the controller runtime keeps running", async () => {
+  it("publishes a legacy CLI action while retaining carrier ownership until its runtime ends", async () => {
     await withTempHome(async () => {
       const ledgerPaths = createLedgerPaths();
       const presenter = createPresenter();
@@ -1288,6 +1288,10 @@ describe("dispatch result outbox around preview teardown", () => {
         preparationDetails: { kind: "none" },
         runtimeContext,
       });
+      let finishRuntime: (result: RuntimeTaskResult) => void = () => undefined;
+      const nativeRuntime = new Promise<RuntimeTaskResult>((resolve) => {
+        finishRuntime = resolve;
+      });
       runRuntimeTaskMock.mockImplementationOnce((input) => {
         const previousContextPath =
           process.env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV];
@@ -1306,7 +1310,7 @@ describe("dispatch result outbox around preview teardown", () => {
               previousContextPath;
           }
         }
-        return new Promise<RuntimeTaskResult>(() => undefined);
+        return nativeRuntime;
       });
 
       const resultPromise = handleDispatchDeliverFrame({
@@ -1331,24 +1335,26 @@ describe("dispatch result outbox around preview teardown", () => {
         routeByProfileId: createCurrentRouteByProfileId(),
         socket,
       });
-      let timeout: ReturnType<typeof setTimeout> | null = null;
-      const timeoutPromise = new Promise<{
-        errorCode: string;
-        errorMessage: string;
-        result: "failed";
-      }>((resolve) => {
-        timeout = setTimeout(() => {
-          resolve({
-            errorCode: "test.timeout",
-            errorMessage: "dispatch did not finalize from the CLI action",
-            result: "failed",
-          });
-        }, CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS);
+      let carrierReleased = false;
+      const carrierResult = resultPromise.then((result) => {
+        carrierReleased = true;
+        return result;
       });
-      const result = await Promise.race([resultPromise, timeoutPromise]);
-      if (timeout) {
-        clearTimeout(timeout);
+      try {
+        await vi.waitFor(
+          () => {
+            expect(readSentTaskResultPayload(settlementSocket)).toMatchObject({
+              status: "success",
+              spaceActionProvenance: "cli_action",
+            });
+          },
+          { timeout: CLI_SPACE_ACTION_FINALIZATION_TIMEOUT_MS }
+        );
+        expect(carrierReleased).toBe(false);
+      } finally {
+        finishRuntime(createRuntimeSuccessResult());
       }
+      const result = await carrierResult;
 
       stdoutSpy.mockRestore();
       expect(result).toEqual({
