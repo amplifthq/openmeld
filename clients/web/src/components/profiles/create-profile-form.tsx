@@ -56,9 +56,7 @@ import {
 	AgentConfigurationGrid,
 } from "./agent-configuration-card";
 import {
-	AgentControllerPermissionModeOptionContent,
 	AgentControllerPermissionModeOutcome,
-	getAgentControllerPermissionModeOptionAccessibleName,
 	getAgentControllerPermissionModeOutcomeDescriptionId,
 } from "./agent-controller-permission-mode-outcome";
 import {
@@ -722,22 +720,19 @@ export function AgentControllerPermissionModeFields(input: {
 					)}
 					aria-label={selectedMetadata.fieldLabel}
 					className="h-10 w-full px-3 text-sm"
-					displayValue={selectedMetadata.outcomeLabel}
+					displayValue={selectedMetadata.label}
 					id={selectId}
 					placeholder={selectedMetadata.fieldLabel}
 				/>
 				<SelectContent className="max-h-64">
 					{options.map((option, index) => (
 						<SelectItem
-							aria-label={getAgentControllerPermissionModeOptionAccessibleName(
-								option
-							)}
 							className="items-start"
 							index={index}
 							key={option.value}
 							value={option.value}
 						>
-							<AgentControllerPermissionModeOptionContent metadata={option} />
+							{option.label}
 						</SelectItem>
 					))}
 				</SelectContent>

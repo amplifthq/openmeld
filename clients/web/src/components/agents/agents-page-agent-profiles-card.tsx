@@ -118,9 +118,7 @@ import {
 	AgentConfigurationGrid,
 } from "#/components/profiles/agent-configuration-card";
 import {
-	AgentControllerPermissionModeOptionContent,
 	AgentControllerPermissionModeOutcome,
-	getAgentControllerPermissionModeOptionAccessibleName,
 	getAgentControllerPermissionModeOutcomeDescriptionId,
 } from "#/components/profiles/agent-controller-permission-mode-outcome";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
@@ -4029,7 +4027,7 @@ export function AgentProfileConfigurationOverview(
 	const permissionSummary = permissionMode?.value
 		? getAgentControllerPermissionModeDisplayMetadata(permissionMode.value, {
 				agentControllerRef: permissionMode.agentControllerRef,
-			}).outcomeLabel
+			}).label
 		: "Controller default";
 	const owner = resolveProfileDetailsValue(input.details, "owner") ?? "You";
 	const ownerProfileId = input.ownerProfileId ?? owner;
@@ -4118,7 +4116,7 @@ function AgentProfileReadOnlyConfigurationOverview(input: {
 	const permissionSummary = permissionMode
 		? getAgentControllerPermissionModeDisplayMetadata(permissionMode, {
 				agentControllerRef: controllerRef,
-			}).outcomeLabel
+			}).label
 		: "Controller default";
 	return (
 		<section
@@ -5681,7 +5679,7 @@ function AgentProfilePermissionModeEditSection(input: {
 					)}
 					aria-label={selectedMetadata.fieldLabel}
 					className="h-10 w-full px-3 text-sm"
-					displayValue={selectedMetadata.outcomeLabel}
+					displayValue={selectedMetadata.label}
 					id={selectId}
 					placeholder={selectedMetadata.fieldLabel}
 					ref={input.focusRef}
@@ -5689,15 +5687,12 @@ function AgentProfilePermissionModeEditSection(input: {
 				<SelectContent className="max-h-64">
 					{options.map((option, index) => (
 						<SelectItem
-							aria-label={getAgentControllerPermissionModeOptionAccessibleName(
-								option
-							)}
 							className="items-start"
 							index={index}
 							key={option.value}
 							value={option.value}
 						>
-							<AgentControllerPermissionModeOptionContent metadata={option} />
+							{option.label}
 						</SelectItem>
 					))}
 				</SelectContent>

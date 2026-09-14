@@ -89,7 +89,7 @@ export function resolveAgentProfileConfigurationSummaries(
 	const permissionSummary = getAgentControllerPermissionModeDisplayMetadata(
 		form.boundAgentControllerPermissionMode,
 		{ agentControllerRef: buildBuiltinAgentControllerRef(form.boundAgentId) }
-	).outcomeLabel;
+	).label;
 
 	return {
 		collaboration:

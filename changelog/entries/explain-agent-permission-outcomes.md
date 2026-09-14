@@ -7,6 +7,5 @@ audiences: ["members", "admins"]
 ---
 
 Agent setup and settings now explain each controller permission mode in terms
-of what the Agent can do and when it will still ask. The controller's native
-mode name and command-line details remain available as supporting technical
-facts.
+of what the Agent can do and when it will still ask. Familiar mode names stay visible, while command-line details are folded
+away until needed.

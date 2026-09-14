@@ -3179,10 +3179,9 @@ Binding. The Advanced view may expose the exact actor Profile ID for diagnosis.
 Agent Profile creation and maintenance surfaces may render Agent Controller
 Permission Mode after the user has chosen a controller. Web should use the
 shared runtime metadata so each controller shows native labels and descriptions
-instead of a Web-authored abstraction. Owner-facing cards and editors lead with
-the mode's plain-language outcome, keep the controller-native label as a
-secondary fact, and place key controller-native launch settings behind a closed
-technical disclosure. Existing Agent Profile list rows should still show a
+instead of a Web-authored abstraction. Owner-facing cards and editors retain compact controller-native mode names.
+Editors explain the selected mode once in plain language and place key
+controller-native launch settings behind a closed technical disclosure. Existing Agent Profile list rows should still show a
 compact provider-specific fact such as `Codex permissions mode: Approve for me`, and
 owner-self details may show the richer Binding fact. Web writes the mode through
 the Binding API; it must not treat the selected mode as Space permission, Wake

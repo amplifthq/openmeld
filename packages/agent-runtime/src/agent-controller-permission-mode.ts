@@ -8,7 +8,6 @@ export type AgentControllerPermissionModeDisplayMetadata = {
   description: string;
   fieldLabel: string;
   label: string;
-  outcomeLabel: string;
   requiresExplicitConfirmation: boolean;
   technicalDetail: string | null;
   tone: AgentControllerPermissionModeTone;
@@ -37,7 +36,6 @@ const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Claude Code asks you in the Space before actions that need permission.",
     label: "Ask permissions",
-    outcomeLabel: "Ask before restricted actions",
     requiresExplicitConfirmation: false,
     technicalDetail:
       'claude --permission-mode default --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
@@ -48,7 +46,6 @@ const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Claude Code accepts file edits automatically. Other restricted actions may still ask you in the Space.",
     label: "Accept edits",
-    outcomeLabel: "Edit files without asking",
     requiresExplicitConfirmation: false,
     technicalDetail:
       'claude --permission-mode acceptEdits --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
@@ -59,7 +56,6 @@ const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Claude Code focuses on planning before it makes changes. Its other permission rules still apply.",
     label: "Plan mode",
-    outcomeLabel: "Plan before making changes",
     requiresExplicitConfirmation: false,
     technicalDetail:
       'claude --permission-mode plan --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
@@ -70,7 +66,6 @@ const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Claude Code automatically continues on eligible actions and asks when it still needs approval.",
     label: "Auto mode",
-    outcomeLabel: "Let Claude Code decide when to ask",
     requiresExplicitConfirmation: false,
     technicalDetail:
       'claude --permission-mode auto --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
@@ -81,7 +76,6 @@ const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Claude Code rejects permission requests that are not already allowed instead of waiting for your approval.",
     label: "Don't ask",
-    outcomeLabel: "Reject blocked actions instead of asking",
     requiresExplicitConfirmation: false,
     technicalDetail:
       'claude --permission-mode dontAsk --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
@@ -92,7 +86,6 @@ const CLAUDE_CODE_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Claude Code bypasses its permission prompts for this Agent. Separate file-access limits on this Computer still apply.",
     label: "Bypass permissions",
-    outcomeLabel: "Run without Claude Code permission prompts",
     requiresExplicitConfirmation: true,
     technicalDetail: "claude --permission-mode bypassPermissions",
     tone: "warning",
@@ -105,7 +98,6 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Codex asks before editing files outside its working folder or using the internet.",
     label: "Ask for approval",
-    outcomeLabel: "Ask before external access",
     requiresExplicitConfirmation: false,
     technicalDetail: "codex -s workspace-write -a untrusted",
     tone: "neutral",
@@ -113,9 +105,8 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
   },
   {
     description:
-      "Codex Auto-review handles eligible approval requests. Actions it flags as potentially unsafe still ask you.",
+      "Codex automatically reviews eligible approval requests. It may approve or deny them; denied actions may stop or require a safer approach.",
     label: "Approve for me",
-    outcomeLabel: "Reduce approval prompts with Codex Auto-review",
     requiresExplicitConfirmation: false,
     technicalDetail:
       'codex -s workspace-write -a on-request -c approvals_reviewer="auto_review"',
@@ -126,7 +117,6 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Codex bypasses its sandbox and approval prompts for this Agent. Separate file-access limits on this Computer still apply.",
     label: "Full access",
-    outcomeLabel: "Run without Codex sandbox or approval prompts",
     requiresExplicitConfirmation: true,
     technicalDetail: "codex --dangerously-bypass-approvals-and-sandbox",
     tone: "warning",
@@ -136,7 +126,6 @@ const CODEX_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Codex follows the permissions in config.toml. OpenMeld does not override its sandbox or approval settings.",
     label: "Custom (config.toml)",
-    outcomeLabel: "Use your Codex configuration",
     requiresExplicitConfirmation: false,
     technicalDetail: "codex (no OpenMeld permission overrides)",
     tone: "neutral",
@@ -149,7 +138,6 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Use Cursor’s standard permissions. If Cursor needs approval, OpenMeld asks you in the Space.",
     label: "Default",
-    outcomeLabel: "Use Cursor’s permission checks",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -159,7 +147,6 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Cursor uses its read-only planning mode for analysis and design.",
     label: "Plan",
-    outcomeLabel: "Plan without making changes",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -169,7 +156,6 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Cursor answers questions without editing files or running commands.",
     label: "Ask",
-    outcomeLabel: "Answer without making changes",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -179,7 +165,6 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Use Cursor’s Auto-review (Smart Auto) to automatically run safe actions. If Cursor still needs approval, OpenMeld asks you in the Space.",
     label: "Auto-review (Smart Auto)",
-    outcomeLabel: "Automatically run actions Cursor reviews as safe",
     requiresExplicitConfirmation: false,
     technicalDetail: "cursor-agent --auto-review acp",
     tone: "neutral",
@@ -189,7 +174,6 @@ const CURSOR_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Cursor allows commands unless an explicit Cursor deny rule blocks them.",
     label: "Run Everything",
-    outcomeLabel: "Run commands unless explicitly denied",
     requiresExplicitConfirmation: true,
     technicalDetail: "cursor-agent --force acp",
     tone: "warning",
@@ -202,7 +186,6 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Use Grok Build’s standard permissions. If Grok needs approval, OpenMeld asks you in the Space.",
     label: "Ask permissions",
-    outcomeLabel: "Ask before restricted actions",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -212,7 +195,6 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Accept file edits automatically. Grok may still ask before running commands or using other tools.",
     label: "Accept edits",
-    outcomeLabel: "Edit files without asking",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -222,7 +204,6 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Use Grok Build’s plan permission mode. Reads, commands, and MCP tools still follow Grok’s permission rules.",
     label: "Plan mode",
-    outcomeLabel: "Plan with Grok Build’s permission rules",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -232,7 +213,6 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Grok Build automatically continues on eligible actions and asks when it still needs approval.",
     label: "Auto mode",
-    outcomeLabel: "Let Grok Build decide when to ask",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -242,7 +222,6 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Automatically reject actions that are not already allowed instead of waiting for approval.",
     label: "Don't ask",
-    outcomeLabel: "Reject blocked actions instead of asking",
     requiresExplicitConfirmation: false,
     technicalDetail: null,
     tone: "neutral",
@@ -252,7 +231,6 @@ const GROK_BUILD_AGENT_CONTROLLER_PERMISSION_MODE_OPTIONS = [
     description:
       "Bypass Grok Build permission prompts. Explicit deny rules and safety hooks may still block an action.",
     label: "Bypass permissions",
-    outcomeLabel: "Run without Grok Build permission prompts",
     requiresExplicitConfirmation: true,
     technicalDetail: null,
     tone: "warning",

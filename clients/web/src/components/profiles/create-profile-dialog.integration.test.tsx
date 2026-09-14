@@ -2442,7 +2442,7 @@ describe("CreateProfileDialog", () => {
 		);
 		fireEvent.click(
 			screen.getByRole("option", {
-				name: "Reduce approval prompts with Codex Auto-review. Native mode: Approve for me",
+				name: "Approve for me",
 			})
 		);
 		await waitFor(() => {
@@ -2804,7 +2804,7 @@ describe("CreateProfileDialog", () => {
 			expect(
 				screen.getByRole("combobox", { name: "Codex permissions mode" })
 					.textContent
-			).toContain("Run without Codex sandbox or approval prompts");
+			).toContain("Full access");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
 			).toContain("GPT-5.4 Mini");
@@ -2842,7 +2842,7 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", {
 					name: "Claude Code permissions mode",
 				}).textContent
-			).toContain("Ask before restricted actions");
+			).toContain("Ask permissions");
 			expect(
 				screen.getByRole("combobox", { name: "Model" }).textContent
 			).toContain("Claude Opus 4.8 (default)");
@@ -3112,13 +3112,13 @@ describe("CreateProfileDialog", () => {
 		);
 		fireEvent.click(
 			screen.getByRole("option", {
-				name: "Reduce approval prompts with Codex Auto-review. Native mode: Approve for me",
+				name: "Approve for me",
 			})
 		);
 		expect(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 				.textContent
-		).toContain("Reduce approval prompts with Codex Auto-review");
+		).toContain("Approve for me");
 
 		fireEvent.click(screen.getByRole("radio", { name: "Claude Code" }));
 
@@ -3127,7 +3127,7 @@ describe("CreateProfileDialog", () => {
 				screen.getByRole("combobox", {
 					name: "Claude Code permissions mode",
 				}).textContent
-			).toContain("Ask before restricted actions");
+			).toContain("Ask permissions");
 		});
 	});
 
@@ -3245,7 +3245,7 @@ describe("CreateProfileDialog", () => {
 		);
 		fireEvent.click(
 			screen.getByRole("option", {
-				name: "Run without Codex sandbox or approval prompts. Native mode: Full access",
+				name: "Full access",
 			})
 		);
 

@@ -197,25 +197,17 @@ describe("AgentProfileGenerator", () => {
 		const permissionSelect = screen.getByRole("combobox", {
 			name: "Codex permissions mode",
 		});
-		expect(permissionSelect.textContent).toBe(
-			"Run without Codex sandbox or approval prompts"
-		);
+		expect(permissionSelect.textContent).toBe("Full access");
 		expect(permissionSelect.getAttribute("aria-describedby")).toBe(
 			`${outcome.id}-description`
 		);
-		expect(
-			within(outcome).getByText("Run without Codex sandbox or approval prompts")
-		).toBeTruthy();
-		expect(
-			within(outcome).getByText(
-				"Codex bypasses its sandbox and approval prompts for this Agent. Separate file-access limits on this Computer still apply."
-			)
-		).toBeTruthy();
 		const technicalDetails = within(outcome)
 			.getByText("Technical details")
 			.closest("details") as HTMLDetailsElement;
 		expect(technicalDetails.open).toBe(false);
-		expect(technicalDetails.textContent).toContain("Native mode: Full access");
+		expect(technicalDetails.textContent).toContain(
+			"--dangerously-bypass-approvals-and-sandbox"
+		);
 		const confirmation = await screen.findByRole("checkbox", {
 			name: "I understand this mode may run dangerous actions without asking.",
 		});
@@ -353,7 +345,7 @@ describe("AgentProfileGenerator", () => {
 			screen.getByRole("button", { name: CUSTOMIZE_AGENT_BUTTON_NAME })
 				.textContent
 		).toContain(
-			"GPT-5.6 Sol (default) · Model default · Ask before external access · New session · openmeld · Default"
+			"GPT-5.6 Sol (default) · Model default · Ask for approval · New session · openmeld · Default"
 		);
 		expect(screen.queryByRole("button", { name: "Edit Model" })).toBeNull();
 	});

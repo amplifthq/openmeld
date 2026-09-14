@@ -1410,9 +1410,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 			screen.getByRole("heading", { name: "How this Agent works" })
 		).toBeTruthy();
 		expect(screen.getAllByText("Codex · GPT-5.5 · high")).toHaveLength(2);
-		expect(
-			screen.getByText("Reduce approval prompts with Codex Auto-review")
-		).toBeTruthy();
+		expect(screen.getByText("Approve for me")).toBeTruthy();
 		expect(
 			document.querySelector('img[src="https://example.com/felix-avatar.png"]')
 		).toBeTruthy();
@@ -2138,34 +2136,25 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		const permissionSelect = within(editDialog).getByRole("combobox", {
 			name: "Codex permissions mode",
 		});
-		expect(permissionSelect.textContent).toBe("Ask before external access");
+		expect(permissionSelect.textContent).toBe("Ask for approval");
 		expect(permissionSelect.getAttribute("aria-describedby")).toBe(
 			`${outcome.id}-description`
 		);
-		expect(
-			within(outcome).getByText("Ask before external access")
-		).toBeTruthy();
-		expect(
-			within(editDialog).getByText(
-				"Codex asks before editing files outside its working folder or using the internet."
-			)
-		).toBeTruthy();
 		fireEvent.click(
 			screen.getByRole("combobox", { name: "Codex permissions mode" })
 		);
 		fireEvent.click(
 			screen.getByRole("option", {
-				name: "Run without Codex sandbox or approval prompts. Native mode: Full access",
+				name: "Full access",
 			})
 		);
-		expect(
-			within(outcome).getByText("Run without Codex sandbox or approval prompts")
-		).toBeTruthy();
 		const technicalDetails = within(editDialog)
 			.getByText("Technical details")
 			.closest("details") as HTMLDetailsElement;
 		expect(technicalDetails.open).toBe(false);
-		expect(technicalDetails.textContent).toContain("Native mode: Full access");
+		expect(technicalDetails.textContent).toContain(
+			"--dangerously-bypass-approvals-and-sandbox"
+		);
 
 		const saveButton = screen.getByRole("button", {
 			name: "Save changes",
@@ -2220,7 +2209,7 @@ describe("AgentProfilesCard Agent Controller Permission Mode", () => {
 		);
 		fireEvent.click(
 			screen.getByRole("option", {
-				name: "Run without Codex sandbox or approval prompts. Native mode: Full access",
+				name: "Full access",
 			})
 		);
 		fireEvent.click(
