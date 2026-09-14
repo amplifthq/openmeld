@@ -608,6 +608,12 @@ Important execution rules:
   incomplete cancellation keeps retry evidence in the Space
   membership-liveness alarm instead of leaving a removed Agent with an
   indefinitely active Wake presentation.
+  Old retryable deliveries that never acquired a head are also subject to
+  deletion: a confirmed missing Profile must converge through the existing
+  pre-head terminal publication path, not retry owner discovery forever.
+  Missing identity and temporarily unavailable identity lookup remain distinct.
+  A linked execution or existing terminal head keeps its RuntimeCoordinator
+  authority; deletion recovery must not replace its outcome or restart work.
 - Space access authority must stay structured across the Wake path. When Core,
   Space, dispatch, or RuntimeCoordinator code carries a `SpaceAccessContext`, it
   must preserve the access actor kind through internal RPC and direct Durable
