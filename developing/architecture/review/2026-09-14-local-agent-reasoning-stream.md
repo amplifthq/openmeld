@@ -1,6 +1,17 @@
 # Local Agent Reasoning Stream
 
-Implementation in progress for issue #1025.
+## Agent Context
+
+- Purpose: Track implementation and acceptance for issue #1025.
+- Read this when: Implementing or validating Local Agent reasoning streaming.
+- Update this when: The implementation or acceptance evidence changes.
+- Do not use this for: Production release authorization.
+- Source of truth: Current source and scoped architecture owner documents.
+
+Status: Implementation in progress.
+
+Remove this document after the accepted behavior and evidence have moved into
+the owner documents and PR.
 
 ## Outcome
 
