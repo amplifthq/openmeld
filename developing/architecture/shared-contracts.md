@@ -25,6 +25,32 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Center Agent Space reply placement
+
+Space owns the durable per-dispatch output destination. The native delivery's
+frozen `threadContext` remains source context for authorization and continuity.
+Core resolves the output through `rpcResolveNativeReplyPlacement`; the hosted
+Center Agent can explicitly select it through `centerAgentSetReplyPlacement`
+using its authenticated submission context. A choice is locked before answer
+text or final publication and reused for recovery. Workstation execution,
+personal Remote Agents, Routines, and external channels retain their contracts.
+
+Agent stream identities add optional `replyThreadRootSignalId`: a root means
+Thread output, `null` means main output, and absence preserves legacy source
+alignment. Current HTTP readers advertise `x-openmeld-agent-reply-placement: 1`;
+WebSocket readers advertise `hello.capabilities.agentReplyPlacement`. Gateway
+and Space omit new Thread live streams for older readers and remove the field
+from main streams. Durable Thread messages remain available to both readers.
+Current Web uses the explicit destination through deltas, reconnects and terminal
+frames, rather than deriving output location from the trigger's source scope.
+
+Roll out Core and Gateway before Remote Agent and Web. A new Remote Agent tool
+against old Core reports unavailable rather than posting an independent answer.
+Old Remote Agent workers still receive the new default from Core, but need the
+new tool to select main explicitly. This is a cloud-only capability: old/new
+CLI, Service, and Skills retain setup, Wake, Space actions, trace and recovery
+contracts. No local contract epoch or local component stamp changes are needed.
+
 ## Hosted reply recovery rollout
 
 The optional `replyRecovery` field on Remote Agent submit requests is owned by
@@ -5372,8 +5398,16 @@ An actor preview must never be represented as the complete list when truncated.
 
 Only a changed mutation emits `space.reactions.changed` with affected
 `signalIds`. Clients invalidate reaction reads without creating a timeline
-signal or refreshing unread/Wake status; reconnect also refreshes mounted
-reaction reads. Revision checks prevent older responses replacing newer state.
+signal or refreshing Wake status; reconnect also refreshes mounted reaction
+reads. Revision checks prevent older responses replacing newer state.
+
+A changed addition stores its Inbox projection intent in the same SQLite
+transaction as the reaction and revision. The existing Space Inbox outbox owns
+retries and current-recipient access checks. The source remains `space_signal`
+with `reaction:<signalId>:<version>` as its event key and the actual message as
+its navigation target. Reaction time, rather than the original message time,
+governs unread activity. This uses existing public Inbox and reaction payloads;
+older clients can read and acknowledge the ordinary update without an upgrade.
 
 Shared message projections, CLI history, Center context manifests, and Remote
 Agent continuity preserve reaction metadata. Materialized-context hashes include

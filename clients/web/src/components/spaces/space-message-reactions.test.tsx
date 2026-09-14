@@ -53,6 +53,79 @@ const signal: SignalEnvelope = {
 };
 
 describe("message reaction cache", () => {
+	it.each([
+		"removed",
+		"unchanged",
+		"read failed",
+	] as const)("keeps removal optimistic while reconciling a failed write response: %s", async (outcome) => {
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		api.setMessageReaction.mockRejectedValueOnce(new Error("Response lost"));
+		let resolveRead!: (
+			value: Awaited<ReturnType<Api["getMessageReactions"]>>
+		) => void;
+		let rejectRead!: (error: Error) => void;
+		api.getMessageReactions.mockReturnValueOnce(
+			new Promise((resolve, reject) => {
+				resolveRead = resolve;
+				rejectRead = reject;
+			})
+		);
+		const view = renderHook(
+			() =>
+				useMessageReactions({
+					spaceId: "space-a",
+					signalId: "message-a",
+					profileId: "profile-a",
+					snapshot: reacted,
+				}),
+			{
+				wrapper: ({ children }: PropsWithChildren) => (
+					<QueryClientProvider client={client}>{children}</QueryClientProvider>
+				),
+			}
+		);
+		try {
+			let operation!: Promise<void>;
+			act(() => {
+				operation = view.result.current.toggle({
+					emoji: "👍",
+					label: "thumbs up",
+				});
+			});
+			await waitFor(() =>
+				expect(api.getMessageReactions).toHaveBeenCalledOnce()
+			);
+			expect(view.result.current.groups).toEqual([]);
+			expect(view.result.current.error).toBeNull();
+			expect(view.result.current.pending["👍"]?.active).toBe(false);
+			await act(async () => {
+				if (outcome === "read failed") {
+					rejectRead(new Error("Offline"));
+				} else {
+					resolveRead({
+						signalId: "message-a",
+						reactions:
+							outcome === "removed" ? { version: 2, groups: [] } : reacted,
+					});
+				}
+				await operation;
+			});
+			expect(view.result.current.groups).toEqual(
+				outcome === "removed" ? [] : reacted.groups
+			);
+			expect(view.result.current.error).toBe(
+				outcome === "removed"
+					? null
+					: "Couldn’t update your reaction. Try again."
+			);
+			expect(view.result.current.pending).toEqual({});
+		} finally {
+			view.unmount();
+			client.clear();
+		}
+	});
 	it("saves a confirmed reaction when the user leaves before the response arrives", async () => {
 		const client = new QueryClient();
 		const historyKey = spaceQueryKeys.history("space-a", "profile-a");

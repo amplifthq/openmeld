@@ -289,6 +289,7 @@ const agentWorkActivitySchema = z
   });
 
 const agentStreamIdentityShape = {
+  replyThreadRootSignalId: z.string().min(1).nullable().optional(),
   v: z.literal(1),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   streamId: nonEmptyTrimmedStringFromUnknown,

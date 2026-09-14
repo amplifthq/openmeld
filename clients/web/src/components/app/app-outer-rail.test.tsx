@@ -227,7 +227,7 @@ const USER_MENU_PATTERN = /Open user menu for/;
 const INBOX_LINK_NAME_PATTERN = /^Inbox/;
 const THEME_TOGGLE_PATTERN = /Switch to .* mode/;
 const CLASS_NAME_SEGMENT_SEPARATOR_PATTERN = /\s+/u;
-const PRIMARY_RAIL_LABELS = ["Desk", "Spaces", "Team"] as const;
+const PRIMARY_RAIL_LABELS = ["Inbox", "Spaces", "Team"] as const;
 
 const TOGGLE_TRIGGER_NAME_PATTERN = /Hide sidebar|Show sidebar/;
 
@@ -363,8 +363,8 @@ describe("AppOuterRail", () => {
 			within(header).getByRole("button", { name: "Switch organization" })
 		).toBeTruthy();
 		expect(
-			within(header).getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
-		).toBeTruthy();
+			within(header).queryByRole("link", { name: INBOX_LINK_NAME_PATTERN })
+		).toBeNull();
 		expect(screen.queryByLabelText("Go to OpenMeld homepage")).toBeNull();
 		expect(screen.queryByText("Experimental")).toBeNull();
 	});
@@ -403,18 +403,16 @@ describe("AppOuterRail", () => {
 		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
 	});
 
-	it("does not open a Center Agent session while pointing at Desk", () => {
+	it("hides Desk from primary navigation", () => {
 		renderRail();
-
-		fireEvent.pointerEnter(screen.getByRole("link", { name: "Desk" }));
-
+		expect(screen.queryByRole("link", { name: "Desk" })).toBeNull();
 		expect(prefetchCenterAgentConversationMock).not.toHaveBeenCalled();
 	});
 
 	it("keeps readable wrapped labels in the fixed application rail", () => {
 		renderRail({ tier: "expanded", width: "9rem" });
-		const link = screen.getByRole("link", { name: "Desk" });
-		expect(link.textContent).toBe("Desk");
+		const link = screen.getByRole("link", { name: "Inbox" });
+		expect(link.textContent).toBe("Inbox");
 		expect(link.querySelector("span.whitespace-normal")).toBeTruthy();
 	});
 
@@ -446,7 +444,7 @@ describe("AppOuterRail", () => {
 		rememberClientSidebarState("outer", { tier: "icon", width: "8rem" });
 		renderRail({ tier: "expanded", width: "9rem" });
 
-		for (const label of ["Desk", "Spaces", "Team", "Settings"]) {
+		for (const label of ["Inbox", "Spaces", "Team", "Settings"]) {
 			const link = screen.getByRole(label === "Settings" ? "button" : "link", {
 				name: label,
 			});
@@ -560,7 +558,7 @@ describe("AppOuterRail", () => {
 		});
 
 		expect(screen.getByRole("button", { name: "Create" })).toBeTruthy();
-		expect(screen.getByRole("link", { name: "Desk" })).toBeTruthy();
+		expect(screen.queryByRole("link", { name: "Desk" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Home" })).toBeNull();
 		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(screen.queryByRole("button", { name: "Work" })).toBeNull();
@@ -585,19 +583,23 @@ describe("AppOuterRail", () => {
 		expect(appSectionLabels).toEqual(PRIMARY_RAIL_LABELS);
 	});
 
-	it("opens Inbox and exposes command search from the header", () => {
+	it("places Inbox in primary navigation and search in the footer", () => {
 		renderRail();
-		const header = screen
-			.getByTestId("app-outer-rail")
-			.querySelector("[data-sidebar=header]") as HTMLElement;
+		const rail = screen.getByTestId("app-outer-rail");
 		expect(
-			within(header)
+			within(
+				rail.querySelector(
+					'[data-slot="main-sidebar-navigation"]'
+				) as HTMLElement
+			)
 				.getByRole("link", { name: INBOX_LINK_NAME_PATTERN })
 				.getAttribute("href")
 		).toBe("/o/acme/inbox");
 		expect(
 			(
-				within(header).getByRole("button", {
+				within(
+					rail.querySelector('[data-sidebar="footer"]') as HTMLElement
+				).getByRole("button", {
 					name: "Search or run a command",
 				}) as HTMLButtonElement
 			).disabled
@@ -670,7 +672,7 @@ describe("AppOuterRail", () => {
 	it.each([
 		"icon",
 		"expanded",
-	] as const)("does not attach Center Agent unread replies to Desk in the %s tier", async (tier) => {
+	] as const)("does not attach Center Agent unread replies to Team in the %s tier", async (tier) => {
 		centerAgentUnreadCount = 2;
 		rememberClientSidebarState("outer", {
 			tier,
@@ -679,7 +681,7 @@ describe("AppOuterRail", () => {
 		renderRail({ tier });
 
 		const link = await screen.findByRole("link", {
-			name: "Desk",
+			name: "Team",
 		});
 		const indicator = link.querySelector(
 			'[data-app-rail-status-indicator="center-agent-unread"]'
@@ -1710,14 +1712,14 @@ describe("AppOuterRail", () => {
 
 	it("derives direct, back, and forward selection from route matches", () => {
 		routerLocation = {
-			pathname: "/o/acme",
+			pathname: "/o/acme/inbox",
 			searchStr: "",
 		};
-		appShellSection = "home";
+		appShellSection = "inbox";
 
 		const rendered = renderRail();
 
-		const homeLink = screen.getByRole("link", { name: "Desk" });
+		const homeLink = screen.getByRole("link", { name: "Inbox" });
 		const teamLink = screen.getByRole("link", { name: "Team" });
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");
@@ -1737,10 +1739,10 @@ describe("AppOuterRail", () => {
 		expect(teamLink.getAttribute("aria-current")).toBe("page");
 
 		routerLocation = {
-			pathname: "/o/acme",
+			pathname: "/o/acme/inbox",
 			searchStr: "",
 		};
-		appShellSection = "home";
+		appShellSection = "inbox";
 		rendered.rerender(buildRailElement());
 
 		expect(homeLink.getAttribute("aria-current")).toBe("page");

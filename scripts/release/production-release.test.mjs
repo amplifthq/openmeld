@@ -1422,6 +1422,27 @@ test("deploys a strict Local Service runtime receiver before publishing the CLI"
       "Verify final R2/npm/Core alignment",
     ]
   );
+  const staged = buildProductionReleasePlan({
+    affectedPackages: [],
+    base: "previous-release",
+    changedPaths,
+    scope: "core,gateway",
+    sourceSha: REMOTE_SOURCE_SHA,
+  });
+  assert.ok(
+    staged.deploySteps.some(
+      (step) =>
+        step.label === "Deploy Core with the current published CLI projection"
+    )
+  );
+  for (const steps of [staged.verifySteps, staged.preflightSteps]) {
+    assert.equal(
+      steps.some(
+        (step) => step.label === "Verify Core CLI channel compatibility"
+      ),
+      false
+    );
+  }
 });
 
 test("publishes independent Skill report receivers and public content before the bridge CLI", () => {

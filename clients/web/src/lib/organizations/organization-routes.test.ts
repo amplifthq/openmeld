@@ -41,7 +41,7 @@ import {
 
 describe("organization default route", () => {
 	it("keeps Home separate from the Center Agent chat destination", () => {
-		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme");
+		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme/spaces");
 		expect(buildOrganizationCenterAgentChatPath("acme")).toBe(
 			"/o/acme/chats/center-agent"
 		);

@@ -1,3 +1,4 @@
+import { SPACE_MESSAGE_CHANGED_PURPOSE } from "@openmeld/schemas";
 import type {
   SpaceThread,
   SpaceThreadContext,
@@ -24,11 +25,11 @@ type SqlSpaceThreadSignalPlacementRow = {
 };
 
 type SqlSpaceThreadPreviewEntryRow = SqlSpaceThreadSignalPlacementRow & {
-  payload_json: string;
+  payload_json: string | null;
 };
 
 export type SpaceThreadPreviewEntry = {
-  payloadJson: string;
+  payloadJson: string | null;
   placement: SpaceThreadSignalPlacement;
 };
 
@@ -381,18 +382,33 @@ export function listSpaceThreadPreviewEntries(
   const rows = sql
     .exec<SqlSpaceThreadPreviewEntryRow>(
       `
+        WITH ranked AS (
+          SELECT p.signal_id, p.thread_id, p.placement, p.created_at_ms,
+            ROW_NUMBER() OVER (
+              PARTITION BY p.thread_id ORDER BY p.created_at_ms, p.signal_id
+            ) AS preview_rank
+          FROM space_thread_signal_placements p
+          JOIN space_signals s ON s.id = p.signal_id
+          WHERE p.placement = 'thread'
+            AND json_valid(s.payload_json)
+            AND NOT (
+              COALESCE(json_extract(s.payload_json, '$.type'), '') = 'signal.text'
+              AND COALESCE(json_extract(s.payload_json, '$.profile.kind'), '') = 'system'
+              AND COALESCE(json_extract(s.payload_json, '$.data.meta.purpose'), '') = ?
+            )
+        )
         SELECT
           p.signal_id,
           p.thread_id,
           p.placement,
           p.created_at_ms,
-          s.payload_json
-        FROM space_thread_signal_placements p
-        JOIN space_signals s
-          ON s.id = p.signal_id
-        WHERE p.placement = 'thread'
+          CASE WHEN p.preview_rank <= 2 THEN s.payload_json ELSE NULL END AS payload_json
+        FROM ranked p
+        LEFT JOIN space_signals s
+          ON s.id = p.signal_id AND p.preview_rank <= 2
         ORDER BY p.thread_id ASC, p.created_at_ms ASC, p.signal_id ASC
-      `
+      `,
+      SPACE_MESSAGE_CHANGED_PURPOSE
     )
     .toArray();
   return rows.map((row) => ({

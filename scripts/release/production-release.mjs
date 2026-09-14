@@ -473,6 +473,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+      !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
@@ -509,6 +510,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+    !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -710,6 +712,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "device-wait-receivers-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
+      input.deployOrderProfile === "local-service-runtime-receiver-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {

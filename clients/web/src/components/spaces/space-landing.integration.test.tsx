@@ -804,6 +804,7 @@ describe("SpaceLanding", () => {
 			isPending: false,
 		});
 		useQueryClientMock.mockReset().mockReturnValue({
+			getQueryState: vi.fn(() => undefined),
 			cancelQueries: vi.fn().mockResolvedValue(undefined),
 			fetchQuery: vi.fn().mockResolvedValue(undefined),
 			getQueryData: vi.fn(() => undefined),
@@ -10436,9 +10437,35 @@ describe("SpaceLanding", () => {
 			members: createQueryResult({
 				isPending: true,
 			}),
+			threads: createQueryResult({ isPending: true }),
 			history: createQueryResult({
 				isSuccess: true,
 				data: {
+					threadDisplay: {
+						threads: [
+							{
+								threadId: "thr_11111111-1111-4111-8111-111111111111",
+								spaceId: "space-123",
+								rootSignalId: "sig-saved-history",
+								createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+								createdAt: "2026-09-14T00:00:00.000Z",
+								updatedAt: "2026-09-14T00:00:00.000Z",
+							},
+						],
+						previews: [
+							{
+								threadId: "thr_11111111-1111-4111-8111-111111111111",
+								replyCount: 7,
+								placements: [],
+								signals: [
+									createTextSignal({
+										id: "saved-reply",
+										text: "Saved reply preview",
+									}),
+								],
+							},
+						],
+					},
 					envelopes: [
 						createTextSignal({
 							id: "sig-saved-history",
@@ -10454,6 +10481,14 @@ describe("SpaceLanding", () => {
 
 		expect(
 			screen.getByText("Visible from the saved browser view")
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Open thread (7 replies)" })
+		).toBeTruthy();
+		expect(
+			within(screen.getByRole("region", { name: "Thread preview" })).getByText(
+				"Saved reply preview"
+			)
 		).toBeTruthy();
 		expect(
 			screen
@@ -18120,6 +18155,7 @@ function mockSpaceQueries(input: {
 			isSuccess: true,
 			data: {
 				threads: [],
+				previews: [],
 			},
 		});
 	const bootstrap =
@@ -18146,6 +18182,13 @@ function mockSpaceQueries(input: {
 			select?: unknown;
 		}) => {
 			const queryKey = JSON.stringify(options.queryKey);
+			if (
+				options.enabled === false &&
+				options.queryKey[0] === "spaces" &&
+				options.queryKey[2] === ""
+			) {
+				return createQueryResult({ isPending: true });
+			}
 			if (
 				options.queryKey[0] === "space-invitations" &&
 				spaceIds.has(String(options.queryKey[3]))
@@ -18677,6 +18720,7 @@ function normalizeSpaceBootstrapThreads(value: unknown) {
 
 function createQueryResult(overrides: Record<string, unknown>) {
 	const result = {
+		dataUpdatedAt: 1,
 		isPending: false,
 		isFetching: false,
 		isFetchedAfterMount: true,

@@ -223,7 +223,7 @@ function resolveTeamOpenMeldToolsStatusDescription(
 		case "needs_attention":
 			return `${computer.ownerLabel} needs to update OpenMeld on this computer.`;
 		case "not_connected":
-			return `${computer.ownerLabel} needs to reconnect OpenMeld Service on this computer.`;
+			return `No active OpenMeld connection is reported for ${computer.ownerLabel} on this computer.`;
 		default:
 			return "OpenMeld is waiting for a current status from this computer.";
 	}

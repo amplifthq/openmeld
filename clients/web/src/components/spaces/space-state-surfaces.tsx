@@ -15,21 +15,18 @@ import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import type { ReactNode } from "react";
 import { SessionExpiredCard } from "#/components/auth/session-expired-card";
 import { toSessionExpiredState } from "#/lib/session-expired";
-import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 
 export function SpaceLandingLoadingShell(input: { composer?: ReactNode } = {}) {
 	return (
 		<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
 			<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4">
-				<div className="flex flex-col gap-2">
-					<Skeleton className="h-6 w-72 max-w-full motion-reduce:animate-none" />
-					<Skeleton className="h-4 w-64 max-w-full motion-reduce:animate-none" />
+				<div className="flex min-w-0 items-center gap-4">
+					<span className="font-medium text-sm">Messages</span>
+					<Skeleton className="h-5 w-40 max-w-full motion-reduce:animate-none" />
 				</div>
 			</header>
-			<div className="min-h-0 flex-1 overflow-hidden">
-				<div className="w-full py-5" data-space-conversation-content-width="">
-					<SpaceConversationSkeleton />
-				</div>
+			<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden">
+				<output className="sr-only">Loading messages…</output>
 			</div>
 			<footer className="shrink-0 border-border border-t p-4">
 				{input.composer ?? (

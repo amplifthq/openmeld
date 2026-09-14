@@ -49,6 +49,7 @@ type SpaceConversationPanelOverrides = Partial<
 };
 
 const FAILED_TEXT_PATTERN = /failed/i;
+const UNREAD_JUMP_PATTERN = /Jump to first unread/;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
@@ -955,7 +956,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("shows and temporarily hides the lower new-message control", async () => {
+	it("offers one chronological unread jump for updates above and below, then hides the navigation batch", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -965,9 +966,10 @@ describe("SpaceConversationPanel", () => {
 				if (this.hasAttribute("data-signal-id")) {
 					const conversation = this.closest<HTMLElement>("[role='log']");
 					const scrollTop = conversation?.scrollTop ?? 0;
+					const top = this.dataset.signalId === "signal-3" ? 700 : -500;
 					return domRect({
-						bottom: 760 - scrollTop,
-						top: 700 - scrollTop,
+						bottom: top + 60 - scrollTop,
+						top: top - scrollTop,
 					});
 				}
 				return domRect({ bottom: 0, top: 0 });
@@ -989,13 +991,16 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "3 new messages. Jump to the nearest new message",
+			name: "3 unread updates. Jump to first unread",
 		});
-		expect(jumpButton.textContent).toContain("3 new messages");
-		fireEvent.click(
-			screen.getByRole("button", { name: "Hide 3 new messages" })
+		expect(
+			screen.getAllByRole("button", { name: UNREAD_JUMP_PATTERN })
+		).toHaveLength(1);
+		fireEvent.click(jumpButton);
+		await waitFor(() => expect(document.body.contains(jumpButton)).toBe(false));
+		expect(document.activeElement).toBe(
+			screen.getByText("First new message").closest("[data-signal-id]")
 		);
-		expect(document.body.contains(jumpButton)).toBe(false);
 		rectSpy.mockRestore();
 	});
 
@@ -1034,7 +1039,7 @@ describe("SpaceConversationPanel", () => {
 		});
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 new message. Jump to the nearest new message",
+				name: "1 unread update. Jump to first unread",
 			})
 		);
 
@@ -1047,7 +1052,7 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
-	it("shows and temporarily hides the upper new-message control", async () => {
+	it("can hide unread navigation without reading its messages", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -1069,20 +1074,20 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "1 new message above. Jump to the nearest new message",
+			name: "1 unread update. Jump to first unread",
 		});
 		const unreadPill = jumpButton.closest<HTMLElement>(
-			"[data-unread-direction='above']"
+			"[data-unread-navigation]"
 		);
 		expect(unreadPill?.className).toContain("self-center");
 		fireEvent.click(
-			screen.getByRole("button", { name: "Hide 1 new message above" })
+			screen.getByRole("button", { name: "Hide 1 unread update" })
 		);
 		expect(document.body.contains(jumpButton)).toBe(false);
 		rectSpy.mockRestore();
 	});
 
-	it("delegates an unread thread target even when the local thread catalog is stale", async () => {
+	it("highlights the main thread root and opens its first unread reply only on explicit request", async () => {
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 			configurable: true,
 			value: vi.fn(),
@@ -1099,10 +1104,11 @@ describe("SpaceConversationPanel", () => {
 				return domRect({ bottom: 0, top: 0 });
 			});
 		const onOpenUnreadThread = vi.fn(async () => true);
+		const thread = { ...createThread(), rootSignalId: "thread-root" };
 		renderSpaceConversationPanel({
 			onOpenUnreadThread,
 			timelineItems: [createTimelineItem({ id: "thread-root" })],
-			threads: [],
+			threads: [thread],
 			unreadTargets: [
 				{
 					occurredAtMs: 1,
@@ -1116,14 +1122,27 @@ describe("SpaceConversationPanel", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 new message above. Jump to the nearest new message",
+				name: "1 unread update. Jump to first unread",
 			})
 		);
 
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: UNREAD_JUMP_PATTERN })
+			).toBeNull()
+		);
+		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+			"thread-root"
+		);
+		expect(onOpenUnreadThread).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open thread (1 unread)" })
+		);
 		await waitFor(() => {
 			expect(onOpenUnreadThread).toHaveBeenCalledWith({
 				rootSignalId: "thread-root",
 				signalId: "thread-reply",
+				threadId: thread.threadId,
 			});
 		});
 		rectSpy.mockRestore();
@@ -1472,6 +1491,39 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(screen.getByText("Status update")).toBeTruthy();
+	});
+
+	it("focuses the retained source of a folded historical failure link", async () => {
+		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+			configurable: true,
+			value: vi.fn(),
+		});
+		renderSpaceConversationPanel({
+			initialFocusSignalId: "old-failure",
+			timelineItems: [
+				createTimelineItem({
+					id: "source-request",
+					text: "Review the proposal",
+				}),
+				createTimelineItem({
+					id: "old-failure",
+					text: "No reply was returned",
+					signalType: "signal.system_notice",
+					systemNoticeType: "terminal_failure",
+					replyToSignalId: "source-request",
+				}),
+			],
+		});
+		await waitFor(() =>
+			expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+				"source-request"
+			)
+		);
+		expect(
+			screen.queryByText("This linked message isn’t available", {
+				exact: false,
+			})
+		).toBeNull();
 	});
 
 	it("returns to Messages before resolving a same-Space message link", async () => {

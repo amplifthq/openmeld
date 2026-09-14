@@ -6,7 +6,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { queryOptions } from "@tanstack/react-query";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
-import { baseQueryOptions } from "#/query/query-config";
+import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import { shouldRetrySpaceQuery } from "./retry";
 import { SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS, spaceQueryKeys } from "./status";
 
@@ -62,7 +62,7 @@ export function spaceThreadsQueryOptions(input: {
 					: { openMeldProfileId: input.openMeldProfileId }),
 			}),
 		enabled: input.enabled,
-		gcTime: baseQueryOptions.gcTime,
+		gcTime: ROUTE_REVISIT_GC_TIME_MS,
 		retry: shouldRetrySpaceQuery,
 		staleTime: SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS,
 		refetchOnMount: true,
@@ -98,7 +98,7 @@ export function spaceThreadSignalsQueryOptions(input: {
 			});
 		},
 		enabled: input.enabled && input.threadId !== null,
-		gcTime: baseQueryOptions.gcTime,
+		gcTime: ROUTE_REVISIT_GC_TIME_MS,
 		retry: shouldRetrySpaceQuery,
 		staleTime: 0,
 		refetchOnMount: "always",

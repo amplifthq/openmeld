@@ -284,6 +284,12 @@ publishes CLI without Core fails closed. This profile is structural and
 provider-neutral: it protects any strict Service-to-Core protocol addition
 without coupling release order to one Agent Controller or business workflow.
 
+This profile also supports a cloud-only receiver stage before the signed GitHub
+CLI release. Selecting Core without CLI uses the same immutable published CLI
+projection, with its existing channel and tag checks, instead of requiring the
+future CLI bundle to be published first. Keep the pre-feature base in both stage
+plans; publish CLI only after the Core receiver is healthy.
+
 The coordinated device-wait schema, Space receiver, and Gateway route select
 `device-wait-receivers-first`: Database, Auth, Core, Gateway, Web, Remote Agent,
 then CLI. Core must expose `postDeviceWaitingSignal` before Gateway calls it,

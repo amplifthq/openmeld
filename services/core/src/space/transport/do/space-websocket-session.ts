@@ -22,6 +22,7 @@ export type SpaceQueuedWebSocketMessage =
   | SpaceAgentStreamTerminalFrame;
 
 export type SpaceWebSocketSession = {
+  supportsAgentReplyPlacement?: boolean;
   profile?: Profile;
   enforcedProfile?: Profile;
   viewerOwnerUserId?: string;
@@ -36,6 +37,7 @@ export type SpaceWebSocketSession = {
 };
 
 type SpaceWebSocketSessionAttachment = {
+  supportsAgentReplyPlacement?: boolean;
   profile?: Profile;
   enforcedProfile?: Profile;
   viewerOwnerUserId?: string;
@@ -89,6 +91,8 @@ export function acceptSpaceWebSocketHello(input: {
   input.session.helloAccepted = true;
   input.session.supportsLiveSignalHistory =
     input.hello.capabilities?.liveSignalHistory === true;
+  input.session.supportsAgentReplyPlacement =
+    input.hello.capabilities?.agentReplyPlacement === true;
   input.session.supportsSpaceMessageAddressing =
     input.hello.capabilities?.spaceMessageAddressing === true;
   return profile;
@@ -159,6 +163,9 @@ export function buildSpaceWebSocketSessionAttachment(
     ...(session.supportsLiveSignalHistory
       ? { supportsLiveSignalHistory: true }
       : {}),
+    ...(session.supportsAgentReplyPlacement
+      ? { supportsAgentReplyPlacement: true }
+      : {}),
     ...(session.supportsSpaceMessageAddressing
       ? { supportsSpaceMessageAddressing: true }
       : {}),
@@ -179,6 +186,7 @@ export function restoreSpaceWebSocketSessionFromAttachment(
     blocked: [],
     helloAccepted,
     supportsLiveSignalHistory: meta.supportsLiveSignalHistory === true,
+    supportsAgentReplyPlacement: meta.supportsAgentReplyPlacement === true,
     supportsSpaceMessageAddressing:
       meta.supportsSpaceMessageAddressing === true,
     ...(helloAccepted ? { profile: meta.profile ?? meta.enforcedProfile } : {}),
