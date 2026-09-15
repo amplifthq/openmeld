@@ -156,7 +156,7 @@ export function InboxNotificationListener(input: {
 				if (!notificationsEnabled) {
 					return;
 				}
-				itemsQuery.refetch().catch((error: unknown) =>
+				itemsQuery.refetch({ cancelRefetch: false }).catch((error: unknown) =>
 					console.warn("[openmeld.desktop.notification_refresh_failed]", {
 						error,
 					})
