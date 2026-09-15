@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID } from "node:crypto";
 import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
@@ -18,6 +19,10 @@ import {
 } from "./auth-session-transition-lock";
 import { isLoopbackHostname } from "./loopback-hostname";
 import { openMeldRootDir } from "./paths";
+import {
+  assertServiceAccountAdmissionMutationAvailable,
+  ServiceAccountAdmissionError,
+} from "./service-account-admission";
 import {
   deleteAccessToken,
   isStoredTokenRef,
@@ -330,6 +335,32 @@ export function onAuthSessionCredentialAvailable(
 }
 const activeAuthSessionTransitionIds = new Set<string>();
 
+const admittedServiceSession = new AsyncLocalStorage<StoredAuthSession>();
+const boundSessionPayloadKeys = new WeakMap<StoredAuthSession, string | null>();
+
+export function withAdmittedServiceSession<T>(
+  session: StoredAuthSession,
+  run: () => Promise<T>
+): Promise<T> {
+  return admittedServiceSession.run(structuredClone(session), run);
+}
+
+// Admission validates remotely before acquiring the mutex, then rechecks this
+// local snapshot under it. It never refreshes credentials or recovers a journal
+// while recursively holding the auth lock.
+export async function readServiceAdmissionSessionWithOwnership(): Promise<StoredAuthSession> {
+  if (await readAuthSessionTransitionJournal()) {
+    throw new AuthSessionRecoveryInProgressError();
+  }
+  const state = await getLocalAuthSessionState({ recover: false });
+  if (state.state !== "valid" || !state.session?.user?.id) {
+    throw new Error(
+      "Service control requires a valid CLI sign-in. Sign in with the matching account and try again."
+    );
+  }
+  return state.session;
+}
+
 type CredentialObservation =
   | "context_changed"
   | "credential_changed"
@@ -367,6 +398,10 @@ function observeCredential(reason: CredentialObservation): void {
 export async function getAuthSessionState(
   options: GetAuthSessionStateOptions = {}
 ): Promise<AuthSessionStateResult> {
+  const bound = admittedServiceSession.getStore();
+  if (bound) {
+    return await getBoundServiceSessionState(bound, options);
+  }
   const result = await getAuthSessionStateWithCandidateRefreshFence(
     options,
     false
@@ -384,6 +419,143 @@ export async function getAuthSessionState(
       ? { retryAfterMs: result.retryAfterMs }
       : {}),
   };
+}
+
+async function syncBoundServiceCredentials(
+  bound: StoredAuthSession
+): Promise<string | null> {
+  const local = await getLocalAuthSessionState({ recover: false });
+  const samePrincipal = isSameAuthPrincipal(local.session, bound);
+  const localPayloadKey =
+    samePrincipal && "payloadKey" in local ? local.payloadKey : null;
+  if (
+    samePrincipal &&
+    local.session &&
+    boundSessionPayloadKeys.get(bound) !== localPayloadKey
+  ) {
+    Object.assign(bound, local.session, {
+      activeOrganization: local.session.activeOrganization,
+    });
+    boundSessionPayloadKeys.set(bound, localPayloadKey);
+  }
+  if (
+    samePrincipal &&
+    local.session &&
+    bound.expiresAt &&
+    (bound.accessToken !== local.session.accessToken ||
+      bound.expiresAt !== local.session.expiresAt)
+  ) {
+    await persistBoundServiceRefresh(
+      bound,
+      {
+        state: "valid",
+        accessToken: bound.accessToken,
+        expiresAt: bound.expiresAt,
+      },
+      localPayloadKey,
+      local.session.accessToken
+    );
+  }
+  return samePrincipal ? (boundSessionPayloadKeys.get(bound) ?? null) : null;
+}
+
+async function getBoundServiceSessionState(
+  bound: StoredAuthSession,
+  options: GetAuthSessionStateOptions
+): Promise<AuthSessionStateResult> {
+  const localPayloadKey = await syncBoundServiceCredentials(bound);
+  if (
+    options.validateRemote ||
+    (options.refreshExpired && isExpired(bound.expiresAt))
+  ) {
+    const remote = await getRemoteAuthSessionState(bound);
+    if (remote.state === "revoked" || remote.state === "invalid") {
+      return {
+        state: remote.state,
+        session: null,
+        reasonCode: resolveRemoteAuthSessionReasonCode(remote.state),
+      };
+    }
+    if (remote.state === "valid") {
+      await persistBoundServiceRefresh(bound, remote, localPayloadKey);
+      if (remote.accessToken) {
+        bound.accessToken = remote.accessToken;
+      }
+      if (remote.expiresAt) {
+        bound.expiresAt = remote.expiresAt;
+      }
+    }
+  }
+  const expiry = resolveAuthSessionExpiryEligibility(bound.expiresAt);
+  if (expiry.status === "expired") {
+    return {
+      session: bound,
+      state: "expired",
+      reasonCode: "session_expired",
+    };
+  }
+  if (expiry.status === "invalid") {
+    return {
+      session: null,
+      state: "invalid",
+      reasonCode: "session_expiry_invalid",
+    };
+  }
+  return { session: bound, state: "valid" };
+}
+
+async function persistBoundServiceRefresh(
+  bound: StoredAuthSession,
+  remote: Extract<RemoteAuthSessionValidation, { state: "valid" }>,
+  localPayloadKey: string | null,
+  previousAccessToken = bound.accessToken
+): Promise<void> {
+  if (!(localPayloadKey && remote.expiresAt) || isExpired(remote.expiresAt)) {
+    return;
+  }
+  try {
+    const persisted = await persistRemoteSessionRefresh({
+      accessToken: remote.accessToken ?? bound.accessToken,
+      previousAccessToken,
+      expectedPayloadKey: localPayloadKey,
+      expiresAt: remote.expiresAt,
+    });
+    if (persisted) {
+      const current = await getLocalAuthSessionState({ recover: false });
+      boundSessionPayloadKeys.set(
+        bound,
+        isSameAuthPrincipal(current.session, bound) && "payloadKey" in current
+          ? current.payloadKey
+          : null
+      );
+    }
+  } catch (error) {
+    if (
+      !(
+        error instanceof ServiceAccountAdmissionError &&
+        error.code === "service.account_admission.busy"
+      )
+    ) {
+      throw error;
+    }
+    // Keep the remotely validated A session in memory during admission; the
+    // canonical writer remains deferred until that short reservation settles.
+  }
+}
+
+function isSameAuthPrincipal(
+  current: Pick<
+    Partial<StoredAuthSession>,
+    "user" | "authBaseUrl" | "clientId"
+  > | null,
+  expected: StoredAuthSession
+): boolean {
+  return Boolean(
+    expected.user?.id &&
+      current?.user?.id === expected.user.id &&
+      current.authBaseUrl === expected.authBaseUrl &&
+      current.clientId === expected.clientId
+  );
 }
 
 async function getAuthSessionStateWithCandidateRefreshFence(
@@ -1167,6 +1339,10 @@ export async function completeInterruptedComputerAuthSessionRecovery(
 }
 
 export async function getAuthSession(): Promise<StoredAuthSession | null> {
+  const bound = admittedServiceSession.getStore();
+  if (bound) {
+    return (await getBoundServiceSessionState(bound, {})).session;
+  }
   const localState = await getLocalAuthSessionState();
   if (localState.state === "missing" || localState.state === "invalid") {
     return null;
@@ -1175,6 +1351,11 @@ export async function getAuthSession(): Promise<StoredAuthSession | null> {
 }
 
 export async function getAuthSessionMetadata(): Promise<AuthSessionMetadata | null> {
+  const bound = admittedServiceSession.getStore();
+  if (bound) {
+    await getBoundServiceSessionState(bound, {});
+    return buildAuthSessionMetadata(bound);
+  }
   const payload = await readSessionPayload();
   return buildAuthSessionMetadata(payload);
 }
@@ -1302,6 +1483,18 @@ export async function assertAuthSessionMutationAvailable(): Promise<void> {
 }
 
 async function assertAuthSessionMutationAvailableWithOwnership(): Promise<void> {
+  await assertServiceAccountAdmissionMutationAvailable();
+  const bound = admittedServiceSession.getStore();
+  if (bound) {
+    const current = await readSessionPayloadFile();
+    if (
+      current?.user?.id !== bound.user?.id ||
+      current?.authBaseUrl !== bound.authBaseUrl ||
+      current?.clientId !== bound.clientId
+    ) {
+      throw new AuthSessionChangedBeforeTransitionError();
+    }
+  }
   await recoverInterruptedAuthSessionTransitionWithOwnership();
   if (await readAuthSessionTransitionJournal()) {
     throw new AuthSessionRecoveryInProgressError();
@@ -1636,7 +1829,7 @@ function assertExpectedPreviousSession(input: {
   }
 }
 
-function buildStoredAuthSessionIdentity(
+export function buildStoredAuthSessionIdentity(
   session: AuthSessionMetadata | null
 ): string {
   if (!session) {
@@ -1822,6 +2015,14 @@ async function persistRemoteSessionRefresh(input: {
   previousAccessToken: string;
 }): Promise<StoredAuthSession | null> {
   return await withAuthSessionTransitionMutationLock(async () => {
+    const bound = admittedServiceSession.getStore();
+    if (bound) {
+      const current = await getLocalAuthSessionState({ recover: false });
+      if (!isSameAuthPrincipal(current.session, bound)) {
+        return null;
+      }
+    }
+    await assertServiceAccountAdmissionMutationAvailable();
     await recoverInterruptedAuthSessionTransitionWithOwnership();
     const transitionJournal = await readAuthSessionTransitionJournal();
     if (transitionJournal) {
@@ -2212,6 +2413,7 @@ async function recoverInterruptedAuthSessionTransitionWithOwnership(): Promise<v
   if (!journal) {
     return;
   }
+  await assertServiceAccountAdmissionMutationAvailable();
   if (activeAuthSessionTransitionIds.has(journal.id)) {
     return;
   }

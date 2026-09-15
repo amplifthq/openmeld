@@ -4,8 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getAuthSessionState,
   setAuthSession,
+  withAdmittedServiceSession,
 } from "../src/config/auth-session";
+import { withAuthSessionTransitionMutationLock } from "../src/config/auth-session-transition-lock";
 import { buildRequestAuthHeaders } from "../src/config/request-headers";
+import {
+  cancelServiceAccountAdmission,
+  reserveServiceAccountAdmission,
+} from "../src/config/service-account-admission";
 import { withTempHome } from "./helpers/fs";
 
 const AUTH_BASE_URL = "https://auth.openmeld.invalid";
@@ -65,6 +71,56 @@ async function storeSession(input: {
 }
 
 describe("auth session renewal", () => {
+  it("keeps a bound renewal during admission and persists it after the reservation settles", async () => {
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = "1";
+      await storeSession({
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      });
+      const local = await getAuthSessionState();
+      if (!local.session) {
+        throw new Error("missing test session");
+      }
+      const reservation = await withAuthSessionTransitionMutationLock(() =>
+        reserveServiceAccountAdmission({
+          operation: "start",
+          identity: {
+            accountId: "user-active",
+            authBaseUrl: AUTH_BASE_URL,
+            clientId: "openmeld-cli",
+            gatewayUrl: GATEWAY_URL,
+            lane: "dev-local",
+            deviceId: "test",
+            contractGeneration: 1,
+          },
+        })
+      );
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            activeSessionResponse(new Date(Date.now() + 600_000).toISOString())
+          )
+      );
+      await withAdmittedServiceSession(local.session, async () => {
+        expect(
+          (await getAuthSessionState({ validateRemote: true })).session
+            ?.accessToken
+        ).toBe("token-refreshed");
+        expect((await getAuthSessionState()).session?.accessToken).toBe(
+          "token-refreshed"
+        );
+        await cancelServiceAccountAdmission(reservation.id);
+        expect((await getAuthSessionState()).session?.accessToken).toBe(
+          "token-refreshed"
+        );
+      });
+      expect((await getAuthSessionState()).session?.accessToken).toBe(
+        "token-refreshed"
+      );
+    });
+  });
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

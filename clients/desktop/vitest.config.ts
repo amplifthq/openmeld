@@ -10,6 +10,7 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
+          server: { deps: { inline: ["@better-auth/electron"] } },
           include: ["tests/**/*.test.ts"],
         },
       },

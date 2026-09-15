@@ -65,6 +65,9 @@ function formatValidationIssue(issue: unknown): string {
 
 export const env = createEnv({
 	server: {
+		AUTH_DESKTOP_DEVELOPMENT_TARGET: z
+			.enum(["private", "disposable"])
+			.optional(),
 		OPENMELD_CLI_BINARY_MANIFEST_URL: z.url().optional(),
 		OPENMELD_GATEWAY_URL: z.url().optional(),
 		WEB_APP_URL: z.url().optional(),

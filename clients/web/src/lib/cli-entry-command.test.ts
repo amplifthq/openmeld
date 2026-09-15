@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildWebSetupCommand,
 	formatWebCliCommand,
@@ -16,7 +16,14 @@ import {
 const POWERSHELL_ENCODED_COMMAND_RE =
 	/^powershell -NoProfile -ExecutionPolicy Bypass -EncodedCommand ([A-Za-z0-9+/=]+)$/u;
 
+vi.hoisted(() => {
+	// Configuration is captured at module load. These formatting fixtures supply
+	// lane homes explicitly and must not inherit the focused runner's temp home.
+	vi.stubEnv("VITE_OPENMELD_HOME", "");
+});
+
 describe("cli-entry-command", () => {
+	beforeEach(() => vi.stubEnv("VITE_OPENMELD_HOME", ""));
 	afterEach(() => {
 		vi.unstubAllEnvs();
 		vi.unstubAllGlobals();

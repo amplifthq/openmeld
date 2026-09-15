@@ -38,6 +38,7 @@ import {
   onAuthSessionCredentialAvailable,
   onAuthSessionCredentialObservation,
   type StoredAuthSession,
+  withAdmittedServiceSession,
 } from "../../config/auth-session";
 import { resolveBaseUrl } from "../../config/base-url";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
@@ -59,6 +60,7 @@ import {
   resolveOpenMeldProfileOrNull,
 } from "../../config/resolve-openmeld-profile";
 import { getConfiguredDaemonDispatchLimits } from "../../config/runtime-config";
+import { ServiceAccountAdmissionError } from "../../config/service-account-admission";
 import type { Presenter } from "../../runtime/presenter";
 import { OPENMELD_VERSION } from "../../runtime/version";
 import type { WsClient } from "../../transport/ws";
@@ -110,6 +112,7 @@ import {
   journalDaemonStopSignalEvidence,
   startDaemonServiceRegistrationReconcileLoop,
 } from "../lifecycle/daemon-service-registration-reconcile";
+import { admitServiceAccountStop } from "../lifecycle/service-account-authorization";
 import { createServiceConnectionEvidenceObserver } from "../lifecycle/service-connection-evidence-observer";
 import { createOpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { syncLocalServiceRuntimeAgentControllerReports } from "../reporting/runtime-agent-controller-report-sync";
@@ -430,7 +433,7 @@ async function buildDaemonStreamRequestHeaders(input: {
       });
 }
 
-function createControlledShutdownCoordinator(input: {
+export function createControlledShutdownCoordinator(input: {
   hasUndrainedWork: () => boolean;
   isStopRequested: () => boolean;
   markStopping: () => void;
@@ -489,42 +492,101 @@ function createControlledShutdownCoordinator(input: {
     async request(payload: {
       gracePeriodMs: number;
       mode: "force" | "graceful";
+      onAdmission?: (commit: () => void) => Promise<void>;
     }): Promise<{
       accepted: true;
       gracePeriodMs: number;
       mode: "force" | "graceful";
     }> {
-      const stopCause = await resolveRecentDaemonSignalStopCause();
-      if (shutdownAttempt) {
-        await shutdownAttempt.promise;
-      } else if (activeSessionShutdownResolver) {
-        const currentAttempt = Promise.withResolvers<void>();
-        shutdownAttempt = currentAttempt;
-        activeSessionShutdownResolver(stopCause);
-        try {
-          await currentAttempt.promise;
-        } finally {
-          if (shutdownAttempt === currentAttempt) {
-            shutdownAttempt = null;
+      return await withControlledStopRefusalProof({
+        guarded: payload.onAdmission !== undefined,
+        isStopping: () => shutdownAttempt !== null || input.isStopRequested(),
+        run: async (markCommitted) => {
+          const stopCause = await resolveRecentDaemonSignalStopCause();
+          if (shutdownAttempt) {
+            markCommitted();
+            const existingAttempt = shutdownAttempt;
+            await payload.onAdmission?.(() => undefined);
+            await existingAttempt.promise;
+          } else if (activeSessionShutdownResolver) {
+            const currentAttempt = Promise.withResolvers<void>();
+            const clearAttempt = () => {
+              if (shutdownAttempt === currentAttempt) {
+                shutdownAttempt = null;
+              }
+            };
+            // Admission acknowledgement can fail after commit. The original
+            // drain still owns completion and must retain its rejection handler.
+            currentAttempt.promise.then(clearAttempt, clearAttempt);
+            const resolver = activeSessionShutdownResolver;
+            const commit = () => {
+              if (
+                shutdownAttempt ||
+                activeSessionShutdownResolver !== resolver
+              ) {
+                throw new Error(
+                  "Service session changed before Stop admission."
+                );
+              }
+              markCommitted();
+              shutdownAttempt = currentAttempt;
+              resolver(stopCause);
+            };
+            await (payload.onAdmission ?? commitControlledStop)(commit);
+            await currentAttempt.promise;
+          } else {
+            if (input.hasUndrainedWork()) {
+              throw new DaemonServiceRunError({
+                code: "daemon.control.shutdown_drain_unavailable",
+                message:
+                  "controlled shutdown cannot verify active local work without a connected runtime session",
+              });
+            }
+            const commit = () => {
+              if (activeSessionShutdownResolver || input.hasUndrainedWork()) {
+                throw new Error("Service work changed before Stop admission.");
+              }
+              markCommitted();
+              requestServiceStop(stopCause);
+            };
+            await (payload.onAdmission ?? commitControlledStop)(commit);
           }
-        }
-      } else {
-        if (input.hasUndrainedWork()) {
-          throw new DaemonServiceRunError({
-            code: "daemon.control.shutdown_drain_unavailable",
-            message:
-              "controlled shutdown cannot verify active local work without a connected runtime session",
-          });
-        }
-        requestServiceStop(stopCause);
-      }
-      return {
-        accepted: true,
-        gracePeriodMs: payload.gracePeriodMs,
-        mode: payload.mode,
-      };
+          return {
+            accepted: true as const,
+            gracePeriodMs: payload.gracePeriodMs,
+            mode: payload.mode,
+          };
+        },
+      });
     },
   };
+}
+
+function commitControlledStop(commit: () => void): void {
+  commit();
+}
+
+async function withControlledStopRefusalProof<T>(input: {
+  guarded: boolean;
+  isStopping: () => boolean;
+  run: (markCommitted: () => void) => Promise<T>;
+}): Promise<T> {
+  let committed = input.isStopping();
+  try {
+    return await input.run(() => {
+      committed = true;
+    });
+  } catch (error) {
+    // Only the existing stop coordinator can prove that its commit never
+    // happened. A missing acknowledgement or a pending disk record cannot.
+    if (input.guarded && !committed && !input.isStopping()) {
+      throw new ServiceAccountAdmissionError(
+        "stop_refused",
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+    throw error;
+  }
 }
 
 function hasUndrainedLocalWork(input: {
@@ -560,6 +622,19 @@ async function runSocketSessionWithControlledShutdown(input: {
 }
 
 export const runDaemonServiceLoop = async (
+  input: DaemonServiceRunInput
+): Promise<void> => {
+  const auth = await getAuthSessionState({ refreshExpired: true });
+  if (auth.state !== "valid" || !auth.session?.user?.id) {
+    throw new Error("A valid CLI account is required to start this Service.");
+  }
+  return await withAdmittedServiceSession(
+    auth.session,
+    async () => await runAccountBoundDaemonServiceLoop(input)
+  );
+};
+
+const runAccountBoundDaemonServiceLoop = async (
   input: DaemonServiceRunInput
 ): Promise<void> => {
   await assertDaemonServiceLaunchScope();
@@ -824,6 +899,7 @@ export const runDaemonServiceLoop = async (
     // running Service reject every later control request until it restarts.
     resolveExpectedToken: async () => await ensureDaemonControlPlaneToken(),
     getContext: async () => ({
+      accountCheckedServiceControl: process.platform !== "win32",
       healthPayload: {
         checkedAt: nowIsoString(),
         ...toHealthProjection(
@@ -885,7 +961,24 @@ export const runDaemonServiceLoop = async (
           requestActiveRouteCatalogSync,
         });
       },
-      shutdownHandler: controlledShutdown.request,
+      shutdownHandler: async (payload) => {
+        const admissionId = payload.accountAdmissionId;
+        return await controlledShutdown.request({
+          ...payload,
+          ...(admissionId
+            ? {
+                onAdmission: async (commit: () => void) =>
+                  await admitServiceAccountStop({
+                    id: admissionId,
+                    ownerUserId,
+                    deviceId,
+                    contractGeneration: daemonServiceContract?.generation ?? 0,
+                    commit,
+                  }),
+              }
+            : {}),
+        });
+      },
       serviceUpdateReadinessHandler: () => {
         const unacknowledgedResultCount =
           listDispatchResultOutboxPendingAcknowledgementKeys({

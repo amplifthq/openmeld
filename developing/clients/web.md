@@ -25,6 +25,24 @@
 
 ## Boundary
 
+### Shared Profile and Organization actions
+
+Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
+`lib/auth-business.server.ts` validates public inputs and safe response projections
+while retaining Auth's original HTTP handlers, permissions, middleware, cookies,
+and mutation effects. Organization settings endpoints accept only name/slug,
+member admin/member roles, and the existing invitation operations. They expose no
+vendor session object or caller-selected upstream route. Invitation URLs remain
+legitimate permission-checked domain results.
+
+Agent removal uses `DELETE /v1/profiles/agents/:profileId`: Auth checks owner and
+Agent kind before deleting through its existing owner service. Generic Auth/RPC
+Profile deletion retains its existing consumers and semantics. Auth owns deletion
+reconciliation; Web retains warning-only catalog refresh on success or 404 and
+the shared UI retains optimistic rollback/invalidation. Profile creation remains
+a durable commit before local setup. No new Organization active-session writer
+or membership store is introduced.
+
 ### Center Agent selected sessions (Flue 2 candidate)
 
 The Center Agent chat at `/o/{orgSlug}/chats/center-agent` accepts `?session=<space-id>`. This selects an exact
@@ -356,7 +374,21 @@ Organization selection remains URL-owned per tab after the newly active account
 loads; account switching must not add Better Auth active-Organization state.
 
 For `/o/{orgSlug}` routes, the URL selects the current tab's Organization after
-the route loader freshly confirms that the signed-in account is a member. The
+the route loader freshly confirms that the signed-in account is a member.
+Shared Organization scope and optional account entry reads use Auth's
+`GET /v1/account/organization-context` through the existing API client. SSR
+forwards the current request cookie directly to Auth; browser and Desktop use
+the same Web HTTP route. Both use the same strict projection without a new
+cache, preference writer, or account store. Existing query keys and account
+reset/invalidation policy remain unchanged. Optional anonymous entry returns
+null, authenticated entry without Organizations remains an explicit error,
+and an unknown Organization URL remains a denied scope. Required anonymous
+scope retains its sanitized login redirect. This read opts into preserving Auth
+401 responses through the Web proxy; existing Auth form status normalization
+is unchanged. Infrastructure errors are not
+converted to anonymous or denied state.
+
+The
 Auth-owned account `lastSelectedOrganizationId` is the default entry preference
 for routes without an explicit Organization. A valid Better Auth Session active
 Organization remains only a backward-compatible recovery preference. Neither is
@@ -944,6 +976,17 @@ digests, snooze, Slack delivery, closed-browser Web Push, Desktop, Mobile, or
 CLI controls.
 
 ### Settings structure
+
+Account display reads use Auth's `/v1/account/session` projection through the
+shared API client and the existing `userQueryKeys.session` cache. The projection
+preserves the Joined date, verification badge, name/avatar identity updates, and
+current-session row identifier. SSR forwards only the current request's cookie
+to configured Auth. A 401 means no session; backend or malformed-response failures
+remain visible query errors. Security, device switching, and token-based session
+revocation keep their separate existing Web contracts. See the
+[Account session contract](../architecture/shared-contracts.md#account-session-read).
+The Auth read preserves vendor-owned browser session renewal and deletion cookies
+through the HTTP proxy, separate from the credential-free JSON projection.
 
 The application rail keeps Settings and theme controls visible above the account
 trigger. Their hit areas and keyboard order are stable; footer hover does not
@@ -4732,6 +4775,15 @@ normal Prepare flow; it never silently reruns an existing Wake.
 
 ## Desktop Download Entry
 
+An authorized production candidate is publicly downloadable through GET/HEAD
+`/desktop/download?candidate=<64-character lowercase sha256>` without an account
+gate. The existing private R2 binding reads only the derived candidate manifest
+and artifact keys, validated by the shared Desktop candidate schema. Invalid,
+missing or mismatched candidates fail without falling back to the default
+channel. Candidate selection never changes `/desktop/update.json`; `/desktop`
+and marketing navigation remain closed. See the
+[candidate publication contract](../engineering/development-workflow.md#desktop-preview-release-workflow).
+
 Web owns the public OpenMeld Desktop download entry, but it does not own local setup
 truth.
 
@@ -4743,23 +4795,45 @@ Current MVP routes:
 
 - `/desktop` is the retained public download-page route and stays behind the
   distribution pause gate until release approval.
-- `/desktop/download` streams the current unsigned Apple silicon DMG from the
+- `/desktop/download` streams the manifest-selected Apple silicon DMG from the
   private R2 bucket binding `OPENMELD_DESKTOP_DOWNLOADS`.
 - `/desktop/update.json` returns the Desktop app update-awareness manifest.
 
-The page must make the preview contract explicit:
+The page describes the installed Mac app, shared Web/Desktop account and Spaces,
+and local-project work. Only macOS Apple silicon is offered. Do not publish
+legacy Node/npm/global-CLI installation steps or unverified signing,
+notarization, stability, or zero-setup claims. Release-specific notices come
+from the existing manifest `message`; the release owner must ensure they match
+the actual approved artifact. The retained legacy preview uploader does not
+establish that the installed app is ready to distribute.
 
-- the build is macOS Apple silicon only;
-- the build is unsigned and not notarized;
-- Node.js LTS with npm is required for this preview;
-- Desktop will install or upgrade the global OpenMeld CLI when Node/npm is present;
-- users may need to approve the first launch in macOS Privacy & Security or by
-  Control-clicking the app and choosing Open.
+In Vite development only, `/desktop` renders for local review. Both the route
+and its server function retain a production 404 gate. There is no query-string
+override. The page reads `desktop/update.json` through the existing manifest
+parser and checks the referenced artifact with R2 `head`. Missing bucket,
+manifest, artifact, or an empty artifact shows an unavailable state with a Web
+entry instead of a download link. Malformed metadata and storage failures
+propagate to the route error boundary rather than becoming a release claim.
+Version, size, and release notice come from that manifest; Web maintains no
+second release version or object key.
 
-Web must not claim setup success because the app was downloaded. The successful
-first-round path is: user opens OpenMeld Desktop, Desktop drives CLI/service setup,
-OpenMeld Web Spaces can create a Space and Profiles, and a local agent can be woken
-through the local OpenMeld Service.
+Local review matrix for A4: review `/desktop` at narrow and wide widths in light
+and dark themes; check keyboard focus and Web entry; no local R2 manifest must
+show no download link. With an actual local DMG and its manifest, check displayed
+version/size/message and the download round trip. Remove the local artifact to
+check unavailable behavior; malformed metadata must show an error. A production
+build must still return 404 for `/desktop`. Do not use a placeholder file as
+evidence of an installable download.
+
+To activate the page later, obtain explicit release approval after native and
+human UI acceptance, publish the approved artifact and its real manifest using
+the established release owner, then remove the two production page gates in an
+authorized Web release. Metadata alone cannot open the paused page. Download
+and update endpoint contracts are unchanged by this page redesign.
+
+Web must not claim setup success because the app was downloaded. A local Wake
+still requires computer/agent setup and a reply or explicit outcome through the
+existing OpenMeld Service and Space owners.
 
 ### OpenMeld Agent Interface
 

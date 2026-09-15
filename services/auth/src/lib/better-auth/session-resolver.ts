@@ -38,14 +38,34 @@ export type SessionResolutionResult =
 export async function resolveSessionFromHeaders(input: {
   auth: AuthInstance;
   headers: Headers;
+  disableCookieCache?: boolean;
+  // HTTP-only opt-in. Never include credentials in the resolution projection.
+  onSessionCookies?: (cookies: readonly string[]) => void;
   verifyLocalUserExists?: (userId: string) => Promise<boolean>;
 }): Promise<SessionResolutionResult> {
   let sessionData: Awaited<ReturnType<AuthInstance["api"]["getSession"]>>;
+  let sessionCookies: string[] = [];
 
   try {
-    sessionData = await input.auth.api.getSession({
+    const options = {
       headers: input.headers,
-    });
+      query: {
+        ...(input.disableCookieCache ? { disableCookieCache: true } : {}),
+        // Identity-only RPC callers have no HTTP response that can carry the
+        // vendor's renewal. Preserve its window for a cookie-capable caller.
+        ...(input.onSessionCookies ? {} : { disableRefresh: true }),
+      },
+    };
+    if (input.onSessionCookies) {
+      const result = await input.auth.api.getSession({
+        ...options,
+        returnHeaders: true,
+      });
+      sessionData = result.response;
+      sessionCookies = result.headers.getSetCookie();
+    } else {
+      sessionData = await input.auth.api.getSession(options);
+    }
   } catch (cause) {
     return {
       status: "upstream_error",
@@ -54,6 +74,7 @@ export async function resolveSessionFromHeaders(input: {
   }
 
   if (!(sessionData?.session && sessionData?.user)) {
+    input.onSessionCookies?.(sessionCookies);
     return {
       status: "unauthenticated",
       reason: "missing_session",
@@ -79,6 +100,8 @@ export async function resolveSessionFromHeaders(input: {
     }
   }
 
+  // A stale or unverifiable local user must never receive successful renewal.
+  input.onSessionCookies?.(sessionCookies);
   return {
     status: "authenticated",
     user: sessionData.user,

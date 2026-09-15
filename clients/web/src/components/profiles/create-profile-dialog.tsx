@@ -69,6 +69,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AgentCreationComputerSetup } from "#/components/connect/agent-creation-computer-setup";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import { useOptionalCurrentOrganizationSlug } from "#/lib/organizations/organization-context";
@@ -848,12 +849,6 @@ function useCreateProfileDialogController(
 		ownerMode,
 		selectedTeammateBinding,
 	});
-	const recoveryActionHref = buildConnectComputerPath({
-		connectedComputerId: recovery.currentComputer?.connectedComputerId,
-		orgSlug,
-		returnTo: "agent_creation",
-		session: "fresh",
-	});
 	const creationGuidance = resolveLocalAgentCreationGuidance({
 		queryFailed: creationComputerReadiness.isError,
 		readiness: creationComputerReadiness.data,
@@ -861,7 +856,9 @@ function useCreateProfileDialogController(
 	});
 	const retryCreationConnection = () => {
 		Promise.all([
-			creationGuidance === "set_up_local_agents" && bindingTarget
+			creationGuidance === "set_up_local_agents" &&
+			bindingTarget &&
+			canConfigureLocalComputer()
 				? recovery.refreshLocalAgentCatalog({
 						deviceId: bindingTarget.deviceId,
 						runtimeLane: bindingTarget.runtimeLane,
@@ -872,15 +869,22 @@ function useCreateProfileDialogController(
 			console.error("Could not refresh the computer for Agent creation.", error)
 		);
 	};
-	const { computerRecovery } = useAgentCreationComputerRecovery({
-		enabled: input.open && ownerMode === "self",
+	const { computerRecovery, reconnectComputerId } =
+		useAgentCreationComputerRecovery({
+			enabled: input.open && ownerMode === "self",
+			orgSlug,
+			recovery,
+			guidance: creationGuidance,
+			hasLocalAgents: ownLocalAgentIds.length > 0,
+			isPending: creationComputerReadiness.isPending,
+			sessionComputerId: sessionPreset?.computerId,
+			onRetry: retryCreationConnection,
+		});
+	const recoveryActionHref = buildConnectComputerPath({
+		connectedComputerId: reconnectComputerId,
 		orgSlug,
-		recovery,
-		guidance: creationGuidance,
-		hasLocalAgents: ownLocalAgentIds.length > 0,
-		isPending: creationComputerReadiness.isPending,
-		sessionComputerId: sessionPreset?.computerId,
-		onRetry: retryCreationConnection,
+		returnTo: "agent_creation",
+		session: "fresh",
 	});
 	const localAgentEmptyState = resolveLocalAgentEmptyState({
 		centerAgentHref: orgSlug

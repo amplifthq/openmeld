@@ -5,6 +5,22 @@ import { validateAuthConfig } from "../src/utils/config-validator";
 const validSecret = "12345678901234567890123456789012345678901234";
 
 describe("validateAuthConfig", () => {
+  it("refuses development Desktop identities in production and unknown local targets", () => {
+    for (const [AUTH_WORKER_NODE_ENV, AUTH_DESKTOP_DEVELOPMENT_TARGET] of [
+      ["production", "disposable"],
+      ["production", "private"],
+      ["development", "arbitrary"],
+    ]) {
+      expect(() =>
+        validateAuthConfig({
+          BETTER_AUTH_URL: "https://auth.openmeld.invalid",
+          BETTER_AUTH_OPENMELD_SECRET: validSecret,
+          AUTH_WORKER_NODE_ENV,
+          AUTH_DESKTOP_DEVELOPMENT_TARGET,
+        })
+      ).toThrow();
+    }
+  });
   it("uses default device client ids when not provided", () => {
     const config = validateAuthConfig({
       BETTER_AUTH_URL: "http://localhost:8788",

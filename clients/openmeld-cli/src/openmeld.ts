@@ -1,4 +1,7 @@
-import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
+import {
+  computerConnectionIntentSchema,
+  TEAMMATE_AGENT_REQUESTS_ENABLED,
+} from "@openmeld/schemas";
 import { Command, Option } from "commander";
 import {
   runActivityContext,
@@ -114,6 +117,7 @@ import {
   runDaemonStop,
   runDaemonUninstall,
 } from "./commands/service";
+import { runServiceAccountControl } from "./commands/service-account-control";
 import { emitDaemonAgentOverview } from "./commands/service-agent-overview";
 import { runServiceTrace } from "./commands/service-trace";
 import { runSetup } from "./commands/setup";
@@ -148,6 +152,7 @@ import {
   runManagedCliDelegation,
 } from "./local-components/managed-command-authority";
 import { runPendingDaemonServiceUpdate } from "./local-service/lifecycle/daemon-service-update-coordinator";
+import { runServiceAccountCarrier } from "./local-service/lifecycle/service-account-authorization";
 import { emitStartupAgentOverviewForCommand } from "./openmeld-agent-overview";
 import {
   runStartFromCliOptions,
@@ -526,6 +531,10 @@ program
   .command("setup")
   .description("Set up this computer for OpenMeld Space Wake.")
   .option(
+    "--connection-intent <json>",
+    "Account and exact previous Computer session explicitly reviewed for this connection"
+  )
+  .option(
     "--profile <id>",
     "Existing OpenMeld agent profile ID to connect to this computer"
   )
@@ -571,6 +580,7 @@ program
   )
   .action(
     async (opts: {
+      connectionIntent?: string;
       agent?: string[];
       deviceCode?: string;
       humanProfile?: string;
@@ -582,12 +592,23 @@ program
       startSession?: string;
     }) => {
       const view = getGlobalViewOption();
+      const connectionIntent = opts.connectionIntent
+        ? computerConnectionIntentSchema.parse(
+            JSON.parse(opts.connectionIntent)
+          )
+        : undefined;
+      if (connectionIntent && !(opts.startSession && opts.deviceCode)) {
+        throw new Error(
+          "--connection-intent requires --start-session and --device-code."
+        );
+      }
       await runCommandWithEntryChecks({
         routeTokens: ["setup"],
         view,
         profile: opts.profile,
         run: async () => {
           await runSetup({
+            connectionIntent,
             agent: opts.agent,
             deviceCode: opts.deviceCode,
             humanProfile: opts.humanProfile,
@@ -2194,6 +2215,10 @@ const serviceCmd = program
 serviceCmd
   .command("start")
   .description("Start OpenMeld Service on this device.")
+  .option(
+    "--expected-account <id>",
+    "Require this signed-in account for Service control"
+  )
   .option("--mode <mode>", "Start mode: background (default) or foreground")
   .option(
     "--gateway-url <url>",
@@ -2209,10 +2234,11 @@ serviceCmd
     "Heartbeat interval in milliseconds (default: 25000)"
   )
   .option("--json", "Print machine-readable JSON.", false)
-  .action(runServiceStartCliAction);
+  .action(async (opts) => await runServiceStartCliAction(opts));
 
 serviceCmd
   .command("run", { hidden: true })
+  .option("--account-admission-id <id>", "CLI-owned Service startup admission")
   .description(
     "Run OpenMeld Service in this process. System service entrypoint (launchd/systemd unit definitions call this); humans should use `openmeld service start`."
   )
@@ -2230,7 +2256,7 @@ serviceCmd
     "--heartbeat-ms <n>",
     "Heartbeat interval in milliseconds (default: 25000)"
   )
-  .action(runServiceStartCliAction);
+  .action(async (opts) => await runServiceStartCliAction(opts));
 
 serviceCmd
   .command("update-worker", { hidden: true })
@@ -2553,6 +2579,10 @@ serviceCmd
   .command("stop")
   .description("Stop OpenMeld Service on this device.")
   .option(
+    "--expected-account <id>",
+    "Require this signed-in account for Service control"
+  )
+  .option(
     "--force",
     "Send SIGKILL immediately instead of SIGTERM (human flow defaults to confirmation)"
   )
@@ -2561,31 +2591,84 @@ serviceCmd
     "Optional OpenMeld profile override used for state sync"
   )
   .option("--json", "Print machine-readable JSON.", false)
-  .action(async (opts: ServiceStopCliOptions & { json?: boolean }) => {
-    const json = opts.json === true;
-    const view = getGlobalViewOption();
-    await runCommandWithEntryChecks({
-      routeTokens: ["service", "stop"],
-      view,
-      run: async () => {
-        await runDaemonStop({
-          force: Boolean(opts.force),
-          json,
-          profile: opts.profile,
-          view,
+  .action(
+    async (
+      opts: ServiceStopCliOptions & { json?: boolean; expectedAccount?: string }
+    ) => {
+      if (opts.expectedAccount !== undefined) {
+        if (!opts.json || opts.force || opts.profile) {
+          throw new Error(
+            "Account-bound Service control requires --json and does not accept force or profile overrides."
+          );
+        }
+        await runServiceAccountControl({
+          operation: "stop",
+          expectedAccount: opts.expectedAccount,
         });
-        if (!json) {
-          await maybeRunAgentViewRecoveryAfterSuccess({
+        return;
+      }
+      const json = opts.json === true;
+      const view = getGlobalViewOption();
+      await runCommandWithEntryChecks({
+        routeTokens: ["service", "stop"],
+        view,
+        run: async () => {
+          await runDaemonStop({
+            force: Boolean(opts.force),
+            json,
+            profile: opts.profile,
             view,
           });
-        }
-      },
-    });
-  });
+          if (!json) {
+            await maybeRunAgentViewRecoveryAfterSuccess({
+              view,
+            });
+          }
+        },
+      });
+    }
+  );
 
 async function runServiceStartCliAction(
-  opts: ServiceRunCliOptions & { json?: boolean }
+  opts: ServiceRunCliOptions & {
+    json?: boolean;
+    expectedAccount?: string;
+    accountAdmissionId?: string;
+  }
 ): Promise<void> {
+  if (opts.expectedAccount !== undefined) {
+    if (
+      !opts.json ||
+      opts.profile ||
+      opts.deviceId ||
+      opts.gatewayUrl ||
+      opts.heartbeatMs ||
+      opts.mode
+    ) {
+      throw new Error(
+        "Account-bound Service control requires --json and does not accept startup overrides."
+      );
+    }
+    await runServiceAccountControl({
+      operation: "start",
+      expectedAccount: opts.expectedAccount,
+    });
+    emitCliJsonEnvelope({
+      schemaVersion: 1,
+      type: "daemon.run",
+      ok: true,
+      reason: "started",
+    });
+    return;
+  }
+  if (opts.accountAdmissionId) {
+    const { accountAdmissionId, ...remaining } = opts;
+    await runServiceAccountCarrier(
+      accountAdmissionId,
+      async () => await runServiceStartCliAction(remaining)
+    );
+    return;
+  }
   const json = opts.json === true;
   const view = getGlobalViewOption();
   if (
@@ -5447,6 +5530,47 @@ async function main() {
     return;
   }
   const argv = process.argv.map((arg) => (arg === "--h" ? "--help" : arg));
+  if (
+    argv.length === 5 &&
+    argv[2] === "computer" &&
+    argv[3] === "connection-review" &&
+    argv[4] === "--json"
+  ) {
+    const { readComputerConnectionReview } = await import(
+      "./commands/computer-connection-review"
+    );
+    outLine(JSON.stringify(await readComputerConnectionReview()));
+    return;
+  }
+  // Exact read-only probes precede managed delegation and layout repair. The
+  // carrier probe must describe this executable, not a newer delegated CLI.
+  if (argv.length === 5 && argv[2] === "service" && argv[4] === "--json") {
+    if (argv[3] === "control-carrier-capability") {
+      outLine(
+        JSON.stringify({
+          protocol: "account-checked-service-control-v1",
+          executable: process.execPath,
+        })
+      );
+      return;
+    }
+    if (argv[3] === "control-capabilities") {
+      const { readServiceControlCapabilities } = await import(
+        "./commands/service-control-capabilities"
+      );
+      const capabilities = await readServiceControlCapabilities().catch(() => ({
+        deviceId: null,
+        start: false,
+        stop: false,
+      }));
+      emitCliJsonEnvelope({
+        schemaVersion: 1,
+        type: "service.control_capabilities",
+        ...capabilities,
+      });
+      return;
+    }
+  }
   if (isDispatchSpaceActionToolServerArgv(argv)) {
     await runSpaceActionMcpServer();
     return;
