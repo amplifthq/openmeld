@@ -595,6 +595,17 @@ the local service is ready. `openmeld upgrade` reports separate timings for the
 release check, CLI download/install, and OpenMeld Service alignment. These are
 user-visible stage timings, not hidden debug logs, so a slow network, install,
 or service restart is immediately distinguishable.
+
+Local integrations can use `openmeld service start|stop --json --expected-account
+<account-id>` for an already connected POSIX Service. The CLI verifies that
+account at the mutation owner, including concurrent sign-in changes. The option
+requires JSON output and rejects profile, force, and startup overrides. It does
+not log in, install a missing Service, or take over another account's Service.
+Missing, expired, mismatched, busy, or unsupported ownership returns an explicit
+error; no unguarded retry is allowed. The
+[Service admission contract](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop)
+owns its cross-process behavior. Desktop's pilot controls remain disabled.
+
 The binary download stage also shows the manifest-declared transfer size: an
 exact-base delta when available, otherwise the complete gzip archive (currently
 about 25 MB), never the larger installed executable size.

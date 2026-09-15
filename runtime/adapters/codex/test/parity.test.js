@@ -427,78 +427,87 @@ test("codex Stop aborts an occupied writer wait without resuming the thread agai
   }
 });
 
-test("codex Stop fences a released writer before the retry starts another turn", async () => {
-  const { CodexAppServerTransportError, createCodexAdapter } = await import(
-    "../dist/index.js"
-  );
-  let dispatchCalls = 0;
-  let turnStartCount = 0;
-  let retryReachedProviderBoundaryResolve;
-  const retryReachedProviderBoundary = new Promise((resolve) => {
-    retryReachedProviderBoundaryResolve = resolve;
-  });
-  let releaseRetryResolve;
-  const releaseRetry = new Promise((resolve) => {
-    releaseRetryResolve = resolve;
-  });
-  const occupancy = {
-    agentControllerConversationId: "thread-stop-after-release",
-    contractVersion: 1,
-    state: "occupied",
-  };
-  const adapter = createCodexAdapter({
-    invokeByMode: {
-      "codex-app-server": async (input) => {
-        dispatchCalls += 1;
-        if (dispatchCalls === 1) {
-          throw new CodexAppServerTransportError({
-            agentControllerConversationOccupancy: occupancy,
-            code: "agent_controller.conversation_occupied",
-            errorType: "adapter",
-            message:
-              "thread thread-stop-after-release already has an active writer",
-            rpcErrorCode: -32_600,
-          });
-        }
-        retryReachedProviderBoundaryResolve();
-        await releaseRetry;
-        if (!input.cancellationSignal?.aborted) {
-          turnStartCount += 1;
-        }
-        return {
-          contextDelta: {
-            agentControllerConversationId: "thread-stop-after-release",
-          },
-          output: "retry completed",
-        };
+for (const acceptedBeforeStop of [false, true]) {
+  test(`codex Stop fences a released writer retry (already accepted: ${acceptedBeforeStop})`, async () => {
+    const { CodexAppServerTransportError, createCodexAdapter } = await import(
+      "../dist/index.js"
+    );
+    let dispatchCalls = 0;
+    let turnStartCount = 0;
+    let retryReachedProviderBoundaryResolve;
+    const retryReachedProviderBoundary = new Promise((resolve) => {
+      retryReachedProviderBoundaryResolve = resolve;
+    });
+    let releaseRetryResolve;
+    const releaseRetry = new Promise((resolve) => {
+      releaseRetryResolve = resolve;
+    });
+    const occupancy = {
+      agentControllerConversationId: "thread-stop-after-release",
+      contractVersion: 1,
+      state: "occupied",
+    };
+    const adapter = createCodexAdapter({
+      invokeByMode: {
+        "codex-app-server": async (input) => {
+          dispatchCalls += 1;
+          if (dispatchCalls === 1) {
+            throw new CodexAppServerTransportError({
+              agentControllerConversationOccupancy: occupancy,
+              code: "agent_controller.conversation_occupied",
+              errorType: "adapter",
+              message:
+                "thread thread-stop-after-release already has an active writer",
+              rpcErrorCode: -32_600,
+            });
+          }
+          if (acceptedBeforeStop) {
+            turnStartCount += 1;
+          }
+          retryReachedProviderBoundaryResolve();
+          await releaseRetry;
+          if (!input.cancellationSignal?.aborted) {
+            turnStartCount += 1;
+          }
+          return {
+            contextDelta: {
+              agentControllerConversationId: "thread-stop-after-release",
+            },
+            output: "retry completed",
+          };
+        },
       },
-    },
-    waitForThreadWriterAvailability: async () => "release_observed",
-  });
-  const dispatchOutcome = adapter.dispatch({
-    agentControllerConversationId: "thread-stop-after-release",
-    agentId: "agt-demo",
-    prompt: "continue",
-    runtimeContext: createRuntimeContext(),
-    sourceEventId: "evt-stop-after-release",
-    spaceId: "space-1",
-    taskId: "task-stop-after-release",
-    transportMode: "codex-app-server",
-  });
+      waitForThreadWriterAvailability: async () => "release_observed",
+    });
+    const dispatchOutcome = adapter.dispatch({
+      agentControllerConversationId: "thread-stop-after-release",
+      agentId: "agt-demo",
+      prompt: "continue",
+      runtimeContext: createRuntimeContext(),
+      sourceEventId: "evt-stop-after-release",
+      spaceId: "space-1",
+      taskId: "task-stop-after-release",
+      transportMode: "codex-app-server",
+    });
 
-  await retryReachedProviderBoundary;
-  const stopResult = await adapter.cancel({
-    taskId: "task-stop-after-release",
-  });
-  releaseRetryResolve();
-  const dispatchResult = await dispatchOutcome;
+    await retryReachedProviderBoundary;
+    const stopResult = await adapter.cancel({
+      taskId: "task-stop-after-release",
+    });
+    releaseRetryResolve();
+    const dispatchResult = await dispatchOutcome;
 
-  assert.equal(stopResult.accepted, true);
-  assert.equal(dispatchResult.status, "failed");
-  assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
-  assert.equal(dispatchCalls, 2);
-  assert.equal(turnStartCount, 0);
-});
+    assert.equal(stopResult.accepted, true);
+    assert.equal(dispatchResult.status, "failed");
+    assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
+    assert.equal(dispatchCalls, 2);
+    assert.equal(turnStartCount, acceptedBeforeStop ? 1 : 0);
+    assert.equal(
+      dispatchResult.errorMessage,
+      "runtime.turn.cancelled: This OpenMeld request was stopped"
+    );
+  });
+}
 
 test("codex retries immediately when the official writer lock is released", async () => {
   const { waitForCodexThreadWriterAvailability } = await import(
@@ -562,14 +571,13 @@ test("codex writer wait closes immediately when the Wake is stopped", async () =
   }
 });
 
-test("codex writer wait keeps one waiter while the official lock remains occupied", async () => {
+test("codex writer wait retries official admission when a crashed writer leaves its lock file", async () => {
   const { waitForCodexThreadWriterAvailability } = await import(
     "../dist/index.js"
   );
   const codexHome = await mkdtemp(join(tmpdir(), "codex-home-held-lock-"));
   const lockDirectory = join(codexHome, "thread-writer-locks");
   const lockPath = join(lockDirectory, "thread-held.lock");
-  let settled = false;
   await mkdir(lockDirectory, { recursive: true });
   await writeFile(lockPath, "");
 
@@ -582,15 +590,9 @@ test("codex writer wait keeps one waiter while the official lock remains occupie
         state: "occupied",
       },
       recoveryRetryMs: 50,
-    }).then((result) => {
-      settled = true;
-      return result;
     });
-
-    await new Promise((resolve) => setTimeout(resolve, 125));
-    assert.equal(settled, false);
-    await rm(lockPath, { force: true });
-    assert.equal(await waiting, "release_observed");
+    assert.equal(await waiting, "retry_due");
+    assert.equal(await readFile(lockPath, "utf8"), "");
   } finally {
     await rm(codexHome, { force: true, recursive: true });
   }

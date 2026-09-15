@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T13:14:16.733Z",
+  "updatedAt": "2026-09-15T02:59:21.133Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.204",
+      "packageVersion": "0.3.207",
       "updatePolicy": "available",
-      "reason": "Existing CLI commands, setup, Space actions and diagnostics remain compatible with both cloud versions; the release adds optional stream metadata without changing command authority."
+      "reason": "Existing setup, Wake, Space actions and diagnostics remain compatible with old and new cloud receivers; new Desktop account controls are additive and require an explicit installed capability check."
     },
     "service": {
-      "bundleHash": "cfa0dd0a8110a0466664036946dbe1f9b2e6e1e214cae400e28a83395a6d46a9",
-      "bundleVersion": "0.3.204",
+      "bundleHash": "b09925ae141c8448dfbeb35ac2e85c368d9e9d78c1c625129bc795db44ca2f91",
+      "bundleVersion": "0.3.207",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Reasoning frames wait for Core preferences, so new Services remain safe against old cloud code; old Services continue current Wake and recovery work against new Core. Deploy cloud receivers before publishing the new Service."
+      "reason": "Existing Services retain compatible Wake execution and reporting contracts with old and new cloud versions; Desktop account-checked local controls fail closed when the installed carrier lacks the new capability, without interrupting existing work."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

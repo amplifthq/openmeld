@@ -973,10 +973,19 @@ function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
 
 function isPeopleComputersReceiverFirstDiff(changedPaths) {
   return [
-    "packages/schemas/src/schemas/http/people-computers.ts",
-    "services/core/src/people-computers/projection.ts",
-    "services/gateway/src/routes/rpc-http.people-computers.ts",
-  ].every((file) => changedPaths.includes(file));
+    [
+      "packages/schemas/src/schemas/http/people-computers.ts",
+      "services/core/src/people-computers/projection.ts",
+      "services/gateway/src/routes/rpc-http.people-computers.ts",
+    ],
+    [
+      "packages/schemas/src/schemas/daemon/service-connection-evidence.ts",
+      "services/core/src/computers/service-connection-evidence-rpc.ts",
+      "services/gateway/src/routes/rpc-http.service-connection-evidence.ts",
+    ],
+  ].some((contractPaths) =>
+    contractPaths.every((file) => changedPaths.includes(file))
+  );
 }
 
 function resolveExistingProductionDeployOrderProfile(changedPaths) {

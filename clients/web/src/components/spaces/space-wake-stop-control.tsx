@@ -455,13 +455,13 @@ function SingleTargetWakeStopDialog(input: {
 		pendingSelectorKeys: input.pendingSelectorKeys,
 		target: input.target,
 	});
-	const description = input.target.isWaitingForDevice
+	const description = input.target.isWaitingToStart
 		? `Cancel this waiting task for ${targetLabel}. If it has just started, OpenMeld will request a stop instead.`
 		: `OpenMeld will stop this Wake for ${targetLabel}. If the agent has already started, confirmation may take a moment.`;
-	const actionLabel = input.target.isWaitingForDevice
+	const actionLabel = input.target.isWaitingToStart
 		? "Cancel waiting"
 		: "Stop Wake";
-	const dismissLabel = input.target.isWaitingForDevice
+	const dismissLabel = input.target.isWaitingToStart
 		? "Keep waiting"
 		: "Keep Running";
 
@@ -469,7 +469,7 @@ function SingleTargetWakeStopDialog(input: {
 		<>
 			<DialogHeader>
 				<DialogTitle>
-					{input.target.isWaitingForDevice
+					{input.target.isWaitingToStart
 						? "Cancel waiting?"
 						: "Stop this Wake?"}
 				</DialogTitle>
@@ -700,7 +700,7 @@ function resolveWakeStopControlLabel(input: {
 }): string {
 	if (
 		input.targets.length === 1 &&
-		input.targets[0]?.isWaitingForDevice &&
+		input.targets[0]?.isWaitingToStart &&
 		input.status === "active"
 	) {
 		return `Cancel waiting for ${input.targetLabel}`;
@@ -747,7 +747,7 @@ function resolveWakeStopButtonText(input: {
 	if (input.targets.some((target) => target.status === "retry_later")) {
 		return "Retry Stop";
 	}
-	if (input.targets.length === 1 && input.targets[0]?.isWaitingForDevice) {
+	if (input.targets.length === 1 && input.targets[0]?.isWaitingToStart) {
 		return "Cancel waiting";
 	}
 	return "Stop";

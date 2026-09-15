@@ -49,7 +49,6 @@ import {
   manageAgentRegistrationInstallation,
   setAgentRegistrationEnabled,
 } from "../../agents/registry";
-import { resolveLocalComponentsStatus } from "../../local-components/manifest";
 import {
   ensureOpenMeldManagedProfileWorkspace,
   setCustomProfileWorkspace,
@@ -148,6 +147,7 @@ import {
 } from "./frame-router";
 import { waitForHeartbeatResponse } from "./heartbeat-loop";
 import { waitForRegisterResponse } from "./register-session";
+import type { ServiceLocalComponentsObservation } from "./service-local-components-observation";
 
 function buildShutdownHeartbeatFacts(input: {
   acceptingDispatches: boolean;
@@ -473,6 +473,7 @@ export async function runDaemonSocketSession(input: {
   ledgerPaths: LedgerPaths;
   loadRouteCatalog?: () => Promise<RouteCatalog>;
   localAdapterContainer: LocalDaemonAdapterContainer;
+  localComponentsObservation: ServiceLocalComponentsObservation;
   localExecutionSlots: LocalExecutionSlots;
   lane: string;
   ownerUserId: string;
@@ -848,7 +849,7 @@ export async function runDaemonSocketSession(input: {
           leaseEpoch,
         }))
         .sort((left, right) => left.profileId.localeCompare(right.profileId));
-      const localComponentsStatus = await resolveSessionLocalComponentsStatus();
+      const localComponentsStatus = readSessionLocalComponentsStatus();
       const heartbeatRequest = runtimeTransportHeartbeatRequestSchema.safeParse(
         {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1099,25 +1100,18 @@ export async function runDaemonSocketSession(input: {
     input.routeCatalogState.profileIds.length === 0;
   const serviceVersion = OPENMELD_VERSION;
 
-  const resolveSessionLocalComponentsStatus =
-    async (): Promise<LocalComponentsStatus | null> => {
-      try {
-        return await resolveLocalComponentsStatus();
-      } catch (error) {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.local_components_status_failed",
-          text: `local components status unavailable: ${toErrorMessage(error)}`,
-        });
-        return null;
+  const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
+    input.localComponentsObservation.read(() => {
+      if (lastHeartbeatSentAtMs !== null) {
+        scheduleHeartbeat({ delayMs: 0, reason: "local_components_refreshed" });
       }
-    };
+    });
 
   const registerDaemonSession = async (
     routeCatalog: RouteCatalog
   ): Promise<RuntimeTransportRegisterSessionResponse> => {
     const connectionGeneration = Math.max(1, input.reconnectAttempt + 1);
-    const localComponentsStatus = await resolveSessionLocalComponentsStatus();
+    const localComponentsStatus = readSessionLocalComponentsStatus();
     const registerPayload =
       runtimeTransportRegisterSessionRequestSchema.safeParse({
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,

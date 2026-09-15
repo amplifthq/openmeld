@@ -5,6 +5,11 @@ import { nonEmptyTrimmedStringFromUnknown } from "./shared";
 
 export const AGENT_STREAM_SNAPSHOT_MAX_CHARS = 32 * 1024;
 
+export const clearSpaceReasoningReplaySchema = z.strictObject({
+  spaceId: z.string().trim().min(1),
+  profileId: agentProfileIdSchema,
+});
+
 const sequenceSchema = z.number().int().positive();
 const timestampSchema = z.number().int().nonnegative();
 const textSnapshotSchema = z

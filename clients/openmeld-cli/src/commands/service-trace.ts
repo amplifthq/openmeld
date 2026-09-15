@@ -250,6 +250,12 @@ export async function runServiceTrace(
     : null;
 
   const payload = {
+    ...(traceResponse.serviceConnectionDiagnostics
+      ? {
+          serviceConnectionDiagnostics:
+            traceResponse.serviceConnectionDiagnostics,
+        }
+      : {}),
     correlation: traceResponse.correlation,
     query: traceResponse.query,
     remoteAgentRuntimeDiagnostics:

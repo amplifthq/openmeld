@@ -4077,128 +4077,152 @@ async function coordinateConcurrentAgentReply(input: {
     },
     observation,
     reconsider: async (prompt, currentObservation) => {
-      const continuation = resolveStructuredActionRepairContinuation({
-        agentControllerConversationOverride:
-          input.agentControllerConversationOverride,
-        runtimeResult: input.runtimeResult,
-      });
-      if (
-        !(
-          continuation.contextId ||
-          continuation.agentControllerConversationOverride
-        )
-      ) {
-        throw new DaemonServiceRunError({
-          code: "dispatch.agent_reply_reconsideration.conversation_unavailable",
-          message:
-            "The Space changed, but the exact Agent conversation is unavailable for reply reconsideration.",
-        });
-      }
-      await input.controllerTurnCompletion;
-      const activeTask = input.inflightTaskControlRegistry.getTask(
-        input.parsedTask.taskId
-      );
-      if (
-        activeTask?.dispatchId !== input.parsedTask.dispatchId ||
-        activeTask.runtimeCoordinatorExecutionId !==
-          input.parsedTask.runtimeCoordinatorExecutionId
-      ) {
-        throw new DaemonServiceRunError({
-          code: "dispatch.agent_reply_reconsideration.execution_inactive",
-          message:
-            "The Wake stopped before the Agent could reconsider its reply.",
-        });
-      }
-      if (input.dispatchSpaceActionContext) {
-        supersedeDispatchSpaceActionRecordForReconsideration({
-          context: input.dispatchSpaceActionContext,
-        });
-      }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_reply_reconsideration_started",
-        text: `Agent reply reconsideration started for task ${input.parsedTask.taskId}`,
-        payload: {
+      const reconsiderationStartedAtMs = Date.now();
+      const recordReconsideration = (result: string) =>
+        emitDaemonDispatchJournalEvent({
+          type: "dispatch.reply_reconsideration",
           dispatchId: input.parsedTask.dispatchId,
-          newerSignalCount: currentObservation.relevantSignals.length,
-          observedThroughSignalId: currentObservation.observedThroughSignalId,
-          targetProfileId: input.parsedTask.targetProfileId,
+          profileId: input.parsedTask.targetProfileId,
           taskId: input.parsedTask.taskId,
-        },
-      });
-      let runtimeResult = await runDispatchRuntimeExecution({
-        onInteractionRequest: input.onInteractionRequest,
-        onNativeTurnStarted: input.onNativeTurnStarted,
-        onNativeTurnCompleted: input.onNativeTurnCompleted,
-        onRuntimeEvent: input.onRuntimeEvent,
-        agentControllerConversationOverride:
-          continuation.agentControllerConversationOverride,
-        computerFileAccessBoundary: input.computerFileAccessBoundary,
-        contextId: continuation.contextId,
-        executionMode: "repair",
-        instructionPrompt: input.instructionPrompt
-          ? {
-              ...input.instructionPrompt,
-              userPrompt: prompt,
-            }
-          : undefined,
-        io: input.ledgerIo,
-        ledgerPaths: input.ledgerPaths,
-        parsedTask: input.parsedTask,
-        prompt,
-        routeConfig: input.routeConfig,
-        runtimeContext: input.runtimeContext,
-        runtimeEnvOverrides: input.runtimeEnvOverrides,
-        runtimeControllerSupport: input.runtimeControllerSupport,
-        streamingModeOverride: "final",
-      });
-      runtimeResult = await applyCliSpaceActionRecordIfPresent({
-        dispatchSpaceActionContext: input.dispatchSpaceActionContext,
-        parsedTask: input.parsedTask,
-        presenter: input.presenter,
-        runtimeResult,
-      });
-      const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
-        ...input,
-        agentControllerConversationOverride:
-          continuation.agentControllerConversationOverride,
-        allowConcurrentReplyReconsideration: false,
-        runtimeResult,
-      });
-      if (!reconsidered.resolvedSpaceAction) {
-        if (reconsidered.runtimeResult.resultPayload.status === "failed") {
-          return {
-            action: undefined,
-            value: {
-              provenance: undefined,
-              runtimeResult: reconsidered.runtimeResult,
-            },
-          };
+          result,
+          metadata: {
+            reason: "new_relevant_space_signal",
+            newerSignalCount: currentObservation.relevantSignals.length,
+            observedThroughSignalId: currentObservation.observedThroughSignalId,
+            triggeringSignalIds: currentObservation.relevantSignals.map(
+              (signal) => signal.id
+            ),
+            startedAtMs: reconsiderationStartedAtMs,
+            durationMs: Math.max(0, Date.now() - reconsiderationStartedAtMs),
+          },
+        });
+      recordReconsideration("started");
+      try {
+        const continuation = resolveStructuredActionRepairContinuation({
+          agentControllerConversationOverride:
+            input.agentControllerConversationOverride,
+          runtimeResult: input.runtimeResult,
+        });
+        if (
+          !(
+            continuation.contextId ||
+            continuation.agentControllerConversationOverride
+          )
+        ) {
+          throw new DaemonServiceRunError({
+            code: "dispatch.agent_reply_reconsideration.conversation_unavailable",
+            message:
+              "The Space changed, but the exact Agent conversation is unavailable for reply reconsideration.",
+          });
         }
-        throw new DaemonServiceRunError({
-          code: "dispatch.agent_reply_reconsideration.action_missing",
-          message:
-            "The Agent did not return a valid Space action after reviewing newer messages.",
+        await input.controllerTurnCompletion;
+        const activeTask = input.inflightTaskControlRegistry.getTask(
+          input.parsedTask.taskId
+        );
+        if (
+          activeTask?.dispatchId !== input.parsedTask.dispatchId ||
+          activeTask.runtimeCoordinatorExecutionId !==
+            input.parsedTask.runtimeCoordinatorExecutionId
+        ) {
+          throw new DaemonServiceRunError({
+            code: "dispatch.agent_reply_reconsideration.execution_inactive",
+            message:
+              "The Wake stopped before the Agent could reconsider its reply.",
+          });
+        }
+        if (input.dispatchSpaceActionContext) {
+          supersedeDispatchSpaceActionRecordForReconsideration({
+            context: input.dispatchSpaceActionContext,
+          });
+        }
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_reply_reconsideration_started",
+          text: `Agent reply reconsideration started for task ${input.parsedTask.taskId}`,
+          payload: {
+            dispatchId: input.parsedTask.dispatchId,
+            newerSignalCount: currentObservation.relevantSignals.length,
+            observedThroughSignalId: currentObservation.observedThroughSignalId,
+            targetProfileId: input.parsedTask.targetProfileId,
+            taskId: input.parsedTask.taskId,
+          },
         });
+        let runtimeResult = await runDispatchRuntimeExecution({
+          onInteractionRequest: input.onInteractionRequest,
+          onNativeTurnStarted: input.onNativeTurnStarted,
+          onNativeTurnCompleted: input.onNativeTurnCompleted,
+          onRuntimeEvent: input.onRuntimeEvent,
+          agentControllerConversationOverride:
+            continuation.agentControllerConversationOverride,
+          computerFileAccessBoundary: input.computerFileAccessBoundary,
+          contextId: continuation.contextId,
+          executionMode: "repair",
+          instructionPrompt: input.instructionPrompt
+            ? {
+                ...input.instructionPrompt,
+                userPrompt: prompt,
+              }
+            : undefined,
+          io: input.ledgerIo,
+          ledgerPaths: input.ledgerPaths,
+          parsedTask: input.parsedTask,
+          prompt,
+          routeConfig: input.routeConfig,
+          runtimeContext: input.runtimeContext,
+          runtimeEnvOverrides: input.runtimeEnvOverrides,
+          runtimeControllerSupport: input.runtimeControllerSupport,
+          streamingModeOverride: "final",
+        });
+        runtimeResult = await applyCliSpaceActionRecordIfPresent({
+          dispatchSpaceActionContext: input.dispatchSpaceActionContext,
+          parsedTask: input.parsedTask,
+          presenter: input.presenter,
+          runtimeResult,
+        });
+        const reconsidered = await resolveRuntimeResultStructuredSpaceAction({
+          ...input,
+          agentControllerConversationOverride:
+            continuation.agentControllerConversationOverride,
+          allowConcurrentReplyReconsideration: false,
+          runtimeResult,
+        });
+        if (!reconsidered.resolvedSpaceAction) {
+          if (reconsidered.runtimeResult.resultPayload.status === "failed") {
+            return {
+              action: undefined,
+              value: {
+                provenance: undefined,
+                runtimeResult: reconsidered.runtimeResult,
+              },
+            };
+          }
+          throw new DaemonServiceRunError({
+            code: "dispatch.agent_reply_reconsideration.action_missing",
+            message:
+              "The Agent did not return a valid Space action after reviewing newer messages.",
+          });
+        }
+        emitRunLine({
+          presenter: input.presenter,
+          code: "daemon.run.agent_reply_reconsideration_completed",
+          text: `Agent reply reconsideration completed for task ${input.parsedTask.taskId}`,
+          payload: {
+            dispatchId: input.parsedTask.dispatchId,
+            observedThroughSignalId: currentObservation.observedThroughSignalId,
+            targetProfileId: input.parsedTask.targetProfileId,
+            taskId: input.parsedTask.taskId,
+          },
+        });
+        return {
+          action: reconsidered.resolvedSpaceAction,
+          value: {
+            provenance: "controller_repair" as const,
+            runtimeResult: reconsidered.runtimeResult,
+          },
+        };
+      } finally {
+        recordReconsideration("finished");
       }
-      emitRunLine({
-        presenter: input.presenter,
-        code: "daemon.run.agent_reply_reconsideration_completed",
-        text: `Agent reply reconsideration completed for task ${input.parsedTask.taskId}`,
-        payload: {
-          dispatchId: input.parsedTask.dispatchId,
-          observedThroughSignalId: currentObservation.observedThroughSignalId,
-          targetProfileId: input.parsedTask.targetProfileId,
-          taskId: input.parsedTask.taskId,
-        },
-      });
-      return {
-        action: reconsidered.resolvedSpaceAction,
-        value: {
-          provenance: "controller_repair" as const,
-          runtimeResult: reconsidered.runtimeResult,
-        },
-      };
     },
     refreshObservation: readObservation,
     spaceId: input.parsedTask.spaceId,

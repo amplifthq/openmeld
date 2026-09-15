@@ -5,7 +5,10 @@ import type {
 } from "../src/agent-activity/integration-refresh";
 import type { startLocalAgentActivitySyncLoop } from "../src/agent-activity/local-sync";
 import type { StoredAuthSession } from "../src/config/auth-session";
-import { AuthRequestCredentialError } from "../src/config/request-headers";
+import {
+  AuthRequestCredentialError,
+  fingerprintRequestAuthorization,
+} from "../src/config/request-headers";
 import { runDaemonServiceLoop } from "../src/local-service/carrier/service-runner";
 import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../src/local-service/core/constants";
 import { withTempHome } from "./helpers/fs";
@@ -130,7 +133,8 @@ vi.mock("../src/agents/registry", () => ({
   setAgentRegistrationEnabled: setAgentRegistrationEnabledMock,
 }));
 
-vi.mock("../src/config/auth-session", () => ({
+vi.mock("../src/config/auth-session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/config/auth-session")>()),
   getAuthSessionState: getAuthSessionStateMock,
 }));
 
@@ -295,6 +299,7 @@ async function waitForFakeTimerCondition(
 
 describe("local service runner dual-write", () => {
   beforeEach(() => {
+    vi.spyOn(Math, "random").mockReturnValue(0.5);
     resolveBaseUrlMock.mockReset().mockResolvedValue("http://localhost:8080");
     getAuthSessionStateMock.mockReset().mockResolvedValue({
       state: "valid",
@@ -823,6 +828,7 @@ describe("local service runner dual-write", () => {
         return;
       }
       const failure = {
+        credentialFingerprint: fingerprintRequestAuthorization("Bearer test"),
         message: "authentication required",
         reasonCode: "runtime.reporting.authentication_required",
       };
@@ -866,7 +872,11 @@ describe("local service runner dual-write", () => {
       .mockResolvedValueOnce({ close: firstSocketClose })
       .mockResolvedValueOnce({ close: replacementSocketClose });
     let staleAuthenticationFailureHandler:
-      | ((failure: { message: string; reasonCode: string }) => Promise<void>)
+      | ((failure: {
+          credentialFingerprint?: string;
+          message: string;
+          reasonCode: string;
+        }) => Promise<void>)
       | null = null;
     let sessionCount = 0;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
@@ -877,6 +887,7 @@ describe("local service runner dual-write", () => {
         return;
       }
       await staleAuthenticationFailureHandler?.({
+        credentialFingerprint: fingerprintRequestAuthorization("Bearer test"),
         message: "OpenMeld rejected the local authentication session.",
         reasonCode: "runtime.reporting.authentication_required",
       });
@@ -924,6 +935,8 @@ describe("local service runner dual-write", () => {
               await input.onAttempt({
                 authenticationRejected: true,
                 family: "runtime_agent_controller",
+                credentialFingerprint:
+                  fingerprintRequestAuthorization("Bearer test"),
                 message: "OpenMeld rejected the local authentication session.",
                 reasonCode: "runtime.reporting.authentication_required",
                 status: "failed",
@@ -1070,7 +1083,28 @@ describe("local service runner dual-write", () => {
     expect(writeDaemonRuntimeLeaseMock).toHaveBeenCalled();
   });
 
-  it("slows auth-required reconnects and reconnects after sign-in without restart", async () => {
+  it.each([
+    {
+      reason: "session_expired" as const,
+      authState: "expired",
+      state: "authentication_required",
+      failureReason: "auth_rejected",
+      delayMs: 60_000,
+    },
+    {
+      reason: "session_token_unavailable" as const,
+      authState: null,
+      state: "degraded",
+      failureReason: "auth_unavailable",
+      delayMs: 30_000,
+    },
+  ])("recovers $reason on its own retry schedule without restarting", async ({
+    reason,
+    authState,
+    state,
+    failureReason,
+    delayMs,
+  }) => {
     vi.useFakeTimers();
     const presenter = {
       view: "agent" as const,
@@ -1092,7 +1126,10 @@ describe("local service runner dual-write", () => {
         new AuthRequestCredentialError({
           authHost: "localhost:8080",
           expectedGatewayHost: null,
-          reason: "session_expired",
+          reason,
+          ...(reason === "session_token_unavailable"
+            ? { retryAfterMs: delayMs }
+            : {}),
           requestHost: "localhost:8080",
         })
       )
@@ -1124,19 +1161,19 @@ describe("local service runner dual-write", () => {
             | undefined;
           return (
             lifecycleEvent?.type === "connection.state" &&
-            lifecycleEvent.result === "authentication_required" &&
-            lifecycleEvent.metadata?.authState === "expired" &&
-            lifecycleEvent.metadata?.reason === "auth_rejected"
+            lifecycleEvent.result === state &&
+            lifecycleEvent.metadata?.authState === authState &&
+            lifecycleEvent.metadata?.reason === failureReason
           );
         })
     );
     expect(emitDaemonLifecycleEventMock).toHaveBeenCalledWith(
       expect.objectContaining({
         metadata: expect.objectContaining({
-          authState: "expired",
-          reason: "auth_rejected",
+          authState,
+          reason: failureReason,
         }),
-        result: "authentication_required",
+        result: state,
         type: "connection.state",
       })
     );
@@ -1146,15 +1183,15 @@ describe("local service runner dual-write", () => {
       presenter.data.mock.calls.some(
         (call) =>
           String(call[0]?.payload?.message ?? "").includes(
-            "daemon stream reconnect scheduled in 60000ms"
+            `daemon stream reconnect scheduled in ${delayMs}ms`
           ) &&
-          call[0]?.payload?.payload?.backoffMs === 60_000 &&
-          call[0]?.payload?.payload?.authState === "expired" &&
-          call[0]?.payload?.payload?.reason === "auth_rejected"
+          call[0]?.payload?.payload?.backoffMs === delayMs &&
+          call[0]?.payload?.payload?.authState === authState &&
+          call[0]?.payload?.payload?.reason === failureReason
       )
     );
 
-    await vi.advanceTimersByTimeAsync(59_999);
+    await vi.advanceTimersByTimeAsync(delayMs - 1);
     expect(connectWebSocketMock).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1);
@@ -1173,7 +1210,7 @@ describe("local service runner dual-write", () => {
     expect(
       presenter.data.mock.calls.some((call) =>
         String(call[0]?.payload?.message ?? "").includes(
-          "daemon stream reconnect scheduled in 60000ms"
+          `daemon stream reconnect scheduled in ${delayMs}ms`
         )
       )
     ).toBe(true);

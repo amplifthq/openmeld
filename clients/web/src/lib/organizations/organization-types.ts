@@ -1,10 +1,6 @@
-export type OrganizationSummary = {
-	id: string;
-	isPersonal?: boolean;
-	name: string;
-	slug: string;
-	logo?: string | null;
-};
+import type { OrganizationSummary } from "@openmeld/schemas";
+
+export type { OrganizationSummary } from "@openmeld/schemas";
 
 export type OrganizationRole = "admin" | "member" | "owner" | string;
 

@@ -39,13 +39,19 @@ export const getSession = createServerFn({ method: "GET" })
 	})
 	.handler(async ({ data }) => {
 		const { fetchSessionFromGateway } = await loadServerSessionHelper();
-		return fetchSessionFromGateway({
+		const result = await fetchSessionFromGateway({
 			betterAuthUrl: getRequiredServerEnv("BETTER_AUTH_URL"),
 			currentUserSessionExpectation:
 				data?.currentUserSessionExpectation ?? "optional",
 			routeFamily: data?.routeFamily ?? "unknown_route",
 			sessionCacheMode: data?.sessionCacheMode,
 		});
+		if (!result) {
+			return null;
+		}
+		// Browser/desktop consumers need identity, never a transferable credential.
+		const { token: _token, ...session } = result.session;
+		return { ...result, session };
 	});
 
 export const ensureSession = createServerFn({ method: "GET" }).handler(

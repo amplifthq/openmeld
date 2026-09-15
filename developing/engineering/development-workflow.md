@@ -586,17 +586,40 @@ rerun `pnpm dev:desktop`; do not reattach Desktop to root `pnpm dev`.
 
 | Script                          | Lane                                     | Behavior                                                                                                                                     |
 | ------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm dev:desktop`              | `openmeld-dev` / `~/.openmeld-dev`       | Alias for `pnpm run desktop:dev`; builds and installs the repo-local CLI wrapper, then starts Electron against local Gateway/Auth/Web.       |
-| `pnpm run desktop:dev`          | `openmeld-dev` / `~/.openmeld-dev`       | Builds and installs the repo-local CLI wrapper, then starts Electron against local Gateway/Auth/Web.                                         |
-| `pnpm run desktop:start:dev`    | `openmeld-dev` / `~/.openmeld-dev`       | Starts Electron against an already-installed `openmeld-dev` wrapper.                                                                         |
-| `pnpm run desktop:canary`       | `openmeld-canary` / `~/.openmeld-canary` | Installs the packaged candidate wrapper, then starts Electron against local Gateway/Auth/Web. This can run package release-readiness checks. |
-| `pnpm run desktop:start:canary` | `openmeld-canary` / `~/.openmeld-canary` | Starts Electron against an already-installed `openmeld-canary` wrapper.                                                                      |
+| `pnpm dev:desktop`              | Current registered worktree lane | Alias for `pnpm desktop:start:dev`. |
+| `pnpm run desktop:dev`          | Current registered worktree lane | Builds and launches the Desktop pilot with the lane-local CLI and dev-local preset. |
+| `pnpm run desktop:start:dev`    | Current registered worktree lane | Uses the existing lane CLI, home and endpoints; no global installation or production fallback. |
+| `pnpm run desktop:canary`       | Current registered worktree lane | Alias for `pnpm desktop:start:canary`. |
+| `pnpm run desktop:start:canary` | Current registered worktree lane | Uses the same guarded lane launcher with an explicit canary preset. |
+| `pnpm desktop:package:private` | Build only | Packages the matching prebuilt pilot Web assets into a private unsigned macOS arm64 app/DMG; no Service or upload. |
+| `pnpm desktop:start:package "/path/to/private.app" [canary]` | Current registered worktree lane | Launches that private app through the same CLI, endpoint and GUI-data guards without rebuilding it. |
 | `pnpm run desktop:start:prod`   | `openmeld` / `~/.openmeld`               | Starts Electron against the published production lane for explicit production reproduction only.                                             |
 
 These scripts align `OPENMELD_BIN`, `OPENMELD_ENV_PRESET`,
 `OPENMELD_USER_FACING_CLI_COMMAND`, `OPENMELD_GATEWAY_URL`, `OPENMELD_AUTH_URL`, and
 `WEB_APP_URL`. Do not validate Desktop lane behavior with a mixed CLI/Web/Auth
 environment.
+
+The pilot requires an existing Worker lane and the CLI installed through its
+normal Web setup. Its launcher reuses `readCurrentIsolatedDevLane` and
+`buildIsolatedDevEnvironment`; it does not maintain another port map or registry.
+It requires `<OPENMELD_HOME>/bin/openmeld` to be executable and resolve within
+the lane home, and isolates Electron data under `desktop/user-data` there before
+authentication storage initializes.
+
+Serve matching compiled Web assets with
+`OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`, then launch Desktop with
+`pnpm desktop:start:dev`. The Web supervisor retains normal reservation,
+Doppler, and cleanup ownership, but runs build plus Vite preview for this opt-in
+mode. Preview binds loopback for TanStack shell prerender; configured account
+and service endpoints retain the actual worktree hostname and ports. Stop the
+owned old Web process before switching modes. A Vite dev server is not a matching
+Desktop RPC registry. See [Desktop](../clients/desktop.md) for identity checks.
+For private packaging, use this guarded Web build path rather than only setting
+the pilot flag on a package-local build. The client requires the lane's compiled
+`VITE_BETTER_AUTH_URL`; pilot builds reject missing or invalid values after Vite
+loads its environment. The native launch environment cannot supply that value
+retroactively to an already built renderer.
 
 ## `OPENMELD_HOME` And Production-State Safety
 
@@ -1698,65 +1721,55 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
-The current Desktop preview release is a production Web download plus a private
-R2 artifact:
+The website entry at `/desktop` remains closed. Authorized production previews
+use a public, immutable candidate URL without advertising the build or changing
+the default update channel. Local private and disposable acceptance packages
+retain their existing commands and must never be uploaded as production candidates.
 
-1. Build the unsigned Apple silicon DMG:
+After review, protected merge, and selection of the exact release SHA:
 
-```text
-pnpm run release:desktop-preview:build
-```
+1. Use a clean checkout at that merged SHA and fetch `origin/main`. Export
+   `OPENMELD_DESKTOP_RELEASE_SHA` as that full commit hash.
+2. Build Web through the scoped Web environment entry with
+   `OPENMELD_DESKTOP_TARGET=production`. This emits the production installed
+   renderer marker. Do not reuse a disposable marker or edit generated metadata.
+3. Run `pnpm desktop:package:production-preview` once. The installed pipeline
+   validates the production target, rejects test settings and mixed signing
+   credentials, and uses the existing company Developer ID and
+   `openmeld-notary` Keychain profile. It requires the exact clean merged source.
+   The signed App includes `desktop-production-source.json` with its source SHA,
+   renderer fingerprint, and production target.
+4. Verify the signed App and a DMG copy: strict signature, stapled ticket,
+   macOS trust, identity, resource equality, final hash and size. Review the
+   artifact before the authorized publisher runs
+   `pnpm release:desktop-preview:upload-candidate` from the same release checkout.
+5. The existing uploader verifies the actual DMG's production identity, ticket,
+   version and signed source record, then uploads the artifact before its
+   candidate manifest. It never writes `desktop/update.json`.
+6. Verify public GET and HEAD, full download hash/size, and normal macOS install
+   and production smoke through user-facing entrypoints. An upload alone does
+   not prove availability or application behavior.
 
-2. Upload the production artifact to R2:
+The fixed storage contract in `packages/schemas/src/desktop-release.ts` uses:
 
-```text
-pnpm run release:desktop-preview:upload
-```
+- URL: `https://openmeld.ai/desktop/download?candidate=<dmg-sha256>`
+- Metadata: `desktop/candidates/<dmg-sha256>/manifest.json`
+- Artifact: `desktop/candidates/<dmg-sha256>/OpenMeld-Desktop-<version>-macos-arm64.dmg`
 
-The upload command uses the bucket `openmeld-desktop-downloads` unless
-`OPENMELD_DESKTOP_R2_BUCKET` overrides it. It uploads:
+Only a lowercase 64-character SHA-256 selects a candidate. Metadata must match
+that hash and declares the production target, platform, version, merged release
+SHA, and positive byte length. Artifact names and object keys are derived rather
+than accepted from a request or stored arbitrary path. The content hash names
+immutable bytes; retries may upload only that same verified artifact and record.
+The Worker streams through its existing private `OPENMELD_DESKTOP_DOWNLOADS`
+binding; no public bucket or additional access gate is introduced.
 
-- `desktop/OpenMeld-Desktop-<version>-macos-arm64-unsigned.dmg`
-- `desktop/update.json`
-
-`desktop/update.json` is the Desktop preview release metadata source. Production
-Web reads this R2 projection for `/desktop/update.json` and for the
-`/desktop/download` artifact object key. Do not duplicate the preview version or
-artifact key in Web checked-in constants.
-
-3. Deploy Web through the guarded deploy entrypoint after Web code or Worker
-   bindings changed:
-
-```text
-pnpm run deploy
-```
-
-The user-facing download URL is `https://openmeld.ai/desktop/download`. Production Web
-streams the DMG through the `OPENMELD_DESKTOP_DOWNLOADS` R2 binding; do not make the
-bucket public or switch to an `r2.dev` URL for the production download page.
-
-If `pnpm run release:desktop-preview:upload` fails with a long-running Wrangler
-`fetch failed`, treat it as a network/upload blocker. Do not deploy the Web
-download page as release-ready until the R2 bucket reports the DMG object and a
-download round trip matches the build SHA-256. Use a more stable network or an
-R2 S3-compatible Object Read & Write token with multipart-capable tooling; R2
-S3 credentials are secrets and must not be committed or left in shell history.
-
-Validation floor for this workflow:
-
-```text
-pnpm -C clients/desktop check
-pnpm -C clients/desktop test
-pnpm -C clients/desktop build
-pnpm -C clients/web check
-pnpm -C clients/web test
-node --test scripts/release/desktop-preview.test.mjs
-pnpm run verify:cloudflare:env-contract
-pnpm run release:desktop-preview:build
-```
-
-Real-user smoke must still happen on a Mac through the installed app, not only
-through the package build output.
+The legacy unsigned build can still be used locally, but its upload command is
+disabled. Neither candidate publication nor the website's closed entry changes
+the existing default `/desktop/download` and `/desktop/update.json` selection.
+Production deployment and ordering still follow
+[Production Release](production-release.md); this workflow grants no independent
+permission to deploy or publish.
 
 ## Local Components Release Tool
 

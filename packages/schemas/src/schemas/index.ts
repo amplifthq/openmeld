@@ -1,4 +1,19 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+
+export {
+  SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  serviceConnectionDiagnosticIdSchema,
+} from "./daemon/service-connection-correlation";
+export {
+  serviceConnectionEvidenceEventSchema,
+  serviceConnectionEvidenceJournalSchema,
+  serviceConnectionIncidentReceiptSchema,
+  serviceConnectionIncidentReportRpcInputSchema,
+  serviceConnectionIncidentReportSchema,
+  serviceConnectionIncidentSchema,
+  serviceConnectionIncidentsReadRpcInputSchema,
+  serviceConnectionIncidentsResponseSchema,
+} from "./daemon/service-connection-evidence";
 export {
   LOCAL_AGENT_REASONING_MAX_CHARS,
   localAgentReasoningPreferencesRpcSchema,
@@ -1892,8 +1907,11 @@ export {
   authProfileViewSchema,
   createAgentProfileBodySchema,
   createAgentProfileResponseSchema,
+  createdAgentProfileActionResponseSchema,
+  createdHumanProfileActionResponseSchema,
   createHumanProfileBodySchema,
   createHumanProfileResponseSchema,
+  deletedAgentProfileActionResponseSchema,
   deleteProfileResponseSchema,
   ensureManagedAgentProfileBodySchema,
   ensureManagedAgentProfileResponseSchema,
@@ -2537,6 +2555,7 @@ export {
 export {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
   agentStreamToolPartSchema,
+  clearSpaceReasoningReplaySchema,
   spaceAgentActivitySchema,
   spaceAgentStreamDeltaFrameSchema,
   spaceAgentStreamPartFrameSchema,

@@ -1,4 +1,5 @@
 import { ThinkingReasoning } from "@openmeld/ui/components/thinking-reasoning";
+import { MessageResponse } from "#/components/ai/message-response";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 
 export function SpaceAgentReasoning({ item }: { item: SpaceTimelineItem }) {
@@ -14,7 +15,14 @@ export function SpaceAgentReasoning({ item }: { item: SpaceTimelineItem }) {
 					stream.status === "streaming" && stream.thinkingActive !== false
 				}
 				text={stream.thinking}
-			/>
+			>
+				<MessageResponse
+					isStreaming={stream.thinkingActive !== false}
+					variant="reasoning"
+				>
+					{stream.thinking}
+				</MessageResponse>
+			</ThinkingReasoning>
 		);
 	}
 	const status = stream.reasoningState?.status;

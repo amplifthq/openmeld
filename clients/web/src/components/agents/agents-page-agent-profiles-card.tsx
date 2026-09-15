@@ -117,6 +117,10 @@ import {
 	AgentConfigurationEditorCard,
 	AgentConfigurationGrid,
 } from "#/components/profiles/agent-configuration-card";
+import {
+	AgentControllerPermissionModeOutcome,
+	getAgentControllerPermissionModeOutcomeDescriptionId,
+} from "#/components/profiles/agent-controller-permission-mode-outcome";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import {
@@ -5611,6 +5615,7 @@ function AgentProfilePermissionModeEditSection(input: {
 	selectedPolicy: AgentControllerPermissionMode | null;
 }) {
 	const selectId = useId();
+	const outcomeId = useId();
 	if (!input.controllerPermissionMode) {
 		return null;
 	}
@@ -5669,31 +5674,33 @@ function AgentProfilePermissionModeEditSection(input: {
 				value={selectedOption?.value}
 			>
 				<SelectTrigger
+					aria-describedby={getAgentControllerPermissionModeOutcomeDescriptionId(
+						outcomeId
+					)}
 					aria-label={selectedMetadata.fieldLabel}
 					className="h-10 w-full px-3 text-sm"
-					displayValue={selectedOption?.label}
+					displayValue={selectedMetadata.label}
 					id={selectId}
 					placeholder={selectedMetadata.fieldLabel}
 					ref={input.focusRef}
 				/>
 				<SelectContent className="max-h-64">
 					{options.map((option, index) => (
-						<SelectItem index={index} key={option.value} value={option.value}>
+						<SelectItem
+							className="items-start"
+							index={index}
+							key={option.value}
+							value={option.value}
+						>
 							{option.label}
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
-			<p
-				className={cn(
-					"text-xs leading-5",
-					selectedMetadata.tone === "warning"
-						? "text-destructive"
-						: "text-muted-foreground"
-				)}
-			>
-				{selectedMetadata.description}
-			</p>
+			<AgentControllerPermissionModeOutcome
+				id={outcomeId}
+				metadata={selectedMetadata}
+			/>
 			{input.isAgentWorking ? (
 				<p className="text-muted-foreground text-xs leading-5">
 					{applicationTiming === "applies_now"
@@ -5720,8 +5727,7 @@ function AgentProfilePermissionModeEditSection(input: {
 						type="checkbox"
 					/>
 					<span>
-						I understand this permissions mode can run with dangerous full
-						access.
+						I understand this mode may run dangerous actions without asking.
 					</span>
 				</label>
 			) : null}

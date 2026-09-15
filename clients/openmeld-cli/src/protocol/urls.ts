@@ -96,12 +96,16 @@ export function toSpaceDispatchTraceUrl(
   dispatchId: string,
   options: {
     includeRemoteAgentRuntimeDiagnostics?: boolean;
+    includeServiceConnectionDiagnostics?: boolean;
   } = {}
 ): string {
   const url = new URL(normalizeBaseUrl(baseUrl));
   url.pathname = `/v1/spaces/${encodeURIComponent(space)}/dispatches/${encodeURIComponent(dispatchId)}/trace`;
   if (options.includeRemoteAgentRuntimeDiagnostics === true) {
     url.searchParams.set("includeRemoteAgentRuntimeDiagnostics", "true");
+  }
+  if (options.includeServiceConnectionDiagnostics === true) {
+    url.searchParams.set("includeServiceConnectionDiagnostics", "true");
   }
   return url.toString();
 }

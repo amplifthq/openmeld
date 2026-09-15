@@ -123,7 +123,11 @@ import type {
 import { SpaceConversationCompactionMarker } from "./space-conversation-compaction-marker";
 import { resolveLocalDateKey } from "./space-conversation-date";
 import { SpaceConversationDateMarker } from "./space-conversation-date-marker";
-import { SpaceConversationSendScrollController } from "./space-conversation-scroll-controller";
+import {
+	SpaceConversationSendScrollController,
+	type SpaceMessageScrollAction,
+	SpaceMessageScrollController,
+} from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
 import { SpaceConversationStickyDate } from "./space-conversation-sticky-date";
@@ -354,8 +358,6 @@ type SpaceConversationPanelProps = Omit<
 	viewState: SpaceConversationPanelViewState;
 };
 
-const MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS = 9;
-
 type SpaceUnreadNavigationState = {
 	targets: readonly SpaceInboxUnreadTarget[];
 };
@@ -561,6 +563,7 @@ function SpaceConversationPanelContent(
 		conversationAutoScroll,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
+		messageScrollActionRef,
 		followLatest,
 		releaseReadingPosition,
 		loadEarlierHistory,
@@ -571,7 +574,6 @@ function SpaceConversationPanelContent(
 		registerConversationScrollElement,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
-		threadFocusStatusMessage,
 		unreadNavigation,
 	} = navigation;
 	const registerReadingScrollElement = useCallback(
@@ -618,7 +620,6 @@ function SpaceConversationPanelContent(
 			) : null}
 			{renderInitialSpaceFocusStatus({
 				mainMessage: mainFocusStatusMessage,
-				threadMessage: threadFocusStatusMessage,
 			})}
 			{input.activeSpaceView === "messages" ? (
 				<SpacePinnedItemsBar
@@ -667,6 +668,7 @@ function SpaceConversationPanelContent(
 							isSendingMessage={input.isSendingMessage}
 							onSendStart={followLatest}
 						/>
+						<SpaceMessageScrollController actionRef={messageScrollActionRef} />
 						<MessageScroller className="relative min-h-0 flex-1">
 							{input.historyNavigation && (
 								<SpaceHistoryRail
@@ -1208,7 +1210,9 @@ function useSpaceConversationNavigationController(input: {
 	isLoadingEarlierHistory: boolean;
 	mainTimelineItems: readonly SpaceTimelineItem[];
 	onLoadEarlierHistory: () => Promise<void>;
-	onLoadHistoryAround?: ((id: string) => Promise<boolean>) | undefined;
+	onLoadHistoryAround?:
+		| ((id: string, signal?: AbortSignal) => Promise<boolean>)
+		| undefined;
 	onOpenThread: (threadId: string) => void;
 	onOpenUnreadThread?: SpaceConversationPanelResolvedProps["onOpenUnreadThread"];
 	onSpaceViewChange: (view: SpaceView) => void;
@@ -1226,6 +1230,7 @@ function useSpaceConversationNavigationController(input: {
 		input.spaceId ?? input.spaceViewIdPrefix
 	);
 	const conversationScrollRef = useRef<HTMLDivElement | null>(null);
+	const messageScrollActionRef = useRef<SpaceMessageScrollAction | null>(null);
 	const unreadMeasurementRequestRef = useRef<() => void>(() => undefined);
 	const [conversationScrollElement, setConversationScrollElement] =
 		useState<HTMLDivElement | null>(null);
@@ -1255,8 +1260,7 @@ function useSpaceConversationNavigationController(input: {
 	const onConversationScrollEnd = conversationPosition.onScrollEnd;
 	const highlightMessageTimerRef = useRef<number | null>(null);
 	const appliedInitialFocusRef = useRef<string | null>(null);
-	const appliedInitialThreadFocusRef = useRef<string | null>(null);
-	const focusHistorySearchRef = useRef({ attempts: 0, targetKey: "" });
+	const focusHistoryRequestRef = useRef<AbortController | null>(null);
 	const [highlightedSignalId, setHighlightedSignalId] = useState<string | null>(
 		null
 	);
@@ -1294,6 +1298,10 @@ function useSpaceConversationNavigationController(input: {
 			return;
 		}
 		conversationPosition.releaseReadingPosition();
+		messageScrollActionRef.current?.(signalId, {
+			align: "center",
+			behavior: "instant",
+		});
 		const scrollElement = conversationScrollRef.current;
 		if (scrollElement) {
 			scrollMessageIntoConversationViewport({ messageElement, scrollElement });
@@ -1471,57 +1479,31 @@ function useSpaceConversationNavigationController(input: {
 		}
 	);
 	const requestedMainFocusSignalId = resolveInitialMainFocusSignalId(input);
+	const targetKey =
+		input.initialFocusInteractionId ?? input.initialFocusSignalId ?? null;
+	const loadFocusHistory = useLatestCallback(
+		(signalId: string, signal: AbortSignal) =>
+			input.onLoadHistoryAround?.(signalId, signal)
+	);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: A different route target owns a new request lifetime, including a switch to a loaded message or Thread.
+	useEffect(() => {
+		appliedInitialFocusRef.current = null;
+		focusHistoryRequestRef.current = null;
+		setMainFocusStatusMessage(null);
+		return () => focusHistoryRequestRef.current?.abort();
+	}, [targetKey, input.spaceId, input.initialFocusThreadRootSignalId]);
 	const initialMainFocusSignalId = requestedMainFocusSignalId
 		? resolveConversationFocusSignalId(
 				input.mainTimelineItems,
 				requestedMainFocusSignalId
 			)
 		: undefined;
-	const initialFocusThread = input.initialFocusThreadRootSignalId
-		? input.threadsByRootSignalId.get(input.initialFocusThreadRootSignalId)
-		: undefined;
-	const threadFocusStatusMessage = resolveInitialThreadFocusStatusMessage({
-		hasTargetThread: initialFocusThread !== undefined,
-		isLoading: input.threadsIsLoading,
-		rootSignalId: input.initialFocusThreadRootSignalId,
-		threadsErrorMessage: input.threadsErrorMessage,
-	});
-	useEffect(() => {
-		const rootSignalId = input.initialFocusThreadRootSignalId;
-		if (!rootSignalId) {
-			appliedInitialThreadFocusRef.current = null;
-			return;
-		}
-		const targetKey = `${input.spaceId ?? "space"}:${rootSignalId}`;
-		if (
-			appliedInitialThreadFocusRef.current !== targetKey &&
-			initialFocusThread
-		) {
-			appliedInitialThreadFocusRef.current = targetKey;
-			input.onOpenThread(initialFocusThread.threadId);
-		}
-	}, [
-		input.initialFocusThreadRootSignalId,
-		input.spaceId,
-		initialFocusThread,
-		input.onOpenThread,
-	]);
 	useEffect(() => {
 		if (input.initialFocusThreadRootSignalId) {
 			return;
 		}
-		const targetKey =
-			input.initialFocusInteractionId ?? input.initialFocusSignalId ?? null;
 		if (!targetKey) {
-			appliedInitialFocusRef.current = null;
-			focusHistorySearchRef.current = { attempts: 0, targetKey: "" };
-			setMainFocusStatusMessage(null);
 			return;
-		}
-		if (focusHistorySearchRef.current.targetKey !== targetKey) {
-			focusHistorySearchRef.current = { attempts: 0, targetKey };
-			appliedInitialFocusRef.current = null;
-			setMainFocusStatusMessage(null);
 		}
 		if (appliedInitialFocusRef.current === targetKey) {
 			return;
@@ -1530,37 +1512,51 @@ function useSpaceConversationNavigationController(input: {
 			input.onSpaceViewChange("messages");
 			return;
 		}
-		continueInitialMainTimelineFocusSearch({
-			appliedInitialFocusRef,
-			focusHistorySearchRef,
-			hasEarlierHistory: input.hasEarlierHistory,
-			historyActionErrorMessage: input.historyActionErrorMessage,
-			historyIsPending: input.historyIsPending,
-			isLoadingEarlierHistory: input.isLoadingEarlierHistory,
-			jumpToMessage,
-			loadEarlierHistory,
-			mainTimelineItemCount: input.mainTimelineItems.length,
-			messageElementsBySignalIdRef,
-			setMainFocusStatusMessage,
-			signalId: initialMainFocusSignalId,
-			spaceId: input.spaceId,
-			targetKey,
-		});
+		if (
+			initialMainFocusSignalId &&
+			messageElementsBySignalIdRef.current.has(initialMainFocusSignalId)
+		) {
+			appliedInitialFocusRef.current = targetKey;
+			setMainFocusStatusMessage(null);
+			jumpToMessage(initialMainFocusSignalId);
+			return;
+		}
+		if (input.historyIsPending) {
+			return;
+		}
+		if (focusHistoryRequestRef.current) {
+			return;
+		}
+		if (requestedMainFocusSignalId && input.onLoadHistoryAround) {
+			const request = new AbortController();
+			focusHistoryRequestRef.current = request;
+			loadFocusHistory(requestedMainFocusSignalId, request.signal)?.catch(
+				(error: unknown) => {
+					if (!request.signal.aborted) {
+						setMainFocusStatusMessage(
+							error instanceof Error
+								? error.message
+								: "Couldn’t load this message. Try again."
+						);
+					}
+				}
+			);
+			return;
+		}
+		setMainFocusStatusMessage(
+			"This linked message isn’t available. It may have been removed or be outside the available Space history."
+		);
 	}, [
 		input.activeSpaceView,
-		input.hasEarlierHistory,
-		input.historyActionErrorMessage,
 		input.historyIsPending,
-		input.initialFocusInteractionId,
-		input.initialFocusSignalId,
 		input.initialFocusThreadRootSignalId,
-		input.isLoadingEarlierHistory,
-		input.mainTimelineItems.length,
 		input.onSpaceViewChange,
-		input.spaceId,
 		initialMainFocusSignalId,
 		jumpToMessage,
-		loadEarlierHistory,
+		loadFocusHistory,
+		requestedMainFocusSignalId,
+		input.onLoadHistoryAround,
+		targetKey,
 	]);
 	useEffect(() => {
 		if (input.activeSpaceView === "graph") {
@@ -1604,6 +1600,7 @@ function useSpaceConversationNavigationController(input: {
 
 	return {
 		conversationAutoScroll,
+		messageScrollActionRef,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
 		followLatest: conversationPosition.followLatest,
@@ -1620,7 +1617,6 @@ function useSpaceConversationNavigationController(input: {
 		onOpenThread,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
-		threadFocusStatusMessage,
 		unreadNavigation,
 	};
 }
@@ -1685,97 +1681,14 @@ function resolveInitialMainFocusSignalId(
 	);
 }
 
-function resolveInitialThreadFocusStatusMessage(input: {
-	hasTargetThread: boolean;
-	isLoading: boolean;
-	rootSignalId?: string;
-	threadsErrorMessage?: string | null;
-}): string | null {
-	if (!input.rootSignalId || input.hasTargetThread || input.isLoading) {
-		return null;
-	}
-	return input.threadsErrorMessage
-		? "Couldn’t open the linked thread. Refresh this Space and try again."
-		: "This linked thread isn’t available. It may have been removed or you may no longer have access.";
-}
-
-function continueInitialMainTimelineFocusSearch(input: {
-	appliedInitialFocusRef: { current: string | null };
-	focusHistorySearchRef: {
-		current: { attempts: number; targetKey: string };
-	};
-	hasEarlierHistory: boolean;
-	historyActionErrorMessage: string | null;
-	historyIsPending: boolean;
-	isLoadingEarlierHistory: boolean;
-	jumpToMessage: (signalId: string) => void;
-	loadEarlierHistory: () => Promise<void>;
-	mainTimelineItemCount: number;
-	messageElementsBySignalIdRef: {
-		current: ReadonlyMap<string, HTMLElement>;
-	};
-	setMainFocusStatusMessage: (message: string | null) => void;
-	signalId?: string;
-	spaceId?: string;
-	targetKey: string;
-}) {
-	if (
-		input.signalId &&
-		input.messageElementsBySignalIdRef.current.has(input.signalId)
-	) {
-		input.appliedInitialFocusRef.current = input.targetKey;
-		input.setMainFocusStatusMessage(null);
-		input.jumpToMessage(input.signalId);
-		return;
-	}
-	if (input.historyIsPending || input.isLoadingEarlierHistory) {
-		return;
-	}
-	if (input.historyActionErrorMessage) {
-		input.setMainFocusStatusMessage(
-			"Couldn’t load older messages to find this link. Try loading earlier messages again."
-		);
-		return;
-	}
-	if (
-		input.hasEarlierHistory &&
-		input.mainTimelineItemCount > 0 &&
-		input.focusHistorySearchRef.current.attempts <
-			MAX_SPACE_FOCUS_HISTORY_LOAD_ATTEMPTS
-	) {
-		input.focusHistorySearchRef.current.attempts += 1;
-		input.loadEarlierHistory().catch((error: unknown) => {
-			console.warn("[openmeld.web.space.inbox_focus_history_failed]", {
-				error: error instanceof Error ? error.message : String(error),
-				signalId: input.signalId,
-				spaceId: input.spaceId,
-			});
-			input.setMainFocusStatusMessage(
-				"Couldn’t load older messages to find this link. Try loading earlier messages again."
-			);
-		});
-		return;
-	}
-	input.setMainFocusStatusMessage(
-		"This linked message isn’t available. It may have been removed or be outside the available Space history."
-	);
-}
-
-function renderInitialSpaceFocusStatus(input: {
-	mainMessage: string | null;
-	threadMessage: string | null;
-}) {
-	const message = input.threadMessage ?? input.mainMessage;
+function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
+	const message = input.mainMessage;
 	if (!message) {
 		return null;
 	}
 	return (
 		<output
-			aria-label={
-				input.threadMessage
-					? "Linked thread isn't available"
-					: "Linked message isn't available"
-			}
+			aria-label="Linked message isn't available"
 			className="border-border border-b bg-muted/40 px-4 py-3 text-muted-foreground text-sm sm:px-5"
 		>
 			{message}
@@ -1905,7 +1818,13 @@ function scrollMessageIntoConversationViewport(input: {
 		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
 		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
 		// Canvas transforms scale viewport coordinates, while scrollTop uses CSS pixels.
-		const scale = viewportRect.height / input.scrollElement.offsetHeight;
+		// The first deep-link focus can run before layout reports an offset height.
+		// Use unscaled coordinates for that frame; the scheduled passes below will
+		// correct the position once layout has settled.
+		const scale =
+			input.scrollElement.offsetHeight > 0 && viewportRect.height > 0
+				? viewportRect.height / input.scrollElement.offsetHeight
+				: 1;
 		if (scale > 0) {
 			input.scrollElement.scrollTop += (messageCenter - viewportCenter) / scale;
 		}

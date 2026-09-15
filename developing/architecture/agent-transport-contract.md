@@ -481,6 +481,31 @@ RuntimeCoordinator execution follows one authority path:
 
 Important execution rules:
 
+- For an accepted/running execution whose current Service transport is unavailable,
+  RuntimeCoordinator retains the same execution for a 30-minute communication
+  recovery window, anchored to its last accepted local progress. This is not a
+  total runtime deadline. Opening a socket or checking a watchdog cannot extend
+  that baseline; fresh accepted progress from the same token run ends the old
+  uncertainty. A reconnection after the last accepted progress also retains that
+  window when the watchdog missed the offline interval; registration alone does
+  not prove that execution evidence has caught up. A continuously connected
+  controller with stale progress keeps the ordinary
+  five-minute policy. Stop, revocation, confirmed failure, and replacement-process
+  reconciliation take precedence. Window expiry retains `runtime.progress_stale`
+  and the existing owner-mediated late-result recovery, never automatic rerun.
+- After transport hibernation, accepted runtime evidence and tool/reasoning
+  progress read the durable command when its transient transport entry is gone.
+  This read projection does not recreate execution authority. Lease, source
+  message, execution identity, token and owned-reconnection checks still apply.
+  Tool/reasoning publication additionally requires the current session socket
+  and connection generation. Missing durable command state remains an explicit rejection.
+- Watchdog scheduling is a bounded Durable Object projection of command and token
+  authority. Command writes and terminal transitions update it transactionally.
+  Existing history is repaired in pages with a durable cursor, without deleting
+  history. Each alarm reads at most ten due items and repairs at most ten legacy
+  records; authoritative eligibility is rechecked before spending execution
+  budget. Failed items receive a bounded retry timestamp so later work can advance.
+  Scheduling timestamps are not progress evidence or execution authority.
 - A controlled OpenMeld Service update, reinstall, or repair first marks the
   current Runtime Transport route as not accepting new dispatches. The existing
   socket remains connected while owned local executions continue to report
@@ -580,6 +605,12 @@ Important execution rules:
   `accepted_local` after local process startup until that provider accepts the
   exact turn; process spawn, protocol stdout, and conversation occupancy are
   not `running` evidence.
+- Working-time presentation projects the existing first `runningAtMs` from
+  accepted Coordinator lifecycle state. The lifecycle event ledger preserves
+  this timestamp through keepalive replacement; its observation timestamp and
+  execution creation timestamp are not working-start evidence. Older records
+  without this fact omit working time. This read projection does not change
+  execution or timeout authority.
 - A provider's versioned Agent Controller conversation occupancy contract may
   keep the current Wake at the Profile FIFO head after local execution starts.
   A structured occupied admission is non-terminal: the Service reports it as
@@ -629,6 +660,14 @@ Important execution rules:
   incomplete cancellation keeps retry evidence in the Space
   membership-liveness alarm instead of leaving a removed Agent with an
   indefinitely active Wake presentation.
+  Old retryable deliveries that never acquired a head are also subject to
+  deletion: a confirmed missing Profile must converge through the existing
+  RuntimeCoordinator pre-agent Stop and System Message publication path, not
+  retry owner discovery forever. Core-recorded dispatch ownership can address
+  this cancellation after Auth deletion; it never authorizes new execution.
+  Missing identity and temporarily unavailable identity lookup remain distinct.
+  A linked execution or existing terminal head keeps its RuntimeCoordinator
+  authority; deletion recovery must not replace its outcome or restart work.
 - Space access authority must stay structured across the Wake path. When Core,
   Space, dispatch, or RuntimeCoordinator code carries a `SpaceAccessContext`, it
   must preserve the access actor kind through internal RPC and direct Durable
@@ -1636,8 +1675,29 @@ the buffer when disabled or disconnected. The Hub permits at most one pending
 reasoning delivery per dispatch rather than building a backlog of private text.
 Live delivery failure must not fail execution. Space persists only the existing
 stream identity, cursor, and presence metadata for thinking, never its body.
-Web renders plain text in a bounded transient viewport, respecting manual
-scrolling and reduced motion. Neither private final replies nor tool inputs and
+Space may retain the latest accepted thinking frame in instance memory for
+authenticated live-connection replay. This tail is bounded to 8,192 characters
+per stream, 128 streams per Space, and 30 minutes since its last thinking
+frame. Replay checks the active stream identity and uses the existing viewer
+reply-placement projection, then rechecks the live viewer's access before sending.
+Local reasoning replay also requires the current owner's cloud preference to
+permit sharing; an unavailable owner or preference fails closed. Preference
+changes clear tails for the Hub's pending dispatches through a Core-only Space
+RPC, without waiting for the local Service. Clearing invalidates replay already
+awaiting authorization and prevents an in-flight write from restoring the cache.
+A disabled frame replaces the private tail with
+empty text, and stream closure removes it. No tail is written to Durable Object
+storage, WebSocket attachments, or browser persistence. Instance eviction,
+restart, or tail expiry loses this optional replay; subsequent producer output
+is still needed in those cases. Replay is presentation only and cannot advance
+execution state. Web may fill a missing transient tail behind a newer presence
+cursor, but must not overwrite a received tail or disabled state.
+Web renders lightweight sanitized Markdown in a bounded transient viewport,
+reusing the message renderer without raw HTML, images, code highlighting,
+code controls, or per-token animation. The first tail opens automatically;
+tool/reasoning phase changes preserve the user's disclosure choice and manual
+scroll position. Reopening resumes following the latest text. Collapsed tails
+do not mount the Markdown renderer. Neither private final replies nor tool inputs and
 outputs are added to this stream.
 
 The Space part RPC must finish before the matching result may retire execution

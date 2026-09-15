@@ -5,6 +5,7 @@ import { type ComponentProps, memo, type ReactNode, useMemo } from "react";
 import rehypeSanitize from "rehype-sanitize";
 import type { ExtraProps } from "streamdown";
 import { defaultRemarkPlugins, Streamdown } from "streamdown";
+import "./message-response.css";
 
 const ALLOWED_INTERNAL_SPACE_PATH_PATTERN = /^\/spaces\/[0-9a-f]{64}$/;
 const ALLOWED_INTERNAL_PROFILE_MENTION_PATH_PATTERN =
@@ -18,6 +19,7 @@ const STREAMDOWN_REHYPE_PLUGINS = [rehypeSanitize];
 const TYPESET_VARIANT_CLASS_NAMES = {
 	changelog: "typeset-changelog",
 	"space-message": "typeset-space-message",
+	reasoning: "typeset-reasoning",
 } as const;
 
 export type MessageResponseVariant = keyof typeof TYPESET_VARIANT_CLASS_NAMES;
@@ -83,8 +85,11 @@ export const MessageResponse = memo(function MessageResponse({
 			img: DisabledMarkdownImage,
 			strong: MarkdownStrong,
 			table: MarkdownTable,
+			...(variant === "reasoning"
+				? { code: ReasoningCode, pre: ReasoningPre }
+				: {}),
 		}),
-		[renderInternalLink]
+		[renderInternalLink, variant]
 	);
 	const remarkPlugins = useMemo(
 		() =>
@@ -105,8 +110,9 @@ export const MessageResponse = memo(function MessageResponse({
 			style={MESSAGE_RESPONSE_STYLE}
 		>
 			<Streamdown
-				animated={STREAMDOWN_ANIMATION}
+				animated={variant === "reasoning" ? false : STREAMDOWN_ANIMATION}
 				components={components}
+				controls={variant === "reasoning" ? false : undefined}
 				disallowedElements={STREAMDOWN_DISALLOWED_ELEMENTS}
 				isAnimating={isStreaming}
 				linkSafety={STREAMDOWN_LINK_SAFETY}
@@ -124,6 +130,14 @@ export const MessageResponse = memo(function MessageResponse({
 		</div>
 	);
 });
+
+function ReasoningCode({ children }: ComponentProps<"code"> & ExtraProps) {
+	return <code>{children}</code>;
+}
+
+function ReasoningPre({ children }: ComponentProps<"pre"> & ExtraProps) {
+	return <pre>{children}</pre>;
+}
 
 function SafeMarkdownLink(
 	props: ComponentProps<"a"> & {

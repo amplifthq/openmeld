@@ -55,6 +55,10 @@ let keychainRetryAt = 0;
 let lastKeychainFailureCode: string | null = null;
 export const MAC_OS_KEYCHAIN_RETRY_DELAY_MS = 30_000;
 
+export function getMacOsKeychainRetryAfterMs(): number {
+  return Math.max(0, keychainRetryAt - Date.now());
+}
+
 export async function storeMacOsNativeKeychainToken(
   input: KeychainAddress & { accessToken: string }
 ): Promise<void> {

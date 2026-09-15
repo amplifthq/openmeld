@@ -21,11 +21,14 @@ export function createRuntimeReportingAttemptObserver(input: {
     await persistRuntimeReportingAttempt(attempt, input.serviceIdentity);
     if (
       attempt.status === "failed" &&
-      (attempt.authenticationRejected || attempt.requiresCarrierHandshake) &&
+      attempt.authenticationRejected &&
       attempt.reasonCode &&
       attempt.message
     ) {
       await input.onAuthenticationFailure?.({
+        ...(attempt.credentialFingerprint
+          ? { credentialFingerprint: attempt.credentialFingerprint }
+          : {}),
         message: attempt.message,
         reasonCode: attempt.reasonCode,
       });

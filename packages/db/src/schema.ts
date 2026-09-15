@@ -151,6 +151,7 @@ export const {
   slackUserIdentityLinks,
   openMeldDaemonRuntimeCoordinatorExecutions,
   openMeldDaemonRuntimeCoordinatorExecutionEvents,
+  serviceConnectionIncidents,
   openMeldDaemonRuntimeCoordinatorCreationDiagnostics,
   openMeldDaemonProviderAccessEvidence,
   openMeldDaemonProviderConversationProofs,

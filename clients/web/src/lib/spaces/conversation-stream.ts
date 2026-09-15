@@ -80,7 +80,12 @@ export function applySpaceConversationStreamFrame(input: {
 		}
 		if (
 			currentProjection &&
-			input.frame.sequence <= currentProjection.sequence
+			input.frame.sequence <= currentProjection.sequence &&
+			!(
+				input.frame.kind === "thinking" &&
+				!currentProjection.thinking &&
+				!currentProjection.reasoningState
+			)
 		) {
 			return input.current;
 		}
@@ -318,7 +323,10 @@ function toStreamingProjection(input: {
 		observedRevision: input.observedRevision,
 		profileId: input.frame.profileId,
 		reasonCode: null,
-		sequence: input.frame.sequence,
+		sequence: Math.max(
+			currentStreamingProjection?.sequence ?? 0,
+			input.frame.sequence
+		),
 		spaceId: input.frame.spaceId,
 		status: "streaming",
 		streamId: input.frame.streamId,
@@ -331,7 +339,12 @@ function toStreamingProjection(input: {
 				? (currentStreamingProjection?.textSequence ?? 0)
 				: input.frame.sequence,
 		...(thinking
-			? { thinking, thinkingActive: input.frame.kind === "thinking" }
+			? {
+					thinking,
+					thinkingActive:
+						input.frame.kind === "thinking" &&
+						input.frame.sequence >= (currentStreamingProjection?.sequence ?? 0),
+				}
 			: {}),
 		...((
 			input.frame.kind === "thinking"
@@ -355,7 +368,10 @@ function toStreamingProjection(input: {
 		...(input.frame.replyThreadRootSignalId !== undefined
 			? { replyThreadRootSignalId: input.frame.replyThreadRootSignalId }
 			: {}),
-		updatedAtMs: input.frame.updatedAtMs,
+		updatedAtMs: Math.max(
+			currentStreamingProjection?.updatedAtMs ?? 0,
+			input.frame.updatedAtMs
+		),
 		...(input.currentProjection?.toolParts
 			? { toolParts: input.currentProjection.toolParts }
 			: {}),

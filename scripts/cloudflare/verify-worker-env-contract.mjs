@@ -142,6 +142,7 @@ const workerPackages = [
     secretOwned: true,
     stagingSecretOwned: true,
     requiredSecretNames: ["WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET"],
+    requiredVarNames: ["AUTH_DESKTOP_DEVELOPMENT_TARGET"],
     requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
     expectedGeneratedBindings: [
@@ -185,7 +186,10 @@ const workerPackages = [
     },
     requiredConfigEnvironments: ["stg", "prod"],
     requiredSecretScriptSnippet: "sync-worker-secrets.mjs",
-    requiredVarNames: ["OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED"],
+    requiredVarNames: [
+      "OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED",
+      "AUTH_DESKTOP_DEVELOPMENT_TARGET",
+    ],
     expectedGeneratedBindings: [
       "AUTH_EMAIL",
       "OPENMELD_AUTH_KV",

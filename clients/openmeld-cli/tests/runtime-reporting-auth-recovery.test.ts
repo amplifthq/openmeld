@@ -36,7 +36,7 @@ describe("Runtime reporting authentication recovery", () => {
     expect(requestCarrierHandshake).toHaveBeenCalledWith(failure);
   });
 
-  it("requests authentication recovery for a locally detected carrier handshake requirement", async () => {
+  it("keeps local credential failures separate from actual server rejection", async () => {
     const openMeldHome = await mkdtemp(
       join(tmpdir(), "openmeld-reporting-auth-recovery-")
     );
@@ -51,9 +51,8 @@ describe("Runtime reporting authentication recovery", () => {
       await observe({
         authenticationRejected: false,
         family: "runtime_agent_controller",
-        message: "Local authentication is expired.",
-        reasonCode: "runtime.reporting.auth_expired",
-        requiresCarrierHandshake: true,
+        message: "Local credentials are temporarily unavailable.",
+        reasonCode: "runtime.reporting.session_token_unavailable",
         status: "failed",
       });
       await observe({
@@ -61,14 +60,22 @@ describe("Runtime reporting authentication recovery", () => {
         family: "runtime_agent_controller",
         message: "The reporting Gateway does not match local authentication.",
         reasonCode: "runtime.reporting.auth_gateway_mismatch",
-        requiresCarrierHandshake: false,
+        status: "failed",
+      });
+
+      expect(onAuthenticationFailure).not.toHaveBeenCalled();
+      await observe({
+        authenticationRejected: true,
+        family: "runtime_agent_controller",
+        message: "OpenMeld rejected the local authentication session.",
+        reasonCode: "runtime.reporting.authentication_required",
         status: "failed",
       });
 
       expect(onAuthenticationFailure).toHaveBeenCalledOnce();
       expect(onAuthenticationFailure).toHaveBeenCalledWith({
-        message: "Local authentication is expired.",
-        reasonCode: "runtime.reporting.auth_expired",
+        message: "OpenMeld rejected the local authentication session.",
+        reasonCode: "runtime.reporting.authentication_required",
       });
     } finally {
       await rm(openMeldHome, { force: true, recursive: true });

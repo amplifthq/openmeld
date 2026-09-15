@@ -59,6 +59,7 @@ export function SpaceSettingsDialog(input: {
 	visibility?: "public" | "private";
 	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 }) {
+	const [internalOpen, setInternalOpen] = useState(false);
 	const [section, setSection] = useState("general");
 	const [isConfirmingLeave, setIsConfirmingLeave] = useState(false);
 	const cliJoinCommand = buildSpaceCliJoinCommand(input.spaceId);
@@ -71,9 +72,11 @@ export function SpaceSettingsDialog(input: {
 	});
 	const showSpaceAccessControls = !isDirectConversation;
 	const conversationLabel = isDirectConversation ? "Chat" : "Space";
+	const open = input.open ?? internalOpen;
+	const handleOpenChange = input.onOpenChange ?? setInternalOpen;
 
 	return (
-		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
+		<Dialog onOpenChange={handleOpenChange} open={open}>
 			{input.showTrigger === false ? null : (
 				<Tooltip>
 					<TooltipTrigger
@@ -187,7 +190,10 @@ export function SpaceSettingsDialog(input: {
 						deleteSpaceErrorMessage={input.deleteAction.errorMessage}
 						isDeleteSpacePending={input.deleteAction.isPending}
 						isSpaceMutationPending={isSpaceMutationPending}
-						onDeleteSpace={input.deleteAction.onDelete}
+						onDeleteSpace={() => {
+							handleOpenChange(false);
+							return input.deleteAction.onDelete();
+						}}
 						onStartDeleteConfirmation={() => setIsConfirmingLeave(false)}
 					/>
 				) : null}

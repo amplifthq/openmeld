@@ -1702,6 +1702,80 @@ describe("SpaceConversationPanel", () => {
 		);
 	});
 
+	it("keeps an explicit message jump after the bottom-following content resizes", async () => {
+		const view = renderSpaceConversationPanel({
+			spaceId: "space-explicit-jump-resize",
+			hasEarlierHistory: false,
+			timelineItems: [
+				createTimelineItem({ id: "signal-target", text: "Linked message" }),
+				createTimelineItem({ id: "signal-last", text: "Latest message" }),
+			],
+			unreadTargets: [
+				{
+					occurredAtMs: 1,
+					signalId: "signal-target",
+					threadRootSignalId: null,
+				},
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+		const viewport = screen.getByRole("log", { name: "Conversation history" });
+		setElementScrollMetrics(viewport, {
+			clientHeight: 500,
+			scrollHeight: 2500,
+			scrollTop: 2000,
+		});
+		Object.defineProperty(viewport, "offsetHeight", {
+			configurable: true,
+			value: 500,
+		});
+		Object.defineProperty(viewport, "scrollTo", {
+			configurable: true,
+			value: (options: ScrollToOptions) => {
+				viewport.scrollTop = Number(options.top);
+			},
+		});
+		const geometry = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this === viewport) {
+					return domRect({ top: 0, bottom: 500 });
+				}
+				const id = this.dataset.signalId ?? this.dataset.messageId;
+				if (id) {
+					const top = id === "signal-target" ? 700 : 2400;
+					return domRect({
+						top: top - viewport.scrollTop,
+						bottom: top + 60 - viewport.scrollTop,
+					});
+				}
+				return domRect({ top: 0, bottom: 0 });
+			});
+		fireEvent.scroll(viewport);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 unread update. Jump to first unread",
+			})
+		);
+		await waitFor(() => expect(viewport.scrollTop).toBe(480));
+		const content = viewport.querySelector<HTMLElement>(
+			"[data-slot='message-scroller-content']"
+		);
+		if (!content) {
+			throw new Error("Expected conversation content");
+		}
+		await act(async () => {
+			notifyResizeObservers(content);
+			await new Promise<void>((resolve) =>
+				requestAnimationFrame(() => resolve())
+			);
+		});
+		expect(viewport.scrollTop).toBe(480);
+		view.unmount();
+		geometry.mockRestore();
+	});
+
 	it("keeps following a streaming message when the existing item grows", async () => {
 		const streamingMessage = createTimelineItem({
 			id: "stream-1",

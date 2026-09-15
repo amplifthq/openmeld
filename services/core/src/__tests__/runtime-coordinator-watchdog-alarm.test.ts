@@ -2,6 +2,7 @@ import { RUNTIME_TRANSPORT_SCHEMA_VERSION } from "@openmeld/schemas";
 import type { RuntimeTransportDeliverDispatchRequest } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
+  hasRuntimeCoordinatorLocalProgressStaleTerminalExpired,
   RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION,
   type RuntimeCoordinatorRunCommandState,
 } from "../runtime-transport/application/runtime-coordinator-authority";
@@ -56,6 +57,56 @@ const buildCommandState = (
 });
 
 describe("RuntimeCoordinator watchdog alarm processor", () => {
+  it("keeps the communication window anchored to accepted progress, without extending other deadlines", () => {
+    const baseline = NOW_MS - 9 * 60_000;
+    const commandState = buildCommandState({
+      communicationRecoveryBaselineAtMs: baseline,
+      lastWatchdogCheckAtMs: NOW_MS,
+      localProgress: {
+        acceptedLocalAtMs: baseline,
+        completedLocalAtMs: null,
+        lastLifecycleAtMs: baseline,
+        phase: "running",
+        resultReceivedAtMs: null,
+        runningAtMs: baseline,
+      },
+    });
+    expect(
+      hasRuntimeCoordinatorLocalProgressStaleTerminalExpired({
+        commandState,
+        nowMs: NOW_MS,
+      })
+    ).toBe(false);
+    expect(
+      hasRuntimeCoordinatorLocalProgressStaleTerminalExpired({
+        commandState,
+        nowMs: baseline + 30 * 60_000,
+      })
+    ).toBe(true);
+    expect(
+      hasRuntimeCoordinatorLocalProgressStaleTerminalExpired({
+        commandState: {
+          ...commandState,
+          communicationRecoveryBaselineAtMs: undefined,
+        },
+        nowMs: NOW_MS,
+      })
+    ).toBe(true);
+    // New accepted evidence ends uncertainty for the old gap; a still-connected
+    // controller that subsequently stops reporting uses the ordinary policy.
+    expect(
+      hasRuntimeCoordinatorLocalProgressStaleTerminalExpired({
+        commandState: {
+          ...commandState,
+          localProgress: {
+            ...commandState.localProgress,
+            lastLifecycleAtMs: baseline + 1,
+          },
+        },
+        nowMs: NOW_MS,
+      })
+    ).toBe(true);
+  });
   it("processes due command states through a high-level delegate in index order", async () => {
     const dueFirst = buildCommandState({
       dispatchId: "dispatch-first",

@@ -1,4 +1,5 @@
 import process from "node:process";
+import type { ComputerConnectionIntent } from "@openmeld/schemas";
 import type { PrepareSessionSnapshot } from "@openmeld/schemas/types";
 import { getSetupFlowCopy } from "@openmeld/start";
 import { ensureCommandAuthenticationOrCancel } from "../auth/command-auth";
@@ -81,6 +82,7 @@ const NON_INTERACTIVE_DEFAULT_LOCAL_AGENTS_NOTICE =
   "Non-interactive: connecting all detected agents (use --local-agent to limit, or --local-agents none to skip).";
 
 export async function runSetup(input: {
+  connectionIntent?: ComputerConnectionIntent;
   agent?: string[];
   deviceCode?: string;
   humanProfile?: string;
@@ -117,6 +119,7 @@ export async function runSetup(input: {
 }
 
 async function runSetupUnlocked(input: {
+  connectionIntent?: ComputerConnectionIntent;
   agent?: string[];
   deviceCode?: string;
   humanProfile?: string;

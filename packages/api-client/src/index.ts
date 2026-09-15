@@ -1,5 +1,7 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes a single public entrypoint.
 
+export { readAccountOrganizationContext } from "./account-organization-context";
+export { readAccountSession } from "./account-session";
 export { createAccountSpaceIndexApi } from "./account-space-index/api";
 export {
   buildAccountSpaceActiveWakeSummaryPath,
@@ -67,12 +69,14 @@ export type {
   CreateCenterAgentApi,
   ListCenterAgentAuditJournalInput,
 } from "./center-agent/types";
+export { readCliRelease } from "./cli-release";
 export type {
   OpenMeldApiClientConfig,
   OpenMeldApiClientFoundation,
   OpenMeldApiClientRequestOptions,
 } from "./client";
 export { createOpenMeldApiClient } from "./client";
+export { createComputerAuthorizationGrant } from "./computer-authorization";
 export { createComputerFileAccessApi } from "./computer-file-access/api";
 export {
   buildComputerFileAccessReadPath,
@@ -327,6 +331,7 @@ export type {
   SubmitRuntimeProviderConversationProofsInput,
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
+export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
 export type {
   AddSpaceMembersInput,
   CreateSpaceDiagnosticReportBody,

@@ -13,6 +13,7 @@ export type {
 export type {
   AgentStreamToolPart,
   AgentWorkActivity,
+  ClearSpaceReasoningReplay,
   SpaceAgentActivity,
   SpaceAgentStreamDeltaFrame,
   SpaceAgentStreamPartFrame,
