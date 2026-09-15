@@ -23,7 +23,7 @@ import { useMediaQuery } from "@openmeld/ui/hooks/use-media-query";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import type { ComponentProps, ReactNode } from "react";
+import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
 	lazy,
 	Suspense,
@@ -1495,6 +1495,7 @@ function SpaceLandingReady({
 		isDirectMessage,
 		isDesktopMembersPanel,
 		membersOpen,
+		membersPanelWidth,
 		modelCatalog,
 		navigate,
 		organizationId,
@@ -1747,6 +1748,11 @@ function SpaceLandingReady({
 							!currentSpaceIsCenterAgentDirectMessage
 						}
 						data-space-thread-panel-open={controller.activeThread !== null}
+						style={
+							{
+								"--space-members-panel-width": membersPanelWidth.width,
+							} as CSSProperties
+						}
 					>
 						<SpaceLandingConversation
 							agentDirectConversationKind={agentDirectConversationKind}
