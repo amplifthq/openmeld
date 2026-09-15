@@ -619,6 +619,7 @@ function SpaceFileImageThumbnail(input: {
 				"grid h-11 w-16 shrink-0 place-items-center rounded-md border border-border/70 bg-muted text-muted-foreground",
 				imageSource.isLoading && "animate-pulse motion-reduce:animate-none"
 			)}
+			ref={imageSource.placeholderRef}
 		>
 			{imageSource.error ? (
 				<ImageIcon aria-hidden="true" className="size-4.5" />

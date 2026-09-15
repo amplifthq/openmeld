@@ -444,6 +444,24 @@ File maintenance prefills the existing Routine contract without a new scheduler.
 Rollback the new Web callers before their receivers; no local component release
 or execution-contract epoch bump is required for these additive capabilities.
 
+### Optional Space bootstrap readiness enrichment
+
+`GET /v1/spaces/:spaceId/bootstrap` accepts `includeAgentReadiness=false`.
+Only this explicit opt-in returns `includesAgentReadiness=false`; omitted or
+true requests retain the existing full response without a new marker. Gateway
+forwards the option to Core. Access checks and member identity remain present,
+while runtime readiness reads and liveness observation writes are skipped.
+Missing readiness is unknown, not an offline result. Clients must keep this
+identity-only snapshot out of the authoritative members Query cache and load
+that projection independently.
+
+Both additions are optional in `packages/schemas`. Old callers retain the full
+response, and new callers accept an unmarked full response from older cloud
+components. The normal Web, Gateway, Core rollout order is compatible: an older
+Gateway never forwards the opt-in to Core. CLI, Service, setup, Wake, Space
+publication, and diagnostic contracts are unchanged; no local component epoch
+or required-update floor changes.
+
 ### Direct Message conversion member snapshots
 
 The conversion request may opt into `includeMemberSnapshots`. The Space-owned

@@ -358,7 +358,7 @@ function buildSpaceMemberMutationItems(input: {
         generatedAt: input.nowIso,
       });
     }
-    return buildAgentMutationSnapshot({
+    return buildAgentIdentitySnapshot({
       record,
       liveProfileById,
       cursorSnapshots,
@@ -491,6 +491,7 @@ export const leaveSpaceUseCase = (input: {
 };
 
 export const listSpaceMembersSnapshotUseCase = async (input: {
+  includeAgentReadiness?: boolean;
   profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
@@ -572,33 +573,43 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       "route_batch",
       "preload agent member route evidence",
       () =>
-        preloadAgentMemberDaemonRoutes({
-          env: input.env,
-          records,
-        })
+        input.includeAgentReadiness === false
+          ? Promise.resolve(new Map())
+          : preloadAgentMemberDaemonRoutes({
+              env: input.env,
+              records,
+            })
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
       "owner_service_batch",
       "preload agent member owner service evidence",
       () =>
-        preloadAgentMemberOwnerServices({
-          env: input.env,
-          records,
-        })
+        input.includeAgentReadiness === false
+          ? Promise.resolve(new Map())
+          : preloadAgentMemberOwnerServices({
+              env: input.env,
+              records,
+            })
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
       "auth_lineage",
       "resolve viewer creator profile ids",
-      () =>
-        input.lineageLoader && input.viewerOwnerUserId && input.viewerProfileId
+      () => {
+        if (input.includeAgentReadiness === false) {
+          return Promise.resolve(undefined);
+        }
+        return input.lineageLoader &&
+          input.viewerOwnerUserId &&
+          input.viewerProfileId
           ? input.lineageLoader(input.viewerOwnerUserId)
           : resolveViewerCreatorProfileIdsByProfileId({
               authRpc: input.env.OPENMELD_AUTH_WORKER,
               viewerOwnerUserId: input.viewerOwnerUserId,
               viewerProfileId: input.viewerProfileId,
-            })
+            });
+      }
     ),
   ]);
   const generatedAt = input.nowIso ?? new Date().toISOString();
@@ -633,22 +644,32 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     }
 
     agentSnapshotPromises.push(
-      buildAgentSnapshot({
-        activeOrganizationId,
-        env: input.env,
-        record,
-        viewerOwnerUserId: input.viewerOwnerUserId,
-        viewerProfileId: input.viewerProfileId,
-        viewerCreatorProfileIdsByProfileId,
-        liveProfileById,
-        cursorSnapshots,
-        latestSignalActivity,
-        latestAgentOriginFactsByProfileId,
-        preloadedDaemonRouteByProfileId,
-        preloadedOwnerServiceByOwnerUserId,
-        readinessReads,
-        generatedAt,
-      })
+      input.includeAgentReadiness === false
+        ? Promise.resolve(
+            buildAgentIdentitySnapshot({
+              record,
+              liveProfileById,
+              cursorSnapshots,
+              latestSignalActivity,
+              generatedAt,
+            })
+          )
+        : buildAgentSnapshot({
+            activeOrganizationId,
+            env: input.env,
+            record,
+            viewerOwnerUserId: input.viewerOwnerUserId,
+            viewerProfileId: input.viewerProfileId,
+            viewerCreatorProfileIdsByProfileId,
+            liveProfileById,
+            cursorSnapshots,
+            latestSignalActivity,
+            latestAgentOriginFactsByProfileId,
+            preloadedDaemonRouteByProfileId,
+            preloadedOwnerServiceByOwnerUserId,
+            readinessReads,
+            generatedAt,
+          })
     );
   }
 
@@ -670,7 +691,10 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     "liveness",
     "record member liveness observations",
     () => {
-      if (Number.isFinite(livenessObservedAtMs)) {
+      if (
+        input.includeAgentReadiness !== false &&
+        Number.isFinite(livenessObservedAtMs)
+      ) {
         for (const agent of agents) {
           if (
             agent.agentWakeAvailability?.reasonCode ===
@@ -730,10 +754,14 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       humanCount: memberSummary.sortedHumans.length,
       agentCount: memberSummary.sortedAgents.length,
       liveNowCount: memberSummary.liveNowCount,
-      wakeableAgentCount: memberSummary.wakeableAgentCount,
-      checkingAgentCount: memberSummary.checkingAgentCount,
-      offlineAgentCount: memberSummary.offlineAgentCount,
-      unavailableAgentCount: memberSummary.unavailableAgentCount,
+      ...(input.includeAgentReadiness === false
+        ? {}
+        : {
+            wakeableAgentCount: memberSummary.wakeableAgentCount,
+            checkingAgentCount: memberSummary.checkingAgentCount,
+            offlineAgentCount: memberSummary.offlineAgentCount,
+            unavailableAgentCount: memberSummary.unavailableAgentCount,
+          }),
     },
     humans: memberSummary.sortedHumans,
     agents: memberSummary.sortedAgents,
@@ -1066,7 +1094,7 @@ async function preloadHumanMemberAvatars(input: {
   return avatarByOwnerUserId;
 }
 
-function buildAgentMutationSnapshot(input: {
+function buildAgentIdentitySnapshot(input: {
   record: SpaceMemberRecord;
   liveProfileById: Map<string, Profile>;
   cursorSnapshots: Map<string, CursorMemberSnapshot>;

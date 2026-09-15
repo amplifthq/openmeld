@@ -874,7 +874,7 @@ function useSpaceLandingBootstrapState(input: {
 		spaceStatusQueryOptions({
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
-			enabled: true,
+			enabled: false,
 		})
 	);
 	const displaySnapshotQuery = useQuery(
@@ -916,13 +916,14 @@ function useSpaceLandingBootstrapState(input: {
 		spaceMembersQueryOptions({
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
-			enabled: false,
+			enabled: true,
 		})
 	);
 	const membersSnapshot = membersQuery.data ?? null;
 	const presentationMembersSnapshot = bootstrapQuery.data
 		? resolveSpaceMembersPresentationSnapshot({
 				bootstrap: bootstrapQuery.data.members,
+				includesAgentReadiness: bootstrapQuery.data.includesAgentReadiness,
 				current: membersSnapshot,
 			})
 		: membersSnapshot;

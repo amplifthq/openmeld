@@ -2469,6 +2469,7 @@ export type CloseSpaceAgentStreamInput = {
 };
 
 export type GetSpaceBootstrapInput = ListSignalsInput & {
+  includeAgentReadiness?: boolean;
   includeAgentStreamPresence?: boolean;
 };
 
@@ -18895,6 +18896,9 @@ function resolveSpaceBootstrapRpcTarget(
       ...(aroundSignalId ? { aroundSignalId } : {}),
       ...(input.includeAgentStreamPresence === true
         ? { includeAgentStreamPresence: true }
+        : {}),
+      ...(input.includeAgentReadiness === false
+        ? { includeAgentReadiness: false }
         : {}),
       ...(fromProfileIds.length > 0 ? { fromProfileIds } : {}),
       ...buildListSignalsTypeFilter(signalTypes),

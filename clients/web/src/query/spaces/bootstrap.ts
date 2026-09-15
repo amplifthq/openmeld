@@ -34,6 +34,7 @@ export async function readSpaceBootstrap(input: {
 				? {}
 				: { openMeldProfileId: input.openMeldProfileId }),
 		}).getBootstrap({
+			includeAgentReadiness: false,
 			spaceId: input.spaceId,
 			includeAgentStreamPresence: true,
 			historyQuery: {

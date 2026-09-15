@@ -47,6 +47,7 @@ describe("spaceBootstrapQueryOptions", () => {
 		});
 		expect(getBootstrapMock).toHaveBeenCalledWith({
 			spaceId: "space-123",
+			includeAgentReadiness: false,
 			includeAgentStreamPresence: true,
 			historyQuery: {
 				recent: true,
@@ -92,6 +93,7 @@ describe("spaceBootstrapQueryOptions", () => {
 
 		expect(getBootstrapMock).toHaveBeenCalledWith({
 			spaceId: "space-123",
+			includeAgentReadiness: false,
 			includeAgentStreamPresence: true,
 			historyQuery: {
 				recent: true,

@@ -60,6 +60,7 @@ export function registerBootstrapRoute(app: Hono<HonoBindings>): void {
       });
     }
     const parsedBootstrapQuery = spaceBootstrapQuerySchema.safeParse({
+      includeAgentReadiness: searchParams.get("includeAgentReadiness"),
       includeAgentStreamPresence: searchParams.get(
         "includeAgentStreamPresence"
       ),
@@ -76,6 +77,9 @@ export function registerBootstrapRoute(app: Hono<HonoBindings>): void {
     }
 
     const rpcInput = {
+      ...(parsedBootstrapQuery.data.includeAgentReadiness === false
+        ? { includeAgentReadiness: false }
+        : {}),
       ...buildListSignalsRpcInput({
         query: parsedQuery.data,
         hasLimit: query.hasLimit,

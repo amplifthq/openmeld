@@ -10,6 +10,7 @@ import { getSpaceStatusResponseSchema } from "./space-status";
 import { listSpaceThreadsResponseSchema } from "./space-threads";
 
 export const spaceBootstrapResponseSchema = z.strictObject({
+  includesAgentReadiness: z.boolean().optional(),
   activeAgentStreamPresences: z
     .array(spaceAgentStreamPresenceSchema)
     .optional(),
@@ -21,5 +22,6 @@ export const spaceBootstrapResponseSchema = z.strictObject({
 });
 
 export const spaceBootstrapQuerySchema = z.strictObject({
+  includeAgentReadiness: optionalBooleanQuerySchema,
   includeAgentStreamPresence: optionalBooleanQuerySchema,
 });

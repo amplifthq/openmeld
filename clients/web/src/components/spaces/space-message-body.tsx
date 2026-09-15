@@ -768,6 +768,7 @@ function SpaceMessageFileImage(input: {
 					"animate-pulse bg-muted motion-reduce:animate-none",
 					input.isSingle ? "h-48 w-72 max-w-full" : "aspect-square w-full"
 				)}
+				ref={imageSource.placeholderRef}
 			/>
 		);
 	}

@@ -833,6 +833,48 @@ describe("space-members-service", () => {
     });
   });
 
+  it("returns member identity without consulting runtime readiness for a display bootstrap", async () => {
+    const sql = new MutableSqlStorage();
+    const profile = createAgentProfile({
+      profileId: "agt_11111111-1111-4111-8111-111111111111",
+      profileName: "Agent on a slow computer",
+      ownerUserId: "owner-status",
+      agentControllerRef: "builtin:codex",
+    });
+    upsertJoinedSpaceMember({
+      sql: sql as unknown as SqlStorage,
+      spaceId: "space-display",
+      profile,
+      nowIso: "2026-03-06T12:05:00.000Z",
+    });
+    const snapshot = await listSpaceMembersSnapshotUseCase({
+      includeAgentReadiness: false,
+      sql: sql as unknown as SqlStorage,
+      env: {
+        OPENMELD_RUNTIME_TRANSPORT: {
+          idFromName: () => {
+            throw new Error("Runtime reads must not gate display");
+          },
+        },
+      } as unknown as CoreBindings,
+      spaceId: "space-display",
+      liveSessions: [],
+      nowIso: "2026-03-06T12:05:00.000Z",
+    });
+    expect(snapshot.agents[0]).toMatchObject({
+      profileId: profile.profileId,
+      profileName: profile.profileName,
+      agentControllerRef: "builtin:codex",
+    });
+    expect(snapshot.agents[0]?.agentWakeAvailability).toBeUndefined();
+    expect(snapshot.summary).toEqual({
+      totalCount: 1,
+      humanCount: 0,
+      agentCount: 1,
+      liveNowCount: 0,
+    });
+  });
+
   it("keeps live sessions visible even when the input iterable can only be consumed once", async () => {
     const sql = new MutableSqlStorage();
     const metaRecord = createMetaRecord({

@@ -2884,6 +2884,16 @@ After the entry access gate permits a cold conversation, its bounded bootstrap
 starts alongside route classification. Space and direct-message routes reuse
 that same bootstrap query in the conversation; saved-history visits keep their
 existing contiguous-update path instead of requesting a new tail window.
+Web requests `includeAgentReadiness=false` for this bounded bootstrap. Core
+returns member identity for message presentation without waiting for runtime
+readiness enrichment. The mounted conversation loads the authoritative members
+query independently; a bootstrap marked `includesAgentReadiness=false` must
+never seed or replace that query. Existing full members remain usable until its
+own refresh completes. Bootstrap still checks access and seeds current status;
+live reconciliation and explicit actions continue to refetch status and members.
+Remote Space File images start downloading only when their placeholder nears the
+viewport, reusing the existing file-content Query cache. Empty reaction rows do
+not mount layout observers.
 The explicitly persisted display queries use the longer lifetime defined
 below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
