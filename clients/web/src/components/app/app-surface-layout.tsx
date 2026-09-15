@@ -108,7 +108,9 @@ export function AppSurfaceLayout(input: {
 									<ListIcon aria-hidden="true" className="size-5" />
 									<span>Menu</span>
 								</button>
-								{sidebar && sidebarTitle && !desktop ? (
+								{sidebar &&
+								sidebarTitle &&
+								!(desktop && input.moduleNavigation) ? (
 									<button
 										aria-expanded={contextualNavigationOpen}
 										aria-label={`Open ${sidebarTitle} navigation`}

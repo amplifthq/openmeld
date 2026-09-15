@@ -30,6 +30,9 @@ The sidebar control is a portal from the existing module-sidebar provider, so
 it controls the contextual list (or the existing narrow-window drawer), not
 the application rail. Desktop omits the corresponding work-area header entry;
 browser Web keeps its existing placement and shortcuts.
+Pages that supply their own inner sidebar, such as standalone Settings and
+Agent Activity, retain their existing narrow-window drawer opener. The titlebar
+does not take ownership of those sidebars.
 
 Back and Forward use the shared router history. Desktop retains only the
 observed history-index bounds for the current account, not another entry stack.

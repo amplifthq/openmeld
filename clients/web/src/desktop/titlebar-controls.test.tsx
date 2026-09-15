@@ -22,6 +22,45 @@ afterEach(() => {
 });
 
 it.each([
+	"Settings",
+	"Agent Activity",
+])("keeps the existing %s drawer reachable when the page owns its sidebar", (title) => {
+	const target = document.createElement("div");
+	document.body.appendChild(target);
+	const navigation = createDesktopNavigation(
+		createMemoryHistory({ initialEntries: ["/o/team/settings"] })
+	);
+	render(
+		<TooltipProvider>
+			<DesktopTitlebarContext.Provider value={{ target, navigation }}>
+				<AppSurfaceLayout
+					globalControls={null}
+					mobileSidebarTitle={title}
+					outerRail={null}
+					sidebar={
+						<nav aria-label={`${title} sections`}>Existing page navigation</nav>
+					}
+				>
+					<main>Page content</main>
+				</AppSurfaceLayout>
+			</DesktopTitlebarContext.Provider>
+		</TooltipProvider>
+	);
+	expect(
+		within(target).getByRole("button", { name: "Toggle sidebar" })
+	).toHaveProperty("disabled", true);
+	fireEvent.click(
+		screen.getByRole("button", { name: `Open ${title} navigation` })
+	);
+	const drawer = screen.getByRole("dialog", { name: `${title} navigation` });
+	expect(
+		within(drawer).getByRole("navigation", { name: `${title} sections` })
+	).toBeTruthy();
+	cleanup();
+	target.remove();
+});
+
+it.each([
 	true,
 	false,
 ])("moves the live sidebar control into the titlebar and handles each shortcut once (wide: %s)", (wide) => {
