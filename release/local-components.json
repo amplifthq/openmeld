@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-15T02:59:21.133Z",
+  "updatedAt": "2026-09-15T06:49:12.662Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.207",
+      "packageVersion": "0.3.208",
       "updatePolicy": "available",
-      "reason": "Existing setup, Wake, Space actions and diagnostics remain compatible with old and new cloud receivers; new Desktop account controls are additive and require an explicit installed capability check."
+      "reason": "Existing commands, setup, Space actions, and diagnostics remain compatible; new task selection requires the cloud receivers deployed first."
     },
     "service": {
-      "bundleHash": "b09925ae141c8448dfbeb35ac2e85c368d9e9d78c1c625129bc795db44ca2f91",
-      "bundleVersion": "0.3.207",
+      "bundleHash": "525d2f7dcb9fefe8f9c0c90d538663637db11ed30f79f979888dcbf896d21a74",
+      "bundleVersion": "0.3.208",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services retain compatible Wake execution and reporting contracts with old and new cloud versions; Desktop account-checked local controls fail closed when the installed carrier lacks the new capability, without interrupting existing work."
+      "reason": "Core retains legacy Wake envelopes and gates Execution Context migration on capability v2; bare-mention context is rendered into existing transport fields. Existing Services can continue ordinary work safely."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
