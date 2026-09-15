@@ -3,6 +3,11 @@ import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SpaceMessageReadObserver } from "./space-message-read-observer";
 
+const desktopPlatformMock = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
+
 const messages = [
 	{ id: "long-reply", createdAtMs: 10 },
 	{ id: "next-reply", createdAtMs: 20 },
@@ -34,10 +39,23 @@ function Harness(input: {
 }
 
 describe("Space message read visibility", () => {
+	it("does not mark a visible Desktop conversation read until it regains focus", async () => {
+		desktopPlatformMock.mockReturnValue({});
+		const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
+		const onRead = vi.fn();
+		render(<Harness onRead={onRead} />);
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(onRead).not.toHaveBeenCalled();
+		focus.mockReturnValue(true);
+		fireEvent.focus(window);
+		await act(() => vi.advanceTimersByTimeAsync(200));
+		expect(onRead).toHaveBeenCalledWith(10);
+	});
 	let firstTop: number;
 	let secondTop: number;
 	let covered: boolean;
 	beforeEach(() => {
+		desktopPlatformMock.mockReturnValue(null);
 		vi.useFakeTimers();
 		firstTop = 150;
 		secondTop = 1800;

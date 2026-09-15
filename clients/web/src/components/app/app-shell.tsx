@@ -2,9 +2,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Outlet, useMatches } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
 import { StartFlowStateProvider } from "#/components/app/start-flow-state";
-import { InboxBrowserNotificationListener } from "#/components/inbox/inbox-browser-notification-listener";
 import { InboxBrowserNotificationPrompt } from "#/components/inbox/inbox-browser-notification-prompt";
 import { InboxBrowserTab } from "#/components/inbox/inbox-browser-tab";
+import { InboxNotificationListener } from "#/components/inbox/inbox-notification-listener";
 import { InboxVisibleConversationProvider } from "#/components/inbox/inbox-visible-conversation";
 import { OnboardingEntryGate } from "#/components/onboarding/onboarding-entry-gate";
 import { HumanPresenceProvider } from "#/components/profiles/human-presence";
@@ -68,7 +68,7 @@ export function AppShell(input: {
 								organizationId={input.organizationScope.currentOrganization.id}
 								storageScope={input.storageScope}
 							/>
-							<InboxBrowserNotificationListener
+							<InboxNotificationListener
 								organizationId={input.organizationScope.currentOrganization.id}
 								organizationSlug={
 									input.organizationScope.currentOrganization.slug

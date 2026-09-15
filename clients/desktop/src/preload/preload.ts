@@ -1,4 +1,7 @@
-import { desktopSpaceStreamEventSchema } from "@openmeld/schemas";
+import {
+  desktopNotificationReferenceSchema,
+  desktopSpaceStreamEventSchema,
+} from "@openmeld/schemas";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import {
   type DesktopWindowDestination,
@@ -53,6 +56,30 @@ const openMeldBridge: OpenMeldBridge = {
 
 contextBridge.exposeInMainWorld("openmeld", openMeldBridge);
 contextBridge.exposeInMainWorld("openmeldDesktop", {
+  setNotificationContext: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.notificationContext, input),
+  showNotification: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.notificationShow, input),
+  testNotification: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.notificationTest, input),
+  notificationFocused: () => ipcRenderer.invoke(PILOT_IPC.notificationFocused),
+  onNotificationPoll: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on(PILOT_IPC.notificationPoll, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.notificationPoll, listener);
+  },
+  onNotificationClick: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const parsed = desktopNotificationReferenceSchema.safeParse(value);
+      if (parsed.success) {
+        handler(parsed.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.notificationClick, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.notificationClick, listener);
+  },
   platform: () => ipcRenderer.invoke(PILOT_IPC.platform),
   session: () => ipcRenderer.invoke(PILOT_IPC.session),
   signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),

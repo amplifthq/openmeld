@@ -28,6 +28,7 @@ import { installedCommandEnvironment } from "./installed-environment";
 import { resolvePilotAssets } from "./pilot-assets";
 import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
+import { createPilotNotifications } from "./pilot-notifications";
 import { createPilotSpaceStreams } from "./pilot-space-stream";
 import { installPilotTransport } from "./pilot-transport";
 import {
@@ -117,6 +118,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     getWindow,
     () => {
       streams.closeAll();
+      notifications.clear();
       const owner = getWindow()?.webContents;
       if (owner && !owner.isDestroyed()) {
         owner.send(PILOT_IPC.sessionChanged);
@@ -131,8 +133,17 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     installed: Boolean(installedTarget),
     ensureCompatible,
   });
+  const notifications = createPilotNotifications({
+    auth,
+    webOrigin,
+    getWindow,
+    webBuild: platform.webBuild,
+    installed: Boolean(installedTarget),
+    ensureCompatible,
+  });
   let transportSession: Session | undefined;
   let disposeTransport: (() => void) | undefined;
+  let notificationPoll: ReturnType<typeof setInterval> | undefined;
   const diagnosticsEnabled =
     !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
@@ -146,6 +157,8 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       return transportSession;
     },
     dispose() {
+      clearInterval(notificationPoll);
+      notifications.clear();
       disposeTransport?.();
     },
     observeWindow(contents: WebContents) {
@@ -155,6 +168,13 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     },
     rendererUrl: `${DESKTOP_APP_ORIGIN}/${sharedAssets ? "desktop-shell" : "pilot.html"}`,
     install(authorize: (event: IpcMainInvokeEvent) => void) {
+      // Preserve the Inbox feed cadence without changing document visibility.
+      notificationPoll = setInterval(() => {
+        const owner = getWindow()?.webContents;
+        if (owner && !owner.isDestroyed()) {
+          owner.send(PILOT_IPC.notificationPoll);
+        }
+      }, 10_000);
       transportSession = session.fromPartition(
         "persist:openmeld-desktop-pilot",
         {
@@ -184,10 +204,12 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           return auth.session();
         },
         [PILOT_IPC.signIn]: () => {
+          notifications.clear();
           streams.closeAll();
           return auth.signIn();
         },
         [PILOT_IPC.signOut]: () => {
+          notifications.clear();
           streams.closeAll();
           return auth.signOut();
         },
@@ -227,6 +249,24 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
         });
       }
       const observedOwners = new WeakSet<WebContents>();
+      ipcMain.handle(PILOT_IPC.notificationContext, (event, raw: unknown) => {
+        authorize(event);
+        notifications.setContext(raw);
+      });
+      ipcMain.handle(PILOT_IPC.notificationShow, (event, raw: unknown) => {
+        authorize(event);
+        return notifications.show(raw);
+      });
+      ipcMain.handle(PILOT_IPC.notificationTest, (event, raw: unknown) => {
+        authorize(event);
+        return notifications.test(raw);
+      });
+      ipcMain.handle(PILOT_IPC.notificationFocused, (event) => {
+        authorize(event);
+        return (
+          getWindow()?.isFocused() === true && getWindow()?.isVisible() === true
+        );
+      });
       ipcMain.handle(PILOT_IPC.spaceStreamOpen, (event, raw: unknown) => {
         authorize(event);
         const owner = event.sender;

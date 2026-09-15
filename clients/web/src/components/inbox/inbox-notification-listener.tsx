@@ -1,11 +1,12 @@
 "use client";
+import { isInboxNotificationEligible } from "@openmeld/api-client";
 
 import {
 	type QueryClient,
 	useInfiniteQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import { useLocation } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
 	useCallback,
 	useEffect,
@@ -14,16 +15,17 @@ import {
 	useState,
 } from "react";
 import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
-	clearInboxBrowserNotificationItemPending,
-	type InboxBrowserNotificationDeliveryReadiness,
-	isInboxBrowserNotificationEligible,
-	markInboxBrowserNotificationItemPending,
-	readInboxBrowserNotificationSettings,
-	readPendingInboxBrowserNotificationItemIds,
-	showInboxBrowserNotification,
-	subscribeInboxBrowserNotificationSettings,
-} from "#/lib/inbox/browser-notifications";
+	clearInboxNotificationItemPending,
+	type InboxNotificationDeliveryReadiness,
+	markInboxNotificationItemPending,
+	readInboxNotificationSettings,
+	readPendingInboxNotificationItemIds,
+	showInboxNotification,
+	subscribeInboxNotificationSettings,
+} from "#/lib/inbox/client-notifications";
+import { isNotificationConversationVisible } from "#/lib/inbox/desktop-notifications";
 import {
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
@@ -35,34 +37,84 @@ import {
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
 
-const INBOX_BROWSER_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
-const INBOX_BROWSER_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
-const INBOX_BROWSER_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
-const EMPTY_RECOVERED_PENDING_ITEMS: BrowserNotificationInboxItem[] = [];
+const INBOX_NOTIFICATION_POLL_INTERVAL_MS = 10_000;
+const INBOX_NOTIFICATION_RETRY_INTERVAL_MS = 10_000;
+const INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY = 6;
+const EMPTY_RECOVERED_PENDING_ITEMS: NotificationInboxItem[] = [];
 
-export function InboxBrowserNotificationListener(input: {
+export function InboxNotificationListener(input: {
 	organizationId: string;
 	organizationSlug: string;
 	userId: string;
 }) {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	useEffect(() => {
+		let active = true;
+		const unsubscribe = getDesktopPlatform()?.onNotificationClick(
+			(reference) => {
+				if (reference.userId !== input.userId) {
+					return;
+				}
+				getCurrentInboxItem(reference)
+					.then(({ item }) => {
+						if (!active || item.recipientUserId !== input.userId) {
+							return;
+						}
+						const navigation = buildInboxItemSourceNavigation({
+							item,
+							orgSlug: reference.organizationSlug,
+						});
+						if (!navigation.openInNewTab) {
+							return navigate({ to: navigation.href });
+						}
+					})
+					.catch((error: unknown) =>
+						console.warn("[openmeld.desktop.notification_navigation_failed]", {
+							error,
+						})
+					);
+			}
+		);
+		return () => {
+			active = false;
+			unsubscribe?.();
+		};
+	}, [input.userId, navigate]);
 	const { pathname } = useLocation();
 	const visibleConversation = useInboxVisibleConversation();
 	const [settingsState, setSettingsState] = useState(() => ({
-		enabled: readInboxBrowserNotificationSettings({ userId: input.userId })
-			.enabled,
+		enabled: readInboxNotificationSettings({ userId: input.userId }).enabled,
 		userId: input.userId,
 	}));
 	const notificationsEnabled =
 		settingsState.userId === input.userId && settingsState.enabled;
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
+	useLayoutEffect(() => {
+		const desktop = getDesktopPlatform();
+		if (!desktop) {
+			return;
+		}
+		const reportFailure = (error: unknown) =>
+			console.warn("[openmeld.desktop.notification_context_failed]", { error });
+		desktop
+			.setNotificationContext({
+				userId: input.userId,
+				organizationId: input.organizationId,
+				enabled: notificationsEnabled,
+			})
+			.catch(reportFailure);
+		return () => {
+			desktop.setNotificationContext(null).catch(reportFailure);
+		};
+	}, [input.userId, input.organizationId, notificationsEnabled]);
 	const [observedItemIds] = useState(() => new Set<string>());
 	const [settledItemIds] = useState(() => new Set<string>());
 	const [inFlightItemIds] = useState(() => new Set<string>());
 	const [deliveryRetryRevision, setDeliveryRetryRevision] = useState(0);
 	const [recoveredPendingItemsState, setRecoveredPendingItemsState] = useState<{
 		feedIdentity: string | null;
-		items: BrowserNotificationInboxItem[];
+		items: NotificationInboxItem[];
 		pathname: string | null;
 		retryRevision: number;
 	}>({ feedIdentity: null, items: [], pathname: null, retryRevision: -1 });
@@ -76,7 +128,7 @@ export function InboxBrowserNotificationListener(input: {
 	const retryTimerFeedIdentityRef = useRef<string | null>(null);
 	const primedRef = useRef(false);
 	const primedFeedIdentityRef = useRef<string | null>(null);
-	const deliveryContextRef = useRef<BrowserNotificationDeliveryContext>({
+	const deliveryContextRef = useRef<NotificationDeliveryContext>({
 		enabled: notificationsEnabled,
 		feedIdentity,
 		itemsById: new Map(),
@@ -92,11 +144,27 @@ export function InboxBrowserNotificationListener(input: {
 			organizationId: input.organizationId,
 			view: "all",
 		}),
-		refetchInterval: notificationsEnabled
-			? INBOX_BROWSER_NOTIFICATION_POLL_INTERVAL_MS
-			: false,
+		refetchInterval:
+			notificationsEnabled && !getDesktopPlatform()
+				? INBOX_NOTIFICATION_POLL_INTERVAL_MS
+				: false,
 		refetchIntervalInBackground: true,
 	});
+	useEffect(
+		() =>
+			getDesktopPlatform()?.onNotificationPoll(() => {
+				if (!notificationsEnabled) {
+					return;
+				}
+				itemsQuery.refetch().catch((error: unknown) =>
+					console.warn("[openmeld.desktop.notification_refresh_failed]", {
+						error,
+					})
+				);
+				setDeliveryRetryRevision((current) => current + 1);
+			}),
+		[notificationsEnabled, itemsQuery.refetch]
+	);
 	const cancelDeliveryRetry = useCallback((ownedFeedIdentity?: string) => {
 		if (
 			ownedFeedIdentity !== undefined &&
@@ -128,7 +196,7 @@ export function InboxBrowserNotificationListener(input: {
 				return;
 			}
 			setDeliveryRetryRevision((current) => current + 1);
-		}, INBOX_BROWSER_NOTIFICATION_RETRY_INTERVAL_MS);
+		}, INBOX_NOTIFICATION_RETRY_INTERVAL_MS);
 	}, [cancelDeliveryRetry, feedIdentity]);
 
 	useEffect(() => {
@@ -138,7 +206,7 @@ export function InboxBrowserNotificationListener(input: {
 
 	useEffect(() => {
 		const refresh = (retryDelivery: boolean) => {
-			const enabled = readInboxBrowserNotificationSettings({
+			const enabled = readInboxNotificationSettings({
 				userId: input.userId,
 			}).enabled;
 			setSettingsState((current) => {
@@ -152,13 +220,13 @@ export function InboxBrowserNotificationListener(input: {
 			}
 		};
 		refresh(false);
-		return subscribeInboxBrowserNotificationSettings(() => refresh(true));
+		return subscribeInboxNotificationSettings(() => refresh(true));
 	}, [input.userId]);
 
 	useLayoutEffect(() => {
 		const listedItems =
 			itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
-		const items = mergeInboxBrowserNotificationItems({
+		const items = mergeInboxNotificationItems({
 			listedItems,
 			recoveredPendingItems,
 		});
@@ -177,7 +245,7 @@ export function InboxBrowserNotificationListener(input: {
 				return;
 			}
 			deliveryContextRef.current =
-				createInactiveInboxBrowserNotificationDeliveryContext();
+				createInactiveInboxNotificationDeliveryContext();
 		};
 	}, [
 		feedIdentity,
@@ -198,7 +266,7 @@ export function InboxBrowserNotificationListener(input: {
 		const listedItems = itemsQuery.data.pages.flatMap((page) => page.items);
 		const availableItemIds = new Set(listedItems.map((item) => item.id));
 		const missingPendingItemIds = [
-			...readPendingInboxBrowserNotificationItemIds({
+			...readPendingInboxNotificationItemIds({
 				organizationId: input.organizationId,
 				userId: input.userId,
 			}),
@@ -208,22 +276,22 @@ export function InboxBrowserNotificationListener(input: {
 		}
 		let cancelled = false;
 		const recoverPendingItems = async () => {
-			const recoveredItems: BrowserNotificationInboxItem[] = [];
+			const recoveredItems: NotificationInboxItem[] = [];
 			for (
 				let offset = 0;
 				offset < missingPendingItemIds.length;
-				offset += INBOX_BROWSER_NOTIFICATION_PENDING_FETCH_CONCURRENCY
+				offset += INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY
 			) {
 				if (cancelled) {
 					return;
 				}
 				const batch = missingPendingItemIds.slice(
 					offset,
-					offset + INBOX_BROWSER_NOTIFICATION_PENDING_FETCH_CONCURRENCY
+					offset + INBOX_NOTIFICATION_PENDING_FETCH_CONCURRENCY
 				);
 				const batchItems = await Promise.all(
 					batch.map((itemId) =>
-						readPendingInboxBrowserNotificationItem({
+						readPendingInboxNotificationItem({
 							isCancelled: () => cancelled,
 							itemId,
 							organizationId: input.organizationId,
@@ -236,7 +304,7 @@ export function InboxBrowserNotificationListener(input: {
 				);
 				recoveredItems.push(
 					...batchItems.filter(
-						(item): item is BrowserNotificationInboxItem => item !== null
+						(item): item is NotificationInboxItem => item !== null
 					)
 				);
 			}
@@ -293,16 +361,16 @@ export function InboxBrowserNotificationListener(input: {
 		if (!(notificationsEnabled && itemsQuery.data)) {
 			return;
 		}
-		const currentItems = mergeInboxBrowserNotificationItems({
+		const currentItems = mergeInboxNotificationItems({
 			listedItems: itemsQuery.data.pages.flatMap((page) => page.items),
 			recoveredPendingItems,
 		});
 		if (!primedRef.current) {
-			primeInboxBrowserNotificationFeed({
+			primeInboxNotificationFeed({
 				items: currentItems,
 				observedItemIds,
 				organizationId: input.organizationId,
-				pendingItemIds: readPendingInboxBrowserNotificationItemIds({
+				pendingItemIds: readPendingInboxNotificationItemIds({
 					organizationId: input.organizationId,
 					userId: input.userId,
 				}),
@@ -311,7 +379,7 @@ export function InboxBrowserNotificationListener(input: {
 			});
 			primedRef.current = true;
 		}
-		const sawNewItem = processInboxBrowserNotificationItems({
+		const sawNewItem = processInboxNotificationItems({
 			deliveryAttempt: deliveryRetryRevision,
 			deliveryContextRef,
 			feedIdentity,
@@ -358,14 +426,12 @@ export function InboxBrowserNotificationListener(input: {
 	return null;
 }
 
-type BrowserNotificationInboxItem = Parameters<
-	typeof isInboxBrowserNotificationEligible
->[0];
+type NotificationInboxItem = Parameters<typeof isInboxNotificationEligible>[0];
 
-type BrowserNotificationDeliveryContext = {
+type NotificationDeliveryContext = {
 	enabled: boolean;
 	feedIdentity: string | null;
-	itemsById: Map<string, BrowserNotificationInboxItem>;
+	itemsById: Map<string, NotificationInboxItem>;
 	organizationId: string;
 	organizationSlug: string;
 	pathname: string | null;
@@ -373,7 +439,7 @@ type BrowserNotificationDeliveryContext = {
 	visibleConversation: ReturnType<typeof useInboxVisibleConversation>;
 };
 
-function createInactiveInboxBrowserNotificationDeliveryContext(): BrowserNotificationDeliveryContext {
+function createInactiveInboxNotificationDeliveryContext(): NotificationDeliveryContext {
 	return {
 		enabled: false,
 		feedIdentity: null,
@@ -386,7 +452,7 @@ function createInactiveInboxBrowserNotificationDeliveryContext(): BrowserNotific
 	};
 }
 
-async function readPendingInboxBrowserNotificationItem(input: {
+async function readPendingInboxNotificationItem(input: {
 	isCancelled: () => boolean;
 	itemId: string;
 	organizationId: string;
@@ -394,7 +460,7 @@ async function readPendingInboxBrowserNotificationItem(input: {
 	retryAttempt: number;
 	scheduleDeliveryRetry: () => void;
 	userId: string;
-}): Promise<BrowserNotificationInboxItem | null> {
+}): Promise<NotificationInboxItem | null> {
 	try {
 		const response = await input.queryClient.fetchQuery(
 			inboxBrowserNotificationRecoveryItemQueryOptions({
@@ -408,7 +474,7 @@ async function readPendingInboxBrowserNotificationItem(input: {
 			return null;
 		}
 		if (isInboxItemNotFoundFailure(error)) {
-			clearInboxBrowserNotificationItemPending({
+			clearInboxNotificationItemPending({
 				itemId: input.itemId,
 				organizationId: input.organizationId,
 				userId: input.userId,
@@ -429,8 +495,8 @@ async function readPendingInboxBrowserNotificationItem(input: {
 	}
 }
 
-function primeInboxBrowserNotificationFeed(input: {
-	items: readonly BrowserNotificationInboxItem[];
+function primeInboxNotificationFeed(input: {
+	items: readonly NotificationInboxItem[];
 	observedItemIds: Set<string>;
 	organizationId: string;
 	pendingItemIds: ReadonlySet<string>;
@@ -441,13 +507,13 @@ function primeInboxBrowserNotificationFeed(input: {
 		input.observedItemIds.add(item.id);
 		if (
 			input.pendingItemIds.has(item.id) &&
-			shouldDeliverInboxBrowserNotification(item)
+			shouldDeliverInboxNotification(item)
 		) {
 			continue;
 		}
 		input.settledItemIds.add(item.id);
 		if (input.pendingItemIds.has(item.id)) {
-			clearInboxBrowserNotificationItemPending({
+			clearInboxNotificationItemPending({
 				itemId: item.id,
 				organizationId: input.organizationId,
 				userId: input.userId,
@@ -456,14 +522,14 @@ function primeInboxBrowserNotificationFeed(input: {
 	}
 }
 
-function processInboxBrowserNotificationItems(input: {
+function processInboxNotificationItems(input: {
 	deliveryAttempt: number;
 	deliveryContextRef: {
-		current: BrowserNotificationDeliveryContext;
+		current: NotificationDeliveryContext;
 	};
 	feedIdentity: string;
 	inFlightItemIds: Set<string>;
-	items: readonly BrowserNotificationInboxItem[];
+	items: readonly NotificationInboxItem[];
 	observedItemIds: Set<string>;
 	organizationId: string;
 	organizationSlug: string;
@@ -485,16 +551,16 @@ function processInboxBrowserNotificationItems(input: {
 		) {
 			continue;
 		}
-		if (!shouldDeliverInboxBrowserNotification(item)) {
+		if (!shouldDeliverInboxNotification(item)) {
 			input.settledItemIds.add(item.id);
-			clearInboxBrowserNotificationItemPending({
+			clearInboxNotificationItemPending({
 				itemId: item.id,
 				organizationId: input.organizationId,
 				userId: input.userId,
 			});
 			continue;
 		}
-		markInboxBrowserNotificationItemPending({
+		markInboxNotificationItemPending({
 			itemId: item.id,
 			organizationId: input.organizationId,
 			userId: input.userId,
@@ -502,10 +568,11 @@ function processInboxBrowserNotificationItems(input: {
 		input.inFlightItemIds.add(item.id);
 		const isCurrentFeed = () =>
 			input.deliveryContextRef.current.feedIdentity === input.feedIdentity;
-		showInboxBrowserNotification({
+		showInboxNotification({
 			item,
+			organizationSlug: input.organizationSlug,
 			resolveCurrentReadiness: async () =>
-				await resolveCurrentInboxBrowserNotificationReadiness({
+				await resolveCurrentInboxNotificationReadiness({
 					deliveryContextRef: input.deliveryContextRef,
 					feedIdentity: input.feedIdentity,
 					itemId: item.id,
@@ -526,7 +593,7 @@ function processInboxBrowserNotificationItems(input: {
 			}),
 		})
 			.then((result) => {
-				handleInboxBrowserNotificationDeliveryResult({
+				handleInboxNotificationDeliveryResult({
 					deliveryContextRef: input.deliveryContextRef,
 					feedIdentity: input.feedIdentity,
 					item,
@@ -555,19 +622,19 @@ function processInboxBrowserNotificationItems(input: {
 	return sawNewItem;
 }
 
-async function resolveCurrentInboxBrowserNotificationReadiness(input: {
-	deliveryContextRef: { current: BrowserNotificationDeliveryContext };
+async function resolveCurrentInboxNotificationReadiness(input: {
+	deliveryContextRef: { current: NotificationDeliveryContext };
 	feedIdentity: string;
 	itemId: string;
 	organizationId: string;
 	retryAttempt: number;
 	userId: string;
-}): Promise<InboxBrowserNotificationDeliveryReadiness> {
-	if (!isCurrentInboxBrowserNotificationDeliveryContext(input)) {
+}): Promise<InboxNotificationDeliveryReadiness> {
+	if (!isCurrentInboxNotificationDeliveryContext(input)) {
 		return { status: "context_changed" };
 	}
 
-	let currentItem: BrowserNotificationInboxItem;
+	let currentItem: NotificationInboxItem;
 	try {
 		// This request runs after the cross-tab delivery lock is acquired. Calling
 		// Core directly guarantees it cannot be joined to an older in-flight Query
@@ -593,7 +660,7 @@ async function resolveCurrentInboxBrowserNotificationReadiness(input: {
 		return { status: "revalidation_failed" };
 	}
 
-	if (!isCurrentInboxBrowserNotificationDeliveryContext(input)) {
+	if (!isCurrentInboxNotificationDeliveryContext(input)) {
 		return { status: "context_changed" };
 	}
 	const current = input.deliveryContextRef.current;
@@ -601,12 +668,12 @@ async function resolveCurrentInboxBrowserNotificationReadiness(input: {
 		currentItem.id !== input.itemId ||
 		currentItem.recipientUserId !== current.userId ||
 		currentItem.organizationId !== current.organizationId ||
-		!shouldDeliverInboxBrowserNotification(currentItem)
+		!shouldDeliverInboxNotification(currentItem)
 	) {
 		return { status: "ineligible" };
 	}
 	if (
-		document.visibilityState === "visible" &&
+		(await isNotificationConversationVisible()) &&
 		isInboxItemSourceLocation({
 			item: currentItem,
 			orgSlug: current.organizationSlug,
@@ -619,8 +686,8 @@ async function resolveCurrentInboxBrowserNotificationReadiness(input: {
 	return { item: currentItem, status: "eligible" };
 }
 
-function isCurrentInboxBrowserNotificationDeliveryContext(input: {
-	deliveryContextRef: { current: BrowserNotificationDeliveryContext };
+function isCurrentInboxNotificationDeliveryContext(input: {
+	deliveryContextRef: { current: NotificationDeliveryContext };
 	feedIdentity: string;
 	organizationId: string;
 	userId: string;
@@ -634,12 +701,12 @@ function isCurrentInboxBrowserNotificationDeliveryContext(input: {
 	);
 }
 
-function handleInboxBrowserNotificationDeliveryResult(input: {
-	deliveryContextRef: { current: BrowserNotificationDeliveryContext };
+function handleInboxNotificationDeliveryResult(input: {
+	deliveryContextRef: { current: NotificationDeliveryContext };
 	feedIdentity: string;
-	item: BrowserNotificationInboxItem;
+	item: NotificationInboxItem;
 	organizationId: string;
-	result: Awaited<ReturnType<typeof showInboxBrowserNotification>>;
+	result: Awaited<ReturnType<typeof showInboxNotification>>;
 	scheduleDeliveryRetry: () => void;
 	settledItemIds: Set<string>;
 	userId: string;
@@ -655,9 +722,9 @@ function handleInboxBrowserNotificationDeliveryResult(input: {
 				currentItem &&
 				(currentItem.organizationId !== current.organizationId ||
 					currentItem.recipientUserId !== current.userId ||
-					!shouldDeliverInboxBrowserNotification(currentItem))
+					!shouldDeliverInboxNotification(currentItem))
 			) {
-				clearPendingInboxBrowserNotificationItem({ ...input, settle: true });
+				clearPendingInboxNotificationItem({ ...input, settle: true });
 				return;
 			}
 		}
@@ -665,20 +732,20 @@ function handleInboxBrowserNotificationDeliveryResult(input: {
 		return;
 	}
 
-	clearPendingInboxBrowserNotificationItem({
+	clearPendingInboxNotificationItem({
 		...input,
 		settle: current.feedIdentity === input.feedIdentity,
 	});
 }
 
-function clearPendingInboxBrowserNotificationItem(input: {
-	item: BrowserNotificationInboxItem;
+function clearPendingInboxNotificationItem(input: {
+	item: NotificationInboxItem;
 	organizationId: string;
 	settle: boolean;
 	settledItemIds: Set<string>;
 	userId: string;
 }): void {
-	clearInboxBrowserNotificationItemPending({
+	clearInboxNotificationItemPending({
 		itemId: input.item.id,
 		organizationId: input.organizationId,
 		userId: input.userId,
@@ -688,16 +755,14 @@ function clearPendingInboxBrowserNotificationItem(input: {
 	}
 }
 
-function shouldDeliverInboxBrowserNotification(
-	item: BrowserNotificationInboxItem
-): boolean {
-	return item.readAt === null && isInboxBrowserNotificationEligible(item);
+function shouldDeliverInboxNotification(item: NotificationInboxItem): boolean {
+	return item.readAt === null && isInboxNotificationEligible(item);
 }
 
-function mergeInboxBrowserNotificationItems(input: {
-	listedItems: readonly BrowserNotificationInboxItem[];
-	recoveredPendingItems: readonly BrowserNotificationInboxItem[];
-}): BrowserNotificationInboxItem[] {
+function mergeInboxNotificationItems(input: {
+	listedItems: readonly NotificationInboxItem[];
+	recoveredPendingItems: readonly NotificationInboxItem[];
+}): NotificationInboxItem[] {
 	const listedItemIds = new Set(input.listedItems.map((item) => item.id));
 	return [
 		...input.listedItems,

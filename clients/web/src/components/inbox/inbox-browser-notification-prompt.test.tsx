@@ -6,7 +6,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readInboxBrowserNotificationSettings } from "#/lib/inbox/browser-notifications";
+import { readInboxNotificationSettings } from "#/lib/inbox/client-notifications";
 import { InboxBrowserNotificationPrompt } from "./inbox-browser-notification-prompt";
 
 const USER_ID = "user-123";
@@ -92,7 +92,7 @@ describe("InboxBrowserNotificationPrompt", () => {
 				})
 			).toBeNull();
 		});
-		expect(readInboxBrowserNotificationSettings({ userId: USER_ID })).toEqual({
+		expect(readInboxNotificationSettings({ userId: USER_ID })).toEqual({
 			enabled: true,
 			permission: "granted",
 			soundEnabled: true,

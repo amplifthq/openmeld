@@ -1,23 +1,36 @@
+import { isInboxNotificationEligible } from "@openmeld/api-client";
 import type { InboxItem } from "@openmeld/schemas/types";
+
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	queueInboxBrowserNotificationSound,
 	readInboxBrowserNotificationSoundEnabled,
 	writeInboxBrowserNotificationSoundEnabled,
 } from "./browser-notification-sound";
+import {
+	DESKTOP_NOTIFICATION_SETTINGS_EVENT,
+	isNotificationConversationVisible,
+	readDesktopNotificationPreference,
+	writeDesktopNotificationPreference,
+} from "./desktop-notifications";
 
-export type InboxBrowserNotificationPermission =
+export type InboxNotificationPermission =
 	| NotificationPermission
+	| "unknown"
 	| "unsupported";
 
-export type InboxBrowserNotificationSettings = {
+export type InboxNotificationSettings = {
 	enabled: boolean;
-	permission: InboxBrowserNotificationPermission;
+	permission: InboxNotificationPermission;
 	soundEnabled: boolean;
 };
 
-export function resolveBrowserNotificationDescription(
-	permission: InboxBrowserNotificationSettings["permission"]
+export function resolveClientNotificationDescription(
+	permission: InboxNotificationSettings["permission"]
 ): string {
+	if (permission === "unknown") {
+		return "Notify for directly addressed messages, actions, and urgent items while Desktop is running. Applies to every Space and Direct Message on this Mac.";
+	}
 	if (permission === "unsupported") {
 		return "This browser does not support notifications. Your Inbox is still available in OpenMeld.";
 	}
@@ -27,8 +40,8 @@ export function resolveBrowserNotificationDescription(
 	return "Notify for directly addressed messages, actions, and urgent items in this browser. Applies to every Space and Direct Message.";
 }
 
-export type InboxBrowserNotificationDeliveryResult =
-	| { notification: Notification; status: "delivered" }
+export type InboxNotificationDeliveryResult =
+	| { notification?: Notification; status: "delivered" }
 	| { status: "already_delivered" }
 	| { status: "ineligible" }
 	| {
@@ -41,7 +54,7 @@ export type InboxBrowserNotificationDeliveryResult =
 			status: "deferred";
 	  };
 
-export type InboxBrowserNotificationDeliveryReadiness =
+export type InboxNotificationDeliveryReadiness =
 	| { item: InboxItem; status: "eligible" }
 	| {
 			status:
@@ -65,10 +78,17 @@ const PENDING_ITEM_KEY_PREFIX =
 	"openmeld.inbox.browser-notifications.pending-item";
 const MAX_DELIVERED_ITEM_IDS = 200;
 
-export function readInboxBrowserNotificationSettings(input: {
+export function readInboxNotificationSettings(input: {
 	userId: string;
-}): InboxBrowserNotificationSettings {
-	const permission = readInboxBrowserNotificationPermission();
+}): InboxNotificationSettings {
+	if (getDesktopPlatform()) {
+		return {
+			enabled: readDesktopNotificationPreference(input.userId, "enabled"),
+			permission: "unknown",
+			soundEnabled: readDesktopNotificationPreference(input.userId, "sound"),
+		};
+	}
+	const permission = readInboxNotificationPermission();
 	const preference = readInboxBrowserPreference(input);
 	return {
 		enabled: permission === "granted" && preference !== false,
@@ -125,89 +145,78 @@ export function dismissInboxBrowserNotificationPrompt(input: {
 	}
 }
 
-export async function enableInboxBrowserNotifications(input: {
+export async function enableInboxNotifications(input: {
 	userId: string;
-}): Promise<InboxBrowserNotificationSettings> {
-	const permission = await requestInboxBrowserNotificationPermission();
+}): Promise<InboxNotificationSettings> {
+	if (getDesktopPlatform()) {
+		writeDesktopNotificationPreference(input.userId, "enabled", true);
+		return readInboxNotificationSettings(input);
+	}
+	const permission = await requestInboxNotificationPermission();
 	if (permission === "granted") {
 		writeInboxBrowserPreference({ ...input, enabled: true });
 	} else if (permission === "denied") {
 		writeInboxBrowserPreference({ ...input, enabled: false });
 	}
-	return readInboxBrowserNotificationSettings(input);
+	return readInboxNotificationSettings(input);
 }
 
-export function disableInboxBrowserNotifications(input: {
+export function disableInboxNotifications(input: {
 	userId: string;
-}): InboxBrowserNotificationSettings {
+}): InboxNotificationSettings {
+	if (getDesktopPlatform()) {
+		writeDesktopNotificationPreference(input.userId, "enabled", false);
+		return readInboxNotificationSettings(input);
+	}
 	writeInboxBrowserPreference({ ...input, enabled: false });
-	return readInboxBrowserNotificationSettings(input);
+	return readInboxNotificationSettings(input);
 }
 
-export function setInboxBrowserNotificationSoundEnabled(input: {
+export function setInboxNotificationSoundEnabled(input: {
 	enabled: boolean;
 	userId: string;
-}): InboxBrowserNotificationSettings {
+}): InboxNotificationSettings {
+	if (getDesktopPlatform()) {
+		writeDesktopNotificationPreference(input.userId, "sound", input.enabled);
+		return readInboxNotificationSettings(input);
+	}
 	writeInboxBrowserNotificationSoundEnabled(input);
-	return readInboxBrowserNotificationSettings(input);
+	return readInboxNotificationSettings(input);
 }
 
-export function readInboxBrowserNotificationPermission(): InboxBrowserNotificationPermission {
+export function readInboxNotificationPermission(): InboxNotificationPermission {
 	if (typeof window === "undefined" || !("Notification" in window)) {
 		return "unsupported";
 	}
 	return window.Notification.permission;
 }
 
-export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
-	if (item.resolutionStatus === "resolved") {
-		return false;
-	}
-	if (item.importance === "urgent") {
-		return true;
-	}
-	if (
-		item.attention === "action_required" &&
-		item.resolutionStatus === "open"
-	) {
-		return true;
-	}
-	return (
-		isDirectlyAddressedInboxUpdate(item.kind) ||
-		(item.kind === "space_message" &&
-			item.sourceTarget.kind === "space" &&
-			item.sourceTarget.directMessage === true)
-	);
-}
-
-/** Updates addressed to the member, including mentions, replies and Wake outcomes. */
-function isDirectlyAddressedInboxUpdate(kind: InboxItem["kind"]): boolean {
-	return (
-		kind === "space_mention" ||
-		kind === "agent_reply" ||
-		kind === "wake_outcome"
-	);
-}
-
-export async function showInboxBrowserNotification(input: {
+export async function showInboxNotification(input: {
 	item: InboxItem;
 	resolveCurrentReadiness?: () =>
-		| InboxBrowserNotificationDeliveryReadiness
-		| Promise<InboxBrowserNotificationDeliveryReadiness>;
+		| InboxNotificationDeliveryReadiness
+		| Promise<InboxNotificationDeliveryReadiness>;
 	sourcePath: string;
+	organizationSlug?: string;
 	userId: string;
 	viewingSourceSession: boolean;
-}): Promise<InboxBrowserNotificationDeliveryResult> {
+}): Promise<InboxNotificationDeliveryResult> {
 	if (typeof window === "undefined" || typeof document === "undefined") {
 		return { reason: "permission_unavailable", status: "deferred" };
 	}
-	if (readInboxBrowserNotificationPermission() !== "granted") {
+	if (
+		!getDesktopPlatform() &&
+		readInboxNotificationPermission() !== "granted"
+	) {
 		return { reason: "permission_unavailable", status: "deferred" };
 	}
-	if (!isInboxBrowserNotificationEligible(input.item)) {
+	if (!isInboxNotificationEligible(input.item)) {
 		return { status: "ineligible" };
 	}
-	if (document.visibilityState === "visible" && input.viewingSourceSession) {
+	if (
+		input.viewingSourceSession &&
+		(await isNotificationConversationVisible())
+	) {
 		return { reason: "source_visible", status: "deferred" };
 	}
 	// Coalesce owner awareness alerts within each minute without changing unread counts.
@@ -216,7 +225,7 @@ export async function showInboxBrowserNotification(input: {
 		input.item.sourceTarget.agentOwnerActivity === true
 			? `agent-owner:${input.userId}:${input.item.sourceTarget.spaceId}:${Math.floor(Date.parse(input.item.occurredAt) / 60_000)}`
 			: input.item.id;
-	return await withInboxBrowserNotificationClaim(deliveryKey, async () => {
+	return await withInboxNotificationClaim(deliveryKey, async () => {
 		const currentReadiness = (await input.resolveCurrentReadiness?.()) ?? {
 			item: input.item,
 			status: "eligible",
@@ -228,6 +237,13 @@ export async function showInboxBrowserNotification(input: {
 			return { reason: currentReadiness.status, status: "deferred" };
 		}
 		const currentItem = currentReadiness.item;
+		if (getDesktopPlatform()) {
+			return await deliverDesktopInboxNotification(
+				input,
+				currentItem,
+				deliveryKey
+			);
+		}
 		const body = currentItem.contextLabel
 			? `${currentItem.contextLabel}: ${currentItem.preview}`
 			: currentItem.preview;
@@ -250,10 +266,7 @@ export async function showInboxBrowserNotification(input: {
 			window.location.assign(input.sourcePath);
 			notification.close();
 		};
-		recordInboxBrowserNotificationDelivered(currentItem.id);
-		if (deliveryKey !== currentItem.id) {
-			recordInboxBrowserNotificationDelivered(deliveryKey);
-		}
+		recordInboxNotificationReceipt(currentItem.id, deliveryKey);
 		try {
 			queueInboxBrowserNotificationSound({
 				item: currentItem,
@@ -272,7 +285,7 @@ export async function showInboxBrowserNotification(input: {
 	});
 }
 
-export function readPendingInboxBrowserNotificationItemIds(input: {
+export function readPendingInboxNotificationItemIds(input: {
 	organizationId: string;
 	userId: string;
 }): Set<string> {
@@ -314,7 +327,7 @@ export function readPendingInboxBrowserNotificationItemIds(input: {
 	}
 }
 
-export function markInboxBrowserNotificationItemPending(input: {
+export function markInboxNotificationItemPending(input: {
 	itemId: string;
 	organizationId: string;
 	userId: string;
@@ -325,11 +338,11 @@ export function markInboxBrowserNotificationItemPending(input: {
 	try {
 		window.localStorage.setItem(buildPendingItemKey(input), "pending");
 	} catch (error) {
-		logPendingInboxBrowserNotificationWriteFailure(input, error);
+		logPendingInboxNotificationWriteFailure(input, error);
 	}
 }
 
-export function clearInboxBrowserNotificationItemPending(input: {
+export function clearInboxNotificationItemPending(input: {
 	itemId: string;
 	organizationId: string;
 	userId: string;
@@ -340,11 +353,11 @@ export function clearInboxBrowserNotificationItemPending(input: {
 	try {
 		window.localStorage.removeItem(buildPendingItemKey(input));
 	} catch (error) {
-		logPendingInboxBrowserNotificationWriteFailure(input, error);
+		logPendingInboxNotificationWriteFailure(input, error);
 	}
 }
 
-export function subscribeInboxBrowserNotificationSettings(
+export function subscribeInboxNotificationSettings(
 	onChange: () => void
 ): () => void {
 	if (typeof window === "undefined") {
@@ -388,20 +401,24 @@ export function subscribeInboxBrowserNotificationSettings(
 	};
 	window.addEventListener("storage", handleStorage);
 	window.addEventListener(PREFERENCE_CHANGE_EVENT, onChange);
+	window.addEventListener(DESKTOP_NOTIFICATION_SETTINGS_EVENT, onChange);
 	window.addEventListener("focus", onChange);
 	document.addEventListener("visibilitychange", handleVisibilityChange);
-	subscribeToNotificationPermission();
+	if (!getDesktopPlatform()) {
+		subscribeToNotificationPermission();
+	}
 	return () => {
 		unsubscribed = true;
 		notificationPermissionStatus?.removeEventListener("change", onChange);
 		window.removeEventListener("storage", handleStorage);
 		window.removeEventListener(PREFERENCE_CHANGE_EVENT, onChange);
+		window.removeEventListener(DESKTOP_NOTIFICATION_SETTINGS_EVENT, onChange);
 		window.removeEventListener("focus", onChange);
 		document.removeEventListener("visibilitychange", handleVisibilityChange);
 	};
 }
 
-async function requestInboxBrowserNotificationPermission(): Promise<InboxBrowserNotificationPermission> {
+async function requestInboxNotificationPermission(): Promise<InboxNotificationPermission> {
 	if (typeof window === "undefined" || !("Notification" in window)) {
 		return "unsupported";
 	}
@@ -455,7 +472,7 @@ function writeInboxBrowserPreference(input: {
 	}
 }
 
-function readInboxBrowserNotificationDelivery(
+function readInboxNotificationDelivery(
 	itemId: string
 ): "already_delivered" | "not_delivered" | "failed" {
 	try {
@@ -474,14 +491,14 @@ function readInboxBrowserNotificationDelivery(
 	}
 }
 
-async function withInboxBrowserNotificationClaim(
+async function withInboxNotificationClaim(
 	itemId: string,
 	deliver: () =>
-		| InboxBrowserNotificationDeliveryResult
-		| Promise<InboxBrowserNotificationDeliveryResult>
-): Promise<InboxBrowserNotificationDeliveryResult> {
+		| InboxNotificationDeliveryResult
+		| Promise<InboxNotificationDeliveryResult>
+): Promise<InboxNotificationDeliveryResult> {
 	const claimAndDeliver = async () => {
-		const claim = readInboxBrowserNotificationDelivery(itemId);
+		const claim = readInboxNotificationDelivery(itemId);
 		if (claim === "already_delivered") {
 			return { status: "already_delivered" } as const;
 		}
@@ -500,7 +517,7 @@ async function withInboxBrowserNotificationClaim(
 	return await claimAndDeliver();
 }
 
-function recordInboxBrowserNotificationDelivered(itemId: string): void {
+function recordInboxNotificationDelivered(itemId: string): void {
 	try {
 		const deliveredItemIds = parseItemIds(
 			window.localStorage.getItem(DELIVERED_ITEM_IDS_KEY),
@@ -554,7 +571,7 @@ function parseItemIds(value: string | null, ledger: "delivered"): string[] {
 	return [];
 }
 
-function logPendingInboxBrowserNotificationWriteFailure(
+function logPendingInboxNotificationWriteFailure(
 	input: { itemId: string; organizationId: string },
 	error: unknown
 ): void {
@@ -607,4 +624,45 @@ function buildInboxBrowserNotificationPromptKey(input: {
 		throw new Error("Inbox browser notifications require a user id.");
 	}
 	return `${PROMPT_DISMISSED_KEY_PREFIX}:${normalizedUserId}`;
+}
+
+async function deliverDesktopInboxNotification(
+	input: Parameters<typeof showInboxNotification>[0],
+	currentItem: InboxItem,
+	deliveryKey: string
+): Promise<InboxNotificationDeliveryResult> {
+	if (!input.organizationSlug) {
+		return { reason: "context_changed", status: "deferred" };
+	}
+	const result = await getDesktopPlatform()?.showNotification({
+		userId: input.userId,
+		organizationId: currentItem.organizationId,
+		organizationSlug: input.organizationSlug,
+		itemId: currentItem.id,
+		soundEnabled: readDesktopNotificationPreference(input.userId, "sound"),
+	});
+	if (result === "ineligible") {
+		return { status: "ineligible" };
+	}
+	if (result !== "delivered") {
+		return {
+			reason:
+				result === "context_changed"
+					? "context_changed"
+					: "permission_unavailable",
+			status: "deferred",
+		};
+	}
+	recordInboxNotificationReceipt(currentItem.id, deliveryKey);
+	return { status: "delivered" };
+}
+
+function recordInboxNotificationReceipt(
+	itemId: string,
+	deliveryKey: string
+): void {
+	recordInboxNotificationDelivered(itemId);
+	if (deliveryKey !== itemId) {
+		recordInboxNotificationDelivered(deliveryKey);
+	}
 }

@@ -54,6 +54,29 @@ do not move business rules into that package.
 
 ## Local pilot foundation
 
+### Native Inbox notifications
+
+Running Desktop delivers eligible Core Inbox items independently of Web's
+notification permission and preferences. The shared client listener owns the
+feed, first-page baseline, bounded pending recovery and delivery receipts.
+The native process supplies the existing ten-second cadence through a refresh
+signal, so hidden-window timer throttling does not suspend that feed. It does
+not disable Chromium background throttling or change document visibility.
+
+`pilot-notifications.ts` accepts only a schema-validated Inbox reference or a
+fixed test request from the trusted current window. It rereads Core with native
+credentials and checks current account identity before creating a Notification;
+clicks recheck access and identity again. No renderer-supplied notification text
+or external URL crosses this boundary. Session invalidation closes retained
+notifications. Only native `show` settles a delivery; failures remain retryable.
+
+Personal Notifications and Space Info expose the same installation-local,
+account-scoped Desktop switch. Sound uses the native notification only. The
+macOS permission state is unknown, not inferred from `isSupported()`. A test
+notification confirms only native acknowledgement, not that a person saw it.
+Notifications continue when the window is hidden and end when the GUI quits;
+the independent Service has no notification responsibility.
+
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
 endpoints are rejected. The ordinary status/control renderer remains available
