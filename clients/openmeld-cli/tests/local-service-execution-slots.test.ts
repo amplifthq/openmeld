@@ -41,7 +41,7 @@ function requestTask(
 }
 
 describe("local execution slots", () => {
-  it("runs three independent contexts, holds their slots until native completion, and queues conflicting local work", async () => {
+  it("runs five independent contexts, holds their slots until native completion, and queues conflicting local work", async () => {
     const started: string[] = [];
     const queue = createLocalExecutionSlots({
       limits: {
@@ -54,6 +54,8 @@ describe("local execution slots", () => {
       },
     });
     const completions = [
+      createDeferred(),
+      createDeferred(),
       createDeferred(),
       createDeferred(),
       createDeferred(),
@@ -72,25 +74,34 @@ describe("local execution slots", () => {
         targetLabel: "@agent",
         transportMode: "codex-app-server",
         localExecutionLaneKey: `context-${index}`,
-        resourceScope: index === 4 ? "exclusive" : "isolated",
+        resourceScope: index === 6 ? "exclusive" : "isolated",
         run: async () => {
           await completion.promise;
           return undefined;
         },
       });
     }
-    expect(started).toEqual(["task-0", "task-1", "task-2"]);
+    expect(started).toEqual(["task-0", "task-1", "task-2", "task-3", "task-4"]);
     completions[1].resolve();
     await vi.waitFor(() =>
-      expect(started).toEqual(["task-0", "task-1", "task-2", "task-3"])
+      expect(started).toEqual([
+        "task-0",
+        "task-1",
+        "task-2",
+        "task-3",
+        "task-4",
+        "task-5",
+      ])
     );
     completions[0].resolve();
     completions[2].resolve();
-    await Promise.resolve();
-    expect(started).not.toContain("task-4");
     completions[3].resolve();
-    await vi.waitFor(() => expect(started).toContain("task-4"));
     completions[4].resolve();
+    await Promise.resolve();
+    expect(started).not.toContain("task-6");
+    completions[5].resolve();
+    await vi.waitFor(() => expect(started).toContain("task-6"));
+    completions[6].resolve();
     await queue.drain();
   });
   it("runs an agent controller operation only while that adapter is idle", async () => {

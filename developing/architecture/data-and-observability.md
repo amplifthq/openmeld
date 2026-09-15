@@ -162,7 +162,7 @@ OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
 RuntimeTransportHub Durable Object. Each Profile has one current admission
-record with up to three reservations, at most 50 ordered waiting lifecycle ids,
+record with up to five reservations, at most 50 ordered waiting lifecycle ids,
 and bounded pending-promotion or recovery-hold metadata. The decoder retains
 previously accepted five-reservation records during a policy reduction. For
 Context-enabled Profiles this supersedes the former one-slot FIFO projection;

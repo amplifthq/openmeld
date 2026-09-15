@@ -20,7 +20,7 @@ are historical slices, not descriptions of the current implementation.
 
 | Area | Source-confirmed behavior | Limit |
 | --- | --- | --- |
-| Profile capacity | One Work Coordinator, three new reservations, 50 waiting Wakes, one writer per Context, and legacy exclusivity. Readers retain the preceding candidate's five reservations and 55 total items. | Three is a policy ceiling; it is not a measured host-resource budget. |
+| Profile capacity | One Work Coordinator, five new reservations, 50 waiting Wakes, one writer per Context, and legacy exclusivity. Readers accept five reservations and 55 total items. | Five is a policy ceiling; five-way native product smoke and a measured host-resource budget remain unverified. |
 | Execution Context | Core assigns Context identity and exact requester/Organization/Space/discussion scope in the owner-shard admission transaction. New, resume, fork, and supported implicit discussion scopes are wired through execution and result routing. | Unsupported harnesses retain legacy serial behavior before Context activation; explicit unsupported selection fails closed. |
 | Native identity | A reverse index rejects a native conversation assigned to a different Context in the same Runtime/Controller namespace. Exact-Wake checkpoints survive Head retirement. | Activity observations and Binding pointers cannot substitute for retained Context evidence. |
 | Project workspaces | Explicit Codex tasks use private Git metadata and worktrees from the confirmed source root's frozen commit. Native project permissions, outside-access probes, and effective MCP inventory are checked before execution. | System temporary directories retain native access rules. This is project-file/Git isolation, not a container boundary. |
@@ -52,6 +52,10 @@ migration acceptance.
 The five-reservation candidate added deterministic five/sixth and full-queue
 tests, but no five-way native product run. Its five-task policy was therefore
 returned to the demonstrated three-task ceiling during P1 remediation.
+The owner subsequently requested restoring five. The shared policy, its existing
+five/sixth admission and slot tests, serial-mode drainage, and current owner docs
+now use five again. The historical three-way smoke below remains three-way
+evidence; it does not certify five simultaneous native turns.
 
 ## P1 Validation
 
@@ -112,8 +116,8 @@ Local product smoke uses an isolated localhost Worker lane, a temporary
 and public `openmeld-dev` commands. Computer policy fixture setup uses its public
 API and is not claimed as browser UI acceptance. Production state is untouched.
 
-The current local build ran three new Space-context Wakes on the same Codex
-Profile after its owner switched the Profile from serial to parallel through
+The previously validated local build ran three new Space-context Wakes on the
+same Codex Profile after its owner switched the Profile from serial to parallel through
 the public CLI. Three distinct native conversations had overlapping turns;
 all three published their exact requested marker to their own source message.
 The project-only Computer allowlist remained in force. The source Git fixture
@@ -165,7 +169,7 @@ the owned Service and localhost Worker stack were stopped.
 Host RAM/CPU admission, a shared transient-provider cooldown budget, and the
 complete tool-subprocess versus Controller termination classification matrix
 remain unimplemented. Existing slot/resource exclusions and usage recovery do
-not constitute those mechanisms. No claim of universal three-task performance
+not constitute those mechanisms. No claim of universal five-task performance
 or OOM prevention is made.
 
 The local receipt does not expose `accepted_for_finalization` or `published`;

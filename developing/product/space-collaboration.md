@@ -919,7 +919,7 @@ Detailed Wake execution ownership belongs in
 
 Local Agents support explicit New task, continuation from an exact source, and
 completed-history fork. On supported harnesses, separate discussion scopes may
-use independent Execution Contexts under the same Profile, with up to three
+use independent Execution Contexts under the same Profile, with up to five
 reservations. Follow-ups within one Context remain serial. Replies, Stop,
 interaction requests, and failure evidence stay attached to the originating
 Wake. Migrated Profiles use Context continuity instead of the old Profile-wide

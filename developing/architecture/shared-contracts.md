@@ -6145,12 +6145,20 @@ snapshots, or authoring. The existing singular workload reference remains a
 compatibility projection of the first reserved task; waiting counts exclude all
 reserved contexts. Per-Wake progress continues to show every actual execution.
 
-The Profile admission ceiling is three reservations plus 50 waiting Wakes,
-owned by `packages/agent-runtime`. Readers retain the preceding candidate's five
-reservations and 55 total work items so the reduction never discards accepted
-work. Serial policy reduces future reservations to one while retaining Context
+The Profile admission ceiling is five reservations plus 50 waiting Wakes,
+owned by `packages/agent-runtime`. Readers accept five reservations and 55 total
+work items, including records retained across a temporary reduction in capacity.
+Serial policy reduces future reservations to one while retaining Context
 identity and already reserved work. Setup, dispatch-owned actions, status,
 trace, and self-rescue retain their contracts.
+
+Restoring parallel capacity from three to five changes the shared admission and
+local slot policy, not the wire shape or capability version. Existing readers
+already accept five reservations and 55 total items. A Service built with the
+three-task policy remains locally limited to three until updated; compatible
+Core and Service builds must both use the five-task policy to reach that ceiling.
+The existing serial switch continues to admit one task. This policy change does
+not add host-resource admission or certify five-way native execution.
 
 The local Space Action receipt is deliberately limited to
 `proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`. Its

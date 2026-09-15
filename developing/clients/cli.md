@@ -1620,7 +1620,7 @@ Agent Profile owners can read or change admission through
 The command calls Core's current-Organization owner-authorized API; it does not
 edit a local concurrency default or restart the Service. The response includes
 the selected mode, migration phase, and revision. Serial mode limits future
-reservations to one; parallel mode uses the shared three-reservation ceiling.
+reservations to one; parallel mode uses the shared five-reservation ceiling.
 Running and waiting Wakes retain their Context, native identity, and results.
 Changing this policy cannot cancel work, replay effects, or revert stored
 formats. The Core/Gateway receiver must be released before this command is

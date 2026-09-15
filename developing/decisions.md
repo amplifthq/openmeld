@@ -18,7 +18,7 @@
   PR.
 
 2026-09-14: Context-enabled Local Agent Profiles use one Work Coordinator with
-up to three independent reservations and one writer per Execution Context.
+up to five independent reservations and one writer per Execution Context.
 This supersedes the one-slot FIFO and Profile-wide native conversation as the
 execution model for migrated Profiles. Binding remains the connection/settings
 owner; RuntimeCoordinator remains execution authority. Legacy work drains under

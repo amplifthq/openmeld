@@ -320,7 +320,7 @@ cannot repeat a promotion. Route or Service `waiting` does not release a
 reservation.
 
 Independent workstation tasks use Core-assigned Execution Contexts. Core admits
-at most three contexts for one Agent Profile, with one writer per context and
+at most five contexts for one Agent Profile, with one writer per context and
 at most 50 waiting Wakes. Legacy work without a context drains exclusively.
 Context selection is explicit for new work and forks, and scoped to the exact
 requester, Organization, Space, discussion, Profile, Binding, and Runtime.

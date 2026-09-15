@@ -4001,7 +4001,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
       agentControllerRef: "builtin:claude-code",
       access: "space_context",
     },
-  ] as const)("admits three independent $agentControllerRef $mode contexts and queues a fourth and same-context continuation", async ({
+  ] as const)("admits five independent $agentControllerRef $mode contexts and queues a sixth and same-context continuation", async ({
     mode,
     agentControllerRef,
     access,
@@ -4009,7 +4009,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
     const { hub } = createContextHarness({
       bindingControllerRef: agentControllerRef,
     });
-    const requests = Array.from({ length: 4 }, (_, index) =>
+    const requests = Array.from({ length: 6 }, (_, index) =>
       buildRuntimeCoordinatorHeadAcceptRequest({
         dispatchId: `dispatch-parallel-${index}`,
         idempotencyKey: `parallel-${index}`,
@@ -4067,12 +4067,14 @@ describe("runtime transport runtime coordinator transport contract", () => {
       "accepted",
       "accepted",
       "accepted",
+      "accepted",
+      "accepted",
       "queued",
     ]);
     expect(
-      new Set(replies.slice(0, 3).map((reply) => reply.executionContext?.id))
+      new Set(replies.slice(0, 5).map((reply) => reply.executionContext?.id))
         .size
-    ).toBe(3);
+    ).toBe(5);
     const first = requests[0];
     if (!first?.acceptedDispatchSnapshot?.contextRequest) {
       throw new Error("Expected the first accepted context fixture");
@@ -10854,7 +10856,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
 
   it("persists serial rollback without revoking reservations and keeps Context mode after idle pruning", async () => {
     const { hub, storageRecords } = createContextHarness();
-    const requests = [0, 1, 2, 3].map((index) =>
+    const requests = [0, 1, 2, 3, 4, 5].map((index) =>
       contextMigrationRequest(`rollback-${index}`)
     );
     for (const request of requests) {
@@ -10893,7 +10895,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           workItems: Array<{ reservationState: string }>;
         }
       ).workItems.filter((item) => item.reservationState === "reserved").length;
-    expect(reservedCount()).toBe(3);
+    expect(reservedCount()).toBe(5);
     for (const [index, request] of requests.entries()) {
       await fetchRuntimeTransportJson(
         restarted.hub,
@@ -10903,7 +10905,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
           targetWakeLifecycleIdentity: request.targetWakeLifecycleIdentity,
         })
       );
-      expect(reservedCount()).toBe([2, 1, 1, 0][index]);
+      expect(reservedCount()).toBe([4, 3, 2, 1, 1, 0][index]);
     }
     await (
       restarted.hub as unknown as RuntimeTransportHub
@@ -10916,7 +10918,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
   });
 
   it.each([
-    1, 3, 5,
+    1, 5,
   ])("persists %i reservations with fifty waiting Wakes and rejects overflow", async (reservations) => {
     const { hub, storageRecords } = createContextHarness();
     const requestFor = (index: number) => {
@@ -10966,11 +10968,10 @@ describe("runtime transport runtime coordinator transport contract", () => {
       );
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toMatchObject({
-        status: index < Math.min(reservations, 3) ? "accepted" : "queued",
+        status: index < reservations ? "accepted" : "queued",
       });
       if (reservations === 5 && index === 4) {
-        // Restore a valid prior-release record containing five reservations.
-        // New admission now uses three, but these accepted owners must drain.
+        // Read the five accepted reservations through the prior v2 format.
         const key = [...storageRecords.keys()].find((candidate) =>
           candidate.startsWith(
             "runtime-coordinator:agent-profile-execution-admission:v1:"
@@ -10982,25 +10983,7 @@ describe("runtime transport runtime coordinator transport contract", () => {
         const stored = storageRecords.get(key) as {
           modelVersion: string;
           contextMigration?: unknown;
-          activeHeadLifecycleIds: string[];
-          workItems: Array<{
-            targetWakeLifecycleId: string;
-            reservationState: string;
-          }>;
         };
-        for (const item of stored.workItems) {
-          item.reservationState = "reserved";
-          const headKey = buildRuntimeCoordinatorHeadLifecycleStorageKey(
-            item.targetWakeLifecycleId
-          );
-          storageRecords.set(headKey, {
-            ...(storageRecords.get(headKey) as object),
-            status: "accepted",
-          });
-        }
-        stored.activeHeadLifecycleIds = stored.workItems.map(
-          (item) => item.targetWakeLifecycleId
-        );
         stored.modelVersion =
           "openmeld.runtime_coordinator.agent_profile_work_coordinator.v2";
         stored.contextMigration = undefined;

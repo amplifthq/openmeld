@@ -888,7 +888,7 @@ the Profile's other contexts as a fallback or heal a missing scoped conversation
 by silently starting another one. Ledger v2 reads valid v1 state without resetting
 its native conversation mappings. Corrupt scoped evidence fails closed.
 
-The existing local slot owner enforces the three-context Profile cap and local
+The existing local slot owner enforces the five-context Profile cap and local
 resource exclusions. Isolated task folders have distinct canonical roots and
 must not be symlinks. Shared current-folder writers run exclusively; current-folder
 readers wait for potentially overlapping writers. These local checks implement
