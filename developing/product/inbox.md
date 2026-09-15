@@ -548,6 +548,20 @@ action is idempotent and allows the oldest later Wake to continue.
 
 ### Message notification preferences
 
+Human replies in an existing thread carry a recipient-specific
+`replyToRecipient: true` Space source-target marker for the current Human owner
+of the thread's root message. The Space resolves that owner from its retained
+root Signal and active membership; the marker never comes from a title, quoted
+text, or a client-selected recipient. Self replies (including another Profile
+owned by the same account), ordinary thread participants, and nonparticipants
+do not acquire this marker. Existing thread-recipient restrictions remain
+unchanged. Explicit mentions retain Human Mention semantics.
+
+Mentions and replies admits these marked updates without making them urgent or
+creating email deliveries. Conversation mute, read state, source access, and
+visible-conversation suppression still apply. Older unmarked Inbox rows are not
+backfilled or inferred from their title.
+
 **Default message notifications** is an account preference: **All new messages**
 or **Mentions and replies**. Existing accounts default to Mentions and replies,
 preserving direct-message, mention, addressed reply, and urgent-update delivery.

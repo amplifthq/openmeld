@@ -864,6 +864,24 @@ tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
 
+Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
+targets without adding an Inbox kind or changing urgency. Space emits true only
+for a different Human account replying to the recipient's retained thread root,
+after existing recipient filtering. Browser notification policy reads this fact
+instead of parsing the title or equating thread membership with addressing.
+
+Source-target version `7` exposes this field. Gateway strips it for version
+`6` and older clients while preserving each version's existing target fields.
+List, direct-item, and mark-read RPCs also accept optional
+`includeReplyToRecipient`: Core omits the field unless the Gateway explicitly
+opts in. This protects an older strict Gateway even after Core persists new
+rows. New Gateway opts in and owns the separate browser-version projection.
+Unlike earlier ungated source-target additions, this field can roll out
+**Core, Gateway, Web**, matching the message-preference API below. Deploy Core
+before a Gateway that sends the new RPC option. No new migration or local
+component contract bump is required for the reply marker. Retain compatible
+Core readers on rollback while stored rows or projection intents contain it.
+
 Message notification preferences use the new strict
 `GET/PATCH /v1/inbox/message-notification-preferences` and matching Core RPCs.
 GET optionally accepts a Space id and returns the account default, nullable

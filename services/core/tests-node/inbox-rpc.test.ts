@@ -9,6 +9,7 @@ import {
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
   rpcListInboxItems,
+  rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
   rpcUpdateInboxMessageNotificationPreferences,
 } from "../src/inbox/transport/rpc/inbox-rpc";
@@ -19,6 +20,40 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("persists Human reply facts but returns them only to an opted-in RPC receiver", async () => {
+    const harness = createInboxHarness();
+    try {
+      const saved = await seedItem(harness.db, "user-1", true);
+      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      for (const includeReplyToRecipient of [undefined, true]) {
+        const request = {
+          context: contextFor("user-1"),
+          includeReplyToRecipient,
+        };
+        const list = await rpcListInboxItems(env, request);
+        const get = await rpcGetInboxItem(env, {
+          ...request,
+          itemId: saved.itemId,
+        });
+        const read = await rpcMarkInboxItemRead(env, {
+          ...request,
+          itemId: saved.itemId,
+          read: false,
+        });
+        for (const item of [list.items[0], get.item, read.item]) {
+          if (includeReplyToRecipient) {
+            expect(item?.sourceTarget).toMatchObject({
+              replyToRecipient: true,
+            });
+          } else {
+            expect(item?.sourceTarget).not.toHaveProperty("replyToRecipient");
+          }
+        }
+      }
+    } finally {
+      harness.close();
+    }
+  });
   it("saves message preferences only for the verified member and rejects recipient injection", async () => {
     const harness = createInboxHarness();
     try {
@@ -41,10 +76,10 @@ describe("Inbox Core RPC", () => {
       await expect(
         rpcUpdateInboxMessageNotificationPreferences(env, {
           context: contextFor("user-1"),
-          // @ts-expect-error Client-selected recipients are not part of this contract.
           preference: {
             scope: "account",
             mode: "all_messages",
+            // @ts-expect-error Client-selected recipients are not part of this contract.
             userId: "user-2",
           },
         })
@@ -165,7 +200,11 @@ function contextFor(userId: string): OpenMeldRequestContext {
   };
 }
 
-async function seedItem(db: D1Database, recipientUserId: string) {
+async function seedItem(
+  db: D1Database,
+  recipientUserId: string,
+  replyToRecipient?: boolean
+) {
   return await ensureInboxItem({
     candidate: {
       attention: "update",
@@ -179,6 +218,7 @@ async function seedItem(db: D1Database, recipientUserId: string) {
       sourceKey: "signal-1",
       sourceKind: "space_signal",
       sourceTarget: {
+        replyToRecipient,
         kind: "space",
         signalId: "signal-1",
         spaceId: "space-1",

@@ -34,6 +34,52 @@ const PREFERENCE_KEY = `openmeld.inbox.browser-notifications.enabled:${USER_ID}`
 const PROMPT_DISMISSED_KEY = `openmeld.inbox.browser-notifications.prompt-dismissed:${USER_ID}`;
 
 describe("Inbox browser notifications", () => {
+	it("notifies a Human reply from the recipient marker, not the title or thread membership", async () => {
+		await enableInboxBrowserNotifications({ userId: USER_ID });
+		const item = createInboxItem({
+			kind: "space_message",
+			attention: "update",
+			importance: "normal",
+			resolutionStatus: "not_applicable",
+			title: "A neutral localized title",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "space-123",
+				signalId: "human-reply",
+				threadRootSignalId: "root",
+				replyToRecipient: true,
+			},
+		});
+		expect(
+			isInboxBrowserNotificationEligible(item, "mentions_and_replies")
+		).toBe(true);
+		expect(isInboxBrowserNotificationEligible(item, "muted")).toBe(false);
+		const { replyToRecipient: _reply, ...ordinaryTarget } =
+			item.sourceTarget as Extract<
+				InboxItem["sourceTarget"],
+				{ kind: "space" }
+			>;
+		expect(
+			isInboxBrowserNotificationEligible(
+				{
+					...item,
+					title: "Someone replied to your thread",
+					sourceTarget: ordinaryTarget,
+				},
+				"mentions_and_replies"
+			)
+		).toBe(false);
+		expect(
+			await showInboxBrowserNotification({
+				item,
+				userId: USER_ID,
+				sourcePath:
+					"/o/amplift/spaces/space-123?threadRootSignalId=root&focusSignalId=human-reply",
+				viewingSourceSession: false,
+			})
+		).toMatchObject({ status: "delivered" });
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+	});
 	it("creates an ordinary-message notification only after the saved policy revalidation allows it", async () => {
 		await enableInboxBrowserNotifications({ userId: USER_ID });
 		const item = createInboxItem({

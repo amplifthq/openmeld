@@ -234,6 +234,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.listInboxItems({
+          includeReplyToRecipient: true,
           ...query.data,
           context: buildCoreRpcContext(c),
         }),
@@ -288,6 +289,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getInboxItem({
+          includeReplyToRecipient: true,
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
         }),
@@ -350,6 +352,7 @@ export function registerInboxRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.markInboxItemRead({
+          includeReplyToRecipient: true,
           ...body.data,
           context: buildCoreRpcContext(c),
           itemId: params.data.itemId,
@@ -469,6 +472,7 @@ function resolveInboxItemResponse(input: {
 type InboxItem = z.infer<typeof listInboxItemsResponseSchema>["items"][number];
 type InboxItemKindClientVersion = "current" | "legacy";
 type InboxSourceTargetClientVersion =
+  | "reply_unaware"
   | "owner_unaware"
   | "current"
   | "legacy"
@@ -495,13 +499,10 @@ function projectInboxItemForClient(input: {
   }
   let sourceTarget: InboxItem["sourceTarget"] = input.item.sourceTarget;
   if (sourceTarget.kind === "space") {
-    const { agentOwnerActivity: _ownerActivity, ...oldTarget } = sourceTarget;
-    if (input.sourceTargetVersion === "owner_unaware") {
-      sourceTarget = oldTarget;
-    } else {
-      const { directMessage: _directMessage, ...olderTarget } = oldTarget;
-      sourceTarget = olderTarget;
-    }
+    sourceTarget = projectInboxSpaceTargetForClient(
+      sourceTarget,
+      input.sourceTargetVersion
+    );
   }
   if (
     (input.sourceTargetVersion === "legacy" ||
@@ -530,6 +531,22 @@ function projectInboxItemForClient(input: {
   };
 }
 
+function projectInboxSpaceTargetForClient(
+  sourceTarget: Extract<InboxItem["sourceTarget"], { kind: "space" }>,
+  version: Exclude<InboxSourceTargetClientVersion, "current">
+): InboxItem["sourceTarget"] {
+  const { replyToRecipient: _reply, ...replyUnaware } = sourceTarget;
+  if (version === "reply_unaware") {
+    return replyUnaware;
+  }
+  const { agentOwnerActivity: _owner, ...ownerUnaware } = replyUnaware;
+  if (version === "owner_unaware") {
+    return ownerUnaware;
+  }
+  const { directMessage: _dm, ...conversationUnaware } = ownerUnaware;
+  return conversationUnaware;
+}
+
 function resolveInboxItemKindVersion(
   c: Context<HonoBindings>
 ): InboxItemKindClientVersion {
@@ -548,6 +565,9 @@ function resolveInboxSourceTargetVersion(
   const version = c.req.header(OPENMELD_HEADER_INBOX_SOURCE_TARGET_VERSION);
   if (version === OPENMELD_INBOX_SOURCE_TARGET_VERSION) {
     return "current";
+  }
+  if (version === "6") {
+    return "reply_unaware";
   }
   if (version === "5") {
     return "owner_unaware";

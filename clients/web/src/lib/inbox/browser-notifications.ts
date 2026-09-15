@@ -216,7 +216,8 @@ export function isInboxBrowserNotificationEligible(
 		isDirectlyAddressedInboxUpdate(item.kind) ||
 		(item.kind === "space_message" &&
 			item.sourceTarget.kind === "space" &&
-			item.sourceTarget.directMessage === true)
+			(item.sourceTarget.directMessage === true ||
+				item.sourceTarget.replyToRecipient === true))
 	);
 }
 

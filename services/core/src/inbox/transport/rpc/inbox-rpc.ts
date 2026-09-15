@@ -40,6 +40,7 @@ import type {
   GetInboxSummaryRpcInput,
   GetSpaceInboxSummaryRpcInput,
   GetSpaceInboxUnreadTargetsRpcInput,
+  InboxItem,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   ListInboxItemsResponse,
@@ -95,13 +96,23 @@ export async function rpcListInboxItems(
   return parseResponse(
     listInboxItemsResponseSchema,
     await runService(() =>
-      prepared.service.list({
-        cursor: request.cursor,
-        limit: request.limit,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-        view: request.view,
-      })
+      prepared.service
+        .list({
+          cursor: request.cursor,
+          limit: request.limit,
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+          view: request.view,
+        })
+        .then((response) => ({
+          ...response,
+          items: response.items.map((item) =>
+            projectReplyToRecipientForReceiver(
+              item,
+              request.includeReplyToRecipient
+            )
+          ),
+        }))
     )
   );
 }
@@ -116,11 +127,18 @@ export async function rpcGetInboxItem(
   return parseResponse(
     getInboxItemResponseSchema,
     await runService(() =>
-      prepared.service.get({
-        itemId: request.itemId,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .get({
+          itemId: request.itemId,
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) => ({
+          item: projectReplyToRecipientForReceiver(
+            response.item,
+            request.includeReplyToRecipient
+          ),
+        }))
     )
   );
 }
@@ -248,12 +266,19 @@ export async function rpcMarkInboxItemRead(
   return parseResponse(
     markInboxItemReadResponseSchema,
     await runService(() =>
-      prepared.service.markRead({
-        itemId: request.itemId,
-        organizationId: prepared.organizationId,
-        read: request.read,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .markRead({
+          itemId: request.itemId,
+          organizationId: prepared.organizationId,
+          read: request.read,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) => ({
+          item: projectReplyToRecipientForReceiver(
+            response.item,
+            request.includeReplyToRecipient
+          ),
+        }))
     )
   );
 }
@@ -352,6 +377,20 @@ export async function rpcUpdateInboxMessageNotificationPreferences(
       })
     )
   );
+}
+
+/** Older Gateway receivers have a strict target parser. Keep their RPC shape
+ * unchanged even after Core starts persisting recipient-specific reply facts. */
+function projectReplyToRecipientForReceiver(
+  item: InboxItem,
+  includeReplyToRecipient?: boolean
+): InboxItem {
+  if (includeReplyToRecipient === true || item.sourceTarget.kind !== "space") {
+    return item;
+  }
+  const { replyToRecipient: _replyToRecipient, ...sourceTarget } =
+    item.sourceTarget;
+  return { ...item, sourceTarget };
 }
 
 async function prepareRequest(

@@ -37,6 +37,30 @@ const ITEM = {
 };
 
 describe("api-client Inbox API", () => {
+  it("requests and preserves recipient-specific Human reply facts", async () => {
+    const reply = {
+      ...ITEM,
+      sourceTarget: {
+        ...ITEM.sourceTarget,
+        threadRootSignalId: "root",
+        replyToRecipient: true,
+      },
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(async () =>
+      jsonResponse({ item: reply })
+    );
+    const api = createInboxApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect((await api.get({ itemId: ITEM.id })).item.sourceTarget).toEqual(
+      reply.sourceTarget
+    );
+    const headers = new Headers(transport.mock.calls[0]?.[0].init?.headers);
+    expect(headers.get("x-openmeld-inbox-source-target-version")).toBe("7");
+  });
   it("reads and writes message preferences with a separate strict contract", async () => {
     const response = {
       organizationId: "org-1",
