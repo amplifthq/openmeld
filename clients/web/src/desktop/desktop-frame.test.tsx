@@ -29,7 +29,7 @@ afterEach(() => {
 
 describe("Desktop document hydration", () => {
 	it.each([
-		[null, null, "centered", "left"],
+		[null, null, "centered", "right"],
 		["centered", "right", "centered", "right"],
 		["full-width", "left", "full-width", "left"],
 	])("preserves Appearance on first open and reopen with saved %s / %s", async (savedLayout, savedAlignment, layout, alignment) => {

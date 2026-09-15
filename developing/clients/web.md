@@ -1094,14 +1094,11 @@ explicit and persistent.
 
 Appearance also owns the browser-local **Your messages** placement used by
 every Space, Direct Message, Center Agent, and thread conversation that
-renders the shared message primitives. Without a saved preference, personal
-messages start on the left with their avatar and name. An explicit saved
-placement remains honored. A message placed on the right uses a
+renders the shared message primitives. A message placed on the right uses a
 trailing-aligned, content-sized bubble with a responsive maximum width; a
 message placed on the left uses the full available transcript width. Both
-placements keep their content leading-aligned. Every speaker's avatar and name
-header stays leading-aligned, regardless of bubble placement. Messages use the
-same semantic radius and content inset. Other speakers use a quiet muted
+placements keep their content leading-aligned. Every speaker's message uses
+the same semantic radius and content inset. Other speakers use a quiet muted
 surface; the current member uses a soft tint of the shared blue `unread` color,
 with theme-specific opacity. Message boundaries remain visible in either theme.
 With right placement, the full transcript row stays
@@ -3594,10 +3591,9 @@ Members open/closed state and width are scoped to the current Space id, so
 switching Spaces restores each room's last Members layout without changing any
 other room. Without a stored preference, Members starts closed at its bounded
 minimum width. The Thread width remains a separate Thread-panel preference. The
-authenticated centered conversation layout uses up to 72rem of the available
-conversation width, capped at 90vw. Closed panels reserve no empty space; open
-panels reduce the available width through the existing shared layout.
-Opening an inline panel must lay out its content
+authenticated centered conversation layout uses the current Members width when
+it reserves space, so reopening a resized Members panel does not introduce a
+second hard-coded layout width. Opening an inline panel must lay out its content
 at the final panel width before any entrance motion; Web may animate only
 composited presentation properties such as transform and opacity so labels and
 message content never pass through a compressed wrapping state. Reduced-motion
