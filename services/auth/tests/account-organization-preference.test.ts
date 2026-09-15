@@ -1,5 +1,15 @@
-import { selectLastSelectedOrganizationErrorResponseSchema } from "@openmeld/schemas";
+import {
+  accountOrganizationContextSchema,
+  accountSessionSchema,
+  accountSidebarResponseSchema,
+  DESKTOP_APP_ORIGIN,
+  selectLastSelectedOrganizationErrorResponseSchema,
+} from "@openmeld/schemas";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildBufferedAuthProxyResponse } from "../../../clients/web/src/lib/auth-proxy.server";
+import { loadBetterAuthRuntime } from "../src/lazy-runtime-modules";
+import { getAccountOrganizationPreferenceRepository } from "../src/lib/account/organization-preference-service";
+import { getLocalAuthUserStore } from "../src/lib/better-auth/local-auth-user-store";
 import type { AuthBindings } from "../src/lib/bindings";
 import { createHonoApp } from "../src/lib/hono/create-hono-app";
 import {
@@ -23,6 +33,10 @@ type TestContext = ReturnType<typeof createTestContext>;
 
 const contexts: TestContext[] = [];
 
+vi.mock("../../../clients/web/src/env", () => ({
+  getRequiredServerEnv: () => "http://localhost:8788",
+}));
+
 afterEach(() => {
   for (const context of contexts.splice(0)) {
     context.harness.close();
@@ -31,6 +45,427 @@ afterEach(() => {
 });
 
 describe("Account Organization preference HTTP API", () => {
+  it.each([
+    "revoked",
+    "expired",
+  ])("reads a fresh credential-free account session and rejects %s credentials", async (ending) => {
+    const context = createTestContext();
+    const account = await createSignedInUser(context, {
+      email: "account-session@example.com",
+      name: "Account Session",
+    });
+    const { createAuth } = await loadBetterAuthRuntime();
+    const { response: vendor, headers: vendorHeaders } = await createAuth(
+      context.env
+    ).api.getSession({
+      headers: account.headers,
+      query: { disableCookieCache: true },
+      returnHeaders: true,
+    });
+    if (!vendor) {
+      throw new Error("The real sign-in must establish a session.");
+    }
+    expect(vendorHeaders.getSetCookie().length).toBeGreaterThan(0);
+    const preferenceRead = vi
+      .spyOn(
+        getAccountOrganizationPreferenceRepository(context.env),
+        "getLastSelectedOrganizationId"
+      )
+      .mockRejectedValue(new Error("Preferences are unavailable"));
+    // Membership storage is deliberately unavailable: a pure session read
+    // must not depend on it, even for an account with no memberships.
+    context.harness.run({ sql: "DROP TABLE members" });
+    context.harness.run({
+      sql: "UPDATE users SET name = ?, email_verified = ? WHERE id = ?",
+      params: ["Fresh Account Name", 0, vendor.user.id],
+    });
+    const request = () =>
+      context.app.fetch(
+        new Request(
+          `${AUTH_BASE_URL}/v1/account/session?userId=other&sessionId=other`,
+          {
+            headers: account.headers,
+          }
+        ),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+    const response = await request();
+    expect(response.status).toBe(200);
+    expect(response.headers.getSetCookie().length).toBeGreaterThan(0);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    const body = await response.json();
+    expect(accountSessionSchema.parse(body)).toEqual({
+      session: { id: vendor.session.id },
+      user: {
+        id: vendor.user.id,
+        email: vendor.user.email,
+        name: "Fresh Account Name",
+        image: vendor.user.image ?? null,
+        emailVerified: false,
+        createdAt: vendor.user.createdAt.toISOString(),
+      },
+    });
+    expect(preferenceRead).not.toHaveBeenCalled();
+    const getSession = vi.spyOn(createAuth(context.env).api, "getSession");
+    // Due for the vendor's normal updateAge renewal, but still valid. Do not
+    // read via a vendor oracle after this point: the route must own the read.
+    const dueExpiry = Date.now() + 60 * 60 * 1000;
+    context.harness.run({
+      sql: "UPDATE sessions SET expires_at = ? WHERE id = ?",
+      params: [dueExpiry, vendor.session.id],
+    });
+    const renewed = await request();
+    expect(renewed.status).toBe(200);
+    expect(getSession).toHaveBeenCalledTimes(1);
+    expect(getSession.mock.calls[0]?.[0]?.returnHeaders).toBe(true);
+    const renewedCookies = renewed.headers.getSetCookie();
+    const sessionCookieName = (await createAuth(context.env).$context)
+      .authCookies.sessionToken.name;
+    const renewedSessionCookie = renewedCookies.find((cookie) =>
+      cookie.startsWith(`${sessionCookieName}=`)
+    );
+    expect(Boolean(renewedSessionCookie?.includes("Max-Age="))).toBe(true);
+    expect(Boolean(renewedSessionCookie?.includes("HttpOnly"))).toBe(true);
+    const stored = context.harness.queryFirst<{ expires_at: number }>({
+      sql: "SELECT expires_at FROM sessions WHERE id = ?",
+      params: [vendor.session.id],
+    });
+    expect(stored?.expires_at).toBeGreaterThan(dueExpiry);
+    const proxied = await buildBufferedAuthProxyResponse({
+      method: "GET",
+      preserveUnauthorizedStatus: true,
+      upstreamResponse: renewed,
+    });
+    // Compare without printing generated fixture credentials on failure.
+    expect(
+      JSON.stringify(proxied.headers.getSetCookie()) ===
+        JSON.stringify(renewedCookies)
+    ).toBe(true);
+    expect(renewedCookies.length).toBeGreaterThan(1);
+    expect(proxied.headers.get("cache-control")).toBe("private, no-store");
+
+    // Local verification refuses renewal even when the vendor session is valid.
+    const localUser = vi.spyOn(
+      getLocalAuthUserStore(context.env),
+      "hasUserById"
+    );
+    for (const failure of [false, new Error("local user store unavailable")]) {
+      context.harness.run({
+        sql: "UPDATE sessions SET expires_at = ? WHERE id = ?",
+        params: [Date.now() + 60 * 60 * 1000, vendor.session.id],
+      });
+      if (failure === false) {
+        localUser.mockResolvedValueOnce(false);
+      } else {
+        localUser.mockRejectedValueOnce(failure);
+      }
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      const denied = await request();
+      const refusedVendorResult = await getSession.mock.results.at(-1)?.value;
+      expect(
+        Boolean(
+          refusedVendorResult.headers
+            .getSetCookie()
+            .some((cookie: string) =>
+              cookie.startsWith(`${sessionCookieName}=`)
+            )
+        )
+      ).toBe(true);
+      expect(denied.status).toBe(failure === false ? 401 : 500);
+      expect(denied.headers.getSetCookie()).toEqual([]);
+      expect(denied.headers.get("cache-control")).toBe("private, no-store");
+    }
+
+    // Reusing the same signed cookies cannot revive a revoked session.
+    context.harness.run(
+      ending === "revoked"
+        ? {
+            sql: "DELETE FROM sessions WHERE id = ?",
+            params: [vendor.session.id],
+          }
+        : {
+            sql: "UPDATE sessions SET expires_at = ? WHERE id = ?",
+            params: [Date.now() - 1000, vendor.session.id],
+          }
+    );
+    const expired = await request();
+    expect(expired.status).toBe(401);
+    expect(expired.headers.get("cache-control")).toBe("private, no-store");
+    const deletion = expired.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith(`${sessionCookieName}=`));
+    expect(Boolean(deletion?.includes("Max-Age=0"))).toBe(true);
+  });
+  it.each([
+    "development",
+    "production",
+  ] as const)("enforces cookie Origin and membership on real sidebar writes in %s", async (environment) => {
+    const context = createTestContext({ environment });
+    const account = await createSignedInUser(context, {
+      email: `sidebar-${environment}@example.com`,
+      name: "Sidebar",
+    });
+    const organizationId = await createOrganization(context, {
+      headers: account.headers,
+      name: "Sidebar",
+      slug: `sidebar-${environment}`,
+    });
+    const read = async () => {
+      const response = await context.app.fetch(
+        new Request(
+          `${AUTH_BASE_URL}/v1/account/sidebar?organizationId=${organizationId}`,
+          { headers: account.headers }
+        ),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      return accountSidebarResponseSchema.parse(await response.json());
+    };
+    const initial = await read();
+    const origins = [
+      DESKTOP_APP_ORIGIN,
+      WEB_APP_URL,
+      "https://hostile.example",
+      "null",
+      null,
+      `${DESKTOP_APP_ORIGIN}/`,
+      `${DESKTOP_APP_ORIGIN}.evil`,
+      "openmeld-desktop://other",
+      "sh.openmeld.desktop.dev:/",
+      "sh.openmeld.desktop:/",
+      "sh.openmeld.desktop.test:/",
+      "file://app",
+      "http://localhost:39999",
+      `blob:${WEB_APP_URL}/id`,
+    ];
+    let revision = initial.revision;
+    for (const origin of origins) {
+      const headers = new Headers(account.headers);
+      headers.set("content-type", "application/json");
+      headers.delete("referer");
+      if (origin === null) {
+        headers.delete("origin");
+      } else {
+        headers.set("origin", origin);
+      }
+      const response = await context.app.fetch(
+        new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            organizationId,
+            revision,
+            preferences: initial.preferences,
+          }),
+        }),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      const allowed = origin === WEB_APP_URL || origin === DESKTOP_APP_ORIGIN;
+      expect({
+        origin,
+        status: response.status,
+        body: await response.json(),
+      }).toMatchObject(
+        allowed
+          ? { status: 200, body: { ok: true } }
+          : { status: 403, body: { code: "auth.invalid_origin" } }
+      );
+      if (allowed) {
+        revision++;
+      }
+      expect((await read()).revision).toBe(revision);
+    }
+    const headers = new Headers(account.headers);
+    headers.set("origin", WEB_APP_URL);
+    headers.set("content-type", "application/json");
+    const denied = await context.app.fetch(
+      new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          organizationId: "not-a-membership",
+          revision: 0,
+          preferences: initial.preferences,
+        }),
+      }),
+      context.env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(denied.status).toBe(403);
+    expect(await denied.json()).toMatchObject({
+      error: { code: "organization.membership_required" },
+    });
+    headers.delete("origin");
+    for (const referer of [`${WEB_APP_URL}/workspace`, DESKTOP_APP_ORIGIN]) {
+      headers.set("referer", referer);
+      const response = await context.app.fetch(
+        new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({
+            organizationId,
+            revision,
+            preferences: initial.preferences,
+          }),
+        }),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(referer === DESKTOP_APP_ORIGIN ? 403 : 200);
+      if (response.ok) {
+        revision++;
+      }
+    }
+    headers.set("origin", WEB_APP_URL);
+    headers.set("cookie", "invalid-session=invalid");
+    const anonymous = await context.app.fetch(
+      new Request(`${AUTH_BASE_URL}/v1/account/sidebar`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({
+          organizationId,
+          revision,
+          preferences: initial.preferences,
+        }),
+      }),
+      context.env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(anonymous.status).toBe(401);
+  });
+  it("reads only the current account and follows membership-checked entry preferences", async () => {
+    const context = createTestContext({ environment: "production" });
+    const account = await createSignedInUser(context, {
+      email: "context@example.com",
+      name: "Context",
+    });
+    const other = await createSignedInUser(context, {
+      email: "other-context@example.com",
+      name: "Other",
+    });
+    const otherOrganizationId = await createOrganization(context, {
+      headers: other.headers,
+      name: "Private",
+      slug: "private",
+    });
+    const beta = await createOrganization(context, {
+      headers: account.headers,
+      name: "Beta",
+      slug: "context-beta",
+    });
+    const read = async () => {
+      const response = await context.app.fetch(
+        new Request(
+          `${AUTH_BASE_URL}/v1/account/organization-context?userId=other&profileId=other`,
+          { headers: account.headers }
+        ),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("cache-control")).toBe("private, no-store");
+      const payload = await response.json();
+      expect(accountOrganizationContextSchema.safeParse(payload).success).toBe(
+        true
+      );
+      return accountOrganizationContextSchema.parse(payload);
+    };
+    const initial = await read();
+    expect(initial.account).toEqual({
+      email: account.email,
+      name: "Context",
+      image: null,
+    });
+    expect(
+      initial.organizations.some(
+        (organization) => organization.id === otherOrganizationId
+      )
+    ).toBe(false);
+    expect(initial.defaultOrganizationId).toBe(initial.organizations[0]?.id);
+    const selection = await patchJson(
+      context,
+      "/v1/account/last-selected-organization",
+      { organizationId: beta },
+      account.headers
+    );
+    expect(selection.status).toBe(200);
+    expect((await read()).defaultOrganizationId).toBe(beta);
+    context.harness.run({
+      sql: "UPDATE users SET last_selected_organization_id = ? WHERE id = ?",
+      params: [otherOrganizationId, initial.currentUserId],
+    });
+    const activeSelection = await postJson(
+      context,
+      "/api/auth/organization/set-active",
+      { organizationId: beta },
+      account.headers
+    );
+    expect(activeSelection.status).toBe(200);
+    expect((await read()).defaultOrganizationId).toBe(beta);
+    context.harness.run({
+      sql: "DELETE FROM members WHERE user_id = ? AND organization_id = ?",
+      params: [initial.currentUserId, beta],
+    });
+    expect((await read()).defaultOrganizationId).toBe(
+      initial.organizations[0]?.id
+    );
+    context.harness.run({
+      sql: "DELETE FROM members WHERE user_id = ?",
+      params: [initial.currentUserId],
+    });
+    expect(await read()).toMatchObject({
+      organizations: [],
+      defaultOrganizationId: null,
+    });
+  });
+
+  it.each([
+    ["organization-context", 500],
+    ["session", 500],
+    ["session", 503],
+  ] as const)("distinguishes missing authentication from %s failure %s", async (path, failureStatus) => {
+    const context = createTestContext();
+    const request = (headers = new Headers()) =>
+      context.app.fetch(
+        new Request(`${AUTH_BASE_URL}/v1/account/${path}`, {
+          headers,
+        }),
+        context.env,
+        TEST_EXECUTION_CONTEXT
+      );
+    const anonymous = await request();
+    expect(anonymous.status).toBe(401);
+    expect(anonymous.headers.get("cache-control")).toBe("private, no-store");
+    const account = await createSignedInUser(context, {
+      email: "context-failure@example.com",
+      name: "Context Failure",
+    });
+    context.env.OPENMELD_DB =
+      failureStatus === 503
+        ? new Proxy(context.env.OPENMELD_DB, {
+            get(target, property, receiver) {
+              if (property === "prepare") {
+                return () =>
+                  createRejectedD1PreparedStatement(
+                    new Error("Auth database unavailable")
+                  );
+              }
+              return Reflect.get(target, property, receiver);
+            },
+          })
+        : createLocalUserVerificationFailureDatabase(
+            context.env.OPENMELD_DB,
+            new Error("local verification unavailable")
+          );
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const failed = await request(account.headers);
+    expect(failed.status).toBe(failureStatus);
+    expect(failed.headers.get("cache-control")).toBe("private, no-store");
+  });
+
   it("returns the shared error contract when the authenticated session is missing", async () => {
     const context = createTestContext();
 

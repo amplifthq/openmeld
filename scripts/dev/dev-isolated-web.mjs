@@ -6,6 +6,7 @@ import {
   buildIsolatedWebStartupMessages,
   resolveIsolatedDevPresentation,
   resolveIsolatedWebDopplerCommand,
+  resolveIsolatedWebScript,
 } from "./dev-isolated.mjs";
 import {
   buildIsolatedDevEnvironment,
@@ -84,7 +85,7 @@ function runWeb(input) {
     "--filter",
     "openmeld-web",
     "run",
-    "dev:isolated",
+    resolveIsolatedWebScript(input.env),
   ];
 
   return runOwnedCommand(command, args, {

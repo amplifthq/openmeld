@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SocialProvider } from "#/components/auth/social-providers";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { openMeldAuthClient } from "#/lib/auth-client";
 import {
 	getAuthErrorMessage,
@@ -133,6 +134,10 @@ export function useSignOut() {
 
 	return useMutation({
 		mutationFn: async () => {
+			const desktop = getDesktopPlatform();
+			if (desktop) {
+				return desktop.signOut();
+			}
 			await openMeldAuthClient.signOut();
 		},
 		onSuccess: async () => {

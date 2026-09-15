@@ -13,6 +13,7 @@ export type AuthBindings = {
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_OPENMELD_SECRET?: string;
   AUTH_WORKER_NODE_ENV?: string;
+  AUTH_DESKTOP_DEVELOPMENT_TARGET?: string;
   AUTH_DEVICE_ALLOWED_CLIENT_IDS?: string;
   AUTH_FROM_EMAIL?: string;
   AUTH_BRAND_NAME?: string;

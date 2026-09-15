@@ -118,40 +118,41 @@ function installCanvasHarness(input: {
 		})),
 	};
 	const originalCreateElement = document.createElement.bind(document);
-	vi.spyOn(document, "createElement").mockImplementation(
-		(tagName: string, options?: ElementCreationOptions) => {
-			if (tagName !== "canvas") {
-				return originalCreateElement(tagName, options);
-			}
-
-			const canvas = {
-				height: 0,
-				width: 0,
-				getContext: vi.fn(() => context),
-				toBlob: vi.fn(
-					(callback: BlobCallback, mimeType?: string, quality?: number) => {
-						encodedDimensions.push({
-							height: canvas.height,
-							width: canvas.width,
-						});
-						encodedMimeTypes.push(mimeType ?? "");
-						encodedQualities.push(quality);
-						const size =
-							input.encodedSizes[
-								Math.min(encodeIndex, input.encodedSizes.length - 1)
-							] ?? 1;
-						encodeIndex += 1;
-						callback(
-							new Blob([new Uint8Array(size)], {
-								type: mimeType,
-							})
-						);
-					}
-				),
-			} as unknown as FakeCanvas;
-			return canvas;
+	vi.spyOn(document, "createElement").mockImplementation(((
+		tagName: string,
+		options?: ElementCreationOptions
+	) => {
+		if (tagName !== "canvas") {
+			return originalCreateElement(tagName, options);
 		}
-	);
+
+		const canvas = {
+			height: 0,
+			width: 0,
+			getContext: vi.fn(() => context),
+			toBlob: vi.fn(
+				(callback: BlobCallback, mimeType?: string, quality?: number) => {
+					encodedDimensions.push({
+						height: canvas.height,
+						width: canvas.width,
+					});
+					encodedMimeTypes.push(mimeType ?? "");
+					encodedQualities.push(quality);
+					const size =
+						input.encodedSizes[
+							Math.min(encodeIndex, input.encodedSizes.length - 1)
+						] ?? 1;
+					encodeIndex += 1;
+					callback(
+						new Blob([new Uint8Array(size)], {
+							type: mimeType,
+						})
+					);
+				}
+			),
+		} as unknown as FakeCanvas;
+		return canvas;
+	}) as typeof document.createElement);
 	vi.stubGlobal(
 		"createImageBitmap",
 		vi.fn().mockResolvedValue({

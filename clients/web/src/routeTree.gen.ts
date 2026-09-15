@@ -19,6 +19,8 @@ import { Route as CallbackRouteImport } from './routes/callback'
 import { Route as ChangelogRouteImport } from './routes/changelog'
 import { Route as CheckEmailRouteImport } from './routes/check-email'
 import { Route as DesktopRouteImport } from './routes/desktop'
+import { Route as DesktopShellRouteImport } from './routes/desktop-shell'
+import { Route as DesktopSignInRouteImport } from './routes/desktop-sign-in'
 import { Route as DeviceRouteImport } from './routes/device'
 import { Route as FilePreviewRouteImport } from './routes/file-preview'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
@@ -47,6 +49,12 @@ import { Route as GuidesLocalAgentsRouteImport } from './routes/guides/local-age
 import { Route as OOrgSlugRouteImport } from './routes/o/$orgSlug'
 import { Route as SpacesSpaceIdRouteImport } from './routes/spaces/$spaceId'
 import { Route as V1SplatRouteImport } from './routes/v1/$'
+import { Route as V1ClientEnvironmentRouteImport } from './routes/v1/client-environment'
+import { Route as V1OrganizationJoinLinkRouteImport } from './routes/v1/organization-join-link'
+import { Route as V1OrganizationJoinRequestsRouteImport } from './routes/v1/organization-join-requests'
+import { Route as V1OrganizationsRouteImport } from './routes/v1/organizations'
+import { Route as V1ProfilesRouteImport } from './routes/v1/profiles'
+import { Route as V1SpaceInvitationsRouteImport } from './routes/v1/space-invitations'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as CliDownloadArtifactRouteImport } from './routes/cli/download/$artifact'
 import { Route as GuidesLocalAgentsAgentIdRouteImport } from './routes/guides/local-agents.$agentId'
@@ -72,10 +80,31 @@ import { Route as SlackOauthResultRouteImport } from './routes/slack/oauth/resul
 import { Route as SlackOauthStartRouteImport } from './routes/slack/oauth/start'
 import { Route as V1AccountDisplayNameRouteImport } from './routes/v1/account/display-name'
 import { Route as V1AccountLastSelectedOrganizationRouteImport } from './routes/v1/account/last-selected-organization'
+import { Route as V1AccountOrganizationContextRouteImport } from './routes/v1/account/organization-context'
+import { Route as V1AccountSessionRouteImport } from './routes/v1/account/session'
 import { Route as V1AccountSidebarRouteImport } from './routes/v1/account/sidebar'
+import { Route as V1CliReleaseRouteImport } from './routes/v1/cli/release'
+import { Route as V1DesktopCompatibilityRouteImport } from './routes/v1/desktop/compatibility'
 import { Route as V1ObservabilityApplicationErrorsRouteImport } from './routes/v1/observability/application-errors'
 import { Route as V1ObservabilityPerformanceRouteImport } from './routes/v1/observability/performance'
+import { Route as V1OrganizationJoinLinkAcceptRouteImport } from './routes/v1/organization-join-link/accept'
+import { Route as V1OrganizationJoinLinkEnsureRouteImport } from './routes/v1/organization-join-link/ensure'
+import { Route as V1OrganizationJoinLinkPrepareRouteImport } from './routes/v1/organization-join-link/prepare'
+import { Route as V1OrganizationJoinLinkPreviewRouteImport } from './routes/v1/organization-join-link/preview'
+import { Route as V1OrganizationJoinLinkRequestRouteImport } from './routes/v1/organization-join-link/request'
+import { Route as V1OrganizationsAcceptInvitationRouteImport } from './routes/v1/organizations/accept-invitation'
+import { Route as V1OrganizationsCancelInvitationRouteImport } from './routes/v1/organizations/cancel-invitation'
+import { Route as V1OrganizationsDeleteRouteImport } from './routes/v1/organizations/delete'
+import { Route as V1OrganizationsInviteMemberRouteImport } from './routes/v1/organizations/invite-member'
+import { Route as V1OrganizationsListInvitationsRouteImport } from './routes/v1/organizations/list-invitations'
+import { Route as V1OrganizationsListUserInvitationsRouteImport } from './routes/v1/organizations/list-user-invitations'
+import { Route as V1OrganizationsRemoveMemberRouteImport } from './routes/v1/organizations/remove-member'
+import { Route as V1OrganizationsUpdateRouteImport } from './routes/v1/organizations/update'
+import { Route as V1OrganizationsUpdateMemberRoleRouteImport } from './routes/v1/organizations/update-member-role'
 import { Route as V1ProfilesProfileIdRouteImport } from './routes/v1/profiles/$profileId'
+import { Route as V1ProfilesAgentsRouteImport } from './routes/v1/profiles/agents'
+import { Route as V1ProfilesCapabilitiesRouteImport } from './routes/v1/profiles/capabilities'
+import { Route as V1ProfilesHumansRouteImport } from './routes/v1/profiles/humans'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
 import { Route as OOrgSlugCenterAgentDeskRouteImport } from './routes/o/$orgSlug/_center-agent/desk'
@@ -116,6 +145,7 @@ import { Route as OOrgSlugSettingsSecurityRouteImport } from './routes/o/$orgSlu
 import { Route as OOrgSlugSettingsServiceRouteImport } from './routes/o/$orgSlug/settings/service'
 import { Route as OOrgSlugSpacesIndexRouteImport } from './routes/o/$orgSlug/spaces/index'
 import { Route as OOrgSlugSpacesSpaceIdRouteImport } from './routes/o/$orgSlug/spaces/$spaceId'
+import { Route as V1ProfilesAgentsProfileIdRouteImport } from './routes/v1/profiles/agents/$profileId'
 import { Route as V1SpacesSpaceIdStreamRouteImport } from './routes/v1/spaces/$spaceId/stream'
 import { Route as OOrgSlugCenterAgentCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.index'
 import { Route as OOrgSlugCenterAgentCenterAgentAppsRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent.apps'
@@ -184,6 +214,16 @@ const CheckEmailRoute = CheckEmailRouteImport.update({
 const DesktopRoute = DesktopRouteImport.update({
   id: '/desktop',
   path: '/desktop',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesktopShellRoute = DesktopShellRouteImport.update({
+  id: '/desktop-shell',
+  path: '/desktop-shell',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DesktopSignInRoute = DesktopSignInRouteImport.update({
+  id: '/desktop-sign-in',
+  path: '/desktop-sign-in',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DeviceRoute = DeviceRouteImport.update({
@@ -327,6 +367,37 @@ const V1SplatRoute = V1SplatRouteImport.update({
   path: '/v1/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const V1ClientEnvironmentRoute = V1ClientEnvironmentRouteImport.update({
+  id: '/v1/client-environment',
+  path: '/v1/client-environment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1OrganizationJoinLinkRoute = V1OrganizationJoinLinkRouteImport.update({
+  id: '/v1/organization-join-link',
+  path: '/v1/organization-join-link',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1OrganizationJoinRequestsRoute =
+  V1OrganizationJoinRequestsRouteImport.update({
+    id: '/v1/organization-join-requests',
+    path: '/v1/organization-join-requests',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1OrganizationsRoute = V1OrganizationsRouteImport.update({
+  id: '/v1/organizations',
+  path: '/v1/organizations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1ProfilesRoute = V1ProfilesRouteImport.update({
+  id: '/v1/profiles',
+  path: '/v1/profiles',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1SpaceInvitationsRoute = V1SpaceInvitationsRouteImport.update({
+  id: '/v1/space-invitations',
+  path: '/v1/space-invitations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -453,9 +524,30 @@ const V1AccountLastSelectedOrganizationRoute =
     path: '/v1/account/last-selected-organization',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1AccountOrganizationContextRoute =
+  V1AccountOrganizationContextRouteImport.update({
+    id: '/v1/account/organization-context',
+    path: '/v1/account/organization-context',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const V1AccountSessionRoute = V1AccountSessionRouteImport.update({
+  id: '/v1/account/session',
+  path: '/v1/account/session',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const V1AccountSidebarRoute = V1AccountSidebarRouteImport.update({
   id: '/v1/account/sidebar',
   path: '/v1/account/sidebar',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1CliReleaseRoute = V1CliReleaseRouteImport.update({
+  id: '/v1/cli/release',
+  path: '/v1/cli/release',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const V1DesktopCompatibilityRoute = V1DesktopCompatibilityRouteImport.update({
+  id: '/v1/desktop/compatibility',
+  path: '/v1/desktop/compatibility',
   getParentRoute: () => rootRouteImport,
 } as any)
 const V1ObservabilityApplicationErrorsRoute =
@@ -470,10 +562,107 @@ const V1ObservabilityPerformanceRoute =
     path: '/v1/observability/performance',
     getParentRoute: () => rootRouteImport,
   } as any)
+const V1OrganizationJoinLinkAcceptRoute =
+  V1OrganizationJoinLinkAcceptRouteImport.update({
+    id: '/accept',
+    path: '/accept',
+    getParentRoute: () => V1OrganizationJoinLinkRoute,
+  } as any)
+const V1OrganizationJoinLinkEnsureRoute =
+  V1OrganizationJoinLinkEnsureRouteImport.update({
+    id: '/ensure',
+    path: '/ensure',
+    getParentRoute: () => V1OrganizationJoinLinkRoute,
+  } as any)
+const V1OrganizationJoinLinkPrepareRoute =
+  V1OrganizationJoinLinkPrepareRouteImport.update({
+    id: '/prepare',
+    path: '/prepare',
+    getParentRoute: () => V1OrganizationJoinLinkRoute,
+  } as any)
+const V1OrganizationJoinLinkPreviewRoute =
+  V1OrganizationJoinLinkPreviewRouteImport.update({
+    id: '/preview',
+    path: '/preview',
+    getParentRoute: () => V1OrganizationJoinLinkRoute,
+  } as any)
+const V1OrganizationJoinLinkRequestRoute =
+  V1OrganizationJoinLinkRequestRouteImport.update({
+    id: '/request',
+    path: '/request',
+    getParentRoute: () => V1OrganizationJoinLinkRoute,
+  } as any)
+const V1OrganizationsAcceptInvitationRoute =
+  V1OrganizationsAcceptInvitationRouteImport.update({
+    id: '/accept-invitation',
+    path: '/accept-invitation',
+    getParentRoute: () => V1OrganizationsRoute,
+  } as any)
+const V1OrganizationsCancelInvitationRoute =
+  V1OrganizationsCancelInvitationRouteImport.update({
+    id: '/cancel-invitation',
+    path: '/cancel-invitation',
+    getParentRoute: () => V1OrganizationsRoute,
+  } as any)
+const V1OrganizationsDeleteRoute = V1OrganizationsDeleteRouteImport.update({
+  id: '/delete',
+  path: '/delete',
+  getParentRoute: () => V1OrganizationsRoute,
+} as any)
+const V1OrganizationsInviteMemberRoute =
+  V1OrganizationsInviteMemberRouteImport.update({
+    id: '/invite-member',
+    path: '/invite-member',
+    getParentRoute: () => V1OrganizationsRoute,
+  } as any)
+const V1OrganizationsListInvitationsRoute =
+  V1OrganizationsListInvitationsRouteImport.update({
+    id: '/list-invitations',
+    path: '/list-invitations',
+    getParentRoute: () => V1OrganizationsRoute,
+  } as any)
+const V1OrganizationsListUserInvitationsRoute =
+  V1OrganizationsListUserInvitationsRouteImport.update({
+    id: '/list-user-invitations',
+    path: '/list-user-invitations',
+    getParentRoute: () => V1OrganizationsRoute,
+  } as any)
+const V1OrganizationsRemoveMemberRoute =
+  V1OrganizationsRemoveMemberRouteImport.update({
+    id: '/remove-member',
+    path: '/remove-member',
+    getParentRoute: () => V1OrganizationsRoute,
+  } as any)
+const V1OrganizationsUpdateRoute = V1OrganizationsUpdateRouteImport.update({
+  id: '/update',
+  path: '/update',
+  getParentRoute: () => V1OrganizationsRoute,
+} as any)
+const V1OrganizationsUpdateMemberRoleRoute =
+  V1OrganizationsUpdateMemberRoleRouteImport.update({
+    id: '/update-member-role',
+    path: '/update-member-role',
+    getParentRoute: () => V1OrganizationsRoute,
+  } as any)
 const V1ProfilesProfileIdRoute = V1ProfilesProfileIdRouteImport.update({
-  id: '/v1/profiles/$profileId',
-  path: '/v1/profiles/$profileId',
-  getParentRoute: () => rootRouteImport,
+  id: '/$profileId',
+  path: '/$profileId',
+  getParentRoute: () => V1ProfilesRoute,
+} as any)
+const V1ProfilesAgentsRoute = V1ProfilesAgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => V1ProfilesRoute,
+} as any)
+const V1ProfilesCapabilitiesRoute = V1ProfilesCapabilitiesRouteImport.update({
+  id: '/capabilities',
+  path: '/capabilities',
+  getParentRoute: () => V1ProfilesRoute,
+} as any)
+const V1ProfilesHumansRoute = V1ProfilesHumansRouteImport.update({
+  id: '/humans',
+  path: '/humans',
+  getParentRoute: () => V1ProfilesRoute,
 } as any)
 const OOrgSlugCenterAgentIndexRoute =
   OOrgSlugCenterAgentIndexRouteImport.update({
@@ -693,6 +882,12 @@ const OOrgSlugSpacesSpaceIdRoute = OOrgSlugSpacesSpaceIdRouteImport.update({
   path: '/spaces/$spaceId',
   getParentRoute: () => OOrgSlugRoute,
 } as any)
+const V1ProfilesAgentsProfileIdRoute =
+  V1ProfilesAgentsProfileIdRouteImport.update({
+    id: '/$profileId',
+    path: '/$profileId',
+    getParentRoute: () => V1ProfilesAgentsRoute,
+  } as any)
 const V1SpacesSpaceIdStreamRoute = V1SpacesSpaceIdStreamRouteImport.update({
   id: '/v1/spaces/$spaceId/stream',
   path: '/v1/spaces/$spaceId/stream',
@@ -818,6 +1013,8 @@ export interface FileRoutesByFullPath {
   '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
+  '/desktop-shell': typeof DesktopShellRoute
+  '/desktop-sign-in': typeof DesktopSignInRoute
   '/device': typeof DeviceRouteWithChildren
   '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -846,6 +1043,12 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug': typeof OOrgSlugRouteWithChildren
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
+  '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
+  '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
+  '/v1/organizations': typeof V1OrganizationsRouteWithChildren
+  '/v1/profiles': typeof V1ProfilesRouteWithChildren
+  '/v1/space-invitations': typeof V1SpaceInvitationsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -870,10 +1073,31 @@ export interface FileRoutesByFullPath {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
+  '/v1/account/session': typeof V1AccountSessionRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
+  '/v1/cli/release': typeof V1CliReleaseRoute
+  '/v1/desktop/compatibility': typeof V1DesktopCompatibilityRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
+  '/v1/organization-join-link/accept': typeof V1OrganizationJoinLinkAcceptRoute
+  '/v1/organization-join-link/ensure': typeof V1OrganizationJoinLinkEnsureRoute
+  '/v1/organization-join-link/prepare': typeof V1OrganizationJoinLinkPrepareRoute
+  '/v1/organization-join-link/preview': typeof V1OrganizationJoinLinkPreviewRoute
+  '/v1/organization-join-link/request': typeof V1OrganizationJoinLinkRequestRoute
+  '/v1/organizations/accept-invitation': typeof V1OrganizationsAcceptInvitationRoute
+  '/v1/organizations/cancel-invitation': typeof V1OrganizationsCancelInvitationRoute
+  '/v1/organizations/delete': typeof V1OrganizationsDeleteRoute
+  '/v1/organizations/invite-member': typeof V1OrganizationsInviteMemberRoute
+  '/v1/organizations/list-invitations': typeof V1OrganizationsListInvitationsRoute
+  '/v1/organizations/list-user-invitations': typeof V1OrganizationsListUserInvitationsRoute
+  '/v1/organizations/remove-member': typeof V1OrganizationsRemoveMemberRoute
+  '/v1/organizations/update': typeof V1OrganizationsUpdateRoute
+  '/v1/organizations/update-member-role': typeof V1OrganizationsUpdateMemberRoleRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
+  '/v1/profiles/agents': typeof V1ProfilesAgentsRouteWithChildren
+  '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
+  '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -903,6 +1127,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
+  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
@@ -945,6 +1170,8 @@ export interface FileRoutesByTo {
   '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
+  '/desktop-shell': typeof DesktopShellRoute
+  '/desktop-sign-in': typeof DesktopSignInRoute
   '/device': typeof DeviceRouteWithChildren
   '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -973,6 +1200,12 @@ export interface FileRoutesByTo {
   '/o/$orgSlug': typeof OOrgSlugCenterAgentIndexRoute
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
+  '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
+  '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
+  '/v1/organizations': typeof V1OrganizationsRouteWithChildren
+  '/v1/profiles': typeof V1ProfilesRouteWithChildren
+  '/v1/space-invitations': typeof V1SpaceInvitationsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -990,10 +1223,31 @@ export interface FileRoutesByTo {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
+  '/v1/account/session': typeof V1AccountSessionRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
+  '/v1/cli/release': typeof V1CliReleaseRoute
+  '/v1/desktop/compatibility': typeof V1DesktopCompatibilityRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
+  '/v1/organization-join-link/accept': typeof V1OrganizationJoinLinkAcceptRoute
+  '/v1/organization-join-link/ensure': typeof V1OrganizationJoinLinkEnsureRoute
+  '/v1/organization-join-link/prepare': typeof V1OrganizationJoinLinkPrepareRoute
+  '/v1/organization-join-link/preview': typeof V1OrganizationJoinLinkPreviewRoute
+  '/v1/organization-join-link/request': typeof V1OrganizationJoinLinkRequestRoute
+  '/v1/organizations/accept-invitation': typeof V1OrganizationsAcceptInvitationRoute
+  '/v1/organizations/cancel-invitation': typeof V1OrganizationsCancelInvitationRoute
+  '/v1/organizations/delete': typeof V1OrganizationsDeleteRoute
+  '/v1/organizations/invite-member': typeof V1OrganizationsInviteMemberRoute
+  '/v1/organizations/list-invitations': typeof V1OrganizationsListInvitationsRoute
+  '/v1/organizations/list-user-invitations': typeof V1OrganizationsListUserInvitationsRoute
+  '/v1/organizations/remove-member': typeof V1OrganizationsRemoveMemberRoute
+  '/v1/organizations/update': typeof V1OrganizationsUpdateRoute
+  '/v1/organizations/update-member-role': typeof V1OrganizationsUpdateMemberRoleRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
+  '/v1/profiles/agents': typeof V1ProfilesAgentsRouteWithChildren
+  '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
+  '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -1022,6 +1276,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
+  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/agent-activity': typeof OOrgSlugAgentActivityIndexRoute
   '/o/$orgSlug/chats': typeof OOrgSlugChatsIndexRoute
@@ -1063,6 +1318,8 @@ export interface FileRoutesById {
   '/changelog': typeof ChangelogRoute
   '/check-email': typeof CheckEmailRoute
   '/desktop': typeof DesktopRouteWithChildren
+  '/desktop-shell': typeof DesktopShellRoute
+  '/desktop-sign-in': typeof DesktopSignInRoute
   '/device': typeof DeviceRouteWithChildren
   '/file-preview': typeof FilePreviewRoute
   '/forgot-password': typeof ForgotPasswordRoute
@@ -1091,6 +1348,12 @@ export interface FileRoutesById {
   '/o/$orgSlug': typeof OOrgSlugRouteWithChildren
   '/spaces/$spaceId': typeof SpacesSpaceIdRoute
   '/v1/$': typeof V1SplatRoute
+  '/v1/client-environment': typeof V1ClientEnvironmentRoute
+  '/v1/organization-join-link': typeof V1OrganizationJoinLinkRouteWithChildren
+  '/v1/organization-join-requests': typeof V1OrganizationJoinRequestsRoute
+  '/v1/organizations': typeof V1OrganizationsRouteWithChildren
+  '/v1/profiles': typeof V1ProfilesRouteWithChildren
+  '/v1/space-invitations': typeof V1SpaceInvitationsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
@@ -1116,10 +1379,31 @@ export interface FileRoutesById {
   '/slack/oauth/start': typeof SlackOauthStartRoute
   '/v1/account/display-name': typeof V1AccountDisplayNameRoute
   '/v1/account/last-selected-organization': typeof V1AccountLastSelectedOrganizationRoute
+  '/v1/account/organization-context': typeof V1AccountOrganizationContextRoute
+  '/v1/account/session': typeof V1AccountSessionRoute
   '/v1/account/sidebar': typeof V1AccountSidebarRoute
+  '/v1/cli/release': typeof V1CliReleaseRoute
+  '/v1/desktop/compatibility': typeof V1DesktopCompatibilityRoute
   '/v1/observability/application-errors': typeof V1ObservabilityApplicationErrorsRoute
   '/v1/observability/performance': typeof V1ObservabilityPerformanceRoute
+  '/v1/organization-join-link/accept': typeof V1OrganizationJoinLinkAcceptRoute
+  '/v1/organization-join-link/ensure': typeof V1OrganizationJoinLinkEnsureRoute
+  '/v1/organization-join-link/prepare': typeof V1OrganizationJoinLinkPrepareRoute
+  '/v1/organization-join-link/preview': typeof V1OrganizationJoinLinkPreviewRoute
+  '/v1/organization-join-link/request': typeof V1OrganizationJoinLinkRequestRoute
+  '/v1/organizations/accept-invitation': typeof V1OrganizationsAcceptInvitationRoute
+  '/v1/organizations/cancel-invitation': typeof V1OrganizationsCancelInvitationRoute
+  '/v1/organizations/delete': typeof V1OrganizationsDeleteRoute
+  '/v1/organizations/invite-member': typeof V1OrganizationsInviteMemberRoute
+  '/v1/organizations/list-invitations': typeof V1OrganizationsListInvitationsRoute
+  '/v1/organizations/list-user-invitations': typeof V1OrganizationsListUserInvitationsRoute
+  '/v1/organizations/remove-member': typeof V1OrganizationsRemoveMemberRoute
+  '/v1/organizations/update': typeof V1OrganizationsUpdateRoute
+  '/v1/organizations/update-member-role': typeof V1OrganizationsUpdateMemberRoleRoute
   '/v1/profiles/$profileId': typeof V1ProfilesProfileIdRoute
+  '/v1/profiles/agents': typeof V1ProfilesAgentsRouteWithChildren
+  '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
+  '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/_center-agent/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -1149,6 +1433,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
+  '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
   '/o/$orgSlug/_center-agent/': typeof OOrgSlugCenterAgentIndexRoute
   '/o/$orgSlug/agent-activity/': typeof OOrgSlugAgentActivityIndexRoute
@@ -1193,6 +1478,8 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/check-email'
     | '/desktop'
+    | '/desktop-shell'
+    | '/desktop-sign-in'
     | '/device'
     | '/file-preview'
     | '/forgot-password'
@@ -1221,6 +1508,12 @@ export interface FileRouteTypes {
     | '/o/$orgSlug'
     | '/spaces/$spaceId'
     | '/v1/$'
+    | '/v1/client-environment'
+    | '/v1/organization-join-link'
+    | '/v1/organization-join-requests'
+    | '/v1/organizations'
+    | '/v1/profiles'
+    | '/v1/space-invitations'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/guides/local-agents/$agentId'
@@ -1245,10 +1538,31 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/account/organization-context'
+    | '/v1/account/session'
     | '/v1/account/sidebar'
+    | '/v1/cli/release'
+    | '/v1/desktop/compatibility'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
+    | '/v1/organization-join-link/accept'
+    | '/v1/organization-join-link/ensure'
+    | '/v1/organization-join-link/prepare'
+    | '/v1/organization-join-link/preview'
+    | '/v1/organization-join-link/request'
+    | '/v1/organizations/accept-invitation'
+    | '/v1/organizations/cancel-invitation'
+    | '/v1/organizations/delete'
+    | '/v1/organizations/invite-member'
+    | '/v1/organizations/list-invitations'
+    | '/v1/organizations/list-user-invitations'
+    | '/v1/organizations/remove-member'
+    | '/v1/organizations/update'
+    | '/v1/organizations/update-member-role'
     | '/v1/profiles/$profileId'
+    | '/v1/profiles/agents'
+    | '/v1/profiles/capabilities'
+    | '/v1/profiles/humans'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1278,6 +1592,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
+    | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/'
     | '/o/$orgSlug/agent-activity/'
@@ -1320,6 +1635,8 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/check-email'
     | '/desktop'
+    | '/desktop-shell'
+    | '/desktop-sign-in'
     | '/device'
     | '/file-preview'
     | '/forgot-password'
@@ -1348,6 +1665,12 @@ export interface FileRouteTypes {
     | '/o/$orgSlug'
     | '/spaces/$spaceId'
     | '/v1/$'
+    | '/v1/client-environment'
+    | '/v1/organization-join-link'
+    | '/v1/organization-join-requests'
+    | '/v1/organizations'
+    | '/v1/profiles'
+    | '/v1/space-invitations'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/guides/local-agents/$agentId'
@@ -1365,10 +1688,31 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/account/organization-context'
+    | '/v1/account/session'
     | '/v1/account/sidebar'
+    | '/v1/cli/release'
+    | '/v1/desktop/compatibility'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
+    | '/v1/organization-join-link/accept'
+    | '/v1/organization-join-link/ensure'
+    | '/v1/organization-join-link/prepare'
+    | '/v1/organization-join-link/preview'
+    | '/v1/organization-join-link/request'
+    | '/v1/organizations/accept-invitation'
+    | '/v1/organizations/cancel-invitation'
+    | '/v1/organizations/delete'
+    | '/v1/organizations/invite-member'
+    | '/v1/organizations/list-invitations'
+    | '/v1/organizations/list-user-invitations'
+    | '/v1/organizations/remove-member'
+    | '/v1/organizations/update'
+    | '/v1/organizations/update-member-role'
     | '/v1/profiles/$profileId'
+    | '/v1/profiles/agents'
+    | '/v1/profiles/capabilities'
+    | '/v1/profiles/humans'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1397,6 +1741,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
+    | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/agent-activity'
     | '/o/$orgSlug/chats'
@@ -1437,6 +1782,8 @@ export interface FileRouteTypes {
     | '/changelog'
     | '/check-email'
     | '/desktop'
+    | '/desktop-shell'
+    | '/desktop-sign-in'
     | '/device'
     | '/file-preview'
     | '/forgot-password'
@@ -1465,6 +1812,12 @@ export interface FileRouteTypes {
     | '/o/$orgSlug'
     | '/spaces/$spaceId'
     | '/v1/$'
+    | '/v1/client-environment'
+    | '/v1/organization-join-link'
+    | '/v1/organization-join-requests'
+    | '/v1/organizations'
+    | '/v1/profiles'
+    | '/v1/space-invitations'
     | '/api/auth/$'
     | '/cli/download/$artifact'
     | '/guides/local-agents/$agentId'
@@ -1490,10 +1843,31 @@ export interface FileRouteTypes {
     | '/slack/oauth/start'
     | '/v1/account/display-name'
     | '/v1/account/last-selected-organization'
+    | '/v1/account/organization-context'
+    | '/v1/account/session'
     | '/v1/account/sidebar'
+    | '/v1/cli/release'
+    | '/v1/desktop/compatibility'
     | '/v1/observability/application-errors'
     | '/v1/observability/performance'
+    | '/v1/organization-join-link/accept'
+    | '/v1/organization-join-link/ensure'
+    | '/v1/organization-join-link/prepare'
+    | '/v1/organization-join-link/preview'
+    | '/v1/organization-join-link/request'
+    | '/v1/organizations/accept-invitation'
+    | '/v1/organizations/cancel-invitation'
+    | '/v1/organizations/delete'
+    | '/v1/organizations/invite-member'
+    | '/v1/organizations/list-invitations'
+    | '/v1/organizations/list-user-invitations'
+    | '/v1/organizations/remove-member'
+    | '/v1/organizations/update'
+    | '/v1/organizations/update-member-role'
     | '/v1/profiles/$profileId'
+    | '/v1/profiles/agents'
+    | '/v1/profiles/capabilities'
+    | '/v1/profiles/humans'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/_center-agent/desk'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1523,6 +1897,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
     | '/o/$orgSlug/spaces/$spaceId'
+    | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
     | '/o/$orgSlug/_center-agent/'
     | '/o/$orgSlug/agent-activity/'
@@ -1566,6 +1941,8 @@ export interface RootRouteChildren {
   ChangelogRoute: typeof ChangelogRoute
   CheckEmailRoute: typeof CheckEmailRoute
   DesktopRoute: typeof DesktopRouteWithChildren
+  DesktopShellRoute: typeof DesktopShellRoute
+  DesktopSignInRoute: typeof DesktopSignInRoute
   DeviceRoute: typeof DeviceRouteWithChildren
   FilePreviewRoute: typeof FilePreviewRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
@@ -1590,6 +1967,12 @@ export interface RootRouteChildren {
   OOrgSlugRoute: typeof OOrgSlugRouteWithChildren
   SpacesSpaceIdRoute: typeof SpacesSpaceIdRoute
   V1SplatRoute: typeof V1SplatRoute
+  V1ClientEnvironmentRoute: typeof V1ClientEnvironmentRoute
+  V1OrganizationJoinLinkRoute: typeof V1OrganizationJoinLinkRouteWithChildren
+  V1OrganizationJoinRequestsRoute: typeof V1OrganizationJoinRequestsRoute
+  V1OrganizationsRoute: typeof V1OrganizationsRouteWithChildren
+  V1ProfilesRoute: typeof V1ProfilesRouteWithChildren
+  V1SpaceInvitationsRoute: typeof V1SpaceInvitationsRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   CliDownloadArtifactRoute: typeof CliDownloadArtifactRoute
   SlackIdentityStartRoute: typeof SlackIdentityStartRoute
@@ -1597,10 +1980,13 @@ export interface RootRouteChildren {
   SlackOauthStartRoute: typeof SlackOauthStartRoute
   V1AccountDisplayNameRoute: typeof V1AccountDisplayNameRoute
   V1AccountLastSelectedOrganizationRoute: typeof V1AccountLastSelectedOrganizationRoute
+  V1AccountOrganizationContextRoute: typeof V1AccountOrganizationContextRoute
+  V1AccountSessionRoute: typeof V1AccountSessionRoute
   V1AccountSidebarRoute: typeof V1AccountSidebarRoute
+  V1CliReleaseRoute: typeof V1CliReleaseRoute
+  V1DesktopCompatibilityRoute: typeof V1DesktopCompatibilityRoute
   V1ObservabilityApplicationErrorsRoute: typeof V1ObservabilityApplicationErrorsRoute
   V1ObservabilityPerformanceRoute: typeof V1ObservabilityPerformanceRoute
-  V1ProfilesProfileIdRoute: typeof V1ProfilesProfileIdRoute
   V1SpacesSpaceIdStreamRoute: typeof V1SpacesSpaceIdStreamRoute
   V1PrepareSessionsPrepareSessionIdStreamRoute: typeof V1PrepareSessionsPrepareSessionIdStreamRoute
 }
@@ -1675,6 +2061,20 @@ declare module '@tanstack/react-router' {
       path: '/desktop'
       fullPath: '/desktop'
       preLoaderRoute: typeof DesktopRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desktop-shell': {
+      id: '/desktop-shell'
+      path: '/desktop-shell'
+      fullPath: '/desktop-shell'
+      preLoaderRoute: typeof DesktopShellRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desktop-sign-in': {
+      id: '/desktop-sign-in'
+      path: '/desktop-sign-in'
+      fullPath: '/desktop-sign-in'
+      preLoaderRoute: typeof DesktopSignInRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/device': {
@@ -1873,6 +2273,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1SplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/client-environment': {
+      id: '/v1/client-environment'
+      path: '/v1/client-environment'
+      fullPath: '/v1/client-environment'
+      preLoaderRoute: typeof V1ClientEnvironmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/organization-join-link': {
+      id: '/v1/organization-join-link'
+      path: '/v1/organization-join-link'
+      fullPath: '/v1/organization-join-link'
+      preLoaderRoute: typeof V1OrganizationJoinLinkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/organization-join-requests': {
+      id: '/v1/organization-join-requests'
+      path: '/v1/organization-join-requests'
+      fullPath: '/v1/organization-join-requests'
+      preLoaderRoute: typeof V1OrganizationJoinRequestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/organizations': {
+      id: '/v1/organizations'
+      path: '/v1/organizations'
+      fullPath: '/v1/organizations'
+      preLoaderRoute: typeof V1OrganizationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/profiles': {
+      id: '/v1/profiles'
+      path: '/v1/profiles'
+      fullPath: '/v1/profiles'
+      preLoaderRoute: typeof V1ProfilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/space-invitations': {
+      id: '/v1/space-invitations'
+      path: '/v1/space-invitations'
+      fullPath: '/v1/space-invitations'
+      preLoaderRoute: typeof V1SpaceInvitationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -2048,11 +2490,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1AccountLastSelectedOrganizationRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/account/organization-context': {
+      id: '/v1/account/organization-context'
+      path: '/v1/account/organization-context'
+      fullPath: '/v1/account/organization-context'
+      preLoaderRoute: typeof V1AccountOrganizationContextRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/account/session': {
+      id: '/v1/account/session'
+      path: '/v1/account/session'
+      fullPath: '/v1/account/session'
+      preLoaderRoute: typeof V1AccountSessionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/v1/account/sidebar': {
       id: '/v1/account/sidebar'
       path: '/v1/account/sidebar'
       fullPath: '/v1/account/sidebar'
       preLoaderRoute: typeof V1AccountSidebarRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/cli/release': {
+      id: '/v1/cli/release'
+      path: '/v1/cli/release'
+      fullPath: '/v1/cli/release'
+      preLoaderRoute: typeof V1CliReleaseRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/v1/desktop/compatibility': {
+      id: '/v1/desktop/compatibility'
+      path: '/v1/desktop/compatibility'
+      fullPath: '/v1/desktop/compatibility'
+      preLoaderRoute: typeof V1DesktopCompatibilityRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/v1/observability/application-errors': {
@@ -2069,12 +2539,131 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1ObservabilityPerformanceRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/v1/organization-join-link/accept': {
+      id: '/v1/organization-join-link/accept'
+      path: '/accept'
+      fullPath: '/v1/organization-join-link/accept'
+      preLoaderRoute: typeof V1OrganizationJoinLinkAcceptRouteImport
+      parentRoute: typeof V1OrganizationJoinLinkRoute
+    }
+    '/v1/organization-join-link/ensure': {
+      id: '/v1/organization-join-link/ensure'
+      path: '/ensure'
+      fullPath: '/v1/organization-join-link/ensure'
+      preLoaderRoute: typeof V1OrganizationJoinLinkEnsureRouteImport
+      parentRoute: typeof V1OrganizationJoinLinkRoute
+    }
+    '/v1/organization-join-link/prepare': {
+      id: '/v1/organization-join-link/prepare'
+      path: '/prepare'
+      fullPath: '/v1/organization-join-link/prepare'
+      preLoaderRoute: typeof V1OrganizationJoinLinkPrepareRouteImport
+      parentRoute: typeof V1OrganizationJoinLinkRoute
+    }
+    '/v1/organization-join-link/preview': {
+      id: '/v1/organization-join-link/preview'
+      path: '/preview'
+      fullPath: '/v1/organization-join-link/preview'
+      preLoaderRoute: typeof V1OrganizationJoinLinkPreviewRouteImport
+      parentRoute: typeof V1OrganizationJoinLinkRoute
+    }
+    '/v1/organization-join-link/request': {
+      id: '/v1/organization-join-link/request'
+      path: '/request'
+      fullPath: '/v1/organization-join-link/request'
+      preLoaderRoute: typeof V1OrganizationJoinLinkRequestRouteImport
+      parentRoute: typeof V1OrganizationJoinLinkRoute
+    }
+    '/v1/organizations/accept-invitation': {
+      id: '/v1/organizations/accept-invitation'
+      path: '/accept-invitation'
+      fullPath: '/v1/organizations/accept-invitation'
+      preLoaderRoute: typeof V1OrganizationsAcceptInvitationRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/cancel-invitation': {
+      id: '/v1/organizations/cancel-invitation'
+      path: '/cancel-invitation'
+      fullPath: '/v1/organizations/cancel-invitation'
+      preLoaderRoute: typeof V1OrganizationsCancelInvitationRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/delete': {
+      id: '/v1/organizations/delete'
+      path: '/delete'
+      fullPath: '/v1/organizations/delete'
+      preLoaderRoute: typeof V1OrganizationsDeleteRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/invite-member': {
+      id: '/v1/organizations/invite-member'
+      path: '/invite-member'
+      fullPath: '/v1/organizations/invite-member'
+      preLoaderRoute: typeof V1OrganizationsInviteMemberRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/list-invitations': {
+      id: '/v1/organizations/list-invitations'
+      path: '/list-invitations'
+      fullPath: '/v1/organizations/list-invitations'
+      preLoaderRoute: typeof V1OrganizationsListInvitationsRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/list-user-invitations': {
+      id: '/v1/organizations/list-user-invitations'
+      path: '/list-user-invitations'
+      fullPath: '/v1/organizations/list-user-invitations'
+      preLoaderRoute: typeof V1OrganizationsListUserInvitationsRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/remove-member': {
+      id: '/v1/organizations/remove-member'
+      path: '/remove-member'
+      fullPath: '/v1/organizations/remove-member'
+      preLoaderRoute: typeof V1OrganizationsRemoveMemberRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/update': {
+      id: '/v1/organizations/update'
+      path: '/update'
+      fullPath: '/v1/organizations/update'
+      preLoaderRoute: typeof V1OrganizationsUpdateRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
+    '/v1/organizations/update-member-role': {
+      id: '/v1/organizations/update-member-role'
+      path: '/update-member-role'
+      fullPath: '/v1/organizations/update-member-role'
+      preLoaderRoute: typeof V1OrganizationsUpdateMemberRoleRouteImport
+      parentRoute: typeof V1OrganizationsRoute
+    }
     '/v1/profiles/$profileId': {
       id: '/v1/profiles/$profileId'
-      path: '/v1/profiles/$profileId'
+      path: '/$profileId'
       fullPath: '/v1/profiles/$profileId'
       preLoaderRoute: typeof V1ProfilesProfileIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof V1ProfilesRoute
+    }
+    '/v1/profiles/agents': {
+      id: '/v1/profiles/agents'
+      path: '/agents'
+      fullPath: '/v1/profiles/agents'
+      preLoaderRoute: typeof V1ProfilesAgentsRouteImport
+      parentRoute: typeof V1ProfilesRoute
+    }
+    '/v1/profiles/capabilities': {
+      id: '/v1/profiles/capabilities'
+      path: '/capabilities'
+      fullPath: '/v1/profiles/capabilities'
+      preLoaderRoute: typeof V1ProfilesCapabilitiesRouteImport
+      parentRoute: typeof V1ProfilesRoute
+    }
+    '/v1/profiles/humans': {
+      id: '/v1/profiles/humans'
+      path: '/humans'
+      fullPath: '/v1/profiles/humans'
+      preLoaderRoute: typeof V1ProfilesHumansRouteImport
+      parentRoute: typeof V1ProfilesRoute
     }
     '/o/$orgSlug/_center-agent/': {
       id: '/o/$orgSlug/_center-agent/'
@@ -2355,6 +2944,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/o/$orgSlug/spaces/$spaceId'
       preLoaderRoute: typeof OOrgSlugSpacesSpaceIdRouteImport
       parentRoute: typeof OOrgSlugRoute
+    }
+    '/v1/profiles/agents/$profileId': {
+      id: '/v1/profiles/agents/$profileId'
+      path: '/$profileId'
+      fullPath: '/v1/profiles/agents/$profileId'
+      preLoaderRoute: typeof V1ProfilesAgentsProfileIdRouteImport
+      parentRoute: typeof V1ProfilesAgentsRoute
     }
     '/v1/spaces/$spaceId/stream': {
       id: '/v1/spaces/$spaceId/stream'
@@ -2859,6 +3455,86 @@ const OOrgSlugRouteWithChildren = OOrgSlugRoute._addFileChildren(
   OOrgSlugRouteChildren,
 )
 
+interface V1OrganizationJoinLinkRouteChildren {
+  V1OrganizationJoinLinkAcceptRoute: typeof V1OrganizationJoinLinkAcceptRoute
+  V1OrganizationJoinLinkEnsureRoute: typeof V1OrganizationJoinLinkEnsureRoute
+  V1OrganizationJoinLinkPrepareRoute: typeof V1OrganizationJoinLinkPrepareRoute
+  V1OrganizationJoinLinkPreviewRoute: typeof V1OrganizationJoinLinkPreviewRoute
+  V1OrganizationJoinLinkRequestRoute: typeof V1OrganizationJoinLinkRequestRoute
+}
+
+const V1OrganizationJoinLinkRouteChildren: V1OrganizationJoinLinkRouteChildren =
+  {
+    V1OrganizationJoinLinkAcceptRoute: V1OrganizationJoinLinkAcceptRoute,
+    V1OrganizationJoinLinkEnsureRoute: V1OrganizationJoinLinkEnsureRoute,
+    V1OrganizationJoinLinkPrepareRoute: V1OrganizationJoinLinkPrepareRoute,
+    V1OrganizationJoinLinkPreviewRoute: V1OrganizationJoinLinkPreviewRoute,
+    V1OrganizationJoinLinkRequestRoute: V1OrganizationJoinLinkRequestRoute,
+  }
+
+const V1OrganizationJoinLinkRouteWithChildren =
+  V1OrganizationJoinLinkRoute._addFileChildren(
+    V1OrganizationJoinLinkRouteChildren,
+  )
+
+interface V1OrganizationsRouteChildren {
+  V1OrganizationsAcceptInvitationRoute: typeof V1OrganizationsAcceptInvitationRoute
+  V1OrganizationsCancelInvitationRoute: typeof V1OrganizationsCancelInvitationRoute
+  V1OrganizationsDeleteRoute: typeof V1OrganizationsDeleteRoute
+  V1OrganizationsInviteMemberRoute: typeof V1OrganizationsInviteMemberRoute
+  V1OrganizationsListInvitationsRoute: typeof V1OrganizationsListInvitationsRoute
+  V1OrganizationsListUserInvitationsRoute: typeof V1OrganizationsListUserInvitationsRoute
+  V1OrganizationsRemoveMemberRoute: typeof V1OrganizationsRemoveMemberRoute
+  V1OrganizationsUpdateRoute: typeof V1OrganizationsUpdateRoute
+  V1OrganizationsUpdateMemberRoleRoute: typeof V1OrganizationsUpdateMemberRoleRoute
+}
+
+const V1OrganizationsRouteChildren: V1OrganizationsRouteChildren = {
+  V1OrganizationsAcceptInvitationRoute: V1OrganizationsAcceptInvitationRoute,
+  V1OrganizationsCancelInvitationRoute: V1OrganizationsCancelInvitationRoute,
+  V1OrganizationsDeleteRoute: V1OrganizationsDeleteRoute,
+  V1OrganizationsInviteMemberRoute: V1OrganizationsInviteMemberRoute,
+  V1OrganizationsListInvitationsRoute: V1OrganizationsListInvitationsRoute,
+  V1OrganizationsListUserInvitationsRoute:
+    V1OrganizationsListUserInvitationsRoute,
+  V1OrganizationsRemoveMemberRoute: V1OrganizationsRemoveMemberRoute,
+  V1OrganizationsUpdateRoute: V1OrganizationsUpdateRoute,
+  V1OrganizationsUpdateMemberRoleRoute: V1OrganizationsUpdateMemberRoleRoute,
+}
+
+const V1OrganizationsRouteWithChildren = V1OrganizationsRoute._addFileChildren(
+  V1OrganizationsRouteChildren,
+)
+
+interface V1ProfilesAgentsRouteChildren {
+  V1ProfilesAgentsProfileIdRoute: typeof V1ProfilesAgentsProfileIdRoute
+}
+
+const V1ProfilesAgentsRouteChildren: V1ProfilesAgentsRouteChildren = {
+  V1ProfilesAgentsProfileIdRoute: V1ProfilesAgentsProfileIdRoute,
+}
+
+const V1ProfilesAgentsRouteWithChildren =
+  V1ProfilesAgentsRoute._addFileChildren(V1ProfilesAgentsRouteChildren)
+
+interface V1ProfilesRouteChildren {
+  V1ProfilesProfileIdRoute: typeof V1ProfilesProfileIdRoute
+  V1ProfilesAgentsRoute: typeof V1ProfilesAgentsRouteWithChildren
+  V1ProfilesCapabilitiesRoute: typeof V1ProfilesCapabilitiesRoute
+  V1ProfilesHumansRoute: typeof V1ProfilesHumansRoute
+}
+
+const V1ProfilesRouteChildren: V1ProfilesRouteChildren = {
+  V1ProfilesProfileIdRoute: V1ProfilesProfileIdRoute,
+  V1ProfilesAgentsRoute: V1ProfilesAgentsRouteWithChildren,
+  V1ProfilesCapabilitiesRoute: V1ProfilesCapabilitiesRoute,
+  V1ProfilesHumansRoute: V1ProfilesHumansRoute,
+}
+
+const V1ProfilesRouteWithChildren = V1ProfilesRoute._addFileChildren(
+  V1ProfilesRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SKILLDotmdRoute: SKILLDotmdRoute,
@@ -2870,6 +3546,8 @@ const rootRouteChildren: RootRouteChildren = {
   ChangelogRoute: ChangelogRoute,
   CheckEmailRoute: CheckEmailRoute,
   DesktopRoute: DesktopRouteWithChildren,
+  DesktopShellRoute: DesktopShellRoute,
+  DesktopSignInRoute: DesktopSignInRoute,
   DeviceRoute: DeviceRouteWithChildren,
   FilePreviewRoute: FilePreviewRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
@@ -2894,6 +3572,12 @@ const rootRouteChildren: RootRouteChildren = {
   OOrgSlugRoute: OOrgSlugRouteWithChildren,
   SpacesSpaceIdRoute: SpacesSpaceIdRoute,
   V1SplatRoute: V1SplatRoute,
+  V1ClientEnvironmentRoute: V1ClientEnvironmentRoute,
+  V1OrganizationJoinLinkRoute: V1OrganizationJoinLinkRouteWithChildren,
+  V1OrganizationJoinRequestsRoute: V1OrganizationJoinRequestsRoute,
+  V1OrganizationsRoute: V1OrganizationsRouteWithChildren,
+  V1ProfilesRoute: V1ProfilesRouteWithChildren,
+  V1SpaceInvitationsRoute: V1SpaceInvitationsRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   CliDownloadArtifactRoute: CliDownloadArtifactRoute,
   SlackIdentityStartRoute: SlackIdentityStartRoute,
@@ -2902,10 +3586,13 @@ const rootRouteChildren: RootRouteChildren = {
   V1AccountDisplayNameRoute: V1AccountDisplayNameRoute,
   V1AccountLastSelectedOrganizationRoute:
     V1AccountLastSelectedOrganizationRoute,
+  V1AccountOrganizationContextRoute: V1AccountOrganizationContextRoute,
+  V1AccountSessionRoute: V1AccountSessionRoute,
   V1AccountSidebarRoute: V1AccountSidebarRoute,
+  V1CliReleaseRoute: V1CliReleaseRoute,
+  V1DesktopCompatibilityRoute: V1DesktopCompatibilityRoute,
   V1ObservabilityApplicationErrorsRoute: V1ObservabilityApplicationErrorsRoute,
   V1ObservabilityPerformanceRoute: V1ObservabilityPerformanceRoute,
-  V1ProfilesProfileIdRoute: V1ProfilesProfileIdRoute,
   V1SpacesSpaceIdStreamRoute: V1SpacesSpaceIdStreamRoute,
   V1PrepareSessionsPrepareSessionIdStreamRoute:
     V1PrepareSessionsPrepareSessionIdStreamRoute,

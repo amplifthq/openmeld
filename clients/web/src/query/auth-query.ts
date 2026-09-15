@@ -1,14 +1,12 @@
-import { toStructuredApiClientFailure } from "@openmeld/api-client";
+import {
+	createComputerAuthorizationGrant as createSharedComputerAuthorizationGrant,
+	toStructuredApiClientFailure,
+} from "@openmeld/api-client";
 import {
 	ACCOUNT_AVATAR_MAX_SIZE_BYTES,
 	ACCOUNT_AVATAR_ROUTE,
 	accountAvatarMimeTypeSchema,
 	accountAvatarResponseSchema,
-	betterAuthDeviceAuthorizationClaimResponseSchema,
-	betterAuthDeviceAuthorizationCodeRequestSchema,
-	betterAuthDeviceAuthorizationCodeResponseSchema,
-	betterAuthDeviceAuthorizationDecisionRequestSchema,
-	betterAuthDeviceAuthorizationDecisionResponseSchema,
 	updateAccountDisplayNameBodySchema,
 	updateAccountDisplayNameResponseSchema,
 } from "@openmeld/schemas";
@@ -17,13 +15,13 @@ import type {
 	AccountAvatarResponse,
 	UpdateAccountDisplayNameResponse,
 } from "@openmeld/schemas/types";
+import { readCurrentAccountSession } from "#/lib/account-session";
 import { openMeldAuthClient } from "#/lib/auth-client";
 import type {
 	AuthAccount,
 	AuthClientError,
 	AuthDeviceSession,
 	AuthPasskey,
-	AuthSession,
 	AuthSessionRecord,
 } from "#/lib/auth-client-types";
 import { getAuthErrorMessage } from "#/lib/auth-errors";
@@ -54,8 +52,6 @@ export type ComputerAuthorizationGrant = {
 	deviceCode: string;
 	expiresIn?: number;
 };
-
-const OPENMELD_CLI_AUTH_CLIENT_ID = "openmeld-cli";
 
 type AuthClientWithAccountApi = {
 	listAccounts?: () => Promise<unknown>;
@@ -93,24 +89,7 @@ function throwAuthError(
 	throw new Error(getAuthErrorMessage(error, fallback));
 }
 
-export async function getSession(): Promise<AuthSession | null> {
-	const response = await resolveClientResult<AuthSession | null>(
-		() =>
-			openMeldAuthClient.getSession({
-				query: { disableCookieCache: true },
-			}),
-		"Failed to fetch session."
-	);
-
-	if (response.error) {
-		if (isUnauthorizedError(response.error)) {
-			return null;
-		}
-		throwAuthError(response.error, "Failed to fetch session.");
-	}
-
-	return response.data ?? null;
-}
+export const getSession = readCurrentAccountSession;
 
 export async function listAccounts(): Promise<AuthAccount[]> {
 	if (!authClientWithAccountApi.listAccounts) {
@@ -551,85 +530,17 @@ export async function generateOneTimeToken(): Promise<OneTimeTokenPayload> {
 }
 
 export async function createComputerAuthorizationGrant(): Promise<ComputerAuthorizationGrant> {
-	const parsedCodeRequest =
-		betterAuthDeviceAuthorizationCodeRequestSchema.safeParse({
-			client_id: OPENMELD_CLI_AUTH_CLIENT_ID,
-		});
-	if (!parsedCodeRequest.success) {
-		throw new Error("Computer authorization request was invalid.", {
-			cause: parsedCodeRequest.error,
-		});
-	}
-	const codeResponse = await requestAuthEndpoint<unknown>({
-		path: "/device/code",
-		request: {
-			method: "POST",
-			body: JSON.stringify(parsedCodeRequest.data),
-		},
-		fallbackMessage: "Failed to authorize this computer.",
-	});
-	if (codeResponse.error) {
-		throwAuthError(codeResponse.error, "Failed to authorize this computer.");
-	}
-
-	const parsedCodeResponse =
-		betterAuthDeviceAuthorizationCodeResponseSchema.safeParse(
-			codeResponse.data
-		);
-	if (!parsedCodeResponse.success) {
-		throw new Error(
-			"Auth returned an invalid computer authorization response."
-		);
-	}
-	const { device_code: deviceCode, user_code: userCode } =
-		parsedCodeResponse.data;
-
-	const claimResponse = await requestAuthEndpoint<unknown>({
-		path: `/device?user_code=${encodeURIComponent(userCode)}`,
-		request: { method: "GET" },
-		fallbackMessage: "Failed to authorize this computer.",
-	});
-	if (claimResponse.error) {
-		throwAuthError(claimResponse.error, "Failed to authorize this computer.");
-	}
-	if (
-		!betterAuthDeviceAuthorizationClaimResponseSchema.safeParse(
-			claimResponse.data
-		).success
-	) {
-		throw new Error("Auth returned an invalid computer authorization claim.");
-	}
-
-	const parsedApprovalRequest =
-		betterAuthDeviceAuthorizationDecisionRequestSchema.safeParse({ userCode });
-	if (!parsedApprovalRequest.success) {
-		throw new Error("Computer authorization approval request was invalid.", {
-			cause: parsedApprovalRequest.error,
-		});
-	}
-	const approvalResponse = await requestAuthEndpoint<unknown>({
-		path: "/device/approve",
-		request: {
-			method: "POST",
-			body: JSON.stringify(parsedApprovalRequest.data),
-		},
-		fallbackMessage: "Failed to approve this computer.",
-	});
-	if (approvalResponse.error) {
-		throwAuthError(approvalResponse.error, "Failed to approve this computer.");
-	}
-	const parsedApprovalResponse =
-		betterAuthDeviceAuthorizationDecisionResponseSchema.safeParse(
-			approvalResponse.data
-		);
-	if (
-		!(parsedApprovalResponse.success && parsedApprovalResponse.data.success)
-	) {
-		throw new Error("Auth did not approve this computer authorization.");
-	}
-
-	return {
-		deviceCode,
-		expiresIn: parsedCodeResponse.data.expires_in,
-	};
+	return await createSharedComputerAuthorizationGrant(
+		async (path, method, body) => {
+			const response = await requestAuthEndpoint<unknown>({
+				path,
+				request: { method, ...(body ? { body: JSON.stringify(body) } : {}) },
+				fallbackMessage: "Failed to authorize this computer.",
+			});
+			if (response.error) {
+				throwAuthError(response.error, "Failed to authorize this computer.");
+			}
+			return response.data;
+		}
+	);
 }

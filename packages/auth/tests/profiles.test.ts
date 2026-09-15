@@ -1704,6 +1704,59 @@ describe("OpenMeld profile service", () => {
     ).rejects.toBeInstanceOf(ProfileNotFoundError);
   });
 
+  it.each([
+    "human",
+    "primary",
+    "other-account",
+  ] as const)("Agent-only deletion preserves %s before mutation", async (kind) => {
+    const repository = createInMemoryRepository();
+    const service = createOpenMeldProfileService(repository, {
+      additionalHumanProfileCreationEnabled: true,
+      generateHumanProfileId: () => TEST_HUMAN_PROFILE_ID,
+      generateAgentProfileId: () => TEST_AGENT_PROFILE_ID,
+    });
+    const primary = await service.ensurePrimaryHumanProfile({
+      userId: "user_1",
+      userName: "Owner",
+      userEmail: "owner@example.com",
+    });
+    let profile = primary;
+    if (kind === "human") {
+      profile = await service.createHumanProfile({
+        ownerUserId: "user_1",
+        createdByUserId: "user_1",
+        creatorProfileId: primary.profileId,
+        profileName: "Human",
+      });
+    } else if (kind === "other-account") {
+      profile = await service.createAgentProfile({
+        ownerUserId: "user_1",
+        createdByUserId: "user_1",
+        organizationId: TEST_ORGANIZATION_ID,
+        profileName: "Agent",
+      });
+    }
+    await expect(
+      service.deleteProfileForOwner({
+        ownerUserId: kind === "other-account" ? "user_2" : "user_1",
+        profileId: profile.profileId,
+        expectedProfileKind: "agent",
+      })
+    ).rejects.toThrow();
+    await expect(
+      repository.findByOwnerAndProfileId("user_1", profile.profileId)
+    ).resolves.toMatchObject({ status: "active" });
+    if (kind === "human") {
+      await service.deleteProfileForOwner({
+        ownerUserId: "user_1",
+        profileId: profile.profileId,
+      });
+      await expect(
+        repository.findByOwnerAndProfileId("user_1", profile.profileId)
+      ).resolves.toBeNull();
+    }
+  });
+
   it("rejects plain text profileId in resolve/update/delete paths", async () => {
     const repository = createInMemoryRepository();
     const service = createOpenMeldProfileService(repository, {

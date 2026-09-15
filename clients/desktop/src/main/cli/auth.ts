@@ -81,6 +81,7 @@ function parseAuthView(input: { stdout: string; failed: boolean }): AuthView {
     if (session) {
       return {
         signedIn: session.signedIn,
+        accountId: session.accountId,
         email: session.email,
         problem: null,
       };
@@ -156,16 +157,22 @@ function parseAuthLogoutView(input: {
   };
 }
 
-function extractSession(
-  parsed: Record<string, unknown>
-): { signedIn: boolean; email: string | null } | null {
+function extractSession(parsed: Record<string, unknown>): {
+  signedIn: boolean;
+  email: string | null;
+  accountId: string | null;
+} | null {
+  if (parsed.code !== "auth.status.session") {
+    return null;
+  }
   const payload = isRecord(parsed.payload) ? parsed.payload : parsed;
   if (typeof payload.signedIn !== "boolean") {
     return null;
   }
   const user = isRecord(payload.user) ? payload.user : null;
   const email = user && typeof user.email === "string" ? user.email : null;
-  return { signedIn: payload.signedIn, email };
+  const accountId = user && typeof user.id === "string" ? user.id : null;
+  return { signedIn: payload.signedIn, email, accountId };
 }
 
 function parseAgentViewLine(line: string): Record<string, unknown> | null {

@@ -5,10 +5,7 @@ export type OrganizationScopeTimingMetric = {
 	status: "failed" | "succeeded";
 };
 
-export type OrganizationScopeTimingStage =
-	| "auth_session"
-	| "organization_list"
-	| "scope_resolution";
+export type OrganizationScopeTimingStage = "account_organization_context";
 
 const MAX_OBSERVABILITY_ROUTE_LENGTH = 512;
 
@@ -40,7 +37,6 @@ export function createOrganizationScopeTimingCollector(input?: {
 	const nowMs = input?.nowMs ?? defaultNowMs;
 	const totalStartedAtMs = nowMs();
 	const metrics: OrganizationScopeTimingMetric[] = [];
-	let lastStage: OrganizationScopeTimingStage | null = null;
 
 	const record = (
 		metric: OrganizationScopeTimingMetricInput,
@@ -59,7 +55,6 @@ export function createOrganizationScopeTimingCollector(input?: {
 			stage: OrganizationScopeTimingStage,
 			operation: () => Promise<T> | T
 		): Promise<T> {
-			lastStage = stage;
 			const startedAtMs = nowMs();
 			try {
 				const result = await operation();
@@ -70,19 +65,6 @@ export function createOrganizationScopeTimingCollector(input?: {
 				throw error;
 			}
 		},
-		measureSync<T>(stage: OrganizationScopeTimingStage, operation: () => T): T {
-			lastStage = stage;
-			const startedAtMs = nowMs();
-			try {
-				const result = operation();
-				record({ reasonCode: stage, status: "succeeded" }, startedAtMs);
-				return result;
-			} catch (error) {
-				record({ error, reasonCode: stage, status: "failed" }, startedAtMs);
-				throw error;
-			}
-		},
-		lastStage: () => lastStage,
 		finish(metric: OrganizationScopeTimingMetricInput) {
 			record(metric, totalStartedAtMs);
 			return [...metrics];

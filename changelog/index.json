@@ -2,6 +2,28 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "service-connection-recovery",
+      "title": "More reliable computer connections and recovery",
+      "kind": "fixed",
+      "areas": [
+        "service",
+        "computers",
+        "wakes"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "release": "v0.3.206",
+      "evidence": [
+        "pr:1051",
+        "pr:1055",
+        "workflow:34902801271",
+        "commit:ca92fef004ea00bc726f34015ba1ae2e9ba0cbda"
+      ],
+      "body": "Temporary credential-store delays no longer disconnect a working computer, and\nswitching Organizations keeps the same local connection. When a connection is\ninterrupted, OpenMeld resumes retries as soon as credentials are available and\ngives running work more time to reconnect without starting it again.\n\nYour computer's Connection history shows recent interruptions and automatic\nrecovery. Private, limited diagnostic summaries upload after reconnection to\nhelp explain what happened without sharing chat content or credentials."
+    },
+    {
       "id": "deleted-agent-wake-cleanup",
       "title": "Clear pending Wakes for deleted agents",
       "kind": "fixed",
