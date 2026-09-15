@@ -13,6 +13,7 @@ import {
 	type Icon,
 	MegaphoneIcon,
 	PaletteIcon,
+	RobotIcon,
 	ShieldCheckIcon,
 	UserIcon,
 	UsersIcon,
@@ -59,9 +60,16 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 ] as const;
 const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"general",
+	"center-agent",
 	"members",
 	"invitations",
 	"security",
+] as const;
+// A Personal Workspace has no Organization roster, so its Organization group
+// keeps only General plus the workspace's own Center Agent.
+const PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS = [
+	"general",
+	"center-agent",
 ] as const;
 
 /**
@@ -284,6 +292,8 @@ function resolveSettingsNavIcon(sectionId: string): Icon {
 			return BellIcon;
 		case "privacy":
 			return ShieldCheckIcon;
+		case "center-agent":
+			return RobotIcon;
 		case "general":
 			return BuildingsIcon;
 		case "members":
@@ -335,7 +345,7 @@ function toContextualSettingsNavGroups(input: {
 			items: orderSettingsNavItems(
 				items,
 				input.isPersonalWorkspace
-					? ["general"]
+					? PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS
 					: ORGANIZATION_SETTINGS_SECTION_IDS
 			).filter(
 				(item) =>
