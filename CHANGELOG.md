@@ -85,6 +85,61 @@ help explain what happened without sharing chat content or credentials.
 
 Evidence: pr:1051, pr:1055, workflow:34902801271, commit:ca92fef004ea00bc726f34015ba1ae2e9ba0cbda
 
+### Preserve saved reply receipts after local expiry
+
+Fixed · v0.3.208 · cli · agents · spaces
+
+An Agent retrying the same saved reply after its local context expires can
+recover the original receipt. New actions remain blocked after expiry, and
+existing records are preserved when their state cannot be verified.
+
+Space Action tools return structured receipts that distinguish a locally saved
+proposal, a rejected new action, and an unknown result. A local receipt never
+claims that the reply has been accepted or published to the Space.
+
+Evidence: pr:956, pr:1075, commit:34f7616529085f102e9ea00fb4d33dff2e82e45f, workflow:34941459758
+
+### Run independent tasks with one Agent
+
+New · v0.3.208 · agents · spaces · cli
+
+An updated local Agent can run up to five independent tasks at once. Start a
+new task, fork completed history, or work in different discussion threads.
+Follow-ups in the same task wait their turn, and each reply stays with its
+original message.
+CLI trace identifies tasks waiting in the Agent's queue and gives a waiting
+action instead of suggesting a publication or connection problem.
+Space-only tasks can read their authorized Space history even when Computer
+file access is limited to selected project folders. Forks retain the final
+revised answer when a task reconsiders newer information before replying.
+
+Owners can switch independent-task admission between parallel and serial mode.
+Running work keeps its place, and waiting tasks retain their history and reply
+destination.
+
+Other connected harnesses keep their existing serial execution in discussion
+threads. Explicit task branching and parallel execution require a supported
+harness.
+
+Space Action tool receipts report local proposal storage, an explicit local
+rejection, or an uncertain local result. They do not confirm that Core accepted
+the proposal or that a reply was published.
+
+Codex also supports independent project worktrees with separate files and Git
+metadata. Each starts from the connected repository's committed state and keeps
+its changes when the task continues. Unsaved changes and local configuration are
+not copied. Project boundaries are verified before execution; system temporary
+directories keep the native runtime's access rules. Work that shares writable
+files waits for the conflicting task.
+Unchanged generated project copies can be reclaimed after verified execution
+shutdown and restored at the same commit when needed. Task changes and uncertain
+workspaces are retained.
+Claude Code supports independent Space-context tasks. Unsupported connections
+show a failure or update requirement instead of silently sharing another task's
+native conversation.
+
+Evidence: pr:956, pr:1075, commit:34f7616529085f102e9ea00fb4d33dff2e82e45f, workflow:34941459758
+
 ## September 14, 2026
 
 ### Clear pending Wakes for deleted agents
