@@ -2,6 +2,7 @@ import type { IncomingMessage } from "node:http";
 import WebSocket from "ws";
 
 export type WsClient = {
+  readonly bufferedAmount?: number;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   terminate(): void;
@@ -15,6 +16,24 @@ const MAX_UPGRADE_REJECTION_BODY_BYTES = 2048;
 const UPGRADE_REJECTION_BODY_READ_TIMEOUT_MS = 1000;
 const OPENMELD_REQUEST_ID_HEADER = "x-openmeld-request-id";
 const CLOUDFLARE_RAY_HEADER = "cf-ray";
+
+export class WebSocketConnectionError extends Error {
+  readonly kind: "open_timeout" | "closed_before_open" | "upgrade_rejected";
+  readonly status?: number;
+  readonly requestId?: string;
+  constructor(
+    message: string,
+    kind: "open_timeout" | "closed_before_open" | "upgrade_rejected",
+    status?: number,
+    requestId?: string
+  ) {
+    super(message);
+    this.name = "WebSocketConnectionError";
+    this.kind = kind;
+    this.status = status;
+    this.requestId = requestId;
+  }
+}
 
 export async function connectWebSocket(
   url: string,
@@ -36,7 +55,10 @@ export async function connectWebSocket(
             settled = true;
             ws.terminate();
             reject(
-              new Error(`websocket open timeout after ${openTimeoutMs}ms`)
+              new WebSocketConnectionError(
+                `websocket open timeout after ${openTimeoutMs}ms`,
+                "open_timeout"
+              )
             );
           }, openTimeoutMs);
     const closePromise = new Promise<void>((r) => {
@@ -52,8 +74,9 @@ export async function connectWebSocket(
         clearTimeout(openTimeout);
       }
       reject(
-        new Error(
-          `websocket closed before open (code=${String(code)}, reason=${reason.toString("utf8")})`
+        new WebSocketConnectionError(
+          `websocket closed before open (code=${String(code)}, reason=${reason.toString("utf8")})`,
+          "closed_before_open"
         )
       );
     });
@@ -90,6 +113,9 @@ export async function connectWebSocket(
         clearTimeout(openTimeout);
       }
       resolve({
+        get bufferedAmount() {
+          return ws.bufferedAmount;
+        },
         send: (data) => ws.send(data),
         close: (code, reason) => ws.close(code, reason),
         terminate: () => ws.terminate(),
@@ -161,7 +187,12 @@ async function buildWebSocketUpgradeRejectedError(
         ]
       : []),
   ];
-  return new Error(`daemon stream upgrade rejected (${fields.join(", ")})`);
+  return new WebSocketConnectionError(
+    `daemon stream upgrade rejected (${fields.join(", ")})`,
+    "upgrade_rejected",
+    response.statusCode,
+    requestId ?? undefined
+  );
 }
 
 function readBodyExcerpt(

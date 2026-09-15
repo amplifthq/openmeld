@@ -75,7 +75,7 @@ async function readServiceCompatibility(): Promise<{
   observedVersions: string[];
   servicePresent: boolean;
 }> {
-  const expectedVersion = resolveCurrentDaemonExpectedVersion();
+  const expectedVersion = await resolveCurrentDaemonExpectedVersion();
   const inventory = await inspectDaemonServiceInventory({ expectedVersion });
   const observedVersions = new Set<string>();
   if (inventory.installStatus.installed && inventory.installStatus.state) {

@@ -1,406 +1,543 @@
-# Desktop GUI Client
+# Desktop Client
 
 ## Agent Context
 
-- Purpose: Define the OpenMeld Desktop GUI client's responsibility boundary as a thin,
-  always-on local control surface for the OpenMeld Service — no-terminal setup, service
-  status, start/stop, auto-restart presence, agent on/off, and a menu-bar tray.
-  It drives the CLI; it does not reimplement it.
-- Read this when: You are building or changing the Desktop GUI (Electron main or
-  renderer), its tray, onboarding, status surface, update affordance, packaging,
-  or how it talks to the CLI/daemon.
-- Update this when: Desktop responsibilities, boundaries, the GUI↔CLI contract,
-  the update model, or the Phase-1 scope change.
-- Do not use this for: Space/Account UI (those open Web), daemon internals (see
-  `developing/architecture/local-openmeld-service.md`), CLI command model (`cli.md`),
-  Web UI (`web.md`), or release gates.
-- Source of truth: This file owns the durable client boundary for the OpenMeld Desktop GUI.
+- Purpose: Define the Electron client's shared application presentation, native
+  capabilities, authentication, and independent local Service boundary.
+- Read this when: Changing Desktop main/preload/renderer, local assets, login,
+  cloud access, CLI integration, tray, packaging, or the Desktop pilot.
+- Update this when: Desktop platform contracts, build entry, account isolation,
+  Service controls, or distribution responsibilities change.
+- Do not use this for: Core execution authority, Service lifecycle internals,
+  or production release authorization.
+- Source of truth: This document owns Desktop client responsibilities. Web owns
+  browser routing and shared business presentation; Core and Space own cloud
+  facts; the CLI and independent Service own local execution.
 
-## Current design state
+## Product boundary
 
-The rule-level boundaries below are decided and authoritative alongside
-`cli.md` and `web.md`. The detailed UI and packaging design remains intentionally
-lightweight until the Desktop build advances.
+The native frame waits for hydration before adding its titlebar and content
+wrapper. Its first client tree must match the prerendered shell, where no native
+bridge exists. A document-level hydration replacement clears the shared Web
+Appearance bootstrap attributes, including conversation width and self-message
+alignment. Preserve that initialization rather than deriving Desktop-specific
+preferences or compensating with local CSS.
 
-## Positioning
+Organization entry and route scope use the shared Auth-owned
+`GET /v1/account/organization-context` projection rather than generated
+server-function IDs. The native credential transport remains unchanged; the
+renderer receives account display facts, membership summaries, and a default
+Organization ID only. Deploy the additive Auth route before releasing these
+consumers. Residual session and other server-function reads still require the
+existing pilot build compatibility gate.
 
-> OpenMeld Desktop = the OpenMeld Service's always-on local presence + a no-terminal
-> setup/status control surface. It drives the CLI, reads the single source of
-> truth, and hands Space/Account off to Web.
+Desktop and Web share complete business views and application logic. They have
+separate build entries and platform adapters. Desktop ships its renderer assets
+locally; loading the hosted Web page in an Electron window is not the target.
+Extract reusable business views at their existing ownership boundary rather than
+copying Space pages into a Desktop-only implementation.
 
-It IS:
+Desktop is a peer client over the same cloud truth. It does not own a second
+account identity, Computer, Agent Profile, Binding, Wakeability projection,
+dispatch queue, synchronization engine, or execution state machine.
+RuntimeCoordinator remains the workstation execution authority, the Space
+durable outbox remains the conveyor, and the Service retains disk/ack recovery.
 
-- a thin local control surface for the OpenMeld Service (install / status / start-stop /
-  auto-restart presence / one-tap update / agent on-off / tray).
-- a driver of the `openmeld` CLI's machine-readable surface, not a reimplementation.
+Closing a window hides it. Quitting Desktop ends only the GUI. Neither action
+stops the independent OS-managed OpenMeld Service or accepted work. Explicit
+Service actions use the existing CLI contracts and remain separate from GUI
+launch-at-login preferences.
 
-It IS NOT:
+Window chrome, traffic-light insets, drag regions, tray, and native capabilities
+belong outside the shared content shell. Reuse `packages/ui` for primitives;
+do not move business rules into that package.
 
-- a Space or Account client — those open Web (`https://openmeld.ai/...`).
-- an owner of any state, nor a second source of truth for anything.
-- an independent client with its own state machine.
+## Local pilot foundation
 
-The three surfaces — CLI, Web, Desktop — are peers over one backend. Web is by
-design, not a fallback.
+The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
+dev-local or canary lane and a configured loopback Web endpoint. Production
+endpoints are rejected. The ordinary status/control renderer remains available
+while A2 connects the shared Space entry.
 
-## Boundary (red lines)
+Set `OPENMELD_DESKTOP_RENDERER_DIR` to the matching Web build's `dist/client`
+directory to load its `/desktop-shell` route from local files. Without it, the
+native build opens the small foundation sign-in entry. Build Web with
+`OPENMELD_DESKTOP_PILOT=1`; its loader-free shell is emitted as `_shell.html`.
+Main checks the emitted `desktop-build.json` against its own build identity
+before opening shared assets; missing or stale assets stop startup.
+The local protocol serves this shell for application routes and hashes its
+packaged inline scripts for CSP. It never enables arbitrary inline scripts.
 
-- The GUI reads projections (`openmeld service status --json`,
-  `agents detect/list/show --json`); it never probes or computes
-  liveness/readiness itself.
-- The GUI changes agent on/off only through the single writer
-  `updateAgentRegistrations` (via the CLI). It must never introduce a second
-  writer of `controllers[].enabled`, and never write that fact directly.
-- The GUI is a setup driver (blessed by `local-openmeld-service.md`). It must never
-  become a Wake gate, a Binding/Space truth owner, or a second liveness source.
-- Mutations are explicit/user-visible per `cli.md`; the GUI may run setup/repair on
-  the user's behalf (invisible-to-user is fine) but must not silently mutate from a
-  status/read path. Full-silent service mutation needs an owner ruling first.
-- GUI lifecycle ≠ Service lifecycle: the Service runs (and auto-restarts) via the OS
-  service manager regardless of whether the GUI window is open.
+- Native entry: `clients/desktop/src/main/pilot.ts`.
+- Local origin: `openmeld-desktop://app`; assets are read only from the built
+  renderer directory. No hosted HTTPS-origin impersonation is used.
+- Renderer interface: `src/shared/pilot-bridge.ts`, exposed as
+  `window.openmeldDesktop`: platform, session, browser sign-in, Desktop sign-out.
+  The response schemas and origin constants live in `packages/schemas`.
+  `onSessionChanged(listener: () => void): () => void` emits only an
+  invalidation and returns its listener cleanup. It runs after the installed
+  Electron plugin persists the successful token exchange cookie, and after
+  owned sign-out clears local credentials. The renderer rereads its existing
+  session query; it does not rely on focus timing or maintain another session.
+  Its Space stream methods open a subscription by ID/Space/Profile, send only
+  the existing keepalive ping, close it, and deliver transport events. No URL,
+  credentials, or business-write frames are accepted.
+- Existing `window.openmeld` remains the CLI-backed local control interface.
+  Every channel validates the owning WebContents, top frame, and local document
+  before invoking a handler. Other windows, frames, and remote documents fail.
+- Main retains context isolation, sandboxing, and disabled Node integration.
+  New windows and renderer-initiated document navigation are denied.
 
-## Architecture
+Better Auth's matching Electron integration owns PKCE/state, system-browser
+return, and encrypted cookie storage. Auth enables its additive Electron plugin
+only in development. `/desktop-sign-in` uses normal Web login and an explicit
+Continue in Desktop action. Main registers page and auth scheme privileges in
+one Electron call, owns OS callback delivery, and passes callbacks to the vendor's
+public `handleDeepLink` API. SDK scheme registration, unrestricted IPC handlers,
+and the global CSP hook are disabled. Credentials never cross the
+renderer bridge. Storage is scoped to the configured Web origin.
 
-- Two processes:
-  - Main (Node): drives the CLI (shell-out to `openmeld … --json` and/or the daemon
-    socket), owns the tray, and manages the GUI app lifecycle. The CLI's embedded-vs-system
-    Node and the daemon's independent lifetime are packaging concerns (see below).
-  - Renderer (Chromium): a small React app for onboarding/status — NOT the web app
-    embedded in a window. It reuses shared UI components, not whole web pages.
-- GUI↔CLI contract: the machine-readable `--json` surface (see
-  `clients/openmeld-cli/COMMAND_CONTRACTS.md` → "Machine-readable output"). Success =
-  one `{schemaVersion, type, ...}` line + exit 0; failure = one `{type:"error",
-error:{code,message}}` line + exit 1. This surface is complete.
-- Setup is the one exception that still streams Agent View events and completes
-  with `setup.complete`. Desktop must parse `setup.complete.serviceGuidance` for
-  service lifecycle transparency after setup/reconnect instead of copying CLI
-  Human View cards into GUI code.
-- When that stream contains a shared `LocalMachineIssue` error event, Desktop
-  presents its exact plain-language message and primary action instead of
-  replacing it with a generic setup failure. Desktop does not classify raw
-  operating-system errors or perform a hidden retry; the CLI remains the only
-  local-machine recovery owner.
-- Setup guidance in the Desktop GUI must be GUI-first. The CLI may return
-  command strings for diagnostics and CLI users, but Desktop should present the
-  corresponding GUI control or status explanation instead of asking users to run
-  terminal commands.
-- Desktop must not invent a Desktop-only setup progress UI or wording. The
-  intended path is to let the Web setup experience settle, then extract/reuse
-  the shared setup model and Web UI pieces so Web and Desktop present the same
-  setup steps, statuses, and completion experience.
-- Visible Desktop state must refresh automatically while the app is open; users
-  must not need to discover or press Refresh for normal status truth. The live
-  refresh set is auth status, OpenMeld Service status, local agents, and Desktop
-  preferences. Desktop update status is also refreshed automatically, but on a
-  slower cadence because it can involve release/update checks. Refresh reads are
-  read-only and must not mutate service lifecycle, agent enablement, login
-  state, or setup state.
-- Home and Settings → Computers must render the same local-management surface
-  for OpenMeld Service and local agents. First-run setup, stopped service, and running
-  service states may adjust the primary CTA, but they must reuse the same
-  service card, local-agent card, CLI-backed actions, and view contract instead
-  of maintaining a parallel Home-only status implementation.
-- Settings → General is an overview and Desktop-owned app-preferences surface,
-  not a second control plane. It may link to Account and Computers and may own
-  Electron-only preferences such as opening OpenMeld Desktop at login. Local sign-in
-  and sign-out actions live in Account. OpenMeld Service lifecycle, service
-  auto-start, reconnect, and local-agent controls live in Computers.
+Desktop sign-out revokes the Desktop session; it does not run CLI logout.
+The pilot exposes the independently read CLI account ID for comparison with its
+cloud session. This comparison is display evidence, not the mutation fence.
+The existing Computer surface offers Start/Stop only when the installed CLI and
+actual macOS binary carrier positively advertise account-checked control.
+The renderer sends the displayed account as immutable intent. Main verifies the
+current native session, then passes that same account to the CLI admission owner.
+An account change never retargets an operation. Stop has no GUI execution timeout;
+the existing controlled shutdown owns drain and final completion.
+Generic CLI login/logout, upgrades, autostart and agent mutations remain refused,
+and tray Service controls stay hidden. Computer connection uses the bounded
+native operation below; it does not reopen the old npm installer or unscoped
+five-minute Setup wrapper.
 
-## Local Development Lanes
+### Computer connection
 
-Desktop local development must use explicit repo-root scripts when the GUI talks
-to the CLI, OpenMeld Service, or OpenMeld Web. Plain `pnpm -C clients/desktop dev` is only
-for Electron-only work where lane alignment is irrelevant.
+The shared Connect flow, including New Agent's embedded recovery, offers a
+fixed `connectComputer` operation in Desktop. Its strict request contains the
+displayed account and optional Human Profile/Space IDs only. Main validates its
+current native account, reads the CLI-owned `computer connection-review --json`
+projection, and reuses an account-aligned existing Service when that projection
+positively identifies it. Reuse selects its actual device/lane; it does not
+claim Agent Wakeability or rewrite a Computer session.
 
-Root `pnpm dev` starts the local Auth/Core/Gateway/package watcher stack. It
-intentionally excludes both Web and Desktop so browser UI and Electron UI can be
-started, stopped, and debugged independently.
+Fresh-session requests (including New Agent recovery) and source navigation
+actions bypass that reuse shortcut. Source actions enter the existing Prepare
+request unchanged. A requested `connectedComputerId` also bypasses reuse and
+enters Prepare unchanged: Core validates account ownership, and the existing CLI
+executor enrolls the current Service against that stable Computer identity.
+New Agent must not derive this reconnect intent from a sole enrolled Computer,
+account routing, a catalog selection, or a completed browser handoff. Ordinary
+native connection leaves the target unspecified so the CLI uses its own Service
+identity. The recovery picker (shown even for one saved Computer) and an explicit
+session intent can select an existing Computer; the same resolved intent drives
+both embedded setup and its recovery link.
+Service updates and Space recovery stay in the Web flow until the native path supports their full intent;
+Desktop offers the original route, or the original Space for a source action,
+without reporting native completion. Once Prepare exists, later authorization,
+account, execution, or snapshot failures retain its diagnostic correlation ID.
 
-### Electron Runtime Binary
+When the managed CLI is absent or lacks the connection contract, main downloads
+the fixed Web origin's managed binary manifest and Apple silicon artifact.
+The shared `@openmeld/local-service/cli-binary-update-artifact` implementation
+verifies transport and executable hashes and the production signing identity.
+The verified binary's `install-self` owns installation. No Node/npm prerequisite,
+arbitrary renderer executable, URL, path, or shell command is accepted.
 
-`electron-vite dev` is the correct Desktop development command. It builds the
-main process and preload scripts, starts the renderer dev server, then launches
-the Electron app.
+Main creates the existing Core Prepare Session and uses the shared API client's
+Device Authorization sequence with its authenticated native SDK transport. The
+grant creates an independent Computer session in the CLI; native cookies never
+become CLI credentials. A different known account requires a native confirmation
+dialog. Its intent names the exact reviewed old session identity and new account;
+CLI checks both before entering its existing locked commit/rollback flow.
 
-Electron itself is a native desktop runtime, not only JavaScript build output.
-Electron 42 and newer download the local Electron binary on first run instead of
-relying on package-manager `postinstall`. A missing
-`node_modules/.../electron/dist/Electron.app` is therefore Desktop dependency
-hydration, not an OpenMeld Auth/Core/Gateway/Web stack failure.
+Setup runs without a GUI execution timeout, in a separate process group with
+file-backed output. GUI exit does not stop it or the OS-managed Service. The
+existing Prepare continuation journal and maintenance worker retain recovery
+ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
+snapshot; errors retain a shared local-machine action and diagnostic correlation.
 
-Do not add OpenMeld Desktop back to root `pnpm dev` to hide this dependency boundary.
-If Desktop reports a missing or uninstalled Electron binary, hydrate it in the
-Desktop lane:
+Signed production previews use `desktop:package:production-preview`, the same
+installed build pipeline and existing Developer ID/Keychain notarization as local
+acceptance. Production preview requires the exact clean merged release SHA and
+rejects disposable settings. Its signed source record binds the release SHA,
+production identity, and renderer fingerprint; publication uses the immutable
+candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
+It does not open the website entry or select a default update.
+
+Production resolves the existing `~/.openmeld` managed installation. An installed
+disposable build must compile its already aligned test lane using
+`OPENMELD_DESKTOP_TEST_COMPUTER_HOME`, `OPENMELD_DESKTOP_TEST_AUTH_ORIGIN`, and
+`OPENMELD_DESKTOP_TEST_GATEWAY_ORIGIN`. The build rejects the production home and
+non-loopback test endpoints. These native-only values never enter the renderer
+bridge or come from its launch environment. A build without that configuration
+cannot connect a computer; it never creates a separate GUI-owned Service home.
+The explicit `desktop:package:acceptance` entry requires all three values before
+staging or building. Direct acceptance builder invocation enforces the same
+build-time validation before signing or notarization.
+
+Computer pages retain the shared connection and per-local-agent projections.
+Native background controls are folded and appear only for a positively matching
+device. Missing, unreadable, and explicitly different accounts remain distinct;
+unavailable control capabilities are not evidence of an old version. A global
+Connect this Mac action does not identify a selected remote Computer as local.
+
+This pilot restriction applies to the shared Computer presentation and cloud
+transport as well as native IPC. `canConfigureLocalComputer` removes unsupported
+configuration actions while retaining reported status, details, and a Web handoff.
+`pilot-local-control-policy.ts` rejects the exact Gateway method/path families
+before attaching credentials: current and explicit Computer updates, local agent
+configuration, maintenance, file access, local Project controls, enrollment,
+rename/forget, and Prepare mutations. Catalog refresh is also unavailable in this
+pilot; reading existing reports remains available. Ordinary Web and Space/Wake
+mutations retain their existing contracts. These are pilot capability limits, not
+new Core authorization rules.
+
+After a positively acknowledged account-admitted Stop, CLI manager cleanup reuses
+the completed drain instead of sending another shutdown to an exited carrier.
+It rejects a different observed process owner; missing or failed drain evidence
+does not enter this completion path.
+
+The CLI prerequisite accepts `service start|stop --json --expected-account <id>`
+for an already connected POSIX Service. Its owning admission contract is in
+[Local OpenMeld Service](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop).
+This authorizes only existing-Service Start/Stop. Main rejects missing, changed,
+unsupported or concurrent intent and preserves explicit CLI refusal or uncertainty.
+`service control-capabilities --json` is a separate read-only query; it does not
+extend the established strict status response. Version strings are not capability
+evidence. Old, npm, non-macOS and unverifiable pairs omit usable controls.
+
+## Cloud transport and compatibility
+
+Native admitted `/v1/` requests use the Better Auth SDK's public fetch pipeline
+and return the original response status/body through the credential-stripping
+adapter. `patches/@better-auth__electron@1.6.30.patch` moves only the vendor's
+response-cookie persistence and session signal from `onSuccess` to `onResponse`.
+The pinned upstream otherwise loses legitimate renewal on 403/500 and deletion
+on 401. Successful session-data caching and existing error notifications remain
+unchanged. There is no app-side cookie jar or private SDK hook invocation.
+Remove this patch when an adopted upstream version processes these cookies
+before status handling, after rerunning the expiry/recreation and error matrix.
+SDK recreation in tests does not prove real macOS safeStorage or OS restart.
+
+Shared Profile and Organization business actions use fixed Web `/v1/` adapters:
+Profile capabilities, Human/Agent creation, Agent-only deletion; Organization
+creation/settings, invitations and member management; invitation links, public
+join requests and Space invitations. They reuse Auth HTTP/Core owners and shared
+schemas, never generated mutation IDs or renderer Better Auth calls. Membership
+recovery reads the existing account Organization context. Account security
+handoffs and native cookie/session storage remain separate.
+
+The adapters preserve the incoming Origin, reject redirects, project safe JSON,
+and forward separate vendor Set-Cookie headers only at the server HTTP boundary.
+Auth's trusted-cookie-origin guard remains authoritative, including the exact
+development Desktop origin. Installed production trust remains a separate
+native transport prerequisite; these adapters do not relax it.
+
+`pilot-protocol.ts` owns a fixed-endpoint request adapter:
+
+Its header allowlist preserves shared Inbox, Space addressing, and Space access capability
+negotiation. These version headers select an existing response contract; they
+do not grant authorization. Renderer cookies and authorization remain excluded.
+
+`pilot-transport.ts` owns one private persistent Electron Session shared by the
+BrowserWindow and protocol handler. Its partition lives under the existing
+isolated application data directory, so shared Web appearance preferences survive
+normal GUI exit. HTTP caching stays disabled. Shared Web account-scoped read
+cache authorization and sign-out cleanup still apply; native authentication
+cookies remain in the separate main-owned SDK storage and are never forwarded
+to the renderer. Before the page loads, it installs that
+Session's sole `webRequest.onBeforeRequest` listener. Every local `/v1/` and
+`/_serverFn/` request requires Chromium's current live owner WebContents ID,
+exact main-frame identity, and trusted local document URL. Missing provenance,
+child frames, other windows, remote documents, and top-level API navigations
+are rejected before forwarding. Electron custom-protocol HTTP source headers
+are absent and are not authorization evidence. Renderer headers grant nothing.
+
+Do not attach another before-request listener to this Session: Electron keeps
+only the last listener. The transport is its exclusive owner, rejects duplicate
+installation, and removes the authenticated protocol handler before disposing
+the listener. The ordinary Web/browser and default Electron Session are unchanged.
+Run `pnpm --dir clients/desktop exec node scripts/verify-pilot-transport.mjs`
+for the real Electron admission/zero-upstream regression matrix in disposable
+storage; it never invokes CLI, Service, login, or a real Wake.
+
+- `/v1/*` uses existing shared HTTP APIs through the matching Web gateway proxy.
+  Core/Space still authorize every request. This is the portable business seam.
+- Profile listing, account Space index/active-Wake summaries, and profile-Space
+  history writes use the same typed HTTP consumers as browser Web. History
+  updates preserve last-seen, pin and removal behavior; protected Space password
+  persistence remains a separate unsupported pilot path.
+- These consumers read `GET /v1/client-environment` from the configured Web
+  endpoint for its current normalized `gatewayHost`. An installed renderer may
+  have been built in another local lane, so build metadata and the local app
+  origin must never supply this history namespace. Missing or invalid metadata
+  stops the dependent request. The response is not persisted or an authority
+  for identity, access, routing or execution.
+- The shared account query reads Auth's strict `/v1/account/session` display
+  projection through the shared API client, preserving the Joined date, email
+  verification, and existing name/avatar cache updates. It never reads a generated
+  server-function ID or receives credentials. Native entry/session/account fences
+  retain their existing narrow bridge; account changes still reset the existing
+  account query cache before rereading.
+- Read-only `/_serverFn/*` calls are a bounded pilot compatibility dependency
+  for remaining Web entry and public-Space handoff loaders.
+  Sidebar geometry reads its local cookie during client navigation.
+  Server-function mutations are refused;
+  business writes must use the shared APIs.
+- Generic Auth HTTP endpoints are not exposed to the renderer. Session management
+  and account switching that return session tokens need a native adapter before
+  entering the pilot surface.
+- Main attaches its cookie only to the configured Web endpoint. It does not
+  accept arbitrary URLs, credentials, file paths, shell commands, or redirects.
+  Response cookie headers do not enter the renderer.
+- Space live streams use the same fixed Web `/v1/spaces/:spaceId/stream`
+  endpoint through native `ws`, with the main-owned cookie and build header.
+  Redirects are refused. The preload sends only validated subscription events.
+  Reload, renderer loss, native sign-in/sign-out, and GUI exit close native
+  sockets; none of these operations stop the Service or a Wake.
+  `clients/web/src/lib/spaces/live-transport.ts` adapts this transport to the
+  existing Space feed listener contract. That shared feed still owns hello
+  acknowledgement, keepalive, reconnect, invalidation and snapshot refresh.
+  It does not replace global WebSocket or add a Desktop live-state system.
+- The app origin is explicitly allowed by the development Auth configuration and
+  pilot Web CSRF policy. CSRF is not disabled; Origin alone grants no authority.
+- The Web server compares a content fingerprint from
+  `scripts/desktop/web-build-identity.mjs` before handling Desktop requests.
+  A mismatch returns HTTP 409 before the operation. The fingerprint covers Web,
+  shared packages, lockfile, and the fingerprint helper, excluding generated
+  route-tree output.
+  Ordinary Web development/builds do not compute a pilot fingerprint. An
+  unstaged deletion and the same staged deletion produce the same identity.
+
+This is **not a production Desktop/Web compatibility contract**. Pilot renderer
+and Web server must be production-mode builds of matching source; Vite's dev
+server uses a different server-function registry. A later Web deployment that
+changes the fingerprint makes this pilot fail closed. It cannot silently invoke
+a different function or submit a write. Production distribution must replace
+remaining build-coupled calls with durable API adapters or a versioned server
+compatibility contract. Do not rewrite all Web server functions for this pilot.
+
+A2 owns the actual shared Space entry, platform presentation, and one integrated
+Web/Desktop smoke. A1 foundation/build checks alone do not prove a real Wake,
+published reply, or Service continuation after GUI exit.
+
+## CLI and Service control
+
+Reuse the CLI's machine-readable status, setup, service, and agent commands.
+Setup streams Agent View events and ends in `setup.complete`; its shared
+`serviceGuidance` and LocalMachineIssue messages remain authoritative. Do not
+classify raw OS errors or add Desktop-only repair/retry state.
+
+Normal UI status refresh is read-only. Home and Settings Computers reuse the
+same local-management surface. General owns GUI preferences; Computers owns
+CLI-backed Service controls. Service autostart and GUI launch-at-login are
+different preferences with different writers.
+
+## Development lanes
+
+Use repo-root Desktop scripts when interacting with CLI, Service, or Web:
+
+- `pnpm desktop:dev` and `pnpm desktop:start:dev` build and launch Desktop
+  using this worktree's registered isolated lane and its installed
+  `<OPENMELD_HOME>/bin/openmeld`; they do not install a global CLI.
+- `pnpm desktop:canary` and `pnpm desktop:start:canary` use the same guarded
+  lane resolution with the explicit canary preset.
+- Production reproduction requires explicit authorization for
+  `pnpm desktop:start:prod`; it is not a pilot command.
+
+These commands align CLI, home, auth, Gateway, and Web. An isolated worktree must
+use its actual aligned URLs and OS Service identity, not production state with
+only an overridden home. Follow `development-workflow.md` for lane ownership.
+Do not reset or re-register the user's production Service for tests.
+
+Start the Worker lane with `pnpm dev:worktree` and complete its normal Web setup.
+For the shared Desktop pilot, start Web in another terminal with
+`OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree`. This reuses the existing Web
+lane reservation and Doppler owner but builds and serves compiled Web output.
+Stop only that worktree's old Web process first if it is already running.
+The preview listener binds `127.0.0.1` so TanStack can prerender its shell;
+the configured Web/Auth/Gateway URLs still use the worktree hostname and ports.
+Then run `pnpm desktop:start:dev`. Missing/stale lane ownership or a missing
+lane-local executable stops startup without falling back to production/global
+state. Rebuild Web after source changes before relaunching Desktop.
+
+For a blank pilot window, use
+`OPENMELD_DESKTOP_DIAGNOSTICS=1 pnpm desktop:start:dev`. This opens local Electron
+DevTools and reports load milestones, preload failure, renderer exit, and fixed
+console error categories. Terminal output excludes console text, URLs, request
+bodies, and credentials. Inspect the full error locally in DevTools. This entry
+requires the validated local pilot and an unpackaged app; it does not expose a
+remote debugging listener or enable diagnostics in packaged builds.
+Use **Developer > Reopen Developer Tools** to recreate a closed or minimized
+inspector without reloading the application; only inspector history is reset.
+The local pilot Web build leaves client JavaScript unminified so DevTools can
+set exact line breakpoints in hydration and application error callbacks. Normal
+Web builds retain their default minification.
+
+GUI data lives under `<OPENMELD_HOME>/desktop/user-data`. Main sets and verifies
+Electron's `userData` path before Better Auth constructs storage. The launcher
+also passes that directory explicitly to Electron, keeping GUI preferences and
+credentials separate from other worktrees.
+
+Electron 44.3.0 is paired with electron-vite 5.0.0 and Vite 7.3.2. Hydrate the
+native binary with `pnpm --filter @openmeld/desktop exec electron --version`.
+Electron is deliberately separate from the root Worker development stack.
+
+## Packaging and release boundary
+
+Public Desktop distribution remains paused: `/desktop` returns 404. Do not
+publish or deploy this pilot as a production release.
+
+Local macOS packages use electron-builder's standard ad-hoc signing
+(`mac.identity: "-"`) for the assembled App and nested code. The shared build
+requires signing and strict verification before creating the DMG; installed and
+private targets inherit this policy. Do not set `identity: null`: the original
+Electron executable's linker signature does not seal the application resources.
+No post-build signature repair is required or supported. The builder's default
+Electron entitlements support JIT and library loading with Hardened Runtime.
+
+The existing `unsigned` command and artifact names mean no Developer ID signing.
+Ad-hoc integrity is not Developer ID trust, notarization, or Gatekeeper acceptance.
+Notarization remains disabled for default development artifacts. Before installation
+acceptance, verify both the source App and its DMG copy with
+`codesign --verify --deep --strict --verbose=2`, then use the normal macOS Open
+flow with quarantine preserved. A valid signature does not prove visible startup,
+login, or Service behavior; report those outcomes separately.
+
+For an authorized local installation acceptance, use
+`pnpm desktop:package:acceptance` with the existing disposable target and fixed
+Web origin. This invokes the same installed packaging pipeline and validates the
+same renderer fingerprint. The installed builder configuration selects the
+existing SOPHIAPRO Developer ID and `openmeld-notary` Keychain profile from the
+Apple release credential contract. Competing file/password credentials are
+rejected; no certificate is created or exported. Builder signs nested code,
+submits the App to Apple, staples the accepted ticket to the App, and then creates
+a signed `-acceptance.dmg` under `clients/desktop/dist/acceptance`. The ticket
+covers the App copied out of that DMG; the container has no separately stapled
+ticket. No renderer or account data is changed, and publishing remains disabled.
+Verify the copied App's strict signature, stapled ticket and Gatekeeper assessment
+before the normal download/Finder/native batch. This command contacts Apple's
+notary service but does not authorize public distribution or deployment.
+Use `DEBUG=electron-notarize:notarytool` for a local evidence run to retain the
+Apple submission ID and Accepted result in the build log. Compute final artifact
+hashes only after notarization, stapling and DMG creation have completed.
+
+### Installed macOS entry
+
+`OPENMELD_DESKTOP_TARGET=production` compiles the installed entry for
+`https://openmeld.ai`. The shared renderer, native main, and package marker must
+agree on this target and source fingerprint. The fingerprint verifies local
+assets; it is not an installed client's server admission token. Finder launch
+reads packaged assets and normal macOS application data without a repository,
+pnpm, CLI prerequisite, or launch-time lane/URL/storage configuration.
+
+Production uses app ID and callback scheme `sh.openmeld.desktop`, SDK client ID
+`openmeld-desktop`, and `OpenMeld Desktop` under the OS application-data directory.
+User data is fixed before initializing the SDK's encrypted cookie storage.
+`OPENMELD_DESKTOP_TARGET=disposable` is a separately compiled local test target:
+its fixed loopback Web origin comes from `OPENMELD_DESKTOP_TEST_WEB_ORIGIN`, and
+its app ID, callback, SDK client ID, and data directory use the distinct test
+identity. The production target never consumes that endpoint override.
+
+An isolated disposable Web/Auth backend must explicitly configure
+`AUTH_DESKTOP_DEVELOPMENT_TARGET=disposable` on both services. Empty or `private`
+development configuration preserves the existing `electron` client and
+`sh.openmeld.desktop.dev` callback. Production rejects a nonempty development
+target. Better Auth supports one Electron client identity per Auth instance;
+do not combine test and private identities by registering duplicate plugins.
+Browser sign-in validates that configured identity, displays the intended
+account, and preserves the normal add-account entry when another account is
+needed. Invalid or expired native returns require a fresh browser sign-in.
+
+Installed requests carry `x-openmeld-desktop-contract: 1`; before authenticated
+business reads or streams, native verifies the strict, no-store
+`GET /v1/desktop/compatibility` response. Compatible Web deployments retain
+contract version 1 without requiring identical build fingerprints. Missing,
+unknown, or malformed compatibility blocks admission; connectivity failures
+remain distinct from unsupported-version messages. This admits representations,
+not users: existing Auth/Core/Space authorization remains authoritative.
+Installed renderers cannot call generated `/_serverFn/` or generic `/api/`
+endpoints. They consume explicit `/v1/` contracts, including CLI release metadata
+from the existing binary-channel manifest at `GET /v1/cli/release`.
+The fixed native Computer connection operation additionally admits only
+`POST /api/auth/device/code`, `GET /api/auth/device`, and
+`POST /api/auth/device/approve` through Web's representation guard. The existing
+Auth handlers retain authorization and grant validation. Renderer protocol
+requests to all `/api/` paths, including these three, remain rejected before
+native credentials are attached.
+
+After building the matching shared Web renderer, `pnpm desktop:package:installed`
+stages it and builds a local unsigned arm64 DMG with no publication target.
+Installable entry is separate from Service bootstrap and signed distribution:
+existing-user Service reuse, new-user zero-setup connection, actual Wake outcomes,
+signing, notarization, and installed native acceptance remain separate gates.
+Do not expose the paused public download page based on package construction.
+
+Release ordering is server first: deploy the matching Web admission/metadata
+routes and Auth identity before distributing an installed app. Keep contract 1
+available while supported installed apps use it. Roll back incompatible Web/Auth
+changes before withdrawing a supported representation; never redirect native
+credentials to another origin or use a fingerprint bypass as recovery.
+
+### Private local macOS package
+
+`pnpm desktop:package:private` builds the private unsigned macOS arm64 app and
+DMG with the existing electron-builder. It requires installed workspace
+dependencies and current pilot Web output in `clients/web/dist/client` (build
+through `OPENMELD_DESKTOP_PILOT=1 pnpm dev:web:worktree` in the configured lane,
+as in the lane workflow above). Setting the pilot flag alone is insufficient:
+the guarded Web entry supplies the actual lane's `VITE_BETTER_AUTH_URL` and
+other aligned build values. Pilot builds reject a missing or invalid client Auth
+URL after normal Vite environment loading, before emitting output. Runtime
+native environment variables cannot repair a missing compiled renderer value.
+Missing, incomplete, or stale Web output stops packaging. The package command
+never starts Web or a Service.
+
+The build stages the shared client output without source maps or hidden files,
+rejects symbolic links, and includes it at `Contents/Resources/desktop-renderer`.
+The private target includes main/preload and icons, but excludes the old status
+and foundation renderers. Its compiled private mode requires the guarded pilot
+entry even when started without environment configuration; it cannot fall back
+to the status UI. Native startup always resolves this package's own resources,
+ignores external renderer overrides, and checks the same Web build identity
+before creating authentication storage. The existing Web-side build check still
+rejects a mismatched server before forwarding an operation.
+The app's `Info.plist` declares the existing development Auth return scheme from
+`packages/schemas`, as macOS requires for packaged URL callbacks; no new scheme
+or Auth authority is introduced.
+
+Output is under `clients/desktop/dist/private`, with `Private` in both app and
+DMG names. This target writes no preview/update manifest and has no publisher.
+It does not bundle CLI, Service, credentials, lane state, or worktree asset paths.
+The legacy preview build remains a separate paused distribution path.
+
+Launch the built or copied app from an already configured, matching worktree:
 
 ```sh
-pnpm install
-pnpm --filter @openmeld/desktop exec electron --version
-pnpm dev:desktop
+pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app"
+# Explicit canary preset, using the same worktree lane:
+pnpm desktop:start:package "/path/to/OpenMeld Desktop Private.app" canary
 ```
 
-Use:
+This extends the existing root launcher: it verifies lane ownership and the
+lane-local CLI, supplies aligned loopback endpoints and isolated GUI storage,
+then runs the packaged executable without rebuilding it. Finder launch alone
+has no lane configuration and is refused. A matching compiled Web server and
+an existing connected CLI/Service remain prerequisites; this is not clean-machine
+setup or a production compatibility promise. Auth, IPC, transport and protected
+Service-control gates are unchanged. Signing, notarization, Gatekeeper behavior,
+authenticated packaged UI, and OS browser-return callbacks need separate native
+acceptance; package construction and content checks do not prove those outcomes.
 
-- `pnpm dev:desktop` — alias for `pnpm run desktop:dev`.
-- `pnpm run desktop:dev` — build/install `openmeld-dev`, then start Electron against
-  the repo-local development lane (`OPENMELD_ENV_PRESET=dev-local`, `openmeld-dev`,
-  `~/.openmeld-dev`, local Gateway/Auth/Web).
-- `pnpm run desktop:start:dev` — start Electron against the already-installed
-  `openmeld-dev` wrapper without rebuilding it.
-- `pnpm run desktop:canary` — build/install `openmeld-canary`, then start Electron
-  against the packaged candidate lane (`OPENMELD_ENV_PRESET=canary`,
-  `~/.openmeld-canary`, local Gateway/Auth/Web). This path can run package
-  release-readiness checks through `npm pack`.
-- `pnpm run desktop:start:canary` — start Electron against an already-installed
-  `openmeld-canary` wrapper.
-- `pnpm run desktop:start:prod` — start Electron against the published
-  production lane (`openmeld`, `~/.openmeld`, `https://openmeld.ai`) only when explicitly
-  reproducing production behavior.
+The existing preview pipeline builds an unsigned Apple silicon DMG with
+`pnpm release:desktop-preview:build` and electron-builder. Its upload command
+targets production R2 and requires separate release authorization.
+The old preview installer uses global npm/Node for CLI installation; this is not
+a claim of a bundled, signed, self-contained Desktop/Service distribution.
 
-The scripts intentionally set `OPENMELD_BIN`, `OPENMELD_ENV_PRESET`,
-`OPENMELD_USER_FACING_CLI_COMMAND`, `OPENMELD_GATEWAY_URL`, `OPENMELD_AUTH_URL`, and
-`WEB_APP_URL` together. A dev/canary GUI must not drive a production CLI or open
-production Web by accident.
-
-## Phase 1 scope (minimal viable)
-
-The smallest thing that replaces "user types CLI commands to set up + check the service":
-
-1. Login → device flow → open Web (existing CLI auth; GUI `openExternal`).
-2. Setup: detect local agents (`agents detect --json`) → user picks which to enable →
-   run `openmeld service install` + enable. The Service is now installed → OS-level
-   auto-restart is included for free.
-3. Status: read `service status --json` and `openmeld agents show --json` facts →
-   show running/stopped, which agents are enabled, and any read-only local
-   controller update advisory with the manual command the user can run on this
-   Mac.
-4. Tray: menu-bar icon (running/stopped) + quick actions (open status window,
-   start/stop, quit, open Web).
-5. Small links: New Space / Account → `openExternal` to Web.
-
-A v0.1 skeleton (to validate the thin-wrapper path): tray presence + status +
-one-button setup + "open OpenMeld on the web".
-
-## Non-goals (Phase 1)
-
-- No GUI-level watchdog (redundant with OS KeepAlive).
-- No Space/Account UI (open Web).
-- No direct service-behavior writer in Desktop. Desktop may expose a
-  CLI-backed service preference such as "Start OpenMeld Service automatically", but
-  the write must route through the CLI/service contract
-  (`openmeld service autostart enable|disable`) and Desktop must read the resulting
-  service-manager projection from `service status --json`.
-- GUI-app launch-at-login is a Desktop-owned preference in Settings General; it
-  starts the tray app after user login and does not change OpenMeld Service autostart.
-- No CLI self-contained binary yet (A2/A3 shelved — see below).
-
-## Auto-restart & config boundary
-
-- Auto-restart is provided by the OS service manager (launchd `KeepAlive` /
-  systemd `Restart=always` / Windows recovery) that `openmeld service install` sets up.
-  After shutdown→power-on (and login, since it is a per-user agent), the Service
-  comes back automatically. The GUI does not implement restart logic; it ensures
-  the Service is installed, surfaces status, and offers a manual restart/repair
-  button as a fallback.
-- Robustness caveat: this auto-restart's reliability depends on the daemon exec
-  path staying valid. The launchd path should stay on the OpenMeld-owned service
-  wrapper instead of a transient Node or repo-local script path.
-- Service-behavior config (KeepAlive, heartbeat, lane) is owned by the CLI/service,
-  written via `service install`/`repair`. The GUI must not own a second copy.
-- Service autostart is a CLI/service-owned preference. Desktop may show the
-  current OS service-manager enabled state and call
-  `openmeld service autostart enable|disable`, but it must not edit launchd,
-  systemd, Windows Service config, service contracts, or lane state directly.
-  Enabling or disabling service autostart must not start or stop the currently
-  running OpenMeld Service process.
-- GUI-app config is legitimately GUI-owned and user-configurable when it is about
-  the GUI app, not OpenMeld Service behavior. Settings General owns "Open OpenMeld Desktop
-  at login" through Electron's `app.getLoginItemSettings` /
-  `app.setLoginItemSettings`. This only brings the Desktop tray app back after
-  user login; it never edits launchd/systemd service autostart, KeepAlive, OpenMeld
-  lane state, or service lifecycle truth. Note the two distinct "launch at login":
-  the Service's (KeepAlive, CLI-owned, default on) vs the GUI app's (puts the tray
-  back after reboot, GUI-owned, optional).
-
-## Versioning & updates
-
-- Reuse the Local Components manifest (`release/local-components.json`); do not
-  build a parallel system. Add a 4th component `desktop` (the app shell only) with
-  `appVersion`, a distinct `desktopContractVersion`, `updatePolicy`, and a
-  per-component `updateChannel` ∈ {setup | self-update | refresh}.
-- Update UX: one-tap "Update OpenMeld Service" (decided; no full-silent). All surfaces
-  render the same "current vX / need vY / [one-tap]" pattern; channel decides the action.
-- `desktop` is diagnostics/self-update only — NEVER a Wake gate (a healthy daemon
-  must not be blocked because the GUI shell is old).
-
-## Login
-
-Device flow → open Web. The GUI can drive the device-flow HTTP + `openExternal`
-directly; it does not need a headless `auth login`.
-
-## Code sharing
-
-- Incremental (build Desktop, sink shared bits into a package as needed; Web migrates
-  opportunistically). Do not do a big upfront Web extraction.
-- Design language is abstracted first: the shared `packages/ui` package holding the
-  shadcn base + global CSS + Tailwind config (follow shadcn's current monorepo guidance).
-- The renderer reuses shared components (a stepper component may be extracted from
-  Web), NOT the whole Web app. UI can be many (Web stepper / GUI stepper / CLI
-  multiselect); the writer is one (`updateAgentRegistrations`); selection writes
-  `selectedLocalAgentIds`, enable stays CLI/Service.
-
-## Decide-now (irrecoverable, or cheap-now / expensive-and-breaking-later)
-
-- A GUI version beacon: the first shipped GUI must report `appVersion` +
-  `desktopContractVersion` upward (piggyback the daemon heartbeat) so the server can
-  observe in-the-wild GUI versions. Once GUIs ship without it, forcing an old GUI to
-  update is a permanent dead-end. ~free now (`app.getVersion()`).
-- Reserve the manifest schema: an `.optional()` `desktop` component + `updateChannel`,
-  bump `LOCAL_COMPONENTS_SCHEMA_VERSION`, deploy strictly web→gateway→core (the
-  manifest is import-baked into already-published CLIs that re-validate it).
-- Owner-doc line (same PR): `desktop` is diagnostics/self-update only, never a Wake gate.
-
-## Build-later
-
-- Electron self-update wiring (electron-updater/Sparkle, signing, staging).
-- CLI self-contained binary + daemon-path parameterization (A2/A3) — a focused
-  workstream after the concurrent CLI churn settles. A2 = stop pinning the daemon to
-  a fragile node path; pin it to a stable owned binary. This hardens auto-restart.
-- Turning `desktop` into a real runtime gate (additive reader + owner-doc edit).
-- Niche `--json` completion (`upgrade`/space "handled" error branches).
-
-## Owner boundaries
-
-- Desktop owns: the GUI app (tray, onboarding/status windows, GUI-app prefs), and
-  the `desktop` release component (app shell version + self-update).
-- Desktop does NOT own: the Service lifecycle/config (CLI), agent enable truth
-  (`updateAgentRegistrations`), readiness/Wake (Core), Space/Account (Web).
-
-## Open decisions
-
-- Renderer strategy: LOCKED to "own small React app reusing shared components"
-  (not embed the Web app).
-- Binary tooling (when A2/A3 is built): Node SEA vs `@yao-pkg/pkg` vs bun — bun is
-  blocked by `import.meta.url` self-location in `skills/bundled.ts` /
-  `registry-source.ts` / `daemon-service-bundle.ts` (refactor first); SEA/pkg work today.
-- Beacon transport: extend the daemon register/heartbeat request to carry the GUI
-  appVersion vs a new lightweight report — decide at build start.
-
-## Verification ledger
-
-- CLI machine surface (`--json`): complete + green (81 tests). `service start --json`
-  has no integration test (its action wrapper in `openmeld.ts` is not import-unit-testable)
-  → pending a manual smoke (`openmeld service start --json`) after the concurrent CLI work
-  (cli-split / agent-select prereq) stabilizes.
-
-## Release & distribution (Phase 1)
-
-Distribution is currently paused. The public `/desktop` entry deliberately returns
-404, and no production preview artifact is published. Keep the existing release
-page and artifact pipeline dormant until Desktop passes real-device production
-smoke and the product owner explicitly approves distribution.
-
-Current MVP (2026-06-23):
-
-- Build only macOS Apple silicon: `OpenMeld-Desktop-<version>-macos-arm64-unsigned.dmg`.
-- Use `electron-builder` from the existing `electron-vite` package. It keeps the
-  current app structure and adds the smallest distribution surface.
-- Ship unsigned and not notarized. The Web download page must say this clearly and
-  show the macOS Privacy & Security / Control-click open path.
-- Host the artifact in the private R2 bucket `openmeld-desktop-downloads`. Production
-  Web streams it through `/desktop/download`, so the user-facing URL stays on
-  `https://openmeld.ai`.
-- Publish the preview release projection to the private R2 object
-  `desktop/update.json`; production Web serves `/desktop/update.json` from that
-  projection and streams the object named by the manifest through
-  `/desktop/download`. The first GUI does not self-update in place; it checks the
-  manifest, shows a new-version prompt, and opens `/desktop`.
-- Do not embed a CLI binary in the first release. Node.js LTS with npm is a
-  requirement for this preview. If Node/npm is missing, Desktop opens the Node.js
-  download page. If `openmeld` is missing or old, Desktop installs or upgrades the
-  global CLI through npm and then runs the existing CLI setup/service path.
-- First-run Desktop copy must stay app-driven. It can state the Node.js LTS
-  requirement, but it must not ask users to run `npm`, `npx`, `openmeld setup`, or
-  other terminal commands manually. After Node/npm are available, Desktop owns
-  the visible install, update, and setup actions.
-
-This is intentionally smaller than signed auto-update, but it preserves the
-long-term shape: official Web download page, R2-backed artifact storage, app-level
-version manifest, and Desktop as a thin CLI/setup driver.
-
-Build and upload:
-
-```text
-pnpm run release:desktop-preview:build
-pnpm run release:desktop-preview:upload
-```
-
-The upload command targets only the production R2 bucket. Local development only
-needs the build command.
-
-Future production launch:
-
-- Add Developer ID signing and Apple notarization.
-- Add a signed self-update feed through `electron-updater` or an equivalent
-  native update path.
-- Add Intel/universal macOS only when there is a real user need; the first preview
-  is Apple silicon only.
-- Replace the npm global CLI dependency with an owned CLI/service binary after the
-  daemon path and service install contracts are ready.
-
-### Unsigned preview option (early channel)
-
-Shipping unsigned is acceptable for an early/preview channel IF users are clearly
-warned, with these UX realities:
-
-- macOS (harsh): an un-notarized app is quarantined; modern macOS routes the user
-  through System Settings → Privacy & Security → "Open Anyway" (the old
-  right-click→Open shortcut is gone on recent versions). Telling users to
-  `xattr -dr com.apple.quarantine` is a terminal step — ironic for a no-terminal
-  GUI; do not make it the primary path.
-- Windows: SmartScreen "Windows protected your PC" → More info → Run anyway. Mild.
-- Linux (`.AppImage`): no gate; `chmod +x`.
-
-Verdict: fine for technical early adopters / a clearly-labeled "preview" build; not
-for a polished public launch. The download page must show per-OS "how to open" steps.
-Skipping signing lowers the PRODUCT bar (warning vs blocked); it does NOT remove the
-need for a real build host (a Mac to build the `.dmg`) or a manual GUI smoke.
-
-Minimum first-round smoke:
-
-1. Build: `pnpm run release:desktop-preview:build`.
-2. Install: open the DMG and drag OpenMeld Desktop to Applications.
-3. First open: confirm the app name, Dock icon, menu name, and About panel say
-   `OpenMeld Desktop`, not Electron or `@openmeld/desktop`.
-4. Gatekeeper: confirm the unsigned warning path documented on `/desktop` works.
-5. Missing Node: on a machine without `node`/`npm`, confirm Desktop asks for Node.js
-   and opens the Node.js download page.
-6. Missing CLI: with Node/npm present and no `openmeld`, confirm Desktop installs the
-   global CLI through npm.
-7. Old CLI: with an older `openmeld`, confirm Desktop offers the update action and
-   returns to a stable status after upgrade.
-8. Setup: choose Set Up This Mac and verify the OpenMeld Service starts through the CLI
-   contract.
-9. Web handoff: open OpenMeld Web, create a Space, add Profiles, and wake a local agent.
-10. Update awareness: temporarily point `OPENMELD_DESKTOP_UPDATE_MANIFEST_URL` at a
-    higher-version manifest and confirm Desktop opens `/desktop` from the prompt.
-11. R2 round trip: upload the production artifact, deploy Web, download through
-    `https://openmeld.ai/desktop/download`, and verify the SHA-256 matches the build log.
-
-## Phase-1 build plan & verification layers
-
-Layered by what can be verified without a display / build-host vs what needs Felix +
-a real machine. Build bottom-up.
-
-| Layer                   | What                                                                                    | Autonomously verifiable?                                         |
-| ----------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| L1 CLI-driver core      | spawn `openmeld … --json`, parse the envelope, typed results, exit-code map                  | YES — unit tests (mock child_process)                            |
-| L2 State model          | status/agents `--json` → GUI view-state (running/stopped, agent list, update-available) | YES — pure-function unit tests                                   |
-| L3 Renderer components  | React onboarding/status views reusing the design language                               | PARTIAL — jsdom component tests (render logic), not the real app |
-| L4 Electron main wiring | tray, window, IPC, openExternal, app lifecycle                                          | NO — needs Electron runtime + display                            |
-| L5 Build / package      | electron-builder config, unsigned per-platform artifacts                                | NO — needs a build host (Mac for `.dmg`)                         |
-| L6 Smoke + publish      | launch app, click tray, walk onboarding, see service start; upload to R2                | NO — needs a real machine + Felix sign-off                       |
-
-Autonomous max = **L1 + L2 fully tested + L3 component tests**. L4–L6 need Felix / a
-real machine. L1–L2 are contract-bound (the `--json` surface is frozen by tests), so
-building them does NOT depend on the in-flux CLI internals — they are the one piece
-safe to build ahead of CLI stabilization.
+Reuse the established CLI binary and Apple signing mechanisms when completing
+distribution; do not create another release credential or update system.
+Developer ID presence, Doppler names, portal access, build success, signing,
+notarization, installation, and visible product smoke are separate evidence.
+Desktop versions remain diagnostics and app-update facts, never Wake gates.

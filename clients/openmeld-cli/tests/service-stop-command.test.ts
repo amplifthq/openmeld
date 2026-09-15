@@ -30,9 +30,13 @@ const runtime = {
 describe("managed OpenMeld Service stop", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    requestLocalDaemonShutdownMock.mockReset();
   });
 
-  it("stops a crash-looping manager when the daemon control socket is absent", async () => {
+  it.each([
+    false,
+    true,
+  ])("completes manager cleanup with an absent socket (already drained: %s)", async (controlledShutdownComplete) => {
     await withTempHome(async () => {
       const calls: string[] = [];
       const managerStatus = {
@@ -74,13 +78,21 @@ describe("managed OpenMeld Service stop", () => {
 
       await expect(
         stopManagedCurrentLaneDaemonService({
+          controlledShutdownComplete,
           mode: "best_effort",
           ownerSnapshot,
           runtime,
         })
       ).resolves.toMatchObject({ status: "stopped", signal: "system" });
 
-      expect(calls).toEqual(["disableAutostart", "stop", "status"]);
+      expect(calls).toEqual(
+        controlledShutdownComplete
+          ? ["stop", "status"]
+          : ["disableAutostart", "stop", "status"]
+      );
+      expect(requestLocalDaemonShutdownMock).toHaveBeenCalledTimes(
+        controlledShutdownComplete ? 0 : 1
+      );
     });
   });
 

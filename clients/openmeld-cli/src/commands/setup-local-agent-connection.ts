@@ -90,6 +90,7 @@ export type SetupLocalAgentConnectionResult =
     };
 
 export async function runSetupLocalAgentConnection(input: {
+  connectionIntent?: import("@openmeld/schemas").ComputerConnectionIntent;
   profile?: string;
   humanProfile?: string;
   agent?: string[];
@@ -126,6 +127,7 @@ export async function runSetupLocalAgentConnection(input: {
   if (input.startSession && deviceCode) {
     return buildPrepareSessionSetupResult(
       await runComputerAuthorizationHandoff({
+        connectionIntent: input.connectionIntent,
         deviceCode,
         interactive,
         localAgentSelection: resolvePrepareSessionLocalAgentSelection(input),
@@ -623,7 +625,7 @@ async function maybeCompleteServiceReadinessAfterPreparation(input: {
   }
 
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intent: "status_cleanup",
   });
   const wakeability = classifyDaemonServiceWakeability({

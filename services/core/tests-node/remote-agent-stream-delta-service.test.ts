@@ -1,6 +1,7 @@
 import type {
   RemoteAgentStreamDeltaCallbackBody,
   RemoteAgentStreamPartCallbackBody,
+  ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -66,6 +67,7 @@ describe("Remote Agent stream delta service", () => {
         streamId: "stream:sub_1",
         thinkingSnapshot: "Checking the current Space state",
         triggerMessageId: "signal_trigger_1",
+        replyThreadRootSignalId: "signal_trigger_1",
         v: 1,
       });
     } finally {
@@ -851,7 +853,22 @@ function buildEnv(
   rpcApplyAgentStreamDelta: ReturnType<typeof vi.fn>,
   rpcApplyAgentStreamPart: ReturnType<typeof vi.fn> = vi.fn()
 ): CoreBindings {
-  const spaceStub = { rpcApplyAgentStreamDelta, rpcApplyAgentStreamPart };
+  const spaceStub = {
+    rpcApplyAgentStreamDelta,
+    rpcApplyAgentStreamPart,
+    rpcResolveNativeReplyPlacement: async (
+      input: ResolveNativeReplyPlacementInput
+    ) => ({
+      dispatchId: input.dispatchId,
+      sourceSignalId: input.sourceSignalId,
+      profileId: input.profileId,
+      threadContext: {
+        threadId: "thr_11111111-1111-4111-8111-111111111111",
+        rootSignalId: input.sourceSignalId,
+      },
+      locked: input.lock,
+    }),
+  };
   return {
     OPENMELD_DB: db,
     OPENMELD_LOCAL_STATE_DB: db,

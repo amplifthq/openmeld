@@ -24,6 +24,7 @@ import { DotsThreeIcon, PencilSimpleIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { ForgetThisComputerAction } from "#/components/agents/forget-this-computer-action";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import type { ComputerSummaryStatus } from "#/lib/computer-summary-status";
 import {
 	type ComputerRecordState,
@@ -293,132 +294,136 @@ export function ComputerActionsDialog(input: {
 						/>
 					</dl>
 
-					<div className="space-y-3 border border-border p-3">
-						<div className="flex items-center justify-between gap-3">
-							<div>
-								<h3 className="font-medium text-sm">Rename</h3>
-								<p className="text-muted-foreground text-xs">
-									Use a clear name you will recognize later.
-								</p>
-							</div>
-							{isRenaming ? null : (
-								<Button
-									onClick={() => {
-										setIsRenaming(true);
-										setMessage(null);
-									}}
-									size="sm"
-									type="button"
-									variant="outline"
-								>
-									<PencilSimpleIcon
-										aria-hidden="true"
-										data-icon="inline-start"
-									/>
-									Rename
-								</Button>
-							)}
-						</div>
-
-						{isRenaming ? (
-							<div className="space-y-3">
-								<div className="space-y-2">
-									<Label
-										htmlFor={`agents-computer-tab-name-${input.computer.deviceId}`}
-									>
-										Computer name
-									</Label>
-									<Input
-										disabled={isSavingName}
-										id={`agents-computer-tab-name-${input.computer.deviceId}`}
-										onChange={(event) => setDraftName(event.target.value)}
-										placeholder="Office MacBook"
-										value={draftName}
-									/>
+					{canConfigureLocalComputer() ? (
+						<div className="space-y-3 border border-border p-3">
+							<div className="flex items-center justify-between gap-3">
+								<div>
+									<h3 className="font-medium text-sm">Rename</h3>
+									<p className="text-muted-foreground text-xs">
+										Use a clear name you will recognize later.
+									</p>
 								</div>
-								<div className="flex flex-wrap gap-2">
+								{isRenaming ? null : (
 									<Button
-										disabled={isSavingName}
 										onClick={() => {
-											saveName(draftName).catch((error: unknown) => {
-												console.error("Failed to save computer name.", error);
-											});
-										}}
-										size="sm"
-										type="button"
-									>
-										Save name
-									</Button>
-									<Button
-										disabled={isSavingName}
-										onClick={() => {
-											saveName(null).catch((error: unknown) => {
-												console.error(
-													"Failed to use system computer name.",
-													error
-												);
-											});
+											setIsRenaming(true);
+											setMessage(null);
 										}}
 										size="sm"
 										type="button"
 										variant="outline"
 									>
-										Use system name
+										<PencilSimpleIcon
+											aria-hidden="true"
+											data-icon="inline-start"
+										/>
+										Rename
 									</Button>
-									<Button
-										disabled={isSavingName}
-										onClick={() => {
-											setIsRenaming(false);
-											setDraftName(input.computer.deviceDisplayName);
-											setMessage(null);
-										}}
-										size="sm"
-										type="button"
-										variant="ghost"
-									>
-										Cancel
-									</Button>
-								</div>
+								)}
 							</div>
-						) : null}
-					</div>
 
-					<div className="space-y-3 rounded-md border border-destructive/30 p-3">
-						<div>
-							<h3 className="font-medium text-destructive text-sm">
-								Remove computer
-							</h3>
-							<p className="text-muted-foreground text-xs">
-								{input.recordState.kind === "older_same_name_record"
-									? "Remove this older record if you no longer use it."
-									: "Remove this computer record from your OpenMeld account."}
-							</p>
+							{isRenaming ? (
+								<div className="space-y-3">
+									<div className="space-y-2">
+										<Label
+											htmlFor={`agents-computer-tab-name-${input.computer.deviceId}`}
+										>
+											Computer name
+										</Label>
+										<Input
+											disabled={isSavingName}
+											id={`agents-computer-tab-name-${input.computer.deviceId}`}
+											onChange={(event) => setDraftName(event.target.value)}
+											placeholder="Office MacBook"
+											value={draftName}
+										/>
+									</div>
+									<div className="flex flex-wrap gap-2">
+										<Button
+											disabled={isSavingName}
+											onClick={() => {
+												saveName(draftName).catch((error: unknown) => {
+													console.error("Failed to save computer name.", error);
+												});
+											}}
+											size="sm"
+											type="button"
+										>
+											Save name
+										</Button>
+										<Button
+											disabled={isSavingName}
+											onClick={() => {
+												saveName(null).catch((error: unknown) => {
+													console.error(
+														"Failed to use system computer name.",
+														error
+													);
+												});
+											}}
+											size="sm"
+											type="button"
+											variant="outline"
+										>
+											Use system name
+										</Button>
+										<Button
+											disabled={isSavingName}
+											onClick={() => {
+												setIsRenaming(false);
+												setDraftName(input.computer.deviceDisplayName);
+												setMessage(null);
+											}}
+											size="sm"
+											type="button"
+											variant="ghost"
+										>
+											Cancel
+										</Button>
+									</div>
+								</div>
+							) : null}
 						</div>
-						<ForgetThisComputerAction
-							compact
-							computerName={input.computer.deviceDisplayName}
-							helperText={null}
-							onForget={async () => {
-								setMessage(null);
-								await input.recovery.forgetComputer({
-									deviceId: input.computer.deviceId,
-								});
-							}}
-							onForgotten={() => {
-								setMessage(
-									input.computer.isCurrent
-										? "This computer was forgotten. Set it up again when you want local agents here."
-										: "This computer was forgotten."
-								);
-								input.recovery.refreshAll().catch((error: unknown) => {
-									console.error(
-										"Failed to refresh computers after forgetting one.",
-										error
+					) : null}
+
+					{canConfigureLocalComputer() ? (
+						<div className="space-y-3 rounded-md border border-destructive/30 p-3">
+							<div>
+								<h3 className="font-medium text-destructive text-sm">
+									Remove computer
+								</h3>
+								<p className="text-muted-foreground text-xs">
+									{input.recordState.kind === "older_same_name_record"
+										? "Remove this older record if you no longer use it."
+										: "Remove this computer record from your OpenMeld account."}
+								</p>
+							</div>
+							<ForgetThisComputerAction
+								compact
+								computerName={input.computer.deviceDisplayName}
+								helperText={null}
+								onForget={async () => {
+									setMessage(null);
+									await input.recovery.forgetComputer({
+										deviceId: input.computer.deviceId,
+									});
+								}}
+								onForgotten={() => {
+									setMessage(
+										input.computer.isCurrent
+											? "This computer was forgotten. Set it up again when you want local agents here."
+											: "This computer was forgotten."
 									);
-								});
-							}}
-						/>
-					</div>
+									input.recovery.refreshAll().catch((error: unknown) => {
+										console.error(
+											"Failed to refresh computers after forgetting one.",
+											error
+										);
+									});
+								}}
+							/>
+						</div>
+					) : null}
 
 					{message ? (
 						<p

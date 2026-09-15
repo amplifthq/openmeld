@@ -11,6 +11,7 @@ import { runAgentControllerTaskRetention } from "../agent-task-coordination/infr
 import { retryPendingCenterAgentWakePublications } from "../center-agent/application/center-agent-wake-publication-service";
 import { shouldWriteDestinationNeutralTaskContinuations } from "../center-agent/application/task-continuation-rollout";
 import { runCenterAgentMemberResearchTick } from "../center-agent-member-research/member-research-service";
+import { deleteExpiredServiceConnectionIncidents } from "../computers/service-connection-evidence-repo";
 import { retryPendingPreHeadFailurePublications } from "../dispatch/application/dispatch-queue-service";
 import { runWakeEvidenceRetentionIfSplitActive } from "../dispatch/infrastructure/d1/wake-evidence-retention";
 import {
@@ -820,9 +821,36 @@ async function runScheduledRetention(input: {
   const agentActivityFailure = await runAgentActivityScheduledRetention(input);
   const agentControllerTaskFailure =
     await runAgentControllerTaskScheduledRetention(input);
-  return [agentActivityFailure, agentControllerTaskFailure].filter(
-    (failure) => failure !== null
-  );
+  const connectionHistoryFailure = await runServiceConnectionRetention(input);
+  return [
+    agentActivityFailure,
+    agentControllerTaskFailure,
+    connectionHistoryFailure,
+  ].filter((failure) => failure !== null);
+}
+
+async function runServiceConnectionRetention(input: {
+  env: CoreBindings;
+  nowMs: number;
+}) {
+  try {
+    const db = wakeEvidenceDb(input.env);
+    if (!db) {
+      throw new Error("Connection history database is unavailable.");
+    }
+    const result = await deleteExpiredServiceConnectionIncidents({
+      db,
+      nowMs: input.nowMs,
+    });
+    console.info("[core.connection_history.retention]", result);
+    return null;
+  } catch (error) {
+    console.error(
+      "[core.connection_history.retention_failed]",
+      summarizeScheduledError(error)
+    );
+    return error;
+  }
 }
 
 async function runAgentControllerTaskScheduledRetention(input: {

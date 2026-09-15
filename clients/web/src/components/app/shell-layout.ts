@@ -18,6 +18,7 @@ export type AppShellSection =
 	| "space"
 	| "start";
 export type AppOuterRailDestination =
+	| "inbox"
 	| "newAgent"
 	| "agentActivity"
 	| "agents"
@@ -112,6 +113,7 @@ export function resolveAppOuterRailDestinationFromMatches(
 		case "directMessages":
 		case "documents":
 		case "home":
+		case "inbox":
 		case "people":
 		case "projects":
 		case "settings":
@@ -120,7 +122,6 @@ export function resolveAppOuterRailDestinationFromMatches(
 			return "directMessages";
 		case "onboarding":
 		case "organizations":
-		case "inbox":
 			return null;
 		case "connect":
 		case "space":

@@ -7,11 +7,41 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createTooltipHandle,
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "./tooltip";
+
+function SharedTips() {
+  const handle = createTooltipHandle<string>();
+  return (
+    <>
+      <TooltipTrigger
+        aria-describedby="shared-tooltip"
+        delay={500}
+        handle={handle}
+        payload="Settings details"
+      >
+        Settings
+      </TooltipTrigger>
+      <TooltipTrigger
+        aria-describedby="shared-tooltip"
+        delay={500}
+        handle={handle}
+        payload="Account details"
+      >
+        Account
+      </TooltipTrigger>
+      <Tooltip handle={handle}>
+        {({ payload }) => (
+          <TooltipContent id="shared-tooltip">{payload}</TooltipContent>
+        )}
+      </Tooltip>
+    </>
+  );
+}
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -42,18 +72,18 @@ describe("Fluid tooltip delay", () => {
   it.each([
     false,
     true,
+    "shared",
   ])("waits 500ms with an app provider: %s", async (grouped) => {
     const tip = <Tip label="Settings" />;
-    render(
-      grouped ? (
-        <TooltipProvider>
-          {tip}
-          <Tip label="Account" />
-        </TooltipProvider>
-      ) : (
-        tip
-      )
+    const content = grouped ? (
+      <TooltipProvider>
+        {tip}
+        <Tip label="Account" />
+      </TooltipProvider>
+    ) : (
+      tip
     );
+    render(grouped === "shared" ? <SharedTips /> : content);
     const trigger = screen.getByRole("button", { name: "Settings" });
     fireEvent.mouseEnter(trigger);
     fireEvent.mouseMove(trigger);

@@ -2559,7 +2559,8 @@ export async function runAgentsRepair(
     EnableChoiceCandidate["launchContract"]
   >();
   const repairOutcome = await collectRepairLaunchActions({
-    allowReadyForInstallChange: input.changeInstall === true,
+    allowReadyForInstallChange:
+      input.changeInstall === true || explicitInstallId !== null,
     explicitInstallId,
     interactiveChoiceAllowed: resolveInteractiveChoiceAllowed({
       all: input.all,

@@ -4,7 +4,6 @@ import { readPendingAgentProfileCreationLocalSetup } from "#/lib/profiles/agent-
 
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import type {
-	AgentProfileCreationRequest,
 	AuthProfileView,
 	ModelCatalog,
 	OrganizationAgentRuntimeOverviewResponse,
@@ -12,13 +11,22 @@ import type {
 } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import {
+	type ReactNode,
+	useEffect,
+	useEffectEvent,
+	useMemo,
+	useState,
+} from "react";
 import {
 	type AgentProfileActivityNavigation,
 	resolveAgentProfileActivityPreview,
 } from "#/components/agents/agent-profile-activity-preview";
 import { AgentProfileCreationRequestsPanel } from "#/components/agents/agent-profile-creation-requests-panel";
-import { AgentProfilesWorkspace } from "#/components/agents/agent-profiles-workspace";
+import {
+	AgentProfilesWorkspace,
+	type AgentProfilesWorkspaceProps,
+} from "#/components/agents/agent-profiles-workspace";
 import { AgentProfilesCard } from "#/components/agents/agents-page-agent-profiles-card";
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
@@ -42,7 +50,11 @@ import {
 	organizationProfileDirectoryQueryOptions,
 	organizationQueryKeys,
 } from "#/query/organizations/organization-directory";
-import { agentProfileCreationRequestsQueryOptions } from "#/query/profiles/agent-profile-creation-requests";
+import {
+	agentProfileCreationRequestsQueryOptions,
+	optimisticAgentProfileCreationsQueryOptions,
+	removeOptimisticAgentProfileCreation,
+} from "#/query/profiles/agent-profile-creation-requests";
 import { startQueryKeys } from "#/query/query-keys";
 
 export type ProfileHomeId = "agents" | "people";
@@ -151,25 +163,23 @@ export function PeopleAndAgentsPage(input: {
 			console.error("Failed to open the created profile.", error);
 		});
 	};
-	const handleAgentRequestCreated = (request: AgentProfileCreationRequest) => {
-		if (request.status === "completed" && request.createdAgentProfileId) {
-			navigate({
-				search: {
-					profileId: request.createdAgentProfileId,
-				},
-				to: profileHomeRoutes.agents,
-			}).catch((error: unknown) => {
-				console.error("Failed to open the created Agent.", error);
-			});
-			return;
-		}
-		input.onAgentViewChange?.("requests");
-	};
 	const createProfileDialog = isCreateProfileOpen ? (
 		<CreateProfileDialog
 			allowTeammateRequests={isOrganizationContext}
 			currentUserId={currentUserId}
-			onAgentRequestCreated={handleAgentRequestCreated}
+			onAgentRequestAccepted={(request, optimisticId) => {
+				if (
+					new URLSearchParams(window.location.search).get("requestId") !==
+					optimisticId
+				) {
+					return;
+				}
+				input.onAgentViewChange?.("agents", request.id);
+			}}
+			onAgentRequestStarted={(creation) => {
+				setIsCreateProfileOpen(false);
+				input.onAgentViewChange?.("agents", creation.id);
+			}}
 			onOpenChange={setIsCreateProfileOpen}
 			onProfileCreated={handleProfileCreated}
 			open={true}
@@ -519,10 +529,16 @@ function AgentsWorkspaceHome(input: {
 	const sidebarSelectedProfileId = input.selectedProfileId;
 	const requestsQuery = useQuery(
 		agentProfileCreationRequestsQueryOptions({
-			enabled: input.isOrganizationContext,
+			enabled: true,
 			organizationId: input.organizationId,
 		})
 	);
+	const optimisticCreationsQuery = useQuery(
+		optimisticAgentProfileCreationsQueryOptions(input.organizationId)
+	);
+	const optimisticCreations = Array.isArray(optimisticCreationsQuery.data)
+		? optimisticCreationsQuery.data
+		: [];
 	const pendingRequestCount =
 		requestsQuery.data?.requests?.filter(
 			(request) =>
@@ -537,6 +553,56 @@ function AgentsWorkspaceHome(input: {
 						})
 					))
 		).length ?? 0;
+	const selectCreatedProfile = useEffectEvent(input.onSelectProfile);
+	useEffect(() => {
+		let cancelled = false;
+		if (!input.focusRequestId) {
+			return;
+		}
+		const focusedRequest = requestsQuery.data?.requests.find(
+			(request) => request.id === input.focusRequestId
+		);
+		if (
+			focusedRequest?.status === "completed" &&
+			focusedRequest.createdAgentProfileId
+		) {
+			const createdAgentProfileId = focusedRequest.createdAgentProfileId;
+			Promise.all([
+				queryClient.invalidateQueries({
+					queryKey: startQueryKeys.profilesForStorageScope(
+						input.recovery.storageScope
+					),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.profileDirectory(
+						input.organizationId
+					),
+				}),
+				queryClient.invalidateQueries({
+					queryKey: organizationQueryKeys.agentRuntimeOverview(
+						input.organizationId
+					),
+				}),
+			])
+				.then(() => {
+					if (!cancelled) {
+						selectCreatedProfile(createdAgentProfileId);
+					}
+				})
+				.catch((error: unknown) => {
+					console.error("Failed to open the created Agent.", error);
+				});
+		}
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		input.focusRequestId,
+		input.organizationId,
+		input.recovery.storageScope,
+		queryClient,
+		requestsQuery.data,
+	]);
 	const profilesStatus = resolveAgentProfilesStatus({
 		isError: input.profileDirectoryQuery.isError,
 		isPending: input.profileDirectoryQuery.isPending,
@@ -581,6 +647,10 @@ function AgentsWorkspaceHome(input: {
 				organizationAgentProjection.agentControllerRefByProfileId
 			}
 			agentProfiles={agentProfiles}
+			creationRequests={[
+				...optimisticCreations,
+				...(requestsQuery.data?.requests ?? []),
+			]}
 			errorByProfileId={errorByProfileId}
 			input={input}
 			operationalContextByProfileId={operationalContextByProfileId}
@@ -611,6 +681,9 @@ function AgentsWorkspaceHomeView(input: {
 		>;
 	};
 	agentProfiles: readonly AuthProfileView[];
+	creationRequests: NonNullable<
+		AgentProfilesWorkspaceProps["creationRequests"]
+	>;
 	agentControllerRefByProfileId: ReadonlyMap<string, string | null>;
 	errorByProfileId: ReadonlyMap<string, string>;
 	input: Parameters<typeof AgentsWorkspaceHome>[0];
@@ -641,6 +714,7 @@ function AgentsWorkspaceHomeView(input: {
 			canCreateAgent={
 				!workspace.ownerId || workspace.ownerId === workspace.currentUserId
 			}
+			creationRequests={input.creationRequests}
 			currentUserId={workspace.currentUserId}
 			directoryProfiles={
 				workspace.profileDirectoryQuery.data?.agentProfiles ?? []
@@ -658,6 +732,16 @@ function AgentsWorkspaceHomeView(input: {
 			members={workspace.profileDirectoryQuery.data?.members ?? []}
 			modelCatalog={workspace.modelCatalog}
 			onCreateAgent={workspace.onCreateAgent}
+			onDismissCreation={(id) =>
+				removeOptimisticAgentProfileCreation({
+					id,
+					organizationId: workspace.organizationId,
+					queryClient: input.queryClient,
+				})
+			}
+			onOpenCreationRequest={(requestId) =>
+				workspace.onViewChange("requests", requestId)
+			}
 			onSelectProfile={workspace.onSelectProfile}
 			onViewChange={workspace.onViewChange}
 			operationalContextByProfileId={input.operationalContextByProfileId}

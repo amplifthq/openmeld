@@ -239,6 +239,26 @@ describe("BrowserQueryPersistenceController", () => {
 			openMeldProfileId: "profile-a",
 		});
 		const history = {
+			threadDisplay: {
+				threads: [
+					{
+						threadId: "thr_11111111-1111-4111-8111-111111111111",
+						spaceId: "space-a",
+						rootSignalId: "signal-a",
+						createdByProfileId: "11111111-1111-4111-8111-111111111111",
+						createdAt: "2026-08-11T00:00:00.000Z",
+						updatedAt: "2026-08-11T00:00:00.000Z",
+					},
+				],
+				previews: [
+					{
+						threadId: "thr_11111111-1111-4111-8111-111111111111",
+						replyCount: 3,
+						signals: [createTextSignal("reply-a", "space-a", "profile-a")],
+						placements: [],
+					},
+				],
+			},
 			envelopes: [
 				{
 					...createTextSignal("signal-a", "space-a", "profile-a"),

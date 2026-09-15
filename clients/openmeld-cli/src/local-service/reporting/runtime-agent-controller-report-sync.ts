@@ -56,7 +56,6 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
       family: "runtime_agent_controller",
       message: "Local agent inventory collection failed.",
       reasonCode: "runtime.reporting.inventory_failed",
-      requiresCarrierHandshake: false,
       status: "failed",
     });
     throw error;
@@ -89,7 +88,6 @@ export async function syncLocalServiceRuntimeAgentControllerReports(input: {
       family: "runtime_agent_controller",
       message: "No local controllers are installed on this computer.",
       reasonCode: "runtime.agent_controller_report.no_local_controllers",
-      requiresCarrierHandshake: false,
       status: "not_applicable",
     });
     return {

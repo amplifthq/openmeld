@@ -5,6 +5,7 @@ import {
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
   agentProfileCreationRequestMutationResponseSchema,
+  agentReplyPlacementSchema,
   agentTaskHandleSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
@@ -121,6 +122,7 @@ import {
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
   MAX_TEXT_LENGTH,
+  nativeReplyPlacementSchema,
   OPPORTUNITY_DECISIONS,
   OPPORTUNITY_EVIDENCE_MAX_CHARS,
   OPPORTUNITY_EVIDENCE_MAX_ITEMS,
@@ -1308,6 +1310,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_recommend_opportunity",
   "openmeld_respond_to_opportunity",
   "openmeld_read_center_agent_activity",
+  "openmeld_set_reply_placement",
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
   "openmeld_list_space_files",
@@ -1424,6 +1427,7 @@ const REMOTE_AGENT_OBSERVATION_TOOL_NAME_SET =
   new Set<RemoteAgentOpenMeldToolName>(REMOTE_AGENT_OBSERVATION_TOOL_NAMES);
 
 export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
+  "openmeld_set_reply_placement",
   "openmeld_install_organization_skill",
   "openmeld_list_opportunities",
   "openmeld_read_center_agent_turn_diagnostics",
@@ -3082,6 +3086,33 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             actionSet: "v21",
             ...(payload.limit === undefined ? {} : { limit: payload.limit }),
             context,
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_set_reply_placement",
+      description:
+        "Choose where this turn's reply will appear before writing the answer. In a shared Space, the default is the thread under the triggering message; existing thread conversations continue there. Direct messages default to a direct reply. When the user explicitly asks for the main conversation, choose conversation. The choice applies to this turn's streamed answer and final outcome. Once the answer starts, its placement is fixed.",
+      input: object({
+        placement: picklist(["conversation", "thread"] as const),
+      }),
+      execute: async (payload) => {
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_set_reply_placement",
+        });
+        const rpc = input.coreWorker.centerAgentSetReplyPlacement;
+        if (!rpc) {
+          throw new Error(
+            "Reply placement is unavailable on this Core version."
+          );
+        }
+        return nativeReplyPlacementSchema.parse(
+          await rpc({
+            context,
+            placement: agentReplyPlacementSchema.parse(payload.placement),
           })
         );
       },

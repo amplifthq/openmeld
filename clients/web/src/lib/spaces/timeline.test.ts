@@ -246,6 +246,37 @@ describe("space timeline helpers", () => {
 		});
 	});
 
+	it("presents a retained empty-reply failure as failure rather than an Agent reply", () => {
+		const failure = createTextSignal({
+			id: "old-empty-reply",
+			ts: 30,
+			text: "Old internal error",
+			profile: {
+				kind: "agent",
+				profileId: "agt_123",
+				profileName: "Center Agent",
+			},
+			meta: {
+				dispatchId: "failed-dispatch",
+				errorCode: "remote_agent.empty_assistant_response",
+				purpose: REMOTE_AGENT_FAILURE_PURPOSE,
+			},
+		});
+		const items = buildSpaceTimelineItems({
+			envelopes: [failure],
+			membersSnapshot: createMembersSnapshot(),
+			agentStreams: [],
+		});
+		expect(items[0]).toMatchObject({
+			signalType: "signal.system_notice",
+			systemNoticeType: "terminal_failure",
+			systemNoticeDispatchId: "failed-dispatch",
+			systemNoticeTargetProfileId: "agt_123",
+			isAgentFinalReply: false,
+			text: "Center Agent couldn't generate a reply. Your message is saved.",
+		});
+	});
+
 	it.each([
 		{
 			expectedAgentControllerRef: "builtin:claude",
@@ -397,7 +428,10 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("keeps a Thread stream out of the main conversation and in its Thread", () => {
+	it.each([
+		false,
+		true,
+	])("keeps a Thread stream out of main, including a main-message trigger (%s)", (mainTrigger) => {
 		const rootSignal = createTextSignal({
 			id: "signal-thread-root",
 			text: "Start a Thread here.",
@@ -415,7 +449,8 @@ describe("space timeline helpers", () => {
 			}),
 			reasonCode: "model.inventory_unavailable",
 			status: "failed" as const,
-			triggerMessageId: threadMessage.id,
+			triggerMessageId: mainTrigger ? rootSignal.id : threadMessage.id,
+			...(mainTrigger ? { replyThreadRootSignalId: rootSignal.id } : {}),
 		};
 
 		const mainItems = buildSpaceTimelineItems({

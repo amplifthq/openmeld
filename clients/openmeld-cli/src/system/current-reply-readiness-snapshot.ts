@@ -132,6 +132,7 @@ export async function resolveCurrentReplyReadinessSnapshot(
     ownerUserId?: string | null;
     preferActiveServiceRouteCatalog?: boolean;
     profile?: OpenMeldProfile | null;
+    primaryAgentControllerReport?: AgentProfilePrimaryAgentControllerReport | null;
     runtimeProjection?: DeviceRuntimeStateSyncResult | null;
     runtimeWorkdir?: string;
   } = {}
@@ -149,11 +150,13 @@ export async function resolveCurrentReplyReadinessSnapshot(
     ...(input.baseUrl ? { baseUrl: input.baseUrl } : {}),
   });
   const primaryAgentControllerReportPromise =
-    resolvePrimaryAgentControllerReportForSnapshot({
-      baseUrl: input.baseUrl,
-      bindingReads,
-      profile: input.profile ?? null,
-    });
+    input.primaryAgentControllerReport !== undefined
+      ? Promise.resolve(input.primaryAgentControllerReport)
+      : resolvePrimaryAgentControllerReportForSnapshot({
+          baseUrl: input.baseUrl,
+          bindingReads,
+          profile: input.profile ?? null,
+        });
   const daemonRouteObservationPromise = resolveDaemonRouteObservation({
     baseUrl: input.baseUrl,
     includeDaemonRouteObservation: input.includeDaemonRouteObservation === true,
@@ -325,14 +328,14 @@ function resolveRuntimeStatusForSnapshot(input: {
   return resolveDaemonRuntimeState(input.daemonStatus).catch(() => null);
 }
 
-function resolveInventoryForSnapshot(
+async function resolveInventoryForSnapshot(
   localServiceObservation?: CurrentReplyReadinessLocalServiceObservation
 ): Promise<DaemonServiceInventory | null> {
   if (localServiceObservation) {
     return Promise.resolve(localServiceObservation.inventory);
   }
   return inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intent: "status_cleanup",
   }).catch(() => null);
 }

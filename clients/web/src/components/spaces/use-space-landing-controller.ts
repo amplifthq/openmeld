@@ -45,7 +45,10 @@ import {
 } from "#/lib/composer-draft-storage";
 import { updateProfileSpaceHistoryStatus } from "#/lib/onboarding/update-profile-space-history-status";
 import { upsertProfileSpaceHistory } from "#/lib/onboarding/upsert-profile-space-history";
-import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationSpacePath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
 import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
@@ -86,7 +89,10 @@ import type {
 } from "#/lib/spaces/wake-stop-target";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
-import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
+import {
+	accountSpaceQueryKeys,
+	updateAccountSpaceAcceptedMessage,
+} from "#/query/spaces/account-spaces";
 import {
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
@@ -130,6 +136,10 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
+import {
+	optimisticallyRemoveSpaceFromListCaches,
+	restoreSpaceListCaches,
+} from "./space-delete-cache";
 import { useSpaceEntryConfirmation } from "./space-entry-confirmation";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import type {
@@ -747,6 +757,7 @@ function reportComposerSendFailure(input: {
 
 function useSpaceBootstrapQueryCache(input: {
 	bootstrap: SpaceBootstrapSnapshot | null;
+	bootstrapUpdatedAt: number;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
@@ -758,11 +769,18 @@ function useSpaceBootstrapQueryCache(input: {
 
 		applySpaceBootstrapSnapshotToCache({
 			bootstrap: input.bootstrap,
+			bootstrapUpdatedAt: input.bootstrapUpdatedAt,
 			queryClient: input.queryClient,
 			spaceId: input.spaceId,
 			viewerProfileId: input.profileId,
 		});
-	}, [input.bootstrap, input.profileId, input.queryClient, input.spaceId]);
+	}, [
+		input.bootstrap,
+		input.bootstrapUpdatedAt,
+		input.profileId,
+		input.queryClient,
+		input.spaceId,
+	]);
 }
 
 export async function hardRefreshSpaceStatusAndMembers(input: {
@@ -843,6 +861,7 @@ function useSpaceLandingBootstrapState(input: {
 	);
 	useSpaceBootstrapQueryCache({
 		bootstrap: bootstrapQuery.data ?? null,
+		bootstrapUpdatedAt: bootstrapQuery.dataUpdatedAt,
 		profileId: input.profileId,
 		queryClient: input.queryClient,
 		spaceId: input.spaceId,
@@ -1073,6 +1092,7 @@ export type SpaceLandingController =
 	  }
 	| {
 			activeThread: SpaceThread | null;
+			threadPanelOpen: boolean;
 			agentStreams: readonly SpaceConversationVisibleStreamProjection[];
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
@@ -1327,6 +1347,8 @@ function showSpaceExecutionRecoveryFailureToast(input: {
 }
 
 export function useSpaceLandingController(input: {
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
 	centerAgentProfileId?: string | null;
 	initialComposerDraft?: ComposerDraftRecord | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
@@ -1776,6 +1798,7 @@ export function useSpaceLandingController(input: {
 		membersRefetch: membersQuery.refetch,
 		membersSnapshot,
 		initialThreads: bootstrapQuery.data?.threads ?? null,
+		displayHistory: historySnapshot,
 		onWakeProgressItems: mergeConversationWakeProgressItems,
 		onWakeProgressRemoveClientMessageId:
 			removeConversationWakeProgressItemsForClientMessageId,
@@ -1787,8 +1810,11 @@ export function useSpaceLandingController(input: {
 		spaceId: input.spaceId,
 		status: statusSnapshot,
 		threadsEnabled: false,
+		initialFocusSignalId: input.initialFocusSignalId,
+		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 		threadsLoading:
-			bootstrapQuery.isPending && bootstrapQuery.data === undefined,
+			bootstrapQuery.isFetching ||
+			(bootstrapQuery.isPending && bootstrapQuery.data === undefined),
 		statusReady,
 		statusRefetch: statusQuery.refetch,
 	});
@@ -1814,6 +1840,11 @@ export function useSpaceLandingController(input: {
 			signalId: string;
 			threadId?: string;
 		}) => {
+			setThreadUnreadFocus({
+				rootSignalId: target.rootSignalId,
+				signalId: target.signalId,
+				spaceId: input.spaceId,
+			});
 			const opened = await threadController.onOpenUnreadThread({
 				rootSignalId: target.rootSignalId,
 				...(target.threadId ? { threadId: target.threadId } : {}),
@@ -1821,11 +1852,6 @@ export function useSpaceLandingController(input: {
 			if (!opened) {
 				return false;
 			}
-			setThreadUnreadFocus({
-				rootSignalId: target.rootSignalId,
-				signalId: target.signalId,
-				spaceId: input.spaceId,
-			});
 			return true;
 		},
 		[input.spaceId, threadController.onOpenUnreadThread]
@@ -2270,6 +2296,7 @@ export function useSpaceLandingController(input: {
 
 	return {
 		activeThread: threadController.activeThread,
+		threadPanelOpen: threadController.threadPanelOpen,
 		agentStreams: agentStreamProjections,
 		composerAddressingTargets: resolveComposerAddressingTargets({
 			addressingTargets: mentionAuthoring.addressingTargets,
@@ -2837,6 +2864,7 @@ export function useSpaceLandingController(input: {
 				targetProfileIds: wakeProgressTargetProfileIds,
 			});
 			mergePersistedIncoming([signal]);
+			updateAccountSpaceAcceptedMessage(queryClient, input.profileId, signal);
 			removePendingOutgoingSignal(
 				setPendingOutgoingSignals,
 				sendInput.clientMessageId
@@ -3147,13 +3175,31 @@ export function useSpaceLandingController(input: {
 	async function handleDeleteSpace() {
 		setIsDeletingSpace(true);
 		setDeleteSpaceErrorMessage(null);
+		let deleted = false;
+		let cacheSnapshot:
+			| Awaited<ReturnType<typeof optimisticallyRemoveSpaceFromListCaches>>
+			| undefined;
 
 		try {
+			cacheSnapshot = await optimisticallyRemoveSpaceFromListCaches({
+				organizationId: input.organizationId ?? null,
+				queryClient,
+				spaceId: input.spaceId,
+			});
+			navigate({
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
+				replace: true,
+			}).catch((error: unknown) =>
+				console.error("Could not open Browse Spaces.", error)
+			);
 			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).deleteSpace({
 				spaceId: input.spaceId,
 			});
+			deleted = true;
 
 			try {
 				await removeDeletedSpaceFromAccountHistory({
@@ -3170,6 +3216,11 @@ export function useSpaceLandingController(input: {
 			}
 
 			await Promise.all([
+				input.organizationId
+					? queryClient.invalidateQueries({
+							queryKey: organizationQueryKeys.spaces(input.organizationId),
+						})
+					: Promise.resolve(),
 				queryClient.invalidateQueries({
 					queryKey: spaceQueryKeys.status(input.spaceId, input.profileId),
 				}),
@@ -3184,16 +3235,40 @@ export function useSpaceLandingController(input: {
 				}),
 			]);
 			toast.success("Space deleted.");
-			await navigate({
-				to: input.orgSlug
-					? buildOrganizationSpacesPath(input.orgSlug)
-					: "/invitations",
-				replace: true,
-			});
 		} catch (error) {
+			if (deleted) {
+				toast.warning("Space deleted, but its lists could not be refreshed.");
+				console.error("Could not refresh lists after Space deletion.", error);
+				return;
+			}
 			const failure = toStructuredApiClientFailure(error);
-			setDeleteSpaceErrorMessage(resolveDeleteSpaceErrorMessage(failure));
+			const message = resolveDeleteSpaceErrorMessage(failure);
+			restoreSpaceListCaches(
+				queryClient,
+				input.organizationId ?? null,
+				cacheSnapshot
+			);
+			setDeleteSpaceErrorMessage(message);
+			toast.error(`Delete failed: ${message}`, {
+				duration: Number.POSITIVE_INFINITY,
+				closeButton: true,
+				action: {
+					label: "Open Space",
+					onClick: () => {
+						navigate({
+							to: input.orgSlug
+								? buildOrganizationSpacePath({
+										orgSlug: input.orgSlug,
+										spaceId: input.spaceId,
+										search: { profileId: input.profileId },
+									})
+								: `/spaces/${input.spaceId}`,
+						}).catch(console.error);
+					},
+				},
+			});
 		} finally {
+			cacheSnapshot?.stopKeepingRemoved();
 			setIsDeletingSpace(false);
 		}
 	}
@@ -3224,6 +3299,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const merged = mergePersistedIncoming(history.envelopes);
+			historyNavigation.revealCachedBefore(merged);
 			const nextEarliestVisibleSignalId =
 				getEarliestVisibleTimelineSignalId(merged);
 			if (nextEarliestVisibleSignalId === earliestVisibleSignalId) {
@@ -3267,6 +3343,9 @@ export function useSpaceLandingController(input: {
 }
 
 function useSpaceThreadController(input: {
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+	displayHistory: SpaceHistorySnapshot | null;
 	isMembersLoading: boolean;
 	initialThreads: ListSpaceThreadsResponse | null;
 	membersErrorMessage: string | null;
@@ -3297,7 +3376,33 @@ function useSpaceThreadController(input: {
 			enabled: input.statusReady && input.threadsEnabled,
 		})
 	);
-	const threadsSnapshot = threadsQuery.data ?? input.initialThreads;
+	const currentThreads = threadsQuery.data ?? input.initialThreads;
+	const threadsSnapshot =
+		currentThreads ?? input.displayHistory?.threadDisplay ?? null;
+	useLayoutEffect(() => {
+		if (!(currentThreads && input.displayHistory)) {
+			return;
+		}
+		input.queryClient.setQueryData<SpaceHistorySnapshot>(
+			spaceQueryKeys.history(input.spaceId, input.profileId),
+			(current) =>
+				current
+					? mergeSpaceHistorySnapshots({
+							current,
+							incoming: {
+								...current,
+								threadDisplay: currentThreads,
+							},
+						})
+					: current
+		);
+	}, [
+		currentThreads,
+		input.displayHistory,
+		input.queryClient,
+		input.spaceId,
+		input.profileId,
+	]);
 	const threads = threadsSnapshot?.threads ?? [];
 	const threadPreviews = threadsSnapshot?.previews ?? [];
 	const availableThreadIds = useMemo(
@@ -3305,6 +3410,11 @@ function useSpaceThreadController(input: {
 		[threads]
 	);
 	const threadPanelSelection = useSpaceThreadPanelSelection({
+		initialFocusSignalId: input.initialFocusSignalId,
+		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+		threadIdsByRootSignalId: new Map(
+			threads.map((thread) => [thread.rootSignalId, thread.threadId])
+		),
 		availableThreadIds,
 		availableThreadsReady: threadsQuery.isSuccess,
 		profileId: input.profileId,
@@ -3417,6 +3527,7 @@ function useSpaceThreadController(input: {
 
 	return {
 		activeThread,
+		threadPanelOpen: threadPanelSelection.isOpen,
 		isCreatingThread,
 		isSendingThreadMessage: isSendingMessage,
 		onCloseThread: closeThread,
@@ -3470,10 +3581,10 @@ function useSpaceThreadController(input: {
 		threadWakeRecommendationsEnabled:
 			threadSignalsQuery.data?.wakeContinuation?.automaticTargetProfileId ===
 			null,
-		threadSignalsErrorMessage: threadSignalsQuery.isError
-			? threadSignalsQuery.error.message
-			: null,
-		threadSignalsIsLoading: threadSignalsQuery.isPending,
+		threadSignalsErrorMessage: resolveThreadLoadError(),
+		threadSignalsIsLoading: activeThread
+			? threadSignalsQuery.isPending
+			: input.threadsLoading || threadsQuery.isFetching,
 		threadTextareaRef: mentionAuthoring.textareaRef,
 		threads,
 		threadsError: threadsQuery.error,
@@ -3490,6 +3601,26 @@ function useSpaceThreadController(input: {
 		composerSession.feedback.clear();
 	}
 
+	function resolveThreadLoadError(): string | null {
+		if (activeThread) {
+			return threadSignalsQuery.isError
+				? threadSignalsQuery.error.message
+				: null;
+		}
+		if (threadsQuery.isError) {
+			return threadsQuery.error.message;
+		}
+		if (
+			threadPanelSelection.requestedRootSignalId &&
+			!input.threadsLoading &&
+			!threadsQuery.isFetching &&
+			threadsSnapshot
+		) {
+			return "This linked thread isn’t available. It may have been removed or you may no longer have access.";
+		}
+		return null;
+	}
+
 	function openThread(threadId: string) {
 		threadPanelSelection.open(threadId);
 		composerSession.feedback.clear();
@@ -3499,6 +3630,7 @@ function useSpaceThreadController(input: {
 		rootSignalId: string;
 		threadId?: string;
 	}): Promise<boolean> {
+		threadPanelSelection.openRoot(threadInput.rootSignalId);
 		let threadId = threadInput.threadId;
 		if (!threadId) {
 			threadId = threads.find(
@@ -3515,7 +3647,6 @@ function useSpaceThreadController(input: {
 			return false;
 		}
 
-		openThread(threadId);
 		return true;
 	}
 
@@ -3911,6 +4042,11 @@ function useSpaceThreadController(input: {
 			);
 			postedMessage = true;
 			activationTargets = readPublishedWakeTargetProfileIds(response.signal);
+			updateAccountSpaceAcceptedMessage(
+				input.queryClient,
+				input.profileId,
+				response.signal
+			);
 			completeSpaceSend(clientMessageId);
 			recordWakeDiagnosticIfNeeded({
 				clientMessageId,

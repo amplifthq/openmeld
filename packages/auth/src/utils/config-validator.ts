@@ -1,3 +1,4 @@
+import { desktopAuthIdentity } from "@openmeld/schemas";
 import {
   AUTH_SECRET_MIN_LENGTH,
   DEFAULT_AUTH_BRAND_NAME,
@@ -17,6 +18,7 @@ export type AuthConfigInput = {
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_OPENMELD_SECRET?: string;
   AUTH_WORKER_NODE_ENV?: string;
+  AUTH_DESKTOP_DEVELOPMENT_TARGET?: string;
   AUTH_DEVICE_ALLOWED_CLIENT_IDS?: string;
   AUTH_FROM_EMAIL?: string;
   AUTH_BRAND_NAME?: string;
@@ -35,6 +37,7 @@ export type ValidatedAuthConfig = {
   BETTER_AUTH_URL: string;
   BETTER_AUTH_OPENMELD_SECRET: string;
   AUTH_WORKER_NODE_ENV: AuthWorkerNodeEnv;
+  AUTH_DESKTOP_DEVELOPMENT_TARGET?: string;
   AUTH_DEVICE_ALLOWED_CLIENT_IDS: string[];
   AUTH_FROM_EMAIL: string;
   AUTH_BRAND_NAME: string;
@@ -53,6 +56,10 @@ export function validateAuthConfig(
   input: AuthConfigInput
 ): ValidatedAuthConfig {
   const env = resolveAuthWorkerNodeEnv(input.AUTH_WORKER_NODE_ENV);
+  desktopAuthIdentity(
+    env === "production",
+    input.AUTH_DESKTOP_DEVELOPMENT_TARGET
+  );
   const allowedClientIds = parseAllowedClientIds(
     input.AUTH_DEVICE_ALLOWED_CLIENT_IDS
   );
@@ -114,6 +121,9 @@ export function validateAuthConfig(
     BETTER_AUTH_URL: url,
     BETTER_AUTH_OPENMELD_SECRET: secret,
     AUTH_WORKER_NODE_ENV: env,
+    AUTH_DESKTOP_DEVELOPMENT_TARGET: normalizeOptional(
+      input.AUTH_DESKTOP_DEVELOPMENT_TARGET
+    ),
     AUTH_DEVICE_ALLOWED_CLIENT_IDS: allowedClientIds,
     AUTH_FROM_EMAIL: fromEmail,
     AUTH_BRAND_NAME: brandName,

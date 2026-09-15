@@ -406,6 +406,15 @@ request fails before mutation with Auth's stable capability error. A missing or
 invalid capability response fails closed for Human creation; Auth remains the
 final enforcement boundary for older CLI versions.
 
+Profile inspection reuses the primary Binding to select applicable diagnostics.
+For a hosted Binding, `profiles show` retains Binding information and omits the
+workstation runtime fields (`runtime: {}` in JSON); it does not inspect a
+local workspace or infer hosted Wakeability from local Service state.
+
+`agents repair --agent <id> --install <install-id>` may select another valid
+installation even when the current installation is ready. It uses the existing
+install resolver and preserves enabled state and all selector validation.
+
 `openmeld profiles create` is the one CLI and Local Agent creation entry for
 both self-owned and teammate-owned Agent Profiles. Supplying `--owner` routes
 the intent through the shared Agent Profile Creation Request capability:
@@ -586,6 +595,17 @@ the local service is ready. `openmeld upgrade` reports separate timings for the
 release check, CLI download/install, and OpenMeld Service alignment. These are
 user-visible stage timings, not hidden debug logs, so a slow network, install,
 or service restart is immediately distinguishable.
+
+Local integrations can use `openmeld service start|stop --json --expected-account
+<account-id>` for an already connected POSIX Service. The CLI verifies that
+account at the mutation owner, including concurrent sign-in changes. The option
+requires JSON output and rejects profile, force, and startup overrides. It does
+not log in, install a missing Service, or take over another account's Service.
+Missing, expired, mismatched, busy, or unsupported ownership returns an explicit
+error; no unguarded retry is allowed. The
+[Service admission contract](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop)
+owns its cross-process behavior. Desktop's pilot controls remain disabled.
+
 The binary download stage also shows the manifest-declared transfer size: an
 exact-base delta when available, otherwise the complete gzip archive (currently
 about 25 MB), never the larger installed executable size.

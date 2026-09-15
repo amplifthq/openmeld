@@ -56,14 +56,45 @@ describe("useSpaceUnread", () => {
 			})
 		);
 
-		await act(async () => vi.advanceTimersByTime(800));
+		await act(async () => vi.advanceTimersByTime(150));
 		expect(onViewedThroughTs).not.toHaveBeenCalled();
 		act(() => result.current.onViewingLatestChange(true));
 		await act(async () => {
-			vi.advanceTimersByTime(800);
+			vi.advanceTimersByTime(150);
 			await Promise.resolve();
 		});
 		expect(onViewedThroughTs).toHaveBeenCalledWith(40);
+	});
+
+	it("acknowledges a later reaction to a loaded message without reading another thread or unloaded history", async () => {
+		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
+		const { result } = renderHook(() =>
+			useSpaceUnread({
+				envelopes: [textSignal(40, "old-message")],
+				isReady: true,
+				profileId: "profile-1",
+				spaceId: "space-1",
+				onViewedThroughTs,
+				targets: [
+					{
+						signalId: "old-message",
+						occurredAtMs: 100,
+						threadRootSignalId: null,
+					},
+					{ signalId: "unloaded", occurredAtMs: 200, threadRootSignalId: null },
+					{
+						signalId: "thread-reply",
+						occurredAtMs: 300,
+						threadRootSignalId: "other-thread",
+					},
+				],
+			})
+		);
+		act(() => result.current.onViewingLatestChange(true));
+		await act(async () => {
+			await vi.advanceTimersByTimeAsync(150);
+		});
+		expect(onViewedThroughTs).toHaveBeenCalledWith(100);
 	});
 
 	it("does not postpone a visible read when the parent rerenders with a new callback", async () => {
@@ -80,7 +111,7 @@ describe("useSpaceUnread", () => {
 		);
 		act(() => result.current.onViewingLatestChange(true));
 		for (let iteration = 0; iteration < 4; iteration += 1) {
-			await act(async () => vi.advanceTimersByTime(200));
+			await act(async () => vi.advanceTimersByTime(50));
 			rerender();
 		}
 		expect(persist).toHaveBeenCalledExactlyOnceWith(40);
@@ -101,12 +132,12 @@ describe("useSpaceUnread", () => {
 			{ initialProps: { confirmed: true } }
 		);
 		act(() => result.current.onViewingLatestChange(true));
-		await act(async () => vi.advanceTimersByTime(400));
+		await act(async () => vi.advanceTimersByTime(75));
 		rerender({ confirmed: false });
 		await act(async () => vi.advanceTimersByTime(1000));
 		expect(persist).not.toHaveBeenCalled();
 		rerender({ confirmed: true });
-		await act(async () => vi.advanceTimersByTime(800));
+		await act(async () => vi.advanceTimersByTime(150));
 		expect(persist).toHaveBeenCalledExactlyOnceWith(40);
 	});
 
@@ -124,7 +155,7 @@ describe("useSpaceUnread", () => {
 		);
 		act(() => {
 			result.current.onViewingLatestChange(true);
-			vi.advanceTimersByTime(400);
+			vi.advanceTimersByTime(75);
 			Object.defineProperty(document, "visibilityState", {
 				configurable: true,
 				value: "hidden",
@@ -132,7 +163,7 @@ describe("useSpaceUnread", () => {
 			document.dispatchEvent(new Event("visibilitychange"));
 		});
 		act(() => {
-			vi.advanceTimersByTime(800);
+			vi.advanceTimersByTime(150);
 		});
 		expect(onViewedThroughTs).not.toHaveBeenCalled();
 	});
@@ -153,7 +184,7 @@ describe("useSpaceUnread", () => {
 		});
 		const initialRenders = render.mock.calls.length;
 		act(() => result.current.onViewingLatestChange(true));
-		await act(async () => vi.advanceTimersByTime(799));
+		await act(async () => vi.advanceTimersByTime(149));
 		act(() => result.current.onViewingLatestChange(false));
 		await act(async () => vi.advanceTimersByTime(1000));
 		expect(persist).not.toHaveBeenCalled();
@@ -177,7 +208,7 @@ describe("useSpaceUnread", () => {
 			{ initialProps: { spaceId: "space-1", profileId: "profile-1" } }
 		);
 		act(() => result.current.onViewingLatestChange(true));
-		await act(async () => vi.advanceTimersByTime(400));
+		await act(async () => vi.advanceTimersByTime(75));
 		rerender({
 			spaceId: "space-1",
 			profileId: "profile-1",
@@ -186,7 +217,7 @@ describe("useSpaceUnread", () => {
 		await act(async () => vi.advanceTimersByTime(1000));
 		expect(persist).not.toHaveBeenCalled();
 		act(() => result.current.onViewingLatestChange(true));
-		await act(async () => vi.advanceTimersByTime(800));
+		await act(async () => vi.advanceTimersByTime(150));
 		expect(persist).toHaveBeenCalledExactlyOnceWith(40);
 	});
 
@@ -213,7 +244,7 @@ describe("useSpaceUnread", () => {
 
 		act(() => result.current.onViewingLatestChange(true));
 		await act(async () => {
-			vi.advanceTimersByTime(800);
+			vi.advanceTimersByTime(150);
 			await Promise.resolve();
 		});
 		expect(onViewedThroughTs).toHaveBeenCalledTimes(1);
@@ -224,7 +255,7 @@ describe("useSpaceUnread", () => {
 		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
 
 		rerender({ envelopes: [textSignal(40), textSignal(50, "new-main")] });
-		await act(async () => vi.advanceTimersByTime(799));
+		await act(async () => vi.advanceTimersByTime(149));
 		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
 		await act(async () => {
 			vi.advanceTimersByTime(1);

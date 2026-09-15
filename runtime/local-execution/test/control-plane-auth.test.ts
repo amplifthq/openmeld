@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildAuthenticatedControlPlaneResponse,
   verifyControlPlaneToken,
@@ -22,6 +22,41 @@ const BASE_CONTEXT = {
 };
 
 describe("local execution control-plane auth", () => {
+  it.each([
+    true,
+    false,
+    undefined,
+  ])("queries explicit carrier support without shutdown: %s", async (supported) => {
+    const shutdownHandler = vi.fn();
+    const context = {
+      ...BASE_CONTEXT,
+      accountCheckedServiceControl: supported,
+      shutdownHandler,
+    };
+    const request = {
+      v: 1,
+      command: "account_control_capabilities",
+      authToken: "token-1",
+    };
+    const response = await buildAuthenticatedControlPlaneResponse({
+      context,
+      expectedToken: "token-1",
+      request,
+    });
+    expect(response).toEqual({
+      v: 1,
+      code: "service.account_control_capabilities",
+      payload: { supported: supported === true },
+    });
+    await expect(
+      buildAuthenticatedControlPlaneResponse({
+        context,
+        expectedToken: "other",
+        request,
+      })
+    ).rejects.toThrow("auth.unauthenticated");
+    expect(shutdownHandler).not.toHaveBeenCalled();
+  });
   it("verifies token equality", () => {
     expect(
       verifyControlPlaneToken({

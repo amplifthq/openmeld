@@ -1141,6 +1141,82 @@ describe("PeopleAndAgentsPage", () => {
 		);
 	});
 
+	it.each([
+		false,
+		true,
+	])("refreshes before opening the created Agent and respects leaving the page: %s", async (leavePage) => {
+		const refreshes: (() => void)[] = [];
+		invalidateQueriesMock.mockImplementation(
+			() =>
+				new Promise<void>((resolve) => {
+					refreshes.push(resolve);
+				})
+		);
+		useQueryMock.mockImplementation((options: { queryKey?: unknown }) => {
+			const queryKey = Array.isArray(options?.queryKey) ? options.queryKey : [];
+			const organizationProjection = resolveOrganizationProjectionQuery(
+				queryKey,
+				organizationDirectoryFixture
+			);
+			if (organizationProjection) {
+				return organizationProjection;
+			}
+			if (queryKey.includes("agent-profile-creation-requests")) {
+				return {
+					data: {
+						organizationId: "org-123",
+						requests: [
+							{
+								createdAgentProfileId: "agent-created",
+								id: "request-completed",
+								status: "completed",
+							},
+						],
+					},
+					error: null,
+					isError: false,
+					isPending: false,
+				};
+			}
+			return {
+				data: [buildHumanProfile("human-default")],
+				error: null,
+				isError: false,
+				isPending: false,
+			};
+		});
+
+		const page = render(
+			<PeopleAndAgentsPage
+				activeSectionId="agents"
+				focusProfileId={null}
+				focusRequestId="request-completed"
+			/>
+		);
+
+		expect(navigateMock).not.toHaveBeenCalled();
+		if (leavePage) {
+			page.unmount();
+		}
+		await act(() => {
+			for (const finish of refreshes) {
+				finish();
+			}
+		});
+		if (leavePage) {
+			expect(navigateMock).not.toHaveBeenCalled();
+		} else {
+			await waitFor(() => {
+				expect(navigateMock).toHaveBeenCalledWith({
+					to: "/o/acme/agents?profileId=agent-created",
+				});
+			});
+		}
+		expect(invalidateQueriesMock).toHaveBeenCalledWith({
+			queryKey: ["organizations", "org-123", "profile-directory"],
+		});
+	});
+
 	it("keeps Agent selection in the existing profileId deep-link contract", () => {
 		render(
 			<PeopleAndAgentsPage activeSectionId="agents" focusProfileId={null} />

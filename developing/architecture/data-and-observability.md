@@ -1217,6 +1217,20 @@ exclude it.
 
 ## Runtime Transport Session Disconnect Diagnostics
 
+RuntimeCoordinator event writes preserve all existing valid event IDs. If the
+length-prefixed identity exceeds the shared 512-character bound, the writer uses
+a deterministic SHA-256 identity instead; the complete execution ID and
+idempotency key remain separate columns. Oversized legacy IDs never passed the
+schema, so this correction preserves replay identity for previously stored rows.
+Token redaction and payload validation still apply.
+
+Service-runtime restoration and awaited persistence propagate storage failures.
+A failed storage read is not an empty successful restore, and an awaited failed
+write cannot be reported as durable success. Diagnostic logs preserve bounded
+platform error text, any supplied platform reference, and explicit retryable or
+overloaded flags; missing flags remain unknown. These flags do not authorize
+unbounded retries inside a broken Durable Object.
+
 The owner-scoped Runtime Transport Durable Object owns the bounded session
 disconnect diagnostic projection. The socket close and socket error handlers
 are its only writers. The owner-scoped disconnect diagnostics endpoint and Core
@@ -3053,6 +3067,14 @@ The existing Analytics Engine execution-stage event also records the content
 kind and stop reason, for example `provider.completed_empty_stop`. A completed
 provider stream is not proof of a successful Wake or published reply.
 
+An empty or thinking-only completion is recorded as a failed provider stage,
+even when transport completed normally. Attempt two records `recovered_*` or
+`recovery_exhausted_*`; non-deliverable completions use warning-level structured
+logs. Group these existing events by model and call ID to measure recovery rate,
+repeated failures, added latency, and token cost. Provider rerouting remains the
+existing OpenRouter same-model policy. These measurements do not automatically
+change a selected model or create user-submitted Diagnostic Reports.
+
 Completion observation adds no retry, per-token logging, execution timeout, or
 cross-service payload field. Reporter failure cannot interrupt stream delivery.
 These completion logs follow Workers log retention/access and Analytics Engine
@@ -3072,6 +3094,42 @@ Diagnostic surfaces such as CLI trace may show `EvidenceSyncHealth` to owners
 and operators so they can understand which evidence channel needs attention.
 
 ## Diagnostic Reports
+
+### Automatic Service connection evidence
+
+Service connection incidents are bounded operational evidence, separate from
+user-submitted Diagnostic Reports. The Service derives them from its existing
+carrier recovery identifier and lifecycle events. They do not own connection,
+readiness, retry policy, or Wake outcomes.
+
+`openmeld_service_connection_incidents` belongs to Diagnostics and uses
+`wakeEvidenceDb` (currently the shared production database). Reports contain
+only schema-whitelisted phases, times, safe native error codes, optional request
+IDs, opaque connection IDs, device/lane identity and Service version. No token,
+credential fingerprint, raw error, path, prompt, transcript or tool input is
+accepted. Gateway bounds a report to 128 KiB before JSON parsing.
+
+The uploader must authenticate as the owner and match the current registered
+device/lane Service session. Historical incidents can come from an earlier
+Service process on that same account and device. An immutable owner/incident
+key makes replay idempotent; conflicting evidence is rejected. Store at most
+100 incidents per owner/device/lane and expose at most 20 per read. The existing
+daily Core retention schedule deletes receipts older than 30 days in bounded
+batches, independently of the disabled physical-database-split retention gate.
+Expired records are excluded from reads immediately.
+
+Only the computer owner can read these details through Computer Connection
+history. Team membership alone does not grant access. The existing Wake Trace
+can opt into `serviceConnectionDiagnostics`; Core first authorizes the Space
+trace, verifies the runtime's account owner, and returns incident IDs whose
+intervals overlap that execution. Overlap is correlation, not proof of cause.
+No opt-in means no new response field, preserving strict older trace clients.
+An unavailable evidence read must not hide the underlying execution trace.
+
+Explicit owner-authorized sharing remains necessary for another teammate or
+support to receive the private incident contents.
+
+### User-submitted reports
 
 A Diagnostic Report is a user-submitted event.
 

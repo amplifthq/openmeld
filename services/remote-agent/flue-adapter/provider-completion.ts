@@ -79,5 +79,21 @@ export function providerCompletionOperation(
   if (completion.toolCallCount > 0) {
     content = "tool";
   }
-  return `completed_${content}_${completion.stopReason}`;
+  let outcome = "completed";
+  if (completion.attemptNo === 2) {
+    outcome = providerCompletionSucceeded(completion)
+      ? "recovered"
+      : "recovery_exhausted";
+  }
+  return `${outcome}_${content}_${completion.stopReason}`;
+}
+
+export function providerCompletionSucceeded(
+  completion: ReturnType<typeof projectProviderCompletion>
+): boolean {
+  return (
+    completion.terminalEvent === "done" &&
+    (completion.stopReason === "stop" || completion.stopReason === "toolUse") &&
+    (completion.textChars > 0 || completion.toolCallCount > 0)
+  );
 }

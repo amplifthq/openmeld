@@ -222,6 +222,9 @@ run_fake_curl() {
 	  OPENMELD_TEST_RAW_SIZE="$(wc -c < "$OPENMELD_TEST_RAW_BINARY" | tr -d '[:space:]')"
 	  OPENMELD_TEST_ARCHIVE_SIZE="$(wc -c < "$OPENMELD_TEST_ARCHIVE" | tr -d '[:space:]')"
 	  printf '{"schemaVersion":1,"channels":{"stable":{"version":"9.9.9","minRequiredCliVersion":"0.1.3","platforms":{"darwin-arm64":{"url":"https://openmeld.test/cli/download/openmeld-cli-darwin-arm64-9.9.9","sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sizeBytes":%s,"archiveFormat":"gzip","archiveUrl":"https://openmeld.test/cli/download/openmeld-cli-darwin-arm64-9.9.9.gz","archiveSha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","archiveSizeBytes":%s}}}}}\n' "$OPENMELD_TEST_RAW_SIZE" "$OPENMELD_TEST_ARCHIVE_SIZE" > "$OPENMELD_TEST_OUTPUT"
+	  if [ "${OPENMELD_TEST_SEPARATE_SERVICE:-0}" = "1" ]; then
+        node -e 'const fs=require("fs");const p=process.argv[1];const m=JSON.parse(fs.readFileSync(p));const c=m.channels.stable;const a=c.platforms["darwin-arm64"];c.service={version:"9.8.0",platforms:{"darwin-arm64":{...a,url:a.url.replace("9.9.9","9.8.0"),archiveUrl:a.archiveUrl.replace("9.9.9","9.8.0")}}};fs.writeFileSync(p,JSON.stringify(m));' "$OPENMELD_TEST_OUTPUT"
+      fi
 	  rm -f "$OPENMELD_TEST_RAW_BINARY" "$OPENMELD_TEST_ARCHIVE"
       ;;
 	*/cli/download/*.gz)

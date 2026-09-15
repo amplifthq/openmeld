@@ -251,12 +251,13 @@ describe("setup-bootstrap-script", () => {
 		expect(script).toContain("$parts += Resolve-FollowUpCliInvocation");
 	});
 
-	it(
-		"emits production setup completion with the managed binary prefix",
-		() => {
+	it.each([false, true])(
+		"emits production setup completion with the managed CLI artifact (separate Service: %s)",
+		(separateService) => {
 			const tempDir = mkdtempSync(join(tmpdir(), "openmeld-setup-bootstrap-"));
 			const binDir = join(tempDir, "bin");
 			const callsPath = join(tempDir, "calls.txt");
+			const downloadsPath = join(tempDir, "downloads.txt");
 			const managedBinaryPath = join(tempDir, ".openmeld", "bin", "openmeld");
 			try {
 				mkdirSync(binDir);
@@ -288,12 +289,18 @@ describe("setup-bootstrap-script", () => {
 							HOME: tempDir,
 							TMPDIR: tempDir,
 							OPENMELD_TEST_CALLS_PATH: callsPath,
+							OPENMELD_TEST_CURL_CALLS_PATH: downloadsPath,
+							OPENMELD_TEST_SEPARATE_SERVICE: separateService ? "1" : "0",
 							PATH: bootstrapTestPath(binDir),
 						},
 					}
 				);
 
 				const setupComplete = parseSetupCompleteEvent(output);
+				expect(readFileSync(downloadsPath, "utf8")).toContain(
+					"https://openmeld.test/cli/download/openmeld-cli-darwin-arm64-9.9.9.gz"
+				);
+				expect(readFileSync(downloadsPath, "utf8")).not.toContain("9.8.0.gz");
 				expect(setupComplete.payload).toMatchObject({
 					authBaseUrl: null,
 					cliCommandPrefix: managedBinaryPath,
@@ -1640,6 +1647,20 @@ function writeBootstrapScript(tempDir: string, script: string): string {
 
 function linkRealNodeRuntime(binDir: string): void {
 	symlinkSync(process.execPath, join(binDir, "node"));
+	if (process.platform !== "darwin") {
+		const plutil = join(binDir, "plutil");
+		writeFileSync(
+			plutil,
+			readFileSync(
+				join(
+					dirname(fileURLToPath(import.meta.url)),
+					"__fixtures__",
+					"setup-bootstrap-plutil.mjs"
+				)
+			),
+			{ mode: 0o755 }
+		);
+	}
 }
 
 function linkFakeBootstrapCommand(binDir: string, command: string): void {

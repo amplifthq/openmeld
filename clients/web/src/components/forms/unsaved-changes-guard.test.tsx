@@ -8,6 +8,7 @@ import {
 	RouterProvider,
 } from "@tanstack/react-router";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -15,6 +16,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { installClientVersionRecovery } from "#/client-version-recovery";
 import { UnsavedChangesGuard } from "./unsaved-changes-guard";
 
 afterEach(cleanup);
@@ -26,6 +28,26 @@ describe("UnsavedChangesGuard", () => {
 			.mockResolvedValueOnce(false)
 			.mockResolvedValueOnce(true);
 		const router = renderGuard(save);
+		await screen.findByRole("link", { name: "Leave editor" });
+		const reload = vi.fn();
+		const disposeRecovery = installClientVersionRecovery({
+			now: () => 1_000_000,
+			reload,
+			window,
+		});
+		try {
+			act(() =>
+				window.dispatchEvent(
+					Object.assign(new Event("vite:preloadError", { cancelable: true }), {
+						payload: new Error("Unable to preload CSS for /assets/old.css"),
+					})
+				)
+			);
+			expect(reload).not.toHaveBeenCalled();
+			expect(router.state.location.pathname).toBe("/editor");
+		} finally {
+			disposeRecovery();
+		}
 
 		fireEvent.click(await screen.findByRole("link", { name: "Leave editor" }));
 		expect(

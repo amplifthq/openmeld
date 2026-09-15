@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { serviceControlCapabilitiesSchema } from "../../service-account-admission";
 import { localProjectControlConnectionSchema } from "../daemon/local-project-control";
 import { agentActivitySnapshotResponseSchema } from "../http/agent-activity";
 import { agentActivitySessionInventoryResponseSchema } from "../http/agent-activity-sessions";
@@ -178,6 +179,12 @@ export const cliJsonDaemonStatusEnvelopeSchema = defineSuccessEnvelope(
     serverRequirement: daemonStatusServerRequirementSchema.optional(),
   }
 );
+
+export const cliJsonServiceControlCapabilitiesEnvelopeSchema =
+  defineSuccessEnvelope(
+    "service.control_capabilities",
+    serviceControlCapabilitiesSchema.shape
+  );
 
 export const cliJsonDaemonStopEnvelopeSchema = defineSuccessEnvelope(
   "daemon.stop",
@@ -619,6 +626,7 @@ export const cliJsonOutputEnvelopeSchema = z.discriminatedUnion("type", [
   cliJsonDaemonUninstallEnvelopeSchema,
   cliJsonDaemonReinstallEnvelopeSchema,
   cliJsonDaemonStatusEnvelopeSchema,
+  cliJsonServiceControlCapabilitiesEnvelopeSchema,
   cliJsonDaemonStopEnvelopeSchema,
   cliJsonDaemonAutostartEnvelopeSchema,
   cliJsonAgentsDetectEnvelopeSchema,
@@ -680,6 +688,7 @@ export const CLI_JSON_OUTPUT_TYPES = [
   "daemon.uninstall",
   "daemon.reinstall",
   "daemon.status",
+  "service.control_capabilities",
   "daemon.stop",
   "daemon.autostart",
   "agents.detect",

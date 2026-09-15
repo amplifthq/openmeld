@@ -32,8 +32,10 @@ import {
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { CenterAgentChatAvatar } from "../organizations/center-agent-chat-avatar";
 import type { Chat } from "./chat-sidebar-model";
-import type { Conversation } from "./conversation-sidebar-model";
-import { useSpaceMessagePreview } from "./direct-message-preview";
+import type {
+	Conversation,
+	ConversationPreview,
+} from "./conversation-sidebar-model";
 import {
 	resolveConversationTimestamp,
 	SidebarConversationTime,
@@ -92,11 +94,10 @@ export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 }
 
 function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
-	const preview = useSpaceMessagePreview({
-		spaceId: input.conversation.spaceId,
-		viewerProfileId: input.profileId,
-		enabled: !!input.profileId,
-	});
+	const preview =
+		input.conversation.kind === "direct-message"
+			? input.conversation.preview
+			: undefined;
 	const createdAt =
 		input.conversation.kind === "direct-message"
 			? input.conversation.chat.createdAt
@@ -106,7 +107,7 @@ function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
 			{...input}
 			previewText={resolvePreviewText(preview)}
 			timestamp={resolveConversationTimestamp(
-				preview.data?.timestamp,
+				preview?.data?.timestamp,
 				createdAt
 			)}
 		/>
@@ -323,15 +324,15 @@ function ConversationIcon(input: {
 }
 
 export function resolvePreviewText(
-	preview: ReturnType<typeof useSpaceMessagePreview>
+	preview: ConversationPreview | undefined
 ): string {
-	if (preview.data) {
+	if (preview?.data) {
 		return preview.data.text;
 	}
-	if (preview.isError) {
+	if (preview?.isError) {
 		return "Couldn’t load preview. Open chat to retry.";
 	}
-	if (preview.isPending) {
+	if (!preview || preview.isPending) {
 		return "Loading message…";
 	}
 	return "No messages yet";

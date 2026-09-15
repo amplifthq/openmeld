@@ -8,16 +8,24 @@ import {
 	HeadContent,
 	Link,
 	Scripts,
+	useRouter,
 } from "@tanstack/react-router";
 import { ThemeProvider, useTheme } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import { useEffect } from "react";
+import {
+	isClientAssetLoadError,
+	useClientVersionRecovery,
+} from "#/client-version-recovery";
 import { ApplicationErrorState } from "#/components/app/application-error-state";
+import { FullPagePending } from "#/components/app/full-page-pending";
 import { PublicPageHeader } from "#/components/app/public-page-header";
 import { AppearanceShapeProvider } from "#/components/appearance/appearance-shape-provider";
 import { GlobalThemeShortcut } from "#/components/global-theme-shortcut";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { Toaster } from "#/components/ui/sonner";
+import { beforeDesktopLoad } from "#/desktop/auth-boundary";
+import { DesktopFrame } from "#/desktop/desktop-frame";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
@@ -66,6 +74,8 @@ const THEME_BOOTSTRAP_SCRIPT = `(() => {
 const NOT_FOUND_LOGO_SCALE = 0.72;
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+	beforeLoad: ({ location, context }) =>
+		beforeDesktopLoad(location.pathname, location.href, context.queryClient),
 	headers: () => ({
 		"Cache-Control": "no-cache",
 	}),
@@ -202,7 +212,11 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 						<ThemeColorMeta />
 						<GlobalThemeShortcut />
 						<TooltipProvider>
-							<NuqsAdapter>{children}</NuqsAdapter>
+							<NuqsAdapter>
+								<DesktopFrame>
+									<ClientVersionRecovery>{children}</ClientVersionRecovery>
+								</DesktopFrame>
+							</NuqsAdapter>
 						</TooltipProvider>
 						<Toaster position="bottom-right" />
 						<TanStackDevtoolsSlot />
@@ -235,6 +249,47 @@ export function ThemeColorMeta() {
 }
 
 export function RootErrorComponent({ error }: ErrorComponentProps) {
+	const router = useRouter();
+	// Retry loaders and reset their boundary without document navigation, which
+	// Desktop intentionally blocks. Failed assets still need a document reload.
+	return (
+		<PageError
+			error={error}
+			onRetry={
+				isClientAssetLoadError(error) ? undefined : () => router.invalidate()
+			}
+		/>
+	);
+}
+
+export function ClientVersionRecovery({
+	children,
+}: {
+	children: React.ReactNode;
+}) {
+	const recovery = useClientVersionRecovery();
+	if (recovery.status === "reloading") {
+		return (
+			<FullPagePending
+				className="flex-col"
+				label="Updating this page"
+				showLabel
+			/>
+		);
+	}
+	if (recovery.status === "failed") {
+		return <PageError error={recovery.error} />;
+	}
+	return children;
+}
+
+function PageError({
+	error,
+	onRetry,
+}: {
+	error: unknown;
+	onRetry?: () => Promise<void>;
+}) {
 	let message = "Unexpected runtime error";
 	if (error instanceof Error) {
 		message = error.message;
@@ -245,26 +300,20 @@ export function RootErrorComponent({ error }: ErrorComponentProps) {
 	const isEnvError =
 		message.includes("[env]") ||
 		message.includes("Invalid environment variables");
-	const normalizedMessage = message.toLowerCase();
-	const isClientVersionError = [
-		"error loading dynamically imported module",
-		"failed to fetch dynamically imported module",
-		"importing a module script failed",
-		"unable to preload css for",
-	].some((fragment) => normalizedMessage.includes(fragment));
+	const isAssetLoadError = isClientAssetLoadError(error);
 	let description =
 		"Try refreshing the page, or go back to where you left off.";
 	let displayMessage = message;
 	if (isEnvError) {
 		description = "OpenMeld could not start this page. Try again in a moment.";
-	} else if (isClientVersionError) {
-		description = "OpenMeld was updated while this page was open.";
-		displayMessage = "Refresh to load the latest version.";
+	} else if (isAssetLoadError) {
+		description = "Some files needed for this page couldn’t load.";
+		displayMessage = "Refresh the page to try again.";
 	}
 
 	const errorDetails =
 		error instanceof Error ? (error.stack ?? message) : message;
-	const diagnosticDetails = isClientVersionError
+	const diagnosticDetails = isAssetLoadError
 		? JSON.stringify(summarizeApplicationError(error), null, 2)
 		: errorDetails;
 
@@ -276,11 +325,14 @@ export function RootErrorComponent({ error }: ErrorComponentProps) {
 					description={description}
 					details={`${diagnosticDetails}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
 					message={displayMessage}
-					onAction={() => {
-						if (typeof window !== "undefined") {
-							window.location.reload();
-						}
-					}}
+					onAction={
+						onRetry ??
+						(() => {
+							if (typeof window !== "undefined") {
+								window.location.reload();
+							}
+						})
+					}
 					onReport={() => submitApplicationErrorReport(error)}
 				>
 					{isEnvError && import.meta.env.DEV ? (

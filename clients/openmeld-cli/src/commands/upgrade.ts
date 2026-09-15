@@ -3,6 +3,12 @@ import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
+import {
+  type CliBinaryUpdatePlan,
+  downloadCliBinaryUpdateArtifact,
+  resolveCliBinaryUpdatePlan,
+  verifyCliBinaryCodeSignature,
+} from "@openmeld/local-service/cli-binary-update-artifact";
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import { hasIndependentMaintenanceRegistration } from "../config/daemon-service-update-worker-registration";
@@ -15,6 +21,7 @@ import {
   readVersionState,
   writeVersionState,
 } from "../config/version-state";
+import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import {
   buildDaemonServiceTargetSpec,
   resolveDaemonServiceAlignmentDecision,
@@ -29,12 +36,6 @@ import { resolveVersionChangeDirection } from "../local-service/lifecycle/versio
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import { createOpenMeldToolsUpdateCoordinator } from "../local-service/maintenance/openmeld-tools-update-coordinator";
 import { resolveExternalOpenMeldToolsUpdate } from "../local-service/maintenance/openmeld-tools-update-join";
-import {
-  type CliBinaryUpdatePlan,
-  downloadCliBinaryUpdateArtifact,
-  resolveCliBinaryUpdatePlan,
-  verifyCliBinaryCodeSignature,
-} from "../runtime/cli-binary-update-artifact";
 import {
   formatInlineOpenMeldCliCommands,
   formatOpenMeldCliTextBlock,
@@ -193,7 +194,7 @@ async function runUpgradeWithRuntime(
     await runInternalUpgradeServiceAlignment({
       presenter,
       resolvedView: runtime.resolvedView,
-      daemonVersion: OPENMELD_VERSION,
+      daemonVersion: await resolveCurrentDaemonExpectedVersion(),
       ...(process.argv[1] && !isBinaryDistribution()
         ? { cliScriptPath: process.argv[1] }
         : {}),
@@ -327,7 +328,7 @@ async function alignServiceWithCurrentCli(input: {
 }): Promise<void> {
   await runInternalUpgradeServiceAlignment({
     ...input,
-    daemonVersion: OPENMELD_VERSION,
+    daemonVersion: await resolveCurrentDaemonExpectedVersion(),
     ...(process.argv[1] && !isBinaryDistribution()
       ? { cliScriptPath: process.argv[1] }
       : {}),
@@ -995,13 +996,22 @@ async function runInternalUpgradeServiceAlignment(input: {
   daemonVersion: string;
   cliScriptPath?: string;
 }): Promise<void> {
+  const publishedRelease = isBinaryDistribution()
+    ? await fetchLatestCliBinaryRelease()
+    : null;
+  const binaryRelease = publishedRelease?.service
+    ? { ...publishedRelease.service, minRequiredCliVersion: null }
+    : undefined;
+  const daemonVersion = await resolveCurrentDaemonExpectedVersion(
+    binaryRelease?.version ?? input.daemonVersion
+  );
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: input.daemonVersion,
+    expectedVersion: daemonVersion,
     intendedMode: "background",
     intent: "upgrade_reconcile",
   });
   const target = buildDaemonServiceTargetSpec({
-    daemonVersion: input.daemonVersion,
+    daemonVersion,
   });
   const decision = resolveDaemonServiceAlignmentDecision({
     inventory,
@@ -1012,7 +1022,7 @@ async function runInternalUpgradeServiceAlignment(input: {
     emitUpgradeReconcileAlreadyCurrent({
       presenter: input.presenter,
       resolvedView: input.resolvedView,
-      expectedVersion: input.daemonVersion,
+      expectedVersion: daemonVersion,
     });
     return;
   }
@@ -1043,7 +1053,8 @@ async function runInternalUpgradeServiceAlignment(input: {
   }
 
   const scheduled = await scheduleDaemonServiceUpdate({
-    targetVersion: input.daemonVersion,
+    targetVersion: daemonVersion,
+    ...(binaryRelease?.version === daemonVersion ? { binaryRelease } : {}),
     urgency: await resolveServiceUpdateUrgency(),
     ...(readOpenMeldToolsUpdateContextFromEnv() ?? {}),
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),

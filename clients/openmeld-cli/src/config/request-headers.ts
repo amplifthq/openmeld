@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   buildOpenMeldRequestContextHeaders,
   type OpenMeldRequestContextHeadersInput,
@@ -23,8 +24,15 @@ import {
 const DEFAULT_TOKEN_TYPE = "Bearer";
 const AUTHORIZATION_HEADER = "Authorization";
 
+// Ephemeral correlation for the exact credential attached to a request/socket.
+// Never include this fingerprint in persisted or uploaded diagnostics.
+export function fingerprintRequestAuthorization(authorization: string): string {
+  return createHash("sha256").update(authorization).digest("hex");
+}
+
 type RequestAuthHeadersInput = {
   authSession?: StoredAuthSession | null;
+  expectedOwnerUserId?: string;
   requestUrl: string;
 };
 
@@ -64,6 +72,7 @@ export type AuthRequestCredentialFailureReason =
   | "session_revoked";
 
 export class AuthRequestCredentialError extends Error {
+  readonly retryAfterMs?: number;
   readonly authHost: string | null;
   readonly expectedGatewayHost: string | null;
   readonly reason: AuthRequestCredentialFailureReason;
@@ -71,6 +80,7 @@ export class AuthRequestCredentialError extends Error {
   readonly droppedAttachment?: DroppedAuthTokenAttachment;
 
   constructor(input: {
+    retryAfterMs?: number;
     authHost: string | null;
     expectedGatewayHost: string | null;
     reason: AuthRequestCredentialFailureReason;
@@ -86,6 +96,7 @@ export class AuthRequestCredentialError extends Error {
     this.reason = input.reason;
     this.requestHost = input.requestHost;
     this.droppedAttachment = input.droppedAttachment;
+    this.retryAfterMs = input.retryAfterMs;
   }
 }
 
@@ -220,6 +231,12 @@ async function attachAuthHeader(
   input: RequestAuthHeadersInput
 ): Promise<void> {
   const session = await resolveAuthSessionForHeaders(input);
+  if (
+    input.expectedOwnerUserId &&
+    session?.user?.id !== input.expectedOwnerUserId
+  ) {
+    throw new Error("auth.session_owner_changed");
+  }
   if (session === null) {
     // No stored credentials exist, so there is nothing to strip: the caller
     // is knowingly sending an unauthenticated request.
@@ -265,6 +282,7 @@ async function resolveAuthSessionForHeaders(
   }
   if (sessionState.state !== "valid" || sessionState.session === null) {
     const error = new AuthRequestCredentialError({
+      retryAfterMs: sessionState.retryAfterMs,
       authHost: null,
       expectedGatewayHost: null,
       reason:

@@ -31,11 +31,13 @@ function TooltipProvider({
   );
 }
 
-function Tooltip(props: TooltipPrimitive.Root.Props) {
+const createTooltipHandle = TooltipPrimitive.createHandle;
+
+function Tooltip<Payload>(props: TooltipPrimitive.Root.Props<Payload>) {
   const timing = useContext(TooltipTimingContext);
   const id = useId();
   const root = (
-    <TooltipIdContext.Provider value={id}>
+    <TooltipIdContext.Provider value={props.handle ? undefined : id}>
       <TooltipPrimitive.Root {...props} />
     </TooltipIdContext.Provider>
   );
@@ -47,7 +49,9 @@ function Tooltip(props: TooltipPrimitive.Root.Props) {
   );
 }
 
-function TooltipTrigger(props: TooltipPrimitive.Trigger.Props) {
+function TooltipTrigger<Payload>(
+  props: TooltipPrimitive.Trigger.Props<Payload>
+) {
   const id = useContext(TooltipIdContext);
   return (
     <TooltipPrimitive.Trigger
@@ -79,6 +83,7 @@ function TooltipHint({
 }
 
 function TooltipContent({
+  id: providedId,
   className,
   children,
   side = "top",
@@ -109,7 +114,7 @@ function TooltipContent({
           {...props}
           className="transition-opacity duration-150 data-ending-style:opacity-0"
           data-slot="tooltip-content"
-          id={id}
+          id={providedId ?? id}
           render={(popupProps, state) => {
             const offset = reducedMotion
               ? "none"
@@ -154,6 +159,7 @@ function TooltipContent({
 }
 
 export {
+  createTooltipHandle,
   Tooltip,
   TooltipContent,
   TooltipHint,

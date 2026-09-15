@@ -1,5 +1,24 @@
 import { useMessageScroller } from "@shadcn/react/message-scroller";
-import { useEffect, useRef } from "react";
+import { type RefObject, useEffect, useLayoutEffect, useRef } from "react";
+
+export type SpaceMessageScrollAction = ReturnType<
+	typeof useMessageScroller
+>["scrollToMessage"];
+
+// Explicit jumps must enter the scroller's jump mode before adjusting DOM
+// coordinates; otherwise its resize observer can keep following the bottom.
+export function SpaceMessageScrollController(input: {
+	actionRef: RefObject<SpaceMessageScrollAction | null>;
+}) {
+	const { scrollToMessage } = useMessageScroller();
+	useLayoutEffect(() => {
+		input.actionRef.current = scrollToMessage;
+		return () => {
+			input.actionRef.current = null;
+		};
+	}, [input.actionRef, scrollToMessage]);
+	return null;
+}
 
 export function SpaceConversationSendScrollController(input: {
 	isSendingMessage: boolean;

@@ -5,7 +5,9 @@ import type {
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { resolveLatestVisibleTs } from "#/lib/spaces/unread";
 
-const READ_THROUGH_DEBOUNCE_MS = 800;
+// Keep a brief dwell to ignore fly-by navigation, then use the Inbox owner's
+// optimistic update rather than making readers wait for a network round trip.
+const READ_THROUGH_DEBOUNCE_MS = 150;
 
 function isDocumentVisible(): boolean {
 	return (
@@ -28,10 +30,16 @@ export function useSpaceUnread(input: {
 	spaceId: string;
 	targets: readonly SpaceInboxUnreadTarget[];
 }): SpaceUnreadState & { onViewingLatestChange: (viewing: boolean) => void } {
-	const latestVisibleTs = useMemo(
-		() => resolveLatestVisibleTs(input.envelopes),
-		[input.envelopes]
-	);
+	const latestVisibleTs = useMemo(() => {
+		const loadedIds = new Set(input.envelopes.map((signal) => signal.id));
+		return input.targets.reduce(
+			(latest, target) =>
+				target.threadRootSignalId === null && loadedIds.has(target.signalId)
+					? Math.max(latest, target.occurredAtMs)
+					: latest,
+			resolveLatestVisibleTs(input.envelopes)
+		);
+	}, [input.envelopes, input.targets]);
 	const mainTargets = useMemo(
 		() => input.targets.filter((target) => target.threadRootSignalId === null),
 		[input.targets]

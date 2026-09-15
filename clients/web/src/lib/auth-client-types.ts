@@ -29,11 +29,6 @@ export type AuthSessionUser = {
 	[key: string]: unknown;
 };
 
-export type AuthSession = {
-	session: AuthSessionRecord;
-	user: AuthSessionUser;
-} | null;
-
 export type AuthDeviceSession = {
 	session: AuthSessionRecord & {
 		token: string;

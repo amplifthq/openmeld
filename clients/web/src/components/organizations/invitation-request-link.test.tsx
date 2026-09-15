@@ -17,8 +17,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("#/lib/organizations/auth-organizations", () => ({
 	getOrganizationJoinLink: mocks.get,
 	revokeOrganizationJoinLink: mocks.revoke,
+	prepareOrganizationJoinLink: mocks.request,
+	ensureOrganizationJoinLink: mocks.request,
+	resetOrganizationJoinLink: mocks.request,
 }));
-vi.mock("#/lib/auth-transport", () => ({ requestAuthEndpoint: mocks.request }));
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useOptionalAppOrganization: () => ({ currentUserId: "owner-1" }),
 }));
@@ -54,10 +56,7 @@ describe("InvitationRequestLink", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		mocks.get.mockResolvedValue(null);
-		mocks.request.mockResolvedValue({
-			data: { ok: true, joinLink: link },
-			error: null,
-		});
+		mocks.request.mockResolvedValue(link);
 		mocks.revoke.mockResolvedValue(true);
 	});
 	afterEach(cleanup);
@@ -70,9 +69,10 @@ describe("InvitationRequestLink", () => {
 		mount();
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
 		expect(mocks.request).toHaveBeenCalledTimes(2);
-		expect(mocks.request.mock.calls[0][0].path).toBe(
-			"/organization/join-link/prepare"
-		);
+		expect(mocks.request.mock.calls[0][0]).toMatchObject({
+			spaceId: "space-1",
+			mode: "direct",
+		});
 	});
 
 	it("restores a created link from the server after the panel is discarded", async () => {
@@ -83,9 +83,10 @@ describe("InvitationRequestLink", () => {
 		mount();
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
 		expect(mocks.request).toHaveBeenCalledTimes(2);
-		expect(
-			JSON.parse(mocks.request.mock.calls[0][0].request.body)
-		).toMatchObject({ mode: "direct", spaceId: "space-1" });
+		expect(mocks.request.mock.calls[0][0]).toMatchObject({
+			mode: "direct",
+			spaceId: "space-1",
+		});
 	});
 
 	it("clears a revoked link and reads its absence after remount", async () => {
@@ -100,10 +101,7 @@ describe("InvitationRequestLink", () => {
 			spaceId: "space-1",
 			mode: "direct",
 		});
-		mocks.request.mockResolvedValue({
-			data: { ok: true, joinLink: null },
-			error: null,
-		});
+		mocks.request.mockResolvedValue(null);
 		view.unmount();
 		mount();
 		expect(
@@ -122,15 +120,10 @@ describe("InvitationRequestLink", () => {
 	});
 
 	it("reads only the approval-required link for ordinary members", async () => {
-		mocks.request.mockResolvedValue({
-			data: { ok: true, joinLink: { ...link, mode: "request" } },
-			error: null,
-		});
+		mocks.request.mockResolvedValue({ ...link, mode: "request" });
 		mount(false);
 		expect(await screen.findByDisplayValue(link.url)).toBeTruthy();
-		expect(
-			JSON.parse(mocks.request.mock.calls[0][0].request.body)
-		).toMatchObject({
+		expect(mocks.request.mock.calls[0][0]).toMatchObject({
 			organizationId: "org-1",
 			spaceId: "space-1",
 			mode: "request",

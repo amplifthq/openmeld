@@ -754,10 +754,22 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		input.spaceId,
 		input.openMeldProfileId
 	);
+	const knownThread = input.queryClient
+		.getQueryData<ListSpaceThreadsResponse>(threadsKey)
+		?.threads.some(
+			(thread) => thread.threadId === input.threadContext.threadId
+		);
 	input.queryClient.setQueryData<ListSpaceThreadsResponse>(
 		threadsKey,
 		(current) => mergeThreadPreviewCache(current, input)
 	);
+	if (!knownThread) {
+		input.queryClient
+			.invalidateQueries({ queryKey: threadsKey })
+			.catch((error) => {
+				console.error("Could not refresh the new Thread.", error);
+			});
+	}
 }
 
 export function mergeThreadSignalsCache(

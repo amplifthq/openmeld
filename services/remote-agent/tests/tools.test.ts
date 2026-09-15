@@ -6054,6 +6054,19 @@ function toolPayloadScenarios(): ToolPayloadScenario[] {
       toolName: "openmeld_read_center_agent_turn_diagnostics",
     },
     {
+      expectedPayload: { placement: "conversation" },
+      input: { placement: "conversation" },
+      response: {
+        dispatchId: "dispatch_123",
+        sourceSignalId: "signal-source",
+        profileId: AGENT_PROFILE_ID,
+        threadContext: null,
+        locked: true,
+      },
+      rpcName: "centerAgentSetReplyPlacement",
+      toolName: "openmeld_set_reply_placement",
+    },
+    {
       expectedPayload: {
         limit: 25,
         requestedAddressingModel: "wake_reference_mention",

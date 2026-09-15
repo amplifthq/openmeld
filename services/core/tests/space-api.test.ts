@@ -6466,6 +6466,97 @@ describe("OpenMeld Core", () => {
     socket.close(1000, "done");
   });
 
+  it("does not replay cleared reasoning or local reasoning without an enabled owner preference", async () => {
+    const spaceId = await createSpace();
+    const namespace = env.OPENMELD_SPACES as DurableObjectNamespace<Space>;
+    const stub = namespace.get(namespace.idFromString(spaceId));
+    const profileId = "agt_11111111-1111-4111-8111-111111111111";
+    const disabledProfileId = "agt_22222222-2222-4222-8222-222222222222";
+    const ownerUserId = `reasoning-owner-${spaceId}`;
+    const hubs = (env as CoreBindings).OPENMELD_RUNTIME_TRANSPORT;
+    if (!hubs) {
+      throw new Error("Missing RuntimeTransport test binding");
+    }
+    const hub = hubs.get(hubs.idFromName(ownerUserId));
+    await hub.rpcReasoningPreferences({ enabled: false });
+    await runInDurableObject(stub, (instance) => {
+      const internal = instance as unknown as { bindings: CoreBindings };
+      // This Workers environment has no Auth service binding. Supply the
+      // public Auth profile contract without mutating the shared test env.
+      const auth = {
+        resolveProfileById: (input) =>
+          input.openMeldProfileId === disabledProfileId
+            ? Promise.resolve({
+                ok: true as const,
+                profile: {
+                  profileId: disabledProfileId,
+                  profileHandle: disabledProfileId,
+                  profileName: "Disabled Agent",
+                  profileKind: "agent" as const,
+                  status: "active" as const,
+                  ownerUserId,
+                },
+              })
+            : Promise.resolve({
+                ok: false as const,
+                code: "profile.not_found",
+                message: "profile not found",
+              }),
+      } satisfies Pick<
+        NonNullable<CoreBindings["OPENMELD_AUTH_WORKER"]>,
+        "resolveProfileById"
+      >;
+      internal.bindings = {
+        ...internal.bindings,
+        OPENMELD_AUTH_WORKER: auth as NonNullable<
+          CoreBindings["OPENMELD_AUTH_WORKER"]
+        >,
+      };
+    });
+    for (const streamId of ["cleared", "unknown-owner", "disabled-owner"]) {
+      await stub.rpcApplyAgentStreamDelta({
+        v: 1,
+        spaceId,
+        streamId,
+        profileId:
+          streamId === "disabled-owner" ? disabledProfileId : profileId,
+        triggerMessageId: `trigger-${streamId}`,
+        dispatchId: `dispatch-${streamId}`,
+        sequence: 1,
+        kind: "thinking",
+        thinkingSnapshot: `Private ${streamId}`,
+        ...(streamId !== "cleared"
+          ? { reasoningState: { status: "streaming" as const } }
+          : {}),
+      });
+      if (streamId === "cleared") {
+        await stub.rpcClearReasoningReplay({ spaceId, profileId });
+      }
+    }
+    const received: string[] = [];
+    let joined: ReturnType<typeof waitForJsonMessage> | undefined;
+    const viewer = await openSpaceSocket(
+      spaceId,
+      { kind: "human", profileId: "privacy-reader", profileName: "Reader" },
+      undefined,
+      undefined,
+      (socket) => {
+        socket.addEventListener("message", (event) => {
+          received.push(String(event.data));
+        });
+        joined = waitForJsonMessage(
+          socket,
+          (data) => data.type === "presence.join"
+        );
+      }
+    );
+    await joined;
+    expect(received.join("\n")).not.toContain("Private cleared");
+    expect(received.join("\n")).not.toContain("Private unknown-owner");
+    expect(received.join("\n")).not.toContain("Private disabled-owner");
+    viewer.close(1000, "done");
+  });
+
   it("broadcasts Agent stream snapshots and restores them through bootstrap and WebSocket replay", async () => {
     const spaceId = await createSpace({ name: `agent-stream-${Date.now()}` });
     const viewer = await openSpaceSocket(spaceId, {
@@ -6570,6 +6661,20 @@ describe("OpenMeld Core", () => {
       gapDetected: true,
     });
 
+    const thinkingStreamId = `${delta.streamId}:thinking`;
+    await namespace
+      .get(namespace.idFromString(spaceId))
+      .rpcApplyAgentStreamDelta({
+        v: 1,
+        spaceId,
+        streamId: thinkingStreamId,
+        sequence: 1,
+        profileId: delta.profileId,
+        triggerMessageId: delta.triggerMessageId,
+        dispatchId: `${delta.dispatchId}:thinking`,
+        kind: "thinking",
+        thinkingSnapshot: "Transient replay tail",
+      });
     const bootstrap = await stub.rpcGetBootstrap({
       spaceId,
       recent: true,
@@ -6595,6 +6700,9 @@ describe("OpenMeld Core", () => {
       },
     ]);
 
+    let replayedThinkingFrame:
+      | ReturnType<typeof waitForJsonMessage>
+      | undefined;
     let replayedStreamFrame: ReturnType<typeof waitForJsonMessage> | undefined;
     const restoredViewer = await openSpaceSocket(
       spaceId,
@@ -6606,6 +6714,12 @@ describe("OpenMeld Core", () => {
       undefined,
       undefined,
       (socket) => {
+        replayedThinkingFrame = waitForJsonMessage(
+          socket,
+          (data) =>
+            data.type === "space.agent_stream_delta" &&
+            data.streamId === thinkingStreamId
+        );
         replayedStreamFrame = waitForJsonMessage(
           socket,
           (data) =>
@@ -6619,6 +6733,20 @@ describe("OpenMeld Core", () => {
       streamId: delta.streamId,
       sequence: 3,
       textSnapshot: "Hello from the latest snapshot",
+    });
+    await expect(replayedThinkingFrame).resolves.toMatchObject({
+      kind: "thinking",
+      thinkingSnapshot: "Transient replay tail",
+    });
+    expect(JSON.stringify(bootstrap)).not.toContain("Transient replay tail");
+    await stub.rpcCloseAgentStream({
+      spaceId,
+      streamId: thinkingStreamId,
+      terminal: {
+        kind: "failed",
+        reasonCode: "test.closed",
+        noticeText: "Closed",
+      },
     });
 
     const readModel = await stub.rpcGetConversationState({

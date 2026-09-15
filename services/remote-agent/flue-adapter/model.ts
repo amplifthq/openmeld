@@ -30,6 +30,7 @@ import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
   projectProviderCompletion,
   providerCompletionOperation,
+  providerCompletionSucceeded,
 } from "./provider-completion";
 import {
   assertRemoteAgentProviderContextFits,
@@ -169,13 +170,18 @@ export async function registerRemoteAgentCloudflareProvider(input: {
   ) as Model<"openai-completions"> | undefined;
   registeredRemoteAgentModelCapabilities.set(providerId, {
     reportCompletion: (completion) => {
-      console.info(completion);
+      const succeeded = providerCompletionSucceeded(completion);
+      if (succeeded) {
+        console.info(completion);
+      } else {
+        console.warn(completion);
+      }
       emitRemoteAgentExecutionStageEvidence(input.env, {
         category: "provider",
         durationMs: completion.durationMs,
         operation: providerCompletionOperation(completion),
         requestId: completion.submissionId,
-        status: completion.terminalEvent === "error" ? "failed" : "succeeded",
+        status: succeeded ? "succeeded" : "failed",
         toolCount: completion.toolCallCount,
       });
     },

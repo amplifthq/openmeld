@@ -628,6 +628,8 @@ import type {
   RestoreSpaceFileRevisionBody,
   SelectCurrentLocalAgentInstallationBody,
   SelectCurrentLocalAgentInstallationResponse,
+  ServiceConnectionIncidentReportRpcInput,
+  ServiceConnectionIncidentsReadRpcInput,
   SetAgentProfileCreationDefaultsBody,
   SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceBody,
@@ -897,6 +899,8 @@ import { rpcCenterAgentReadChangelog as centerAgentReadChangelog } from "../chan
 import { rpcReadChangelog as readChangelog } from "../changelog/changelog-read-rpc";
 import { createComputerFileAccessRpc } from "../computers/computer-file-access-rpc";
 import { createLocalFolderPickerRpc } from "../computers/local-folder-picker-rpc";
+import { createServiceConnectionEvidenceRpc } from "../computers/service-connection-evidence-rpc";
+import { readOwnerServiceConnectionTrace } from "../computers/service-connection-trace";
 import {
   readAuthoredModelCatalog,
   readModelCatalog,
@@ -2418,6 +2422,7 @@ export type GetSpaceConversationStateRpcInput = {
 };
 
 type ApplySpaceAgentStreamDeltaIdentity = {
+  replyThreadRootSignalId?: string | null;
   v: 1;
   spaceId: string;
   streamId: string;
@@ -2437,6 +2442,7 @@ export type ApplySpaceAgentStreamDeltaInput =
       | {
           kind: "thinking";
           thinkingSnapshot: string;
+          reasoningState?: import("@openmeld/schemas/types").LocalAgentReasoningState;
         }
     );
 
@@ -2591,6 +2597,7 @@ export type ListSpaceThreadSignalsInput = ListSpaceThreadSignalsQuery & {
 };
 
 export type GetSpaceDispatchTraceInput = {
+  includeServiceConnectionDiagnostics?: boolean;
   spaceId: string;
   dispatchId: string;
   includeRemoteAgentRuntimeDiagnostics?: boolean;
@@ -2747,6 +2754,56 @@ export function rpcListPeopleComputers(
     userId,
     includeUsageLimits: input.includeUsageLimits === "true",
   });
+}
+
+const serviceConnectionEvidenceRpc = createServiceConnectionEvidenceRpc({
+  requireOwnerUserId: requireAuthenticatedOwnerUserId,
+  requireOwnedDevice: async (env, userId, deviceId) => {
+    const inventory = await listLocalRuntimesForOwnerUser({ env, userId });
+    if (
+      !inventory.localRuntimes.some((computer) =>
+        peopleComputerContainsDevice(computer, deviceId)
+      )
+    ) {
+      throw createCoreRpcHttpError({
+        status: 404,
+        code: "computer.not_found",
+        reason: "This computer is not available on your account.",
+      });
+    }
+  },
+  requireUploader: async (env, userId, input) => {
+    const target = { deviceId: input.deviceId, runtimeLane: input.runtimeLane };
+    const { localRuntimes, ownerService } =
+      await resolveCurrentLocalServiceContext({ env, userId, target });
+    const session = requirePeopleComputerControlSession({
+      target,
+      inventory: localRuntimes,
+      ownerService,
+    });
+    if (session.daemonSessionId !== input.report.uploaderServiceSessionId) {
+      throw createCoreRpcHttpError({
+        status: 409,
+        code: "computer.connection_incident.uploader_changed",
+        reason:
+          "The Service connection changed. Try again after it reconnects.",
+      });
+    }
+  },
+});
+
+export function rpcReadServiceConnectionIncidents(
+  env: CoreBindings,
+  input: ServiceConnectionIncidentsReadRpcInput
+) {
+  return serviceConnectionEvidenceRpc.read(env, input);
+}
+
+export function rpcReportServiceConnectionIncident(
+  env: CoreBindings,
+  input: ServiceConnectionIncidentReportRpcInput
+) {
+  return serviceConnectionEvidenceRpc.report(env, input);
 }
 
 async function listPeopleComputersForOwnerUser(input: {
@@ -20267,7 +20324,7 @@ export async function rpcGetSpaceDispatchTrace(
     throw new Error("dispatchId is required");
   }
 
-  return await stub.rpcGetDispatchTrace({
+  const response = await stub.rpcGetDispatchTrace({
     spaceId,
     dispatchId,
     ...(input.includeRemoteAgentRuntimeDiagnostics === true
@@ -20278,6 +20335,17 @@ export async function rpcGetSpaceDispatchTrace(
       : { responseContractVersion: input.responseContractVersion }),
     ...access,
   });
+  if (input.includeServiceConnectionDiagnostics !== true) {
+    return response;
+  }
+  const diagnostics = await readOwnerServiceConnectionTrace({
+    env,
+    ownerUserId: input.context?.actorContext.ownerUserId,
+    execution: response.trace?.runtimeCoordinatorExecution ?? null,
+  });
+  return diagnostics
+    ? { ...response, serviceConnectionDiagnostics: diagnostics }
+    : response;
 }
 
 export async function rpcInspectExecutionRecovery(
@@ -24712,4 +24780,53 @@ export async function rpcSpaceMessagePins(
   const context = requireRpcContext(input.context);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   return await stub.rpcMessagePins({ ...input, spaceId, context });
+}
+
+import { centerAgentSetReplyPlacementInputSchema } from "@openmeld/schemas";
+import type {
+  CenterAgentSetReplyPlacementInput,
+  NativeReplyPlacement,
+} from "@openmeld/schemas/types";
+import { resolveNativeDeliveryReplyPlacement } from "../remote-agent/application/reply-placement";
+
+export async function rpcCenterAgentSetReplyPlacement(
+  env: CoreBindings,
+  input: CenterAgentSetReplyPlacementInput
+): Promise<NativeReplyPlacement> {
+  const parsed = centerAgentSetReplyPlacementInputSchema.parse(input);
+  const authorization = await prepareHostedCenterAgentRequest(
+    env,
+    requireRpcContext(parsed.context)
+  );
+  const submissionId =
+    authorization.context.agentControllerConversationId?.trim();
+  const db = wakeEvidenceDb(env);
+  if (!(submissionId && db)) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+    db,
+    submissionId,
+  });
+  if (
+    !delivery ||
+    (delivery.status !== "accepted" && delivery.status !== "retry_observed") ||
+    delivery.routineRunId ||
+    delivery.conversationKind !== "space" ||
+    delivery.organizationId !==
+      authorization.activeOrganization.organizationId ||
+    delivery.profileId !== authorization.actorProfileId
+  ) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  const placement = await resolveNativeDeliveryReplyPlacement({
+    env,
+    delivery,
+    lock: true,
+    placement: parsed.placement,
+  });
+  if (!placement) {
+    throw centerAgentTurnDiagnosticsUnavailableError();
+  }
+  return placement;
 }

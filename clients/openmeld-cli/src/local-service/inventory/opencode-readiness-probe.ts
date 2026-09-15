@@ -48,18 +48,20 @@ export type OpenCodeReadinessProbeResult = {
 };
 
 export async function probeOpenCodeReadiness(input: {
+  workingDirectory: string;
   launchContract: RuntimeAgentControllerLaunchContract;
   timeoutMs?: number;
 }): Promise<OpenCodeReadinessProbeResult> {
   let server: OpenCodeProbeServer | null = null;
   try {
     server = await startOpenCodeProbeServer({
+      workingDirectory: input.workingDirectory,
       launchContract: input.launchContract,
       timeoutMs: input.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
     });
     const client = createOpencodeClient({
       baseUrl: server.url,
-      directory: process.cwd(),
+      directory: input.workingDirectory,
       throwOnError: true,
     });
     // The SDK reads have no timeout of their own; without this bound a hung
@@ -192,6 +194,7 @@ type OpenCodeProbeServer = {
 type OpenCodeProbeChild = ChildProcessByStdio<null, Readable, Readable>;
 
 async function startOpenCodeProbeServer(input: {
+  workingDirectory: string;
   launchContract: RuntimeAgentControllerLaunchContract;
   timeoutMs: number;
 }): Promise<OpenCodeProbeServer> {
@@ -203,7 +206,7 @@ async function startOpenCodeProbeServer(input: {
 
   return new Promise((resolve, reject) => {
     const child = spawn(invocation.bin, invocation.args, {
-      cwd: process.cwd(),
+      cwd: input.workingDirectory,
       detached: process.platform !== "win32",
       env: process.env,
       shell: invocation.shell ?? false,

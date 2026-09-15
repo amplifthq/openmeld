@@ -1136,6 +1136,7 @@ describe("api-client space api", () => {
         operation: "space.member_directory.read",
         init: expect.objectContaining({
           headers: {
+            "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
           },
@@ -1935,6 +1936,7 @@ describe("api-client space api", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
+            "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
           },
@@ -2029,6 +2031,7 @@ describe("api-client space api", () => {
           }),
           headers: {
             "content-type": "application/json",
+            "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
           },

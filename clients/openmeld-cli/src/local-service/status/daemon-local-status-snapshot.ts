@@ -39,7 +39,7 @@ export type DaemonLocalStatusSnapshot = {
 export async function resolveDaemonLocalStatusSnapshot(): Promise<DaemonLocalStatusSnapshot> {
   const daemonStatus = await getDaemonStatus();
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intent: "status_cleanup",
   }).catch(() => null);
   const runtimeStatus =

@@ -136,6 +136,7 @@ import {
 	type SpaceRemoveMemberResult,
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
+import { MessageActionTooltipProvider } from "./space-message-actions";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -1783,7 +1784,7 @@ function SpaceLandingReady({
 				spaceId={controller.spaceId}
 				view={spaceView}
 			>
-				{content}
+				<MessageActionTooltipProvider>{content}</MessageActionTooltipProvider>
 			</SpaceReadingHeaderProvider>
 		</SpacePinsProvider>
 	);
@@ -2741,6 +2742,7 @@ function SpaceLandingSecondaryPanels({
 							}
 				}
 				onWakeStopRequest={controller.onWakeStopRequest}
+				open={controller.threadPanelOpen}
 				orgSlug={input.orgSlug}
 				pendingActionSurface={pendingActionSurface}
 				prepareSetupHref={prepareSetupHref}

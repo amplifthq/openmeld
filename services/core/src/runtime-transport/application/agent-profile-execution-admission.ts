@@ -60,6 +60,10 @@ import {
   type RuntimeCoordinatorHeadLifecycleRecord,
   type RuntimeCoordinatorRunCommandState,
 } from "./runtime-coordinator-authority";
+import {
+  syncRuntimeCoordinatorWatchdogSchedule,
+  writeRuntimeCoordinatorWatchdogSchedule,
+} from "./runtime-coordinator-watchdog-storage";
 
 const EXECUTION_ADMISSION_MODEL_VERSION =
   "openmeld.runtime_coordinator.agent_profile_work_coordinator.v1" as const;
@@ -2027,6 +2031,7 @@ export async function prepareRuntimeCoordinatorAcceptedDeliveryWithAdmission(inp
       }),
     ];
     await Promise.all(writes);
+    await syncRuntimeCoordinatorWatchdogSchedule(transaction, executionId);
     return { ok: true };
   });
 }
@@ -2234,6 +2239,11 @@ export async function rollbackRuntimeCoordinatorUnsentDeliveryWithAdmission(inpu
         )
       ),
     ]);
+    await writeRuntimeCoordinatorWatchdogSchedule(
+      transaction,
+      input.runtimeCoordinatorExecutionId,
+      null
+    );
     return "rolled_back";
   });
 }
@@ -2920,6 +2930,7 @@ export async function writeRuntimeCoordinatorTokenAuthorityWithAdmissionInTransa
     }),
   ];
   await Promise.all(writes);
+  await syncRuntimeCoordinatorWatchdogSchedule(transaction, executionId);
   return terminalTransition.pendingPromotion;
 }
 
