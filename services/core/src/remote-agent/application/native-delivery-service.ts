@@ -36,6 +36,7 @@ import {
   resolveCenterAgentCompletedCallbackMessage,
   resolveSpaceFileContentResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
@@ -635,6 +636,7 @@ function buildRemoteAgentSourceText(
     ? renderDispatchSourceText({
         text: rawText,
         quotedMessage: message.sourceSignalSnapshot?.quotedMessage,
+        contextMessages: message.sourceSignalSnapshot?.contextMessages,
         pinnedFiles: message.sourceSignalSnapshot?.pinnedFiles,
       })
     : null;
@@ -6875,12 +6877,25 @@ async function readRemoteAgentSubmissionAttachments(input: {
       spaceId: input.message.spaceId,
       targetProfileId: input.message.targetProfileId,
     });
-    const signal = await readRemoteAgentSpaceSourceSignal({
-      env: input.env,
-      sourceSignalId: input.message.sourceEventId,
-      spaceAccess,
-      spaceId: input.message.spaceId,
-    });
+    const sourceIds = [
+      ...new Set([
+        input.message.sourceEventId,
+        ...(input.message.sourceSignalSnapshot?.contextMessages ?? []).map(
+          (message) => message.signalId
+        ),
+      ]),
+    ];
+    const signals = await Promise.all(
+      sourceIds.map((sourceSignalId) =>
+        readRemoteAgentSpaceSourceSignal({
+          env: input.env,
+          sourceSignalId,
+          spaceAccess,
+          spaceId: input.message.spaceId,
+        })
+      )
+    );
+    const signal = signals[0];
     if (signal?.type !== "signal.text") {
       if (!signal) {
         logRemoteAgentAttachmentReferenceDegradation({
@@ -6890,8 +6905,18 @@ async function readRemoteAgentSubmissionAttachments(input: {
       }
       return [];
     }
+    const currentMessages = signals.filter(
+      (item): item is Extract<SignalEnvelope, { type: "signal.text" }> =>
+        item?.type === "signal.text" && !item.data.meta?.recalledAt
+    );
     const legacyAttachments = spaceMessageAttachmentsSchema.safeParse(
-      signal.data.attachments ?? []
+      [
+        ...new Map(
+          currentMessages
+            .flatMap((item) => item.data.attachments ?? [])
+            .map((attachment) => [attachment.id, attachment])
+        ).values(),
+      ].slice(0, SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE)
     );
     if (!legacyAttachments.success) {
       logRemoteAgentAttachmentReferenceDegradation({
@@ -6905,7 +6930,13 @@ async function readRemoteAgentSubmissionAttachments(input: {
       0,
       SPACE_MESSAGE_FILE_MAX_COUNT - legacyAttachments.data.length
     );
-    const canonicalImageFiles = (signal.data.files ?? [])
+    const canonicalImageFiles = [
+      ...new Map(
+        currentMessages
+          .flatMap((item) => item.data.files ?? [])
+          .map((file) => [`${file.fileId}:${file.revision}`, file])
+      ).values(),
+    ]
       .filter(
         (file) =>
           file.mimeType === "image/jpeg" || file.mimeType === "image/png"

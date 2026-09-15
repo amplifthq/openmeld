@@ -3882,7 +3882,10 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("forwards shared Space wake attachment references from the triggering signal", async () => {
+  it.each([
+    false,
+    true,
+  ])("forwards shared Space Wake images, including preceding context for a bare mention (%s)", async (bareMention) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     harness.run({
@@ -3910,22 +3913,54 @@ describe("Remote Agent native delivery callback service", () => {
         fileName: "whiteboard.jpg",
       },
     ];
+    const text = bareMention ? "@Codex" : "What is on this whiteboard?";
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    env.__spaceStub.rpcListSignalsResult.mockImplementation(
+      async ({ aroundSignalId }: { aroundSignalId: string }) => ({
+        ok: true,
+        value: {
+          signals: [
+            {
+              ...createSignalEnvelope(aroundSignalId),
+              data: {
+                text:
+                  aroundSignalId === "previous"
+                    ? "What is on this whiteboard?"
+                    : text,
+                attachments:
+                  !bareMention || aroundSignalId === "previous"
+                    ? attachments
+                    : [],
+              },
+            },
+          ],
+        },
+      })
+    );
     try {
       await submitRemoteAgentNativeDelivery({
         db: harness.db,
-        env: buildEnv(harness.db, {
-          remoteAgentWorker: { submitConversationTurn: workerSubmit },
-          sourceSignal: {
-            ...createSignalEnvelope("signal_1"),
-            data: { text: "What is on this whiteboard?", attachments },
-          } as SignalEnvelope,
-        }),
+        env,
         executionAttemptId: "attempt_1",
         message: createDispatchMessage({
           sourceSignalSnapshot: {
             profileId: HUMAN_PROFILE_ID,
             profileKind: "human",
-            text: "What is on this whiteboard?",
+            text,
+            ...(bareMention
+              ? {
+                  contextMessages: [
+                    {
+                      signalId: "previous",
+                      author: "Felix",
+                      text: "What is on this whiteboard?",
+                      attachments,
+                    },
+                  ],
+                }
+              : {}),
           },
         }),
         nowMs: 1000,
@@ -3937,7 +3972,9 @@ describe("Remote Agent native delivery callback service", () => {
           messages: [
             {
               role: "user",
-              content: "What is on this whiteboard?",
+              content: bareMention
+                ? expect.stringContaining("What is on this whiteboard?")
+                : text,
               attachments,
             },
           ],

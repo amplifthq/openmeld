@@ -95,6 +95,18 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  contextMessages: z
+    .array(
+      z.strictObject({
+        signalId: z.string().min(1),
+        author: z.string().min(1).nullable(),
+        text: z.string().max(16_000),
+        files: spaceMessageFileReferencesSchema.optional(),
+        attachments: spaceMessageAttachmentsSchema.optional(),
+      })
+    )
+    .max(3)
+    .optional(),
   callerContext: spaceCallerContextSchema.optional(),
   pinnedFiles: z.array(spaceMessageFileReferenceSchema).max(100).optional(),
   quotedMessage: z
