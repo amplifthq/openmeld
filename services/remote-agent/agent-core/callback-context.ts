@@ -279,6 +279,9 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  listSpaceTasks?(input: unknown): Promise<unknown>;
+  createSpaceTask?(input: unknown): Promise<unknown>;
+  mutateSpaceTask?(input: unknown): Promise<unknown>;
   centerAgentSetReplyPlacement?(
     input: CenterAgentSetReplyPlacementInput
   ): Promise<NativeReplyPlacement>;

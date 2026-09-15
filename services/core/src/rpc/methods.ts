@@ -494,6 +494,7 @@ import type {
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderBody,
   CreateSpaceFolderResponse,
+  CreateSpaceTaskBody,
   CurrentAgentProfileSessionLookupResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
@@ -554,6 +555,7 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsQuery,
   ListSpaceThreadSignalsResponse,
@@ -579,6 +581,7 @@ import type {
   MessageChannelProvider,
   MessageChannelSetupRequestBody,
   MessageChannelSetupRequestResponse,
+  MutateSpaceTaskBody,
   NotifyAgentProfileRouteCatalogChangedBody,
   NotifyAgentProfileRouteCatalogChangedResponse,
   NotifyAgentProfilesRouteCatalogChangedBody,
@@ -679,6 +682,9 @@ import type {
   SpaceMessagePinMutation,
   SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
   SpaceThreadContext,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
@@ -1897,6 +1903,10 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse>;
+  rpcListTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse>;
+  rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse>;
+  rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
+  rpcMutateTask(input: MutateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
   rpcGetBoardResult(
     input: GetSpaceBoardInput
@@ -24836,6 +24846,22 @@ export type SpaceFilePinsInput = GetSpaceMetaInput & {
   mutation?: SpaceFilePinMutation;
 };
 
+export type ListSpaceTasksInput = GetSpaceMetaInput & {
+  phase?: SpaceTaskPhase;
+};
+
+export type GetSpaceTaskInput = GetSpaceMetaInput & {
+  taskId: string;
+};
+
+export type CreateSpaceTaskInput = GetSpaceMetaInput & {
+  body: CreateSpaceTaskBody;
+};
+
+export type MutateSpaceTaskInput = GetSpaceTaskInput & {
+  body: MutateSpaceTaskBody;
+};
+
 export async function rpcSpaceFilePins(
   env: CoreBindings,
   input: SpaceFilePinsInput
@@ -24852,6 +24878,95 @@ export async function rpcSpaceMessagePins(
   const context = requireRpcContext(input.context);
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
   return await stub.rpcMessagePins({ ...input, spaceId, context });
+}
+
+export async function rpcListSpaceTasks(
+  env: CoreBindings,
+  input: ListSpaceTasksInput
+): Promise<ListSpaceTasksResponse> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  return await stub.rpcListTasks({ ...input, spaceId, context });
+}
+
+export async function rpcGetSpaceTask(
+  env: CoreBindings,
+  input: GetSpaceTaskInput
+): Promise<SpaceTaskResponse> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  return await stub.rpcGetTask({ ...input, spaceId, context });
+}
+
+export async function rpcCreateSpaceTask(
+  env: CoreBindings,
+  input: CreateSpaceTaskInput
+): Promise<SpaceTaskMutationReceipt> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  let body = input.body;
+  const submissionId = context.agentControllerConversationId?.trim();
+  const db = wakeEvidenceDb(env);
+  if (!body.sourceSignalId && submissionId && db) {
+    const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+      db,
+      submissionId,
+    });
+    if (
+      delivery?.conversationKind === "space" &&
+      delivery.spaceId === spaceId &&
+      delivery.profileId === context.actorContext.openMeldProfileId
+    ) {
+      body = {
+        ...body,
+        sourceSignalId: delivery.triggerMessageId,
+        threadId: body.threadId ?? delivery.threadContext?.threadId ?? null,
+      };
+    }
+  }
+  return await stub.rpcCreateTask({ ...input, body, spaceId, context });
+}
+
+export async function rpcMutateSpaceTask(
+  env: CoreBindings,
+  input: MutateSpaceTaskInput
+): Promise<SpaceTaskMutationReceipt> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  return await stub.rpcMutateTask({ ...input, spaceId, context });
+}
+
+async function authorizeSpaceTaskRpcContext(
+  env: CoreBindings,
+  spaceId: string,
+  context: CoreRpcContextInput
+): Promise<CoreRpcContextInput> {
+  if (!isHostedAgentControllerRef(context.actorContext.agentControllerRef)) {
+    return context;
+  }
+  const authorization = await requireRemoteAgentToolCaller({ context, env });
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId,
+  });
+  return authorization.context;
 }
 
 import { centerAgentSetReplyPlacementInputSchema } from "@openmeld/schemas";

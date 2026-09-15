@@ -271,7 +271,7 @@ export function CenterAgentNewChat({
 						navigation={
 							<CenterAgentHeaderTabs
 								activeSectionId="chat"
-								activeSpaceView={view}
+								activeSpaceView={view === "tasks" ? "messages" : view}
 								idPrefix="new-chat-view"
 								onSpaceViewChange={(nextView) => {
 									navigate({

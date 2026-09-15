@@ -43,6 +43,7 @@ import {
   deriveCenterAgentDirectMessageSpaceProjection,
   evalSpaceSignalMetricsInputSchema,
   evalSpaceSignalMetricsSchema,
+  formatCanonicalMentionLiteral,
   getActiveSpaceWakeProgressInputSchema,
   getSpaceConversationStateResponseSchema,
   getSpaceDispatchLookupInputSchema,
@@ -138,6 +139,7 @@ import type {
   ConvertDirectMessageToSpaceResponse,
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderResponse,
+  CreateSpaceTaskBody,
   DispatchResult,
   EvalSpaceSignalMetrics,
   EvalSpaceSignalMetricsInput,
@@ -159,6 +161,7 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
@@ -217,6 +220,10 @@ import type {
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
+  SpaceTask,
+  SpaceTaskActor,
+  SpaceTaskMutationReceipt,
+  SpaceTaskResponse,
   SpaceThread,
   SpaceThreadContext,
   SpaceThreadPreview,
@@ -358,6 +365,7 @@ import type {
   CloseSpaceAgentStreamInput,
   CoreRpcContextInput,
   CreateSpaceDiagnosticReportInput,
+  CreateSpaceTaskInput,
   DeleteSpaceInput,
   DeleteSpaceResult,
   ExecuteExecutionRecoveryInput,
@@ -375,6 +383,7 @@ import type {
   GetSpaceMessageReactionsInput,
   GetSpaceMetaInput,
   GetSpaceStatusInput,
+  GetSpaceTaskInput,
   GetSpaceThreadInput,
   GetSpaceUpdatesInput,
   GetSpaceViewerMembershipInput,
@@ -384,9 +393,11 @@ import type {
   LeaveSpaceInput,
   ListSignalsInput,
   ListSignalsResult,
+  ListSpaceTasksInput,
   ListSpaceThreadEventsInput,
   ListSpaceThreadSignalsInput,
   ListSpaceThreadsInput,
+  MutateSpaceTaskInput,
   PatchSpaceContractInput,
   PostExecutionRecoveryNoticeSignalInput,
   PostExecutionRecoveryNoticeSignalResponse,
@@ -540,6 +551,14 @@ import {
   readSpaceStatusSummaryFromMembersSnapshotUseCase,
   readSpaceStatusSummaryUseCase,
 } from "../../application/space-status-service";
+import {
+  type CreateSpaceTaskContext,
+  SpaceTaskService,
+} from "../../application/space-task-service";
+import {
+  type SpaceTaskMutationContext,
+  SpaceTaskWorkflowError,
+} from "../../application/space-task-workflow";
 import { resolveExistingThreadSignalRetry } from "../../application/space-thread-signal-idempotency";
 import {
   readSpaceUpdatesUseCase,
@@ -693,6 +712,7 @@ import {
   runAgentReplyObservationGuardedTransaction,
   type SignalEntry,
 } from "../../infrastructure/sql/space-signal-repo";
+import { SpaceTaskRepository } from "../../infrastructure/sql/space-task-repo";
 import {
   createSpaceThreadId,
   createSpaceThreadSignalPlacement,
@@ -6753,6 +6773,104 @@ export class Space extends DurableObject<CoreBindings> {
     return readSpaceRpcJsonOrThrow(response);
   }
 
+  async rpcListTasks(
+    input: ListSpaceTasksInput
+  ): Promise<ListSpaceTasksResponse> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/tasks",
+        method: "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: ({ context }) =>
+          this.handleSpaceTaskOperation(context, () =>
+            this.spaceTaskService.list(input.phase)
+          ),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: `/tasks/${encodeURIComponent(input.taskId)}`,
+        method: "GET",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        GET: ({ context }) =>
+          this.handleSpaceTaskOperation(context, () =>
+            this.spaceTaskService.read(input.taskId)
+          ),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcCreateTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: "/tasks",
+        method: "POST",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        POST: ({ context }) =>
+          this.handleSpaceTaskOperation(context, async (taskContext) => {
+            const normalizedBody = this.normalizeSpaceTaskSource(
+              input.body,
+              input.body.sourceSignalId ?? null,
+              input.body.threadId ?? null
+            );
+            const createContext = this.buildSpaceTaskCreateContext(
+              taskContext,
+              normalizedBody.sourceSignalId ?? null
+            );
+            const receipt = this.spaceTaskService.create(
+              normalizedBody,
+              createContext
+            );
+            if (receipt.applied) {
+              await this.broadcastSpaceTasksChanged("space.task.created");
+            }
+            return receipt;
+          }),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
+  async rpcMutateTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    this.applySpaceRef(input.spaceId);
+    const response = await this.dispatchPasswordProtectedMethod(
+      this.buildDirectRpcRequest({
+        path: `/tasks/${encodeURIComponent(input.taskId)}`,
+        method: "PATCH",
+        context: input.context,
+        spacePassword: input.password,
+      }),
+      {
+        PATCH: ({ context }) =>
+          this.handleSpaceTaskOperation(context, (taskContext) =>
+            this.handleSpaceTaskMutation(input, context, taskContext)
+          ),
+      }
+    );
+    return readSpaceRpcJsonOrThrow(response);
+  }
+
   async rpcFilePins(input: SpaceFilePinsInput): Promise<SpaceFilePinsResponse> {
     this.applySpaceRef(input.spaceId);
     const response = await this.dispatchPasswordProtectedMethod(
@@ -6769,6 +6887,465 @@ export class Space extends DurableObject<CoreBindings> {
       }
     );
     return readSpaceRpcJsonOrThrow(response);
+  }
+
+  private get spaceTaskService(): SpaceTaskService {
+    return new SpaceTaskService({
+      repository: new SpaceTaskRepository(this.ctx.storage.sql),
+      runTransaction: (callback) => this.ctx.storage.transactionSync(callback),
+      spaceId: this.spaceId,
+    });
+  }
+
+  private async handleSpaceTaskMutation(
+    input: MutateSpaceTaskInput,
+    context: CoreRpcContextInput,
+    taskContext: SpaceTaskMutationContext
+  ): Promise<SpaceTaskMutationReceipt> {
+    const receipt = this.spaceTaskService.mutate(
+      input.taskId,
+      input.body,
+      taskContext
+    );
+    if (receipt.applied) {
+      await this.broadcastSpaceTasksChanged(`space.task.${input.body.action}`);
+    }
+    await this.requestTaskExecutionStopAfterCancellation({
+      context,
+      request: input,
+      receipt,
+    });
+    await this.publishTaskHandoffAfterMutation(
+      receipt,
+      resolveSourceDispatchChainContext(context)
+    );
+    await this.publishTaskCompletionAfterMutation(receipt);
+    return receipt;
+  }
+
+  private async requestTaskExecutionStopAfterCancellation(input: {
+    context: CoreRpcContextInput;
+    request: MutateSpaceTaskInput;
+    receipt: SpaceTaskMutationReceipt;
+  }): Promise<void> {
+    const task = input.receipt.task;
+    if (
+      !input.receipt.applied ||
+      input.receipt.event.type !== "canceled" ||
+      !task.sourceSignalId ||
+      task.assignee?.profileKind !== "agent"
+    ) {
+      return;
+    }
+    try {
+      await this.rpcPostWakeStop({
+        spaceId: this.spaceId,
+        context: input.context,
+        password: input.request.password,
+        body: {
+          reason:
+            input.request.body.action === "cancel"
+              ? input.request.body.reason
+              : "Space Task canceled.",
+          target: {
+            by: "source_signal",
+            sourceSignalId: task.sourceSignalId,
+            targetProfileId: task.assignee.profileId,
+          },
+        },
+      });
+    } catch (error) {
+      console.warn("[core.space.task_execution_stop_request_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+    }
+  }
+
+  private async publishTaskCompletionAfterMutation(
+    receipt: SpaceTaskMutationReceipt
+  ): Promise<void> {
+    if (
+      receipt.task.phase !== "done" ||
+      (receipt.event.type !== "result_submitted" &&
+        receipt.event.type !== "review_accepted")
+    ) {
+      return;
+    }
+    await this.publishSpaceTaskCompletionNotice(receipt.task);
+  }
+
+  private async publishTaskHandoffAfterMutation(
+    receipt: SpaceTaskMutationReceipt,
+    sourceDispatchChainContext?: SourceDispatchChainContext
+  ): Promise<void> {
+    if (
+      receipt.event.type === "result_submitted" &&
+      receipt.task.phase === "in_review" &&
+      receipt.task.reviewer
+    ) {
+      await this.publishSpaceTaskDirectedNotice({
+        actor: receipt.event.actor,
+        eventId: receipt.event.eventId,
+        sourceDispatchChainContext,
+        task: receipt.task,
+        target: receipt.task.reviewer,
+        text: `Task ready for review: ${receipt.task.title}\n\n${receipt.task.result?.summary ?? "A result was submitted."}`,
+      });
+      return;
+    }
+    if (receipt.event.type !== "changes_requested") {
+      return;
+    }
+    if (receipt.task.phase === "in_progress" && receipt.task.assignee) {
+      await this.publishSpaceTaskDirectedNotice({
+        actor: receipt.event.actor,
+        eventId: receipt.event.eventId,
+        sourceDispatchChainContext,
+        task: receipt.task,
+        target: receipt.task.assignee,
+        text: `Changes requested for Task: ${receipt.task.title}\n\n${receipt.task.review?.feedback ?? "Review the latest feedback."}`,
+      });
+      return;
+    }
+    await this.publishSpaceTaskDirectedNotice({
+      actor: receipt.event.actor,
+      eventId: receipt.event.eventId,
+      sourceDispatchChainContext,
+      task: receipt.task,
+      target:
+        receipt.task.requestedBy.profileKind === "human"
+          ? receipt.task.requestedBy
+          : null,
+      text: `Task needs a human decision after two rework rounds: ${receipt.task.title}`,
+    });
+  }
+
+  private async publishSpaceTaskDirectedNotice(input: {
+    actor: SpaceTaskActor;
+    eventId: string;
+    sourceDispatchChainContext?: SourceDispatchChainContext;
+    task: SpaceTask;
+    target: SpaceTaskActor | null;
+    text: string;
+  }): Promise<void> {
+    const sourceSignal = input.task.sourceSignalId
+      ? this.readSignalById(input.task.sourceSignalId)
+      : null;
+    const replyTo = sourceSignal
+      ? buildDispatchReplyToSnapshot({
+          sourceEventId: sourceSignal.id,
+          sourceText:
+            sourceSignal.type === "signal.text" ? sourceSignal.data.text : null,
+          profileId: sourceSignal.profile.profileId,
+          profileKind: sourceSignal.profile.kind,
+          profileName: sourceSignal.profile.profileName,
+        })
+      : null;
+    const relation = input.target?.profileKind === "agent" ? "wake" : "mention";
+    const targetLiteral = input.target
+      ? formatCanonicalMentionLiteral({
+          name:
+            input.target.profileName.replace(/[()]/gu, "").trim() || "Member",
+          type: relation,
+        })
+      : null;
+    const text = [targetLiteral, `[${input.task.taskId}]`, input.text]
+      .filter(Boolean)
+      .join(" ");
+    const thread = input.task.threadId
+      ? readSpaceThread(this.ctx.storage.sql, input.task.threadId)
+      : null;
+    const signal = {
+      ...this.buildTextSignal(
+        {
+          kind: input.actor.profileKind,
+          profileId: input.actor.profileId,
+          profileName: input.actor.profileName,
+        },
+        text,
+        {
+          ...(replyTo ? { replyTo } : {}),
+          messageEnvelope: {
+            activationTargets:
+              input.target?.profileKind === "agent"
+                ? [input.target.profileId]
+                : [],
+            mentionTargets:
+              input.target?.profileKind === "human"
+                ? [input.target.profileId]
+                : [],
+            referenceTargets: [],
+            ...(input.task.sourceSignalId
+              ? { replyToSignalId: input.task.sourceSignalId }
+              : {}),
+            text,
+          },
+          meta: {
+            purpose: "space_task_handoff",
+            ...(input.task.sourceSignalId
+              ? { sourceEventId: input.task.sourceSignalId }
+              : {}),
+          },
+        }
+      ),
+      id: `space-task-handoff:${input.eventId}`,
+    };
+    const threadContext = thread ? toSpaceThreadContext(thread) : null;
+    try {
+      await this.publishTextSignal(signal, {
+        authoringPolicy: "system_emitted",
+        ...(input.sourceDispatchChainContext
+          ? { sourceDispatchChainContext: input.sourceDispatchChainContext }
+          : {}),
+        supportsCurrentSpaceAddressing: true,
+        ...(threadContext
+          ? { threadContext, threadPlacement: "thread" as const }
+          : {}),
+      });
+    } catch (error) {
+      console.warn("[core.space.task_handoff_notice_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        eventId: input.eventId,
+        spaceId: this.spaceId,
+        taskId: input.task.taskId,
+      });
+    }
+  }
+
+  private async handleSpaceTaskOperation<T>(
+    context: CoreRpcContextInput,
+    operation: (taskContext: SpaceTaskMutationContext) => T | Promise<T>
+  ): Promise<Response> {
+    try {
+      const taskContext = this.buildSpaceTaskMutationContext(context);
+      return Response.json(await operation(taskContext));
+    } catch (error) {
+      if (error instanceof SpaceTaskWorkflowError) {
+        return Response.json(
+          { code: error.code, message: error.message },
+          { status: error.status }
+        );
+      }
+      throw error;
+    }
+  }
+
+  private buildSpaceTaskMutationContext(
+    context: CoreRpcContextInput
+  ): SpaceTaskMutationContext {
+    const meta = this.readSpaceMetaRecord();
+    if (!meta) {
+      throw new SpaceTaskWorkflowError({
+        code: "space.not_found",
+        message: "Space not found.",
+        status: 404,
+      });
+    }
+    const activeMembers = listSpaceMemberRecords(this.ctx.storage.sql, {
+      status: "active",
+    });
+    if (
+      isDirectMessageSpace({
+        purpose: meta.purpose,
+        directMessageConvertedAt: meta.directMessage?.convertedAt,
+        activeMemberCount: activeMembers.length,
+      })
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.unsupported_space",
+        message: "Tasks are available in shared Spaces.",
+        status: 409,
+      });
+    }
+    const profileId = context.actorContext.openMeldProfileId?.trim();
+    const member = profileId
+      ? activeMembers.find((candidate) => candidate.profileId === profileId)
+      : null;
+    if (
+      !member ||
+      (member.profileKindSnapshot !== "human" &&
+        member.profileKindSnapshot !== "agent") ||
+      (member.ownerUserIdSnapshot !== null &&
+        member.ownerUserIdSnapshot !== context.actorContext.ownerUserId)
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space.membership_required",
+        message: "Join this Space before working with Tasks.",
+        status: 403,
+      });
+    }
+    const actor = toSpaceTaskActor(member);
+    return {
+      actor,
+      isSpaceOwner: Boolean(
+        actor.profileKind === "human" &&
+          actor.ownerUserId &&
+          meta.ownerUserIds?.includes(actor.ownerUserId)
+      ),
+      resolveMember: (candidateProfileId) => {
+        const candidate = activeMembers.find(
+          (activeMember) => activeMember.profileId === candidateProfileId
+        );
+        return candidate &&
+          (candidate.profileKindSnapshot === "human" ||
+            candidate.profileKindSnapshot === "agent")
+          ? toSpaceTaskActor(candidate)
+          : null;
+      },
+    };
+  }
+
+  private buildSpaceTaskCreateContext(
+    context: SpaceTaskMutationContext,
+    sourceSignalId: string | null
+  ): CreateSpaceTaskContext {
+    if (!sourceSignalId) {
+      return { ...context, requestedBy: context.actor };
+    }
+    const sourceSignal = this.readSignalById(sourceSignalId);
+    if (!sourceSignal || sourceSignal.type !== "signal.text") {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.source_not_found",
+        message: "The source message is no longer available.",
+        status: 400,
+      });
+    }
+    const requestedBy = context.resolveMember(sourceSignal.profile.profileId);
+    if (!requestedBy) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.requester_not_found",
+        message: "The source message must come from a current Space member.",
+        status: 400,
+      });
+    }
+    return { ...context, requestedBy };
+  }
+
+  private normalizeSpaceTaskSource(
+    body: CreateSpaceTaskBody,
+    sourceSignalId: string | null,
+    requestedThreadId: string | null
+  ): CreateSpaceTaskBody {
+    const sourceSignal = sourceSignalId
+      ? this.readSignalById(sourceSignalId)
+      : null;
+    if (
+      sourceSignalId &&
+      (!sourceSignal || sourceSignal.type !== "signal.text")
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.source_not_found",
+        message: "The source message is no longer available.",
+        status: 400,
+      });
+    }
+    const placement = sourceSignalId
+      ? readSpaceThreadSignalPlacementBySignalId(
+          this.ctx.storage.sql,
+          sourceSignalId
+        )
+      : null;
+    const rootThread = sourceSignalId
+      ? readSpaceThreadByRootSignalId(this.ctx.storage.sql, sourceSignalId)
+      : null;
+    const inferredThreadId =
+      placement?.threadId ?? rootThread?.threadId ?? null;
+    if (
+      requestedThreadId &&
+      inferredThreadId &&
+      requestedThreadId !== inferredThreadId
+    ) {
+      throw new SpaceTaskWorkflowError({
+        code: "space_task.thread_mismatch",
+        message: "The source message belongs to another Thread.",
+        status: 400,
+      });
+    }
+    const threadId = requestedThreadId ?? inferredThreadId;
+    if (threadId) {
+      const thread = readSpaceThread(this.ctx.storage.sql, threadId);
+      if (
+        !thread ||
+        thread.spaceId !== this.spaceId ||
+        (sourceSignalId &&
+          !inferredThreadId &&
+          thread.rootSignalId !== sourceSignalId)
+      ) {
+        throw new SpaceTaskWorkflowError({
+          code: "space_task.thread_not_found",
+          message: "The selected Thread is no longer available.",
+          status: 400,
+        });
+      }
+    }
+    return {
+      ...body,
+      sourceSignalId,
+      threadId,
+    };
+  }
+
+  private async publishSpaceTaskCompletionNotice(
+    task: SpaceTask
+  ): Promise<void> {
+    if (!task.result) {
+      return;
+    }
+    const sourceSignal = task.sourceSignalId
+      ? this.readSignalById(task.sourceSignalId)
+      : null;
+    const replyTo = sourceSignal
+      ? buildDispatchReplyToSnapshot({
+          sourceEventId: sourceSignal.id,
+          sourceText:
+            sourceSignal.type === "signal.text" ? sourceSignal.data.text : null,
+          profileId: sourceSignal.profile.profileId,
+          profileKind: sourceSignal.profile.kind,
+          profileName: sourceSignal.profile.profileName,
+        })
+      : null;
+    const thread = task.threadId
+      ? readSpaceThread(this.ctx.storage.sql, task.threadId)
+      : null;
+    const signal = {
+      ...this.buildTextSignal(
+        {
+          kind: "system",
+          profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+          profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+        },
+        `Task completed: ${task.title}\n\n${task.result.summary}`,
+        {
+          ...(replyTo ? { replyTo } : {}),
+          meta: {
+            purpose: "space_task_completed",
+            ...(task.sourceSignalId
+              ? { sourceEventId: task.sourceSignalId }
+              : {}),
+          },
+        }
+      ),
+      id: `space-task-completed:${task.taskId}:${task.result.resultRevision}`,
+    };
+    try {
+      await this.publishTextSignal(signal, {
+        authoringPolicy: "system_emitted",
+        ...(thread
+          ? {
+              threadContext: toSpaceThreadContext(thread),
+              threadPlacement: "thread" as const,
+            }
+          : {}),
+      });
+    } catch (error) {
+      console.warn("[core.space.task_completion_notice_failed]", {
+        error: error instanceof Error ? error.message : String(error),
+        spaceId: this.spaceId,
+        taskId: task.taskId,
+      });
+    }
   }
 
   private readFilePins(): SpaceFilePinsResponse {
@@ -15970,6 +16547,16 @@ export class Space extends DurableObject<CoreBindings> {
     this.broadcast(frame);
   }
 
+  private async broadcastSpaceTasksChanged(reason: string): Promise<void> {
+    const frame: SpaceLiveInvalidationFrame = {
+      type: "space.tasks.changed",
+      spaceId: this.spaceId,
+      version: await this.nextLiveInvalidationVersion(),
+      reason,
+    };
+    this.broadcast(frame);
+  }
+
   private async broadcastAgentReadinessInvalidated(input: {
     agentProfileIds: readonly string[];
     reason: string;
@@ -20303,9 +20890,25 @@ function isSpaceLiveInvalidationFrame(
       message.type === "space.meta.changed" ||
       message.type === "space.reactions.changed" ||
       message.type === "space.files.changed" ||
+      message.type === "space.tasks.changed" ||
       message.type === "agent.readiness.invalidated" ||
       message.type === "wake.progress.changed")
   );
+}
+
+function toSpaceTaskActor(member: SpaceMemberRecord): SpaceTaskActor {
+  if (
+    member.profileKindSnapshot !== "human" &&
+    member.profileKindSnapshot !== "agent"
+  ) {
+    throw new Error("Space Task actors must be human or agent members");
+  }
+  return {
+    profileId: member.profileId,
+    profileKind: member.profileKindSnapshot,
+    profileName: member.profileNameSnapshot,
+    ownerUserId: member.ownerUserIdSnapshot,
+  };
 }
 
 function spaceFileErrorStatus(code: SpaceFileMutationErrorCode): number {

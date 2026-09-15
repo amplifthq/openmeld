@@ -1,4 +1,4 @@
-const SPACE_VIEWS = ["messages", "graph", "files"] as const;
+const SPACE_VIEWS = ["messages", "graph", "files", "tasks"] as const;
 
 export type SpaceView = (typeof SPACE_VIEWS)[number];
 

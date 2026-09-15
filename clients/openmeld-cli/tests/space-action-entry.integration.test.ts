@@ -52,10 +52,17 @@ it("discovers every packaged Wake tool before recording a reply", async () => {
     await client.connect(transport);
     const catalog = await client.listTools();
     expect(catalog.tools.map((tool) => tool.name).sort()).toEqual([
+      "cancel_task",
+      "create_task",
+      "list_tasks",
       "read_file",
+      "read_history",
       "reply",
+      "review_task",
+      "start_task",
       "status",
       "stay_silent",
+      "submit_task_result",
     ]);
     expect(
       catalog.tools.find((tool) => tool.name === "read_file")?.inputSchema

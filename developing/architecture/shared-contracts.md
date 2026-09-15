@@ -367,6 +367,33 @@ are unchanged. Web consumes both APIs and refreshes after existing
 local Service, Desktop, and Agent execution contracts do not change. Delivery
 requires Core and Gateway before Web; no local component upgrade is required.
 
+## Space Task contracts
+
+`@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
+create, mutation, list, detail, and receipt contracts. Gateway authenticates
+`GET/POST /v1/spaces/:spaceId/tasks` and
+`GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
+Space Durable Object. Reads and writes require an active human or Agent member
+whose profile ownership matches the authenticated actor. Current Direct
+Messages reject the capability.
+
+Create and mutation requests carry an operation id. Mutations also carry an
+expected revision. Replaying the same operation returns `applied: false`; reuse
+for different input conflicts. List responses are bounded to 500 Tasks and
+report `truncated` rather than silently claiming complete history. The additive
+`space.tasks.changed` WebSocket
+frame is only a refresh signal. Web rereads the Task projection and never
+derives Task state from the frame.
+
+The local Space Action MCP adds non-final Task tools alongside its one required
+final Space action. This is an additive CLI/OpenMeld Service/adapter contract
+and requires the normal local-component release audit. Remote Agent exposes the
+same Space-owned HTTP/RPC contract. Neither surface changes Agent Task Handles,
+RuntimeCoordinator envelopes, Wakeability, or final action receipts.
+`space.tasks.manage` is the additive privacy-safe Agent Activity key for the
+Remote Agent tool. Deploy schema consumers in Web, Gateway, and Core before the
+Remote Agent producer; an old Remote Agent simply lacks the Task tool.
+
 ## Boundary
 
 ### Dispatch Space Action receipts

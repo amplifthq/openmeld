@@ -102,6 +102,48 @@ semantics for listing, addressing, Wake, removal, and degraded Direct Message
 behavior. This does not create another Space kind or apply the locked Center
 Agent Direct Message mutation rules to an ordinary Space.
 
+## Space Tasks
+
+An ordinary shared Space may own **Tasks** as durable collaboration
+commitments. Messages remains the default place to ask, discuss, and complete
+small work. A Task records a clear deliverable that needs continuing ownership,
+progress, review, or later closure. Direct Messages and specialized private
+Center Agent sessions do not expose or accept Space Tasks.
+
+A Task preserves the trusted requester and creator, one optional assignee, one
+optional independent reviewer, its source message and Thread, completion
+conditions, current result, current review, revision, and append-only activity.
+The active phases are **To do**, **In progress**, and **In review**. **Done**
+means the declared completion boundary was met; **Canceled** means the accepted
+commitment is no longer being pursued. Reopening is explicit. Assignment alone
+does not start an Agent or claim that work is running.
+
+The source Message or Thread remains the collaboration surface. **Add to
+Tasks** captures one message explicitly. Agents create a Task automatically
+only when the current request is a clear, discrete deliverable; questions,
+exploration, acknowledgements, and tiny same-turn actions stay in Messages.
+Several Tasks may share one Thread, but a mutation must identify one exact Task.
+
+The requester, assignee, reviewer, and Space owner have action-specific
+permissions. The assignee starts work and submits results. With no reviewer,
+submission completes the Task against its stated conditions. With a reviewer,
+submission enters review. Accepted review completes the Task; requested changes
+return it to the assignee. Agent-to-Agent handoffs use normal Space Wake
+admission and stop after two automatic rework rounds, then require a human
+requester or Space owner to authorize more work. Task state never substitutes
+for RuntimeCoordinator or native-delivery execution truth.
+
+Task transition messages are idempotent and return to the source Thread when
+one exists. They mention a human reviewer through normal Inbox delivery or
+Wake an Agent reviewer through the existing Space path. Completion posts the
+result back to the original request. Canceling fences later Task mutations and
+requests an authorized Stop for a linked active Agent Wake; an unavailable or
+failed Stop does not undo the Task cancellation or claim that execution ended.
+
+GitHub and Linear objects are links in the initial release. Automatic provider
+event observation, source reconciliation, and status transitions are follow-up
+work and must not be implied by a linked URL.
+
 ## Editing and Recalling Messages
 
 An active Human member can edit or recall their own sent messages, without a
@@ -432,7 +474,7 @@ Center Agent Computer. A later explicit **Copy to Organization Files** action
 may create a new Organization-owned file with clear provenance; it must not
 create bidirectional synchronization, shared identity, or hidden write-through.
 
-Web presents **Messages | Graph | Files** in one Space. Files opens at the Space
+Web presents **Messages | Tasks | Files** in an ordinary shared Space. Files opens at the Space
 root and supports folder navigation, picker or whole-surface drag-and-drop
 upload, download, Markdown creation and editing, source editing for other
 supported text formats, rename, move, recoverable Trash, a compact version

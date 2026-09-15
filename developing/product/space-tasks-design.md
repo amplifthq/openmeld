@@ -6,9 +6,12 @@
 - Read this when: Evaluating or preparing implementation of Space Tasks, task capture, review, external issue tracking, or task-triggered continuation.
 - Update this when: A product decision in this proposal is accepted, changed, implemented, or invalidated by current owner contracts.
 - Do not use this for: Current production behavior, execution authority, release permission, or restoring the retired Center Agent Task product.
-- Source of truth: This document owns the proposed design only. Existing scoped owner documents remain authoritative until an approved implementation updates them together.
+- Source of truth: Scoped owner documents own implemented behavior. This file
+  retains the product rationale, acceptance scenarios, and deferred increments.
 
-Status: DRAFT — product decisions confirmed through design discussion; implementation contracts remain to be specified. Implementation and deployment are not authorized by this document.
+Status: IMPLEMENTING — product decisions and first-release contracts are
+implemented in the WIP change. This document does not certify merge,
+deployment, or production availability.
 
 Removal condition: Remove when the accepted feature ships and its durable rules have been incorporated into the scoped owner documents, or when the proposal is rejected or superseded. Git history is the archive.
 
@@ -64,7 +67,8 @@ Tasks is not required for the ordinary request-and-reply loop. A request without
 
 ### Proposed vocabulary
 
-These definitions describe the proposed product. They do not rename existing execution Task Handles or change the current glossary's shipped contracts.
+These definitions describe the WIP product. They do not rename existing
+execution Task Handles or claim production availability.
 
 | Term | Definition |
 | --- | --- |
@@ -172,7 +176,9 @@ Confirmed role rules, subject to existing Space and execution authorization:
 
 Task roles do not change the existing rights to stop a Wake, answer a private Controller interaction, access a Computer, merge a PR, or publish externally. In particular, being a Reviewer does not make an actor the Binding owner. Required account connection and human interaction use their existing private surfaces.
 
-The first implementation must pair UI eligibility with server rejection for unsupported Space kinds and unauthorized actions. Source actor resolution for connected Message Channel members must use existing contracts; the Task feature cannot create membership or broaden their current capabilities.
+The implementation pairs UI eligibility with server rejection for unsupported
+Space kinds and unauthorized actions. Source actor resolution uses existing
+contracts; the Task feature cannot create membership or broaden capabilities.
 
 ## 5. Lifecycle, Evidence, and Concurrency
 
@@ -382,18 +388,30 @@ This proposal was checked against local source at `5501efa1d` on 2026-09-15. It 
 - [Space collaboration](space-collaboration.md) defines the current Board as a read-only summary and Threads as conversation placement. Tasks adds a separate work capability rather than redefining those existing objects implicitly.
 - [Organizations and Center Agent](organizations-and-center-agent.md) retires the old private Center Agent Task product and rejects a heavyweight workflow system. An older Task-retirement sentence remains in the Space session section; reconcile that conflict during approved owner-document updates. Historical Task storage is not an implementation shortcut.
 - [Task coordination prompt](../../services/remote-agent/agent-core/prompt/task-coordination.ts) and [execution schemas](../../packages/schemas/src/schemas/runtime/agent-task-coordination.ts) supply existing delegation/watch/continuation contracts. They are execution references, not a user task registry.
-- [Space tabs](../../clients/web/src/components/spaces/space-view-tabs.tsx) currently exposes Messages and Files. Tasks would be a new view, with scoped eligibility rather than a renamed execution summary.
+- [Space tabs](../../clients/web/src/components/spaces/space-view-tabs.tsx)
+  exposes Messages, Tasks, and Files in eligible Spaces. Center Agent Direct
+  Messages preserve their separate Graph navigation and omit Space Tasks.
 
-The product discussion is complete. Before implementing, specify and verify these engineering details in the owning contracts:
+The product discussion is complete. The WIP implementation specifies these
+engineering details in the owning contracts:
 
-1. Define exact eligibility checks for the confirmed ordinary shared-Space scope and role rules, including external requester attribution and attributed owner overrides.
-2. Define the Task owner's exact schemas, revision checks, atomic event persistence, and handoff adapter to existing coordination/publication contracts. Physical tables and migrations remain implementation work.
-3. Specify the shared command for confirmed natural-language/button review and the result-version identity for each artifact type; preserve verified actor attribution and reject ambiguity.
-4. Confirm the supported execution and continuation paths for both assignee and reviewer; name any capability gap rather than claiming uniform runtime support.
-5. For the deferred GitHub and then Linear increments, settle which source fields, event conditions, and workflow-state categories can be projected faithfully.
+1. Eligibility is ordinary shared Spaces; Direct Messages reject. Active member
+   identity and action-specific role checks are server-owned.
+2. Space Durable Object SQLite owns Task documents, append-only events, exact
+   operation replay, and revision-bound writes at schema version 41.
+3. Web and Agent clients use one shared mutation schema for assignment, brief,
+   start, result, review, cancellation, reopening, and human continuation.
+4. Reviewer and rework handoffs publish deterministic Space messages. Human
+   targets use normal mentions and Inbox projection; Agent targets use normal
+   Wake admission. The Task never becomes execution truth.
+5. GitHub and Linear event observation remains deferred in that order. Initial
+   links do not claim monitoring or automatic state transitions.
 
 The implementation must update [Space collaboration](space-collaboration.md), [Organizations and Center Agent](organizations-and-center-agent.md), [data ownership](../architecture/data-and-observability.md), [shared contracts](../architecture/shared-contracts.md), [Web](../clients/web.md), [CLI](../clients/cli.md), and [Inbox](inbox.md) for the behavior each owns. Update [Remote Agent](remote-agent-runtime.md) and execution owner documents only for actual touched contracts.
 
-Shared cross-client/service payloads belong in `packages/schemas`, using the existing validation and error conventions. UI invalidations remain refresh signals. Apply the Contract Impact Audit and local-component release checks when the eventual implementation touches their paths. Decide and author a Changelog entry when user-visible behavior ships; this draft alone does not create a product release.
+Shared cross-client/service payloads live in `packages/schemas`, using existing
+validation and error conventions. UI invalidations remain refresh signals. The
+WIP change requires the Contract Impact Audit and local-component release check
+before delivery. Its Changelog entry remains a draft until delivery is proven.
 
 Architecture acceptance: the proposal adds a canonical owner for native work and review, while preserving current owners of identity, admission, runtime execution, readiness, publication, external state, and notifications. It authorizes no duplicate execution truth, implicit destination changes, or permission expansion. Approval of an implementation must include the corresponding explicit owner-document changes.

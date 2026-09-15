@@ -9,6 +9,7 @@ import type {
   CreateSpaceFolderBody,
   CreateSpaceFolderResponse,
   CreateSpaceResponse,
+  CreateSpaceTaskBody,
   CreateSpaceThreadBody,
   CreateSpaceThreadResponse,
   DeleteSpaceResponse,
@@ -29,9 +30,11 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
+  MutateSpaceTaskBody,
   OpenMeldRequestContext,
   PatchSpaceMetaBody,
   PostNormalMessageBody,
@@ -58,6 +61,9 @@ import type {
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMeta,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
   SpaceViewerMembershipResponse,
   TrashSpaceFileEntryResponse,
   UpdateSpaceFileEntryBody,
@@ -398,6 +404,21 @@ export type SpaceApi = {
       body: PostSpaceThreadSignalBody;
     }
   ) => Promise<PostSpaceThreadSignalResponse>;
+  listTasks: (
+    input: SpaceRequestInput & { phase?: SpaceTaskPhase }
+  ) => Promise<ListSpaceTasksResponse>;
+  getTask: (
+    input: SpaceRequestInput & { taskId: string }
+  ) => Promise<SpaceTaskResponse>;
+  createTask: (
+    input: SpaceRequestInput & { body: CreateSpaceTaskBody }
+  ) => Promise<SpaceTaskMutationReceipt>;
+  mutateTask: (
+    input: SpaceRequestInput & {
+      taskId: string;
+      body: MutateSpaceTaskBody;
+    }
+  ) => Promise<SpaceTaskMutationReceipt>;
 };
 
 export type CreateSpaceApi = (client: OpenMeldApiClientFoundation) => SpaceApi;

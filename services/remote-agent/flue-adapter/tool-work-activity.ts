@@ -127,6 +127,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_space_file", "space.files.read"],
   ["openmeld_save_space_file", "space.files.update"],
   ["openmeld_manage_space_files", "space.files.update"],
+  ["openmeld_manage_space_tasks", "space.tasks.manage"],
   ["openmeld_remember_for_organization", "organization.memory.update"],
   [
     "openmeld_set_organization_working_language",
