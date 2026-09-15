@@ -113,6 +113,21 @@ describe("RuntimeTransport dispatch delivery request", () => {
             text: "The agreed launch date is October 12.",
             status: "available" as const,
           },
+          contextMessages: [
+            {
+              signalId: "previous",
+              author: "Avery",
+              text: "Please review this diagram",
+              attachments: [
+                {
+                  id: "attachment-2",
+                  mimeType: "image/png" as const,
+                  sizeBytes: 8,
+                  fileName: "previous.png",
+                },
+              ],
+            },
+          ],
           pinnedFiles: [
             {
               fileId: "launch-file",
@@ -168,6 +183,12 @@ describe("RuntimeTransport dispatch delivery request", () => {
         sizeBytes: 4,
         fileName: "diagram.png",
       },
+      {
+        id: "attachment-2",
+        mimeType: "image/png",
+        sizeBytes: 8,
+        fileName: "previous.png",
+      },
     ]);
 
     const legacyRequest = buildRuntimeTransportDeliverDispatchRequest({
@@ -185,6 +206,12 @@ describe("RuntimeTransport dispatch delivery request", () => {
     );
     expect(legacyRequest.payload.sourceSignalSnapshot).not.toHaveProperty(
       "pinnedFiles"
+    );
+    expect(legacyRequest.payload.sourceSignalSnapshot).not.toHaveProperty(
+      "contextMessages"
+    );
+    expect(legacyRequest.payload.sourceSignalSnapshot?.text).toContain(
+      "Please review this diagram"
     );
     expect(legacyRequest.payload.sourceSignalSnapshot?.text).toContain(
       "October 12"

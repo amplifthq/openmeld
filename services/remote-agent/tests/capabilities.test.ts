@@ -590,8 +590,10 @@ describe("remote agent Flue capability inventory", () => {
     });
     const expectedOpenMeldToolNames = REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
       (name) =>
-        exposesOrganizationMemoryWrite ||
-        name !== "openmeld_remember_for_organization"
+        (source === "space_wake" ||
+          name !== "openmeld_set_final_reply_mentions") &&
+        (exposesOrganizationMemoryWrite ||
+          name !== "openmeld_remember_for_organization")
     );
 
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -626,7 +628,9 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
-        (name) => name !== "openmeld_remember_for_organization"
+        (name) =>
+          name !== "openmeld_remember_for_organization" &&
+          name !== "openmeld_set_final_reply_mentions"
       ),
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",
