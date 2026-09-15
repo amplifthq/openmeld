@@ -14,12 +14,53 @@ import { join } from "node:path";
 import test from "node:test";
 import { readInstalledComputerEnvironment } from "./installed-computer-environment.ts";
 import { stageDesktopRenderer } from "./private-package.mjs";
+import { readDesktopSignedPackageMode } from "./signed-package.ts";
 import { desktopWebBuildIdentity } from "./web-build-identity.mjs";
 
 const unavailable = /missing, incomplete, or stale/u;
 const symbolicLinks = /symbolic links/u;
 const requiredComputerLane =
   /Desktop acceptance requires OPENMELD_DESKTOP_TEST_COMPUTER_HOME/u;
+const requiredReleaseSha = /Set OPENMELD_DESKTOP_RELEASE_SHA/u;
+
+test("production package entry refuses to build without an approved release SHA", () => {
+  const result = spawnSync(
+    process.execPath,
+    [new URL("./installed-package.mjs", import.meta.url).pathname],
+    {
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH,
+        OPENMELD_DESKTOP_TARGET: "production",
+        OPENMELD_DESKTOP_PRODUCTION_PREVIEW: "1",
+      },
+    }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, requiredReleaseSha);
+});
+
+test("production signing rejects test targets, mixed modes, and credential overrides", () => {
+  const env = {
+    OPENMELD_DESKTOP_PRODUCTION_PREVIEW: "1",
+    OPENMELD_DESKTOP_TARGET: "production",
+  };
+  assert.equal(readDesktopSignedPackageMode(env), "production-preview");
+  assert.equal(readDesktopSignedPackageMode({}), null);
+  for (const invalid of [
+    {
+      OPENMELD_DESKTOP_TARGET: "disposable",
+      OPENMELD_DESKTOP_TEST_WEB_ORIGIN: "http://test.localhost:3000",
+    },
+    { OPENMELD_DESKTOP_ACCEPTANCE: "1" },
+    { OPENMELD_DESKTOP_TEST_COMPUTER_HOME: "/test" },
+    { OPENMELD_DESKTOP_TEST_AUTH_ORIGIN: "http://test.localhost:3001" },
+    { APPLE_ID: "test@example.invalid" },
+    { CSC_LINK: "test.p12" },
+  ]) {
+    assert.throws(() => readDesktopSignedPackageMode({ ...env, ...invalid }));
+  }
+});
 
 test("acceptance packaging rejects a missing Computer lane before staging or signing", () => {
   const env = {

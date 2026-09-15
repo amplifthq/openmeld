@@ -1721,68 +1721,55 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
-Public Desktop distribution is paused and `/desktop` returns 404. The private
-local pilot uses `pnpm desktop:package:private` and never enters this preview
-metadata/upload workflow; see [Desktop](../clients/desktop.md#private-local-macos-package).
-The retained preview workflow below targets production Web and R2 and requires
-separate release authorization:
+The website entry at `/desktop` remains closed. Authorized production previews
+use a public, immutable candidate URL without advertising the build or changing
+the default update channel. Local private and disposable acceptance packages
+retain their existing commands and must never be uploaded as production candidates.
 
-1. Build the unsigned Apple silicon DMG:
+After review, protected merge, and selection of the exact release SHA:
 
-```text
-pnpm run release:desktop-preview:build
-```
+1. Use a clean checkout at that merged SHA and fetch `origin/main`. Export
+   `OPENMELD_DESKTOP_RELEASE_SHA` as that full commit hash.
+2. Build Web through the scoped Web environment entry with
+   `OPENMELD_DESKTOP_TARGET=production`. This emits the production installed
+   renderer marker. Do not reuse a disposable marker or edit generated metadata.
+3. Run `pnpm desktop:package:production-preview` once. The installed pipeline
+   validates the production target, rejects test settings and mixed signing
+   credentials, and uses the existing company Developer ID and
+   `openmeld-notary` Keychain profile. It requires the exact clean merged source.
+   The signed App includes `desktop-production-source.json` with its source SHA,
+   renderer fingerprint, and production target.
+4. Verify the signed App and a DMG copy: strict signature, stapled ticket,
+   macOS trust, identity, resource equality, final hash and size. Review the
+   artifact before the authorized publisher runs
+   `pnpm release:desktop-preview:upload-candidate` from the same release checkout.
+5. The existing uploader verifies the actual DMG's production identity, ticket,
+   version and signed source record, then uploads the artifact before its
+   candidate manifest. It never writes `desktop/update.json`.
+6. Verify public GET and HEAD, full download hash/size, and normal macOS install
+   and production smoke through user-facing entrypoints. An upload alone does
+   not prove availability or application behavior.
 
-2. Upload the production artifact to R2:
+The fixed storage contract in `packages/schemas/src/desktop-release.ts` uses:
 
-```text
-pnpm run release:desktop-preview:upload
-```
+- URL: `https://openmeld.ai/desktop/download?candidate=<dmg-sha256>`
+- Metadata: `desktop/candidates/<dmg-sha256>/manifest.json`
+- Artifact: `desktop/candidates/<dmg-sha256>/OpenMeld-Desktop-<version>-macos-arm64.dmg`
 
-The upload command uses the bucket `openmeld-desktop-downloads` unless
-`OPENMELD_DESKTOP_R2_BUCKET` overrides it. It uploads:
+Only a lowercase 64-character SHA-256 selects a candidate. Metadata must match
+that hash and declares the production target, platform, version, merged release
+SHA, and positive byte length. Artifact names and object keys are derived rather
+than accepted from a request or stored arbitrary path. The content hash names
+immutable bytes; retries may upload only that same verified artifact and record.
+The Worker streams through its existing private `OPENMELD_DESKTOP_DOWNLOADS`
+binding; no public bucket or additional access gate is introduced.
 
-- `desktop/OpenMeld-Desktop-<version>-macos-arm64-unsigned.dmg`
-- `desktop/update.json`
-
-`desktop/update.json` is the Desktop preview release metadata source. Production
-Web reads this R2 projection for `/desktop/update.json` and for the
-`/desktop/download` artifact object key. Do not duplicate the preview version or
-artifact key in Web checked-in constants.
-
-3. Deploy Web through the guarded deploy entrypoint after Web code or Worker
-   bindings changed:
-
-```text
-pnpm run deploy
-```
-
-The user-facing download URL is `https://openmeld.ai/desktop/download`. Production Web
-streams the DMG through the `OPENMELD_DESKTOP_DOWNLOADS` R2 binding; do not make the
-bucket public or switch to an `r2.dev` URL for the production download page.
-
-If `pnpm run release:desktop-preview:upload` fails with a long-running Wrangler
-`fetch failed`, treat it as a network/upload blocker. Do not deploy the Web
-download page as release-ready until the R2 bucket reports the DMG object and a
-download round trip matches the build SHA-256. Use a more stable network or an
-R2 S3-compatible Object Read & Write token with multipart-capable tooling; R2
-S3 credentials are secrets and must not be committed or left in shell history.
-
-Validation floor for this workflow:
-
-```text
-pnpm -C clients/desktop check
-pnpm -C clients/desktop test
-pnpm -C clients/desktop build
-pnpm -C clients/web check
-pnpm -C clients/web test
-node --test scripts/release/desktop-preview.test.mjs
-pnpm run verify:cloudflare:env-contract
-pnpm run release:desktop-preview:build
-```
-
-Real-user smoke must still happen on a Mac through the installed app, not only
-through the package build output.
+The legacy unsigned build can still be used locally, but its upload command is
+disabled. Neither candidate publication nor the website's closed entry changes
+the existing default `/desktop/download` and `/desktop/update.json` selection.
+Production deployment and ordering still follow
+[Production Release](production-release.md); this workflow grants no independent
+permission to deploy or publish.
 
 ## Local Components Release Tool
 

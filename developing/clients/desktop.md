@@ -157,6 +157,14 @@ existing Prepare continuation journal and maintenance worker retain recovery
 ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
 snapshot; errors retain a shared local-machine action and diagnostic correlation.
 
+Signed production previews use `desktop:package:production-preview`, the same
+installed build pipeline and existing Developer ID/Keychain notarization as local
+acceptance. Production preview requires the exact clean merged release SHA and
+rejects disposable settings. Its signed source record binds the release SHA,
+production identity, and renderer fingerprint; publication uses the immutable
+candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
+It does not open the website entry or select a default update.
+
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using
 `OPENMELD_DESKTOP_TEST_COMPUTER_HOME`, `OPENMELD_DESKTOP_TEST_AUTH_ORIGIN`, and

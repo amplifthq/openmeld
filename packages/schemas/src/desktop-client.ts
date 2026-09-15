@@ -38,6 +38,13 @@ export const desktopInstalledTargetSchema = z.discriminatedUnion("kind", [
 export type DesktopInstalledTarget = z.infer<
   typeof desktopInstalledTargetSchema
 >;
+export const desktopProductionSourceSchema = z.strictObject({
+  releaseSha: z.string().regex(/^[a-f0-9]{40}$/u),
+  webBuild: z.string().regex(/^[a-f0-9]{64}$/u),
+  target: desktopInstalledTargetSchema.refine(
+    (target) => target.kind === "production"
+  ),
+});
 
 /** Fixed client identities select protocols, never a caller-provided URL. */
 export function desktopAuthIdentity(

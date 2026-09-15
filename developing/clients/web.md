@@ -4775,6 +4775,15 @@ normal Prepare flow; it never silently reruns an existing Wake.
 
 ## Desktop Download Entry
 
+An authorized production candidate is publicly downloadable through GET/HEAD
+`/desktop/download?candidate=<64-character lowercase sha256>` without an account
+gate. The existing private R2 binding reads only the derived candidate manifest
+and artifact keys, validated by the shared Desktop candidate schema. Invalid,
+missing or mismatched candidates fail without falling back to the default
+channel. Candidate selection never changes `/desktop/update.json`; `/desktop`
+and marketing navigation remain closed. See the
+[candidate publication contract](../engineering/development-workflow.md#desktop-preview-release-workflow).
+
 Web owns the public OpenMeld Desktop download entry, but it does not own local setup
 truth.
 

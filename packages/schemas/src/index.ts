@@ -118,12 +118,20 @@ export {
   desktopCompatibilitySchema,
   desktopInstalledTargetSchema,
   desktopPlatformSchema,
+  desktopProductionSourceSchema,
   desktopSessionSchema,
   desktopSpaceStreamEventSchema,
   desktopSpaceStreamIdSchema,
   desktopSpaceStreamInputSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
+export {
+  type DesktopCandidateManifest,
+  desktopCandidateIdSchema,
+  desktopCandidateLocation,
+  desktopCandidateManifestKey,
+  desktopCandidateManifestSchema,
+} from "./desktop-release";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,

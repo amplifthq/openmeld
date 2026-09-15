@@ -5,13 +5,194 @@ import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
+import { desktopProductionSourceSchema } from "../../packages/schemas/src/desktop-client.ts";
+import {
+  desktopCandidateLocation,
+  desktopCandidateManifestSchema,
+} from "../../packages/schemas/src/desktop-release.ts";
+import { DEFAULT_APPLE_TEAM_ID } from "./macos-cli-signing.mjs";
+
+export function buildDesktopCandidateMetadata(input) {
+  const manifest = desktopCandidateManifestSchema.parse({
+    schemaVersion: 1,
+    target: "production",
+    platform: "macos-arm64",
+    ...input,
+  });
+  return { manifest, ...desktopCandidateLocation(manifest) };
+}
+
+function inspectSignedCandidate(repoRoot, artifactPath, version) {
+  const temporary = mkdtempSync(path.join(tmpdir(), "openmeld-candidate-"));
+  const mount = path.join(temporary, "mount");
+  mkdirSync(mount);
+  let mounted = false;
+  const inspect = (command, args) => {
+    const result = spawnSync(command, args, { encoding: "utf8" });
+    if (result.status !== 0) {
+      throw new Error(
+        `Desktop candidate verification failed: ${command}: ${result.stderr}`
+      );
+    }
+    return result.stdout + result.stderr;
+  };
+  try {
+    inspect("codesign", ["--verify", "--strict", artifactPath]);
+    inspect("hdiutil", [
+      "attach",
+      "-readonly",
+      "-nobrowse",
+      "-mountpoint",
+      mount,
+      artifactPath,
+    ]);
+    mounted = true;
+    const app = path.join(mount, "OpenMeld Desktop.app");
+    inspect("codesign", ["--verify", "--deep", "--strict", app]);
+    const signature = inspect("codesign", ["-dvv", app]);
+    if (
+      !(
+        signature
+          .split("\n")
+          .includes(`TeamIdentifier=${DEFAULT_APPLE_TEAM_ID}`) &&
+        signature.split("\n").includes("Identifier=sh.openmeld.desktop")
+      )
+    ) {
+      throw new Error(
+        "Desktop candidate must have the production Developer ID identity."
+      );
+    }
+    inspect("xcrun", ["stapler", "validate", app]);
+    inspect("spctl", ["--assess", "--type", "execute", app]);
+    const resources = path.join(app, "Contents/Resources");
+    const receipt = JSON.parse(
+      readFileSync(
+        path.join(resources, "desktop-production-source.json"),
+        "utf8"
+      )
+    );
+    const marker = JSON.parse(
+      readFileSync(
+        path.join(resources, "desktop-renderer/desktop-build.json"),
+        "utf8"
+      )
+    );
+    desktopProductionSourceSchema.parse(receipt);
+    const target = receipt.target;
+    if (
+      target.kind !== "production" ||
+      JSON.stringify(marker.installedTarget) !== JSON.stringify(target) ||
+      marker.webBuild !== receipt.webBuild
+    ) {
+      throw new Error(
+        "Desktop candidate does not contain the production renderer target."
+      );
+    }
+    const bundledVersion = inspect("/usr/libexec/PlistBuddy", [
+      "-c",
+      "Print CFBundleShortVersionString",
+      path.join(app, "Contents/Info.plist"),
+    ]).trim();
+    if (bundledVersion !== version) {
+      throw new Error(
+        "Desktop candidate version does not match the release checkout."
+      );
+    }
+    const head = inspect("git", ["-C", repoRoot, "rev-parse", "HEAD"]).trim();
+    if (
+      receipt.releaseSha !== head ||
+      process.env.OPENMELD_DESKTOP_RELEASE_SHA !== head
+    ) {
+      throw new Error(
+        "Desktop candidate must match the exact approved release SHA."
+      );
+    }
+    inspect("git", [
+      "-C",
+      repoRoot,
+      "merge-base",
+      "--is-ancestor",
+      head,
+      "origin/main",
+    ]);
+    if (inspect("git", ["-C", repoRoot, "status", "--porcelain"]).trim()) {
+      throw new Error(
+        "Desktop candidate publication requires a clean release checkout."
+      );
+    }
+    return receipt.releaseSha;
+  } finally {
+    if (mounted) {
+      inspect("hdiutil", ["detach", mount]);
+    }
+    rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
+export function uploadDesktopCandidate(input = {}) {
+  const repoRoot = input.repoRoot ?? process.cwd();
+  const { version } = JSON.parse(
+    readFileSync(path.join(repoRoot, DESKTOP_PACKAGE_JSON_PATH), "utf8")
+  );
+  const artifactPath = path.join(
+    repoRoot,
+    "clients/desktop/dist/production-preview",
+    `OpenMeld-Desktop-${version}-macos-arm64.dmg`
+  );
+  const releaseSha = inspectSignedCandidate(repoRoot, artifactPath, version);
+  const candidate = buildDesktopCandidateMetadata({
+    version,
+    releaseSha,
+    sha256: hashFileSha256(artifactPath),
+    sizeBytes: statSync(artifactPath).size,
+  });
+  const manifestPath = path.join(
+    repoRoot,
+    "clients/desktop/dist/production-preview/candidate.json"
+  );
+  writeFileSync(
+    manifestPath,
+    `${JSON.stringify(candidate.manifest, null, 2)}\n`
+  );
+  for (const item of [
+    {
+      objectKey: candidate.objectKey,
+      filePath: artifactPath,
+      contentType: "application/x-apple-diskimage",
+      contentDisposition: `attachment; filename="${candidate.artifactName}"`,
+    },
+    {
+      objectKey: candidate.manifestKey,
+      filePath: manifestPath,
+      contentType: "application/json; charset=utf-8",
+    },
+  ]) {
+    runStep({
+      command: "pnpm",
+      cwd: repoRoot,
+      label: `Upload immutable Desktop candidate ${item.objectKey}`,
+      args: buildWranglerObjectPutArgs({
+        ...item,
+        bucketName: DEFAULT_R2_BUCKET_NAME,
+        cacheControl: "public, max-age=31536000, immutable",
+      }),
+    });
+  }
+  process.stdout.write(
+    `${JSON.stringify({ ...candidate, url: new URL(candidate.downloadPath, "https://openmeld.ai").href }, null, 2)}\n`
+  );
+  return candidate;
+}
 
 export const DEFAULT_R2_BUCKET_NAME = "openmeld-desktop-downloads-prod";
 export const DEFAULT_DOWNLOAD_PAGE_URL = "https://openmeld.ai/desktop";
@@ -180,73 +361,6 @@ export function buildDesktopPreview(input = {}) {
   return { ...release, ...metadata };
 }
 
-export function uploadDesktopPreview(input = {}) {
-  const bucketName =
-    input.bucketName ??
-    process.env.OPENMELD_DESKTOP_R2_BUCKET ??
-    DEFAULT_R2_BUCKET_NAME;
-  const release = resolveDesktopPreviewRelease(input);
-
-  if (!existsSync(release.artifactPath)) {
-    throw new Error(
-      `Desktop DMG is missing. Run pnpm run release:desktop-preview:build first: ${release.artifactPath}`
-    );
-  }
-
-  const metadata = writeDesktopPreviewManifest({
-    artifactName: release.artifactName,
-    artifactPath: release.artifactPath,
-    downloadPageUrl: input.downloadPageUrl,
-    downloadUrl: input.downloadUrl,
-    manifestPath: release.manifestPath,
-    objectKey: release.objectKey,
-    version: release.version,
-  });
-
-  runStep({
-    args: buildWranglerObjectPutArgs({
-      bucketName,
-      cacheControl: "public, max-age=31536000, immutable",
-      contentDisposition: `attachment; filename="${release.artifactName}"`,
-      contentType: "application/x-apple-diskimage",
-      filePath: release.artifactPath,
-      objectKey: release.objectKey,
-    }),
-    command: "pnpm",
-    cwd: release.repoRoot,
-    label: `Upload ${release.objectKey} to R2 bucket ${bucketName}`,
-  });
-
-  runStep({
-    args: buildWranglerObjectPutArgs({
-      bucketName,
-      cacheControl: "public, max-age=60, must-revalidate",
-      contentType: "application/json; charset=utf-8",
-      filePath: release.manifestPath,
-      objectKey: release.manifestObjectKey,
-    }),
-    command: "pnpm",
-    cwd: release.repoRoot,
-    label: `Upload ${release.manifestObjectKey} to R2 bucket ${bucketName}`,
-  });
-
-  process.stdout.write(
-    [
-      "",
-      "[release:desktop-preview] Upload complete",
-      `- page: ${DEFAULT_DOWNLOAD_PAGE_URL}`,
-      `- download: ${DEFAULT_DOWNLOAD_URL}`,
-      `- bucket: ${bucketName}`,
-      `- object: ${release.objectKey}`,
-      `- sha256: ${metadata.sha256}`,
-      `- sizeBytes: ${metadata.sizeBytes}`,
-      "",
-    ].join("\n")
-  );
-
-  return { ...release, ...metadata, bucketName };
-}
-
 function runStep(input) {
   process.stdout.write(`\n[release:desktop-preview] ${input.label}\n`);
   const result = spawnSync(resolveCommandBinary(input.command), input.args, {
@@ -288,7 +402,11 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href) {
     if (command === "build") {
       buildDesktopPreview();
     } else if (command === "upload") {
-      uploadDesktopPreview();
+      throw new Error(
+        "Legacy unsigned Desktop publication is disabled. Use upload-candidate for an approved signed production preview."
+      );
+    } else if (command === "upload-candidate") {
+      uploadDesktopCandidate();
     } else {
       printUsage();
       process.exitCode = 1;

@@ -54,6 +54,23 @@ their normal authorization paths. CLI, Service, Skills, Core, Gateway, Prepare,
 Wake, and Space action payloads and minimum versions are unchanged. Installing
 this entry does not establish Service readiness or authorize local setup.
 
+### Desktop candidate distribution
+
+`packages/schemas/src/desktop-release.ts` owns the strict immutable candidate
+manifest and derived artifact locations shared by the publisher and Web download
+route. The signed production source record is owned by `desktop-client.ts` and
+reuses the installed production target schema. A candidate hash is an artifact
+selector, never a credential or an arbitrary R2 path. Candidate manifests do not
+write or project the default update channel.
+
+Contract Impact Audit: this adds an opt-in public download selector and new
+candidate metadata only. Existing download/update requests and installed runtime
+contract version 1 retain their behavior. CLI, Service, Skills, Core, Gateway,
+Auth, Prepare, Wake, Space actions and diagnostics gain no new required fields
+or minimum versions from this leaf. Web must deploy the candidate route before
+advertising its URL. Runtime production compatibility remains the integration
+release owner's separate acceptance responsibility.
+
 ### Account session read
 
 Auth owns `GET /v1/account/session`, defined by the strict `accountSessionSchema`

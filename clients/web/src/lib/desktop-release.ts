@@ -1,4 +1,29 @@
+import {
+	desktopCandidateIdSchema,
+	desktopCandidateLocation,
+	desktopCandidateManifestKey,
+	desktopCandidateManifestSchema,
+} from "@openmeld/schemas";
 import { z } from "zod/v4";
+
+export async function readDesktopCandidate(
+	store: DesktopReleaseManifestStore,
+	candidate: string
+) {
+	const id = desktopCandidateIdSchema.safeParse(candidate);
+	if (!id.success) {
+		throw new Error("Invalid Desktop candidate selector.");
+	}
+	const object = await store.get(desktopCandidateManifestKey(id.data));
+	if (!object) {
+		return null;
+	}
+	const parsed = desktopCandidateManifestSchema.safeParse(await object.json());
+	if (!parsed.success || parsed.data.sha256 !== id.data) {
+		throw new Error("Invalid Desktop candidate metadata.");
+	}
+	return { ...parsed.data, ...desktopCandidateLocation(parsed.data) };
+}
 
 export const DESKTOP_DOWNLOAD_PAGE_PATH = "/desktop";
 export const DESKTOP_DOWNLOAD_ROUTE_PATH = "/desktop/download";
