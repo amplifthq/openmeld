@@ -1297,8 +1297,10 @@ describe("SpaceConversationPanel", () => {
 	it("uses the shared Space reference renderer in a thread preview", () => {
 		const thread = createThread();
 		const onOpenThread = vi.fn();
+		const onOpenUnreadThread = vi.fn(() => true);
 		renderSpaceConversationPanel({
 			onOpenThread,
+			onOpenUnreadThread,
 			spaceReferencesById: createSpaceReferences(),
 			threadPreviews: [createThreadPreview(thread.threadId)],
 			threads: [thread],
@@ -1318,13 +1320,17 @@ describe("SpaceConversationPanel", () => {
 		fireEvent.click(preview);
 		fireEvent.keyDown(preview, { key: "Enter" });
 		fireEvent.keyDown(preview, { key: " " });
-		expect(onOpenThread).toHaveBeenCalledTimes(3);
-		expect(onOpenThread).toHaveBeenLastCalledWith(thread.threadId);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
+		expect(onOpenUnreadThread).toHaveBeenLastCalledWith({
+			threadId: thread.threadId,
+			rootSignalId: thread.rootSignalId,
+			signalId: "sig-thread-preview",
+		});
 		const selection = vi
 			.spyOn(window, "getSelection")
 			.mockReturnValue({ toString: () => "selected reply" } as Selection);
 		fireEvent.click(preview);
-		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
 		selection.mockRestore();
 	});
 

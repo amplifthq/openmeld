@@ -74,4 +74,5 @@ export type Chat = {
 	viewerProfileId?: string;
 	peer?: ReturnType<typeof resolveDirectMessagePeer>;
 	session?: boolean;
+	centerAgentProfileName?: string;
 };

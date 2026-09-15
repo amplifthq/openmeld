@@ -117,6 +117,9 @@ export function useChats(input: {
 			...chatsById.get(session.spaceId),
 			...session,
 			session: true,
+			centerAgentProfileName: directory.data?.agentProfiles.find(
+				(profile) => profile.profileId === session.centerAgentProfileId
+			)?.profileName,
 		});
 	}
 	const chats = [...chatsById.values()];

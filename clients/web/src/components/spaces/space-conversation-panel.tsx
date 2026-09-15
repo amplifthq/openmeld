@@ -1350,36 +1350,43 @@ function useSpaceConversationNavigationController(input: {
 		window.requestAnimationFrame(() => jumpToMessage(signalId));
 	});
 	const [pendingPinJump, setPendingPinJump] = useState<string | null>(null);
-	const onOpenThread = useLatestCallback(async (threadId: string) => {
-		const thread = [...input.threadsByRootSignalId.values()].find(
-			(candidate) => candidate.threadId === threadId
-		);
-		const firstUnread = input.unreadTargets
-			.filter((target) => target.threadRootSignalId === thread?.rootSignalId)
-			.sort((left, right) => left.occurredAtMs - right.occurredAtMs)[0];
-		if (!(firstUnread?.threadRootSignalId && input.onOpenUnreadThread)) {
-			input.onOpenThread(threadId);
-			return;
-		}
-		setMainFocusStatusMessage(null);
-		try {
-			if (
-				!(await input.onOpenUnreadThread({
-					rootSignalId: firstUnread.threadRootSignalId,
-					signalId: firstUnread.signalId,
-					threadId,
-				}))
-			) {
-				throw new Error("Couldn’t open this thread. Try again.");
-			}
-		} catch (error) {
-			setMainFocusStatusMessage(
-				error instanceof Error
-					? error.message
-					: "Couldn’t open this thread. Try again."
+	const onOpenThread = useLatestCallback(
+		async (threadId: string, signalId?: string) => {
+			const thread = [...input.threadsByRootSignalId.values()].find(
+				(candidate) => candidate.threadId === threadId
 			);
+			const firstUnread =
+				signalId && thread
+					? { threadRootSignalId: thread.rootSignalId, signalId }
+					: input.unreadTargets
+							.filter(
+								(target) => target.threadRootSignalId === thread?.rootSignalId
+							)
+							.sort((left, right) => left.occurredAtMs - right.occurredAtMs)[0];
+			if (!(firstUnread?.threadRootSignalId && input.onOpenUnreadThread)) {
+				input.onOpenThread(threadId);
+				return;
+			}
+			setMainFocusStatusMessage(null);
+			try {
+				if (
+					!(await input.onOpenUnreadThread({
+						rootSignalId: firstUnread.threadRootSignalId,
+						signalId: firstUnread.signalId,
+						threadId,
+					}))
+				) {
+					throw new Error("Couldn’t open this thread. Try again.");
+				}
+			} catch (error) {
+				setMainFocusStatusMessage(
+					error instanceof Error
+						? error.message
+						: "Couldn’t open this thread. Try again."
+				);
+			}
 		}
-	});
+	);
 	useLayoutEffect(() => {
 		if (
 			pendingPinJump &&
@@ -3381,7 +3388,7 @@ function ThreadPreview(input: {
 	profileId: string;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	unreadCount: number;
-	onOpenThread: (threadId: string) => void;
+	onOpenThread: (threadId: string, signalId?: string) => void;
 	preview: SpaceThreadPreview | null;
 	spaceReferencesById?: SpaceMessageReferencesById;
 	thread: SpaceThread | null;
@@ -3416,12 +3423,13 @@ function ThreadPreview(input: {
 	};
 
 	return (
-		<div className="flex w-full min-w-0 max-w-full flex-col gap-2 overflow-hidden border-border border-t pt-2">
-			{previewItems.length > 0 ? (
+		<div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden border-border border-t pt-2">
+			{previewItems.map((item) => (
 				// biome-ignore lint/a11y/useSemanticElements: The preview contains independently usable links and selectable text.
 				<div
 					aria-label="Thread preview"
-					className="flex w-full min-w-0 max-w-full cursor-pointer flex-col gap-1.5 overflow-hidden rounded-sm pe-2 hover:bg-foreground/5 focus-visible:outline focus-visible:outline-ring"
+					className="flex w-full min-w-0 max-w-full cursor-pointer items-start gap-2 overflow-hidden pe-2 hover:underline focus-visible:outline focus-visible:outline-ring"
+					key={item.id}
 					onClick={(event) => {
 						if (
 							event.target instanceof Element &&
@@ -3443,7 +3451,7 @@ function ThreadPreview(input: {
 						) {
 							return;
 						}
-						input.onOpenThread(thread.threadId);
+						input.onOpenThread(thread.threadId, item.id);
 					}}
 					onFocus={prefetch}
 					onKeyDown={(event) => {
@@ -3454,7 +3462,7 @@ function ThreadPreview(input: {
 							return;
 						}
 						event.preventDefault();
-						input.onOpenThread(thread.threadId);
+						input.onOpenThread(thread.threadId, item.id);
 					}}
 					onPointerDown={(event) => {
 						pointerStart.current = { x: event.clientX, y: event.clientY };
@@ -3463,39 +3471,32 @@ function ThreadPreview(input: {
 					role="link"
 					tabIndex={0}
 				>
-					{previewItems.map((item) => (
-						<div
-							className="flex min-w-0 items-start gap-2 overflow-hidden"
-							key={item.id}
-						>
-							{!item.recalledAt && (
-								<span className="max-w-[40%] shrink-0 truncate font-bold text-foreground/88 text-xs leading-5">
-									{item.actorName}
-								</span>
-							)}
-							<span className="line-clamp-2 min-w-0 flex-1 text-muted-foreground text-xs leading-5">
-								<SpaceMessageReferenceText
-									referencesById={spaceReferencesById}
-									text={threadReplyPreviewText(item.text)}
-								/>
-							</span>
-							<time
-								className="shrink-0 text-muted-foreground/75 text-xs leading-5"
-								dateTime={new Date(item.createdAtMs).toISOString()}
-								title={new Date(item.createdAtMs).toLocaleString("en-US")}
-							>
-								{formatDirectMessageTime(item.createdAtMs)}
-							</time>
-						</div>
-					))}
+					{!item.recalledAt && (
+						<span className="max-w-[40%] shrink-0 truncate font-bold text-foreground/88 text-xs leading-5">
+							{item.actorName}
+						</span>
+					)}
+					<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5">
+						<SpaceMessageReferenceText
+							referencesById={spaceReferencesById}
+							text={threadReplyPreviewText(item.text)}
+						/>
+					</span>
+					<time
+						className="shrink-0 text-muted-foreground/75 text-xs leading-5"
+						dateTime={new Date(item.createdAtMs).toISOString()}
+						title={new Date(item.createdAtMs).toLocaleString("en-US")}
+					>
+						{formatDirectMessageTime(item.createdAtMs)}
+					</time>
 				</div>
-			) : null}
+			))}
 			<button
 				aria-label={showCount ? `Open thread (${countLabel})` : "Open thread"}
 				className={cn(
-					"inline-flex min-h-7 w-fit items-center gap-1.5 text-xs hover:text-foreground",
+					"inline-flex w-fit items-center gap-1.5 text-xs leading-5 hover:text-foreground hover:underline",
 					input.unreadCount > 0
-						? "rounded-md border border-unread/40 bg-unread/10 px-2 font-medium text-unread dark:text-blue-200"
+						? "font-medium text-unread dark:text-blue-200"
 						: "text-muted-foreground"
 				)}
 				onClick={() => input.onOpenThread(thread.threadId)}

@@ -850,6 +850,9 @@ The shared sidebar deduplicates ordinary Spaces, People, Local, Remote, and
 Center Agent conversations by Space identity. Ordinary Space rows come from
 the current Organization's authorized Account Space Index; direct messages
 reuse the existing peer/title resolution and paged Center Agent session list.
+Center Agent chat avatars resolve the session's canonical `centerAgentProfileId`
+through the same lightweight profile directory used by other chat identities;
+they do not wait for designation or full readiness-directory queries.
 The global command center uses these same titles and exact destinations,
 including the Center Agent session selector. Space-name search remains bounded
 by the existing 500-item Account Space Index query; this UI change does not
@@ -3588,6 +3591,13 @@ sent revision even after the viewer temporarily returned to the current file.
 - thread replies stay in the thread panel
 - the root message may show a compact thread preview
 - the main timeline must not render thread replies as standalone root messages
+
+Each reply preview occupies one truncated line and opens its exact reply with
+scroll and highlight, including repeated selection. Hover underlines only that
+row. The Open thread action uses the same spacing as the preview rows.
+Starting a new Thread opens the existing loading panel before creation completes.
+Closing or switching the panel while creation is pending must not be undone by
+the response; the server result updates the query cache, not panel selection.
 
 On desktop, the inline Members and Thread panels are resizable from their left
 edge because they occupy the right side of the Space. They reuse the shared
