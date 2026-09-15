@@ -1,19 +1,19 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { appShellStaticData } from "#/components/app/shell-layout";
-import { CenterAgentSectionFrame } from "#/components/organizations/center-agent-section-frame";
-import { CenterAgentSettingsPage } from "#/components/organizations/center-agent-settings-page";
+import { createFileRoute, redirect } from "@tanstack/react-router";
+import { buildOrganizationCenterAgentSettingsPath } from "#/lib/organizations/organization-routes";
 
+/**
+ * Redirect-only compatibility route. Center Agent settings now live in the
+ * global App Settings destination at `/o/:orgSlug/settings/center-agent`; this
+ * historical location keeps existing links and bookmarks working instead of
+ * rendering a second copy of the same panel.
+ */
 export const Route = createFileRoute(
 	"/o/$orgSlug/_center-agent/center-agent/settings"
 )({
-	staticData: appShellStaticData.centerAgent,
-	component: CenterAgentSettingsRoute,
+	beforeLoad: ({ params }) => {
+		throw redirect({
+			replace: true,
+			to: buildOrganizationCenterAgentSettingsPath(params.orgSlug),
+		});
+	},
 });
-
-function CenterAgentSettingsRoute() {
-	return (
-		<CenterAgentSectionFrame>
-			<CenterAgentSettingsPage />
-		</CenterAgentSectionFrame>
-	);
-}
