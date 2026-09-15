@@ -3,12 +3,15 @@
  * Command center and sidebar use Cmd/Ctrl; theme uses Shift; navigation uses
  * G followed by a destination within one second. `[` is the sidebar alternative.
  * Web dispatch lives in use-app-keyboard-shortcuts; sidebar state owns its toggle.
+ * Desktop titlebar dispatch owns its sidebar and Command+bracket navigation.
  * Editor and dialog-local keys belong to their controls.
  */
 export const APPLICATION_SHORTCUTS = {
   commandCenter: "k",
   sidebar: "b",
   sidebarAlternate: "[",
+  desktopBack: "[",
+  desktopForward: "]",
   theme: "d",
   navigationPrefix: "g",
   destinations: {

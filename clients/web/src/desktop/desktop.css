@@ -4,9 +4,49 @@
 }
 
 .desktop-titlebar {
+	display: flex;
+	align-items: center;
 	height: 38px;
 	background: var(--app-canvas);
 	-webkit-app-region: drag;
+}
+
+.desktop-titlebar-controls {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	margin-left: 88px;
+	-webkit-app-region: no-drag;
+}
+
+.desktop-titlebar-button {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	border-radius: 6px;
+	color: var(--muted-foreground);
+	-webkit-app-region: no-drag;
+}
+
+.desktop-titlebar-button svg {
+	width: 16px;
+	height: 16px;
+}
+
+.desktop-titlebar-button:hover:not(:disabled) {
+	background: var(--muted);
+	color: var(--foreground);
+}
+
+.desktop-titlebar-button:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 1px;
+}
+
+.desktop-titlebar-button:disabled {
+	opacity: 0.35;
 }
 
 .desktop-content {

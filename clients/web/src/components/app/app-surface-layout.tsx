@@ -2,6 +2,8 @@
 
 import { ListIcon, SidebarSimpleIcon } from "@phosphor-icons/react";
 import { type ReactNode, useRef, useState } from "react";
+import { useDesktopTitlebar } from "#/desktop/titlebar-context";
+import { DesktopTitlebarControls } from "#/desktop/titlebar-controls";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
 import { AppMobileNavigationDrawer } from "./app-mobile-navigation";
@@ -25,6 +27,7 @@ export function AppSurfaceLayout(input: {
 	sidebar?: ReactNode;
 	testId?: string;
 }) {
+	const desktop = useDesktopTitlebar();
 	const organization = useOptionalAppOrganization();
 	const navigationScope = `${organization?.currentUserId ?? ""}:${organization?.currentOrganization.id ?? ""}:${input.moduleNavigationKey ?? "conversations"}`;
 	const [appNavigationOpen, setAppNavigationOpen] = useState(false);
@@ -62,6 +65,14 @@ export function AppSurfaceLayout(input: {
 			initialState={input.initialModuleSidebarState}
 			preferenceKey={input.moduleNavigationKey ?? "conversations"}
 		>
+			<DesktopTitlebarControls
+				available={!!input.moduleNavigation}
+				drawerOpen={contextualNavigationOpen}
+				toggleDrawer={() => {
+					setAppNavigationOpen(false);
+					setContextualNavigationOpen((open) => !open);
+				}}
+			/>
 			<div
 				aria-busy={input.ariaBusy || undefined}
 				className="group/app-surface relative flex h-dvh w-full overflow-hidden bg-[var(--app-canvas)] text-foreground [--app-toolbar-height:3rem]"
@@ -97,7 +108,7 @@ export function AppSurfaceLayout(input: {
 									<ListIcon aria-hidden="true" className="size-5" />
 									<span>Menu</span>
 								</button>
-								{sidebar && sidebarTitle ? (
+								{sidebar && sidebarTitle && !desktop ? (
 									<button
 										aria-expanded={contextualNavigationOpen}
 										aria-label={`Open ${sidebarTitle} navigation`}

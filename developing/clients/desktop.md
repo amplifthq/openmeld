@@ -23,6 +23,20 @@ Appearance bootstrap attributes, including conversation width and self-message
 alignment. Preserve that initialization rather than deriving Desktop-specific
 preferences or compensating with local CSS.
 
+The macOS titlebar places Toggle sidebar, Back, and Forward after the native
+window controls, using Command+B, Command+[, and Command+] outside editors and
+modal controls. Its buttons are not draggable; the remaining titlebar is.
+The sidebar control is a portal from the existing module-sidebar provider, so
+it controls the contextual list (or the existing narrow-window drawer), not
+the application rail. Desktop omits the corresponding work-area header entry;
+browser Web keeps its existing placement and shortcuts.
+
+Back and Forward use the shared router history. Desktop retains only the
+observed history-index bounds for the current account, not another entry stack.
+Native session invalidation, account changes, and leaving workspace routes
+clear those bounds. Unobserved history from before opening the app is excluded.
+These controls never reload the document or bypass route authorization.
+
 Organization entry and route scope use the shared Auth-owned
 `GET /v1/account/organization-context` projection rather than generated
 server-function IDs. The native credential transport remains unchanged; the
