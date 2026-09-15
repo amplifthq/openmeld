@@ -50,7 +50,7 @@ describe("organization scope resolution", () => {
 			resolveOptionalActiveOrganizationEntryPath({
 				data: { routeFamily: "/desktop-shell" },
 			})
-		).resolves.toBe("/o/beta");
+		).resolves.toBe("/o/beta/spaces");
 		await expect(
 			resolveOrganizationScope({
 				data: { orgSlug: "acme", routeFamily: "/o/acme" },
