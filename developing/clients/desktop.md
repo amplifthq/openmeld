@@ -163,7 +163,8 @@ acceptance. Production preview requires the exact clean merged release SHA and
 rejects disposable settings. Its signed source record binds the release SHA,
 production identity, and renderer fingerprint; publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
-It does not open the website entry or select a default update.
+It does not select a default update. Web offers an account-free preview page at
+`/desktop?candidate=<hash>` using that candidate's verified metadata and artifact.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using
@@ -239,6 +240,11 @@ native transport prerequisite; these adapters do not relax it.
 Its header allowlist preserves shared Inbox, Space addressing, and Space access capability
 negotiation. These version headers select an existing response contract; they
 do not grant authorization. Renderer cookies and authorization remain excluded.
+
+File download responses preserve `x-openmeld-file-revision` for the shared
+Space file reader. Local image previews use Blob URLs, which are allowed only
+in the image CSP directive; script, connection, frame, and credential boundaries
+remain unchanged.
 
 `pilot-transport.ts` owns one private persistent Electron Session shared by the
 BrowserWindow and protocol handler. Its partition lives under the existing

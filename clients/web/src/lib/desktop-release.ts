@@ -6,6 +6,29 @@ import {
 } from "@openmeld/schemas";
 import { z } from "zod/v4";
 
+export function parseDesktopCandidateSelector(value: unknown) {
+	return desktopCandidateIdSchema.optional().parse(value);
+}
+
+export async function readDesktopCandidateArtifact<T extends { size: number }>(
+	store: DesktopReleaseManifestStore,
+	id: string,
+	loadArtifact: (key: string) => Promise<T | null>
+) {
+	const candidate = await readDesktopCandidate(store, id);
+	if (!candidate) {
+		return null;
+	}
+	const artifact = await loadArtifact(candidate.objectKey);
+	if (!artifact) {
+		return null;
+	}
+	if (artifact.size !== candidate.sizeBytes) {
+		throw new Error("Desktop candidate size mismatch.");
+	}
+	return { candidate, artifact };
+}
+
 export async function readDesktopCandidate(
 	store: DesktopReleaseManifestStore,
 	candidate: string
@@ -115,18 +138,48 @@ export async function readAvailableDesktopRelease(
 		| (DesktopReleaseManifestStore & {
 				head: (key: string) => Promise<{ size: number } | null>;
 		  })
-		| undefined
-): Promise<DesktopPreviewReleaseManifest | null> {
+		| undefined,
+	candidate?: string
+): Promise<DesktopDownloadRelease | null> {
+	const id = parseDesktopCandidateSelector(candidate);
 	if (!store) {
 		return null;
+	}
+	if (id !== undefined) {
+		const available = await readDesktopCandidateArtifact(store, id, (key) =>
+			store.head(key)
+		);
+		if (!available) {
+			return null;
+		}
+		return {
+			version: available.candidate.version,
+			sizeBytes: available.candidate.sizeBytes,
+			downloadPath: available.candidate.downloadPath,
+			message: null,
+		};
 	}
 	const release = await readDesktopPreviewReleaseManifest({ store });
 	if (!release) {
 		return null;
 	}
 	const artifact = await store.head(release.macosArm64.objectKey);
-	return artifact && artifact.size > 0 ? release : null;
+	return artifact && artifact.size > 0
+		? {
+				version: release.macosArm64.version,
+				sizeBytes: release.macosArm64.sizeBytes,
+				downloadPath: DESKTOP_DOWNLOAD_ROUTE_PATH,
+				message: release.message,
+			}
+		: null;
 }
+
+export type DesktopDownloadRelease = {
+	version: string;
+	sizeBytes: number | null;
+	downloadPath: string;
+	message: string | null;
+};
 
 export function buildAbsoluteDesktopUrl(input: {
 	origin: string;
