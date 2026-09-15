@@ -6,7 +6,7 @@ export const SPACE_SELF_MESSAGE_ALIGNMENT_ATTRIBUTE =
 export type SpaceSelfMessageAlignment = "left" | "right";
 
 export const DEFAULT_SPACE_SELF_MESSAGE_ALIGNMENT: SpaceSelfMessageAlignment =
-	"right";
+	"left";
 
 export function readSpaceSelfMessageAlignmentPreference(): SpaceSelfMessageAlignment {
 	if (typeof window === "undefined") {

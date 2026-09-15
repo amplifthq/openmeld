@@ -105,7 +105,7 @@
   --space-conversation-title-height: 3rem;
   --space-conversation-header-height: calc(var(--space-conversation-title-height) + var(--space-conversation-navigation-height));
   --space-conversation-navigation-height: 1.8125rem;
-  --space-conversation-centered-max-width: min(52rem, 90vw);
+  --space-conversation-centered-max-width: min(72rem, 90vw);
   --space-conversation-inline-padding: 1rem;
   --app-page-inline-padding: 1.5rem;
 }
@@ -153,6 +153,12 @@ html[data-space-self-message-alignment="left"]
   [data-space-self-message="true"]
   > [data-slot="message-content"]
   > [data-slot] {
+  align-self: flex-start;
+}
+
+[data-space-self-message="true"]
+  > [data-slot="message-content"]
+  > [data-slot="message-header"] {
   align-self: flex-start;
 }
 
@@ -254,25 +260,6 @@ html[data-space-self-message-alignment="left"]
     [data-space-self-message="true"]
     [data-slot="bubble"] {
     max-inline-size: min(88%, 52rem);
-  }
-}
-
-@media (min-width: 1280px) {
-  html[data-space-conversation-layout="centered"]
-    [data-space-conversation-content-width] {
-    max-width: min(
-      var(--space-conversation-centered-max-width),
-      calc(100% - var(--space-members-panel-width, 22rem))
-    );
-  }
-
-  html[data-space-conversation-layout="centered"]
-    [data-space-members-panel-open="true"]
-    [data-space-conversation-content-width],
-  html[data-space-conversation-layout="centered"]
-    [data-space-thread-panel-open="true"]
-    [data-space-conversation-content-width] {
-    max-width: min(var(--space-conversation-centered-max-width), 100%);
   }
 }
 
