@@ -214,8 +214,14 @@ dependencies. No production-code change was made for this run.
 One non-blocking diagnostic defect was observed: while F was correctly queued,
 the concise `agentSummary` said `final_projection_pending` and suggested
 reconnect guidance. Its detailed diagnostics correctly identified the queue;
-the final outcome was correctly reported. This smoke records the defect and
-does not claim to fix that summary projection.
+the final outcome was correctly reported. A subsequent diagnostic-only fix now
+prioritizes a found, unlinked `queued` Coordinator head in the concise summary
+and maps it to `runtime_coordinator.head_queued` in the shared reason projection.
+Its CLI regression reproduces the observed queue/linkage combination and also
+checks that a D1 queue label without Coordinator evidence cannot infer this
+state. The 44-case trace integration suite passes, including existing running,
+waiting-boundary, publication, and delivered-outcome behavior. This follow-up
+does not change the five-task capacity or the native smoke intervals above.
 
 ## Remaining Scope And Explicit Limits
 

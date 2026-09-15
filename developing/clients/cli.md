@@ -1687,6 +1687,15 @@ An authoritative pre-result RuntimeCoordinator status such as `running` or
 yet be linked; it must not relabel active execution as final publication work or
 tell the operator that the target Computer is offline.
 
+A found Coordinator head with `status: queued` and no linked execution also
+precedes `projection_pending`. Agent View reports `current_state=queued`, the
+shared `runtime_coordinator.head_queued` reason, and asks the caller to wait for
+the Agent's execution slot before checking again. Dispatch or attempt queue
+labels alone cannot establish this state. The shared head-status reason mapper
+also supplies human execution-authority diagnostics so those views agree.
+This changes diagnostic values only: trace request version 3, response fields,
+and parsing of older Core responses remain unchanged.
+
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller
 still supplies only the normal Space and dispatch selectors. Core resolves the

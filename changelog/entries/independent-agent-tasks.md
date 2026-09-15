@@ -10,6 +10,8 @@ An updated local Agent can run up to five independent tasks at once. Start a
 new task, fork completed history, or work in different discussion threads.
 Follow-ups in the same task wait their turn, and each reply stays with its
 original message.
+CLI trace identifies tasks waiting in the Agent's queue and gives a waiting
+action instead of suggesting a publication or connection problem.
 Space-only tasks can read their authorized Space history even when Computer
 file access is limited to selected project folders. Forks retain the final
 revised answer when a task reconsiders newer information before replying.

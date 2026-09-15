@@ -2040,7 +2040,12 @@ function resolveRuntimeCoordinatorHeadLifecycleRootCause(
   };
 }
 
-function resolveRuntimeCoordinatorHeadStatusRootCause(status: string): string {
+export function resolveRuntimeCoordinatorHeadStatusRootCause(
+  status: string
+): string {
+  if (status === "queued") {
+    return "runtime_coordinator.head_queued";
+  }
   if (status === "accepted") {
     return "runtime_coordinator.head_accepted";
   }
