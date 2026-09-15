@@ -1,6 +1,7 @@
 import {
 	buildOrganizationAccountSettingsPath,
 	buildOrganizationAppearanceSettingsPath,
+	buildOrganizationCenterAgentSettingsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationConnectedPluginsSettingsPath,
 	buildOrganizationNotificationsSettingsPath,
@@ -14,6 +15,8 @@ export function buildSettingsRoutes(orgSlug: string) {
 	return {
 		account: buildOrganizationAccountSettingsPath(orgSlug),
 		appearance: buildOrganizationAppearanceSettingsPath(orgSlug),
+		// Key name matches the Settings section id and the `?appSettings=` value.
+		"center-agent": buildOrganizationCenterAgentSettingsPath(orgSlug),
 		connectedApps: buildOrganizationConnectedPluginsSettingsPath(orgSlug),
 		general: buildOrganizationOrgSettingsPath(orgSlug),
 		members: `${buildOrganizationSettingsRootPath(orgSlug)}/members`,
