@@ -20,7 +20,7 @@ are historical slices, not descriptions of the current implementation.
 
 | Area | Source-confirmed behavior | Limit |
 | --- | --- | --- |
-| Profile capacity | One Work Coordinator, five new reservations, 50 waiting Wakes, one writer per Context, and legacy exclusivity. Readers accept five reservations and 55 total items. | Five is a policy ceiling; five-way native product smoke and a measured host-resource budget remain unverified. |
+| Profile capacity | One Work Coordinator, five new reservations, 50 waiting Wakes, one writer per Context, and legacy exclusivity. Readers accept five reservations and 55 total items. | Five-way Codex project smoke passed below. Automatic host-resource admission and universal five-task performance remain unproven. |
 | Execution Context | Core assigns Context identity and exact requester/Organization/Space/discussion scope in the owner-shard admission transaction. New, resume, fork, and supported implicit discussion scopes are wired through execution and result routing. | Unsupported harnesses retain legacy serial behavior before Context activation; explicit unsupported selection fails closed. |
 | Native identity | A reverse index rejects a native conversation assigned to a different Context in the same Runtime/Controller namespace. Exact-Wake checkpoints survive Head retirement. | Activity observations and Binding pointers cannot substitute for retained Context evidence. |
 | Project workspaces | Explicit Codex tasks use private Git metadata and worktrees from the confirmed source root's frozen commit. Native project permissions, outside-access probes, and effective MCP inventory are checked before execution. | System temporary directories retain native access rules. This is project-file/Git isolation, not a container boundary. |
@@ -163,6 +163,59 @@ Service against base `d053dc1846411928fb37fe3c47deeb05c5398d0c` and passed its
 and production distribution are deferred to the release. The test Computer
 policy was restored, the Profile was left in its original parallel mode, and
 the owned Service and localhost Worker stack were stopped.
+
+## Five-Way Native Project Smoke — September 15
+
+Tested candidate: `66ab067dd0f5a532568c3e4fac3cd5443f91aca2` on macOS arm64,
+48 GiB host RAM, with native Codex `0.154.0-alpha.6.2`. Six consecutive public
+`openmeld-dev space send --new-task --task-access workspace --task-workspace
+isolated` requests targeted the same Agent in one Space. The isolated localhost
+Worker lane and owned temporary `OPENMELD_HOME` were used; production OpenMeld
+state was not used. Computer access allowed only the test source repository.
+
+Each task read the same committed `base.txt`, ran a 45-second sleep, wrote its
+own marker to `five-result.txt`, and submitted its assigned Space reply. Native
+history readback confirmed these completed turn intervals (Asia/Shanghai):
+
+| Task | Native start | Native completion | Final outcome |
+| --- | --- | --- | --- |
+| A | 10:43:10 | 10:45:17 | Correct file and linked Space reply |
+| B | 10:43:11 | 10:45:09 | Correct file and linked Space reply |
+| C | 10:43:09 | 10:45:05 | Correct file and linked Space reply |
+| D | 10:43:13 | 10:45:04 | Correct file and linked Space reply |
+| E | 10:43:12 | 10:45:04 | Correct file and linked Space reply |
+| F | 10:45:12 | 10:48:42 | Initially queued; then correct file and linked reply |
+
+The first five native turns overlapped for **111 seconds**. F's initial public
+trace diagnostics recorded `status=queued`, `latestAttempt=profile_queue_waiting`,
+and `head=queued`; Service events placed F's reservation after E's completion.
+All six final public traces reported `delivered=true` and `visible_reply`, with
+reply IDs matching the exact original source messages. Six distinct native
+conversations, six worktrees, and six private Git common directories were
+verified. All Git HEADs matched frozen source commit
+`f355d47d4d9b76050a9c2975733c7e5881ced9ac`. The source remained clean and its
+registered worktree list was unchanged. Each task's own result file was retained.
+
+Two-second resource samples observed at most five identified task execution
+processes. The Service plus attached descendants peaked at 3,189.9 MiB summed
+RSS, with estimated available host memory no lower than 16.3 GiB and normal
+memory pressure throughout. The maximum sum of sampled `ps` CPU percentages was
+292.9%. These are observations for this workload: summed RSS may double-count
+shared pages, `ps` CPU is process accounting rather than an instantaneous host
+measurement, and preparation/helper processes are not additional model turns.
+They do not implement a host budget or certify heavier tasks or other harnesses.
+
+The Computer policy was restored, parallel mode retained, and the owned Service
+and Worker stack stopped. Local artifacts under `dev-tmp/five-native-smoke/`
+include request selectors, final traces, native history, verified file/Git
+results, and resource samples. They are diagnostic evidence, not production
+dependencies. No production-code change was made for this run.
+
+One non-blocking diagnostic defect was observed: while F was correctly queued,
+the concise `agentSummary` said `final_projection_pending` and suggested
+reconnect guidance. Its detailed diagnostics correctly identified the queue;
+the final outcome was correctly reported. This smoke records the defect and
+does not claim to fix that summary projection.
 
 ## Remaining Scope And Explicit Limits
 
