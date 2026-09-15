@@ -2423,10 +2423,15 @@ Agent identity controls in messages, Threads, and the Members panel open one
 compact Profile Details popover. It shows the Agent identity, current
 availability, and a primary **Chat with {Agent name}** action. The popover omits
 configuration cards and gives the owner one persistent pencil action to open
-the canonical Agent route; it shows no edit affordance to other viewers. It
+the canonical Agent route; other viewers receive a right-arrow profile link. It
 does not add a second details dialog or an overflow-menu details action. Owners
 edit supported settings from the canonical route; other viewers keep the
-popover read-only.
+popover read-only. Agent cards, profile pages, mention picker rows, and composed
+Agent mentions share the Core-projected provider Usage Limits, including remaining
+percentages, reset times, and stale or unknown evidence. The picker places the
+usage preview after the availability indicator. Selecting a composed profile name
+opens the same Profile Details popover used by messages without changing the draft
+or its Wake relation. Usage display does not derive or override Wakeability.
 Both owner and observer popovers show the same compact activity summary and
 recorded `lastTaskActivityAt` when supplied by the runtime overview. Location
 links appear only when Core disclosed them. The timestamp is historical task

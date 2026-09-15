@@ -1707,6 +1707,22 @@ query, state store, or visibility policy. The RPC is additive and audited
 behind Center Agent audit action set `v19`, so older strict audit readers
 exclude the new action row.
 
+The Organization Agent Runtime Overview also accepts `includeUsageLimits=true`.
+Only opted-in responses include `readiness.usageLimits`, using the same sanitized
+Usage Limit schema as Computers. Core resolves the exact Profile Binding's
+Runtime and Controller before applying the owner/observer projection. Provider-scoped
+controllers expose only the selected model's provider. Expired reports and usage
+observations remain explicitly stale; missing evidence yields an empty list.
+This field is equally visible to authorized Organization members. It does not
+expose Binding, account, path, conversation, or Runtime identity to observers,
+and it does not change Wakeability or execution admission. Web must consume this
+projection rather than joining redacted readiness fields to Computer inventory.
+Older callers omit the opt-in and retain their exact response shape; older
+Gateway/Core omit the field for new Web, which displays unknown usage. Deploy
+Core, Gateway, then Web for this additive projection. CLI, Service, Skills, setup,
+Wake, Space actions, and diagnostics retain their existing contracts; a shared
+schema bundle change still follows the local-component release policy.
+
 The CLI `org computers` Agent View and strict `organization.computers` JSON
 envelope use this same current-Organization HTTP response. They explicitly
 request Usage Limits and preserve the team-safe projection; they do not call a
