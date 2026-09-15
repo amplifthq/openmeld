@@ -6508,6 +6508,7 @@ function buildRoutinePublisherActorContext(input: {
 }
 
 async function publishRemoteAgentRoutineText(input: {
+  mentionTargets?: string[];
   personalAgent?: boolean;
   agentStreamId?: string;
   attachments?: SpaceMessageAttachment[];
@@ -6571,6 +6572,9 @@ async function publishRemoteAgentRoutineText(input: {
         : {}),
       referenceTargets: [],
       text: input.text,
+      ...(input.mentionTargets?.length
+        ? { mentionTargets: input.mentionTargets }
+        : {}),
     },
     meta: {
       clientMessageId: input.clientMessageId,
@@ -11471,6 +11475,7 @@ async function publishRemoteAgentCallbackReply(input: {
     });
     return await publishRemoteAgentRoutineText({
       agentStreamId: buildRemoteAgentStreamId(input.body.submissionId),
+      mentionTargets: input.body.mentionTargets,
       personalAgent: isPersonalRoutineDelivery(input.delivery),
       ...(input.body.attachments?.length
         ? { attachments: input.body.attachments }
@@ -11531,6 +11536,7 @@ async function publishRemoteAgentCallbackReply(input: {
       ...(navigationAction ? { navigationAction } : {}),
       replyToSignalId: input.delivery.triggerMessageId,
       text: replyText,
+      mentionTargets: input.body.mentionTargets,
     },
     meta: {
       clientMessageId: input.body.submissionId,

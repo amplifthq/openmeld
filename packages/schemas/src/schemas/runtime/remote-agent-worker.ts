@@ -911,6 +911,7 @@ export const remoteAgentCoreCallbackBodySchema = z.union([
     conversationCompaction: conversationCompactionMarkerSchema.optional(),
     navigationTarget: openMeldNavigationTargetSchema.optional(),
     status: z.literal("completed").optional(),
+    mentionTargets: z.array(openMeldRuntimeProfileIdSchema).max(25).optional(),
     text: nonEmptyStringSchema.max(MAX_TEXT_LENGTH),
     attachments: spaceMessageAttachmentsSchema.optional(),
     files: spaceMessageFileReferencesSchema.optional(),

@@ -169,6 +169,7 @@ describe("remote agent callback context", () => {
       kind: "project",
       projectId: "project_123",
     };
+    context.mentionTargets = ["11111111-1111-4111-8111-111111111111"];
 
     expect(
       buildRemoteAgentCoreCallbackBody({
@@ -187,6 +188,7 @@ describe("remote agent callback context", () => {
       submissionId: ACK.submissionId,
       text: "The blocker is the missing binding.",
       triggerMessageId: request.triggerMessageId,
+      mentionTargets: ["11111111-1111-4111-8111-111111111111"],
       navigationTarget: {
         kind: "project",
         projectId: "project_123",

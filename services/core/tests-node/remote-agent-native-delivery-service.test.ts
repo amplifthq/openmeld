@@ -5183,6 +5183,7 @@ describe("Remote Agent native delivery callback service", () => {
               fileName: "browser-screenshot.png",
             },
           ],
+          mentionTargets: ["11111111-1111-4111-8111-111111111111"],
           files: [
             {
               fileId: "space-file-1",
@@ -5222,6 +5223,7 @@ describe("Remote Agent native delivery callback service", () => {
           ],
           finalOutcomeAuthority: "remote_agent_native_delivery",
           messageEnvelope: expect.objectContaining({
+            mentionTargets: ["11111111-1111-4111-8111-111111111111"],
             navigationAction: {
               label: "Open this Project",
               target: {

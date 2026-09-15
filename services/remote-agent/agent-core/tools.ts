@@ -216,6 +216,7 @@ import {
   readRemoteAgentCallbackContext,
   recordRemoteAgentAnonymousIdentityBoundary,
   recordRemoteAgentNavigationTarget,
+  recordRemoteAgentReplyMentions,
 } from "./callback-context";
 import {
   getRemoteAgentConnectorToolDefinitions,
@@ -483,6 +484,9 @@ const postSpaceMessageToolInputSchema = object({
   referenceProfileIds: referenceProfileIdsInputSchema,
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+});
+const finalReplyMentionsToolInputSchema = strictObject({
+  mentionProfileIds: mentionProfileIdsInputSchema,
 });
 const listSpaceFilesToolInputSchema = strictObject({
   parentId: optional(nullable(spaceFileIdToolInputSchema)),
@@ -1333,6 +1337,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_post_slack_channel_message",
   "openmeld_send_slack_file",
   "openmeld_post_space_message",
+  "openmeld_set_final_reply_mentions",
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
@@ -4089,6 +4094,32 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_set_final_reply_mentions",
+      description:
+        "Set the exact Human Profile IDs to notify when your final reply is published in the current Space, including Routine reports. This replaces any earlier selection; [] clears it. Use IDs from current Space membership, never infer identities from names. This prepares the final reply and does not publish a message yet. Plain @Name text alone does not notify anyone. It never wakes Agents.",
+      input: finalReplyMentionsToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          finalReplyMentionsToolInputSchema,
+          payload
+        );
+        await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_set_final_reply_mentions",
+        });
+        await recordRemoteAgentReplyMentions({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          mentionTargets: request.mentionProfileIds,
+        });
+        return {
+          status: "prepared",
+          mentionProfileIds: request.mentionProfileIds,
+        };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_wake_agent_profiles_in_space",
       description:
         "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. This starts real work and is an ordinary external write. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass mentionProfileIds with every exact Human Profile ID that should receive Inbox and browser attention, or []; always pass referenceProfileIds with every exact Agent Profile ID that is context only, or []. Human Mention never creates Agent work, and Agent Reference never creates child work. A profile cannot appear in more than one addressing relation. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives filesystem access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure.",
@@ -4997,6 +5028,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     ) && hasFrozenOrganizationSharedInteractionEnvironment(input.turnEnvelope);
   const exposedDefinitions = definitions.filter(
     (definition) =>
+      (definition.name !== "openmeld_set_final_reply_mentions" ||
+        input.turnEnvelope?.trigger.source === "space_wake" ||
+        (input.turnEnvelope?.trigger.source === "routine" &&
+          input.turnEnvelope.trigger.destination?.kind === "space")) &&
       // Launch hold, not retired tools. Keep approval implementations for the
       // isolated Request an Agent follow-up; Core remains the mutation guard.
       (TEAMMATE_AGENT_REQUESTS_ENABLED ||
