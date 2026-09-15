@@ -4,6 +4,7 @@ import { organizationQueryKeys } from "#/query/organizations/organization-direct
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import {
 	prefetchAgentsRouteIdentityData,
 	prefetchCenterAgentConversationData,
@@ -22,6 +23,10 @@ const getBootstrapMock = vi.hoisted(() => vi.fn());
 const getStatusMock = vi.hoisted(() => vi.fn());
 const listSignalEnvelopesMock = vi.hoisted(() => vi.fn());
 const createWebSpaceApiMock = vi.hoisted(() => vi.fn());
+const readThreadSelectionMock = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/spaces/thread-panel-storage", () => ({
+	readSpaceThreadPanelSelection: readThreadSelectionMock,
+}));
 const openCurrentCenterAgentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentDirectMessageSpaceProjectionMock = vi.hoisted(() =>
 	vi.fn()
@@ -122,6 +127,7 @@ const organizationSpaces = {
 describe("organization app route prefetch", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		readThreadSelectionMock.mockReturnValue(null);
 		resolveOrganizationScopeMock.mockResolvedValue(authorizedScope);
 		listStartProfilesMock.mockResolvedValue([humanProfile]);
 		readOrganizationProfileDirectoryMock.mockResolvedValue(
@@ -239,6 +245,51 @@ describe("organization app route prefetch", () => {
 			spaceId: "space-1",
 			openMeldProfileId: "human-1",
 		});
+	});
+	it("starts the restored Thread alongside a pending bootstrap and reuses its fresh result", async () => {
+		const queryClient = createQueryClient();
+		readThreadSelectionMock.mockReturnValue("thread-1");
+		const listThreadSignals = vi
+			.fn()
+			.mockResolvedValue({ signals: [], placements: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			getBootstrap: getBootstrapMock,
+			listThreadSignals,
+		});
+		let completeBootstrap:
+			| ((value: ReturnType<typeof createBootstrapResponse>) => void)
+			| undefined;
+		getBootstrapMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					completeBootstrap = resolve;
+				})
+		);
+		const prefetch = prefetchKnownSpaceConversationData({
+			organizationId: "org-acme",
+			organizationSlug: "acme",
+			ownerAccountId: "user-1",
+			queryClient,
+			queryPersistence,
+			spaceId: "space-1",
+			openMeldProfileId: "human-1",
+		});
+		await vi.waitFor(() => expect(listThreadSignals).toHaveBeenCalledTimes(1));
+		expect(
+			queryClient.getQueryData(spaceQueryKeys.bootstrap("space-1", "human-1"))
+		).toBeUndefined();
+		completeBootstrap?.(createBootstrapResponse());
+		await prefetch;
+		await queryClient.fetchQuery(
+			spaceThreadSignalsQueryOptions({
+				spaceId: "space-1",
+				threadId: "thread-1",
+				openMeldProfileId: "human-1",
+				enabled: true,
+			})
+		);
+		expect(listThreadSignals).toHaveBeenCalledTimes(1);
+		queryClient.clear();
 	});
 
 	it("restores a known Space cache before starting any current server read", async () => {

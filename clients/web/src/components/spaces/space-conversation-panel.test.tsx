@@ -1296,7 +1296,9 @@ describe("SpaceConversationPanel", () => {
 
 	it("uses the shared Space reference renderer in a thread preview", () => {
 		const thread = createThread();
+		const onOpenThread = vi.fn();
 		renderSpaceConversationPanel({
+			onOpenThread,
 			spaceReferencesById: createSpaceReferences(),
 			threadPreviews: [createThreadPreview(thread.threadId)],
 			threads: [thread],
@@ -1308,6 +1310,22 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("link", { name: "Open Space Launch Planning" })
 		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("link", { name: "Open Space Launch Planning" })
+		);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		const preview = screen.getByRole("link", { name: "Thread preview" });
+		fireEvent.click(preview);
+		fireEvent.keyDown(preview, { key: "Enter" });
+		fireEvent.keyDown(preview, { key: " " });
+		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		expect(onOpenThread).toHaveBeenLastCalledWith(thread.threadId);
+		const selection = vi
+			.spyOn(window, "getSelection")
+			.mockReturnValue({ toString: () => "selected reply" } as Selection);
+		fireEvent.click(preview);
+		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		selection.mockRestore();
 	});
 
 	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {

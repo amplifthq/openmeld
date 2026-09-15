@@ -4432,6 +4432,22 @@ Bounded summaries disclose additional active tasks. Reduced-motion and
 input-waiting Orbs are paused.
 
 Unfinished Agent replies follow the latest message in their owning conversation.
+The server-selected `replyThreadRootSignalId` takes precedence over the trigger
+message's location once reply placement is known. Before selection, progress
+keeps its source context. A Thread-bound reply has a compact progress marker on
+the main entrance; its complete progress and authorized Stop control stay in the
+Thread. Durable outcomes fetched in Thread history or previews reconcile the
+same Wake presentation as live outcomes.
+
+Thread entrances retain the viewer's existing Inbox unread targets. Their
+preview rows support pointer and keyboard activation without intercepting real
+links or text selection. Previews show the latest two replies in chronological
+order. Hover/focus warms the same profile-scoped message query used by the panel;
+a saved panel warms alongside Space loading after account cache activation.
+Prefetch does not acknowledge unread messages. A short freshness window avoids
+an immediate duplicate read, while live-only partial snapshots remain invalidated
+until a complete Thread read succeeds. Loading messages is visibly indicated.
+
 Main Space and Thread use the same presentation-only ordering: published history
 keeps its server order, followed by active Wakes in request order. A public reply
 stream replaces its matching placeholder; it does not add another status row.

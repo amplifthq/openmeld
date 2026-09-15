@@ -8,7 +8,7 @@ import type {
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
-import { XIcon } from "@phosphor-icons/react";
+import { SpinnerGapIcon, XIcon } from "@phosphor-icons/react";
 import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
 import type { ReactNode } from "react";
 import {
@@ -25,6 +25,7 @@ import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage"
 import {
 	buildActiveWakeConversationItems,
 	hasActiveWakeReplyForSource,
+	isWakeProgressInConversation,
 	resolveActiveWakeSourceItem,
 } from "#/lib/spaces/active-wake-conversation";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
@@ -407,19 +408,25 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 	const scopedActivityItems = useMemo(
 		() =>
 			input.ephemeralActivityItems.filter((progress) =>
-				progress.sourceContext
-					? progress.sourceContext.threadId === activeThreadId
-					: rawThreadTimelineItems.some(
-							(item) =>
-								item.id !== activeThreadRootSignalId &&
-								(item.id === progress.sourceSignalId ||
-									(progress.clientMessageId &&
-										(item.clientMessageId === progress.clientMessageId ||
-											item.wakeClientMessageId === progress.clientMessageId)))
-						)
+				isWakeProgressInConversation({
+					progress,
+					agentStreams: input.agentStreams,
+					threadId: activeThreadId,
+					threadRootSignalId: activeThreadRootSignalId,
+					source: rawThreadTimelineItems.find(
+						(item) =>
+							item.id === progress.sourceSignalId ||
+							Boolean(
+								progress.clientMessageId &&
+									(item.clientMessageId === progress.clientMessageId ||
+										item.wakeClientMessageId === progress.clientMessageId)
+							)
+					),
+				})
 			),
 		[
 			input.ephemeralActivityItems,
+			input.agentStreams,
 			activeThreadId,
 			activeThreadRootSignalId,
 			rawThreadTimelineItems,
@@ -429,7 +436,9 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		() =>
 			orderSpaceTimelineItemsForConversation(
 				buildActiveWakeConversationItems({
-					activityItems: scopedActivityItems,
+					activityItems: input.ephemeralActivityItems,
+					agentStreams: input.agentStreams,
+					threadRootSignalId: activeThreadRootSignalId,
 					profileEntriesById,
 					spaceId: input.activeThread?.spaceId,
 					threadId: activeThreadId,
@@ -438,7 +447,9 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 			),
 		[
 			rawThreadTimelineItems,
-			scopedActivityItems,
+			input.ephemeralActivityItems,
+			input.agentStreams,
+			activeThreadRootSignalId,
 			profileEntriesById,
 			input.activeThread?.spaceId,
 			activeThreadId,
@@ -1153,8 +1164,17 @@ function ThreadTimeline(input: {
 	}
 	if (input.isLoading) {
 		return (
-			<div aria-busy="true" className="min-h-0 flex-1">
-				<output className="sr-only">Loading thread…</output>
+			<div
+				aria-busy="true"
+				className="flex min-h-0 flex-1 items-center justify-center p-4"
+			>
+				<output className="flex flex-col items-center gap-2 text-muted-foreground text-sm">
+					<SpinnerGapIcon
+						aria-hidden="true"
+						className="size-5 motion-safe:animate-spin"
+					/>
+					<span>Loading messages…</span>
+				</output>
 			</div>
 		);
 	}

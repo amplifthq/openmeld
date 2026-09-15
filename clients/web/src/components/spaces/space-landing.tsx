@@ -2083,6 +2083,7 @@ function SpaceLandingConversation({
 			activeSpaceView={spaceView}
 			agentDirectConversationKind={agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
+			agentStreams={controller.agentStreams}
 			allowedActions={controller.status.allowedActions}
 			allowSendWhileAccessSettles={!controller.isCurrentAccessConfirmed}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}

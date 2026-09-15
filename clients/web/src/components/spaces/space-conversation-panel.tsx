@@ -14,6 +14,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
 import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	Fragment,
 	memo,
@@ -69,11 +70,13 @@ import {
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
 import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
+import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
 } from "./center-agent-computer-setup-card";
 import { CenterAgentDirectMessageIntro } from "./center-agent-direct-message-intro";
+import { formatDirectMessageTime } from "./direct-message-preview";
 import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
 import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
@@ -220,6 +223,7 @@ import type {
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
 type SpaceConversationPanelResolvedProps = {
+	agentStreams?: readonly import("#/lib/spaces/conversation-stream").SpaceConversationVisibleStreamProjection[];
 	historyNavigation?: SpaceHistoryNavigationController;
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
@@ -854,6 +858,13 @@ function renderPanelConversationBody(input: {
 	const navigation = input.navigation;
 	const presentation = input.presentation;
 	return renderConversationBody({
+		activeThreadRootSignalIds: new Set(
+			(panel.agentStreams ?? []).flatMap((stream) =>
+				stream.status === "streaming" && stream.replyThreadRootSignalId
+					? [stream.replyThreadRootSignalId]
+					: []
+			)
+		),
 		agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
 		anchoredOutcomeNoticesBySourceSignalId:
 			presentation.anchoredOutcomeNoticesBySourceSignalId,
@@ -1008,6 +1019,7 @@ function useSpaceConversationPresentationController(
 	const activeConversationItems = useMemo(
 		() =>
 			buildActiveWakeConversationItems({
+				agentStreams: input.agentStreams,
 				activityItems: input.presentedWakeProgressItems,
 				profileEntriesById,
 				spaceId: input.spaceId,
@@ -1016,6 +1028,7 @@ function useSpaceConversationPresentationController(
 			}),
 		[
 			baseMainTimelineItems,
+			input.agentStreams,
 			input.presentedWakeProgressItems,
 			input.spaceId,
 			profileEntriesById,
@@ -2028,6 +2041,7 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 }
 
 function renderConversationBody(input: {
+	activeThreadRootSignalIds: ReadonlySet<string>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -2277,6 +2291,7 @@ function renderConversationBody(input: {
 						actionableAgentInteractionPlacement={
 							input.actionableAgentInteractionPlacement
 						}
+						activeThreadRootSignalIds={input.activeThreadRootSignalIds}
 						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 						anchoredOutcomeNoticesBySourceSignalId={
 							input.anchoredOutcomeNoticesBySourceSignalId
@@ -2382,6 +2397,7 @@ function resolveConversationEntryKey(entry: SpaceConversationEntry): string {
 }
 
 type ConversationBubbleRunInput = {
+	activeThreadRootSignalIds: ReadonlySet<string>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -2845,6 +2861,7 @@ function ConversationBubbleContent(input: {
 			})}
 			<MessageBubbleReactions />
 			<ThreadPreview
+				isReplyInProgress={parent.activeThreadRootSignalIds.has(input.item.id)}
 				membersSnapshot={parent.membersSnapshot}
 				onOpenThread={parent.onOpenThread}
 				preview={
@@ -2852,6 +2869,7 @@ function ConversationBubbleContent(input: {
 						parent.threadsByRootSignalId.get(input.item.id)?.threadId ?? ""
 					) ?? null
 				}
+				profileId={parent.selfProfileId}
 				spaceReferencesById={parent.spaceReferencesById}
 				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
 				unreadCount={
@@ -3402,6 +3420,8 @@ function resolveReplyItemsForMessage(input: {
 }
 
 function ThreadPreview(input: {
+	isReplyInProgress: boolean;
+	profileId: string;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	unreadCount: number;
 	onOpenThread: (threadId: string) => void;
@@ -3409,6 +3429,8 @@ function ThreadPreview(input: {
 	spaceReferencesById?: SpaceMessageReferencesById;
 	thread: SpaceThread | null;
 }) {
+	const queryClient = useQueryClient();
+	const pointerStart = useRef<{ x: number; y: number } | null>(null);
 	const thread = input.thread;
 	if (!thread) {
 		return null;
@@ -3417,7 +3439,7 @@ function ThreadPreview(input: {
 	const previewItems = buildSpaceTimelineItems({
 		envelopes: input.preview?.signals ?? [],
 		membersSnapshot: input.membersSnapshot,
-	}).slice(0, 2);
+	}).slice(-2);
 	const replyCount = input.preview?.replyCount ?? 0;
 	const replyCountText = formatThreadReplyCount(replyCount);
 	const unreadLabel = `${String(input.unreadCount)} unread`;
@@ -3425,13 +3447,64 @@ function ThreadPreview(input: {
 	const showCount = input.unreadCount > 0 || replyCount > 0;
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
+	const prefetch = () => {
+		return queryClient.prefetchQuery(
+			spaceThreadSignalsQueryOptions({
+				spaceId: thread.spaceId,
+				threadId: thread.threadId,
+				openMeldProfileId: input.profileId,
+				enabled: true,
+			})
+		);
+	};
 
 	return (
 		<div className="flex w-full min-w-0 max-w-full flex-col gap-2 overflow-hidden border-border border-t pt-2">
 			{previewItems.length > 0 ? (
-				<section
+				// biome-ignore lint/a11y/useSemanticElements: The preview contains independently usable links and selectable text.
+				<div
 					aria-label="Thread preview"
-					className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden pe-2"
+					className="flex w-full min-w-0 max-w-full cursor-pointer flex-col gap-1.5 overflow-hidden rounded-sm pe-2 hover:bg-foreground/5 focus-visible:outline focus-visible:outline-ring"
+					onClick={(event) => {
+						if (
+							event.target instanceof Element &&
+							event.target.closest(
+								'a,button,input,textarea,select,pre,code,[contenteditable="true"]'
+							)
+						) {
+							return;
+						}
+						if (window.getSelection()?.toString()) {
+							return;
+						}
+						if (
+							pointerStart.current &&
+							Math.hypot(
+								event.clientX - pointerStart.current.x,
+								event.clientY - pointerStart.current.y
+							) > 5
+						) {
+							return;
+						}
+						input.onOpenThread(thread.threadId);
+					}}
+					onFocus={prefetch}
+					onKeyDown={(event) => {
+						if (
+							event.target !== event.currentTarget ||
+							!(event.key === "Enter" || event.key === " ")
+						) {
+							return;
+						}
+						event.preventDefault();
+						input.onOpenThread(thread.threadId);
+					}}
+					onPointerDown={(event) => {
+						pointerStart.current = { x: event.clientX, y: event.clientY };
+					}}
+					onPointerEnter={prefetch}
+					role="link"
+					tabIndex={0}
 				>
 					{previewItems.map((item) => (
 						<div
@@ -3443,15 +3516,22 @@ function ThreadPreview(input: {
 									{item.actorName}
 								</span>
 							)}
-							<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5">
+							<span className="line-clamp-2 min-w-0 flex-1 text-muted-foreground text-xs leading-5">
 								<SpaceMessageReferenceText
 									referencesById={spaceReferencesById}
-									text={item.text}
+									text={threadReplyPreviewText(item.text)}
 								/>
 							</span>
+							<time
+								className="shrink-0 text-muted-foreground/75 text-xs leading-5"
+								dateTime={new Date(item.createdAtMs).toISOString()}
+								title={new Date(item.createdAtMs).toLocaleString("en-US")}
+							>
+								{formatDirectMessageTime(item.createdAtMs)}
+							</time>
 						</div>
 					))}
-				</section>
+				</div>
 			) : null}
 			<button
 				aria-label={showCount ? `Open thread (${countLabel})` : "Open thread"}
@@ -3462,11 +3542,16 @@ function ThreadPreview(input: {
 						: "text-muted-foreground"
 				)}
 				onClick={() => input.onOpenThread(thread.threadId)}
+				onFocus={prefetch}
+				onPointerEnter={prefetch}
 				title="Only threads you start or reply to count as unread. Read the thread to clear its unread replies and reactions."
 				type="button"
 			>
 				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
 				<span>Open thread</span>
+				{input.isReplyInProgress ? (
+					<span className="text-muted-foreground">· Reply in progress</span>
+				) : null}
 				{showCount ? (
 					<span
 						className={
@@ -3478,6 +3563,29 @@ function ThreadPreview(input: {
 				) : null}
 			</button>
 		</div>
+	);
+}
+
+const THREAD_PREVIEW_LINES = /\r?\n/;
+const THREAD_PREVIEW_LEADING_MARKDOWN = /^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/;
+const THREAD_PREVIEW_BOLD = /\*\*([^*]+)\*\*/g;
+const THREAD_PREVIEW_UNDERSCORE_BOLD = /__([^_]+)__/g;
+const THREAD_PREVIEW_DECORATION = /^(?:[-*_]{3,}|`{3,}.*|~{3,}.*)$/;
+
+function threadReplyPreviewText(text: string): string {
+	return (
+		text
+			.split(THREAD_PREVIEW_LINES)
+			.map((line) =>
+				line
+					.trim()
+					.replace(THREAD_PREVIEW_LEADING_MARKDOWN, "")
+					.replace(THREAD_PREVIEW_BOLD, "$1")
+					.replace(THREAD_PREVIEW_UNDERSCORE_BOLD, "$1")
+			)
+			.find(
+				(line) => line.length > 0 && !THREAD_PREVIEW_DECORATION.test(line)
+			) ?? text
 	);
 }
 

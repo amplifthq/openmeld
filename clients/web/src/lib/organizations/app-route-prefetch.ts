@@ -1,6 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
 import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
+import { readSpaceThreadPanelSelection } from "#/lib/spaces/thread-panel-storage";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
 	organizationProfileDirectoryQueryOptions,
@@ -15,6 +16,7 @@ import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import { spaceHistoryPrefetchQueryOptions } from "#/query/spaces/history-sync";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import type {
 	OrganizationScopeAuthorized,
 	OrganizationScopeResolution,
@@ -202,6 +204,7 @@ export async function prefetchKnownSpaceConversationData(input: {
 	});
 	// Advance a saved tail only through contiguous updates, never by replacing
 	// it with a recent bootstrap window that could skip intervening messages.
+	prefetchRestoredThread(input);
 	if (
 		input.queryClient.getQueryData(
 			spaceQueryKeys.history(input.spaceId, input.openMeldProfileId)
@@ -231,6 +234,26 @@ export async function prefetchKnownSpaceConversationData(input: {
 		spaceId: input.spaceId,
 		viewerProfileId: input.openMeldProfileId,
 	});
+}
+
+function prefetchRestoredThread(input: {
+	queryClient: QueryClient;
+	spaceId: string;
+	openMeldProfileId: string;
+}) {
+	const threadId = readSpaceThreadPanelSelection({ spaceId: input.spaceId });
+	if (!threadId) {
+		return;
+	}
+	// Warm the panel the user left open without blocking main conversation paint.
+	input.queryClient.prefetchQuery(
+		spaceThreadSignalsQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
+			threadId,
+			enabled: true,
+		})
+	);
 }
 
 async function resolveAuthorizedPrefetchScope(

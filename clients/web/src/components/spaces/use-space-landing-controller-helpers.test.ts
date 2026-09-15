@@ -15,10 +15,14 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 	OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	spaceThreadSignalsQueryOptions,
+	spaceThreadsQueryOptions,
+} from "#/query/spaces/threads";
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
@@ -44,13 +48,116 @@ describe("Thread conversation policy during live replies", () => {
 	it.each([
 		false,
 		true,
-	])("refreshes the catalog only when a live reply introduces a new Thread (%s)", (knownThread) => {
+	])("refreshes an incomplete live snapshot or an explicit Wake selection (complete cache: %s)", async (completeSnapshot) => {
 		const queryClient = new QueryClient();
-		const key = spaceQueryKeys.threads("space", "viewer");
-		queryClient.setQueryData(key, {
-			threads: knownThread ? [{ threadId: "thread" }] : [],
+		const signal = (id: string, ts: number): SignalEnvelope => ({
+			v: 1,
+			id,
+			ts,
+			spaceId: "space",
+			type: "signal.text",
+			profile: { kind: "human", profileId: "H" },
+			data: {
+				text: id,
+				...(completeSnapshot
+					? {
+							messageEnvelope: {
+								text: id,
+								activationTargets: ["A"],
+								referenceTargets: [],
+							},
+						}
+					: {}),
+			},
+		});
+		const signals = [
+			signal("older", 1),
+			signal("newer", 2),
+			signal("newest", 3),
+		];
+		const listThreadSignals = vi
+			.fn()
+			.mockResolvedValue({ signals, placements: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			listThreadSignals,
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
+		queryClient.setQueryData(spaceQueryKeys.threads("space", "viewer"), {
+			threads: [{ threadId: "thread", rootSignalId: "root" }],
 			previews: [],
 		});
+		if (completeSnapshot) {
+			queryClient.setQueryData(
+				spaceQueryKeys.threadSignals("space", "thread", "viewer"),
+				{ signals: [signals[0]], placements: [] }
+			);
+		}
+		for (const reply of signals.slice(1)) {
+			mergeLiveThreadSignalIntoCache({
+				queryClient,
+				spaceId: "space",
+				openMeldProfileId: "viewer",
+				signal: reply,
+				threadContext: { threadId: "thread", rootSignalId: "root" },
+				placement: {
+					threadId: "thread",
+					signalId: reply.id,
+					placement: "thread",
+					createdAt: new Date(reply.ts).toISOString(),
+				},
+			});
+		}
+		const observer = new QueryObserver(
+			queryClient,
+			spaceThreadSignalsQueryOptions({
+				spaceId: "space",
+				threadId: "thread",
+				openMeldProfileId: "viewer",
+				enabled: true,
+			})
+		);
+		const unsubscribe = observer.subscribe(vi.fn());
+		await vi.waitFor(() =>
+			expect(
+				observer.getCurrentResult().data?.signals.map((reply) => reply.id)
+			).toEqual(["older", "newer", "newest"])
+		);
+		expect(listThreadSignals).toHaveBeenCalledTimes(1);
+		unsubscribe();
+		queryClient.clear();
+	});
+	it.each([
+		false,
+		true,
+	])("makes a new live Thread discoverable with the bootstrap-owned catalog (%s)", async (knownThread) => {
+		const queryClient = new QueryClient();
+		const key = spaceQueryKeys.threads("space", "viewer");
+		const thread = {
+			threadId: "thread",
+			spaceId: "space",
+			rootSignalId: "root",
+			createdByProfileId: "A",
+			createdAt: "2026-09-14T00:00:00.000Z",
+			updatedAt: "2026-09-14T00:00:00.000Z",
+		};
+		const listThreads = vi
+			.fn()
+			.mockResolvedValue({ threads: [thread], previews: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			listThreads,
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
+		queryClient.setQueryData(key, {
+			threads: knownThread ? [thread] : [],
+			previews: [],
+		});
+		const observer = new QueryObserver(
+			queryClient,
+			spaceThreadsQueryOptions({
+				spaceId: "space",
+				openMeldProfileId: "viewer",
+				enabled: false,
+			})
+		);
+		const unsubscribe = observer.subscribe(vi.fn());
 		mergeLiveThreadSignalIntoCache({
 			queryClient,
 			spaceId: "space",
@@ -72,7 +179,13 @@ describe("Thread conversation policy during live replies", () => {
 				data: { text: "The review is ready." },
 			},
 		});
-		expect(queryClient.getQueryState(key)?.isInvalidated).toBe(!knownThread);
+		await vi.waitFor(() =>
+			expect(observer.getCurrentResult().data?.threads).toEqual([
+				expect.objectContaining({ threadId: "thread", rootSignalId: "root" }),
+			])
+		);
+		expect(listThreads).toHaveBeenCalledTimes(knownThread ? 0 : 1);
+		unsubscribe();
 		queryClient.clear();
 	});
 	it("retains the server's direct conversation policy when an Agent reply arrives", () => {
