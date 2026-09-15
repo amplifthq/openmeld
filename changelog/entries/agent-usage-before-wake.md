@@ -4,6 +4,8 @@ title: Check Agent usage before sending a Wake
 kind: fixed
 areas: ["agents", "spaces"]
 audiences: ["users"]
+publishedAt: 2026-09-15
+evidence: ["pr:1068", "commit:b96b139292217db0bcd1a86c2604b0c99349ca91", "workflow:34938662680"]
 ---
 
 Agent cards and profile pages show teammates' reported remaining usage and

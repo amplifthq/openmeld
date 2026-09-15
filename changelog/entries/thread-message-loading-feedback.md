@@ -4,6 +4,8 @@ title: Easier, faster access to Thread replies
 kind: improved
 areas: ["spaces"]
 audiences: ["users"]
+publishedAt: 2026-09-15
+evidence: ["pr:1070", "commit:c1c13deed77ad26b20c86fa2978de14b05b919d6", "workflow:34938662680"]
 ---
 
 Thread previews open across the whole reply row and show the latest replies,
