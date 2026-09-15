@@ -99,6 +99,53 @@ and a best-effort per-isolate volume cap. These diagnostics are sampled failure
 evidence, not a complete traffic or latency distribution. Worker log retention
 governs how far back an investigation can look.
 
+The same receiver also accepts `kind=space_open`, logged as
+`web.openmeld.space_open`. An ephemeral attempt starts at browser initialization
+for a direct Space URL or at router navigation to a different Space path. Public
+to organization-route canonicalization preserves that attempt. Same-path focus
+changes are not new openings. The observation survives router resolution and
+ends only after confirmed access, rendered messages or a valid empty state,
+and an editable composer or a read-only presentation. Render milestones run
+after a paint opportunity; they are not exact browser paint timestamps, proof
+of Send admission, or evidence that Agents are online. Failures, access barriers,
+and navigation away remain distinct outcomes. Hidden time is disclosed, not
+subtracted or presented as foreground latency.
+
+After five seconds, a still-pending snapshot records the current stage, the
+entry query's status/fetch status/failure count, visibility, and the browser's
+online hint. That hint never controls readiness. Up to eight target-Space JSON
+requests begun during the attempt record preparation, send, response headers,
+validation, completion or failure, phase timings, HTTP status, and existing
+`x-openmeld-request-id` values. Requests already running before the attempt,
+server functions, and requests outside this allowlist are not covered by this
+detail; an empty list does not mean no network work occurred. No body is cloned
+or logged. Application-error reports share the ephemeral page and attempt IDs.
+The prolonged access-check surface can copy the attempt ID and attempt a
+best-effort snapshot submission; copying is not a delivery receipt.
+
+Ten percent of attempts are selected at start independently of latency. Completed
+normal-cohort reports (`sampling=normal`) support comparison of fast and slow
+opens. Additional slow and failure samples are separate cohorts; do not pool
+them into unweighted percentiles. Normal, slow, failure, and user-requested
+reports each have a separate twenty-per-hour browser quota. Receiver caps,
+visibility, missing terminal events, and best-effort delivery still limit the
+distribution; this is not complete traffic accounting. Legacy interaction
+reports remain accepted; new interactions use null for uncollected request and
+long-task metrics rather than claiming zero.
+
+Cache observations read the existing identity-scoped display/history queries
+at browser-cache activation and actual restore (`memory`, `restored`, or `cold`). Intent
+prefetch provenance is bounded to twenty ephemeral route/profile keys and five
+minutes; `complete` means observed prefetch completion, not guaranteed cache
+freshness or a cache hit. Unknown is retained when no provenance was observed.
+Neither these labels nor telemetry IDs authorize access or write product state.
+The shared schemas accept existing version-1 reports with additive optional
+diagnostics; new report kinds and nullable metrics require the updated Web
+receiver. Old Web assets remain accepted by new Web. A new asset talking to an
+older receiver may lose only diagnostics, with no effect on API results, access,
+setup, Wake, or publication. No CLI, Service, Core, or Gateway protocol changes
+or deployment are required by this Web-only telemetry extension.
+
 ## Boundary
 
 OpenMeld data and observability exist to support the main product chain:
