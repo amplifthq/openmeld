@@ -337,6 +337,10 @@ membership. Core verifies active Organization membership and current conversatio
 access before reading or changing a conversation preference. Browser delivery
 re-reads the authorized preference after its delivery lock; browser-local
 permission and sound settings remain local.
+Conversation preferences currently cascade on account or Organization deletion,
+but a deleted Space's override row remains inaccessible until that cascade.
+The active-Space access check excludes it from preference reads and writes;
+the row does not retain message content or grant Inbox visibility.
 
 Agent Profile Creation Requests keep the approval/update time, execution attempt
 number, and optional start time on the Core-owned request row. Recovery covers

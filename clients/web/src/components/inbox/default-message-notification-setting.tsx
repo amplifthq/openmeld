@@ -57,7 +57,7 @@ export function DefaultMessageNotificationSetting() {
 					unavailableControl
 				)
 			}
-			description="Choose which messages trigger browser notifications. Conversations follow this account default unless you set them separately. Urgent email alerts are controlled separately."
+			description="Applies to your conversations across all organizations. Each conversation follows this default unless you set it separately. Urgent email alerts are controlled separately."
 			error={error?.message}
 			label="Default message notifications"
 			layout="stacked"

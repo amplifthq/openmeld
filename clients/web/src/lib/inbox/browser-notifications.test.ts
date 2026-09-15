@@ -121,6 +121,7 @@ describe("Inbox browser notifications", () => {
 		["mentions_and_replies", "agent_reply", "normal", true],
 		["muted", "space_mention", "normal", false],
 		["muted", "space_message", "urgent", false],
+		["muted", "wake_outcome", "urgent", false],
 	] as const)("applies %s to %s messages (%s)", (mode, kind, importance, expected) => {
 		const item = createInboxItem({
 			kind,
@@ -186,6 +187,16 @@ describe("Inbox browser notifications", () => {
 		expect(() => showInboxBrowserNotificationExample(USER_ID)).toThrow(
 			"Enable browser notifications"
 		);
+		await enableInboxBrowserNotifications({ userId: USER_ID });
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "denied",
+			requestPermissionMock,
+		});
+		expect(() => showInboxBrowserNotificationExample(USER_ID)).toThrow(
+			"Enable browser notifications before showing an example."
+		);
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 	});
 	it("coalesces personal Agent owner alerts without suppressing another conversation", async () => {
 		await enableInboxBrowserNotifications({ userId: USER_ID });

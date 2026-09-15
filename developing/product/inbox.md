@@ -580,6 +580,9 @@ updates, including urgent message updates; independent action-required items
 retain their existing delivery rules. Inbox content, read state, and source
 resolution remain unchanged. **Urgent email alerts** stays an independent
 account setting, including for urgent items from a muted conversation.
+This includes Human Mentions and urgent terminal Wake outcome updates: neither
+bypasses a conversation's message mute. An open action-required item retains
+its own delivery eligibility.
 
 Browser delivery must also pass the browser-local switch, permission, and
 visible-conversation gates. The header links to global notification settings
