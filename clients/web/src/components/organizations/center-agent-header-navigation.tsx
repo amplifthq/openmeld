@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { BrainIcon, GearSixIcon } from "@phosphor-icons/react";
+import { BrainIcon } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	SpaceHeaderNavigationMenu,
@@ -16,7 +16,6 @@ import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navi
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
-	buildOrganizationCenterAgentSettingsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationMemoryPath,
 	buildOrganizationSkillsPath,
@@ -110,6 +109,11 @@ export function CenterAgentHeaderMenu(input: { organizationSlug: string }) {
 	);
 }
 
+/**
+ * Center Agent settings are no longer listed here. They live in the global App
+ * Settings destination, grouped under the current Organization (or Personal in
+ * a Personal Workspace), so this menu keeps only Center Agent work surfaces.
+ */
 export function buildCenterAgentHeaderMenuItems(
 	organizationSlug: string
 ): readonly SpaceHeaderNavigationMenuItem[] {
@@ -118,11 +122,6 @@ export function buildCenterAgentHeaderMenuItems(
 			icon: BrainIcon,
 			label: "Memory",
 			to: buildOrganizationMemoryPath(organizationSlug),
-		},
-		{
-			icon: GearSixIcon,
-			label: "Center Agent settings",
-			to: buildOrganizationCenterAgentSettingsPath(organizationSlug),
 		},
 	];
 }
