@@ -11,3 +11,6 @@ reset times. The mention picker and composed Agent mentions show a usage
 preview, and selecting a composed Agent name opens its profile card. Teammates'
 cards also include an arrow to their full profile; owners keep the edit shortcut.
 Unavailable usage stays unknown, and older observations stay marked as stale.
+When a reported limit prevents a Wake, the Composer shows the known reset time
+next to the existing status. Quota failures state the reason in the conversation;
+message details show current reset guidance without changing the recorded outcome.
