@@ -19,7 +19,7 @@ export const webPerformanceReportSchema = z.strictObject({
     .regex(/^[a-f0-9]{40}$/)
     .nullable(),
   policyVersion: z.number().int().positive(),
-  kind: z.enum(["navigation", "interaction"]),
+  kind: z.enum(["navigation", "interaction", "space_open"]),
   // Application route templates only; never concrete URLs, query strings or labels.
   routeId: z
     .string()
@@ -28,13 +28,76 @@ export const webPerformanceReportSchema = z.strictObject({
     .nullable(),
   durationMs: duration,
   thresholdMs: duration,
-  outcome: z.enum(["resolved", "superseded", "still_pending", "interaction"]),
+  outcome: z.enum([
+    "resolved",
+    "superseded",
+    "still_pending",
+    "interaction",
+    "failed",
+    "denied",
+  ]),
   loadMs: duration.nullable(),
-  longTaskCount: z.number().int().min(0).max(100_000),
-  longTaskTotalMs: duration,
-  longestTaskMs: duration,
-  requestCount: z.number().int().min(0).max(100_000),
-  longestRequestMs: duration,
+  longTaskCount: z.number().int().min(0).max(100_000).nullable(),
+  longTaskTotalMs: duration.nullable(),
+  longestTaskMs: duration.nullable(),
+  requestCount: z.number().int().min(0).max(100_000).nullable(),
+  longestRequestMs: duration.nullable(),
+  spaceOpen: z
+    .strictObject({
+      attemptId: z.uuid(),
+      trigger: z.enum(["initial", "navigation"]),
+      sampling: z.enum(["normal", "slow", "failure", "user"]),
+      sampleRate: z.number().min(0).max(1),
+      stage: z.enum(["route", "access", "content", "composer", "ready"]),
+      accessMs: duration.nullable(),
+      contentMs: duration.nullable(),
+      composerMs: duration.nullable(),
+      content: z.enum(["unknown", "messages", "empty"]),
+      composer: z.enum(["unknown", "editable", "read_only"]),
+      cache: z.enum(["unknown", "memory", "restored", "cold"]),
+      prefetch: z.enum(["unknown", "in_flight", "complete"]),
+      visibility: z.enum(["visible", "hidden"]),
+      wasHidden: z.boolean(),
+      online: z.boolean(),
+      queryStatus: z.enum(["unknown", "pending", "error", "success"]),
+      fetchStatus: z.enum(["unknown", "fetching", "paused", "idle"]),
+      failureCount: z.number().int().min(0).max(1000),
+      requests: z
+        .array(
+          z.strictObject({
+            operation: z.enum([
+              "entry",
+              "bootstrap",
+              "history",
+              "status",
+              "members",
+            ]),
+            phase: z.enum([
+              "preparing",
+              "sent",
+              "headers",
+              "validating",
+              "complete",
+              "failed",
+            ]),
+            elapsedMs: duration,
+            sentMs: duration.nullable(),
+            headersMs: duration.nullable(),
+            validatedMs: duration.nullable(),
+            failedAt: z
+              .enum(["preparing", "sent", "headers", "validating"])
+              .nullable(),
+            requestId: z
+              .string()
+              .max(128)
+              .regex(/^[A-Za-z0-9_-]+$/)
+              .nullable(),
+            status: z.number().int().min(100).max(599).nullable(),
+          })
+        )
+        .max(8),
+    })
+    .optional(),
   requestGroups: z
     .array(
       z.strictObject({

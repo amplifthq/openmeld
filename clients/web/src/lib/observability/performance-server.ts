@@ -62,14 +62,23 @@ export async function receivePerformanceReport(
 			return response(400);
 		}
 		const threshold =
-			parsed.data.kind === "navigation"
-				? WEB_PERFORMANCE_POLICY.navigationThresholdMs
-				: WEB_PERFORMANCE_POLICY.interactionThresholdMs;
-		if (parsed.data.durationMs < threshold) {
+			parsed.data.kind === "interaction"
+				? WEB_PERFORMANCE_POLICY.interactionThresholdMs
+				: WEB_PERFORMANCE_POLICY.navigationThresholdMs;
+		if (parsed.data.kind === "space_open" && !parsed.data.spaceOpen) {
+			return response(400);
+		}
+		if (
+			parsed.data.kind !== "space_open" &&
+			parsed.data.durationMs < threshold
+		) {
 			return response(204);
 		}
 		console.warn({
-			event: "web.openmeld.slow_experience",
+			event:
+				parsed.data.kind === "space_open"
+					? "web.openmeld.space_open"
+					: "web.openmeld.slow_experience",
 			workerName: "openmeld-web",
 			environment: env.OPENMELD_WORKER_ENVIRONMENT,
 			serverBuildId: WEB_ERROR_BUILD.id,
