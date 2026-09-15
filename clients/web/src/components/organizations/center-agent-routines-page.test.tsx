@@ -87,7 +87,7 @@ describe("CenterAgentRoutinesPage", () => {
 			screen
 				.getByRole("link", { name: "Connect Center Agent" })
 				.getAttribute("href")
-		).toBe("/o/acme/center-agent/settings");
+		).toBe("/o/acme/settings/center-agent");
 		expect(routinesPanelSpy).not.toHaveBeenCalled();
 	});
 
