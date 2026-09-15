@@ -9,6 +9,7 @@ import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
 	buildOrganizationCenterAgentSettingsPath,
+	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationComputerPath,
 	buildOrganizationComputersPath,
@@ -76,6 +77,9 @@ describe("integration management routes", () => {
 			"/o/acme/center-agent/memory"
 		);
 		expect(buildOrganizationCenterAgentSettingsPath("acme")).toBe(
+			"/o/acme/settings/center-agent"
+		);
+		expect(buildOrganizationLegacyCenterAgentSettingsPath("acme")).toBe(
 			"/o/acme/center-agent/settings"
 		);
 	});
@@ -248,8 +252,8 @@ describe("resolveOrganizationSwitchPath", () => {
 		],
 		[
 			"Center Agent settings",
-			"/o/acme/center-agent/settings",
-			"/o/beta/center-agent/settings",
+			"/o/acme/settings/center-agent",
+			"/o/beta/settings/center-agent",
 		],
 		["Projects", "/o/acme/projects", "/o/beta/projects"],
 		["Project detail", "/o/acme/projects/project-acme", "/o/beta/projects"],
