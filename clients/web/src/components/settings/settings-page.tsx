@@ -65,12 +65,14 @@ const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"invitations",
 	"security",
 ] as const;
-// A Personal Workspace has no Organization roster, so its Organization group
-// keeps only General plus the workspace's own Center Agent.
-const PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS = [
-	"general",
+// A Personal Workspace has no Organization roster and no shared coordinator, so
+// its own Center Agent belongs to the Personal group and the workspace group
+// keeps only General.
+const PERSONAL_WORKSPACE_PERSONAL_SECTION_IDS = [
+	...PERSONAL_SETTINGS_SECTION_IDS,
 	"center-agent",
 ] as const;
+const PERSONAL_WORKSPACE_ORGANIZATION_SECTION_IDS = ["general"] as const;
 
 /**
  * The Web usage of the shared Settings contract — see
@@ -330,7 +332,12 @@ function toContextualSettingsNavGroups(input: {
 			ariaLabel: "Personal settings",
 			id: "personal",
 			items: [
-				...orderSettingsNavItems(items, PERSONAL_SETTINGS_SECTION_IDS),
+				...orderSettingsNavItems(
+					items,
+					input.isPersonalWorkspace
+						? PERSONAL_WORKSPACE_PERSONAL_SECTION_IDS
+						: PERSONAL_SETTINGS_SECTION_IDS
+				),
 				{
 					icon: MegaphoneIcon,
 					id: SEND_FEEDBACK_SETTINGS_ITEM_ID,
