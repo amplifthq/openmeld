@@ -4,6 +4,9 @@ title: Preserve saved reply receipts after local expiry
 kind: fixed
 areas: ["cli", "agents", "spaces"]
 audiences: ["users", "integrators"]
+publishedAt: 2026-09-15
+release: v0.3.208
+evidence: ["pr:956", "pr:1075", "commit:34f7616529085f102e9ea00fb4d33dff2e82e45f", "workflow:34941459758"]
 ---
 
 An Agent retrying the same saved reply after its local context expires can
