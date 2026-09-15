@@ -2,6 +2,80 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "agent-mentions-and-context",
+      "title": "Bring Agents into a conversation with clearer mentions",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1068",
+        "commit:b96b139292217db0bcd1a86c2604b0c99349ca91",
+        "workflow:34941004106"
+      ],
+      "body": "Sending only an Agent mention now carries relevant preceding conversation and\nattachments, so an Agent can understand a request sent just before the mention.\nExplicit quotes take priority, and recalled messages are excluded.\n\nAgent messages show their selected recipients even when their names are absent\nfrom the prose. Center Agent final replies and Space Routine reports can include\nexplicit Human Mentions that use the same notifications as other Space messages.\nPlain names do not create notifications or wake another Agent."
+    },
+    {
+      "id": "agent-usage-before-wake",
+      "title": "Check Agent usage before sending a Wake",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1068",
+        "commit:b96b139292217db0bcd1a86c2604b0c99349ca91",
+        "workflow:34938662680"
+      ],
+      "body": "Agent cards and profile pages show teammates' reported remaining usage and\nreset times. The mention picker and composed Agent mentions show a usage\npreview, and selecting a composed Agent name opens its profile card. Teammates'\ncards also include an arrow to their full profile; owners keep the edit shortcut.\nUnavailable usage stays unknown, and older observations stay marked as stale.\nWhen a reported limit prevents a Wake, the Composer shows the known reset time\nnext to the existing status. Quota failures state the reason in the conversation;\nmessage details show current reset guidance without changing the recorded outcome."
+    },
+    {
+      "id": "thread-message-loading-feedback",
+      "title": "Easier, faster access to Thread replies",
+      "kind": "improved",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1070",
+        "commit:c1c13deed77ad26b20c86fa2978de14b05b919d6",
+        "workflow:34938662680"
+      ],
+      "body": "Thread previews open across the whole reply row and show the latest replies,\nauthors, and times. New Threads appear when their first reply arrives. Message\nloading has a visible indicator, and previews and restored panels warm their\nmessages before opening.\n\nLinks from Agent conversations locate the message shown in the preview. Explicit\nThread links begin loading their messages alongside the Space, and show the\nThread loading panel while access and conversation data are being checked.\n\nMessages in Spaces, Threads, and direct messages become read after their\nbeginning stays visible briefly. Long replies no longer require scrolling to the\nend, and unseen messages and closed Threads keep their unread indicators.\n\nAgent progress follows the selected reply destination. Completed replies in a\nThread also clear stale progress in the main conversation."
+    },
+    {
+      "id": "space-discovery-and-chat-archive",
+      "title": "Find new Spaces and tidy up direct messages",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1068",
+        "commit:b96b139292217db0bcd1a86c2604b0c99349ca91",
+        "workflow:34938662680"
+      ],
+      "body": "Spaces you are added to appear in both the sidebar and Your Spaces without a\npage reload, including when someone adds one of your Agents. New message unread\nindicators use the existing Inbox read state.\n\nArchive a direct message or Center Agent conversation from its header or the\nDirect messages directory. Archiving only hides it from your list and preserves\nthe conversation history. Use Archived direct messages to find and restore it."
+    },
+    {
       "id": "service-connection-recovery",
       "title": "More reliable computer connections and recovery",
       "kind": "fixed",
