@@ -171,6 +171,7 @@ async function sanitizeCloudResponse(
   for (const name of [
     "content-type",
     "cache-control",
+    "x-openmeld-file-revision",
     "x-request-id",
     "x-tss-serialized",
     "x-tss-raw",
@@ -237,7 +238,7 @@ async function readAsset(
       headers: {
         "content-type":
           CONTENT_TYPES[extname(file)] ?? "application/octet-stream",
-        "content-security-policy": `default-src 'self'; script-src 'self' ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'`,
+        "content-security-policy": `default-src 'self'; script-src 'self' ${scriptHashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self'; connect-src 'self'; object-src 'none'; frame-src 'none'; base-uri 'none'`,
       },
     });
   } catch {
