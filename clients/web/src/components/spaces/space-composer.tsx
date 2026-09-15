@@ -10,11 +10,13 @@ import {
 	PromptInputAction,
 	PromptInputActions,
 } from "#/components/ibelick/prompt-input";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import {
 	isSpaceComposerFileFailed,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
+import { isQuotaWakeFailure } from "#/lib/spaces/wake-failure-display";
 import {
 	SpaceComposerAddMenu,
 	SpaceComposerFileTray,
@@ -329,6 +331,24 @@ export function SpaceComposer(input: SpaceComposerProps) {
 								recovery={input.recovery}
 								target={blockedWakeTarget}
 							/>
+							{input.content.addressingTargets
+								.filter(
+									(target) =>
+										target.relation === "wake" &&
+										target.wakeAvailability.reasonCodes.some(isQuotaWakeFailure)
+								)
+								.map((target) => (
+									<span
+										className="text-muted-foreground text-xs"
+										key={target.profileId}
+									>
+										{target.profileName}:{" "}
+										<AgentProfileUsage
+											profileId={target.profileId}
+											variant="reset"
+										/>
+									</span>
+								))}
 						</div>
 						<div className="flex min-w-0 items-center justify-end gap-2">
 							{input.slots?.profileControl}

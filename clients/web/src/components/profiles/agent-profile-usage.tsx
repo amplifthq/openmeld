@@ -5,7 +5,9 @@ import {
 } from "@openmeld/ui/components/settings-computers";
 import { useQuery } from "@tanstack/react-query";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { organizationAgentRuntimeOverviewQueryOptions } from "#/query/organizations/organization-directory";
+import { resolveUsageResetHint } from "./agent-usage-reset-hint";
 import { formatLocalAgentDisplayName } from "./local-agent-display-name";
 
 /** Reads Core's team-visible usage projection for this Agent's current Binding. */
@@ -14,7 +16,7 @@ export function AgentProfileUsage({
 	variant = "summary",
 }: {
 	profileId: string;
-	variant?: "summary" | "details" | "popover";
+	variant?: "summary" | "details" | "popover" | "reset";
 }) {
 	const organization = useOptionalAppOrganization();
 	return organization ? (
@@ -33,8 +35,9 @@ function OrganizationAgentProfileUsage({
 }: {
 	organizationId: string;
 	profileId: string;
-	variant: "summary" | "details" | "popover";
+	variant: "summary" | "details" | "popover" | "reset";
 }) {
+	const nowMs = useNowMs(variant === "reset" ? 60_000 : null);
 	const runtimes = useQuery({
 		...organizationAgentRuntimeOverviewQueryOptions({
 			enabled: true,
@@ -54,6 +57,13 @@ function OrganizationAgentProfileUsage({
 		return null;
 	}
 	const limits = readiness?.usageLimits;
+	if (variant === "reset") {
+		return (
+			<span className="text-muted-foreground text-xs">
+				{resolveUsageResetHint(limits ?? [], nowMs)}
+			</span>
+		);
+	}
 	if (!limits?.length) {
 		return (
 			<span className="text-muted-foreground text-xs">
