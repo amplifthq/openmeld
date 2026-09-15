@@ -653,11 +653,22 @@ The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
 **Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
-preserves **Memory** and **Center Agent settings**. The
+preserves **Memory**. The
 conversation variant of that menu also preserves **Conversation information**.
 There is no separate About surface or Slack shortcut; Center Agent identity,
 model, status, and Slack management remain available through Center Agent
 settings and Channels.
+
+**Center Agent settings live in the global App Settings destination**, not in the
+Center Agent conversation header menu. Its canonical route is
+`/o/{orgSlug}/settings/center-agent`, registered as the `center-agent` Settings
+section, so the same panel renders in both the standalone Settings route and the
+global Settings dialog (`?appSettings=center-agent`). The section is grouped
+under the current Organization's name, and under **Personal** in a Personal
+Workspace, where the coordinator belongs to that one member. The historical
+`/o/{orgSlug}/center-agent/settings` route remains as a redirect only, so
+existing links keep working without a second copy of the panel. There is exactly
+one Center Agent settings entry point.
 
 The Inbox launcher is present across ordinary authorized routes and opens a compact
 preview first. The sidebar header alone shows the deduplicated attention count
