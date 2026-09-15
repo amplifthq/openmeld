@@ -251,6 +251,9 @@ the privacy, coverage, and operator query contract.
 
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
+Vite's content-hashed `/assets/` responses use a one-year immutable browser
+cache through the static asset `_headers` policy. This does not change HTML,
+authenticated API, or private attachment caching or the version recovery path.
 
 If a page that was already open can no longer load one of those assets, Web
 handles the Vite preload failure before router error rendering. The document
@@ -4418,6 +4421,18 @@ and confirmation. Expired waits expose **Send again**, which prepares a draft
 referencing the original message for only the expired Agent, without overwriting
 another draft. A later send uses ordinary new-message admission and identity;
 this UI does not redrive an expired or partly executed Wake.
+
+Historical Wake recovery skips a source only when the existing shared terminal
+matcher resolves every target from loaded durable Signals. Unresolved siblings
+and outcomes outside loaded history retain recovery. Reads run in groups of at
+most four, publish successful groups progressively, and are canceled when the
+owning effect is replaced. Canceled or failed reads remain eligible for a later
+recovery; cancellation never changes execution state.
+
+Graph and Files code loads on first display. Graph presentation is derived only
+while Graph is selected. Files image thumbnails enable their revision-scoped
+content query only when within 100 pixels of the viewport; image-element lazy
+loading alone does not control authenticated Blob downloads.
 
 Active Wake progress must survive browser refreshes by reading the Core/Space
 Wake progress read model. Browser-local progress state may provide immediate

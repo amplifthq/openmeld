@@ -27,6 +27,7 @@ import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
 	listPendingWakeProgressClientMessageIds,
+	listRecoverableWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
 	mergeLiveThreadSignalIntoCache,
 	mergeThreadSignalsCache,
@@ -711,6 +712,38 @@ function createMembersSnapshot(input?: {
 }
 
 describe("pollWakeProgress", () => {
+	it("bounds a large recovery and stops queued reads when its Space closes", async () => {
+		const abort = new AbortController();
+		const reads: Array<() => void> = [];
+		const getWakeProgress = vi.fn(
+			() =>
+				new Promise<{ items: [] }>((resolve) => {
+					reads.push(() => resolve({ items: [] }));
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			getWakeProgress,
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
+		const onItems = vi.fn();
+		const onSettled = vi.fn();
+		const recovery = pollWakeProgress({
+			openMeldProfileId: "viewer",
+			spaceId: "space",
+			clientMessageIds: Array.from({ length: 76 }, (_, i) => `message-${i}`),
+			signal: abort.signal,
+			onItems,
+			onSettled,
+		});
+		expect(getWakeProgress).toHaveBeenCalledTimes(4);
+		abort.abort();
+		for (const finish of reads) {
+			finish();
+		}
+		await recovery;
+		expect(getWakeProgress).toHaveBeenCalledTimes(4);
+		expect(onItems).not.toHaveBeenCalled();
+		expect(onSettled).toHaveBeenCalledOnce();
+	});
 	it("opts Web wake progress polling into Wake Stop eligibility", async () => {
 		const getWakeProgress = vi.fn().mockResolvedValue({ items: [] });
 		const onItems = vi.fn();
@@ -759,6 +792,53 @@ describe("pollWakeProgress", () => {
 		});
 
 		expect(onItems).toHaveBeenCalledWith([], ["client-message-completed"]);
+	});
+});
+
+describe("historical Wake recovery", () => {
+	it("skips recorded outcomes but retains a source with an unresolved sibling", () => {
+		const sources: SignalEnvelope[] = Array.from({ length: 76 }, (_, i) => ({
+			v: 1,
+			id: `source-${i}`,
+			spaceId: "space",
+			ts: i,
+			type: "signal.text",
+			profile: { kind: "human", profileId: "viewer" },
+			data: {
+				text: "Review",
+				meta: { clientMessageId: `message-${i}` },
+				messageEnvelope: {
+					activationTargets: i === 75 ? ["agent-a", "agent-b"] : ["agent-a"],
+					text: "Review",
+					referenceTargets: [],
+				},
+			},
+		}));
+		const replies: SignalEnvelope[] = sources.map((source) => ({
+			v: 1,
+			id: `reply-${source.id}`,
+			spaceId: "space",
+			ts: 100,
+			type: "signal.text",
+			profile: { kind: "agent", profileId: "agent-a" },
+			data: {
+				text: "Done",
+				meta: { purpose: AGENT_REPLY_FINAL_PURPOSE },
+				replyTo: {
+					signalId: source.id,
+					profileId: "viewer",
+					profileKind: "human",
+					profileName: "Reviewer",
+					previewText: "Review",
+				},
+			},
+		}));
+		expect(
+			listRecoverableWakeProgressClientMessageIds({
+				signals: [...sources, ...replies],
+				alreadyRequestedClientMessageIds: new Set(),
+			})
+		).toEqual(["message-75"]);
 	});
 });
 
