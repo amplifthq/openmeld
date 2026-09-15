@@ -390,7 +390,7 @@ function printUsage() {
     [
       "Usage:",
       "  pnpm run release:desktop-preview:build",
-      "  OPENMELD_DESKTOP_R2_BUCKET=openmeld-desktop-downloads pnpm run release:desktop-preview:upload",
+      "  OPENMELD_DESKTOP_RELEASE_SHA=<approved-merged-release-sha> pnpm run release:desktop-preview:upload-candidate",
       "",
     ].join("\n")
   );
