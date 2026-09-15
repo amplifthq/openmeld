@@ -741,6 +741,7 @@ import {
   readPreloadedRuntimeDeviceDisplayName,
   resolveCoreAgentExecutionReadinessForProfile,
 } from "../agent-execution/application/agent-execution-readiness-service";
+import { readAgentProfileUsage } from "../agent-execution/application/agent-profile-usage";
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
 import { projectOrganizationDirectoryAgentProfileOperationalContext } from "../agent-profile/application/agent-profile-operational-context";
 import { resolveAgentProfileWorkRecoveryAuthScope } from "../agent-profile/application/agent-profile-work-recovery-auth-scope";
@@ -3119,6 +3120,7 @@ export type GetCurrentOrganizationProfileDirectoryInput =
   };
 
 export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
+  includeUsageLimits?: boolean;
   agentProfileWorkRecoveryVersion?: 2;
   includeTaskActivity?: boolean;
   context?: CoreRpcContextInput;
@@ -6382,6 +6384,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     requestId: context.actorContext.requestId,
   });
   const response = await resolveOrganizationAgentRuntimeOverview({
+    includeUsageLimits: input.includeUsageLimits,
     agentProfileWorkRecoveryVersion: input.agentProfileWorkRecoveryVersion,
     eligibleAgentProfiles,
     env,
@@ -6522,6 +6525,7 @@ const ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY = 4;
 const ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY = 8;
 
 async function resolveOrganizationAgentRuntimeOverview(input: {
+  includeUsageLimits?: boolean;
   agentProfileWorkRecoveryVersion?: 2;
   eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
@@ -6623,6 +6627,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
 }
 
 async function resolveOrganizationAgentReadinessByProfileId(input: {
+  includeUsageLimits?: boolean;
   eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
   generatedAt: string;
@@ -6717,16 +6722,27 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               : {}),
             profileId: agent.profileId,
           });
-          return [
-            agent.profileId,
+          const projectedReadiness =
             buildOrganizationDirectoryAgentExecutionReadinessResponse({
               generatedAt: input.generatedAt,
-              isOwner:
-                input.viewerUserId !== null &&
-                agent.ownerUserId === input.viewerUserId,
+              isOwner: agent.ownerUserId === input.viewerUserId,
               readiness,
-            }),
-          ] as const;
+            });
+          if (input.includeUsageLimits) {
+            projectedReadiness.usageLimits = await readAgentProfileUsage({
+              db: localStateDb(input.env),
+              binding: readiness.primaryBinding,
+              reads,
+              nowMs: Date.parse(input.generatedAt),
+            }).catch((error) => {
+              console.warn("[core.agent_profile.usage_unavailable]", {
+                profileId: agent.profileId,
+                error,
+              });
+              return [];
+            });
+          }
+          return [agent.profileId, projectedReadiness] as const;
         }
       );
     }

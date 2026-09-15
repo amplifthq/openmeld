@@ -43,8 +43,12 @@ import {
 	renderSpaceMessageProfileMentionInternalLink,
 	type SpaceMessageProfileMentionProfilesById,
 	type SpaceProfileTriggerRenderer,
+	splitSpaceMessageProfileMentionText,
 } from "./space-message-profile-mention";
-import { SpaceMessageProfileMentionText } from "./space-message-profile-mention-view";
+import {
+	SpaceMessageProfileMention,
+	SpaceMessageProfileMentionText,
+} from "./space-message-profile-mention-view";
 import {
 	createSpaceMessageReferenceRemarkPlugin,
 	EMPTY_SPACE_MESSAGE_REFERENCES,
@@ -361,8 +365,39 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		renderedText: text.renderedText,
 		shouldRenderMarkdown,
 	});
+	const inlineTargetIds = new Set(
+		splitSpaceMessageProfileMentionText(
+			text.renderedText,
+			references.profileMentionProfilesById
+		).flatMap((segment) =>
+			segment.kind === "profile_mention" ? [segment.profile.profileId] : []
+		)
+	);
+	const remainingTargets = [
+		...references.profileMentionProfilesById.values(),
+	].filter((profile) => !inlineTargetIds.has(profile.profileId));
+	const addressedBody = remainingTargets.length ? (
+		<>
+			<div
+				className="mb-1 flex flex-wrap items-center gap-1"
+				data-slot="space-message-addressing"
+			>
+				{remainingTargets.map((profile) => (
+					<SpaceMessageProfileMention
+						key={profile.profileId}
+						onOpenProfile={input.onOpenProfile}
+						profile={profile}
+						renderProfileTrigger={input.renderProfileTrigger}
+					/>
+				))}
+			</div>
+			{body}
+		</>
+	) : (
+		body
+	);
 	const hasVisibleContent =
-		body !== null ||
+		addressedBody !== null ||
 		Boolean(navigationActionContent) ||
 		attachments.length > 0 ||
 		files.length > 0 ||
@@ -375,7 +410,7 @@ const SpaceMessageBodyDisplay = memo(function SpaceMessageBodyDisplay(
 		<SpaceMessageBodyContent
 			api={spaceApi}
 			attachments={attachments}
-			body={body}
+			body={addressedBody}
 			bodyRef={input.bodyRef}
 			containerClassName={input.containerClassName}
 			edited={Boolean(input.item.editedAt)}

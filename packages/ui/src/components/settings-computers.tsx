@@ -685,6 +685,7 @@ export function SettingsLocalAgentUsageLimits({
   limits,
   nowMs = Date.now(),
   fillColumns = false,
+  compact = false,
 }: {
   agentName: string;
   limits?: AgentControllerUsageLimits;
@@ -694,11 +695,15 @@ export function SettingsLocalAgentUsageLimits({
    * use a responsive grid that wraps before the labels become cramped.
    */
   fillColumns?: boolean;
+  compact?: boolean;
 }) {
   if (limits === undefined) {
     return null;
   }
   const orderedLimits = orderUsageLimitsForDisplay({ agentName, limits });
+  if (compact && orderedLimits?.length) {
+    return <UsageLimitPreviewGrid limits={orderedLimits} nowMs={nowMs} />;
+  }
   const providerGroups = groupProviderUsageLimits(orderedLimits);
   let usageContent: ReactNode;
   if (providerGroups) {

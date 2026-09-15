@@ -167,7 +167,10 @@ export function AgentProfileWorkspaceDetail(input: {
 					</div>
 				</div>
 			</div>
-			<AgentProfileUsage profileId={input.profile.openMeldProfileId} />
+			<AgentProfileUsage
+				profileId={input.profile.openMeldProfileId}
+				variant="details"
+			/>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
 				lastTaskActivityAt={taskActivity.activity?.lastTaskActivityAt}

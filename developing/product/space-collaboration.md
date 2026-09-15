@@ -809,6 +809,31 @@ It has three relations:
 
 Wake asks an Agent Profile to do work.
 
+A message containing only selected mentions can bring an Agent into the preceding
+conversation. Space captures bounded context from the same conversation: an
+explicitly referenced message takes priority; otherwise it selects the sender's
+latest substantive message among at most 20 recent messages from that sender,
+plus the thread root. Recalled messages are excluded. The trigger identity and
+reply placement remain unchanged. This context helps interpret the request; it
+does not create additional authorization or Wake targets. A substantive new
+request does not receive this inferred context.
+
+The dispatch snapshot's optional `contextMessages` preserves source IDs, authors,
+bounded text, and exact file/attachment references. Shared rendering supplies the
+same explanation to workstation and native Agents. Native delivery rereads those
+Space messages for current image references and excludes recalled messages;
+workstation delivery reuses existing file/image inputs and capability gating.
+Existing input count limits still apply.
+
+Contract Impact Audit: Core owns the new persisted snapshot field and its readers.
+Core producers and consumers must be rolled out together; an older strict Core
+reader cannot accept a snapshot containing the new field. Do not roll back those
+readers while such snapshots are pending. At the installed Service boundary,
+Core removes the new field and renders context into the existing text and
+file/attachment fields. Native workers likewise receive existing message and
+attachment inputs. CLI, Service, Skills, Gateway, setup, authorization, and
+execution ownership gain no new required fields or minimum versions.
+
 Reference includes an Agent Profile as message context without assigning work.
 Web labels this relation `Mention only`. The Composer relation menu explains it
 as `Mention only — Won’t wake the agent`; compact tokens use `Mention only`.

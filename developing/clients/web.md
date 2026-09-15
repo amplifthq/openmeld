@@ -157,6 +157,17 @@ it, and neither changes membership, execution or history. Generic Space
 management remains restricted; permanent deletion is not exposed.
 Archived chats can be found through the Agents group settings or a chat group's
 settings menu. Both controls share one filter state and the Archived badge.
+The conversation header and Direct messages directory also expose Archive and
+Unarchive for ordinary DMs and Center Agent sessions. These actions use the same
+account preferences as the sidebar. The open conversation remains readable and
+the success message explains where to recover it; no destructive confirmation
+or shared-history deletion is involved.
+
+Your Spaces and the sidebar render active memberships from the account Space
+index. The Organization discovery snapshot must not veto a newer account index
+entry. The account index refreshes every five seconds in the foreground so a
+newly added Human or Agent owner can discover a Space without reloading. Unread
+counts continue to come from Inbox; joining does not fabricate unread history.
 
 Contract impact: the shared account-sidebar payload adds an optional `chats`
 namespace. Auth preserves it when older clients omit it and uses the existing
@@ -2428,10 +2439,15 @@ Agent identity controls in messages, Threads, and the Members panel open one
 compact Profile Details popover. It shows the Agent identity, current
 availability, and a primary **Chat with {Agent name}** action. The popover omits
 configuration cards and gives the owner one persistent pencil action to open
-the canonical Agent route; it shows no edit affordance to other viewers. It
+the canonical Agent route; other viewers receive a right-arrow profile link. It
 does not add a second details dialog or an overflow-menu details action. Owners
 edit supported settings from the canonical route; other viewers keep the
-popover read-only.
+popover read-only. Agent cards, profile pages, mention picker rows, and composed
+Agent mentions share the Core-projected provider Usage Limits, including remaining
+percentages, reset times, and stale or unknown evidence. The picker places the
+usage preview after the availability indicator. Selecting a composed profile name
+opens the same Profile Details popover used by messages without changing the draft
+or its Wake relation. Usage display does not derive or override Wakeability.
 Both owner and observer popovers show the same compact activity summary and
 recorded `lastTaskActivityAt` when supplied by the runtime overview. Location
 links appear only when Core disclosed them. The timestamp is historical task

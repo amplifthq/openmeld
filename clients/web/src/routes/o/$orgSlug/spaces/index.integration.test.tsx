@@ -550,6 +550,20 @@ describe("app spaces index route", () => {
 		expect(pinned).toBeTruthy();
 	});
 
+	it("shows a newly joined Space while the discovery snapshot is still older", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
+		]);
+		listOrganizationSpacesMock.mockResolvedValue(
+			createOrganizationSpacesResponse({ spaces: [] })
+		);
+		renderSpacesIndex();
+		expect(
+			await screen.findByRole("link", { name: PLANNING_ROW })
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Join Planning" })).toBeNull();
+	});
+
 	it("keeps joined Spaces openable when account-specific index facts are missing", async () => {
 		listStartProfilesMock.mockResolvedValue([
 			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
