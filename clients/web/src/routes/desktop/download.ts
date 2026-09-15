@@ -1,9 +1,9 @@
 import { env as cloudflareEnv } from "cloudflare:workers";
-import { desktopCandidateIdSchema } from "@openmeld/schemas";
 import { createFileRoute } from "@tanstack/react-router";
 import {
 	buildDesktopDownloadHeaders,
-	readDesktopCandidate,
+	parseDesktopCandidateSelector,
+	readDesktopCandidateArtifact,
 	readDesktopPreviewReleaseManifest,
 } from "#/lib/desktop-release";
 
@@ -12,11 +12,11 @@ export async function downloadDesktopPreview(input: {
 	request: Request;
 }): Promise<Response> {
 	const selectors = new URL(input.request.url).searchParams.getAll("candidate");
-	if (
-		selectors.length > 1 ||
-		(selectors.length === 1 &&
-			!desktopCandidateIdSchema.safeParse(selectors[0]).success)
-	) {
+	try {
+		parseDesktopCandidateSelector(
+			selectors.length > 1 ? selectors : selectors[0]
+		);
+	} catch {
 		return new Response("Invalid Desktop candidate.", {
 			status: 400,
 			headers: { "cache-control": "no-store" },
@@ -44,31 +44,26 @@ async function downloadCandidate(
 	includeBody: boolean
 ) {
 	try {
-		const candidate = await readDesktopCandidate(bucket, id);
-		if (!candidate) {
-			return new Response("Desktop candidate not found.", {
-				status: 404,
-				headers: { "cache-control": "no-store" },
-			});
-		}
 		let body: ReadableStream | null = null;
-		let object: R2Object | null;
-		if (includeBody) {
-			const loaded = await bucket.get(candidate.objectKey);
-			body = loaded?.body ?? null;
-			object = loaded;
-		} else {
-			object = await bucket.head(candidate.objectKey);
-		}
-		if (!object) {
+		const available = await readDesktopCandidateArtifact(
+			bucket,
+			id,
+			async (key) => {
+				if (!includeBody) {
+					return bucket.head(key);
+				}
+				const loaded = await bucket.get(key);
+				body = loaded?.body ?? null;
+				return loaded;
+			}
+		);
+		if (!available) {
 			return new Response("Desktop candidate not found.", {
 				status: 404,
 				headers: { "cache-control": "no-store" },
 			});
 		}
-		if (object.size !== candidate.sizeBytes) {
-			throw new Error("Desktop candidate size mismatch.");
-		}
+		const { candidate, artifact: object } = available;
 		const headers = buildDesktopDownloadHeaders({
 			artifactName: candidate.artifactName,
 			etag: object.httpEtag,

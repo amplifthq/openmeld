@@ -1721,9 +1721,11 @@ feature/docs branch that will not publish.
 
 ## Desktop Preview Release Workflow
 
-The website entry at `/desktop` remains closed. Authorized production previews
-use a public, immutable candidate URL without advertising the build or changing
-the default update channel. Local private and disposable acceptance packages
+Authorized production previews use a shareable public page at
+`/desktop?candidate=<dmg-sha256>` and an immutable candidate download URL without
+adding marketing navigation or changing the default update channel. The plain
+`/desktop` page shows an unavailable state when there is no default release.
+Local private and disposable acceptance packages
 retain their existing commands and must never be uploaded as production candidates.
 
 After review, protected merge, and selection of the exact release SHA:
@@ -1765,7 +1767,7 @@ The Worker streams through its existing private `OPENMELD_DESKTOP_DOWNLOADS`
 binding; no public bucket or additional access gate is introduced.
 
 The legacy unsigned build can still be used locally, but its upload command is
-disabled. Neither candidate publication nor the website's closed entry changes
+disabled. Neither candidate publication nor the public preview page changes
 the existing default `/desktop/download` and `/desktop/update.json` selection.
 Production deployment and ordering still follow
 [Production Release](production-release.md); this workflow grants no independent

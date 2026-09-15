@@ -4830,61 +4830,35 @@ normal Prepare flow; it never silently reruns an existing Wake.
 
 ## Desktop Download Entry
 
-An authorized production candidate is publicly downloadable through GET/HEAD
-`/desktop/download?candidate=<64-character lowercase sha256>` without an account
-gate. The existing private R2 binding reads only the derived candidate manifest
-and artifact keys, validated by the shared Desktop candidate schema. Invalid,
-missing or mismatched candidates fail without falling back to the default
-channel. Candidate selection never changes `/desktop/update.json`; `/desktop`
-and marketing navigation remain closed. See the
-[candidate publication contract](../engineering/development-workflow.md#desktop-preview-release-workflow).
+Web owns the public, account-free preview page at
+`/desktop?candidate=<64-character lowercase sha256>`. It reuses the strict
+candidate selector, manifest parser, derived artifact keys, and artifact size
+verification used by GET/HEAD `/desktop/download?candidate=<hash>`. Version,
+size, and the download button come from that same verified candidate. Missing,
+invalid, repeated, or mismatched selectors never select another package.
 
-Web owns the public OpenMeld Desktop download entry, but it does not own local setup
-truth.
+The plain `/desktop` page reads the existing default manifest. When no default
+release exists, it explains that a full preview invitation link is needed and
+offers no download. Candidate pages do not select a default, write
+`desktop/update.json`, add marketing navigation, or require login or Access.
+The page is marked noindex while the preview is shared directly.
 
-Desktop distribution is currently paused. `/desktop` deliberately returns 404;
-the page and artifact pipeline remain in the repository for a later, explicitly
-approved release.
+The existing private R2 binding `OPENMELD_DESKTOP_DOWNLOADS` remains the artifact
+owner. Missing manifests or artifacts show an unavailable page; corrupt metadata
+or storage failures reach the route error boundary, which offers no download.
+The server function independently validates its candidate input. Web keeps no
+second release version, package identity, or object-key registry.
 
-Current MVP routes:
+The page identifies the build as a Preview for macOS Apple silicon and gives
+brief DMG installation instructions. Do not promise stability, zero setup, or
+unverified capabilities. Default-release notices may come from the existing
+manifest `message`; immutable candidate manifests currently have no notice field,
+so the page must not hard-code temporary limitations for one candidate.
 
-- `/desktop` is the retained public download-page route and stays behind the
-  distribution pause gate until release approval.
-- `/desktop/download` streams the manifest-selected Apple silicon DMG from the
-  private R2 bucket binding `OPENMELD_DESKTOP_DOWNLOADS`.
-- `/desktop/update.json` returns the Desktop app update-awareness manifest.
-
-The page describes the installed Mac app, shared Web/Desktop account and Spaces,
-and local-project work. Only macOS Apple silicon is offered. Do not publish
-legacy Node/npm/global-CLI installation steps or unverified signing,
-notarization, stability, or zero-setup claims. Release-specific notices come
-from the existing manifest `message`; the release owner must ensure they match
-the actual approved artifact. The retained legacy preview uploader does not
-establish that the installed app is ready to distribute.
-
-In Vite development only, `/desktop` renders for local review. Both the route
-and its server function retain a production 404 gate. There is no query-string
-override. The page reads `desktop/update.json` through the existing manifest
-parser and checks the referenced artifact with R2 `head`. Missing bucket,
-manifest, artifact, or an empty artifact shows an unavailable state with a Web
-entry instead of a download link. Malformed metadata and storage failures
-propagate to the route error boundary rather than becoming a release claim.
-Version, size, and release notice come from that manifest; Web maintains no
-second release version or object key.
-
-Local review matrix for A4: review `/desktop` at narrow and wide widths in light
-and dark themes; check keyboard focus and Web entry; no local R2 manifest must
-show no download link. With an actual local DMG and its manifest, check displayed
-version/size/message and the download round trip. Remove the local artifact to
-check unavailable behavior; malformed metadata must show an error. A production
-build must still return 404 for `/desktop`. Do not use a placeholder file as
-evidence of an installable download.
-
-To activate the page later, obtain explicit release approval after native and
-human UI acceptance, publish the approved artifact and its real manifest using
-the established release owner, then remove the two production page gates in an
-authorized Web release. Metadata alone cannot open the paused page. Download
-and update endpoint contracts are unchanged by this page redesign.
+Validation covers anonymous candidate and default pages, narrow and wide
+layouts, a real candidate manifest and artifact, matching button/download
+identity, absent candidates, malformed/repeated selectors, and size mismatch.
+Download and update endpoint contracts remain unchanged.
 
 Web must not claim setup success because the app was downloaded. A local Wake
 still requires computer/agent setup and a reply or explicit outcome through the
