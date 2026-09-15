@@ -282,7 +282,7 @@ describe("CenterAgentPage", () => {
 			screen
 				.getByRole("link", { name: "Open Center Agent settings" })
 				.getAttribute("href")
-		).toBe("/o/acme/center-agent/settings");
+		).toBe("/o/acme/settings/center-agent");
 	});
 
 	it("clears connect-required state after switching away and back", () => {
