@@ -3750,7 +3750,32 @@ describe("SpaceLanding", () => {
 		});
 	});
 
-	it("does not restore stale running Wake progress after the final reply is visible", async () => {
+	it.each([
+		false,
+		true,
+	])("does not restore stale running Wake progress after the final reply is visible (Thread: %s)", async (replyInThread) => {
+		const finalReply = createTextSignal({
+			id: "sig-reply",
+			text: "Done.",
+			ts: RECENT_ACTIVITY_TS + 20,
+			meta: {
+				dispatchId: "dispatch-1",
+				purpose: AGENT_REPLY_FINAL_PURPOSE,
+				targetProfileId: DEFAULT_AGENT_PROFILE_ID,
+			},
+			profile: {
+				kind: "agent",
+				profileId: DEFAULT_AGENT_PROFILE_ID,
+				profileName: "Runner",
+			},
+			replyTo: {
+				previewText: "@runner(wake) status check",
+				profileId: DEFAULT_SPACE_PROFILE_ID,
+				profileKind: "human",
+				profileName: "Mira",
+				signalId: "sig-user",
+			},
+		});
 		const getWakeProgressMock = vi.fn().mockResolvedValue({
 			items: [
 				{
@@ -3806,35 +3831,36 @@ describe("SpaceLanding", () => {
 							text: "@runner(wake) status check",
 							ts: RECENT_ACTIVITY_TS,
 						}),
-						createTextSignal({
-							id: "sig-reply",
-							messageEnvelope: {
-								activationTargets: [],
-								referenceTargets: [],
-								text: "Done.",
-							},
-							meta: {
-								dispatchId: "dispatch-1",
-								purpose: AGENT_REPLY_FINAL_PURPOSE,
-								targetProfileId: DEFAULT_AGENT_PROFILE_ID,
-							},
-							profile: {
-								kind: "agent",
-								profileId: DEFAULT_AGENT_PROFILE_ID,
-								profileName: "Runner",
-							},
-							replyTo: {
-								previewText: "@runner(wake) status check",
-								profileId: DEFAULT_SPACE_PROFILE_ID,
-								profileKind: "human",
-								profileName: "Mira",
-								signalId: "sig-user",
-							},
-							text: "Done.",
-							ts: RECENT_ACTIVITY_TS + 20,
-						}),
+						...(replyInThread ? [] : [finalReply]),
 					],
 					nextCursor: null,
+				},
+			}),
+			threads: createQueryResult({
+				isSuccess: true,
+				data: {
+					threads: replyInThread
+						? [
+								{
+									threadId: "thread-1",
+									spaceId: "space-123",
+									rootSignalId: "sig-user",
+									createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+									createdAt: "2026-04-11T00:00:00.000Z",
+									updatedAt: "2026-04-11T00:00:00.000Z",
+								},
+							]
+						: [],
+					previews: replyInThread
+						? [
+								{
+									threadId: "thread-1",
+									replyCount: 1,
+									signals: [finalReply],
+									placements: [],
+								},
+							]
+						: [],
 				},
 			}),
 		});
@@ -10516,7 +10542,7 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Open thread (7 replies)" })
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("region", { name: "Thread preview" })).getByText(
+			within(screen.getByRole("link", { name: "Thread preview" })).getByText(
 				"Saved reply preview"
 			)
 		).toBeTruthy();
@@ -15708,7 +15734,7 @@ describe("SpaceLanding", () => {
 				spaceId="space-123"
 			/>
 		);
-		expect(within(threadPanel).getByText("Loading thread…")).toBeTruthy();
+		expect(within(threadPanel).getByText("Loading messages…")).toBeTruthy();
 		Object.assign(
 			threadSignals,
 			createQueryResult({ isSuccess: true, data: { signals: [replySignal] } })
@@ -15915,7 +15941,7 @@ describe("SpaceLanding", () => {
 						{
 							threadId: "thread-1",
 							replyCount: 3,
-							signals: [firstThreadReply, secondThreadReply],
+							signals: [secondThreadReply, hiddenThreadReply],
 							placements: [
 								{
 									threadId: "thread-1",
@@ -15947,22 +15973,14 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Can someone check the privacy page?")
 		).toBeTruthy();
-		const preview = screen.getByRole("region", { name: "Thread preview" });
-		expect(preview.className).toContain("min-w-0");
-		expect(preview.className).toContain("w-full");
-		expect(preview.className).toContain("max-w-full");
-		expect(preview.className).toContain("overflow-hidden");
-		expect(preview.className).toContain("pe-2");
-		expect(preview.parentElement?.className).toContain("w-full");
-		expect(preview.parentElement?.className).toContain("max-w-full");
-		expect(preview.parentElement?.className).toContain("overflow-hidden");
-		expect(within(preview).getByText("I'll check it.")).toBeTruthy();
-		const secondPreviewMessage = within(preview).getByText("Filed the issue.");
-		expect(secondPreviewMessage.className).toContain("flex-1");
-		expect(secondPreviewMessage.className).toContain("truncate");
+		const preview = screen.getByRole("link", { name: "Thread preview" });
+		expect(within(preview).getByText("Filed the issue.")).toBeTruthy();
 		expect(
-			screen.queryByText("Third reply that should stay inside the thread.")
-		).toBeNull();
+			within(preview).getByText(
+				"Third reply that should stay inside the thread."
+			)
+		).toBeTruthy();
+		expect(within(preview).queryByText("I'll check it.")).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Open thread (3 replies)" })
 		).toBeTruthy();

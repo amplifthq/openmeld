@@ -10141,7 +10141,7 @@ export class Space extends DurableObject<CoreBindings> {
       signal: SignalEnvelope | null;
     }>
   ): SpaceThreadPreview {
-    const previewEntries = entries.slice(0, 2);
+    const previewEntries = entries.slice(-2);
     return {
       threadId: thread.threadId,
       replyCount: entries.length,

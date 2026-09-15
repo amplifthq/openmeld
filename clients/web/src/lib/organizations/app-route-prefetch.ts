@@ -1,6 +1,11 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
 import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
+import {
+	resolveSpaceThreadTarget,
+	type SpaceMessageTarget,
+} from "#/lib/spaces/thread-navigation";
+import { readSpaceThreadPanelSelection } from "#/lib/spaces/thread-panel-storage";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
 import {
 	organizationProfileDirectoryQueryOptions,
@@ -13,8 +18,13 @@ import {
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
+import type { SpaceHistorySnapshot } from "#/query/spaces/history";
 import { spaceHistoryPrefetchQueryOptions } from "#/query/spaces/history-sync";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	spaceThreadSignalsQueryOptions,
+	spaceThreadsQueryOptions,
+} from "#/query/spaces/threads";
 import type {
 	OrganizationScopeAuthorized,
 	OrganizationScopeResolution,
@@ -81,10 +91,11 @@ export async function prefetchSpacesRouteData(
 }
 
 export async function prefetchSpaceConversationRouteData(
-	input: OrganizationRoutePrefetchInput & {
-		profileId?: string;
-		spaceId: string;
-	}
+	input: OrganizationRoutePrefetchInput &
+		SpaceMessageTarget & {
+			profileId?: string;
+			spaceId: string;
+		}
 ): Promise<void> {
 	const scope = await resolveAuthorizedPrefetchScope(input);
 	if (!scope) {
@@ -115,6 +126,8 @@ export async function prefetchSpaceConversationRouteData(
 		queryPersistence: input.queryPersistence,
 		spaceId: input.spaceId,
 		openMeldProfileId: selectedHumanProfile.openMeldProfileId,
+		focusSignalId: input.focusSignalId,
+		focusThreadRootSignalId: input.focusThreadRootSignalId,
 	});
 }
 
@@ -183,15 +196,17 @@ export async function prefetchCenterAgentConversationData(input: {
 	});
 }
 
-export async function prefetchKnownSpaceConversationData(input: {
-	organizationId: string;
-	organizationSlug: string;
-	ownerAccountId: string;
-	queryClient: QueryClient;
-	queryPersistence: BrowserQueryPersistenceController;
-	spaceId: string;
-	openMeldProfileId: string;
-}): Promise<void> {
+export async function prefetchKnownSpaceConversationData(
+	input: SpaceMessageTarget & {
+		organizationId: string;
+		organizationSlug: string;
+		ownerAccountId: string;
+		queryClient: QueryClient;
+		queryPersistence: BrowserQueryPersistenceController;
+		spaceId: string;
+		openMeldProfileId: string;
+	}
+): Promise<void> {
 	await input.queryPersistence.activateSpaceConversation({
 		organizationId: input.organizationId,
 		organizationSlug: input.organizationSlug,
@@ -200,6 +215,9 @@ export async function prefetchKnownSpaceConversationData(input: {
 		spaceId: input.spaceId,
 		openMeldProfileId: input.openMeldProfileId,
 	});
+	prefetchTargetThread(input).catch((error: unknown) =>
+		console.error("Could not prefetch the linked Thread.", error)
+	);
 	// Advance a saved tail only through contiguous updates, never by replacing
 	// it with a recent bootstrap window that could skip intervening messages.
 	if (
@@ -231,6 +249,49 @@ export async function prefetchKnownSpaceConversationData(input: {
 		spaceId: input.spaceId,
 		viewerProfileId: input.openMeldProfileId,
 	});
+}
+
+async function prefetchTargetThread(
+	input: SpaceMessageTarget & {
+		queryClient: QueryClient;
+		spaceId: string;
+		openMeldProfileId: string;
+	}
+) {
+	const explicitTarget = input.focusSignalId || input.focusThreadRootSignalId;
+	let threadId: string | null | undefined;
+	if (explicitTarget) {
+		const options = spaceThreadsQueryOptions({ ...input, enabled: true });
+		const cached =
+			input.queryClient.getQueryData(options.queryKey) ??
+			input.queryClient.getQueryData<SpaceHistorySnapshot>(
+				spaceQueryKeys.history(input.spaceId, input.openMeldProfileId)
+			)?.threadDisplay ??
+			undefined;
+		const target = resolveSpaceThreadTarget(cached, input);
+		threadId = target?.threadId;
+		if (!threadId) {
+			const catalog = await input.queryClient.fetchQuery({
+				...options,
+				staleTime: 0,
+			});
+			threadId = resolveSpaceThreadTarget(catalog, input)?.threadId;
+		}
+	} else {
+		threadId = readSpaceThreadPanelSelection({ spaceId: input.spaceId });
+	}
+	if (!threadId) {
+		return;
+	}
+	// Warm the selected destination without blocking main conversation paint.
+	await input.queryClient.prefetchQuery(
+		spaceThreadSignalsQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
+			threadId,
+			enabled: true,
+		})
+	);
 }
 
 async function resolveAuthorizedPrefetchScope(

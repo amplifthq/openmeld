@@ -59,7 +59,7 @@ describe("space-thread-repo", () => {
       db.close();
     }
   });
-  it("retains reply placements but reads only two preview bodies per thread, excluding edit notices", () => {
+  it("retains reply placements but reads only the latest two preview bodies per thread, excluding edit notices", () => {
     const db = new DatabaseSync(":memory:");
     try {
       db.exec(
@@ -93,7 +93,7 @@ describe("space-thread-repo", () => {
         entries
           .filter((entry) => entry.payloadJson !== null)
           .map((entry) => entry.placement.signalId)
-      ).toEqual(["sig-1", "sig-2", "sig-50", "sig-51"]);
+      ).toEqual(["sig-48", "sig-49", "sig-98", "sig-99"]);
       expect(entries.at(-1)?.placement.signalId).toBe("sig-99");
     } finally {
       db.close();

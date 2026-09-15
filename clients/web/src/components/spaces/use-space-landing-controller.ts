@@ -1146,7 +1146,9 @@ export type SpaceLandingController =
 			onClearComposerReplyTo: () => void;
 			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveComposerFile: (localId: string) => void;
-			onConversationViewingLatestChange: (isViewingLatest: boolean) => void;
+			onConversationViewedThroughTs?: (
+				timestamp: number
+			) => Promise<void> | void;
 			onJumpToDate: (date: Date) => Promise<string | null>;
 			onLoadEarlierHistory: () => Promise<void>;
 			onDeleteSpace: () => Promise<void>;
@@ -1598,14 +1600,7 @@ export function useSpaceLandingController(input: {
 		accessRejected: Boolean(currentAccessRejection),
 	});
 	const unreadState = useSpaceUnread({
-		envelopes: timelineEnvelopes,
 		isReady: input.unreadStateReady === true,
-		profileId: input.profileId,
-		onViewedThroughTs: resolveConfirmedViewedThroughHandler({
-			isCurrentAccessConfirmed: statusReady,
-			onViewedThroughTs: input.onViewedThroughTs,
-		}),
-		spaceId: input.spaceId,
 		targets: input.unreadTargets ?? [],
 	});
 	const composerSession = useSpaceComposerSession({
@@ -1827,6 +1822,43 @@ export function useSpaceLandingController(input: {
 		signalId: string;
 		spaceId: string;
 	} | null>(null);
+	useEffect(() => {
+		const knownRoots = new Set(
+			threadController.threads.map((thread) => thread.rootSignalId)
+		);
+		if (
+			!(
+				statusReady &&
+				agentStreamProjections.some(
+					(stream) =>
+						stream.status === "streaming" &&
+						stream.replyThreadRootSignalId &&
+						!knownRoots.has(stream.replyThreadRootSignalId)
+				)
+			)
+		) {
+			return;
+		}
+		queryClient
+			.fetchQuery({
+				...spaceThreadsQueryOptions({
+					spaceId: input.spaceId,
+					openMeldProfileId: input.profileId,
+					enabled: true,
+				}),
+				staleTime: 0,
+			})
+			.catch((error) =>
+				console.error("Could not load the reply Thread.", error)
+			);
+	}, [
+		statusReady,
+		threadController.threads,
+		agentStreamProjections,
+		queryClient,
+		input.spaceId,
+		input.profileId,
+	]);
 	const closeThread = useCallback(() => {
 		setThreadUnreadFocus(null);
 		threadController.onCloseThread();
@@ -1966,21 +1998,34 @@ export function useSpaceLandingController(input: {
 		};
 	}, [input.profileId, input.spaceId, statusReady, timelineEnvelopes]);
 
+	// A durable reply resolves its Wake regardless of which conversation owns it.
+	const wakeOutcomeSignals = useMemo(
+		() => [
+			...timelineEnvelopes,
+			...threadController.threadSignals,
+			...threadController.threadPreviews.flatMap((preview) => preview.signals),
+		],
+		[
+			timelineEnvelopes,
+			threadController.threadSignals,
+			threadController.threadPreviews,
+		]
+	);
 	const presentedWakeProgressItems = useMemo(
 		() =>
 			mergeActiveWakeProgressPresentation({
 				detailedItems: wakeProgressItems,
-				signals: timelineEnvelopes,
+				signals: wakeOutcomeSignals,
 				summaryItems: mergeWakeProgressItemState({
 					currentItems: activeWakeProgressSummaryQuery.data?.items ?? [],
 					incomingItems: ownActiveWakeProgressQuery.data?.items ?? [],
-					signals: timelineEnvelopes,
+					signals: wakeOutcomeSignals,
 				}),
 			}),
 		[
 			activeWakeProgressSummaryQuery.data?.items,
 			ownActiveWakeProgressQuery.data?.items,
-			timelineEnvelopes,
+			wakeOutcomeSignals,
 			wakeProgressItems,
 		]
 	);
@@ -1992,7 +2037,7 @@ export function useSpaceLandingController(input: {
 		logEventName: "[openmeld.web.space.wake_progress_poll_unhandled]",
 		profileId: input.profileId,
 		setItems: setWakeProgressItems,
-		signals: timelineEnvelopes,
+		signals: wakeOutcomeSignals,
 		spaceId: input.spaceId,
 	});
 
@@ -2358,7 +2403,10 @@ export function useSpaceLandingController(input: {
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
-		onConversationViewingLatestChange: unreadState.onViewingLatestChange,
+		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
+			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
+			onViewedThroughTs: input.onViewedThroughTs,
+		}),
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
 		onDeleteSpace: handleDeleteSpace,
@@ -3411,8 +3459,14 @@ function useSpaceThreadController(input: {
 		input.spaceId,
 		input.profileId,
 	]);
-	const threads = threadsSnapshot?.threads ?? [];
-	const threadPreviews = threadsSnapshot?.previews ?? [];
+	const threads = useMemo(
+		() => threadsSnapshot?.threads ?? [],
+		[threadsSnapshot]
+	);
+	const threadPreviews = useMemo(
+		() => threadsSnapshot?.previews ?? [],
+		[threadsSnapshot]
+	);
 	const availableThreadIds = useMemo(
 		() => new Set(threads.map((thread) => thread.threadId)),
 		[threads]
@@ -3483,16 +3537,23 @@ function useSpaceThreadController(input: {
 	} = composerSession.send;
 	const activeThread =
 		threads.find((thread) => thread.threadId === activeThreadId) ?? null;
-	const persistedThreadSignals = threadSignalsQuery.data?.signals ?? [];
+	const persistedThreadSignals = useMemo(
+		() => threadSignalsQuery.data?.signals ?? [],
+		[threadSignalsQuery.data]
+	);
 	useReconcilePendingOutgoingSignals(
 		pendingOutgoingSignals,
 		persistedThreadSignals,
 		setPendingOutgoingSignals
 	);
-	const threadSignals = mergePersistedAndPendingOutgoingSignals({
-		persisted: persistedThreadSignals,
-		pending: pendingOutgoingSignals,
-	});
+	const threadSignals = useMemo(
+		() =>
+			mergePersistedAndPendingOutgoingSignals({
+				persisted: persistedThreadSignals,
+				pending: pendingOutgoingSignals,
+			}),
+		[persistedThreadSignals, pendingOutgoingSignals]
+	);
 	const threadFilePreviewUrlsById = useMemo(() => {
 		const previewUrlsById = new Map<string, string>();
 		for (const pendingSignal of pendingOutgoingSignals) {
