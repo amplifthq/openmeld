@@ -29,6 +29,11 @@ import {
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
 import {
+	observeSpaceOpen,
+	readSpacePrefetch,
+	recordSpacePrefetch,
+} from "#/lib/observability/space-open";
+import {
 	prefetchSpaceConversationRouteData,
 	restoreSpaceConversationRouteData,
 } from "#/lib/organizations/app-route-prefetch";
@@ -85,8 +90,20 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 	pendingMs: APP_ROUTE_PENDING_DELAY_MS,
 	// SSR-read persisted rail/sidebar geometry so the shell renders at the
 	// remembered sizes with no first-paint flash.
-	loader: async ({ context, deps, location, params }) => {
+	loader: async ({ context, deps, location, params, preload }) => {
 		const sidebarStates = getAppSidebarStatesForRoute("spaces");
+		const prefetchKey = JSON.stringify([
+			params.orgSlug,
+			params.spaceId,
+			deps.profileId,
+		]);
+		if (preload) {
+			recordSpacePrefetch(prefetchKey, "in_flight");
+		} else {
+			observeSpaceOpen(params.spaceId, {
+				prefetch: readSpacePrefetch(prefetchKey),
+			});
+		}
 		await restoreSpaceConversationRouteData({
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
@@ -102,12 +119,18 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 			queryPersistence: context.queryPersistence,
 			routeFamily: location.href,
 			spaceId: params.spaceId,
-		}).catch((error: unknown) => {
-			if (isQueryCancellationError(error)) {
-				return;
-			}
-			console.error("Failed to prefetch the Space conversation data.", error);
-		});
+		})
+			.then(() => {
+				if (preload) {
+					recordSpacePrefetch(prefetchKey, "complete");
+				}
+			})
+			.catch((error: unknown) => {
+				if (isQueryCancellationError(error)) {
+					return;
+				}
+				console.error("Failed to prefetch the Space conversation data.", error);
+			});
 		return { sidebarStates: await sidebarStates };
 	},
 	component: AppSpaceEntryRoute,
