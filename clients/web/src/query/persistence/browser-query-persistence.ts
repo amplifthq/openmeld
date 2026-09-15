@@ -19,6 +19,7 @@ import {
 	persistQueryClientSave,
 } from "@tanstack/react-query-persist-client";
 import { z } from "zod/v4";
+import { observeSpaceOpen } from "#/lib/observability/space-open";
 import { currentComputerToolbarDisplaySnapshotSchema } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
@@ -552,6 +553,15 @@ export function createBrowserQueryPersistenceController(
 			spaceId,
 			openMeldProfileId,
 		}) => {
+			const hasDisplay = Boolean(
+				queryClient.getQueryData(
+					spaceQueryKeys.history(spaceId, openMeldProfileId)
+				) &&
+					queryClient.getQueryData(
+						spaceQueryKeys.displaySnapshot(spaceId, openMeldProfileId)
+					)
+			);
+			observeSpaceOpen(spaceId, { cache: hasDisplay ? "memory" : "cold" });
 			const operation = runExclusive(async () => {
 				if (
 					activeOwnerAccountId !== ownerAccountId ||
@@ -841,6 +851,26 @@ async function restoreAndSubscribe(input: {
 		);
 	}
 	hydrate(input.queryClient, restored);
+	if (input.segment.scopeKind === "space") {
+		const history = restored.queries.find(
+			(query) =>
+				query.queryKey[0] === "spaces" && query.queryKey[1] === "history"
+		);
+		const display = restored.queries.find(
+			(query) =>
+				query.queryKey[0] === "spaces" &&
+				query.queryKey[1] === "display-snapshot"
+		);
+		const spaceId = history?.queryKey[2];
+		if (
+			history &&
+			typeof spaceId === "string" &&
+			display &&
+			dataUpdatedAtBeforeRestore.get(hashKey(history.queryKey)) === undefined
+		) {
+			observeSpaceOpen(spaceId, { cache: "restored" });
+		}
+	}
 	if (input.didRestoreUsableClient()) {
 		await Promise.all(
 			input.targetQueryKeys.map(async (targetQueryKey) => {
