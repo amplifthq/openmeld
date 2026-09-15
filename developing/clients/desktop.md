@@ -163,7 +163,8 @@ acceptance. Production preview requires the exact clean merged release SHA and
 rejects disposable settings. Its signed source record binds the release SHA,
 production identity, and renderer fingerprint; publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
-It does not open the website entry or select a default update.
+It does not select a default update. Web offers an account-free preview page at
+`/desktop?candidate=<hash>` using that candidate's verified metadata and artifact.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using
