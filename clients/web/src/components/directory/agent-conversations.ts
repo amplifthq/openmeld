@@ -58,6 +58,9 @@ export function agentConversationLink(input: {
 }) {
 	const item = input.conversation.space;
 	const search = {
+		...(item.messagePreview
+			? { focusSignalId: item.messagePreview.signalId }
+			: {}),
 		profileId: resolveAccountSpaceViewerProfileId({
 			currentProfileId: input.humanProfileId,
 			item,

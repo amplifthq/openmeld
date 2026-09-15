@@ -1146,7 +1146,9 @@ export type SpaceLandingController =
 			onClearComposerReplyTo: () => void;
 			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveComposerFile: (localId: string) => void;
-			onConversationViewingLatestChange: (isViewingLatest: boolean) => void;
+			onConversationViewedThroughTs?: (
+				timestamp: number
+			) => Promise<void> | void;
 			onJumpToDate: (date: Date) => Promise<string | null>;
 			onLoadEarlierHistory: () => Promise<void>;
 			onDeleteSpace: () => Promise<void>;
@@ -1598,14 +1600,7 @@ export function useSpaceLandingController(input: {
 		accessRejected: Boolean(currentAccessRejection),
 	});
 	const unreadState = useSpaceUnread({
-		envelopes: timelineEnvelopes,
 		isReady: input.unreadStateReady === true,
-		profileId: input.profileId,
-		onViewedThroughTs: resolveConfirmedViewedThroughHandler({
-			isCurrentAccessConfirmed: statusReady,
-			onViewedThroughTs: input.onViewedThroughTs,
-		}),
-		spaceId: input.spaceId,
 		targets: input.unreadTargets ?? [],
 	});
 	const composerSession = useSpaceComposerSession({
@@ -2408,7 +2403,10 @@ export function useSpaceLandingController(input: {
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
-		onConversationViewingLatestChange: unreadState.onViewingLatestChange,
+		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
+			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
+			onViewedThroughTs: input.onViewedThroughTs,
+		}),
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
 		onDeleteSpace: handleDeleteSpace,

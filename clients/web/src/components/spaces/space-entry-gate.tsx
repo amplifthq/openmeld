@@ -35,6 +35,7 @@ export function SpaceEntryGate(input: {
 	children: (resolution: GetSpaceEntryResolutionResponse) => ReactNode;
 	/** Already identity-scoped, display-only app content; never used by public entry. */
 	restoredContent?: ReactNode;
+	pendingContent?: ReactNode;
 	onAccessRejected?: () => void;
 	openMeldProfileId?: string;
 	renderFrame: (content: ReactNode) => ReactNode;
@@ -159,6 +160,9 @@ export function SpaceEntryGate(input: {
 				{input.restoredContent}
 			</SpaceEntryConfirmationContext>
 		);
+	}
+	if (resolutionQuery.isPending && input.pendingContent) {
+		return input.renderFrame(input.pendingContent);
 	}
 
 	const retry = () => {

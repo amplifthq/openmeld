@@ -6,10 +6,7 @@ import type {
 	SpaceMembersSnapshot,
 	SpaceThread,
 } from "@openmeld/schemas/types";
-import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
-import { SpinnerGapIcon, XIcon } from "@phosphor-icons/react";
-import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
 import type { ReactNode } from "react";
 import {
 	Fragment,
@@ -110,6 +107,7 @@ import { SpaceConversationCompactionMarker } from "./space-conversation-compacti
 import {
 	type SpaceMessageScrollAction,
 	SpaceMessageScrollController,
+	scrollMessageIntoConversationViewport,
 } from "./space-conversation-scroll-controller";
 import {
 	type ComposeExpiredDeviceWait,
@@ -155,6 +153,7 @@ import {
 	MessageReactionsProvider,
 	resolveMessageReactionInput,
 } from "./space-message-reactions";
+import { SpaceMessageReadObserver } from "./space-message-read-observer";
 import type { SpaceMessageReferencesById } from "./space-message-reference";
 import {
 	groupAnchoredOutcomeNotices,
@@ -163,6 +162,10 @@ import {
 } from "./space-outcome-row";
 import { resolveSpaceOutcomeRowTone } from "./space-outcome-tone";
 import { resolveSpacePendingAgentActionIdentity } from "./space-pending-agent-action-model";
+import {
+	ThreadMessagesLoading,
+	ThreadPanelHeader,
+} from "./space-thread-loading";
 import { SpaceComposerActiveWakes } from "./space-wake-bookmarks";
 import { SpaceWakeRecommendationScope } from "./space-wake-recommendation";
 import {
@@ -463,16 +466,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		[activeThreadRootSignalId, input.unreadTargets]
 	);
 	const firstUnreadSignalId = activeUnreadTargets[0]?.signalId ?? null;
-	const latestThreadOccurredAtMs = useMemo(() => {
-		const loadedIds = new Set(rawThreadTimelineItems.map((item) => item.id));
-		return activeUnreadTargets.reduce(
-			(latest, target) =>
-				loadedIds.has(target.signalId)
-					? Math.max(latest, target.occurredAtMs)
-					: latest,
-			rawThreadTimelineItems.at(-1)?.createdAtMs ?? 0
-		);
-	}, [activeUnreadTargets, rawThreadTimelineItems]);
+
 	const focusStatusMessage = resolveThreadFocusStatusMessage({
 		activeThread: input.activeThread,
 		hasTargetSignal: rawThreadTimelineItems.some(
@@ -589,7 +583,6 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					isLoading={input.signalsIsLoading}
 					isPersonalContext={input.isPersonalContext === true}
 					items={threadTimelineItems}
-					latestThreadOccurredAtMs={latestThreadOccurredAtMs}
 					messageScrollActionRef={messageScrollActionRef}
 					onAgentInteractionResponse={input.onAgentInteractionResponse}
 					onJumpToMessage={jumpToMessage}
@@ -606,7 +599,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					prepareSetupHref={input.prepareSetupHref}
 					profilePresentationsById={profilePresentationsById}
 					readOnly={input.readOnly === true}
-					readScopeKey={activeThreadRootSignalId ?? ""}
+					readScopeKey={`${input.selfProfileId}:${input.activeThread?.spaceId}:${activeThreadRootSignalId}`}
 					registerMessageElement={registerMessageElement}
 					renderProfileTrigger={
 						profileDetailsDialog.profileDetailsPopoverTriggerById
@@ -614,6 +607,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					selfAvatarImageUrl={input.selfAvatarImageUrl ?? null}
 					selfProfileId={input.selfProfileId}
 					spaceReferencesById={input.spaceReferencesById}
+					unreadTargets={activeUnreadTargets}
 					wakeFailureTargetContextsByProfileId={
 						input.wakeFailureTargetContextsByProfileId
 					}
@@ -850,6 +844,15 @@ function useThreadInitialFocus(input: {
 			align: "center",
 			behavior: "instant",
 		});
+		const viewport = targetElement.closest<HTMLElement>(
+			'[data-slot="message-scroller-viewport"]'
+		);
+		if (viewport) {
+			scrollMessageIntoConversationViewport({
+				messageElement: targetElement,
+				scrollElement: viewport,
+			});
+		}
 		targetElement.focus({ preventScroll: true });
 		highlightedElementRef.current?.removeAttribute("data-highlighted");
 		targetElement.setAttribute("data-highlighted", "true");
@@ -887,6 +890,15 @@ function useThreadInitialFocus(input: {
 			align: "center",
 			behavior: "instant",
 		});
+		const viewport = element?.closest<HTMLElement>(
+			'[data-slot="message-scroller-viewport"]'
+		);
+		if (element && viewport) {
+			scrollMessageIntoConversationViewport({
+				messageElement: element,
+				scrollElement: viewport,
+			});
+		}
 		element?.focus({ preventScroll: true });
 	}, []);
 	return { registerMessageElement, jumpToMessage, messageScrollActionRef };
@@ -995,23 +1007,6 @@ function buildThreadWakeOutcomeIndex(input: {
 	]);
 }
 
-function ThreadPanelHeader(input: { onClose: () => void }) {
-	return (
-		<div className="flex items-center justify-between gap-3 border-border border-b px-4 py-3">
-			<p className="font-medium text-sm">Thread</p>
-			<Button
-				aria-label="Close thread"
-				onClick={input.onClose}
-				size="icon-sm"
-				type="button"
-				variant="ghost"
-			>
-				<XIcon aria-hidden="true" />
-			</Button>
-		</div>
-	);
-}
-
 function renderThreadWakeStopControl(input: {
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	readOnly: boolean;
@@ -1105,7 +1100,7 @@ function ThreadTimeline(input: {
 	computerSetupContext?: CenterAgentComputerSetupContext;
 	items: readonly SpaceTimelineItem[];
 	isLoading: boolean;
-	latestThreadOccurredAtMs: number;
+	unreadTargets: readonly SpaceInboxUnreadTarget[];
 	readScopeKey: string;
 	actionableAgentInteractionPlacement: SpaceAgentInteractionPlacement;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
@@ -1163,32 +1158,19 @@ function ThreadTimeline(input: {
 		);
 	}
 	if (input.isLoading) {
-		return (
-			<div
-				aria-busy="true"
-				className="flex min-h-0 flex-1 items-center justify-center p-4"
-			>
-				<output className="flex flex-col items-center gap-2 text-muted-foreground text-sm">
-					<SpinnerGapIcon
-						aria-hidden="true"
-						className="size-5 motion-safe:animate-spin"
-					/>
-					<span>Loading messages…</span>
-				</output>
-			</div>
-		);
+		return <ThreadMessagesLoading />;
 	}
 
 	return (
 		<MessageScrollerProvider autoScroll={true} defaultScrollPosition="end">
 			<SpaceMessageScrollController actionRef={input.messageScrollActionRef} />
 			<MessageScroller className="min-h-0 flex-1">
-				<ThreadReadThroughObserver
-					key={input.readScopeKey}
-					latestThreadOccurredAtMs={input.latestThreadOccurredAtMs}
-					onViewedThroughTs={input.onViewedThroughTs}
-				/>
 				<MessageScrollerViewport className="px-4 py-4">
+					<SpaceMessageReadObserver
+						key={input.readScopeKey}
+						onViewedThroughTs={input.onViewedThroughTs}
+						unreadTargets={input.unreadTargets}
+					/>
 					<MessageScrollerContent className="gap-0">
 						{input.items.map((item) => {
 							if (isSpaceOutcomeNoticeItem(item)) {
@@ -1299,71 +1281,6 @@ function ThreadTimeline(input: {
 			</MessageScroller>
 		</MessageScrollerProvider>
 	);
-}
-
-function ThreadReadThroughObserver(input: {
-	latestThreadOccurredAtMs: number;
-	onViewedThroughTs?: (throughOccurredAtMs: number) => Promise<void> | void;
-}) {
-	const { end: canScrollToEnd } = useMessageScrollerScrollable();
-	const [documentVisible, setDocumentVisible] = useState(
-		() =>
-			typeof document === "undefined" || document.visibilityState === "visible"
-	);
-	const [retryAttempt, setRetryAttempt] = useState(0);
-	const persistedThroughTsRef = useRef(0);
-	useEffect(() => {
-		const onVisibilityChange = () =>
-			setDocumentVisible(document.visibilityState === "visible");
-		document.addEventListener("visibilitychange", onVisibilityChange);
-		return () =>
-			document.removeEventListener("visibilitychange", onVisibilityChange);
-	}, []);
-	useEffect(() => {
-		if (
-			canScrollToEnd ||
-			!documentVisible ||
-			!input.onViewedThroughTs ||
-			input.latestThreadOccurredAtMs <= 0 ||
-			input.latestThreadOccurredAtMs <= persistedThroughTsRef.current
-		) {
-			return;
-		}
-		let active = true;
-		const debounceMs = 800 + Math.min(retryAttempt, 4) * 200;
-		const timer = window.setTimeout(() => {
-			Promise.resolve(input.onViewedThroughTs?.(input.latestThreadOccurredAtMs))
-				.then(() => {
-					if (active) {
-						persistedThroughTsRef.current = Math.max(
-							persistedThroughTsRef.current,
-							input.latestThreadOccurredAtMs
-						);
-						setRetryAttempt(0);
-					}
-				})
-				.catch((error: unknown) => {
-					console.warn(
-						"Failed to persist the Space thread Inbox read position.",
-						error
-					);
-					if (active) {
-						setRetryAttempt((current) => current + 1);
-					}
-				});
-		}, debounceMs);
-		return () => {
-			active = false;
-			window.clearTimeout(timer);
-		};
-	}, [
-		canScrollToEnd,
-		documentVisible,
-		input.latestThreadOccurredAtMs,
-		input.onViewedThroughTs,
-		retryAttempt,
-	]);
-	return null;
 }
 
 const ThreadTimelineMessageRow = memo(function ThreadTimelineMessageRow(input: {

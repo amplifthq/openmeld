@@ -1454,14 +1454,14 @@ describe("SpaceConversationPanel", () => {
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const onViewingLatestChange = vi.fn();
+		const onViewedThroughTs = vi.fn();
 		renderSpaceConversationPanelWithViewTabs({
 			activeSpaceView: "graph",
-			onViewingLatestChange,
+			onViewedThroughTs,
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(onViewingLatestChange).toHaveBeenLastCalledWith(false);
+		expect(onViewedThroughTs).not.toHaveBeenCalled();
 	});
 
 	it("loads earlier Space activity directly from the Graph", () => {

@@ -13,7 +13,6 @@ import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
-import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	Fragment,
@@ -131,6 +130,7 @@ import {
 	SpaceConversationSendScrollController,
 	type SpaceMessageScrollAction,
 	SpaceMessageScrollController,
+	scrollMessageIntoConversationViewport,
 } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
@@ -185,6 +185,7 @@ import {
 	MessageReactionsProvider,
 	resolveMessageReactionInput,
 } from "./space-message-reactions";
+import { SpaceMessageReadObserver } from "./space-message-read-observer";
 import {
 	EMPTY_SPACE_MESSAGE_REFERENCES,
 	hasResolvedSpaceMessageReference,
@@ -311,9 +312,8 @@ type SpaceConversationPanelResolvedProps = {
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onSpaceViewChange: (view: SpaceView) => void;
 	orgSlug?: string;
-	// Fired with whether the conversation is scrolled to the latest message, so
-	// the unread watermark only advances while the user is actually at the bottom.
-	onViewingLatestChange?: (isViewingLatest: boolean) => void;
+	// The shared observer acknowledges only visible Core unread targets.
+	onViewedThroughTs?: (timestamp: number) => Promise<void> | void;
 	prepareSetupHref?: string;
 	pendingActionSurface?: ReactNode;
 	readOnly?: boolean;
@@ -563,7 +563,6 @@ function SpaceConversationPanelContent(
 		onOpenThread,
 		onOpenUnreadThread: input.onOpenUnreadThread,
 		onSpaceViewChange: input.onSpaceViewChange,
-		onViewingLatestChange: input.onViewingLatestChange,
 		presentedWakeProgressItems: input.presentedWakeProgressItems,
 		selfProfileId: input.selfProfileId,
 		spaceId: input.spaceId,
@@ -699,13 +698,6 @@ function SpaceConversationPanelContent(
 								/>
 							)}
 
-							<ConversationLatestObserver
-								onChange={(value) =>
-									input.onViewingLatestChange?.(
-										value && !input.historyNavigation?.activeWindow
-									)
-								}
-							/>
 							<SpaceConversationTopOverlay
 								overlayRef={setConversationTopOverlayElement}
 							>
@@ -742,6 +734,15 @@ function SpaceConversationPanelContent(
 								ref={registerReadingScrollElement}
 								role="log"
 							>
+								<SpaceMessageReadObserver
+									key={`${input.spaceId}:${input.selfProfileId}`}
+									onViewedThroughTs={
+										input.historyIsPending ? undefined : input.onViewedThroughTs
+									}
+									unreadTargets={(input.unreadTargets ?? []).filter(
+										(target) => target.threadRootSignalId === null
+									)}
+								/>
 								<SpaceConversationStickyDate
 									afterDate={
 										<SpaceUnreadNavigationControl
@@ -1239,7 +1240,6 @@ function useSpaceConversationNavigationController(input: {
 	onOpenThread: (threadId: string) => void;
 	onOpenUnreadThread?: SpaceConversationPanelResolvedProps["onOpenUnreadThread"];
 	onSpaceViewChange: (view: SpaceView) => void;
-	onViewingLatestChange?: (isViewingLatest: boolean) => void;
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	selfProfileId: string;
 	spaceId?: string;
@@ -1581,11 +1581,7 @@ function useSpaceConversationNavigationController(input: {
 		input.onLoadHistoryAround,
 		targetKey,
 	]);
-	useEffect(() => {
-		if (input.activeSpaceView === "graph") {
-			input.onViewingLatestChange?.(false);
-		}
-	}, [input.activeSpaceView, input.onViewingLatestChange]);
+
 	useEffect(() => {
 		const scrollElement = conversationScrollRef.current;
 		if (
@@ -1719,18 +1715,6 @@ function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
 	);
 }
 
-function ConversationLatestObserver(input: {
-	onChange?: (isViewingLatest: boolean) => void;
-}) {
-	const { end: canScrollToEnd } = useMessageScrollerScrollable();
-
-	useLayoutEffect(() => {
-		input.onChange?.(!canScrollToEnd);
-	}, [canScrollToEnd, input.onChange]);
-
-	return null;
-}
-
 function SpaceUnreadNavigationControl(input: {
 	dismissedTargetKeys: ReadonlySet<string>;
 	navigation: SpaceUnreadNavigationState;
@@ -1829,33 +1813,6 @@ function resolveSpaceUnreadNavigationState(input: {
 	}
 	targets.sort((left, right) => left.occurredAtMs - right.occurredAtMs);
 	return { targets };
-}
-
-function scrollMessageIntoConversationViewport(input: {
-	messageElement: HTMLElement;
-	scrollElement: HTMLElement;
-}): void {
-	const alignMessage = () => {
-		const messageRect = input.messageElement.getBoundingClientRect();
-		const viewportRect = input.scrollElement.getBoundingClientRect();
-		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
-		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
-		// Canvas transforms scale viewport coordinates, while scrollTop uses CSS pixels.
-		// The first deep-link focus can run before layout reports an offset height.
-		// Use unscaled coordinates for that frame; the scheduled passes below will
-		// correct the position once layout has settled.
-		const scale =
-			input.scrollElement.offsetHeight > 0 && viewportRect.height > 0
-				? viewportRect.height / input.scrollElement.offsetHeight
-				: 1;
-		if (scale > 0) {
-			input.scrollElement.scrollTop += (messageCenter - viewportCenter) / scale;
-		}
-	};
-	alignMessage();
-	window.requestAnimationFrame(() => {
-		window.requestAnimationFrame(alignMessage);
-	});
 }
 
 function unreadTargetKey(target: SpaceInboxUnreadTarget): string {

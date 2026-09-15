@@ -582,6 +582,11 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    describe accessible conversations the Agent has joined, with the latest
    conversation preview; they do not claim a complete execution history or
    that the latest message was authored by this Agent.
+   When a row has a message preview, its link includes that exact Signal target.
+   Thread placement comes from the shared Space thread catalog. Explicit targets
+   take precedence over a previously saved open Thread, and target message reads
+   begin alongside Space prefetch. Known Thread targets show a loading panel
+   during access and bootstrap checks without rendering protected messages early.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -4279,11 +4284,14 @@ Profile, and Space. Returning to the latest messages expands the header. A new
 preference starts expanded; obsolete intermediate-position preferences are not
 reused. Files does not drive compaction. A short vertical entrance runs once
 per collapse, with no travel under reduced motion.
-Latest-message observations update the read-through scheduler directly rather
+Message-header visibility observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
-changes require a fresh latest-message measurement; document visibility, access
-confirmation, and a brief 150 ms dwell still gate persistence. After that dwell,
+changes require a fresh visible-message measurement; document visibility, access
+confirmation, loaded Core unread targets, and a brief 150 ms dwell gate persistence.
+Main conversations, Threads, and DMs share this observer. Unseen targets block
+advancing the read watermark past them, and temporary progress cannot advance it.
+After that dwell,
 the existing optimistic Inbox projection updates before the server write settles;
 failed writes retain the existing rollback and reconciliation path.
 Scroll events only check distance from the latest messages. Layout and preference

@@ -292,6 +292,100 @@ describe("organization app route prefetch", () => {
 		queryClient.clear();
 	});
 
+	it.each([
+		"cached",
+		"cold",
+	])("prefetches the explicit Thread instead of the saved Thread with a %s catalog", async (cacheState) => {
+		const queryClient = createQueryClient();
+		readThreadSelectionMock.mockReturnValue("previous-thread");
+		const catalog = {
+			threads: [
+				{
+					threadId: "thr_11111111-1111-4111-8111-111111111111",
+					spaceId: "space-1",
+					rootSignalId: "target-root",
+					createdByProfileId: "human-1",
+					createdAt: "2026-09-15T00:00:00Z",
+					updatedAt: "2026-09-15T00:00:00Z",
+				},
+			],
+			previews: [],
+		};
+		if (cacheState === "cached") {
+			queryClient.setQueryData(
+				spaceQueryKeys.threads("space-1", "human-1"),
+				catalog
+			);
+		}
+		const listThreads = vi.fn().mockResolvedValue(catalog);
+		const listThreadSignals = vi
+			.fn()
+			.mockResolvedValue({ signals: [], placements: [] });
+		let finishBootstrap!: (
+			value: ReturnType<typeof createBootstrapResponse>
+		) => void;
+		getBootstrapMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishBootstrap = resolve;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			getBootstrap: getBootstrapMock,
+			listThreads,
+			listThreadSignals,
+		});
+		const prefetch = prefetchSpaceConversationRouteData({
+			organizationSlug: "acme",
+			profileId: "human-1",
+			queryClient,
+			queryPersistence,
+			routeFamily: "/o/acme/spaces/space-1",
+			spaceId: "space-1",
+			focusThreadRootSignalId: "target-root",
+		});
+		await vi.waitFor(() =>
+			expect(listThreadSignals).toHaveBeenCalledWith(
+				expect.objectContaining({ threadId: catalog.threads[0].threadId })
+			)
+		);
+		expect(listThreads).toHaveBeenCalledTimes(cacheState === "cold" ? 1 : 0);
+		expect(
+			queryClient.getQueryData(spaceQueryKeys.bootstrap("space-1", "human-1"))
+		).toBeUndefined();
+		finishBootstrap(createBootstrapResponse());
+		await prefetch;
+		queryClient.clear();
+	});
+
+	it("does not prefetch a saved Thread for an explicit main-message link", async () => {
+		const queryClient = createQueryClient();
+		readThreadSelectionMock.mockReturnValue("previous-thread");
+		const listThreadSignals = vi.fn();
+		const listThreads = vi
+			.fn()
+			.mockResolvedValue({ threads: [], previews: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			getBootstrap: getBootstrapMock,
+			listThreads,
+			listThreadSignals,
+		});
+		await prefetchKnownSpaceConversationData({
+			organizationId: "org-acme",
+			organizationSlug: "acme",
+			ownerAccountId: "user-1",
+			queryClient,
+			queryPersistence,
+			spaceId: "space-1",
+			openMeldProfileId: "human-1",
+			focusSignalId: "main-message",
+		});
+		await vi.waitFor(() => expect(listThreads).toHaveBeenCalledTimes(1));
+		expect(listThreadSignals).not.toHaveBeenCalled();
+		expect(readThreadSelectionMock).not.toHaveBeenCalled();
+		queryClient.clear();
+	});
+
 	it("restores a known Space cache before starting any current server read", async () => {
 		const queryClient = createQueryClient();
 
