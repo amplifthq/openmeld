@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const DESKTOP_APP_ORIGIN = "openmeld-desktop://app";
 export const DESKTOP_AUTH_SCHEME = "sh.openmeld.desktop.dev";

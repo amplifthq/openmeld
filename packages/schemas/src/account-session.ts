@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const ACCOUNT_SESSION_PATH = "/v1/account/session" as const;
 

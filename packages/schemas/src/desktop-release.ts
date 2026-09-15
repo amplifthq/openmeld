@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const desktopCandidateIdSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const desktopVersionSchema = z

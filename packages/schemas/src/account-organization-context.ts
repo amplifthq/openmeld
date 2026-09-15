@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 
 export const ACCOUNT_ORGANIZATION_CONTEXT_PATH =
   "/v1/account/organization-context" as const;

@@ -23,10 +23,10 @@
     "check": "biome check --no-errors-on-unmatched ./ && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@openmeld/api-client": "workspace:*",
     "@better-auth/electron": "1.6.30",
     "@better-auth/utils": "0.4.2",
     "@openmeld/agent-runtime": "workspace:*",
+    "@openmeld/api-client": "workspace:*",
     "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/protocol": "workspace:*",
     "@openmeld/schemas": "workspace:*",
@@ -36,8 +36,8 @@
     "conf": "15.0.2",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "ws": "8.21.3",
-    "zod": "4.3.6"
+    "ws": "^8.18.3",
+    "zod": "^4.3.6"
   },
   "build": {
     "forceCodeSigning": true,
@@ -75,13 +75,13 @@
   },
   "devDependencies": {
     "@openmeld/local-service": "workspace:*",
-    "@types/ws": "8.18.1",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.2.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "5.2.0",
     "electron": "44.3.0",
     "electron-builder": "^26.15.3",

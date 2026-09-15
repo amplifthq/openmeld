@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import * as z from "zod/v4";
 import { organizationSummarySchema } from "./account-organization-context";
 import { organizationNameSchema } from "./schemas/http/organization-identity";
 

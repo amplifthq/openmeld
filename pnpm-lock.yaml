@@ -124,10 +124,10 @@ importers:
         specifier: ^19.2.4
         version: 19.2.4(react@19.2.4)
       ws:
-        specifier: 8.21.3
+        specifier: ^8.18.3
         version: 8.21.3
       zod:
-        specifier: 4.3.6
+        specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
       '@openmeld/local-service':
@@ -152,7 +152,7 @@ importers:
         specifier: ^19.2.0
         version: 19.2.3(@types/react@19.2.14)
       '@types/ws':
-        specifier: 8.18.1
+        specifier: ^8.18.1
         version: 8.18.1
       '@vitejs/plugin-react':
         specifier: 5.2.0
