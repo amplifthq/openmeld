@@ -626,6 +626,14 @@ function createRouteTruthD1Database(
     bindSpy,
     db: {
       prepare,
+      batch: vi.fn(async (statements: D1PreparedStatement[]) =>
+        Promise.all(
+          statements.map(async (statement) => {
+            const row = await statement.first();
+            return { success: true, results: row === null ? [] : [row] };
+          })
+        )
+      ),
     } as unknown as D1Database,
   };
 }
@@ -3439,6 +3447,13 @@ describe("space-members-service", () => {
     });
 
     expect(lookupRoutesBatchSpy).toHaveBeenCalledOnce();
+
+    // Member readiness shares request-local D1 round trips across Agent profiles.
+    expect(
+      vi
+        .mocked(routeDb.db.batch)
+        .mock.calls.some(([statements]) => statements.length > 1)
+    ).toBe(true);
     expect(lookupRoutesBatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerUserId: "owner-1",

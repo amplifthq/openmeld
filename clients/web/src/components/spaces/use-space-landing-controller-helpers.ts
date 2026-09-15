@@ -520,7 +520,7 @@ export function listRecoverableWakeProgressClientMessageIds(input: {
 	alreadyRequestedClientMessageIds: ReadonlySet<string>;
 	signals: readonly SignalEnvelope[];
 }): string[] {
-	const ids = new Set<string>();
+	let unresolved: WakeProgressItem[] = [];
 	for (const signal of input.signals) {
 		const clientMessageId = readWakeSourceClientMessageId(signal);
 		if (!clientMessageId) {
@@ -536,9 +536,36 @@ export function listRecoverableWakeProgressClientMessageIds(input: {
 		if (input.alreadyRequestedClientMessageIds.has(clientMessageId)) {
 			continue;
 		}
-		ids.add(clientMessageId);
+		if (signal.type !== "signal.text") {
+			continue;
+		}
+		for (const targetProfileId of signal.data.messageEnvelope
+			?.activationTargets ?? []) {
+			unresolved.push(
+				createWakeProgressItem({
+					clientMessageId,
+					dispatchId: null,
+					sourceSignalId: signal.id,
+					targetProfileId,
+					targetLabel: targetProfileId,
+					phase: "request_sent",
+					updatedAtMs: signal.ts,
+				})
+			);
+		}
 	}
-	return [...ids];
+	// Use the same exact source/target terminal matching as live presentation.
+	// An unresolved sibling or an outcome outside the loaded history still needs a read.
+	for (const signal of input.signals) {
+		unresolved = clearWakeProgressItemsForSignal({ items: unresolved, signal });
+	}
+	return [
+		...new Set(
+			unresolved.flatMap((item) =>
+				item.clientMessageId ? [item.clientMessageId] : []
+			)
+		),
+	];
 }
 
 export function readWakeSourceClientMessageId(
@@ -569,6 +596,7 @@ export function resolveWakeProgressPollDelayMs(input: {
 }
 
 export async function pollWakeProgress(input: {
+	signal?: AbortSignal;
 	openMeldProfileId: string;
 	clientMessageIds: readonly string[];
 	onItems: (
@@ -582,41 +610,54 @@ export async function pollWakeProgress(input: {
 		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.openMeldProfileId,
 		});
-		const results = await Promise.allSettled(
-			input.clientMessageIds.map((clientMessageId) =>
-				api.getWakeProgress({
-					clientMessageId,
-					includePreviewText: true,
-					includeSourceContext: true,
-					includeTiming: true,
-					includeWaitReason: true,
-					includeDeviceWait: true,
-					includeWakeStopEligibility: true,
-					spaceId: input.spaceId,
-					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
-				})
-			)
-		);
-		const items: WakeProgressItem[] = [];
-		const fulfilledClientMessageIds: string[] = [];
-		for (const [index, result] of results.entries()) {
-			if (result.status === "fulfilled") {
-				items.push(...result.value.items);
-				const clientMessageId = input.clientMessageIds[index];
-				if (clientMessageId) {
-					fulfilledClientMessageIds.push(clientMessageId);
-				}
-				continue;
+		const clientMessageIds = [...new Set(input.clientMessageIds)];
+		// Bound recovery transport without expiring or inventing execution outcomes.
+		for (
+			let offset = 0;
+			offset < clientMessageIds.length && !input.signal?.aborted;
+			offset += 4
+		) {
+			const batch = clientMessageIds.slice(offset, offset + 4);
+			const results = await Promise.allSettled(
+				batch.map((clientMessageId) =>
+					api.getWakeProgress({
+						...(input.signal ? { signal: input.signal } : {}),
+						clientMessageId,
+						includePreviewText: true,
+						includeSourceContext: true,
+						includeTiming: true,
+						includeWaitReason: true,
+						includeDeviceWait: true,
+						includeWakeStopEligibility: true,
+						spaceId: input.spaceId,
+						timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
+					})
+				)
+			);
+			if (input.signal?.aborted) {
+				break;
 			}
-			console.warn("[openmeld.web.space.wake_progress_poll_failed]", {
-				error:
-					result.reason instanceof Error
-						? result.reason.message
-						: String(result.reason),
-				spaceId: input.spaceId,
-			});
+			const items: WakeProgressItem[] = [];
+			const fulfilledClientMessageIds: string[] = [];
+			for (const [index, result] of results.entries()) {
+				if (result.status === "fulfilled") {
+					items.push(...result.value.items);
+					const clientMessageId = batch[index];
+					if (clientMessageId) {
+						fulfilledClientMessageIds.push(clientMessageId);
+					}
+					continue;
+				}
+				console.warn("[openmeld.web.space.wake_progress_poll_failed]", {
+					error:
+						result.reason instanceof Error
+							? result.reason.message
+							: String(result.reason),
+					spaceId: input.spaceId,
+				});
+			}
+			input.onItems(items, fulfilledClientMessageIds);
 		}
-		input.onItems(items, fulfilledClientMessageIds);
 	} finally {
 		input.onSettled();
 	}

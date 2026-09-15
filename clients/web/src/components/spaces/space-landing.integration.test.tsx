@@ -3334,6 +3334,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -3725,6 +3726,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -3870,19 +3872,24 @@ describe("SpaceLanding", () => {
 
 		renderSpaceLanding({ observeVisibleWakeProgress: true });
 
-		await waitFor(() => {
-			expect(getWakeProgressMock).toHaveBeenCalledWith({
-				clientMessageId: "client-message-1",
-				includePreviewText: true,
-				includeSourceContext: true,
-				includeTiming: true,
-				includeWaitReason: true,
-				includeDeviceWait: true,
-				includeWakeStopEligibility: true,
-				spaceId: "space-123",
-				timeoutMs: 15_000,
+		if (replyInThread) {
+			await waitFor(() => {
+				expect(getWakeProgressMock).toHaveBeenCalledWith({
+					signal: expect.any(AbortSignal),
+					clientMessageId: "client-message-1",
+					includePreviewText: true,
+					includeSourceContext: true,
+					includeTiming: true,
+					includeWaitReason: true,
+					includeDeviceWait: true,
+					includeWakeStopEligibility: true,
+					spaceId: "space-123",
+					timeoutMs: 15_000,
+				});
 			});
-		});
+		} else {
+			expect(getWakeProgressMock).not.toHaveBeenCalled();
+		}
 		expect(screen.getByText("Done.")).toBeTruthy();
 		expect(screen.queryByText("Runner replied")).toBeNull();
 		expect(screen.queryByText("Agent is working")).toBeNull();
@@ -3965,6 +3972,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -4077,6 +4085,7 @@ describe("SpaceLanding", () => {
 		expect(screen.getByText("@runner(wake) old status check")).toBeTruthy();
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -4403,6 +4412,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -4434,6 +4444,7 @@ describe("SpaceLanding", () => {
 			).toBeTruthy();
 		});
 		expect(screen.queryByTestId("space-wake-thinking-indicator")).toBeNull();
+		expect(getWakeProgressMock.mock.calls[0]?.[0].signal.aborted).toBe(true);
 		getWakeProgressMock.mockImplementation(() => new Promise(() => undefined));
 
 		view.rerender(
@@ -4515,6 +4526,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -8411,6 +8423,7 @@ describe("SpaceLanding", () => {
 
 		await waitFor(() => {
 			expect(getWakeProgressMock).toHaveBeenCalledWith({
+				signal: expect.any(AbortSignal),
 				clientMessageId: "client-message-1",
 				includePreviewText: true,
 				includeSourceContext: true,
@@ -10681,12 +10694,7 @@ describe("SpaceLanding", () => {
 	});
 
 	it("keeps thread Wake progress out of the main transcript when the final reply arrives in a thread", async () => {
-		const setQueryDataMock = vi.fn();
 		const threadId = "thr_11111111-1111-4111-8111-111111111111";
-		useQueryClientMock.mockReturnValue({
-			invalidateQueries: vi.fn().mockResolvedValue(undefined),
-			setQueryData: setQueryDataMock,
-		});
 		mockSpaceQueries({
 			status: createQueryResult({
 				isSuccess: true,
