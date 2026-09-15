@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createOpenMeldApiClient, createSpaceApi } from "@openmeld/api-client";
 import {
   OPENMELD_HEADER_INBOX_SUMMARY_VERSION,
   OPENMELD_INBOX_SUMMARY_VERSION,
@@ -128,6 +129,14 @@ it("serves local page files and confines credentials to the configured cloud ori
       ?.split(";")
       .find((part) => part.includes("script-src"));
     expect(scriptPolicy).toBe(` script-src 'self' 'sha256-${hash}'`);
+    expect(
+      page.headers
+        .get("content-security-policy")
+        ?.split(";")
+        .find((part) => part.includes("img-src"))
+        ?.trim()
+        .split(" ")
+    ).toContain("blob:");
     const result = await handle(
       new Request(`${DESKTOP_APP_ORIGIN}/v1/spaces`, {
         headers: {
@@ -208,4 +217,52 @@ it("serves local page files and confines credentials to the configured cloud ori
   } finally {
     await rm(assets, { recursive: true, force: true });
   }
+});
+
+it("preserves the Space file download contract through the native transport", async () => {
+  const bytes = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://openmeld.ai",
+    webBuild: "a".repeat(64),
+    installed: true,
+    ensureCompatible: async () => undefined,
+    cookie: () => "session=native-only",
+    // Response metadata captured from a production Space PNG on 2026-09-15.
+    cloudRequest: async () =>
+      new Response(bytes, {
+        headers: {
+          "content-type": "image/png",
+          "x-openmeld-file-revision": "1",
+          "set-cookie": "session=must-stay-native",
+        },
+      }),
+    fetch: () => {
+      throw new Error("Expected native cloud transport");
+    },
+  });
+  const api = createSpaceApi(
+    createOpenMeldApiClient({
+      baseUrl: "https://openmeld.ai",
+      transport: async ({ url, init }) => {
+        const target = new URL(url);
+        const response = await handle(
+          new Request(
+            `${DESKTOP_APP_ORIGIN}${target.pathname}${target.search}`,
+            init
+          )
+        );
+        expect(response.headers.has("set-cookie")).toBe(false);
+        return response;
+      },
+    })
+  );
+  const content = await api.downloadFileContent({
+    spaceId: "space",
+    fileId: "file",
+    revision: 1,
+  });
+  expect(content.revision).toBe(1);
+  expect(content.mimeType).toBe("image/png");
+  expect(new Uint8Array(content.bytes)).toEqual(bytes);
 });
