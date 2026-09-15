@@ -248,6 +248,7 @@ these commands. Source: `src/command-entry-checks/cli-update-assessment.ts`
 | Command | `type` |
 | --- | --- |
 | `service status` | `daemon.status` |
+| `service control-capabilities --json` | `service.control_capabilities` |
 | `service start` | `daemon.run` |
 | `service install` | `daemon.install` |
 | `service uninstall` | `daemon.uninstall` |

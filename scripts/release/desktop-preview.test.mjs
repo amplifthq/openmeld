@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
+const legacyPublicationDisabled =
+  /Legacy unsigned Desktop publication is disabled/u;
+
+test("legacy unsigned upload refuses publication before reading artifacts", () => {
+  const result = spawnSync(
+    process.execPath,
+    [new URL("./desktop-preview.mjs", import.meta.url).pathname, "upload"],
+    { encoding: "utf8" }
+  );
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, legacyPublicationDisabled);
+});
+
 import {
+  buildDesktopCandidateMetadata,
   buildDesktopPreviewMetadata,
   buildWranglerObjectPutArgs,
   DEFAULT_DOWNLOAD_PAGE_URL,
@@ -9,6 +24,39 @@ import {
   DEFAULT_R2_BUCKET_NAME,
   resolveDesktopArtifactName,
 } from "./desktop-preview.mjs";
+
+test("candidate publication selects only hash-scoped keys and rejects path injection", () => {
+  const input = {
+    version: "0.1.0-preview.0",
+    releaseSha: "b".repeat(40),
+    sha256: "a".repeat(64),
+    sizeBytes: 42,
+  };
+  const result = buildDesktopCandidateMetadata(input);
+  assert.equal(
+    result.manifestKey,
+    `desktop/candidates/${input.sha256}/manifest.json`
+  );
+  assert.equal(
+    result.objectKey,
+    `desktop/candidates/${input.sha256}/OpenMeld-Desktop-0.1.0-preview.0-macos-arm64.dmg`
+  );
+  assert.equal(
+    result.downloadPath,
+    `/desktop/download?candidate=${input.sha256}`
+  );
+  for (const invalid of [
+    { version: "../update.json" },
+    { objectKey: "desktop/update.json" },
+    { sha256: "../private" },
+    { target: "disposable" },
+    { sizeBytes: 0 },
+  ]) {
+    assert.throws(() =>
+      buildDesktopCandidateMetadata({ ...input, ...invalid })
+    );
+  }
+});
 
 test("resolves the unsigned Apple silicon Desktop artifact name", () => {
   assert.equal(

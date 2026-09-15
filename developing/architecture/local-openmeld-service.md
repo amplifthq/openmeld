@@ -233,6 +233,16 @@ Codex, Claude Code, Grok Build, Cursor, OpenCode, or future controller; ACI is t
 surface OpenMeld uses to detect it, launch it, inspect it, and drive its native
 control capabilities.
 
+Device inventory probes use an owned temporary directory outside Projects, not
+the caller's or Service's working directory. Native cwd parameters (including
+Codex skills/list and OpenCode's directory) use that same probe context. The
+selected executable, user configuration, authenticated account, and environment
+remain unchanged. Probe directories are removed after completion or failure.
+Inventory skills describe user/global controller context; they do not describe
+an incidental development repository. Actual execution continues to use the
+selected Project workspace and its access checks. Successful device inventory
+does not prove that a particular Project is accessible.
+
 ACI-owned local evidence may include:
 
 - selected launch contract and install choice
@@ -1077,7 +1087,7 @@ that decision.
   resume that intent, subject to the same Core Prepare outcome. Current explicit
   cancellation and abandonment clear the continuation before account recovery.
   A committed transition is never recovered backward. A cross-account switch requires explicit
-  interactive confirmation bound to the stable identity of the exact committed
+  confirmation in Terminal or the native Desktop dialog, bound to the stable identity of the exact committed
   session the user reviewed. The transition lock compares that identity before
   accepting the candidate; if it changed, setup requires fresh review. Before
   commit, ordinary CLI processes keep using the previous committed session and
@@ -1085,6 +1095,12 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  Desktop uses `computer connection-review --json` and
+  `setup --connection-intent <json>` for that same boundary. The intent contains
+  the expected new account and a non-secret hash of the reviewed old session;
+  it is accepted only with a Prepare token and Device Authorization grant.
+  Unknown or changed identity fails before a transition. This adds neither a
+  second session writer nor a second lifecycle owner.
   A missing or unreadable old bearer token does not veto a freshly authorized
   handoff when the committed account metadata is intact. Metadata is used only
   for account-switch consent and the locked identity comparison, never to
@@ -1510,6 +1526,14 @@ Catalog consumption rules:
 - One catalog load resolves its account context once and reuses it for every
   Profile workspace inspection. It must not fan out identical Keychain reads
   per Profile.
+- One OpenMeld Service process binds its account principal at startup. It
+  reuses the secure-storage cache and adopts changed credentials only for that
+  same account, Auth authority, and client. Clearing or switching the CLI account
+  cannot make accepted work use another account's credentials. Same-account
+  renewal uses the existing credential writer; an in-memory renewal deferred
+  during admission is persisted on a later read if the local principal still
+  matches. A new Service process resolves its own startup principal. Remote
+  authorization checks still decide whether the bearer session is valid.
 - One OpenMeld Service process reuses a verified credential for the same
   committed login, storage reference, lane, auth origin, client and account.
   Organization selection and display-only profile changes update context
@@ -1906,6 +1930,85 @@ Registration repair, install, start, stop, uninstall, alignment,
 auto-heal, and explicit autostart changes all reuse that one
 lock identity. Nested registration work in the same lifecycle command reuses
 the held lock; competing commands or roots cannot enter until it is released.
+On POSIX systems, native commands invoked inside that owner attach a separate,
+owner-scoped entry to the same lock directory before execution. A fixed shell
+handshake waits for attachment, then uses `exec` with structured argv so the
+recorded PID and process-start identity remain the native command's identity.
+EOF or failed attachment before the grant prevents execution. A surviving native
+command retains the fence after its requesting CLI dies. Recovery removes only
+recognized entries whose exact owners are all proven dead; unknown entries and
+unknown process identity fail closed. There is no live-owner timeout. Older
+single-entry readers cannot remove a nonempty multi-owner directory, including
+after their malformed-lock grace period. Read-only probes outside a lifecycle
+operation do not acquire this lock. Windows retains ordinary lifecycle behavior;
+the account-checked control path below is unavailable there.
+
+### Account-checked Service start and stop
+
+`service start|stop --json --expected-account <account-id>` admits one operation
+against an already connected Service. It is not setup, login, installation,
+account takeover, or permission to change another account's Service. The CLI
+verifies the bearer principal through Auth before taking lifecycle ownership,
+then rechecks the local credential snapshot, lane, Auth authority, device,
+connected-computer ownership, and contract generation under the auth mutation
+mutex. The lock order is lifecycle then auth; no OS command, startup wait, or
+work drain holds the auth mutex.
+
+The auth-owned `auth/service-account-admission.json` file contains the current
+command reservation/outcome and at most one receipt of an accepted Start.
+Updated credential writers and transition recovery reject a live pending
+reservation. Dead requesters produce a durable cancelled command, never deletion
+that could authorize a delayed child. Reserving or cancelling another command
+preserves the accepted-start receipt. Only successful Start admission replaces
+it, atomically with its outcome under the same auth mutex.
+
+The receipt contains the immutable Start ID and a digest binding it to the
+canonical account, Auth authority/client, Gateway, lane, device, and Service
+contract generation. It is evidence of past authorization, not an identity
+store or current Service state. Startup passes its ID in argv. The carrier must
+match the current auth and canonical Service facts, including background desired
+state, before using that receipt. Existing runtime ownership still prevents two
+active Services. Changed canonical facts invalidate the receipt on read, without
+requiring older contract writers to maintain it. A cancelled or unadmitted Start
+ID never receives restart permission. A later refused/cancelled Stop cannot erase
+an earlier accepted Start; a lost startup acknowledgement can recover from its
+durable receipt. Supervisor disabled state and normal stopped desired state
+continue to prevent a stopped Service from restarting.
+
+Stop uses the existing authenticated shutdown payload and releases auth
+protection when the exact carrier accepts the existing controlled stop. Its
+original response still waits for drain. Commit can precede outcome persistence:
+a pending record therefore does not prove refusal. Only the coordinator's
+explicit `service.account_admission.stop_refused` response proves pre-commit
+refusal and permits restoring the previous autostart preference. Once commit
+has been reached, a persistence, drain, or transport failure is uncertain;
+autostart remains disabled and the CLI reports `stop_unconfirmed` with the
+underlying diagnostic. The existing coordinator retains drain completion/error
+handling even if admission acknowledgement fails. No separate Stop machine is
+introduced.
+The CLI keeps lifecycle ownership through completion; it never falls back to
+unverified stop or another PID. Account changes after admission cannot retarget
+accepted work. A cancelled unadmitted ID, mismatched binding, corrupt record,
+or unsupported carrier fails closed. An older carrier rejects the new argv or
+shutdown field; that is not a positive coordinator refusal receipt.
+
+This record owns only local operation admission. It adds no Wakeability,
+RuntimeCoordinator, dispatch, Binding, or final-outcome authority. The persisted
+Service contract remains unchanged. The Desktop pilot exposes only this operation
+after a separate read-only capability query proves its actual local pair.
+
+`service control-capabilities --json` runs before layout repair or managed CLI
+delegation. For the macOS binary pilot, it queries the canonical stable executable
+that guarded Start installs into launchd, without invoking the repairing npm
+launcher. The executable answers `service control-carrier-capability --json`
+before delegation; the caller checks the responding executable path. When running,
+the authenticated `account_control_capabilities` control request must also return
+explicit support from the actual carrier. No status schema, lifecycle mutation,
+startup attempt, shutdown attempt, or compensation is part of the query. Unsupported
+or uncertain pairs return disabled controls. This capability is not Wakeability.
+
+### Registration reconciliation
+
 A successfully confirmed explicit autostart command clears the repair marker
 before releasing the lock. This prevents a later reconcile pass from undoing
 the user's explicit choice. The reconcile pass never boots or starts the job,

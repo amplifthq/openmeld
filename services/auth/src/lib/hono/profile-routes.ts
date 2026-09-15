@@ -64,6 +64,33 @@ const PROFILE_PATCH_REQUEST_BODY_KEYS = new Set(["profileName"]);
 export const PROFILE_ROUTE_BASE = "/v1/profiles";
 
 export function registerProfileRoutes(app: Hono<AppContext>) {
+  app.delete(
+    `${PROFILE_ROUTE_BASE}/agents/:openMeldProfileId`,
+    requireTrustedCookieOrigin,
+    async (c) => {
+      const authenticated = requireAuthenticatedUser(c);
+      if (!authenticated.ok) {
+        return authenticated.response;
+      }
+      try {
+        const profile = await c.var.profileService.deleteProfileForOwner({
+          ownerUserId: String(authenticated.user.id),
+          profileId: c.req.param("openMeldProfileId"),
+          expectedProfileKind: "agent",
+        });
+        await reconcileDeletedAgentProfileMemberships(c.env, profile);
+        return c.json({
+          ok: true,
+          profile: toProfileView(profile, {
+            ownerName: normalizeOptionalText(authenticated.user.name),
+          }),
+        });
+      } catch (error) {
+        const failure = toProfileHttpErrorResponse(error);
+        return c.json(failure.body, failure.status);
+      }
+    }
+  );
   app.get(`${PROFILE_ROUTE_BASE}/capabilities`, (c) => {
     const authenticated = requireAuthenticatedUser(c);
     if (!authenticated.ok) {
@@ -133,44 +160,50 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
     }
   });
 
-  app.post(`${PROFILE_ROUTE_BASE}/agents`, async (c) => {
-    const authenticated = requireAuthenticatedUser(c);
-    if (!authenticated.ok) {
-      return authenticated.response;
-    }
+  app.post(
+    `${PROFILE_ROUTE_BASE}/agents`,
+    requireTrustedCookieOrigin,
+    async (c) => {
+      const authenticated = requireAuthenticatedUser(c);
+      if (!authenticated.ok) {
+        return authenticated.response;
+      }
 
-    try {
-      const body = parseCreateAgentProfileRequestBody(await readJsonBody(c));
-      const profile = await c.var.profileService.createAgentProfile({
-        ownerUserId: String(authenticated.user.id),
-        organizationId: await resolveAgentProfileOrganizationId({
-          db: c.env.OPENMELD_DB,
-          headers: c.req.raw.headers,
-          sessionActiveOrganizationId: readSessionActiveOrganizationId(c),
-          userId: String(authenticated.user.id),
-        }),
-        createdByUserId: String(authenticated.user.id),
-        creationActorProfileId: body.creatorProfileId,
-        creatorProfileId: body.creatorProfileId,
-        ...(body.idempotencyKey ? { idempotencyKey: body.idempotencyKey } : {}),
-        profileName: body.profileName,
-        source: resolveDirectAgentProfileCreationSource(c.req.raw.headers),
-      });
-
-      return c.json(
-        {
-          ok: true,
-          profile: toProfileView(profile, {
-            ownerName: normalizeOptionalText(authenticated.user.name),
+      try {
+        const body = parseCreateAgentProfileRequestBody(await readJsonBody(c));
+        const profile = await c.var.profileService.createAgentProfile({
+          ownerUserId: String(authenticated.user.id),
+          organizationId: await resolveAgentProfileOrganizationId({
+            db: c.env.OPENMELD_DB,
+            headers: c.req.raw.headers,
+            sessionActiveOrganizationId: readSessionActiveOrganizationId(c),
+            userId: String(authenticated.user.id),
           }),
-        },
-        201
-      );
-    } catch (error) {
-      const failure = toProfileHttpErrorResponse(error);
-      return c.json(failure.body, failure.status);
+          createdByUserId: String(authenticated.user.id),
+          creationActorProfileId: body.creatorProfileId,
+          creatorProfileId: body.creatorProfileId,
+          ...(body.idempotencyKey
+            ? { idempotencyKey: body.idempotencyKey }
+            : {}),
+          profileName: body.profileName,
+          source: resolveDirectAgentProfileCreationSource(c.req.raw.headers),
+        });
+
+        return c.json(
+          {
+            ok: true,
+            profile: toProfileView(profile, {
+              ownerName: normalizeOptionalText(authenticated.user.name),
+            }),
+          },
+          201
+        );
+      } catch (error) {
+        const failure = toProfileHttpErrorResponse(error);
+        return c.json(failure.body, failure.status);
+      }
     }
-  });
+  );
 
   app.post(`${PROFILE_ROUTE_BASE}/agents/managed/ensure`, async (c) => {
     const authenticated = requireAuthenticatedUser(c);
@@ -208,35 +241,39 @@ export function registerProfileRoutes(app: Hono<AppContext>) {
     }
   });
 
-  app.post(`${PROFILE_ROUTE_BASE}/humans`, async (c) => {
-    const authenticated = requireAuthenticatedUser(c);
-    if (!authenticated.ok) {
-      return authenticated.response;
-    }
+  app.post(
+    `${PROFILE_ROUTE_BASE}/humans`,
+    requireTrustedCookieOrigin,
+    async (c) => {
+      const authenticated = requireAuthenticatedUser(c);
+      if (!authenticated.ok) {
+        return authenticated.response;
+      }
 
-    try {
-      const body = parseProfileNameRequestBody(await readJsonBody(c));
-      const profile = await c.var.profileService.createHumanProfile({
-        ownerUserId: String(authenticated.user.id),
-        createdByUserId: String(authenticated.user.id),
-        creatorProfileId: body.creatorProfileId,
-        profileName: body.profileName,
-      });
+      try {
+        const body = parseProfileNameRequestBody(await readJsonBody(c));
+        const profile = await c.var.profileService.createHumanProfile({
+          ownerUserId: String(authenticated.user.id),
+          createdByUserId: String(authenticated.user.id),
+          creatorProfileId: body.creatorProfileId,
+          profileName: body.profileName,
+        });
 
-      return c.json(
-        {
-          ok: true,
-          profile: toProfileView(profile, {
-            ownerName: normalizeOptionalText(authenticated.user.name),
-          }),
-        },
-        201
-      );
-    } catch (error) {
-      const failure = toProfileHttpErrorResponse(error);
-      return c.json(failure.body, failure.status);
+        return c.json(
+          {
+            ok: true,
+            profile: toProfileView(profile, {
+              ownerName: normalizeOptionalText(authenticated.user.name),
+            }),
+          },
+          201
+        );
+      } catch (error) {
+        const failure = toProfileHttpErrorResponse(error);
+        return c.json(failure.body, failure.status);
+      }
     }
-  });
+  );
 
   app.patch(
     `${PROFILE_ROUTE_BASE}/:openMeldProfileId`,

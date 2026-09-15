@@ -6,6 +6,7 @@ import {
 	buildDesktopUpdateManifest,
 	DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY,
 	parseDesktopPreviewReleaseManifest,
+	readAvailableDesktopRelease,
 	readDesktopPreviewReleaseManifest,
 } from "./desktop-release";
 
@@ -91,6 +92,47 @@ describe("desktop release metadata", () => {
 		expect(store.get).toHaveBeenCalledWith(
 			DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY
 		);
+	});
+
+	it.each([
+		null,
+		{ size: 0 },
+		{ size: 123 },
+	])("offers a download only when its artifact exists and is nonempty: %j", async (artifact) => {
+		const release = {
+			latestVersion: "1.0.0",
+			macosArm64: {
+				version: "1.0.0",
+				artifactName: "OpenMeld.dmg",
+				objectKey: "desktop/OpenMeld.dmg",
+			},
+		};
+		// R2 head's documented contract is object metadata or null.
+		const store = {
+			get: async () => ({ json: async () => release }),
+			head: async (key: string) =>
+				key === "desktop/OpenMeld.dmg" ? artifact : null,
+		};
+		const result = await readAvailableDesktopRelease(store);
+		expect(result).toEqual(
+			artifact?.size ? parseDesktopPreviewReleaseManifest(release) : null
+		);
+	});
+
+	it("keeps absent releases unavailable and rejects corrupt release metadata", async () => {
+		await expect(readAvailableDesktopRelease(undefined)).resolves.toBeNull();
+		await expect(
+			readAvailableDesktopRelease({
+				get: async () => null,
+				head: async () => null,
+			})
+		).resolves.toBeNull();
+		await expect(
+			readAvailableDesktopRelease({
+				get: async () => ({ json: async () => ({}) }),
+				head: async () => ({ size: 123 }),
+			})
+		).rejects.toThrow("Invalid OpenMeld Desktop preview release manifest");
 	});
 
 	it("sets download headers for the DMG stream", () => {

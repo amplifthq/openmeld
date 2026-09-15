@@ -115,6 +115,7 @@ export type UpdateManagedAgentProfileInOrganizationInput = {
 };
 
 export type DeleteProfileForOwnerInput = {
+  expectedProfileKind?: "agent";
   ownerUserId: string;
   profileId: string;
 };
@@ -1049,6 +1050,15 @@ export function createOpenMeldProfileService(
 
       if (existing?.status !== "active") {
         throw new ProfileNotFoundError();
+      }
+
+      if (
+        input.expectedProfileKind &&
+        existing.profileKind !== input.expectedProfileKind
+      ) {
+        throw new ProfileValidationError(
+          "Only Agent Profiles can be removed through this endpoint."
+        );
       }
 
       if (isDefaultHumanProfile(existing, ownerUserId)) {

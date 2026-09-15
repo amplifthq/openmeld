@@ -1,7 +1,11 @@
+import { createAccountSpaceIndexApi } from "@openmeld/api-client";
 import type { AccountSpaceIndexResponse } from "@openmeld/schemas/types";
-import { createServerFn } from "@tanstack/react-start";
+import { createIsomorphicFn } from "@tanstack/react-start";
 import { z } from "zod/v4";
 import { getRequiredServerEnv } from "#/env";
+import { createUnscopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
+import { getWebGatewayHost } from "#/lib/openmeld-api/gateway-host";
+import { rethrowAccountSpaceApiFailure } from "./account-space-api-failure";
 
 const listAccountSpaceIndexInputSchema = z.strictObject({
 	includeDirectMessageProfileIds: z.boolean().optional(),
@@ -33,17 +37,44 @@ async function listAccountSpaceIndexServer(input: {
 	});
 }
 
-export const listAccountSpaceIndex = createServerFn({
-	method: "GET",
-})
-	.validator((data: unknown) => {
-		const parsed = listAccountSpaceIndexInputSchema.safeParse(data);
-		if (!parsed.success) {
-			throw new Error(
-				parsed.error.issues[0]?.message ?? "Invalid account space index input."
-			);
-		}
+const listAccountSpaceIndexImpl = createIsomorphicFn()
+	.client(async (input: z.infer<typeof listAccountSpaceIndexInputSchema>) =>
+		createAccountSpaceIndexApi(
+			createUnscopedWebOpenMeldApiFoundation({
+				openMeldProfileId: input.profileId,
+			})
+		)
+			.listAccountSpaces({
+				gatewayHost: await getWebGatewayHost(),
+				selectedProfileId: input.profileId,
+				scope: input.scope,
+				limit: input.limit,
+				includeDirectMessageProfileIds:
+					input.includeDirectMessageProfileIds === true,
+				includePurposes: input.includePurposes === true,
+				includeRecentlyDeletedItems: true,
+				includeMemberPreviews: true,
+				includeMessagePreviews: true,
+			})
+			.catch((error: unknown) =>
+				rethrowAccountSpaceApiFailure(
+					error,
+					"list account spaces",
+					"Invalid account spaces response"
+				)
+			)
+	)
+	.server(listAccountSpaceIndexServer);
 
-		return parsed.data;
-	})
-	.handler(async ({ data }) => await listAccountSpaceIndexServer(data));
+export async function listAccountSpaceIndex(input: {
+	data: z.input<typeof listAccountSpaceIndexInputSchema>;
+}) {
+	const parsed = listAccountSpaceIndexInputSchema.safeParse(input.data);
+	if (!parsed.success) {
+		throw new Error(
+			parsed.error.issues[0]?.message ?? "Invalid account space index input."
+		);
+	}
+
+	return await listAccountSpaceIndexImpl(parsed.data);
+}

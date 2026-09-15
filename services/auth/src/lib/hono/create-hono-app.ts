@@ -1,4 +1,8 @@
 import { AUTH_SERVICE_NAME } from "@openmeld/auth/server";
+import {
+  ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+  ACCOUNT_SESSION_PATH,
+} from "@openmeld/schemas";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { prettyJSON } from "hono/pretty-json";
@@ -22,6 +26,7 @@ import {
   ACCOUNT_DISPLAY_NAME_COMPATIBILITY_ROUTE,
   registerAccountDisplayNameRoutes,
 } from "./account-display-name-routes";
+import { registerAccountOrganizationContextRoutes } from "./account-organization-context-routes";
 import {
   accountOrganizationPreferenceErrorEnvelopeMiddleware,
   registerAccountOrganizationPreferenceRoutes,
@@ -30,6 +35,7 @@ import {
   ACCOUNT_LAST_SELECTED_ORGANIZATION_ROUTE,
   ACCOUNT_ROUTE_BASE,
 } from "./account-route-paths";
+import { registerAccountSessionRoutes } from "./account-session-routes";
 import { registerAccountSidebarRoutes } from "./account-sidebar-routes";
 import { registerBetterAuthRoutes } from "./better-auth-routes";
 import { registerOrganizationCreationRoutes } from "./organization-creation-routes";
@@ -87,6 +93,15 @@ export function createHonoApp() {
   // Hono wildcard mounts also match the base path, so a single mount keeps
   // exact `/v1/profiles` requests from resolving the session twice.
   app.use(`${PROFILE_ROUTE_BASE}/*`, authContextMiddleware);
+  for (const path of [
+    ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+    ACCOUNT_SESSION_PATH,
+  ]) {
+    app.use(path, async (c, next) => {
+      c.header("Cache-Control", "private, no-store");
+      await next();
+    });
+  }
   app.use(
     ACCOUNT_LAST_SELECTED_ORGANIZATION_ROUTE,
     accountOrganizationPreferenceErrorEnvelopeMiddleware
@@ -106,6 +121,8 @@ export function createHonoApp() {
   registerAccountDisplayNameRoutes(app);
   registerAccountOrganizationPreferenceRoutes(app);
   registerAccountSidebarRoutes(app);
+  registerAccountOrganizationContextRoutes(app);
+  registerAccountSessionRoutes(app);
   registerProfileRoutes(app);
   registerPasswordRoutes(app);
   registerWaitlistRoutes(app);

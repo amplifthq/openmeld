@@ -6,6 +6,7 @@ export type IsolatedWebDevSettings = {
 	persistStatePath: string;
 	port: number;
 	vars: {
+		AUTH_DESKTOP_DEVELOPMENT_TARGET?: string;
 		BETTER_AUTH_URL: string;
 		VITE_BETTER_AUTH_URL: string;
 		VITE_OPENMELD_HOME: string;
@@ -32,6 +33,12 @@ export function resolveIsolatedWebDevSettings(
 		persistStatePath: join(wranglerStateDirectory, "web"),
 		port: requirePort(env, "OPENMELD_DEV_WEB_PORT"),
 		vars: {
+			...(env.AUTH_DESKTOP_DEVELOPMENT_TARGET
+				? {
+						AUTH_DESKTOP_DEVELOPMENT_TARGET:
+							env.AUTH_DESKTOP_DEVELOPMENT_TARGET,
+					}
+				: {}),
 			BETTER_AUTH_URL: requireValue(env, "BETTER_AUTH_URL"),
 			VITE_BETTER_AUTH_URL: requireValue(env, "VITE_BETTER_AUTH_URL"),
 			VITE_OPENMELD_HOME: requireValue(env, "VITE_OPENMELD_HOME"),

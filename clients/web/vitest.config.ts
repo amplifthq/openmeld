@@ -28,6 +28,10 @@ export default defineConfig({
 				import.meta.dirname,
 				"../../packages/auth/src/server.ts"
 			),
+			"@openmeld/auth/organization-policy": path.resolve(
+				import.meta.dirname,
+				"../../packages/auth/src/organization-policy.ts"
+			),
 			"@openmeld/auth": path.resolve(
 				import.meta.dirname,
 				"../../packages/auth/src/index.ts"

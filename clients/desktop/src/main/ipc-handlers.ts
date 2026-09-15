@@ -76,8 +76,8 @@ export type DesktopHandlers = {
   installService(): Promise<ServiceView>;
   installCli(): Promise<ServiceView>;
   updateService(): Promise<ServiceView>;
-  startService(): Promise<ServiceView>;
-  stopService(): Promise<ServiceView>;
+  startService(expectedAccount?: string): Promise<ServiceView>;
+  stopService(expectedAccount?: string): Promise<ServiceView>;
   upgradeCli(): Promise<ServiceView>;
   setServiceAutoStart(enabled: boolean): Promise<ServiceAutoStartUpdateView>;
   setupComputer(): Promise<ServiceView>;
