@@ -3,6 +3,7 @@ import { OpenMeldApiClientHttpError } from "@openmeld/api-client";
 import { submitRuntimeProviderConversationProofsResponseSchema } from "@openmeld/schemas";
 import type { AgentControllerInterfaceSnapshot } from "@openmeld/schemas/types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fingerprintRequestAuthorization } from "../src/config/request-headers";
 
 const {
   createCliApiClientFoundationMock,
@@ -642,6 +643,12 @@ describe("Runtime Agent Controller reporting submission", () => {
   });
 
   it("classifies a real API-client 401 and exposes one authentication recovery attempt", async () => {
+    createCliApiClientFoundationMock.mockImplementation((_baseUrl, options) => {
+      options?.onAuthHeadersResolved?.({
+        Authorization: "Bearer reporting-token",
+      });
+      return { foundation: true };
+    });
     const authenticationError = new OpenMeldApiClientHttpError({
       code: "auth.unauthenticated",
       message: "authentication required",
@@ -685,10 +692,12 @@ describe("Runtime Agent Controller reporting submission", () => {
       expect(onAttempt).toHaveBeenCalledTimes(1);
       expect(onAttempt).toHaveBeenCalledWith({
         authenticationRejected: true,
+        credentialFingerprint: fingerprintRequestAuthorization(
+          "Bearer reporting-token"
+        ),
         family: "runtime_agent_controller",
         message: "OpenMeld rejected the local authentication session.",
         reasonCode: "runtime.reporting.authentication_required",
-        requiresCarrierHandshake: false,
         status: "failed",
       });
       expect(warnSpy).toHaveBeenCalledWith(
@@ -711,7 +720,7 @@ describe("Runtime Agent Controller reporting submission", () => {
     }
   });
 
-  it("requests a carrier handshake when local authentication expires before reporting", async () => {
+  it("retains the local expiry reason without requesting a carrier handshake", async () => {
     getAuthSessionStateMock.mockResolvedValue({
       reasonCode: "session_expired",
       state: "expired",
@@ -745,8 +754,7 @@ describe("Runtime Agent Controller reporting submission", () => {
       authenticationRejected: false,
       family: "runtime_agent_controller",
       message: "Local authentication is expired.",
-      reasonCode: "runtime.reporting.auth_expired",
-      requiresCarrierHandshake: true,
+      reasonCode: "runtime.reporting.session_expired",
       status: "failed",
     });
     expect(submitRegistrationMock).not.toHaveBeenCalled();
@@ -757,7 +765,7 @@ describe("Runtime Agent Controller reporting submission", () => {
     submitRegistrationMock.mockRejectedValue(
       new OpenMeldApiClientHttpError({
         code: "gateway.invalid_response",
-        message: `unexpected response: ${responseSecret}`,
+        message: `authentication required in upstream response: ${responseSecret}`,
         rawBody: JSON.stringify({ secret: responseSecret }),
         requestId: "req-reporting-upstream-1",
         status: 502,
@@ -788,7 +796,6 @@ describe("Runtime Agent Controller reporting submission", () => {
         family: "runtime_agent_controller",
         message: "OpenMeld reporting request failed with HTTP 502.",
         reasonCode: "runtime.reporting.write_failed",
-        requiresCarrierHandshake: false,
         status: "failed",
       });
       const logLine = String(warnSpy.mock.calls[0]?.[0]);
@@ -840,7 +847,6 @@ describe("Runtime Agent Controller reporting submission", () => {
       family: "provider_conversation_proof",
       message: null,
       reasonCode: null,
-      requiresCarrierHandshake: false,
       status: "succeeded",
     });
   });

@@ -1,8 +1,14 @@
 import * as z from "zod/v4";
+import { localAgentReasoningStateSchema } from "../http/local-agent-reasoning";
 import { agentProfileIdSchema } from "./profile";
 import { nonEmptyTrimmedStringFromUnknown } from "./shared";
 
 export const AGENT_STREAM_SNAPSHOT_MAX_CHARS = 32 * 1024;
+
+export const clearSpaceReasoningReplaySchema = z.strictObject({
+  spaceId: z.string().trim().min(1),
+  profileId: agentProfileIdSchema,
+});
 
 const sequenceSchema = z.number().int().positive();
 const timestampSchema = z.number().int().nonnegative();
@@ -288,6 +294,7 @@ const agentWorkActivitySchema = z
   });
 
 const agentStreamIdentityShape = {
+  replyThreadRootSignalId: z.string().min(1).nullable().optional(),
   v: z.literal(1),
   spaceId: nonEmptyTrimmedStringFromUnknown,
   streamId: nonEmptyTrimmedStringFromUnknown,
@@ -354,7 +361,8 @@ const spaceAgentStreamThinkingDeltaFrameSchema = z.strictObject({
   type: z.literal("space.agent_stream_delta"),
   ...agentStreamIdentityShape,
   kind: z.literal("thinking"),
-  thinkingSnapshot: textSnapshotSchema,
+  thinkingSnapshot: z.string().max(AGENT_STREAM_SNAPSHOT_MAX_CHARS),
+  reasoningState: localAgentReasoningStateSchema.optional(),
   state: z.literal("streaming"),
   updatedAtMs: timestampSchema,
 });

@@ -8,11 +8,15 @@ import { REMOTE_AGENT_SANDBOX_TOOL_NAMES } from "../flue-adapter/sandbox-tools";
 import { resolveRemoteAgentToolWorkActivity } from "../flue-adapter/tool-work-activity";
 
 describe("Remote Agent user-visible work semantics", () => {
-  it("covers every direct OpenMeld, connected app, web, and GitHub tool", () => {
+  it("covers direct OpenMeld, connected app, web, and GitHub work beyond reply preparation", () => {
     for (const toolName of [
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
       ...REMOTE_AGENT_EVENT_AUTHORIZED_TOOL_NAMES,
     ]) {
+      if (toolName === "openmeld_set_reply_placement") {
+        // Selecting where the answer will appear is preparation, not a send.
+        continue;
+      }
       expect(
         resolveRemoteAgentToolWorkActivity(toolName, inputForTool(toolName)),
         toolName
@@ -45,7 +49,12 @@ describe("Remote Agent user-visible work semantics", () => {
     ).toBeNull();
   });
 
-  it("keeps the Code Mode wrapper and unknown internal tools hidden", () => {
+  it("keeps reply preparation, the Code Mode wrapper, and unknown internal tools hidden", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_set_reply_placement", {
+        placement: "conversation",
+      })
+    ).toBeNull();
     expect(
       resolveRemoteAgentToolWorkActivity(REMOTE_AGENT_CODE_MODE_TOOL_NAME, {})
     ).toBeNull();

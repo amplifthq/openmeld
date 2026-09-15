@@ -133,6 +133,7 @@ import { openMeldDaemonProviderConversationProofs } from "./provider-conversatio
 import { routineRuns, routines } from "./routine.schema.ts";
 import { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
 import { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
+import { serviceConnectionIncidents } from "./service-connection-evidence.schema.ts";
 import { spaceAttachments } from "./space-attachment.schema.ts";
 import {
   spaceIndexMemberships,
@@ -1763,6 +1764,7 @@ export const coreSchema = {
   openMeldRemoteAgentOrgGuardrails,
   openMeldDaemonRuntimeCoordinatorExecutions,
   openMeldDaemonRuntimeCoordinatorExecutionEvents,
+  serviceConnectionIncidents,
   openMeldDaemonRuntimeCoordinatorCreationDiagnostics,
   openMeldDaemonAgentExecutionReadinessImpacts,
   openMeldDaemonProviderAccessEvidence,

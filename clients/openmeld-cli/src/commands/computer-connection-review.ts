@@ -20,7 +20,7 @@ export async function readComputerConnectionReview() {
     typeof computerConnectionReviewSchema.parse
   >["existingConnection"] = null;
   const contract = await readDaemonServiceContract();
-  if (session && contract?.ownerUserId === session.user?.id) {
+  if (session && contract && contract.ownerUserId === session.user?.id) {
     const auth = await getAuthSessionState({ validateRemote: true });
     if (auth.state === "valid" && auth.session) {
       const identity = await resolveServiceAccountIdentity(

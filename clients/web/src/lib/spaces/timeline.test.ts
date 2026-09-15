@@ -428,7 +428,10 @@ describe("space timeline helpers", () => {
 		});
 	});
 
-	it("keeps a Thread stream out of the main conversation and in its Thread", () => {
+	it.each([
+		false,
+		true,
+	])("keeps a Thread stream out of main, including a main-message trigger (%s)", (mainTrigger) => {
 		const rootSignal = createTextSignal({
 			id: "signal-thread-root",
 			text: "Start a Thread here.",
@@ -446,7 +449,8 @@ describe("space timeline helpers", () => {
 			}),
 			reasonCode: "model.inventory_unavailable",
 			status: "failed" as const,
-			triggerMessageId: threadMessage.id,
+			triggerMessageId: mainTrigger ? rootSignal.id : threadMessage.id,
+			...(mainTrigger ? { replyThreadRootSignalId: rootSignal.id } : {}),
 		};
 
 		const mainItems = buildSpaceTimelineItems({

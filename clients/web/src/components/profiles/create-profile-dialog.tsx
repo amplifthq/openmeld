@@ -88,7 +88,7 @@ import {
 	continuePendingAgentProfileCreationLocalSetup,
 	rememberPendingAgentProfileCreationLocalSetup,
 } from "#/lib/profiles/agent-profile-creation-local-setup";
-import { createAgentProfileCreationRequest } from "#/lib/profiles/agent-profile-creation-requests";
+import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import { buildAgentProfileTemplateName } from "#/lib/profiles/agent-profile-template-name";
 import type {
 	NewProfileErrorState,
@@ -121,7 +121,10 @@ import {
 } from "#/query/organizations/organization-directory";
 import { projectsQueryOptions } from "#/query/organizations/projects";
 import { agentProfileCreationDefaultsQueryOptions } from "#/query/profiles/agent-profile-creation-defaults";
-import { agentProfileCreationRequestQueryKeys } from "#/query/profiles/agent-profile-creation-requests";
+import {
+	agentProfileCreationRequestQueryKeys,
+	createPresentedAgentProfileCreationRequest as createAgentProfileCreationRequest,
+} from "#/query/profiles/agent-profile-creation-requests";
 import {
 	agentProfilePrimaryBindingQueryKeys,
 	agentProfilePrimaryBindingQueryOptions,
@@ -425,6 +428,12 @@ export type CreateProfileDialogProps = {
 	onAgentRequestCreated?: (
 		request: AgentProfileCreationRequest
 	) => void | Promise<void>;
+	onAgentRequestAccepted?: (
+		request: AgentProfileCreationRequest,
+		optimisticId: string
+	) => void | Promise<void>;
+	onAgentRequestFailed?: (creation: OptimisticAgentProfileCreation) => void;
+	onAgentRequestStarted?: (creation: OptimisticAgentProfileCreation) => void;
 	onOpenChange: (open: boolean) => void;
 	onProfileCreated?: (profile: AuthProfileView) => void | Promise<void>;
 	open: boolean;
@@ -1017,6 +1026,7 @@ function useCreateProfileDialogController(
 		}) => {
 			if (submission.remote) {
 				const result = await createAgentProfileCreationRequest({
+					queryClient,
 					configuration: {
 						...DEFAULT_AGENT_PROFILE_CREATION_CONFIGURATION,
 						agentControllerRef: HOSTED_REMOTE_AGENT_CONTROLLER_REF,
@@ -1024,6 +1034,9 @@ function useCreateProfileDialogController(
 					},
 					idempotencyKey: submission.idempotencyKey,
 					organizationId,
+					onAccepted: input.onAgentRequestAccepted,
+					onFailed: input.onAgentRequestFailed,
+					onStarted: input.onAgentRequestStarted,
 					profileName: submission.remote.profileName,
 					requestedSpaceId: spaceContext?.spaceId ?? null,
 					sessionStrategy: "new",
@@ -1056,6 +1069,9 @@ function useCreateProfileDialogController(
 				currentUserId,
 				idempotencyKey: submission.idempotencyKey,
 				onAfterJoin: input.onAfterJoin,
+				onAgentRequestAccepted: input.onAgentRequestAccepted,
+				onAgentRequestFailed: input.onAgentRequestFailed,
+				onAgentRequestStarted: input.onAgentRequestStarted,
 				organizationId,
 				ownerMode,
 				profileKind: selectableProfileKind,
@@ -2204,6 +2220,12 @@ type CreateProfileSubmissionInput = {
 	currentUserId: string;
 	idempotencyKey: string;
 	onAfterJoin?: (profile: SpaceJoinedProfileReference) => void | Promise<void>;
+	onAgentRequestAccepted?: (
+		request: AgentProfileCreationRequest,
+		optimisticId: string
+	) => void | Promise<void>;
+	onAgentRequestFailed?: (creation: OptimisticAgentProfileCreation) => void;
+	onAgentRequestStarted?: (creation: OptimisticAgentProfileCreation) => void;
 	organizationId: string;
 	ownerMode: AgentProfileOwnerMode;
 	profileKind: NewProfileKind | null;
@@ -2291,7 +2313,9 @@ async function handleProfileCreationSuccess(input: {
 		) {
 			return;
 		}
-		input.onReset();
+		if (input.result.request.status === "completed") {
+			input.onReset();
+		}
 		input.onClose();
 		return;
 	}
@@ -2386,6 +2410,7 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 		);
 	}
 	const result = await createAgentProfileCreationRequest({
+		queryClient: input.queryClient,
 		configuration: {
 			agentControllerCollaborationMode: input.agentControllerCollaborationMode,
 			agentControllerPermissionMode: input.agentControllerPermissionMode,
@@ -2412,6 +2437,9 @@ async function requestAgentProfile(input: CreateProfileSubmissionInput) {
 				? null
 				: (input.sessionPreset?.nativeSessionId ?? null),
 		organizationId: input.organizationId,
+		onAccepted: input.onAgentRequestAccepted,
+		onFailed: input.onAgentRequestFailed,
+		onStarted: input.onAgentRequestStarted,
 		profileName: input.profileName,
 		requestedSpaceId: input.spaceContext?.spaceId ?? null,
 		sessionStrategy: input.sessionStrategy,

@@ -593,6 +593,84 @@ describe("SpaceComposerEditor", () => {
 		});
 	});
 
+	it("changes one Agent to Mention only while preserving another Agent's Wake and the draft", async () => {
+		const onChange = vi.fn();
+		const composerRef = createRef<SpaceComposerEditorHandle>();
+		const secondId = "agt_bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+		render(
+			<SpaceComposerEditor
+				addressingTargets={[
+					createAgentTarget(),
+					{
+						...createAgentTarget(),
+						profileId: secondId,
+						profileName: "Pepper",
+					},
+				]}
+				ariaLabel="Message this space"
+				authoredMentions={[
+					{
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						text: "@Runner",
+						start: 0,
+						end: 7,
+					},
+					{
+						profileId: secondId,
+						relation: "wake",
+						text: "@Pepper",
+						start: 8,
+						end: 15,
+					},
+				]}
+				composerRef={composerRef}
+				mentionPickerItems={[]}
+				onChange={onChange}
+				onSend={vi.fn()}
+				placeholder="Message"
+				text="@Runner @Pepper review this."
+			/>
+		);
+		fireEvent.click(
+			screen.getByRole("combobox", { name: "Change relation for Pepper" })
+		);
+		fireEvent.keyDown(
+			screen.getByRole("option", {
+				name: "Mention only — Won’t wake the agent",
+			}),
+			{ key: "Enter" }
+		);
+		await waitFor(() =>
+			expect(onChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					text: "@Runner @Pepper review this.",
+					authoredMentions: [
+						expect.objectContaining({
+							profileId: AGENT_PROFILE_ID,
+							relation: "wake",
+						}),
+						expect.objectContaining({
+							profileId: secondId,
+							relation: "reference",
+						}),
+					],
+				})
+			)
+		);
+		act(() => composerRef.current?.setAgentMentionOnly?.([AGENT_PROFILE_ID]));
+		await waitFor(() =>
+			expect(onChange).toHaveBeenLastCalledWith(
+				expect.objectContaining({
+					authoredMentions: [
+						expect.objectContaining({ relation: "reference" }),
+						expect.objectContaining({ relation: "reference" }),
+					],
+				})
+			)
+		);
+	});
+
 	it.each([
 		false,
 		true,

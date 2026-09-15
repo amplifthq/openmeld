@@ -1,6 +1,7 @@
 import {
   COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY,
   LOCAL_FOLDER_PICKER_RUNTIME_CAPABILITY,
+  serviceConnectionDiagnosticIdSchema,
 } from "@openmeld/schemas";
 import type { RuntimeTransportCapabilities } from "@openmeld/schemas/types";
 import { normalizeOptionalText } from "../application/runtime-transport-normalization";
@@ -14,6 +15,8 @@ export const RUNTIME_TRANSPORT_VERIFIED_OWNER_HEADER =
 // previously blew the platform's 2KiB attachment limit and silently broke
 // hibernation recovery.
 export type RuntimeTransportSocketAttachment = {
+  connectionDiagnosticId?: string;
+  reasoningStream?: boolean;
   computerFileAccessCapability:
     | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
     | null;
@@ -29,6 +32,8 @@ export const readRuntimeTransportSocketAttachment = (
   webSocket: WebSocket
 ): RuntimeTransportSocketAttachment => {
   let attachment: {
+    connectionDiagnosticId?: unknown;
+    reasoningStream?: unknown;
     verifiedOwnerUserId?: unknown;
     computerFileAccessCapability?: unknown;
     localFolderPickerCapability?: unknown;
@@ -37,6 +42,8 @@ export const readRuntimeTransportSocketAttachment = (
   };
   try {
     attachment = (webSocket.deserializeAttachment() ?? {}) as {
+      connectionDiagnosticId?: unknown;
+      reasoningStream?: unknown;
       verifiedOwnerUserId?: unknown;
       computerFileAccessCapability?: unknown;
       localFolderPickerCapability?: unknown;
@@ -57,6 +64,12 @@ export const readRuntimeTransportSocketAttachment = (
   }
 
   return {
+    ...(serviceConnectionDiagnosticIdSchema.safeParse(
+      attachment.connectionDiagnosticId
+    ).success
+      ? { connectionDiagnosticId: String(attachment.connectionDiagnosticId) }
+      : {}),
+    reasoningStream: attachment.reasoningStream === true,
     computerFileAccessCapability:
       attachment.computerFileAccessCapability ===
       COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -76,6 +89,8 @@ export const readRuntimeTransportSocketAttachment = (
 export const writeRuntimeTransportSocketAttachment = (
   webSocket: WebSocket,
   input: {
+    connectionDiagnosticId?: string;
+    reasoningStream?: boolean;
     verifiedOwnerUserId: string;
     computerFileAccessCapability?:
       | typeof COMPUTER_FILE_ACCESS_RUNTIME_CAPABILITY
@@ -90,6 +105,14 @@ export const writeRuntimeTransportSocketAttachment = (
   try {
     const current = readRuntimeTransportSocketAttachment(webSocket);
     webSocket.serializeAttachment({
+      ...((input.connectionDiagnosticId ?? current.connectionDiagnosticId)
+        ? {
+            connectionDiagnosticId:
+              input.connectionDiagnosticId ?? current.connectionDiagnosticId,
+          }
+        : {}),
+      reasoningStream:
+        input.reasoningStream ?? current.reasoningStream ?? false,
       verifiedOwnerUserId: input.verifiedOwnerUserId,
       computerFileAccessCapability:
         input.computerFileAccessCapability === undefined

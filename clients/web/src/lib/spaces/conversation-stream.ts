@@ -1,6 +1,7 @@
 import { isAgentWorkActivityPresentable } from "@openmeld/schemas";
 import type {
 	AgentStreamToolPart,
+	LocalAgentReasoningState,
 	SpaceAgentStreamDeltaFrame,
 	SpaceAgentStreamPartFrame,
 	SpaceAgentStreamPresence,
@@ -9,6 +10,7 @@ import type {
 } from "@openmeld/schemas/types";
 
 type SpaceConversationStreamCommon = {
+	replyThreadRootSignalId?: string | null;
 	createdAtMs: number;
 	dispatchId: string;
 	observedRevision: number;
@@ -30,6 +32,8 @@ export type SpaceConversationVisibleStreamProjection =
 			text: string;
 			textSequence: number;
 			thinking?: string;
+			thinkingActive?: boolean;
+			reasoningState?: LocalAgentReasoningState;
 	  })
 	| (SpaceConversationStreamCommon & {
 			reasonCode: string;
@@ -76,7 +80,12 @@ export function applySpaceConversationStreamFrame(input: {
 		}
 		if (
 			currentProjection &&
-			input.frame.sequence <= currentProjection.sequence
+			input.frame.sequence <= currentProjection.sequence &&
+			!(
+				input.frame.kind === "thinking" &&
+				!currentProjection.thinking &&
+				!currentProjection.reasoningState
+			)
 		) {
 			return input.current;
 		}
@@ -110,6 +119,7 @@ export function applySpaceConversationStreamFrame(input: {
 	return replaceStreamProjection(
 		input.current,
 		toTerminalProjection({
+			currentProjection,
 			createdAtMs: currentProjection?.createdAtMs ?? input.frame.updatedAtMs,
 			frame: input.frame,
 			observedRevision: input.observedRevision,
@@ -238,13 +248,28 @@ function toPresenceProjection(input: {
 		streamId: input.presence.streamId,
 		text: currentStreamingProjection?.text ?? "",
 		textSequence: currentStreamingProjection?.textSequence ?? 0,
+		...(currentStreamingProjection?.reasoningState
+			? { reasoningState: currentStreamingProjection.reasoningState }
+			: {}),
 		...(currentStreamingProjection?.thinking
-			? { thinking: currentStreamingProjection.thinking }
+			? {
+					thinking: currentStreamingProjection.thinking,
+					thinkingActive: currentStreamingProjection.thinkingActive,
+				}
 			: {}),
 		...(currentStreamingProjection?.toolParts
 			? { toolParts: currentStreamingProjection.toolParts }
 			: {}),
 		triggerMessageId: input.presence.triggerMessageId,
+		...(currentStreamingProjection
+			? {
+					replyThreadRootSignalId:
+						currentStreamingProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.presence.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.presence.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: Math.max(
 			currentStreamingProjection?.updatedAtMs ?? 0,
 			input.presence.updatedAtMs
@@ -269,6 +294,8 @@ export function clearSpaceConversationTransientStreams(
 		}
 		const {
 			thinking: _thinking,
+			thinkingActive: _thinkingActive,
+			reasoningState: _reasoningState,
 			toolParts: _toolParts,
 			...persistent
 		} = projection;
@@ -296,7 +323,10 @@ function toStreamingProjection(input: {
 		observedRevision: input.observedRevision,
 		profileId: input.frame.profileId,
 		reasonCode: null,
-		sequence: input.frame.sequence,
+		sequence: Math.max(
+			currentStreamingProjection?.sequence ?? 0,
+			input.frame.sequence
+		),
 		spaceId: input.frame.spaceId,
 		status: "streaming",
 		streamId: input.frame.streamId,
@@ -308,9 +338,40 @@ function toStreamingProjection(input: {
 			input.frame.kind === "thinking"
 				? (currentStreamingProjection?.textSequence ?? 0)
 				: input.frame.sequence,
-		...(thinking ? { thinking } : {}),
+		...(thinking
+			? {
+					thinking,
+					thinkingActive:
+						input.frame.kind === "thinking" &&
+						input.frame.sequence >= (currentStreamingProjection?.sequence ?? 0),
+				}
+			: {}),
+		...((
+			input.frame.kind === "thinking"
+				? input.frame.reasoningState
+				: currentStreamingProjection?.reasoningState
+		)
+			? {
+					reasoningState:
+						input.frame.kind === "thinking"
+							? input.frame.reasoningState
+							: currentStreamingProjection?.reasoningState,
+				}
+			: {}),
 		triggerMessageId: input.frame.triggerMessageId,
-		updatedAtMs: input.frame.updatedAtMs,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.frame.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.frame.replyThreadRootSignalId }
+			: {}),
+		updatedAtMs: Math.max(
+			currentStreamingProjection?.updatedAtMs ?? 0,
+			input.frame.updatedAtMs
+		),
 		...(input.currentProjection?.toolParts
 			? { toolParts: input.currentProjection.toolParts }
 			: {}),
@@ -347,6 +408,10 @@ function toStreamingPartProjection(input: {
 	}
 	const boundedToolParts = toolParts.slice(-MAX_LIVE_AGENT_WORK_PARTS);
 	return {
+		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.reasoningState
+			? { reasoningState: input.currentProjection.reasoningState }
+			: {}),
 		createdAtMs: input.createdAtMs,
 		dispatchId: input.frame.dispatchId,
 		observedRevision: input.observedRevision,
@@ -366,10 +431,19 @@ function toStreamingPartProjection(input: {
 				: 0,
 		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.thinking
-			? { thinking: input.currentProjection.thinking }
+			? { thinking: input.currentProjection.thinking, thinkingActive: false }
 			: {}),
 		toolParts: boundedToolParts,
 		triggerMessageId: input.frame.triggerMessageId,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.frame.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.frame.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: input.frame.updatedAtMs,
 	};
 }
@@ -398,10 +472,26 @@ function toSnapshotProjection(input: {
 		text: input.snapshot.textSnapshot,
 		textSequence: input.snapshot.sequence,
 		...(input.currentProjection?.status === "streaming" &&
+		input.currentProjection.reasoningState
+			? { reasoningState: input.currentProjection.reasoningState }
+			: {}),
+		...(input.currentProjection?.status === "streaming" &&
 		input.currentProjection.thinking
-			? { thinking: input.currentProjection.thinking }
+			? {
+					thinking: input.currentProjection.thinking,
+					thinkingActive: input.currentProjection.thinkingActive,
+				}
 			: {}),
 		triggerMessageId: input.snapshot.triggerMessageId,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.snapshot.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.snapshot.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: Math.max(
 			input.currentProjection?.updatedAtMs ?? 0,
 			input.snapshot.updatedAtMs
@@ -413,6 +503,7 @@ function toSnapshotProjection(input: {
 }
 
 function toTerminalProjection(input: {
+	currentProjection: SpaceConversationStreamProjection | undefined;
 	createdAtMs: number;
 	frame: SpaceAgentStreamTerminalFrame;
 	observedRevision: number;
@@ -426,6 +517,15 @@ function toTerminalProjection(input: {
 		spaceId: input.frame.spaceId,
 		streamId: input.frame.streamId,
 		triggerMessageId: input.frame.triggerMessageId,
+		...(input.currentProjection
+			? {
+					replyThreadRootSignalId:
+						input.currentProjection.replyThreadRootSignalId,
+				}
+			: {}),
+		...(input.frame.replyThreadRootSignalId !== undefined
+			? { replyThreadRootSignalId: input.frame.replyThreadRootSignalId }
+			: {}),
 		updatedAtMs: input.frame.updatedAtMs,
 	};
 	if (input.frame.terminal.kind === "final_message") {

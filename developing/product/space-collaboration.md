@@ -324,9 +324,31 @@ Wake progress may expose a bounded public source context so Human View, Agent
 View, and the Center Agent can identify the requester's Profile, kind, display
 name, sanitized source-message preview, and thread. Space supplies those facts
 at read time; execution owners continue to supply lifecycle and freshness. This
-projection does not expose or retain private agent context. Future opt-in
-private streaming requires its own transient transport and privacy contract and
-is not part of this read model.
+projection does not expose or retain private agent context. Local Agent reasoning
+uses the separate transient stream described below, not this read model.
+
+Local Agent thinking and reasoning streaming is enabled by default. The Human
+account owner can disable it in Settings > Privacy & Safety for all of their
+local Agents across Organizations. Only thinking or reasoning text actually
+emitted through the provider's official integration is eligible; this does not
+authorize extracting hidden model state or streaming the private final answer.
+The setting explains that people with access to the Space can see live output.
+OpenClaw is excluded.
+
+The existing working title, elapsed time, and Stop control remain available.
+A bounded Thinking + Reasoning viewport below them opens for live output and
+lets the reader pause following by scrolling up. It collapses when the stream
+transitions to text or tool work, and opens when reasoning resumes. Center Agent
+and Remote Agent streams use the same component and interaction. Disabled streaming is explicitly
+attributed to the Agent owner; an unsupported connection is distinguished from
+waiting for a provider that has not emitted reasoning. Absence of reasoning is
+never evidence that a running Agent is stuck.
+
+Reasoning is ephemeral. It is not a Space message, Work summary, Agent Activity,
+search input, notification, export, transcript, execution journal, or diagnostic
+body. OpenMeld retains no reasoning text in storage or browser persistence.
+The live tail is cleared on disconnect, navigation, privacy disable, and terminal
+outcome. Provider-owned local session retention is outside this OpenMeld promise.
 
 An ambient `Working` indicator identifies current Wake activity in that Space,
 not the author of an older reply or a historical **Work summary**. When Core has
@@ -1011,9 +1033,11 @@ message action bar opens a compact set of common emoji and an optional full
 picker. Existing reactions show counts and the viewer's selected state. Members
 can inspect who reacted, including a paginated complete list when needed.
 
-Reactions are quiet feedback. They do not create messages, unread activity, Wakes,
-task completion, or execution approval. Removing the last reaction removes its
-chip. Failed changes restore the confirmed state and offer a retry.
+Reactions to Human messages create ordinary unread Inbox updates for the author,
+except self-reactions, in both the main conversation and threads. They do not
+create messages, Wakes, task completion, or execution approval. Removing the last
+reaction removes its chip. Failed changes restore the confirmed state and offer
+a retry. The Inbox owner document defines recipient and delivery semantics.
 
 Authorized Human and Agent message reads include the current reaction state,
 participant identities, and explicit preview truncation. This applies to Local,
@@ -1076,9 +1100,10 @@ If a user Wakes an Agent Profile from a thread, the Agent Profile's reply should
 default back to that same thread. The user asked from that local conversation,
 so the visible answer belongs there.
 
-Opening a thread under a main-timeline Wake does not move the running Wake's
-reply or its message-review scope into that thread. The root remains a main
-message, while also being a valid starting point for reading its thread.
+Opening a thread under a main-timeline Wake does not change its message-review
+scope. The root remains a main message, while also being a valid starting point
+for reading its thread. Reply placement follows the policy below independently
+of that frozen source scope.
 
 If the hosted runtime rolls a Space conversation to a fresh internal generation,
 the Space owner uses the exact dispatch's frozen thread placement to rebuild the
@@ -1095,9 +1120,26 @@ reject that Wake action instead of silently posting it to the main Space.
 
 A reply should appear where the user expects the conversation to continue.
 
-For a main Space Wake, the final reply, explicit stopped outcome, or explicit
-failure belongs in the main Space conversation. For a thread Wake, it belongs in
-that thread by default.
+For a workstation or personal Remote Agent Wake, the final reply, explicit
+stopped outcome, or explicit failure follows its source: main conversation for
+a main Wake, or the existing Thread for a Thread Wake.
+
+For interactive Center Agent turns in shared Spaces, the default answer belongs
+in the Thread under the triggering message. Existing Thread conversations stay
+in that Thread; direct messages default to direct replies. Follow an explicit
+user preference for the main conversation, including a continuing preference
+while it remains relevant. The Center Agent selects that destination with
+`openmeld_set_reply_placement` before composing its answer.
+
+Space owns one durable output placement per dispatch, separate from source
+context and conversation continuity. Explicit selection or the first answer
+text locks the destination. Streaming, final publication, callback failures,
+and result recovery reuse it. Pre-execution system notices still follow the
+source message. Routines and external Message Channels keep their own policies.
+
+Guide answer detail positively: prioritize useful new information, make outcomes
+easy to understand, and choose detail and structure for the user's task and
+conversation.
 
 Reply placement is source alignment, not a hard-coded thread rule. An Agent
 Profile should keep the current source, requested action, performed action, and

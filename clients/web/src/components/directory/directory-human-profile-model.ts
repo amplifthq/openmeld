@@ -12,7 +12,10 @@ import type {
 } from "@openmeld/schemas/types";
 import { compareAgentListRecency } from "#/components/agents/agent-list-model";
 import type { AppShellAccount } from "#/components/app/app-shell-account";
-import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
+import {
+	buildTeamComputerRouteId,
+	type OrganizationComputerGroup,
+} from "#/components/computers/organization-computers";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
 	buildOrganizationChannelsPath,
@@ -552,7 +555,7 @@ export function resolveHumanProfileComputer(input: {
 		computers: computers.map((computer) => ({
 			routeId: input.isCurrentUser
 				? computer.computerId
-				: `computer:${computer.computerId}`,
+				: buildTeamComputerRouteId(input.userId, computer.computerId),
 			serviceState: computer.serviceState,
 		})),
 		isCurrentUser: input.isCurrentUser,

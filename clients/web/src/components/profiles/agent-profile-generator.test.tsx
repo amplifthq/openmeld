@@ -6,6 +6,7 @@ import {
 	render,
 	screen,
 	waitFor,
+	within,
 } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
 import { type FormEvent, useState } from "react";
@@ -182,8 +183,25 @@ describe("AgentProfileGenerator", () => {
 		expect(review.disabled).toBe(false);
 		expect(review.type).toBe("button");
 		fireEvent.click(screen.getByRole("button", { name: "Review permissions" }));
+		const outcome = await screen.findByTestId(
+			"agent-controller-permission-mode-outcome"
+		);
+		const permissionSelect = screen.getByRole("combobox", {
+			name: "Codex permissions mode",
+		});
+		expect(permissionSelect.textContent).toBe("Full access");
+		expect(permissionSelect.getAttribute("aria-describedby")).toBe(
+			`${outcome.id}-description`
+		);
+		const technicalDetails = within(outcome)
+			.getByText("Technical details")
+			.closest("details") as HTMLDetailsElement;
+		expect(technicalDetails.open).toBe(false);
+		expect(technicalDetails.textContent).toContain(
+			"--dangerously-bypass-approvals-and-sandbox"
+		);
 		const confirmation = await screen.findByRole("checkbox", {
-			name: "I understand this permissions mode can run with dangerous full access.",
+			name: "I understand this mode may run dangerous actions without asking.",
 		});
 		await waitFor(() => expect(document.activeElement).toBe(confirmation));
 		fireEvent.click(confirmation);

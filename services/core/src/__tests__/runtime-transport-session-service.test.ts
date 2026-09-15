@@ -154,6 +154,37 @@ function createLocalComponentsStatus(input: {
 }
 
 describe("runtime transport session service", () => {
+  it("preserves storage failures instead of returning empty restoration or successful persistence", async () => {
+    const storage = new FakeStorage();
+    const ctx = {
+      storage,
+      getWebSockets: () => [],
+    } as unknown as DurableObjectState;
+    const failure = Object.assign(
+      new Error("internal storage reset; reference=test-reference"),
+      { retryable: true }
+    );
+    const list = vi.spyOn(storage, "list").mockRejectedValueOnce(failure);
+    const state = createRuntimeTransportMutableState();
+    await expect(restoreServiceRuntimeRecords(ctx, state)).rejects.toBe(
+      failure
+    );
+    list.mockRestore();
+    await putServiceRuntimeRecord(storage, {
+      ownerUserId: "owner-storage",
+      deviceId: "device-storage",
+      daemonSessionId: "session-storage",
+      profileId: "agt-storage",
+      heartbeatAtMs: Date.now(),
+    });
+    await restoreServiceRuntimeRecords(ctx, state);
+    expect(state.sessionsById.size).toBe(1);
+    const put = vi.spyOn(storage, "put").mockRejectedValueOnce(failure);
+    await expect(persistServiceRuntimeRecordsNow(ctx, state)).rejects.toBe(
+      failure
+    );
+    put.mockRestore();
+  });
   afterEach(() => {
     vi.useRealTimers();
   });

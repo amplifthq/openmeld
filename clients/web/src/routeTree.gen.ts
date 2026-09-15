@@ -107,6 +107,7 @@ import { Route as V1ProfilesCapabilitiesRouteImport } from './routes/v1/profiles
 import { Route as V1ProfilesHumansRouteImport } from './routes/v1/profiles/humans'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
+import { Route as OOrgSlugCenterAgentDeskRouteImport } from './routes/o/$orgSlug/_center-agent/desk'
 import { Route as OOrgSlugAgentActivityIndexRouteImport } from './routes/o/$orgSlug/agent-activity/index'
 import { Route as OOrgSlugAgentActivityChangesRouteImport } from './routes/o/$orgSlug/agent-activity/changes'
 import { Route as OOrgSlugAgentActivitySessionsRouteImport } from './routes/o/$orgSlug/agent-activity/sessions'
@@ -675,6 +676,11 @@ const OOrgSlugCenterAgentCenterAgentRoute =
     path: '/center-agent',
     getParentRoute: () => OOrgSlugCenterAgentRoute,
   } as any)
+const OOrgSlugCenterAgentDeskRoute = OOrgSlugCenterAgentDeskRouteImport.update({
+  id: '/desk',
+  path: '/desk',
+  getParentRoute: () => OOrgSlugCenterAgentRoute,
+} as any)
 const OOrgSlugAgentActivityIndexRoute =
   OOrgSlugAgentActivityIndexRouteImport.update({
     id: '/',
@@ -1093,6 +1099,7 @@ export interface FileRoutesByFullPath {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
+  '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
@@ -1241,6 +1248,7 @@ export interface FileRoutesByTo {
   '/v1/profiles/agents': typeof V1ProfilesAgentsRouteWithChildren
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
+  '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents/new': typeof OOrgSlugAgentsNewRoute
@@ -1397,6 +1405,7 @@ export interface FileRoutesById {
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
+  '/o/$orgSlug/_center-agent/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
   '/o/$orgSlug/agents_/new': typeof OOrgSlugAgentsNewRoute
@@ -1555,6 +1564,7 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/o/$orgSlug/center-agent'
+    | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents/new'
@@ -1703,6 +1713,7 @@ export interface FileRouteTypes {
     | '/v1/profiles/agents'
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
+    | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents/new'
@@ -1858,6 +1869,7 @@ export interface FileRouteTypes {
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
     | '/o/$orgSlug/_center-agent/center-agent'
+    | '/o/$orgSlug/_center-agent/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
     | '/o/$orgSlug/agents_/new'
@@ -2667,6 +2679,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugCenterAgentCenterAgentRouteImport
       parentRoute: typeof OOrgSlugCenterAgentRoute
     }
+    '/o/$orgSlug/_center-agent/desk': {
+      id: '/o/$orgSlug/_center-agent/desk'
+      path: '/desk'
+      fullPath: '/o/$orgSlug/desk'
+      preLoaderRoute: typeof OOrgSlugCenterAgentDeskRouteImport
+      parentRoute: typeof OOrgSlugCenterAgentRoute
+    }
     '/o/$orgSlug/agent-activity/': {
       id: '/o/$orgSlug/agent-activity/'
       path: '/'
@@ -3205,6 +3224,7 @@ const OOrgSlugCenterAgentCenterAgentRouteWithChildren =
 
 interface OOrgSlugCenterAgentRouteChildren {
   OOrgSlugCenterAgentCenterAgentRoute: typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
+  OOrgSlugCenterAgentDeskRoute: typeof OOrgSlugCenterAgentDeskRoute
   OOrgSlugCenterAgentIndexRoute: typeof OOrgSlugCenterAgentIndexRoute
   OOrgSlugCenterAgentChatsCenterAgentRoute: typeof OOrgSlugCenterAgentChatsCenterAgentRoute
 }
@@ -3212,6 +3232,7 @@ interface OOrgSlugCenterAgentRouteChildren {
 const OOrgSlugCenterAgentRouteChildren: OOrgSlugCenterAgentRouteChildren = {
   OOrgSlugCenterAgentCenterAgentRoute:
     OOrgSlugCenterAgentCenterAgentRouteWithChildren,
+  OOrgSlugCenterAgentDeskRoute: OOrgSlugCenterAgentDeskRoute,
   OOrgSlugCenterAgentIndexRoute: OOrgSlugCenterAgentIndexRoute,
   OOrgSlugCenterAgentChatsCenterAgentRoute:
     OOrgSlugCenterAgentChatsCenterAgentRoute,
@@ -3579,13 +3600,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}

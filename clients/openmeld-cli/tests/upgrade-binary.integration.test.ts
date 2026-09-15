@@ -409,12 +409,7 @@ describe("openmeld upgrade in binary distribution", () => {
     await expect(
       verifyCliBinaryCodeSignature({
         artifactPath: "/tmp/openmeld",
-        release: {
-          ...platformRelease,
-          minRequiredCliVersion: manifest.channels.stable.minRequiredCliVersion,
-          platform,
-          version: manifest.channels.stable.version,
-        },
+        release: platformRelease,
         runCommand,
       })
     ).rejects.toThrow("signed OpenMeld CLI verification requires macOS");

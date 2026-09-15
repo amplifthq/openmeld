@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { runAgentActivityDigestTick } from "../src/agent-activity/activity-digest-service";
+import type { deleteExpiredServiceConnectionIncidents } from "../src/computers/service-connection-evidence-repo";
 import type { retryInboxUrgentEmailDeliveries } from "../src/inbox/application/inbox-email-delivery-service";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -10,7 +11,22 @@ import {
   WAKE_EVIDENCE_RETENTION_CRON,
 } from "../src/scheduled/core-scheduled-tasks";
 
+const { deleteExpiredConnectionIncidents } = vi.hoisted(() => ({
+  deleteExpiredConnectionIncidents:
+    vi.fn<typeof deleteExpiredServiceConnectionIncidents>(),
+}));
+
+vi.mock("../src/computers/service-connection-evidence-repo", () => ({
+  deleteExpiredServiceConnectionIncidents: deleteExpiredConnectionIncidents,
+}));
+
 describe("Core scheduled task dispatcher", () => {
+  beforeEach(() => {
+    deleteExpiredConnectionIncidents
+      .mockReset()
+      .mockResolvedValue({ deleted: 0 });
+  });
+
   it("routes the weekly eval Cron without running unrelated retention", async () => {
     const runWeeklyEvalReport = vi.fn(async () => ({
       organizationId: "org-official",
@@ -533,6 +549,10 @@ describe("Core scheduled task dispatcher", () => {
       db: expect.objectContaining({ owner: "coordination" }),
       nowMs: 2000,
     });
+    expect(deleteExpiredConnectionIncidents).toHaveBeenCalledWith({
+      db: expect.objectContaining({ owner: "wake-evidence" }),
+      nowMs: 2000,
+    });
   });
 
   it("runs digest production only behind its explicit consumer fence", async () => {
@@ -630,12 +650,18 @@ describe("Core scheduled task dispatcher", () => {
     expect(runWakeEvidenceRetention).toHaveBeenCalledTimes(1);
     expect(runAgentActivityRetention).not.toHaveBeenCalled();
     expect(runAgentControllerTaskRetention).toHaveBeenCalledTimes(1);
+    expect(deleteExpiredConnectionIncidents).toHaveBeenCalledWith({
+      db: expect.anything(),
+      nowMs: 4000,
+    });
   });
 
   it("preserves every scheduled retention failure with safe log context", async () => {
     const activityError = new Error("activity retention unavailable");
     const controllerError = new TypeError("controller retention unavailable");
+    const connectionError = new Error("connection retention unavailable");
     const wakeError = new Error("wake retention unavailable");
+    deleteExpiredConnectionIncidents.mockRejectedValueOnce(connectionError);
     const error = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
@@ -660,7 +686,7 @@ describe("Core scheduled task dispatcher", () => {
         runWakeEvidenceRetention: vi.fn(() => Promise.reject(wakeError)),
       })
     ).rejects.toMatchObject({
-      errors: [activityError, controllerError, wakeError],
+      errors: [activityError, controllerError, connectionError, wakeError],
     });
     expect(error.mock.calls.flat().join(" ")).toContain(
       "controller retention unavailable"

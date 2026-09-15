@@ -93,6 +93,7 @@ import {
 	formatRuntimeLane,
 } from "./agents-page-formatters";
 import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
+import { ComputerConnectionHistory } from "./computer-connection-history";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
@@ -224,7 +225,7 @@ function resolveTeamOpenMeldToolsStatusDescription(
 		case "needs_attention":
 			return `${computer.ownerLabel} needs to update OpenMeld on this computer.`;
 		case "not_connected":
-			return `${computer.ownerLabel} needs to reconnect OpenMeld Service on this computer.`;
+			return `No active OpenMeld connection is reported for ${computer.ownerLabel} on this computer.`;
 		default:
 			return "OpenMeld is waiting for a current status from this computer.";
 	}
@@ -623,6 +624,10 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
+			<ComputerConnectionHistory
+				storageScope={input.recovery.storageScope}
+				target={input.currentLocalRuntimeReplyReadiness?.currentTarget}
+			/>
 			<ComputerReportDetails computer={input.computer} />
 		</OpenMeldToolsCardFrame>
 	);

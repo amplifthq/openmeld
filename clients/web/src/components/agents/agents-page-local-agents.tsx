@@ -248,7 +248,7 @@ function resolveTeamLocalAgentSummaryStatus(
 			return { label: "Unavailable", tone: "warning" };
 		}
 		case "stale":
-			return { label: "Not current", tone: "warning" };
+			return { label: "Status out of date", tone: "warning" };
 		default:
 			return { label: "Not confirmed", tone: "muted" };
 	}
@@ -266,7 +266,7 @@ function resolveTeamLocalAgentDescription(agent: TeamLocalAgent): string {
 				? "OpenMeld will retry automatically"
 				: "Unavailable on this computer";
 		case "stale":
-			return "Needs a fresh check from this computer";
+			return "Availability is unknown until this computer reports a new check";
 		default:
 			return "Status not confirmed";
 	}
