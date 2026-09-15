@@ -1979,6 +1979,12 @@ function coreEnv(
   }
 ): CoreBindings {
   const runtimeTransportStub = {
+    rpcAgentProfileExecutionMode: vi.fn(async () => ({
+      agentProfileId: AGENT_PROFILE_ID,
+      mode: "parallel" as const,
+      migration: "legacy" as const,
+      revision: 0,
+    })),
     rpcReadAgentProfileExecutionState: vi.fn(() => {
       if (input?.agentProfileExecutionState === "unavailable") {
         return Promise.resolve({

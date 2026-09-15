@@ -28,6 +28,7 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { spaceThreadsQueryOptions } from "#/query/spaces/threads";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import {
 	buildSpaceComposerAddressingTargets,
@@ -738,11 +739,21 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		!previous?.signals.some(
 			(signal) => signal.profile.profileId === input.signal.profile.profileId
 		);
+	// Live events can populate an unopened Thread with only its newest messages.
+	// Keep that partial snapshot stale until a full server read completes.
+	const needsFullSnapshot =
+		!previous ||
+		input.queryClient.getQueryState(threadSignalsKey)?.isInvalidated;
+	const changesWakeSelection =
+		input.signal.type === "signal.text" &&
+		input.signal.profile.kind === "human" &&
+		!input.signal.data.meta?.threadWakeContinuation &&
+		(input.signal.data.messageEnvelope?.activationTargets.length ?? 0) > 0;
 	input.queryClient.setQueryData<ListSpaceThreadSignalsResponse>(
 		threadSignalsKey,
 		(current) => mergeThreadSignalsCache(current, input)
 	);
-	if (introducesAuthor) {
+	if (introducesAuthor || needsFullSnapshot || changesWakeSelection) {
 		input.queryClient
 			.invalidateQueries({ queryKey: threadSignalsKey })
 			.catch((error) => {
@@ -765,7 +776,14 @@ export function mergeLiveThreadSignalIntoCache(input: {
 	);
 	if (!knownThread) {
 		input.queryClient
-			.invalidateQueries({ queryKey: threadsKey })
+			.fetchQuery({
+				...spaceThreadsQueryOptions({
+					spaceId: input.spaceId,
+					openMeldProfileId: input.openMeldProfileId,
+					enabled: true,
+				}),
+				staleTime: 0,
+			})
 			.catch((error) => {
 				console.error("Could not refresh the new Thread.", error);
 			});
@@ -839,13 +857,16 @@ export function upsertThreadPreview(
 		];
 	}
 
-	const signalAlreadyKnown = existingPreview.signals.some(
-		(signal) => signal.id === input.signal.id
+	const signalAlreadyKnown = existingPreview.placements.some(
+		(placement) => placement.signalId === input.signal.id
 	);
-	const nextSignals =
-		signalAlreadyKnown || existingPreview.signals.length >= 2
-			? existingPreview.signals
-			: [...existingPreview.signals, input.signal].sort(compareSignalOrder);
+	const nextSignals = existingPreview.signals.some(
+		(signal) => signal.id === input.signal.id
+	)
+		? existingPreview.signals
+		: [...existingPreview.signals, input.signal]
+				.sort(compareSignalOrder)
+				.slice(-2);
 	const nextPlacements = existingPreview.placements.some(
 		(placement) => placement.signalId === input.placement.signalId
 	)

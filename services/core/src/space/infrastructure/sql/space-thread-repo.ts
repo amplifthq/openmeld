@@ -385,7 +385,7 @@ export function listSpaceThreadPreviewEntries(
         WITH ranked AS (
           SELECT p.signal_id, p.thread_id, p.placement, p.created_at_ms,
             ROW_NUMBER() OVER (
-              PARTITION BY p.thread_id ORDER BY p.created_at_ms, p.signal_id
+              PARTITION BY p.thread_id ORDER BY p.created_at_ms DESC, p.signal_id DESC
             ) AS preview_rank
           FROM space_thread_signal_placements p
           JOIN space_signals s ON s.id = p.signal_id

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildCodexExecArgs } from "../dist/transport/codex-cli-transport.js";
+import {
+  buildCodexFileAccessBoundaryGlobalArgs,
+  isCodexExecutionContextFileAccessConfirmed,
+} from "../dist/transport/codex-file-access-boundary.js";
 import { buildCodexSpaceActionMcpGlobalArgs } from "../dist/transport/codex-space-action-mcp-config.js";
 
 const DANGEROUS_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
@@ -9,6 +13,97 @@ const countDangerousBypassFlags = (args) =>
   args.filter((arg) => arg === DANGEROUS_BYPASS_FLAG).length;
 
 describe("Codex CLI transport args", () => {
+  it("requires native permission-profile evidence before an isolated task can run", () => {
+    const boundary = {
+      mode: "only_selected_folders",
+      folders: ["/work/task"],
+      revision: 1,
+      updatedAtMs: 1,
+      executionContextAccess: "workspace",
+    };
+    // ThreadStartResponse permission fields from Codex 0.154.0-alpha.6.2;
+    // the generated native JSON Schema defines activePermissionProfile.
+    const response = {
+      runtimeWorkspaceRoots: ["/work/task"],
+      cwd: "/work/task",
+      approvalPolicy: "never",
+      activePermissionProfile: {
+        id: "openmeld_computer_boundary",
+        extends: null,
+      },
+      sandbox: {
+        type: "workspaceWrite",
+        writableRoots: [],
+        networkAccess: false,
+        excludeTmpdirEnvVar: true,
+        excludeSlashTmp: true,
+      },
+    };
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        boundary,
+        "/work/task"
+      ),
+      true
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        { ...response, sandbox: { type: "readOnly" } },
+        boundary,
+        "/work/task",
+        "repair"
+      ),
+      true
+    );
+    assert.equal(
+      isCodexExecutionContextFileAccessConfirmed(
+        response,
+        boundary,
+        "/work/task",
+        "repair"
+      ),
+      false
+    );
+    for (const invalid of [
+      undefined,
+      { ...response, activePermissionProfile: { id: ":workspace" } },
+      { ...response, approvalPolicy: "on-request" },
+      {
+        ...response,
+        sandbox: { ...response.sandbox, writableRoots: ["/other"] },
+      },
+      { ...response, sandbox: { type: "dangerFullAccess" } },
+    ]) {
+      assert.equal(
+        isCodexExecutionContextFileAccessConfirmed(
+          invalid,
+          boundary,
+          "/work/task"
+        ),
+        false
+      );
+    }
+    const args = buildCodexFileAccessBoundaryGlobalArgs({
+      boundary,
+      permissionMode: "codex:askForApproval",
+    });
+    assert.equal(args.includes("features.hooks=false"), true);
+    assert.equal(args.includes("features.plugins=false"), true);
+    assert.equal(args.includes("mcp_servers={}"), false);
+    assert.equal(args[args.indexOf("-a") + 1], "never");
+    for (const access of ["space_context", "read_only", "workspace"]) {
+      const scopedArgs = buildCodexFileAccessBoundaryGlobalArgs({
+        boundary: { ...boundary, executionContextAccess: access },
+        permissionMode: "codex:askForApproval",
+      });
+      assert.equal(
+        scopedArgs.includes("project_root_markers=[]"),
+        access === "space_context"
+      );
+      assert.equal(scopedArgs.includes("project_doc_max_bytes=0"), false);
+    }
+  });
   it("keeps cwd write inherited while selected parent and additional roots stay read-only", () => {
     for (const agentControllerPermissionMode of [
       "codex:askForApproval",
@@ -309,7 +404,7 @@ describe("Codex Space Action MCP config", () => {
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["read_file","reply","status","stay_silent"]',
+        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["read_file","read_history","reply","status","stay_silent"]',
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
         "-c",

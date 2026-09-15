@@ -640,6 +640,7 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
     assert.deepEqual(captured.options.allowedTools, [
       ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
       "mcp__openmeld_internal_dispatch_space_action__read_file",
+      "mcp__openmeld_internal_dispatch_space_action__read_history",
       "mcp__openmeld_internal_dispatch_space_action__reply",
       "mcp__openmeld_internal_dispatch_space_action__status",
       "mcp__openmeld_internal_dispatch_space_action__stay_silent",

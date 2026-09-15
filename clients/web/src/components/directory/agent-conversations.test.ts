@@ -100,7 +100,7 @@ describe("owned Agent conversations", () => {
 		});
 		expect(observer).toEqual({
 			to: "/o/studio/chats/dm",
-			search: { profileId: "my-agent" },
+			search: { profileId: "my-agent", focusSignalId: "message" },
 		});
 		const joined = {
 			...space("converted", ["me", agent.id]),
@@ -114,7 +114,7 @@ describe("owned Agent conversations", () => {
 			})
 		).toEqual({
 			to: "/o/studio/spaces/converted",
-			search: { profileId: "me" },
+			search: { profileId: "me", focusSignalId: "message" },
 		});
 	});
 });

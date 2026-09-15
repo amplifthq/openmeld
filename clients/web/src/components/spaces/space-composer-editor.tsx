@@ -51,7 +51,11 @@ import {
 	InlineComboboxInput,
 	InlineComboboxItem,
 } from "#/components/editor/ui/inline-combobox";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
+import { useOptionalSpaceAgentProfileEditContext } from "./space-agent-profile-edit-context";
+import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 import "./space-wake-recommendation.css";
 import { resolveSpaceMemberStatusBadgeDisplay } from "#/lib/spaces/presentation";
 import { SpaceComposerAllMentionOptions } from "./space-composer-all-mention-options";
@@ -823,12 +827,10 @@ function SpaceComposerProfileToken(
 						profileName={profileName}
 					/>
 				</span>
-				<span
-					className="min-w-0 truncate font-medium"
-					data-slot="space-composer-profile-token-name"
-				>
-					{profileName}
-				</span>
+				<SpaceComposerProfileName
+					pickerItem={pickerItem}
+					profileName={profileName}
+				/>
 				{relationControl}
 				{locked ? null : (
 					<button
@@ -934,6 +936,54 @@ function SpaceComposerMentionInput(props: PlateElementProps<TElement>) {
 	);
 }
 
+function SpaceComposerProfileName({
+	pickerItem,
+	profileName,
+}: {
+	pickerItem: SpaceMentionPickerItem | undefined;
+	profileName: string;
+}) {
+	const context = useSpaceComposerEditorContext();
+	const organization = useOptionalAppOrganization();
+	const profileContext = useOptionalSpaceAgentProfileEditContext();
+	const { profileDetailsPopoverTrigger } = useSpaceProfileDetailsPopover({
+		centerAgentProfileId: context.centerAgentProfileId,
+		currentOwnerUserId: organization?.currentUserId ?? null,
+		entry: pickerItem?.memberEntry ?? null,
+		modelCatalog: profileContext?.modelCatalog ?? null,
+		orgSlug: organization?.currentOrganization.slug,
+	});
+	const trigger = (
+		<button
+			aria-label={`View ${profileName}'s profile`}
+			className="min-w-0 truncate font-medium outline-none"
+			data-slot="space-composer-profile-token-name"
+			onMouseDown={(event) => event.preventDefault()}
+			type="button"
+		>
+			{profileName}
+		</button>
+	);
+	return (
+		<>
+			{profileDetailsPopoverTrigger ? (
+				profileDetailsPopoverTrigger(trigger)
+			) : (
+				<span
+					className="min-w-0 truncate font-medium"
+					data-slot="space-composer-profile-token-name"
+				>
+					{profileName}
+				</span>
+			)}
+			{pickerItem?.suggestion.profileKind === "agent" &&
+			pickerItem.suggestion.profileId !== context.centerAgentProfileId ? (
+				<AgentProfileUsage profileId={pickerItem.suggestion.profileId} />
+			) : null}
+		</>
+	);
+}
+
 function SpaceComposerMentionGroup(input: {
 	items: readonly SpaceMentionPickerItem[];
 	title: string;
@@ -970,6 +1020,10 @@ function SpaceComposerMentionGroup(input: {
 						<span className="truncate">{item.suggestion.profileName}</span>
 						{item.suggestion.profileKind === "agent" ? (
 							<ComposerAgentAvailability item={item} />
+						) : null}
+						{item.suggestion.profileKind === "agent" &&
+						item.suggestion.profileId !== context.centerAgentProfileId ? (
+							<AgentProfileUsage profileId={item.suggestion.profileId} />
 						) : null}
 					</span>
 					<span className="ml-2 text-muted-foreground text-xs">

@@ -126,6 +126,7 @@ export {
   type SpaceDispatchHistoryState,
 } from "./read-projection/dispatch-history";
 export {
+  buildBareMentionContext,
   buildDispatchQuotedMessage,
   renderDispatchSourceText,
 } from "./read-projection/dispatch-source-context";

@@ -179,6 +179,7 @@ export type CommandEntryName =
   | "profile.set"
   | "profile.show"
   | "profile.update"
+  | "profile.execution-mode"
   | "profile.delete"
   | "profile.requests.create"
   | "profile.requests.list"

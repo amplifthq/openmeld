@@ -6,6 +6,12 @@ import {
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
+import {
+  executionContextAssignmentSchema,
+  executionContextRequestSchema,
+  executionContextSelectionSchema,
+  executionContextTaskSchema,
+} from "../protocol/execution-context";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import { signalTextReplyToSchema } from "../protocol/signal";
 import { spaceMessageAttachmentsSchema } from "../protocol/space-attachment";
@@ -64,6 +70,8 @@ export const openMeldDaemonDispatchControllerSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonAcceptedDispatchSnapshotSchema = z.strictObject({
+  contextRequest: executionContextRequestSchema.optional(),
+  executionContext: executionContextAssignmentSchema.optional(),
   deviceWait: wakeDeviceWaitSchema.optional(),
   controllerSnapshot: z.strictObject({
     bindingId: z.string().trim().min(1),
@@ -95,6 +103,18 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  contextMessages: z
+    .array(
+      z.strictObject({
+        signalId: z.string().min(1),
+        author: z.string().min(1).nullable(),
+        text: z.string().max(16_000),
+        files: spaceMessageFileReferencesSchema.optional(),
+        attachments: spaceMessageAttachmentsSchema.optional(),
+      })
+    )
+    .max(3)
+    .optional(),
   callerContext: spaceCallerContextSchema.optional(),
   pinnedFiles: z.array(spaceMessageFileReferenceSchema).max(100).optional(),
   quotedMessage: z
@@ -140,6 +160,8 @@ export const openMeldDaemonDispatchQueueMessageSchema = z
   .strictObject({
     v: z.literal(OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION),
     dispatchId: z.string().min(1),
+    contextSelection: executionContextSelectionSchema.optional(),
+    executionContext: executionContextTaskSchema.optional(),
     deviceWait: wakeDeviceWaitSchema.optional(),
     spaceId: z.string().min(1),
     organizationId: z

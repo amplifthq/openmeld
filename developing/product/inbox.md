@@ -124,6 +124,13 @@ new writers create only `space_mention`.
 
 ## Item contract and ownership
 
+Independent Local Agent Contexts do not create new Inbox identities or a new
+execution authority. Recovery and interaction items remain keyed to the exact
+Wake, source message, requester, and target Agent Profile. Multiple reserved or
+interrupted Wakes may coexist; the first reserved work reference is only a
+compatibility projection. Reading or dismissing one item cannot settle another
+Context, release its reservation, or publish a reply.
+
 Core owns one canonical item with:
 
 - stable item id and recipient;
@@ -475,11 +482,14 @@ Opening any Space destination does not clear unread state on route entry alone.
 For one open Space, Web reads Core's exact unread message targets and preserves
 their main-conversation or thread-root scope; a browser Space cursor is not an
 unread owner. Web writes one monotonic main-conversation read-through watermark
-only after the document is visible and the member has remained at the latest
-main message for the normal read debounce. Scrolling up, switching tabs, or
-arriving through a deep link without viewing the latest reply does not clear it.
+only after the document is visible and the message header and beginning of its
+body remain in the conversation viewport for 150 ms. Long messages do not require
+scrolling to their end. Unseen targets above, below, or outside loaded history
+block advancing past their occurrence time; jumping past a message is not reading
+it. Only Core unread targets can advance the watermark, never temporary Agent
+progress, prefetching, or route entry. Background tabs cancel the pending dwell.
 Each thread has its own monotonic read-through watermark, which advances only
-while that exact thread is open, visible, and held at its latest message. Main
+while that exact thread is open and its message beginning passes the same dwell. Main
 and thread watermarks make delayed projections of older already-viewed updates
 arrive read while newer updates remain unread; one scope never clears another.
 Core and Web reject implausible future read positions instead of letting a bad
@@ -656,7 +666,7 @@ adapters without changing Inbox truth.
   **Recent updates** together when both exist, and its maximize action opens the
   canonical full Inbox page.
 - Unread Center Agent replies show the rail dot in every rail tier and clear
-  only through the visible-at-latest read-through contract.
+  only through the visible-message read-through contract.
 - Explicit Center Agent response requests classify normal versus urgent from
   the model-visible impact enum, and the member's next reply resolves the open
   source request.

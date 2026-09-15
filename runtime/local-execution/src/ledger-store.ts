@@ -9,7 +9,9 @@ import type {
   RuntimeTransportMode,
 } from "@openmeld/schemas/types";
 
-export const LEDGER_STATE_VERSION = 1 as const;
+export const LEDGER_STATE_VERSION = 2 as const;
+const EXECUTION_CONTEXT_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const LEDGER_STATE_INVALID_JSON_ERROR = "ledger.state.invalid_json";
 export const LEDGER_STATE_SCHEMA_ERROR = "ledger.state.schema_invalid";
@@ -77,12 +79,16 @@ const encodeAgentContextLookupKeyPart = (value: string): string =>
   encodeURIComponent(value);
 
 const buildStoredAgentContextLookupKey = (input: {
+  executionContextId?: string;
   agentControllerRef: string;
   runtimeWorkspaceFingerprint: string;
   targetProfileId: string;
   transportMode: RuntimeTransportMode;
 }): string =>
   [
+    ...(input.executionContextId
+      ? ["execution-context", input.executionContextId]
+      : []),
     input.targetProfileId,
     input.agentControllerRef,
     input.transportMode,
@@ -146,7 +152,7 @@ export type OpenMeldDaemonAgentContextRotationRecord = {
   rotationTaskId: string;
 };
 
-export type OpenMeldDaemonLedgerStateV1 = {
+export type OpenMeldDaemonLedgerState = {
   v: typeof LEDGER_STATE_VERSION;
   updatedAtMs: number;
   dedupeFirstSeenByKey: Record<string, number>;
@@ -190,6 +196,7 @@ export type LedgerFileIo = {
   ) => Promise<void>;
   readFile: (filePath: string, encoding: "utf8") => Promise<string>;
   rename: (fromPath: string, toPath: string) => Promise<void>;
+  syncPath: (fileOrDirectoryPath: string) => Promise<void>;
   rm: (
     filePath: string,
     options: {
@@ -204,7 +211,7 @@ export type LedgerFileIo = {
 };
 
 type LedgerStateTransactionResult<T> = {
-  nextState: OpenMeldDaemonLedgerStateV1;
+  nextState: OpenMeldDaemonLedgerState;
   value: T;
 };
 
@@ -299,7 +306,20 @@ const parseAgentContextState = (
     return null;
   }
 
+  let executionContextId: string | undefined;
+  if (agentContextLookupKey.startsWith("execution-context|")) {
+    executionContextId = agentContextLookupKey.split("|")[1];
+    if (
+      !(
+        executionContextId &&
+        EXECUTION_CONTEXT_ID_PATTERN.test(executionContextId)
+      )
+    ) {
+      return null;
+    }
+  }
   const canonicalLookupKey = buildStoredAgentContextLookupKey({
+    executionContextId,
     agentControllerRef: parsedAgentControllerRef.ref,
     runtimeWorkspaceFingerprint,
     targetProfileId,
@@ -537,9 +557,9 @@ const parseBootstrapExecutionByLookupKey = (
   return nextBootstrapExecutionByLookupKey;
 };
 
-const parseLedgerStateV1 = (
+const decodeLedgerState = (
   value: unknown
-): OpenMeldDaemonLedgerStateV1 | null => {
+): OpenMeldDaemonLedgerState | null => {
   if (!isRecord(value)) {
     return null;
   }
@@ -556,7 +576,10 @@ const parseLedgerStateV1 = (
     v,
   } = value;
 
-  if (v !== LEDGER_STATE_VERSION || !isPositiveInteger(updatedAtMs)) {
+  if (
+    (v !== LEDGER_STATE_VERSION && v !== 1) ||
+    !isPositiveInteger(updatedAtMs)
+  ) {
     return null;
   }
 
@@ -603,12 +626,12 @@ const parseLedgerStateV1 = (
   };
 };
 
-const serializeLedgerState = (state: OpenMeldDaemonLedgerStateV1): string =>
+const serializeLedgerState = (state: OpenMeldDaemonLedgerState): string =>
   `${JSON.stringify(state, null, 2)}\n`;
 
 const cloneLedgerState = (
-  state: OpenMeldDaemonLedgerStateV1
-): OpenMeldDaemonLedgerStateV1 => ({
+  state: OpenMeldDaemonLedgerState
+): OpenMeldDaemonLedgerState => ({
   dedupeFirstSeenByKey: { ...state.dedupeFirstSeenByKey },
   inflightByTaskId: Object.fromEntries(
     Object.entries(state.inflightByTaskId).map(([taskId, taskState]) => [
@@ -732,8 +755,8 @@ const rotateHistoryIfNeeded = async (input: {
 export const compactLedgerState = (input: {
   maxAgentContexts?: number;
   nowMs?: number;
-  state: OpenMeldDaemonLedgerStateV1;
-}): OpenMeldDaemonLedgerStateV1 => {
+  state: OpenMeldDaemonLedgerState;
+}): OpenMeldDaemonLedgerState => {
   const persistedAtMs = input.nowMs ?? Date.now();
   const maxAgentContexts =
     typeof input.maxAgentContexts === "number" &&
@@ -820,7 +843,7 @@ export const compactLedgerState = (input: {
 
 const resolveCompactionReferenceNowMs = (input: {
   fallbackNowMs: number;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): number => {
   let maxObservedMs = 0;
   for (const firstSeenAtMs of Object.values(input.state.dedupeFirstSeenByKey)) {
@@ -909,7 +932,7 @@ const enqueueLedgerStateWrite = async <T>(input: {
 
 export const createEmptyLedgerState = (
   nowMs: number = Date.now()
-): OpenMeldDaemonLedgerStateV1 => ({
+): OpenMeldDaemonLedgerState => ({
   dedupeFirstSeenByKey: {},
   inflightByTaskId: {},
   replayedTaskIds: {},
@@ -923,13 +946,13 @@ export const createEmptyLedgerState = (
 
 export const parseLedgerState = (
   value: unknown
-): OpenMeldDaemonLedgerStateV1 | null => parseLedgerStateV1(value);
+): OpenMeldDaemonLedgerState | null => decodeLedgerState(value);
 
-export const loadLedgerState = async (input: {
+const loadLedgerStateUnlocked = async (input: {
   invalidStateStrategy?: LedgerInvalidStateStrategy;
   io: LedgerFileIo;
   paths: LedgerPaths;
-}): Promise<OpenMeldDaemonLedgerStateV1> => {
+}): Promise<OpenMeldDaemonLedgerState> => {
   let rawState = "";
   try {
     rawState = await input.io.readFile(
@@ -967,7 +990,70 @@ export const loadLedgerState = async (input: {
     });
   }
 
+  if (isRecord(parsedUnknown) && parsedUnknown.v === 1) {
+    await backupPriorVersionLedgerState({ ...input, rawState });
+  }
+
   return parsedState;
+};
+
+export const loadLedgerState = async (input: {
+  invalidStateStrategy?: LedgerInvalidStateStrategy;
+  io: LedgerFileIo;
+  paths: LedgerPaths;
+}): Promise<OpenMeldDaemonLedgerState> =>
+  enqueueLedgerStateWrite({
+    operation: () => loadLedgerStateUnlocked(input),
+    stateFilePath: input.paths.stateFilePath,
+  });
+
+const backupPriorVersionLedgerState = async (input: {
+  io: LedgerFileIo;
+  paths: LedgerPaths;
+  rawState: string;
+}): Promise<void> => {
+  // Keep the migration checkpoint separate from invalid-state recovery backups.
+  const backupPath = `${input.paths.stateFilePath}.v1.bak`;
+  let tempPath: string | undefined;
+  try {
+    let existingBackup: string | undefined;
+    try {
+      existingBackup = await input.io.readFile(backupPath, UTF8_ENCODING);
+    } catch (error) {
+      if (toErrorCode(error) !== "ENOENT") {
+        throw error;
+      }
+    }
+    if (existingBackup === undefined) {
+      tempPath = buildScopedStateTempFilePath({
+        stateTempFilePath: `${backupPath}.tmp`,
+      });
+      await input.io.copyFile(input.paths.stateFilePath, tempPath);
+      await input.io.syncPath(tempPath);
+      if (
+        (await input.io.readFile(tempPath, UTF8_ENCODING)) !== input.rawState
+      ) {
+        throw new Error(LEDGER_STATE_BACKUP_ERROR);
+      }
+      await input.io.rename(tempPath, backupPath);
+      tempPath = undefined;
+    } else if (existingBackup !== input.rawState) {
+      throw new Error(LEDGER_STATE_BACKUP_ERROR);
+    }
+    await input.io.syncPath(backupPath);
+    await input.io.syncPath(input.paths.rootDirPath);
+    if (
+      (await input.io.readFile(backupPath, UTF8_ENCODING)) !== input.rawState
+    ) {
+      throw new Error(LEDGER_STATE_BACKUP_ERROR);
+    }
+  } catch (error) {
+    throw new Error(LEDGER_STATE_BACKUP_ERROR, { cause: error });
+  } finally {
+    if (tempPath) {
+      await input.io.rm(tempPath, { force: true }).catch(() => undefined);
+    }
+  }
 };
 
 const handleInvalidLedgerState = async (input: {
@@ -977,7 +1063,7 @@ const handleInvalidLedgerState = async (input: {
   invalidStateStrategy?: LedgerInvalidStateStrategy;
   io: LedgerFileIo;
   paths: LedgerPaths;
-}): Promise<OpenMeldDaemonLedgerStateV1> => {
+}): Promise<OpenMeldDaemonLedgerState> => {
   if (input.invalidStateStrategy !== "backup_and_reset") {
     throw new Error(input.errorCode);
   }
@@ -1004,7 +1090,7 @@ const persistLedgerStateAtomic = async (input: {
   io: LedgerFileIo;
   nowMs?: number;
   paths: LedgerPaths;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): Promise<void> => {
   const persistedAtMs = input.nowMs ?? Date.now();
   const normalizedState = compactLedgerState({
@@ -1021,7 +1107,9 @@ const persistLedgerStateAtomic = async (input: {
       serializeLedgerState(normalizedState),
       UTF8_ENCODING
     );
+    await input.io.syncPath(scopedTempFilePath);
     await input.io.rename(scopedTempFilePath, input.paths.stateFilePath);
+    await input.io.syncPath(input.paths.rootDirPath);
   } catch (error) {
     await input.io.rm(scopedTempFilePath, {
       force: true,
@@ -1033,10 +1121,12 @@ const persistLedgerStateAtomic = async (input: {
 export const persistLedgerState = async (input: {
   io: LedgerFileIo;
   paths: LedgerPaths;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): Promise<void> =>
   enqueueLedgerStateWrite({
     operation: async () => {
+      // Direct persistence must not bypass validation or the v1 checkpoint.
+      await loadLedgerStateUnlocked(input);
       await persistLedgerStateAtomic(input);
     },
     stateFilePath: input.paths.stateFilePath,
@@ -1046,7 +1136,7 @@ export const withLedgerStateTransaction = async <T>(input: {
   invalidStateStrategy?: LedgerInvalidStateStrategy;
   io: LedgerFileIo;
   mutate: (
-    state: OpenMeldDaemonLedgerStateV1
+    state: OpenMeldDaemonLedgerState
   ) =>
     | LedgerStateTransactionResult<T>
     | Promise<LedgerStateTransactionResult<T>>;
@@ -1054,7 +1144,7 @@ export const withLedgerStateTransaction = async <T>(input: {
 }): Promise<T> =>
   enqueueLedgerStateWrite({
     operation: async () => {
-      const state = await loadLedgerState({
+      const state = await loadLedgerStateUnlocked({
         invalidStateStrategy: input.invalidStateStrategy,
         io: input.io,
         paths: input.paths,
@@ -1105,15 +1195,15 @@ export const appendLedgerHistoryEntry = async (input: {
 
 export const resolveDedupeFirstSeenAt = (input: {
   idempotencyKey: string;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): number | undefined =>
   input.state.dedupeFirstSeenByKey[input.idempotencyKey];
 
 export const recordDedupeFirstSeenAt = (input: {
   firstSeenAtMs: number;
   idempotencyKey: string;
-  state: OpenMeldDaemonLedgerStateV1;
-}): OpenMeldDaemonLedgerStateV1 => {
+  state: OpenMeldDaemonLedgerState;
+}): OpenMeldDaemonLedgerState => {
   const current = input.state.dedupeFirstSeenByKey[input.idempotencyKey];
   if (current !== undefined && current <= input.firstSeenAtMs) {
     return input.state;
@@ -1126,9 +1216,9 @@ export const recordDedupeFirstSeenAt = (input: {
 };
 
 export const upsertInflightTask = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   task: OpenMeldDaemonInflightTaskState;
-}): OpenMeldDaemonLedgerStateV1 => {
+}): OpenMeldDaemonLedgerState => {
   const nextState = cloneLedgerState(input.state);
   nextState.inflightByTaskId[input.task.taskId] = {
     ...input.task,
@@ -1138,9 +1228,9 @@ export const upsertInflightTask = (input: {
 };
 
 export const settleInflightTask = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   taskId: string;
-}): OpenMeldDaemonLedgerStateV1 => {
+}): OpenMeldDaemonLedgerState => {
   if (!(input.taskId in input.state.inflightByTaskId)) {
     return input.state;
   }
@@ -1152,25 +1242,25 @@ export const settleInflightTask = (input: {
 
 export const resolveAgentContextByLookupKey = (input: {
   agentContextLookupKey: string;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): OpenMeldDaemonAgentContextState | undefined =>
   input.state.agentContextByLookupKey[input.agentContextLookupKey];
 
 export const resolveConversationExecutionStateByLookupKey = (input: {
   agentContextLookupKey: string;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): ConversationExecutionState | undefined =>
   input.state.bootstrapExecutionByLookupKey[input.agentContextLookupKey];
 
 export const listAgentContexts = (
-  state: OpenMeldDaemonLedgerStateV1
+  state: OpenMeldDaemonLedgerState
 ): OpenMeldDaemonAgentContextState[] =>
   Object.values(state.agentContextByLookupKey);
 
 export const upsertAgentContext = (input: {
   agentContext: OpenMeldDaemonAgentContextState;
-  state: OpenMeldDaemonLedgerStateV1;
-}): OpenMeldDaemonLedgerStateV1 => {
+  state: OpenMeldDaemonLedgerState;
+}): OpenMeldDaemonLedgerState => {
   const nextState = cloneLedgerState(input.state);
   nextState.agentContextByLookupKey[input.agentContext.agentContextLookupKey] =
     {
@@ -1182,8 +1272,8 @@ export const upsertAgentContext = (input: {
 
 export const removeAgentContext = (input: {
   agentContextLookupKey: string;
-  state: OpenMeldDaemonLedgerStateV1;
-}): OpenMeldDaemonLedgerStateV1 => {
+  state: OpenMeldDaemonLedgerState;
+}): OpenMeldDaemonLedgerState => {
   if (!(input.agentContextLookupKey in input.state.agentContextByLookupKey)) {
     return input.state;
   }
@@ -1195,8 +1285,8 @@ export const removeAgentContext = (input: {
 
 export const upsertConversationExecutionState = (input: {
   executionState: ConversationExecutionState;
-  state: OpenMeldDaemonLedgerStateV1;
-}): OpenMeldDaemonLedgerStateV1 => {
+  state: OpenMeldDaemonLedgerState;
+}): OpenMeldDaemonLedgerState => {
   const nextState = cloneLedgerState(input.state);
   nextState.bootstrapExecutionByLookupKey[
     input.executionState.agentContextLookupKey
@@ -1216,8 +1306,8 @@ export const upsertConversationExecutionState = (input: {
 
 export const removeConversationExecutionState = (input: {
   agentContextLookupKey: string;
-  state: OpenMeldDaemonLedgerStateV1;
-}): OpenMeldDaemonLedgerStateV1 => {
+  state: OpenMeldDaemonLedgerState;
+}): OpenMeldDaemonLedgerState => {
   if (
     !(input.agentContextLookupKey in input.state.bootstrapExecutionByLookupKey)
   ) {
@@ -1230,7 +1320,7 @@ export const removeConversationExecutionState = (input: {
 };
 
 export const seedLegacyAgentContext = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   agentContextLookupKey: string;
   legacyAgentControllerConversationId: string | null | undefined;
   agentControllerRef: string;
@@ -1240,7 +1330,7 @@ export const seedLegacyAgentContext = (input: {
   runtimeWorkspaceFingerprint: string;
   taskId: string;
   nowMs: number;
-}): OpenMeldDaemonLedgerStateV1 => {
+}): OpenMeldDaemonLedgerState => {
   const normalizedLegacyAgentControllerConversationId = normalizeOptionalText(
     input.legacyAgentControllerConversationId
   );
@@ -1271,7 +1361,7 @@ export const seedLegacyAgentContext = (input: {
 };
 
 export const commitResolvedAgentContext = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   agentContextLookupKey: string;
   agentControllerConversationId: string | null | undefined;
   agentControllerRef: string;
@@ -1281,7 +1371,7 @@ export const commitResolvedAgentContext = (input: {
   runtimeWorkspaceFingerprint: string;
   taskId: string;
   nowMs: number;
-}): OpenMeldDaemonLedgerStateV1 => {
+}): OpenMeldDaemonLedgerState => {
   const normalizedAgentControllerConversationId = normalizeOptionalText(
     input.agentControllerConversationId
   );
@@ -1315,8 +1405,8 @@ export const commitResolvedAgentContext = (input: {
 
 export const bumpAgentContextLifecycleCounters = (input: {
   delta: Partial<OpenMeldDaemonAgentContextLifecycleCounters>;
-  state: OpenMeldDaemonLedgerStateV1;
-}): OpenMeldDaemonLedgerStateV1 => {
+  state: OpenMeldDaemonLedgerState;
+}): OpenMeldDaemonLedgerState => {
   const nextState = cloneLedgerState(input.state);
   for (const [key, delta] of Object.entries(input.delta)) {
     const counterKey = key as keyof OpenMeldDaemonAgentContextLifecycleCounters;
@@ -1330,10 +1420,10 @@ export const bumpAgentContextLifecycleCounters = (input: {
 };
 
 export const appendAgentContextRotationRecord = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   record: OpenMeldDaemonAgentContextRotationRecord;
   maxRecords?: number;
-}): OpenMeldDaemonLedgerStateV1 => {
+}): OpenMeldDaemonLedgerState => {
   const maxRecords = input.maxRecords ?? 200;
   const normalizedMaxRecords =
     Number.isInteger(maxRecords) && maxRecords > 0 ? maxRecords : 200;

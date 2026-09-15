@@ -19,12 +19,18 @@ import { AppSpaceEntryContent } from "../spaces/$spaceId";
 export const Route = createFileRoute("/o/$orgSlug/chats/$spaceId")({
 	staticData: appShellStaticData.directMessages,
 	validateSearch: parseDirectMessageRouteSearch,
-	loaderDeps: ({ search }) => ({ profileId: search.profileId }),
+	loaderDeps: ({ search }) => ({
+		profileId: search.profileId,
+		focusSignalId: search.focusSignalId,
+		focusThreadRootSignalId: search.focusThreadRootSignalId,
+	}),
 	pendingComponent: DirectMessageConversationPendingRoute,
 	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
 	pendingMs: APP_ROUTE_PENDING_DELAY_MS,
 	loader: async ({ context, deps, location, params }) => {
 		prefetchSpaceConversationRouteData({
+			focusSignalId: deps.focusSignalId,
+			focusThreadRootSignalId: deps.focusThreadRootSignalId,
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
 			queryClient: context.queryClient,
@@ -48,6 +54,7 @@ export const Route = createFileRoute("/o/$orgSlug/chats/$spaceId")({
 });
 
 function DirectMessageConversationPendingRoute() {
+	const search = Route.useSearch();
 	return (
 		<SpaceWindowShell
 			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
@@ -55,7 +62,9 @@ function DirectMessageConversationPendingRoute() {
 			sidebarPreferenceKey="direct-messages"
 		>
 			<AppMainContent bodyClassName="flex" header={null}>
-				<SpaceLandingLoadingShell />
+				<SpaceLandingLoadingShell
+					threadOpen={Boolean(search.focusThreadRootSignalId)}
+				/>
 			</AppMainContent>
 		</SpaceWindowShell>
 	);

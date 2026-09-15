@@ -181,6 +181,7 @@ import { useSpaceLandingController } from "./use-space-landing-controller";
 import { useSpaceMessageReferences } from "./use-space-message-references";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpacePendingAgentActions } from "./use-space-pending-agent-actions";
+import { useSpaceThreadTarget } from "./use-space-thread-target";
 import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
 import { WelcomeSpaceGuide } from "./welcome-space-guide";
 import {
@@ -1341,6 +1342,23 @@ type ReadySpaceLandingController = Extract<
 >;
 
 export function SpaceLanding(input: SpaceLandingInput) {
+	const target = useSpaceThreadTarget({
+		spaceId: input.spaceId,
+		profileId: input.profileId,
+		focusSignalId: input.initialFocusSignalId,
+		focusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+	});
+	return (
+		<SpaceLandingContent
+			{...input}
+			initialFocusThreadRootSignalId={
+				input.initialFocusThreadRootSignalId ?? target?.rootSignalId
+			}
+		/>
+	);
+}
+
+function SpaceLandingContent(input: SpaceLandingInput) {
 	useSpaceConversationReadCache({
 		spaceId: input.spaceId,
 		openMeldProfileId: input.profileId,
@@ -1353,6 +1371,7 @@ export function SpaceLanding(input: SpaceLandingInput) {
 			input.loadingFallback ?? (
 				<SpaceLandingLoadingShell
 					composer={<SpaceColdLoadingComposer controller={controller} />}
+					threadOpen={Boolean(input.initialFocusThreadRootSignalId)}
 				/>
 			)
 		);
@@ -2083,6 +2102,7 @@ function SpaceLandingConversation({
 			activeSpaceView={spaceView}
 			agentDirectConversationKind={agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
+			agentStreams={controller.agentStreams}
 			allowedActions={controller.status.allowedActions}
 			allowSendWhileAccessSettles={!controller.isCurrentAccessConfirmed}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
@@ -2164,7 +2184,7 @@ function SpaceLandingConversation({
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
-			onViewingLatestChange={controller.onConversationViewingLatestChange}
+			onViewedThroughTs={controller.onConversationViewedThroughTs}
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
@@ -2734,7 +2754,7 @@ function SpaceLandingSecondaryPanels({
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
 				onViewedThroughTs={
-					input.readingEnabled === false
+					input.readingEnabled === false || !spaceInboxReadPosition.isReady
 						? undefined
 						: async (throughOccurredAtMs) => {
 								const rootSignalId = controller.activeThread?.rootSignalId;

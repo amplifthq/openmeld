@@ -208,20 +208,34 @@ Deleting the Space removes its input outbox with the rest of Space data.
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
-RuntimeTransportHub Durable Object. Each Profile has one current record with
-the running lifecycle id, at most 50 ordered waiting lifecycle ids, and only the
-minimum pending-promotion or recovery-hold metadata. It is current scheduling
+RuntimeTransportHub Durable Object. Each Profile has one current admission
+record with up to five reservations, at most 50 ordered waiting lifecycle ids,
+and bounded pending-promotion or recovery-hold metadata. The decoder retains
+previously accepted five-reservation records during a policy reduction. For
+Context-enabled Profiles this supersedes the former one-slot FIFO projection;
+the first reserved item is a compatibility view, not the only running Wake.
+The durable migration boundary and serial/parallel policy share this owner and
+survive idle queue cleanup. It is current scheduling
 state, not an append-only history. Complete prompts, attachments, and Space
 context remain in the Space durable outbox; durable execution and final-outcome
 evidence remain in the existing RuntimeCoordinator and Dispatch Ledger domains.
+
+Context, exact-Wake association, completed-history checkpoint, and native-ID
+reverse index records live in the same owner shard, outside the hot queue.
+They preserve continuity after Head retirement; they do not confer execution
+authority. A native conversation cannot belong to two Contexts in the same
+Runtime and Controller namespace. A frozen legacy association preserves its
+original unclassified visibility rather than adopting the last Space's scope.
 
 D1 may project `profile_queue_waiting`, queue counts, and correlation ids for
 queries and diagnostics. Those rows never promote work, reconstruct a Wake
 payload, or decide execution. Durable evidence useful for one collaboration's
 audit or trace follows the existing retention policy. Current coordinator
-snapshots, inactive admission rows, and execution head references are removed
-when they no longer own active work, recovery, promotion, or pending
-publication. Final publication records may keep their exact lifecycle record
+snapshots, inactive admission rows without durable mode/migration state, and
+execution head references are removed when they no longer own active work,
+recovery, promotion, or pending publication. Retained per-Profile policy does
+not count as active execution or keep a Profile in the active-work index.
+Final publication records may keep their exact lifecycle record
 for idempotent replay, but they are removed from the historical lifecycle
 index. A completed execution head may be deleted only after its deterministic
 terminal execution-token authority can reject the same head and dispatch on

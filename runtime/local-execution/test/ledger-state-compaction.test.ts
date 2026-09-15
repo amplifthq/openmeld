@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   compactLedgerState,
   createEmptyLedgerState,
-  type OpenMeldDaemonLedgerStateV1,
+  type OpenMeldDaemonLedgerState,
   persistLedgerState,
 } from "../src/ledger-store";
 import {
@@ -20,9 +20,7 @@ afterEach(async () => {
   createdDirs.clear();
 });
 
-const buildStateForCompaction = (
-  nowMs: number
-): OpenMeldDaemonLedgerStateV1 => ({
+const buildStateForCompaction = (nowMs: number): OpenMeldDaemonLedgerState => ({
   ...createEmptyLedgerState(nowMs),
   dedupeFirstSeenByKey: {
     old: nowMs - 49 * 60 * 60 * 1000,
@@ -119,7 +117,7 @@ describe("ledger state compaction", () => {
     });
 
     const raw = await readFile(paths.stateFilePath, "utf8");
-    const persisted = JSON.parse(raw) as OpenMeldDaemonLedgerStateV1;
+    const persisted = JSON.parse(raw) as OpenMeldDaemonLedgerState;
 
     expect(persisted.dedupeFirstSeenByKey.old).toBeUndefined();
     expect(persisted.inflightByTaskId["task-old-inflight"]).toBeUndefined();

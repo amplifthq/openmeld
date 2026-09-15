@@ -123,16 +123,17 @@ describe("SpaceMessageBody", () => {
 	});
 
 	it.each([
-		false,
-		true,
-	])("preserves a Human mention token without Agent actions (Markdown: %s)", (isAgentFinalReply) => {
+		[false, "@MingYoo hello"],
+		[true, "@MingYoo hello"],
+		[true, "The issue is resolved."],
+	] as const)("preserves a Human mention token without Agent actions (Markdown: %s, text: %s)", (isAgentFinalReply, text) => {
 		const profileId = "11111111-1111-4111-8111-111111111111";
 		const onOpenProfile = vi.fn();
 		render(
 			<SpaceMessageBody
 				item={{
 					isAgentFinalReply,
-					text: "@MingYoo hello",
+					text,
 					mentionTargetProfileIds: [profileId],
 				}}
 				onOpenProfile={onOpenProfile}
@@ -159,6 +160,25 @@ describe("SpaceMessageBody", () => {
 		expect(within(token).queryByText("Wake")).toBeNull();
 		fireEvent.click(token);
 		expect(onOpenProfile).toHaveBeenCalledWith(profileId);
+	});
+	it("shows the explicit Wake recipient when Agent prose omits its name", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					actorProfileKind: "agent",
+					text: "Please review this change.",
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				onOpenProfile={vi.fn()}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+		expect(
+			screen.getAllByRole("button", {
+				name: `Open ${WAKE_TARGET_PROFILE_NAME} profile (Wake)`,
+			})
+		).toHaveLength(1);
+		expect(screen.getByText("Please review this change.")).toBeTruthy();
 	});
 
 	it("renders a structured Wake target as a compact clickable Agent token", () => {

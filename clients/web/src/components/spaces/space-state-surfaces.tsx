@@ -15,25 +15,31 @@ import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import type { ReactNode } from "react";
 import { SessionExpiredCard } from "#/components/auth/session-expired-card";
 import { toSessionExpiredState } from "#/lib/session-expired";
+import { SpaceThreadLoadingPanel } from "./space-thread-loading";
 
-export function SpaceLandingLoadingShell(input: { composer?: ReactNode } = {}) {
+export function SpaceLandingLoadingShell(
+	input: { composer?: ReactNode; threadOpen?: boolean } = {}
+) {
 	return (
-		<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-			<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4">
-				<div className="flex min-w-0 items-center gap-4">
-					<span className="font-medium text-sm">Messages</span>
-					<Skeleton className="h-5 w-40 max-w-full motion-reduce:animate-none" />
+		<div className="flex h-full min-h-0 w-full min-w-0 flex-1">
+			<section className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
+				<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4">
+					<div className="flex min-w-0 items-center gap-4">
+						<span className="font-medium text-sm">Messages</span>
+						<Skeleton className="h-5 w-40 max-w-full motion-reduce:animate-none" />
+					</div>
+				</header>
+				<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden">
+					<output className="sr-only">Loading messages…</output>
 				</div>
-			</header>
-			<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden">
-				<output className="sr-only">Loading messages…</output>
-			</div>
-			<footer className="shrink-0 border-border border-t p-4">
-				{input.composer ?? (
-					<Skeleton className="h-28 w-full motion-reduce:animate-none" />
-				)}
-			</footer>
-		</section>
+				<footer className="shrink-0 border-border border-t p-4">
+					{input.composer ?? (
+						<Skeleton className="h-28 w-full motion-reduce:animate-none" />
+					)}
+				</footer>
+			</section>
+			{input.threadOpen ? <SpaceThreadLoadingPanel /> : null}
+		</div>
 	);
 }
 

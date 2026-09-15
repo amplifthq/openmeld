@@ -74,6 +74,7 @@ export async function readCurrentOrganizationAgentRuntimeOverview(input: {
 	signal?: AbortSignal;
 }): Promise<OrganizationAgentRuntimeOverviewResponse> {
 	const query = new URLSearchParams({
+		includeUsageLimits: "true",
 		[ORGANIZATION_DIRECTORY_AGENT_PROFILE_WORK_RECOVERY_VERSION_QUERY_PARAMETER]:
 			"2",
 		[ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER]: "true",

@@ -157,6 +157,17 @@ it, and neither changes membership, execution or history. Generic Space
 management remains restricted; permanent deletion is not exposed.
 Archived chats can be found through the Agents group settings or a chat group's
 settings menu. Both controls share one filter state and the Archived badge.
+The conversation header and Direct messages directory also expose Archive and
+Unarchive for ordinary DMs and Center Agent sessions. These actions use the same
+account preferences as the sidebar. The open conversation remains readable and
+the success message explains where to recover it; no destructive confirmation
+or shared-history deletion is involved.
+
+Your Spaces and the sidebar render active memberships from the account Space
+index. The Organization discovery snapshot must not veto a newer account index
+entry. The account index refreshes every five seconds in the foreground so a
+newly added Human or Agent owner can discover a Space without reloading. Unread
+counts continue to come from Inbox; joining does not fabricate unread history.
 
 Contract impact: the shared account-sidebar payload adds an optional `chats`
 namespace. Auth preserves it when older clients omit it and uses the existing
@@ -582,6 +593,11 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    describe accessible conversations the Agent has joined, with the latest
    conversation preview; they do not claim a complete execution history or
    that the latest message was authored by this Agent.
+   When a row has a message preview, its link includes that exact Signal target.
+   Thread placement comes from the shared Space thread catalog. Explicit targets
+   take precedence over a previously saved open Thread, and target message reads
+   begin alongside Space prefetch. Known Thread targets show a loading panel
+   during access and bootstrap checks without rendering protected messages early.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -2423,10 +2439,15 @@ Agent identity controls in messages, Threads, and the Members panel open one
 compact Profile Details popover. It shows the Agent identity, current
 availability, and a primary **Chat with {Agent name}** action. The popover omits
 configuration cards and gives the owner one persistent pencil action to open
-the canonical Agent route; it shows no edit affordance to other viewers. It
+the canonical Agent route; other viewers receive a right-arrow profile link. It
 does not add a second details dialog or an overflow-menu details action. Owners
 edit supported settings from the canonical route; other viewers keep the
-popover read-only.
+popover read-only. Agent cards, profile pages, mention picker rows, and composed
+Agent mentions share the Core-projected provider Usage Limits, including remaining
+percentages, reset times, and stale or unknown evidence. The picker places the
+usage preview after the availability indicator. Selecting a composed profile name
+opens the same Profile Details popover used by messages without changing the draft
+or its Wake relation. Usage display does not derive or override Wakeability.
 Both owner and observer popovers show the same compact activity summary and
 recorded `lastTaskActivityAt` when supplied by the runtime overview. Location
 links appear only when Core disclosed them. The timestamp is historical task
@@ -4279,11 +4300,14 @@ Profile, and Space. Returning to the latest messages expands the header. A new
 preference starts expanded; obsolete intermediate-position preferences are not
 reused. Files does not drive compaction. A short vertical entrance runs once
 per collapse, with no travel under reduced motion.
-Latest-message observations update the read-through scheduler directly rather
+Message-header visibility observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
-changes require a fresh latest-message measurement; document visibility, access
-confirmation, and a brief 150 ms dwell still gate persistence. After that dwell,
+changes require a fresh visible-message measurement; document visibility, access
+confirmation, loaded Core unread targets, and a brief 150 ms dwell gate persistence.
+Main conversations, Threads, and DMs share this observer. Unseen targets block
+advancing the read watermark past them, and temporary progress cannot advance it.
+After that dwell,
 the existing optimistic Inbox projection updates before the server write settles;
 failed writes retain the existing rollback and reconciliation path.
 Scroll events only check distance from the latest messages. Layout and preference
@@ -4432,6 +4456,22 @@ Bounded summaries disclose additional active tasks. Reduced-motion and
 input-waiting Orbs are paused.
 
 Unfinished Agent replies follow the latest message in their owning conversation.
+The server-selected `replyThreadRootSignalId` takes precedence over the trigger
+message's location once reply placement is known. Before selection, progress
+keeps its source context. A Thread-bound reply has a compact progress marker on
+the main entrance; its complete progress and authorized Stop control stay in the
+Thread. Durable outcomes fetched in Thread history or previews reconcile the
+same Wake presentation as live outcomes.
+
+Thread entrances retain the viewer's existing Inbox unread targets. Their
+preview rows support pointer and keyboard activation without intercepting real
+links or text selection. Previews show the latest two replies in chronological
+order. Hover/focus warms the same profile-scoped message query used by the panel;
+a saved panel warms alongside Space loading after account cache activation.
+Prefetch does not acknowledge unread messages. A short freshness window avoids
+an immediate duplicate read, while live-only partial snapshots remain invalidated
+until a complete Thread read succeeds. Loading messages is visibly indicated.
+
 Main Space and Thread use the same presentation-only ordering: published history
 keeps its server order, followed by active Wakes in request order. A public reply
 stream replaces its matching placeholder; it does not add another status row.
@@ -4775,61 +4815,35 @@ normal Prepare flow; it never silently reruns an existing Wake.
 
 ## Desktop Download Entry
 
-An authorized production candidate is publicly downloadable through GET/HEAD
-`/desktop/download?candidate=<64-character lowercase sha256>` without an account
-gate. The existing private R2 binding reads only the derived candidate manifest
-and artifact keys, validated by the shared Desktop candidate schema. Invalid,
-missing or mismatched candidates fail without falling back to the default
-channel. Candidate selection never changes `/desktop/update.json`; `/desktop`
-and marketing navigation remain closed. See the
-[candidate publication contract](../engineering/development-workflow.md#desktop-preview-release-workflow).
+Web owns the public, account-free preview page at
+`/desktop?candidate=<64-character lowercase sha256>`. It reuses the strict
+candidate selector, manifest parser, derived artifact keys, and artifact size
+verification used by GET/HEAD `/desktop/download?candidate=<hash>`. Version,
+size, and the download button come from that same verified candidate. Missing,
+invalid, repeated, or mismatched selectors never select another package.
 
-Web owns the public OpenMeld Desktop download entry, but it does not own local setup
-truth.
+The plain `/desktop` page reads the existing default manifest. When no default
+release exists, it explains that a full preview invitation link is needed and
+offers no download. Candidate pages do not select a default, write
+`desktop/update.json`, add marketing navigation, or require login or Access.
+The page is marked noindex while the preview is shared directly.
 
-Desktop distribution is currently paused. `/desktop` deliberately returns 404;
-the page and artifact pipeline remain in the repository for a later, explicitly
-approved release.
+The existing private R2 binding `OPENMELD_DESKTOP_DOWNLOADS` remains the artifact
+owner. Missing manifests or artifacts show an unavailable page; corrupt metadata
+or storage failures reach the route error boundary, which offers no download.
+The server function independently validates its candidate input. Web keeps no
+second release version, package identity, or object-key registry.
 
-Current MVP routes:
+The page identifies the build as a Preview for macOS Apple silicon and gives
+brief DMG installation instructions. Do not promise stability, zero setup, or
+unverified capabilities. Default-release notices may come from the existing
+manifest `message`; immutable candidate manifests currently have no notice field,
+so the page must not hard-code temporary limitations for one candidate.
 
-- `/desktop` is the retained public download-page route and stays behind the
-  distribution pause gate until release approval.
-- `/desktop/download` streams the manifest-selected Apple silicon DMG from the
-  private R2 bucket binding `OPENMELD_DESKTOP_DOWNLOADS`.
-- `/desktop/update.json` returns the Desktop app update-awareness manifest.
-
-The page describes the installed Mac app, shared Web/Desktop account and Spaces,
-and local-project work. Only macOS Apple silicon is offered. Do not publish
-legacy Node/npm/global-CLI installation steps or unverified signing,
-notarization, stability, or zero-setup claims. Release-specific notices come
-from the existing manifest `message`; the release owner must ensure they match
-the actual approved artifact. The retained legacy preview uploader does not
-establish that the installed app is ready to distribute.
-
-In Vite development only, `/desktop` renders for local review. Both the route
-and its server function retain a production 404 gate. There is no query-string
-override. The page reads `desktop/update.json` through the existing manifest
-parser and checks the referenced artifact with R2 `head`. Missing bucket,
-manifest, artifact, or an empty artifact shows an unavailable state with a Web
-entry instead of a download link. Malformed metadata and storage failures
-propagate to the route error boundary rather than becoming a release claim.
-Version, size, and release notice come from that manifest; Web maintains no
-second release version or object key.
-
-Local review matrix for A4: review `/desktop` at narrow and wide widths in light
-and dark themes; check keyboard focus and Web entry; no local R2 manifest must
-show no download link. With an actual local DMG and its manifest, check displayed
-version/size/message and the download round trip. Remove the local artifact to
-check unavailable behavior; malformed metadata must show an error. A production
-build must still return 404 for `/desktop`. Do not use a placeholder file as
-evidence of an installable download.
-
-To activate the page later, obtain explicit release approval after native and
-human UI acceptance, publish the approved artifact and its real manifest using
-the established release owner, then remove the two production page gates in an
-authorized Web release. Metadata alone cannot open the paused page. Download
-and update endpoint contracts are unchanged by this page redesign.
+Validation covers anonymous candidate and default pages, narrow and wide
+layouts, a real candidate manifest and artifact, matching button/download
+identity, absent candidates, malformed/repeated selectors, and size mismatch.
+Download and update endpoint contracts remain unchanged.
 
 Web must not claim setup success because the app was downloaded. A local Wake
 still requires computer/agent setup and a reply or explicit outcome through the

@@ -109,7 +109,15 @@ describe("Remote Agent submission execution context", () => {
     }
     expect(routineToolNames).toContain("browser_screenshot");
     expect(routineToolNames).toContain("codemode");
-    expect(routineToolNames).toEqual(
+    expect(routineToolNames).toContain("openmeld_set_final_reply_mentions");
+    expect(ordinaryToolNames).not.toContain(
+      "openmeld_set_final_reply_mentions"
+    );
+    expect(
+      routineToolNames.filter(
+        (name) => name !== "openmeld_set_final_reply_mentions"
+      )
+    ).toEqual(
       ordinaryToolNames.filter(
         (name) =>
           !REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES.some(

@@ -366,6 +366,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];
       deviceWait?: PostNormalMessageBody["deviceWait"];
+      contextSelection?: PostNormalMessageBody["contextSelection"];
       attachments?: PostNormalMessageBody["attachments"];
       files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
