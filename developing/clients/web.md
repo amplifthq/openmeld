@@ -157,6 +157,17 @@ it, and neither changes membership, execution or history. Generic Space
 management remains restricted; permanent deletion is not exposed.
 Archived chats can be found through the Agents group settings or a chat group's
 settings menu. Both controls share one filter state and the Archived badge.
+The conversation header and Direct messages directory also expose Archive and
+Unarchive for ordinary DMs and Center Agent sessions. These actions use the same
+account preferences as the sidebar. The open conversation remains readable and
+the success message explains where to recover it; no destructive confirmation
+or shared-history deletion is involved.
+
+Your Spaces and the sidebar render active memberships from the account Space
+index. The Organization discovery snapshot must not veto a newer account index
+entry. The account index refreshes every five seconds in the foreground so a
+newly added Human or Agent owner can discover a Space without reloading. Unread
+counts continue to come from Inbox; joining does not fabricate unread history.
 
 Contract impact: the shared account-sidebar payload adds an optional `chats`
 namespace. Auth preserves it when older clients omit it and uses the existing
