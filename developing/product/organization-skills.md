@@ -267,7 +267,7 @@ Canonical routes are:
 /o/{orgSlug}/center-agent/plugins
 /o/{orgSlug}/center-agent/plugins/{service}
 /o/{orgSlug}/center-agent/memory
-/o/{orgSlug}/center-agent/settings
+/o/{orgSlug}/settings/center-agent
 ```
 
 The Skills list shows all Organization Skills without a type filter. It offers
