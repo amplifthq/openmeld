@@ -1406,7 +1406,8 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
   }
   if (
     input.headAcceptance.status === "queue_full" ||
-    input.headAcceptance.status === "recovery_needs_attention"
+    input.headAcceptance.status === "recovery_needs_attention" ||
+    input.headAcceptance.status === "context_rejected"
   ) {
     return {
       controllerWaitPromise: null,
@@ -1612,8 +1613,10 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
 };
 
 type RuntimeCoordinatorHeadAcceptanceOutcome =
+  | { status: "context_rejected"; reasonCode: string; errorMessage: string }
   | {
       acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+      executionContext?: OpenMeldDaemonDispatchQueueMessage["executionContext"];
       status: "proceed";
     }
   | { status: "profile_queue_waiting" }
@@ -1658,11 +1661,24 @@ const resolveRuntimeCoordinatorAcceptedDispatch = (input: {
       ? applyAcceptedDispatchSnapshotToMessage({
           message: input.message,
           snapshot,
+          ...(input.headAcceptance.status === "proceed"
+            ? { executionContext: input.headAcceptance.executionContext }
+            : {}),
         })
       : input.message,
     snapshot,
   };
 };
+
+function requiresExecutionContext(
+  message: OpenMeldDaemonDispatchQueueMessage,
+  runtimeKind: string | null | undefined
+): boolean {
+  return Boolean(
+    message.contextSelection ||
+      (runtimeKind === "openmeld_service" && message.threadContext)
+  );
+}
 
 const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   db: D1Database;
@@ -1675,6 +1691,18 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   targetWakeLifecycleId: string;
 }): Promise<RuntimeCoordinatorHeadAcceptanceOutcome | null> => {
   const { response } = input;
+  if (
+    !response.ok &&
+    response.status === "conflict" &&
+    response.reasonCode.startsWith("execution_context.")
+  ) {
+    return {
+      status: "context_rejected",
+      reasonCode: response.reasonCode,
+      errorMessage:
+        "This task's background could not be verified. Choose a task from this conversation to continue or fork, or start a new task.",
+    };
+  }
   if (!response.ok && response.status === "retry_later") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -1948,6 +1976,17 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
     runtimeKind: input.runtimeKind,
   });
+  if (
+    requiresExecutionContext(input.dispatchMessage, input.runtimeKind) &&
+    !acceptedDispatchSnapshot?.contextRequest
+  ) {
+    return {
+      status: "context_rejected",
+      reasonCode: "execution_context.scope_unavailable",
+      errorMessage:
+        "This Agent cannot start an independent task with the current connection and conversation. Reconnect the local Agent and try again.",
+    };
+  }
   const response = await acceptRuntimeTransportRuntimeCoordinatorHead({
     env: input.env,
     ownerUserId: input.targetOwnerUserId,
@@ -2155,6 +2194,9 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     ...(response.acceptedDispatchSnapshot
       ? { acceptedDispatchSnapshot: response.acceptedDispatchSnapshot }
       : {}),
+    ...("executionContext" in response && response.executionContext
+      ? { executionContext: response.executionContext }
+      : {}),
     status: "proceed",
   };
 };
@@ -2246,7 +2288,8 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       }
       if (
         headAcceptance.status === "queue_full" ||
-        headAcceptance.status === "recovery_needs_attention"
+        headAcceptance.status === "recovery_needs_attention" ||
+        headAcceptance.status === "context_rejected"
       ) {
         return {
           handled: true,
@@ -3931,7 +3974,8 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   }
   if (
     headAcceptance.status === "queue_full" ||
-    headAcceptance.status === "recovery_needs_attention"
+    headAcceptance.status === "recovery_needs_attention" ||
+    headAcceptance.status === "context_rejected"
   ) {
     return {
       handled: true,

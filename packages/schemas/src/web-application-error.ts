@@ -52,6 +52,8 @@ export const webApplicationErrorSummarySchema = z.object({
 export const webApplicationErrorReportSchema = z.object({
   version: z.literal(1),
   id: z.uuid(),
+  pageSessionId: z.uuid().optional(),
+  spaceOpenAttemptId: z.uuid().optional(),
   buildId: z.uuid().nullable(),
   sourceSha: z
     .string()

@@ -77,6 +77,9 @@ const buildPostSignalCoreRpcInput = (input: {
   profile: input.profile,
   text: input.parsed.text,
   ...(input.parsed.deviceWait ? { deviceWait: input.parsed.deviceWait } : {}),
+  ...(input.parsed.contextSelection
+    ? { contextSelection: input.parsed.contextSelection }
+    : {}),
   authoringPolicy: "user_authored" as const,
   ...(input.parsed.attachments
     ? { attachments: input.parsed.attachments }

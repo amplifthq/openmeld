@@ -49,8 +49,8 @@ owners.
   one OpenMeld Service Runtime and Agent Controller.
 - Runtime owns machine identity, lane identity, heartbeat, and observed
   Agent Controller availability.
-- Agent Profile Work Coordinator owns one workstation Agent Profile's current
-  admission slot, bounded FIFO order, and recovery hold. It does not own the
+- Agent Profile Work Coordinator owns one workstation Agent Profile's bounded
+  reservations, ordered waiting work, and recovery hold. It does not own the
   Wake payload or concrete execution truth.
 - The Space durable dispatch outbox is the production acceptance and recovery
   conveyor for interactive Space Wakes. After the current Core-owned Binding
@@ -311,13 +311,34 @@ remain neutral pre-delivery progress. They must not infer that another Wake
 owns the Profile work slot, and the D1 `profile_queue_waiting` projection must
 not become a second presentation authority.
 
-When the current Wake becomes terminal, the same owner-shard transaction
-releases it, selects the next queued head, and records the minimum pending
-promotion marker. The normal path requests exact Space redrive immediately
+When a reserved Wake becomes terminal, the same owner-shard transaction
+releases only that reservation, selects eligible waiting work, and records one
+pending promotion marker per promoted Wake. The normal path requests exact Space redrive immediately
 after that transaction. The existing alarm retries only a promotion whose
 external redrive did not complete. A repeated terminal event is idempotent and
-cannot promote a second item. Route or Service `waiting` does not release the
-Profile work slot.
+cannot repeat a promotion. Route or Service `waiting` does not release a
+reservation.
+
+Independent workstation tasks use Core-assigned Execution Contexts. Core admits
+at most five contexts for one Agent Profile, with one writer per context and
+at most 50 waiting Wakes. Legacy work without a context drains exclusively.
+Context selection is explicit for new work and forks, and scoped to the exact
+requester, Organization, Space, discussion, Profile, Binding, and Runtime.
+Admission freezes both the context assignment and a decision to retain legacy
+continuity. Linking an execution or redriving a Wake cannot assign it again.
+
+Core retains each accepted Wake's context association and completed native
+history checkpoint independently of the in-flight Head lifecycle. Head retirement
+must not erase a source needed for continuation or a completed-prefix fork.
+These records describe identity and history; they do not decide current execution
+or publication. Validated task results must echo the assigned context, and native
+conversation ownership cannot move to another context. Receipt validation may
+reserve immutable native identity, but a proposal that still requires review
+does not freeze fork-visible history. The checkpoint is committed atomically
+with the accepted finalization command before terminal promotion, using the
+final repair or reconsideration turn when present. Accepted commands and their
+checkpoints remain immutable under replay. Scoped results never overwrite the
+Profile Binding's legacy native conversation.
 
 A structured `usage_exhausted` terminal outcome is the deliberate exception to
 ordinary promotion: the Coordinator retains the interrupted work identity and

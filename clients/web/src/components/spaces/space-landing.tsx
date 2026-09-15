@@ -60,6 +60,10 @@ import type {
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedRuntimeTarget } from "#/lib/connect/connected-runtime";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
+import {
+	spaceOpenFailureMilestone,
+	useSpaceOpenPaint,
+} from "#/lib/observability/use-space-open-paint";
 import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
 import {
 	createOrganizationScopedWebOpenMeldApiFoundation,
@@ -1343,6 +1347,7 @@ export function SpaceLanding(input: SpaceLandingInput) {
 	});
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
+	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
 	if (controller.mode === "loading") {
 		return (
 			input.loadingFallback ?? (

@@ -942,6 +942,20 @@ Detailed Wake execution ownership belongs in
 
 ## Continuing A Main Conversation And Editing Messages
 
+Local Agents support explicit New task, continuation from an exact source, and
+completed-history fork. On supported harnesses, separate discussion scopes may
+use independent Execution Contexts under the same Profile, with up to five
+reservations. Follow-ups within one Context remain serial. Replies, Stop,
+interaction requests, and failure evidence stay attached to the originating
+Wake. Migrated Profiles use Context continuity instead of the old Profile-wide
+conversation; legacy Wakes retain their original drain and recovery behavior.
+Context assignment does not grant access to another member's native history.
+
+An MCP Space Action receipt confirms only a local proposal, explicit local
+rejection, or an unknown local outcome. It does not confirm Core acceptance or
+Space publication. Those outcomes continue to come from the existing execution
+and Space authorities. This version adds no separate Late reply affordance.
+
 An ordinary Space's main composer may recommend the single Agent the current
 Human last explicitly woke after that Agent replies. The suggestion is not an
 addressing target. Click or Tab accepts it as an ordinary Wake token; ignoring

@@ -1,10 +1,12 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import { dispatchSpaceActionToolResultSchema } from "@openmeld/schemas";
 import type { SpaceMemberDirectorySendTargetEntry } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  DISPATCH_OWNED_RUNTIME_MODE,
   OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV,
   OPENMELD_DISPATCH_RUNTIME_MODE_ENV,
   OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV,
@@ -53,6 +55,28 @@ afterEach(() => {
 });
 
 describe("OpenMeld Space Action command", () => {
+  it("keeps expired contexts from uploading files or listing targets while recovering plain replies", () => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const context = createTestContext([], { ttlMs: 1000 });
+    runSpaceActionReply({ messageParts: ["Saved reply."] });
+    const original = readLoadedActionRecord(context);
+    clock.mockReturnValue(context.expiresAtMs + 1);
+    const fetch = vi.spyOn(globalThis, "fetch");
+
+    runSpaceActionReply({ messageParts: ["Saved reply."] });
+    expect(readLoadedActionRecord(context)).toEqual(original);
+    expect(() =>
+      runSpaceActionReply({
+        messageParts: ["Saved reply."],
+        filePaths: ["/must-not-be-read-or-uploaded.txt"],
+      })
+    ).toThrow("dispatch context has expired");
+    expect(() => runSpaceActionTargets()).toThrow(
+      "dispatch context has expired"
+    );
+    expect(fetch).not.toHaveBeenCalled();
+    expect(readLoadedActionRecord(context)).toEqual(original);
+  });
   it("records wake as a post_message action with activationTargets", async () => {
     const context = createTestContext([
       createProjectionEntry({
@@ -636,9 +660,16 @@ describe("OpenMeld Space Action MCP server", () => {
       });
 
       expect(result.isError).not.toBe(true);
-      expect(JSON.stringify(result.content)).toContain(
-        "unpublished Space action proposal"
-      );
+      expect(
+        dispatchSpaceActionToolResultSchema.parse(result.structuredContent)
+      ).toMatchObject({
+        receipt: {
+          status: "proposal_saved_locally",
+          contextState: "active",
+          coordinatorAcceptance: "unconfirmed",
+          publication: "unconfirmed",
+        },
+      });
       expect(JSON.stringify(result.content)).not.toContain(
         "will publish the accepted action"
       );
@@ -677,6 +708,182 @@ describe("OpenMeld Space Action MCP server", () => {
       expect(first.isError).not.toBe(true);
       expect(second.isError).toBe(true);
       expect(JSON.stringify(second.content)).toContain("already been recorded");
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+  it.each([
+    { name: "reply", arguments: { message: "Done." } },
+    { name: "status", arguments: { status: "done", text: "Done." } },
+    { name: "stay_silent", arguments: { reason: "Nothing to add." } },
+  ])("recovers $name's original receipt after expiry without accepting a new action", async (request) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const context = createTestContext([], { ttlMs: 1000 });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const first = await client.callTool(request);
+      expect(first.isError).not.toBe(true);
+      const receipt = dispatchSpaceActionToolResultSchema.parse(
+        first.structuredContent
+      ).receipt;
+      expect(receipt).toMatchObject({
+        status: "proposal_saved_locally",
+        attemptId: context.attemptId,
+        contextId: context.contextId,
+        dispatchId: context.dispatchId,
+        recordedAtMs: 1_000_000,
+        contextState: "active",
+        coordinatorAcceptance: "unconfirmed",
+        publication: "unconfirmed",
+      });
+      const original = readLoadedActionRecord(context);
+      clock.mockReturnValue(context.expiresAtMs + 1);
+
+      const replay = await client.callTool(request);
+      expect(replay.isError).not.toBe(true);
+      expect(replay.structuredContent).toEqual({
+        receipt: { ...receipt, contextState: "expired" },
+      });
+      expect(JSON.stringify(replay.content)).toContain("existing record");
+      expect(readLoadedActionRecord(context)).toEqual(original);
+
+      const changed = await client.callTool({
+        name: "reply",
+        arguments: { message: "A different final reply." },
+      });
+      expect(changed.isError).toBe(true);
+      expect(changed.structuredContent).toEqual({
+        receipt: {
+          status: "rejected_closed",
+          reasonCode: "space_action.context_expired",
+          coordinatorAcceptance: "unconfirmed",
+          publication: "unconfirmed",
+        },
+      });
+      expect(JSON.stringify(changed.content)).not.toContain(
+        "Nothing was recorded or published"
+      );
+      expect(readLoadedActionRecord(context)).toEqual(original);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it.each([
+    "dispatch",
+    "profile",
+  ])("rejects expired new actions and guards receipt recovery against %s changes", async (identity) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const context = createTestContext([], { ttlMs: 1000 });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      clock.mockReturnValue(context.expiresAtMs + 1);
+      const rejected = await client.callTool({
+        name: "reply",
+        arguments: { message: "Too late." },
+      });
+      expect(rejected.isError).toBe(true);
+      expect(rejected.structuredContent).toMatchObject({
+        receipt: { reasonCode: "space_action.context_expired" },
+      });
+      expect(readDispatchSpaceActionRecord({ context }).status).toBe("missing");
+
+      clock.mockReturnValue(context.expiresAtMs - 1);
+      const request = {
+        name: "reply",
+        arguments: { message: "Saved before expiry." },
+      };
+      await client.callTool(request);
+      const original = readLoadedActionRecord(context);
+      clock.mockReturnValue(context.expiresAtMs + 1);
+      vi.stubEnv(
+        OPENMELD_DISPATCH_RUNTIME_MODE_ENV,
+        DISPATCH_OWNED_RUNTIME_MODE
+      );
+      vi.stubEnv(
+        OPENMELD_DISPATCH_RUNTIME_DISPATCH_ID_ENV,
+        identity === "dispatch" ? "other-dispatch" : context.dispatchId
+      );
+      vi.stubEnv(
+        OPENMELD_DISPATCH_RUNTIME_TARGET_PROFILE_ID_ENV,
+        identity === "profile" ? "other-profile" : context.targetProfileId
+      );
+      const mismatched = await client.callTool(request);
+      expect(mismatched.isError).toBe(true);
+      expect(mismatched.structuredContent).toMatchObject({
+        receipt: { reasonCode: "space_action.context_mismatch" },
+      });
+      expect(readLoadedActionRecord(context)).toEqual(original);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it.each([
+    "invalid-json",
+    "wrong-nonce",
+    "recorded-after-expiry",
+  ])("preserves an unreadable prior record and returns outcome_unknown: %s", async (failure) => {
+    const clock = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    const context = createTestContext([], { ttlMs: 1000 });
+    const [clientTransport, serverTransport] =
+      InMemoryTransport.createLinkedPair();
+    const server = createSpaceActionMcpServer();
+    const client = new Client({ name: "openmeld-test", version: "1.0.0" });
+    try {
+      await Promise.all([
+        server.connect(serverTransport),
+        client.connect(clientTransport),
+      ]);
+      const request = { name: "reply", arguments: { message: "Saved reply." } };
+      await client.callTool(request);
+      const original = readLoadedActionRecord(context);
+      const damaged =
+        failure === "invalid-json"
+          ? "{"
+          : JSON.stringify({
+              ...original,
+              ...(failure === "wrong-nonce"
+                ? { nonce: "other-context-nonce" }
+                : { createdAtMs: context.expiresAtMs + 1 }),
+            });
+      writeFileSync(context.actionRecordPath, damaged);
+      clock.mockReturnValue(context.expiresAtMs + 1);
+
+      const result = await client.callTool(request);
+      expect(result.isError).toBe(true);
+      expect(
+        dispatchSpaceActionToolResultSchema.parse(result.structuredContent)
+      ).toEqual({
+        receipt: {
+          status: "outcome_unknown",
+          reasonCode: "space_action.recording_outcome_unknown",
+          coordinatorAcceptance: "unconfirmed",
+          publication: "unconfirmed",
+        },
+      });
+      expect(readFileSync(context.actionRecordPath, "utf8")).toBe(damaged);
+      expect(JSON.stringify(result)).not.toContain(context.nonce);
+      expect(JSON.stringify(result.content)).not.toContain(
+        "Nothing was recorded or published"
+      );
     } finally {
       await client.close();
       await server.close();

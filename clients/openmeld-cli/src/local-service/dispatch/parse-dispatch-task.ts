@@ -189,7 +189,10 @@ export function parseDispatchTask(
       controllerSelection.agentControllerRef
     );
   const agentControllerConversationId =
-    normalizeOptionalText(payload.agentControllerConversationId) ?? null;
+    resolveDispatchNativeConversationId(payload);
+  if (!hasMatchingExecutionContextScope(payload, requiredFields)) {
+    return null;
+  }
   const deliveryRecoveryReason = resolveDeliveryRecoveryReason(payload);
   const executionTokenEcho = resolveExecutionTokenEcho(payload);
   if (!executionTokenEcho) {
@@ -210,6 +213,7 @@ export function parseDispatchTask(
 
   return {
     ...requiredFields,
+    executionContext: payload.executionContext,
     agentControllerConversationId,
     ...resolveDispatchSourceFiles(payload),
     ...controllerSelection,
@@ -246,6 +250,28 @@ export function parseDispatchTask(
     triggerMode,
     contextIdMappingSpec,
   };
+}
+
+function hasMatchingExecutionContextScope(
+  payload: RuntimeTransportDeliverDispatchPayload,
+  required: { spaceId: string; targetProfileId: string }
+): boolean {
+  const context = payload.executionContext;
+  return (
+    !context ||
+    (context.scope.targetProfileId === required.targetProfileId &&
+      context.scope.spaceId === required.spaceId &&
+      context.scope.threadId === (payload.threadContext?.threadId ?? null))
+  );
+}
+
+function resolveDispatchNativeConversationId(
+  payload: RuntimeTransportDeliverDispatchPayload
+): string | null {
+  if (payload.executionContext) {
+    return payload.executionContext.nativeConversationId;
+  }
+  return normalizeOptionalText(payload.agentControllerConversationId) ?? null;
 }
 
 function resolveDispatchSourceFiles(
@@ -729,7 +755,7 @@ function renderMandatoryCompletionSection(
   return [
     "Mandatory completion:",
     "- Plain text is not a Space reply.",
-    "- For shared text attachments, discover and use the dispatch tool read_file with the file ID and revision. It reads the current Space as you without requiring terminal access to local login files. A file read is not a final action.",
+    "- Use supplied context first. Discover read_history for this Wake's bounded Space text, or read_file with a file ID and revision. Both dispatch tools read as you without local login files; neither completes the Wake.",
     buildMandatoryCompletionActionLine(publicationRequirement),
     "- Use the Space Action tool first. If your harness offers tool search or discovery, look up the required action before declaring it unavailable. A tool missing from the initial list is not proof of unavailability. Do not read setup or onboarding guides merely to submit this result.",
     ...(publicationRequirement.allowedActions.includes("post_message")
@@ -976,7 +1002,7 @@ function renderContinuityLine(input: {
   if (!sourceSignalId) {
     return `- Since your last public reply: ${parts.join(
       "; "
-    )} (run \`${buildSpaceHistoryCommand(input)}\` for content)`;
+    )} (use dispatch tool \`read_history\` for bounded context; only if unavailable and terminal access is permitted, run \`${buildSpaceHistoryCommand(input)}\`)`;
   }
   const readCommand = buildSpaceContextWindowCommand({
     cliEntry: input.cliEntry,
@@ -986,7 +1012,7 @@ function renderContinuityLine(input: {
   });
   return `- Since your last public reply: ${parts.join(
     "; "
-  )} (run \`${readCommand}\` for bounded context)`;
+  )} (use dispatch tool \`read_history\` for bounded context; only if unavailable and terminal access is permitted, run \`${readCommand}\`)`;
 }
 
 function shouldRenderReplyTargetLine(replyTarget: string): boolean {

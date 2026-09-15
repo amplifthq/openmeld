@@ -612,7 +612,10 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 					}
 					wakeStopTargetLabelsByProfileId={wakeStopTargetLabelsByProfileId}
 				/>
-				{renderThreadComposer(input)}
+				{renderThreadComposer(
+					input,
+					buildSpaceTaskSources(rawThreadTimelineItems, input.selfProfileId)
+				)}
 				<ThreadSelectedMessageDetails
 					activeThread={input.activeThread}
 					messageDetailsItem={messageDetailsItem}
@@ -878,7 +881,10 @@ function useThreadInitialFocus(input: {
 	return { registerMessageElement, jumpToMessage, messageScrollActionRef };
 }
 
-function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
+function renderThreadComposer(
+	input: SpaceThreadPanelProps,
+	taskSources: readonly SpaceTaskSource[]
+): ReactNode {
 	if (input.readOnly) {
 		return null;
 	}
@@ -913,6 +919,7 @@ function renderThreadComposer(input: SpaceThreadPanelProps): ReactNode {
 			pendingActionSurface={input.pendingActionSurface}
 			prepareSetupHref={input.prepareSetupHref}
 			profileControl={input.profileControl}
+			taskSources={taskSources}
 			textareaRef={input.textareaRef}
 		/>
 	);
@@ -1813,6 +1820,7 @@ function resolveThreadMessageAvatarImageUrl(input: {
 }
 
 function ThreadComposer(input: {
+	taskSources: readonly SpaceTaskSource[];
 	canSendMessage: boolean;
 	composerMembers?: SpaceComposerProps["members"];
 	pendingActionSurface?: ReactNode;
@@ -1921,6 +1929,7 @@ function ThreadComposer(input: {
 				) : null,
 				profileControl: input.profileControl,
 			}}
+			taskSources={input.taskSources}
 		/>
 	);
 }
@@ -2002,3 +2011,8 @@ const THREAD_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
 	minute: "2-digit",
 	second: "2-digit",
 });
+
+import {
+	buildSpaceTaskSources,
+	type SpaceTaskSource,
+} from "./space-composer-task-menu";

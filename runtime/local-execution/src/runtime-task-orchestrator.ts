@@ -44,7 +44,7 @@ import {
   type OpenMeldDaemonAgentContextLifecycleCounters,
   type OpenMeldDaemonAgentContextRotationRecord,
   type OpenMeldDaemonHistoryEntry,
-  type OpenMeldDaemonLedgerStateV1,
+  type OpenMeldDaemonLedgerState,
   recordDedupeFirstSeenAt,
   removeAgentContext,
   resolveDedupeFirstSeenAt,
@@ -80,6 +80,7 @@ export type RuntimeTask = {
   attemptId: string;
   bindingKey: string;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
+  executionContext?: AdapterDispatchRequest["executionContext"];
   dispatchId?: string;
   deliveryRecoveryReason?: OpenMeldDaemonDispatchDeliveryRecoveryReason;
   executionMode?: AdapterDispatchExecutionMode;
@@ -137,7 +138,7 @@ export type RuntimeTaskResult = {
   agentContextLifecycle?: RuntimeAgentContextLifecycle;
   agentContextRotationAudit?: RuntimeAgentContextRotationAudit;
   agentContextLifecycleCounters: OpenMeldDaemonAgentContextLifecycleCounters;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 };
 
 export type RuntimeAgentContextLifecycle = {
@@ -218,6 +219,7 @@ const buildDispatchRequest = (input: {
   streamingMode?: AdapterStreamingMode;
 }): AdapterDispatchRequest => ({
   agentId: input.task.agentId,
+  executionContext: input.task.executionContext,
   ...(input.agentControllerPermissionMode
     ? { agentControllerPermissionMode: input.agentControllerPermissionMode }
     : {}),
@@ -556,12 +558,14 @@ const resolvePostDispatchAgentContextInput = (input: {
 
 const resolvePostDispatchAgentContextResolution = (input: {
   postDispatchAgentContext: PostDispatchAgentContextInput;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): AgentContextResolutionResult =>
   resolveAgentContextForDispatch({
     key: {
       agentControllerRef:
         input.postDispatchAgentContext.route.agentControllerRef,
+      executionContextId:
+        input.postDispatchAgentContext.task.executionContext?.id,
       runtimeWorkspaceFingerprint:
         input.postDispatchAgentContext.route.runtimeWorkspaceFingerprint ??
         buildRuntimeWorkspaceFingerprint(
@@ -579,9 +583,9 @@ const resolvePostDispatchAgentContextResolution = (input: {
   });
 
 const commitAgentContextResolutionToState = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   committedAgentContextResolution: AgentContextResolutionResult | null;
-}): OpenMeldDaemonLedgerStateV1 => {
+}): OpenMeldDaemonLedgerState => {
   if (!input.committedAgentContextResolution) {
     return input.state;
   }
@@ -662,7 +666,9 @@ const prepareRuntimeTaskExecution = async (input: {
   task: RuntimeTask;
 }): Promise<RuntimeTaskExecutionPreparation> =>
   withLedgerStateTransaction({
-    invalidStateStrategy: "backup_and_reset",
+    invalidStateStrategy: input.task.executionContext
+      ? "throw"
+      : "backup_and_reset",
     io: input.io,
     mutate: (state) => {
       const repairExecution = isRepairExecutionMode(input.task.executionMode);
@@ -718,6 +724,7 @@ const prepareRuntimeTaskExecution = async (input: {
         ? resolveAgentContextForDispatch({
             key: {
               agentControllerRef: input.route.agentControllerRef,
+              executionContextId: input.task.executionContext?.id,
               runtimeWorkspaceFingerprint:
                 input.route.runtimeWorkspaceFingerprint ??
                 buildRuntimeWorkspaceFingerprint(
@@ -887,10 +894,15 @@ const settleRuntimeTaskState = async (input: {
   taskId: string;
 }): Promise<{
   committedAgentContextResolution: AgentContextResolutionResult | null;
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }> =>
   withLedgerStateTransaction({
-    invalidStateStrategy: "backup_and_reset",
+    invalidStateStrategy:
+      input.committedAgentContextResolution?.agentContextLookupKey.startsWith(
+        "execution-context|"
+      ) || input.postDispatchAgentContext?.task.executionContext
+        ? "throw"
+        : "backup_and_reset",
     io: input.io,
     mutate: (state) => {
       let committedAgentContextResolution =

@@ -177,6 +177,7 @@ export function parseSpaceRouteParams(
 export function parsePostSignalBody(body: unknown): ParseResult<{
   text: string;
   deviceWait?: SignalText["data"]["deviceWait"];
+  contextSelection?: SignalText["data"]["contextSelection"];
   attachments?: SignalText["data"]["attachments"];
   files?: SignalText["data"]["files"];
   messageEnvelope?: SignalText["data"]["messageEnvelope"];
@@ -196,6 +197,9 @@ export function parsePostSignalBody(body: unknown): ParseResult<{
     value: {
       text: parsed.data.text,
       ...(parsed.data.deviceWait ? { deviceWait: parsed.data.deviceWait } : {}),
+      ...(parsed.data.contextSelection
+        ? { contextSelection: parsed.data.contextSelection }
+        : {}),
       ...(parsed.data.attachments
         ? { attachments: parsed.data.attachments }
         : {}),

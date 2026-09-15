@@ -39,11 +39,12 @@ export function buildPendingAgentProfileWorkPromotion(input: {
 }
 
 export function buildPendingAgentProfileWorkPromotionStorageKey(
-  targetProfileId: string
+  targetProfileId: string,
+  targetWakeLifecycleId?: string
 ): string {
   return `${AGENT_PROFILE_WORK_PROMOTION_STORAGE_KEY_PREFIX}${encodeURIComponent(
     targetProfileId
-  )}`;
+  )}${targetWakeLifecycleId ? `:${encodeURIComponent(targetWakeLifecycleId)}` : ""}`;
 }
 
 export async function readPendingAgentProfileWorkPromotions(
@@ -67,27 +68,37 @@ export async function readPendingAgentProfileWorkPromotion(
   storage: AgentProfileWorkPromotionStorage,
   targetProfileId: string
 ): Promise<PendingAgentProfileWorkPromotion | null> {
-  const value = await storage.get<unknown>(
-    buildPendingAgentProfileWorkPromotionStorageKey(targetProfileId)
+  const prefix =
+    buildPendingAgentProfileWorkPromotionStorageKey(targetProfileId);
+  const values = await storage.list<unknown>({ prefix });
+  const matches = [...values.values()]
+    .map((value) => {
+      const record = parsePendingAgentProfileWorkPromotion(value);
+      if (!record) {
+        throw new Error(
+          "runtime_coordinator.agent_profile_work_promotion_invalid"
+        );
+      }
+      return record;
+    })
+    .filter((record) => record.targetProfileId === targetProfileId);
+  return (
+    matches.sort(
+      (a, b) =>
+        a.nextAttemptAtMs - b.nextAttemptAtMs || a.createdAtMs - b.createdAtMs
+    )[0] ?? null
   );
-  if (value === undefined) {
-    return null;
-  }
-  const parsed = parsePendingAgentProfileWorkPromotion(value);
-  if (!parsed) {
-    throw new Error("runtime_coordinator.agent_profile_work_promotion_invalid");
-  }
-  return parsed;
 }
 
 export async function clearPendingAgentProfileWorkPromotion(
   storage: AgentProfileWorkPromotionStorage,
   expected: PendingAgentProfileWorkPromotion
 ): Promise<boolean> {
-  const storageKey = buildPendingAgentProfileWorkPromotionStorageKey(
-    expected.targetProfileId
-  );
   return await storage.transaction(async (transaction) => {
+    const storageKey = await locatePendingAgentProfileWorkPromotion(
+      transaction,
+      expected
+    );
     const current = parsePendingAgentProfileWorkPromotion(
       await transaction.get<unknown>(storageKey)
     );
@@ -104,10 +115,11 @@ export async function deferPendingAgentProfileWorkPromotion(input: {
   nowMs: number;
   storage: AgentProfileWorkPromotionStorage;
 }): Promise<PendingAgentProfileWorkPromotion | null> {
-  const storageKey = buildPendingAgentProfileWorkPromotionStorageKey(
-    input.expected.targetProfileId
-  );
   return await input.storage.transaction(async (transaction) => {
+    const storageKey = await locatePendingAgentProfileWorkPromotion(
+      transaction,
+      input.expected
+    );
     const current = parsePendingAgentProfileWorkPromotion(
       await transaction.get<unknown>(storageKey)
     );
@@ -198,6 +210,22 @@ function samePendingAgentProfileWorkPromotion(
     left.targetProfileId === right.targetProfileId &&
     left.targetWakeLifecycleId === right.targetWakeLifecycleId
   );
+}
+
+export async function locatePendingAgentProfileWorkPromotion(
+  storage: Pick<DurableObjectTransaction, "get">,
+  expected: Pick<
+    PendingAgentProfileWorkPromotion,
+    "targetProfileId" | "targetWakeLifecycleId"
+  >
+): Promise<string> {
+  const key = buildPendingAgentProfileWorkPromotionStorageKey(
+    expected.targetProfileId,
+    expected.targetWakeLifecycleId
+  );
+  return (await storage.get(key)) === undefined
+    ? buildPendingAgentProfileWorkPromotionStorageKey(expected.targetProfileId)
+    : key;
 }
 
 function isNonnegativeInteger(value: unknown): value is number {

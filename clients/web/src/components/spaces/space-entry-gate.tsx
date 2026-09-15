@@ -16,6 +16,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+	copySpaceOpenDiagnosticId,
+	markSpaceOpen,
+	observeSpaceOpen,
+} from "#/lib/observability/space-open";
 import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
 import { joinOrganizationSpace } from "#/lib/organizations/organization-spaces";
 import { isSessionExpiredError } from "#/lib/session-expired";
@@ -59,6 +64,28 @@ export function SpaceEntryGate(input: {
 		enabled: typeof window !== "undefined",
 	});
 	const resolutionQuery = useQuery(resolutionOptions);
+	useEffect(() => {
+		observeSpaceOpen(input.spaceId, {
+			queryStatus: resolutionQuery.status,
+			fetchStatus: resolutionQuery.fetchStatus,
+			failureCount: Math.min(1000, resolutionQuery.failureCount),
+		});
+		if (resolutionQuery.error) {
+			markSpaceOpen(input.spaceId, "failed");
+		} else if (resolutionQuery.data) {
+			markSpaceOpen(
+				input.spaceId,
+				resolutionQuery.data.view.state === "allowed" ? "access" : "denied"
+			);
+		}
+	}, [
+		input.spaceId,
+		resolutionQuery.status,
+		resolutionQuery.fetchStatus,
+		resolutionQuery.failureCount,
+		resolutionQuery.error,
+		resolutionQuery.data,
+	]);
 	const ensureConfirmed = useCallback(async (): Promise<boolean> => {
 		if (resolutionQuery.data?.view.state === "allowed") {
 			return true;
@@ -173,6 +200,7 @@ export function SpaceEntryGate(input: {
 	return input.renderFrame(
 		<SpaceEntryState
 			backHref={input.backHref}
+			diagnostic={<SpaceOpenDiagnostic spaceId={input.spaceId} />}
 			errorMessage={resolutionQuery.error?.message ?? null}
 			isJoining={isJoining}
 			isPending={resolutionQuery.isPending}
@@ -214,6 +242,7 @@ export function SpaceEntryGate(input: {
 }
 
 export function SpaceEntryState(input: {
+	diagnostic?: ReactNode;
 	joinError?: string | null;
 	isJoining?: boolean;
 	onJoin?: () => Promise<void>;
@@ -243,6 +272,7 @@ export function SpaceEntryState(input: {
 						Loading the latest messages…
 					</p>
 				</div>
+				{input.diagnostic}
 			</output>
 		);
 	}
@@ -251,14 +281,17 @@ export function SpaceEntryState(input: {
 		return (
 			<EntryStateLayout
 				action={
-					<Button
-						disabled={input.isRetrying}
-						onClick={input.onRetry}
-						type="button"
-						variant="outline"
-					>
-						{input.isRetrying ? "Checking…" : "Try again"}
-					</Button>
+					<div className="space-y-3">
+						<Button
+							disabled={input.isRetrying}
+							onClick={input.onRetry}
+							type="button"
+							variant="outline"
+						>
+							{input.isRetrying ? "Checking…" : "Try again"}
+						</Button>
+						{input.diagnostic}
+					</div>
 				}
 				description="OpenMeld couldn't confirm access to this Space."
 				icon={<WarningCircleIcon aria-hidden="true" />}
@@ -345,6 +378,43 @@ export function SpaceEntryState(input: {
 			icon={<WarningCircleIcon aria-hidden="true" />}
 			title="This Space isn't available"
 		/>
+	);
+}
+
+export function SpaceOpenDiagnostic({ spaceId }: { spaceId: string }) {
+	const [visible, setVisible] = useState(false);
+	const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+	useEffect(() => {
+		const timer = setTimeout(() => setVisible(true), 5000);
+		return () => clearTimeout(timer);
+	}, []);
+	if (!visible) {
+		return null;
+	}
+	return (
+		<div className="text-sm">
+			<Button
+				onClick={() => {
+					copySpaceOpenDiagnosticId(spaceId)
+						.then(() => setStatus("copied"))
+						.catch(() => setStatus("failed"));
+				}}
+				size="sm"
+				variant="ghost"
+			>
+				Copy diagnostic ID
+			</Button>
+			{status === "copied" ? (
+				<output className="text-muted-foreground">
+					ID copied. Include it when reporting this problem.
+				</output>
+			) : null}
+			{status === "failed" ? (
+				<output className="text-muted-foreground">
+					Couldn't copy the ID. Try again.
+				</output>
+			) : null}
+		</div>
 	);
 }
 

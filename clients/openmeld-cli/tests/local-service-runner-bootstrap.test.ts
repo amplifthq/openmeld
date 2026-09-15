@@ -341,7 +341,7 @@ describe("local service dispatch bootstrap prompt", () => {
     ).toMatchInlineSnapshot(`
       "Mandatory completion:
       - Plain text is not a Space reply.
-      - For shared text attachments, discover and use the dispatch tool read_file with the file ID and revision. It reads the current Space as you without requiring terminal access to local login files. A file read is not a final action.
+      - Use supplied context first. Discover read_history for this Wake's bounded Space text, or read_file with a file ID and revision. Both dispatch tools read as you without local login files; neither completes the Wake.
       - Normal completion: call dispatch-scoped Space Action \`reply\` with the exact public message. Only if unavailable: \`"$OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH" space action reply "your public message"\` and wait for it to finish.
       - Use the Space Action tool first. If your harness offers tool search or discovery, look up the required action before declaring it unavailable. A tool missing from the initial list is not proof of unavailability. Do not read setup or onboarding guides merely to submit this result.
       - For a plain reply, omit wakeTargets and referenceTargets. Add targets only for an intentional handoff or reference to another Agent; never copy incoming activation targets or wake yourself.
@@ -551,7 +551,7 @@ describe("local service dispatch bootstrap prompt", () => {
 
     expect(prompt).toContain("- Reply target: previous thread message");
     expect(prompt).toContain(
-      "- Since your last public reply: 2 new messages; higher-authority updates: yes (run `openmeld space history space_a --kind text --limit 20 --profile agent_profile_a --view agent` for content)"
+      "- Since your last public reply: 2 new messages; higher-authority updates: yes (use dispatch tool `read_history` for bounded context; only if unavailable and terminal access is permitted, run `openmeld space history space_a --kind text --limit 20 --profile agent_profile_a --view agent`)"
     );
   });
 

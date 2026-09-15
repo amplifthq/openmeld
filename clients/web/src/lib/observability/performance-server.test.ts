@@ -56,3 +56,58 @@ it("logs slow experiences but rejects unbounded or private payloads", async () =
 	).toBe(413);
 	expect(console.warn).not.toHaveBeenCalled();
 });
+
+it("accepts the browser's fast Space sample and nullable uncollected metrics while preserving payload privacy", async () => {
+	const { receivePerformanceReport } = await import("./performance-server");
+	const { installSpaceOpenReporting, beginSpaceOpen, markSpaceOpen } =
+		await import("./space-open");
+	vi.spyOn(Math, "random").mockReturnValue(0);
+	const captured = vi.fn();
+	const cleanup = installSpaceOpenReporting(captured);
+	try {
+		beginSpaceOpen("/spaces/private-space", "navigation");
+		markSpaceOpen("private-space", "access");
+		markSpaceOpen("private-space", "empty");
+		markSpaceOpen("private-space", "read_only");
+		const sample = {
+			...report,
+			...captured.mock.calls.at(-1)?.[0],
+			kind: "space_open",
+			requestCount: null,
+			longestRequestMs: null,
+			requestGroups: [],
+		};
+		expect((await receivePerformanceReport(request(sample))).status).toBe(204);
+		expect(console.warn).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				event: "web.openmeld.space_open",
+				report: expect.objectContaining({
+					spaceOpen: expect.objectContaining({
+						sampling: "normal",
+						content: "empty",
+						composer: "read_only",
+					}),
+				}),
+			})
+		);
+		expect(
+			(
+				await receivePerformanceReport(
+					request({
+						...sample,
+						spaceOpen: { ...sample.spaceOpen, url: "https://private.example" },
+					})
+				)
+			).status
+		).toBe(400);
+		expect(
+			(
+				await receivePerformanceReport(
+					request({ ...sample, spaceOpen: undefined })
+				)
+			).status
+		).toBe(400);
+	} finally {
+		cleanup();
+	}
+});

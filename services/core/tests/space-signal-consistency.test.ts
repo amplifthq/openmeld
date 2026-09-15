@@ -2689,6 +2689,40 @@ describe("space signal consistency matrix", () => {
     expect(rebuilt.enqueuedAtMs).toBe(1_700_000_015_000);
   });
 
+  it("distinguishes an ordinary thread Wake from explicit context selection", async () => {
+    const message = createDispatchMessageFixture("thread-context-selection");
+    message.controllerSnapshot = {
+      ...message.controllerSnapshot,
+      agentControllerRef: "builtin:cursor",
+      bindingId: "binding-thread-context",
+      configurationRevision: 1,
+    };
+    message.sourceSignalSnapshot = {
+      profileId: "human-requester",
+      profileKind: "human",
+      text: "Continue the discussion",
+    };
+    message.threadContext = { threadId: "thread-1", rootSignalId: "root-1" };
+    for (const contextSelection of [
+      undefined,
+      { mode: "auto" as const },
+      { mode: "new" as const },
+      { mode: "resume" as const, sourceWakeId: "source-wake" },
+      { mode: "fork" as const, sourceWakeId: "source-wake" },
+    ]) {
+      const snapshot = await buildAcceptedDispatchSnapshot({
+        message: { ...message, contextSelection },
+        openMeldServiceRuntimeId: "runtime-thread-context",
+        runtimeKind: "openmeld_service",
+      });
+      expect(snapshot?.contextRequest).toMatchObject({
+        required: contextSelection !== undefined,
+        scope: { requesterProfileId: "human-requester", threadId: "thread-1" },
+        selection: contextSelection ?? { mode: "auto" },
+      });
+    }
+  });
+
   it("keeps the accepted Wake payload fingerprint stable across transport redrive metadata", async () => {
     const dispatchMessage = createDispatchMessageFixture(
       "evt-outbox-stable-accepted-payload"

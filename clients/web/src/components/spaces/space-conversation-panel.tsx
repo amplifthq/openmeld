@@ -29,6 +29,7 @@ import {
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { useSpaceConversationOpenPaint } from "#/lib/observability/use-space-open-paint";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
 import {
 	buildActiveWakeConversationItems,
@@ -533,6 +534,15 @@ function SpaceConversationPanelContent(
 		threadsByRootSignalId,
 		wakeStopTargetLabelsByProfileId,
 	} = presentation;
+	useSpaceConversationOpenPaint({
+		spaceId: input.spaceId,
+		messagesVisible: input.activeSpaceView === "messages",
+		historyPending: input.historyIsPending,
+		historyError: Boolean(input.historyErrorMessage),
+		hasMessages: entries.length > 0,
+		canEdit: canSendMessage,
+		showComposer,
+	});
 	const navigation = useSpaceConversationNavigationController({
 		activeSpaceView: input.activeSpaceView,
 		ephemeralActivityItems: input.ephemeralActivityItems,
@@ -1917,6 +1927,7 @@ function SpaceComposerSection(input: {
 							: undefined,
 						targetName: input.composerTargetName,
 					}}
+					key={`${panel.spaceId}:${panel.selfProfileId}`}
 					members={panel.composerMembers}
 					recovery={{
 						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
@@ -1948,6 +1959,10 @@ function SpaceComposerSection(input: {
 						primaryAction: panel.composerPrimaryAction,
 						profileControl: panel.profileControl,
 					}}
+					taskSources={buildSpaceTaskSources(
+						panel.timelineItems,
+						panel.selfProfileId
+					)}
 				/>
 			</div>
 		</div>
@@ -3752,3 +3767,5 @@ const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	second: "2-digit",
 	timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 });
+
+import { buildSpaceTaskSources } from "./space-composer-task-menu";

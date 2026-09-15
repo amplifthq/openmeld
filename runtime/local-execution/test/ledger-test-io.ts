@@ -3,9 +3,11 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -19,6 +21,18 @@ export const createNodeLedgerFileIo = (): LedgerFileIo => ({
   readFile,
   rename,
   rm,
+  syncPath: async (fileOrDirectoryPath) => {
+    const isWindows = process.platform === "win32";
+    if (isWindows && (await stat(fileOrDirectoryPath)).isDirectory()) {
+      return;
+    }
+    const handle = await open(fileOrDirectoryPath, isWindows ? "r+" : "r");
+    try {
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
+  },
   writeFile,
 });
 
