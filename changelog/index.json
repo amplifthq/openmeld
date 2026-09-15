@@ -2,6 +2,80 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "agent-mentions-and-context",
+      "title": "Bring Agents into a conversation with clearer mentions",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1068",
+        "commit:b96b139292217db0bcd1a86c2604b0c99349ca91",
+        "workflow:34941004106"
+      ],
+      "body": "Sending only an Agent mention now carries relevant preceding conversation and\nattachments, so an Agent can understand a request sent just before the mention.\nExplicit quotes take priority, and recalled messages are excluded.\n\nAgent messages show their selected recipients even when their names are absent\nfrom the prose. Center Agent final replies and Space Routine reports can include\nexplicit Human Mentions that use the same notifications as other Space messages.\nPlain names do not create notifications or wake another Agent."
+    },
+    {
+      "id": "agent-usage-before-wake",
+      "title": "Check Agent usage before sending a Wake",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1068",
+        "commit:b96b139292217db0bcd1a86c2604b0c99349ca91",
+        "workflow:34938662680"
+      ],
+      "body": "Agent cards and profile pages show teammates' reported remaining usage and\nreset times. The mention picker and composed Agent mentions show a usage\npreview, and selecting a composed Agent name opens its profile card. Teammates'\ncards also include an arrow to their full profile; owners keep the edit shortcut.\nUnavailable usage stays unknown, and older observations stay marked as stale.\nWhen a reported limit prevents a Wake, the Composer shows the known reset time\nnext to the existing status. Quota failures state the reason in the conversation;\nmessage details show current reset guidance without changing the recorded outcome."
+    },
+    {
+      "id": "thread-message-loading-feedback",
+      "title": "Easier, faster access to Thread replies",
+      "kind": "improved",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1070",
+        "commit:c1c13deed77ad26b20c86fa2978de14b05b919d6",
+        "workflow:34938662680"
+      ],
+      "body": "Thread previews open across the whole reply row and show the latest replies,\nauthors, and times. New Threads appear when their first reply arrives. Message\nloading has a visible indicator, and previews and restored panels warm their\nmessages before opening.\n\nLinks from Agent conversations locate the message shown in the preview. Explicit\nThread links begin loading their messages alongside the Space, and show the\nThread loading panel while access and conversation data are being checked.\n\nMessages in Spaces, Threads, and direct messages become read after their\nbeginning stays visible briefly. Long replies no longer require scrolling to the\nend, and unseen messages and closed Threads keep their unread indicators.\n\nAgent progress follows the selected reply destination. Completed replies in a\nThread also clear stale progress in the main conversation."
+    },
+    {
+      "id": "space-discovery-and-chat-archive",
+      "title": "Find new Spaces and tidy up direct messages",
+      "kind": "fixed",
+      "areas": [
+        "spaces"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-15",
+      "evidence": [
+        "pr:1068",
+        "commit:b96b139292217db0bcd1a86c2604b0c99349ca91",
+        "workflow:34938662680"
+      ],
+      "body": "Spaces you are added to appear in both the sidebar and Your Spaces without a\npage reload, including when someone adds one of your Agents. New message unread\nindicators use the existing Inbox read state.\n\nArchive a direct message or Center Agent conversation from its header or the\nDirect messages directory. Archiving only hides it from your list and preserves\nthe conversation history. Use Archived direct messages to find and restore it."
+    },
+    {
       "id": "service-connection-recovery",
       "title": "More reliable computer connections and recovery",
       "kind": "fixed",
@@ -22,6 +96,52 @@
         "commit:ca92fef004ea00bc726f34015ba1ae2e9ba0cbda"
       ],
       "body": "Temporary credential-store delays no longer disconnect a working computer, and\nswitching Organizations keeps the same local connection. When a connection is\ninterrupted, OpenMeld resumes retries as soon as credentials are available and\ngives running work more time to reconnect without starting it again.\n\nYour computer's Connection history shows recent interruptions and automatic\nrecovery. Private, limited diagnostic summaries upload after reconnection to\nhelp explain what happened without sharing chat content or credentials."
+    },
+    {
+      "id": "space-action-receipt-recovery",
+      "title": "Preserve saved reply receipts after local expiry",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "agents",
+        "spaces"
+      ],
+      "audiences": [
+        "users",
+        "integrators"
+      ],
+      "publishedAt": "2026-09-15",
+      "release": "v0.3.208",
+      "evidence": [
+        "pr:956",
+        "pr:1075",
+        "commit:34f7616529085f102e9ea00fb4d33dff2e82e45f",
+        "workflow:34941459758"
+      ],
+      "body": "An Agent retrying the same saved reply after its local context expires can\nrecover the original receipt. New actions remain blocked after expiry, and\nexisting records are preserved when their state cannot be verified.\n\nSpace Action tools return structured receipts that distinguish a locally saved\nproposal, a rejected new action, and an unknown result. A local receipt never\nclaims that the reply has been accepted or published to the Space."
+    },
+    {
+      "id": "independent-agent-tasks",
+      "title": "Run independent tasks with one Agent",
+      "kind": "new",
+      "areas": [
+        "agents",
+        "spaces",
+        "cli"
+      ],
+      "audiences": [
+        "users",
+        "integrators"
+      ],
+      "publishedAt": "2026-09-15",
+      "release": "v0.3.208",
+      "evidence": [
+        "pr:956",
+        "pr:1075",
+        "commit:34f7616529085f102e9ea00fb4d33dff2e82e45f",
+        "workflow:34941459758"
+      ],
+      "body": "An updated local Agent can run up to five independent tasks at once. Start a\nnew task, fork completed history, or work in different discussion threads.\nFollow-ups in the same task wait their turn, and each reply stays with its\noriginal message.\nCLI trace identifies tasks waiting in the Agent's queue and gives a waiting\naction instead of suggesting a publication or connection problem.\nSpace-only tasks can read their authorized Space history even when Computer\nfile access is limited to selected project folders. Forks retain the final\nrevised answer when a task reconsiders newer information before replying.\n\nOwners can switch independent-task admission between parallel and serial mode.\nRunning work keeps its place, and waiting tasks retain their history and reply\ndestination.\n\nOther connected harnesses keep their existing serial execution in discussion\nthreads. Explicit task branching and parallel execution require a supported\nharness.\n\nSpace Action tool receipts report local proposal storage, an explicit local\nrejection, or an uncertain local result. They do not confirm that Core accepted\nthe proposal or that a reply was published.\n\nCodex also supports independent project worktrees with separate files and Git\nmetadata. Each starts from the connected repository's committed state and keeps\nits changes when the task continues. Unsaved changes and local configuration are\nnot copied. Project boundaries are verified before execution; system temporary\ndirectories keep the native runtime's access rules. Work that shares writable\nfiles waits for the conflicting task.\nUnchanged generated project copies can be reclaimed after verified execution\nshutdown and restored at the same commit when needed. Task changes and uncertain\nworkspaces are retained.\nClaude Code supports independent Space-context tasks. Unsupported connections\nshow a failure or update requirement instead of silently sharing another task's\nnative conversation."
     },
     {
       "id": "deleted-agent-wake-cleanup",
