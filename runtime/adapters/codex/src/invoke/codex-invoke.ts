@@ -82,7 +82,11 @@ export async function invokeCodexWithSingleContextHeal(input: {
 }> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.threadId,
-    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
+    contextLossPolicy:
+      input.computerFileAccessBoundary?.executionContextAccess ||
+      input.executionMode === "repair"
+        ? "fail"
+        : "rebuild",
     createRebuildFailedError: (error) =>
       new CodexRuntimeError({
         code: "context.rebuild_failed",
@@ -155,7 +159,11 @@ export async function invokeCodexAppServer(input: {
 }): Promise<CodexInvokeResult> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.threadId,
-    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
+    contextLossPolicy:
+      input.computerFileAccessBoundary?.executionContextAccess ||
+      input.executionMode === "repair"
+        ? "fail"
+        : "rebuild",
     createRebuildFailedError: (error) =>
       new CodexRuntimeError({
         code: "context.rebuild_failed",

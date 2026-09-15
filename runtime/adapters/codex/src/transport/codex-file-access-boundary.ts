@@ -5,7 +5,9 @@ import type {
   AgentControllerPermissionMode,
 } from "@openmeld/adapter-core";
 
-const PROFILE_NAME = "openmeld_computer_boundary";
+export const CODEX_FILE_ACCESS_PERMISSION_PROFILE =
+  "openmeld_computer_boundary";
+const PROFILE_NAME = CODEX_FILE_ACCESS_PERMISSION_PROFILE;
 const TRAILING_PATH_SEPARATORS_PATTERN = /[\\/]+$/u;
 
 type CodexPermissionMode = Extract<
@@ -43,7 +45,31 @@ export function buildCodexFileAccessBoundaryGlobalArgs(input: {
   }
 
   return [
-    "--strict-config",
+    // Scratch tasks do not inherit a surrounding project's AGENTS.md. An empty
+    // marker list makes their cwd the project root without disabling global docs.
+    ...(input.boundary.executionContextAccess === "space_context"
+      ? ["-c", "project_root_markers=[]"]
+      : []),
+    ...(input.boundary.executionContextAccess
+      ? [
+          "-c",
+          "features.hooks=false",
+          "-c",
+          "features.plugins=false",
+          "-c",
+          "features.apps=false",
+          "-c",
+          "features.computer_use=false",
+          "-c",
+          "features.browser_use=false",
+          "-c",
+          "features.browser_use_external=false",
+          "-c",
+          "features.in_app_browser=false",
+          "-c",
+          "features.skill_mcp_dependency_install=false",
+        ]
+      : ["--strict-config"]),
     "-c",
     buildPermissionProfile({
       boundary: input.boundary,
@@ -52,11 +78,75 @@ export function buildCodexFileAccessBoundaryGlobalArgs(input: {
     }),
     "-c",
     `default_permissions=${tomlString(PROFILE_NAME)}`,
-    ...buildApprovalArgs({
-      executionMode: input.executionMode,
-      permissionMode,
-    }),
+    ...(input.boundary.executionContextAccess
+      ? ["-a", "never"]
+      : buildApprovalArgs({
+          executionMode: input.executionMode,
+          permissionMode,
+        })),
   ];
+}
+
+// The native thread response confirms the selected permission profile before
+// a turn can run. CLI --version alone cannot attest to effective file access.
+export function isCodexExecutionContextFileAccessConfirmed(
+  value: unknown,
+  boundary: AdapterComputerFileAccessBoundary,
+  workingDirectory: string,
+  executionMode?: AdapterDispatchExecutionMode
+): boolean {
+  if (!boundary.executionContextAccess) {
+    return true;
+  }
+  const response = recordValue(value);
+  const profile = recordValue(response?.activePermissionProfile);
+  const sandbox = recordValue(response?.sandbox);
+  const roots = response?.runtimeWorkspaceRoots;
+  if (
+    !Array.isArray(roots) ||
+    roots.length !== 1 ||
+    roots[0] !== workingDirectory
+  ) {
+    return false;
+  }
+  if (
+    profile?.id !== PROFILE_NAME ||
+    profile.extends != null ||
+    response?.cwd !== workingDirectory ||
+    response.approvalPolicy !== "never"
+  ) {
+    return false;
+  }
+  if (
+    resolveCodexExecutionContextAccess(boundary, executionMode) !== "workspace"
+  ) {
+    return sandbox?.type === "readOnly";
+  }
+  return (
+    sandbox?.type === "workspaceWrite" &&
+    sandbox.excludeTmpdirEnvVar === true &&
+    sandbox.excludeSlashTmp === true &&
+    Array.isArray(sandbox.writableRoots) &&
+    sandbox.writableRoots.every(
+      (root) => typeof root === "string" && boundary.folders.includes(root)
+    )
+  );
+}
+
+export function resolveCodexExecutionContextAccess(
+  boundary: AdapterComputerFileAccessBoundary,
+  executionMode?: AdapterDispatchExecutionMode
+): AdapterComputerFileAccessBoundary["executionContextAccess"] {
+  return executionMode === "repair" &&
+    boundary.executionContextAccess === "workspace"
+    ? "read_only"
+    : boundary.executionContextAccess;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function buildPermissionProfile(input: {
@@ -87,6 +177,28 @@ function resolveFileAccess(input: {
   fullNetwork: boolean;
 } {
   const isRepair = input.executionMode === "repair";
+  if (input.boundary.executionContextAccess) {
+    if (input.boundary.mode !== "only_selected_folders") {
+      throw new Error("execution_context.file_access_unverified");
+    }
+    return {
+      extendsProfile: null,
+      filesystemEntries: [
+        '":root" = "deny"',
+        '":minimal" = "read"',
+        ...buildFolderEntries(
+          input.boundary.folders,
+          resolveCodexExecutionContextAccess(
+            input.boundary,
+            input.executionMode
+          ) === "workspace"
+            ? "write"
+            : "read"
+        ),
+      ],
+      fullNetwork: !isRepair && input.permissionMode === "codex:fullAccess",
+    };
+  }
   const isFullAccess = !isRepair && input.permissionMode === "codex:fullAccess";
   const selectedFolderAccess = isFullAccess ? "write" : "read";
   const extendsProfile = resolveBaseProfile({ isFullAccess, isRepair });

@@ -194,10 +194,21 @@ test("Codex install discovery prefers signed-in ChatGPT Codex over a signed-in P
     if (!resolution.ok) {
       throw new Error(JSON.stringify(resolution));
     }
-    assert.equal(resolution.candidates.length, 2);
+    // Bundle roots do not disable the normal /opt/homebrew/bin and
+    // /usr/local/bin search. Assert both fixtures without assuming this host
+    // has no additional valid installation.
+    assert.equal(
+      resolution.candidates.filter(
+        (candidate) =>
+          candidate.commandPath === chatGptCodexPath ||
+          candidate.commandPath === pathCodexPath
+      ).length,
+      2
+    );
     const chatGptCandidate = resolution.candidates.find(
       (candidate) => candidate.commandPath === chatGptCodexPath
     );
+    assert.ok(chatGptCandidate);
     assert.equal(resolution.preferredInstallId, chatGptCandidate?.installId);
 
     await writeFile(
@@ -216,6 +227,7 @@ test("Codex install discovery prefers signed-in ChatGPT Codex over a signed-in P
     const pathCandidate = signedOutResolution.candidates.find(
       (candidate) => candidate.commandPath === pathCodexPath
     );
+    assert.ok(pathCandidate);
     assert.equal(
       signedOutResolution.preferredInstallId,
       pathCandidate?.installId

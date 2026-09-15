@@ -441,6 +441,7 @@ function resolveCenterAgentExecutionInput(input: {
 }
 
 function buildNormalMessagePostInput(input: {
+	contextSelection?: SpaceComposerSendOptions["contextSelection"];
 	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	restoredFromSignalId?: string;
 	centerAgentExecutionInput?: NonNullable<
@@ -471,6 +472,9 @@ function buildNormalMessagePostInput(input: {
 		text: input.text,
 		...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
 		timeoutMs: SPACE_MESSAGE_SEND_TIMEOUT_MS,
+		...(input.contextSelection
+			? { contextSelection: input.contextSelection }
+			: {}),
 	};
 }
 
@@ -2491,6 +2495,7 @@ export function useSpaceLandingController(input: {
 	};
 
 	async function sendMessage(options?: {
+		contextSelection?: SpaceComposerSendOptions["contextSelection"];
 		deviceWait?: SpaceComposerSendOptions["deviceWait"];
 		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		pendingMessage?: PendingSpaceMessage;
@@ -2537,17 +2542,19 @@ export function useSpaceLandingController(input: {
 		try {
 			const missingMembersMessage =
 				resolveMissingSpaceMembersMessage(membersErrorMessage);
-			const preparedSubmission =
-				options?.retrySubmission ??
-				applyDeviceWaitToSubmission(
-					prepareMainComposerSubmission({
-						mentionAuthoring,
-						messageSeed,
-						missingMembersMessage,
-						pendingMessage: options?.pendingMessage,
-					}),
-					options?.deviceWait
-				);
+			const preparedSubmission: PendingComposerSubmission =
+				options?.retrySubmission ?? {
+					contextSelection: options?.contextSelection,
+					...applyDeviceWaitToSubmission(
+						prepareMainComposerSubmission({
+							mentionAuthoring,
+							messageSeed,
+							missingMembersMessage,
+							pendingMessage: options?.pendingMessage,
+						}),
+						options?.deviceWait
+					),
+				};
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				options?.retryFiles ??
@@ -2842,6 +2849,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				contextSelection: sendInput.preparedSubmission.contextSelection,
 				deviceWait: sendInput.preparedSubmission.deviceWait,
 				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
 				centerAgentExecutionInput,
@@ -3732,16 +3740,18 @@ function useSpaceThreadController(input: {
 		let publishedLocalIds: readonly string[] = [];
 		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
-			const preparedSubmission =
-				retry?.submission ??
-				applyDeviceWaitToSubmission(
-					trimmedText.length > 0
-						? mentionAuthoring.prepareSubmission(
-								resolveMissingSpaceMembersMessage(input.membersErrorMessage)
-							)
-						: mentionAuthoring.prepareFileOnlySubmission(),
-					options?.deviceWait
-				);
+			const preparedSubmission: PendingComposerSubmission =
+				retry?.submission ?? {
+					contextSelection: options?.contextSelection,
+					...applyDeviceWaitToSubmission(
+						trimmedText.length > 0
+							? mentionAuthoring.prepareSubmission(
+									resolveMissingSpaceMembersMessage(input.membersErrorMessage)
+								)
+							: mentionAuthoring.prepareFileOnlySubmission(),
+						options?.deviceWait
+					),
+				};
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				retry?.files ?? composerSession.recordPendingSubmission();
@@ -4009,6 +4019,7 @@ function useSpaceThreadController(input: {
 			}
 			const postInput = {
 				body: {
+					contextSelection: sendInput.preparedSubmission.contextSelection,
 					...(sendInput.preparedSubmission.threadWakeContinuation
 						? { threadWakeContinuation: true as const }
 						: {}),

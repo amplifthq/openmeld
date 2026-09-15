@@ -1,5 +1,6 @@
 import * as z from "../../lazy-zod";
 import { projectLocalConnectionFailureReasonCodeSchema } from "../../public-agent-failure-reason";
+import { executionContextCompletionSchema } from "../protocol/execution-context";
 import { profileWorkingDirectorySchema } from "../protocol/profile";
 import { openMeldSpaceEgressActionSchema } from "../space-mesh/openmeld-space-action";
 import { runtimeTransportModeSchema } from "./controller-contract";
@@ -217,6 +218,8 @@ const openMeldDaemonTaskResultCommonSchemaV1 = z.strictObject({
 
 const openMeldDaemonTaskResultCommonSchema =
   openMeldDaemonTaskResultCommonSchemaV1.extend({
+    executionContextId: z.string().uuid().optional(),
+    executionContextCompletion: executionContextCompletionSchema.optional(),
     attemptId: z.string().min(1),
     telemetry: openMeldDaemonTaskResultTelemetrySchema.optional(),
     agentControllerConversation:

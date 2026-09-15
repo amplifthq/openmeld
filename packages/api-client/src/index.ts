@@ -42,6 +42,7 @@ export type {
   UpdateAgentProfilePrimaryBindingModelSelectionInput,
   UpdateAgentProfilePrimaryBindingOpenCodePermissionInput,
 } from "./agent-profile-binding/types";
+export { createAgentProfileExecutionModeApi } from "./agent-profile-execution-mode";
 export { createAgentProfileWorkRecoveryApi } from "./agent-profile-work-recovery/api";
 export { buildAgentProfileWorkRecoveryRoute } from "./agent-profile-work-recovery/routes";
 export type {

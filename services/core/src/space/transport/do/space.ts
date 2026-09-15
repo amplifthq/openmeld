@@ -1162,6 +1162,10 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
   });
 
   return createDispatchOutboxRecord({
+    ...(input.signal.type === "signal.text" &&
+    input.signal.data.contextSelection
+      ? { contextSelection: input.signal.data.contextSelection }
+      : {}),
     bindingEnabled: true,
     ...(input.signal.type === "signal.text" &&
     input.signal.data.deviceWait?.targetProfileId ===
@@ -4772,6 +4776,7 @@ export class Space extends DurableObject<CoreBindings> {
         data: {
           text: normalizedText,
           ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
+          contextSelection: input.contextSelection,
           ...(input.attachments ? { attachments: input.attachments } : {}),
           ...(input.files ? { files: input.files } : {}),
           ...(input.messageEnvelope
@@ -4879,6 +4884,9 @@ export class Space extends DurableObject<CoreBindings> {
   }): PostSignalInput {
     return {
       ...(input.input.deviceWait ? { deviceWait: input.input.deviceWait } : {}),
+      ...(input.input.contextSelection
+        ? { contextSelection: input.input.contextSelection }
+        : {}),
       ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
       authoringPolicy: input.input.authoringPolicy,
       ...(input.input.attachments
@@ -10474,6 +10482,7 @@ export class Space extends DurableObject<CoreBindings> {
         parsed.data.text,
         {
           deviceWait: parsed.data.deviceWait,
+          contextSelection: parsed.data.contextSelection,
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
@@ -15672,6 +15681,9 @@ export class Space extends DurableObject<CoreBindings> {
       data: {
         text,
         ...(options?.deviceWait ? { deviceWait: options.deviceWait } : {}),
+        ...(options?.contextSelection
+          ? { contextSelection: options.contextSelection }
+          : {}),
         ...(options?.attachments ? { attachments: options.attachments } : {}),
         ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
@@ -21760,6 +21772,9 @@ function buildDispatchQueueMessageFromOutboxRecord(
     spacePassword: outboxRecord.spacePassword,
     controllerSnapshot: outboxRecord.controllerSnapshot,
     ...(outboxRecord.deviceWait ? { deviceWait: outboxRecord.deviceWait } : {}),
+    ...(outboxRecord.contextSelection
+      ? { contextSelection: outboxRecord.contextSelection }
+      : {}),
     contextIdMappingSpec: outboxRecord.contextIdMappingSpec,
     dispatchRulesSnapshot: outboxRecord.dispatchRulesSnapshot,
     ...(outboxRecord.spaceContractSnapshot

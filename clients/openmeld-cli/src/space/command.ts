@@ -8408,6 +8408,7 @@ async function syncKnownSpacePasswordProtectionCache(input: {
 }
 
 export async function runSpaceSend(input: {
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   wakeTargets?: readonly string[];
   referenceTargets?: readonly string[];
   mentionTargets?: readonly string[];
@@ -8480,6 +8481,7 @@ export async function runSpaceSend(input: {
   }
   try {
     await runSend({
+      contextSelection: input.contextSelection,
       wakeTargets: input.wakeTargets,
       referenceTargets: input.referenceTargets,
       mentionTargets: input.mentionTargets,

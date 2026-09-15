@@ -369,6 +369,46 @@ requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Boundary
 
+### Dispatch Space Action receipts
+
+`@openmeld/schemas` owns `dispatchSpaceActionToolResultSchema` and its inferred
+types for the local recorder's MCP result. Its `receipt.status` is
+`proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`. All variants
+leave Coordinator acceptance and Space publication `unconfirmed`; a local
+process cannot infer either fact from expiry, a saved file, or an error.
+Saved receipts carry the original context/dispatch/attempt identity, action
+type, and recording timestamp. Context nonces remain private to local records.
+
+Exact receipt recovery after local expiry is read-only. It retains runtime
+identity checks and record nonce validation and cannot create a different
+action, upload a file, renew execution, or bypass RuntimeCoordinator or Space
+publication. Corrupt or unreadable evidence is preserved with an unknown
+receipt. New actions remain subject to the existing active-context writer.
+
+This is an additive MCP output contract with retained text content. On-disk
+context/action formats, CLI JSON, Service/Coordinator payloads, setup, Wake,
+trace, and diagnostics contracts are unchanged. Old cloud/Service and new CLI,
+or new cloud/Service and old CLI, can interoperate; older MCP clients may read
+the text, and consumers must not require structured receipts from older CLI
+versions. No migration, mandatory version floor, or cloud deploy order is
+introduced. A future CLI/Service release may deliver this as an available
+update; release manifest stamping stays with that release.
+
+The same dispatch-owned MCP server exposes `read_history` for a bounded Space
+text window. `dispatchSpaceHistoryRequestSchema` accepts no arguments;
+`dispatchSpaceHistoryResultSchema` owns its strict output with `spaceId`,
+`sourceSignalId`, literal `beforeCount: 20` and `afterCount: 0`, at most 21 text
+signals including the anchor, and `nextCursor`. Space, anchor, and acting Profile
+come from the active dispatch, never model input. Existing public Space readers
+still enforce access, and the local bridge rechecks active dispatch identity
+after the read. Wrong-Space, non-text, oversized, or expired results fail closed.
+The tool does not read local project files, grant shell access, or publish an
+action. It is an additive local MCP contract using existing cloud history
+receivers; it introduces no backend endpoint or data migration. Older local
+components retain their existing history commands. Scoped bootstrap guidance
+uses the MCP reader because native file isolation can prevent loading a local
+CLI and its dependencies.
+
 ### Thread continuation and file working context
 
 Space owns retained quoted-message lookup and the last explicit human thread
@@ -6288,6 +6328,105 @@ Legacy or compatibility paths must stay diagnostic unless explicitly migrated
 into the RuntimeCoordinator authority path. Caller authority, owner evidence,
 Binding evidence, and claim truth must come from verified Gateway/Core context,
 not request bodies.
+
+## Execution Context Contract
+
+`packages/schemas` owns `ExecutionContextSelection`, the Core-created request and
+assignment, the Service task projection, and the returned completion. Clients
+submit only a selection. Core constructs requester/discussion scope and assigns
+the context once. Native conversation IDs and local workspace fingerprints are
+resolved from retained Core context records. Results echo the context ID; native
+history checkpoints are stored per accepted Wake and survive Head retirement.
+
+An omitted access preference selects `space_context`; local project access is
+explicit or inherited from an authorized fork source. `workspace: isolated`
+with local access now means a committed project worktree with private Git data.
+The local preparation journal binds the shared assignment to its source and
+starting commit. Its paths remain local; it neither replaces the Core context
+association nor introduces a second Project connection. Source policy is checked
+before materialization, and native project access is probed before execution.
+Native platform temporary-directory access remains in effect; this contract
+does not promise complete temporary-directory isolation.
+
+Core sets `contextRequest.required` only for an explicit client selection. An
+ordinary thread Wake carries its discussion scope with `required: false`; the
+Context authority creates implicit thread contexts only for supported harnesses.
+Other harnesses retain their existing serial Binding path and do not select
+retained Context history from a previously configured harness. Explicit
+new/resume/fork/auto selections never fall back to that path. This changes Core's
+request-selection policy without changing the wire shape or Service capability
+version, and leaves existing Binding, lifecycle, and readiness checks in effect.
+
+The public signal read encoder omits `contextSelection` so older strict history
+readers remain usable. This encoder must never be used for persistence, dispatch
+snapshots, or authoring. The existing singular workload reference remains a
+compatibility projection of the first reserved task; waiting counts exclude all
+reserved contexts. Per-Wake progress continues to show every actual execution.
+
+The Profile admission ceiling is five reservations plus 50 waiting Wakes,
+owned by `packages/agent-runtime`. Readers accept five reservations and 55 total
+work items, including records retained across a temporary reduction in capacity.
+Serial policy reduces future reservations to one while retaining Context
+identity and already reserved work. Setup, dispatch-owned actions, status,
+trace, and self-rescue retain their contracts.
+
+Restoring parallel capacity from three to five changes the shared admission and
+local slot policy, not the wire shape or capability version. Existing readers
+already accept five reservations and 55 total items. A Service built with the
+three-task policy remains locally limited to three until updated; compatible
+Core and Service builds must both use the five-task policy to reach that ceiling.
+The existing serial switch continues to admit one task. This policy change does
+not add host-resource admission or certify five-way native execution.
+
+The local Space Action receipt is deliberately limited to
+`proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`. Its
+`coordinatorAcceptance` and `publication` fields remain `unconfirmed`; it does
+not implement remote `accepted_for_finalization` or `published` receipts. Core
+execution and Space publication must be read from their existing authorities.
+The separate Late reply presentation remains outside this implementation.
+
+Contract impact: HTTP signal/thread sends gain optional selection fields;
+accepted snapshots and RuntimeTransport gain version-1 context assignments;
+current task results gain context identity/completion fields; the local ledger
+and fork journal migrate to v2. Dispatch Space Action authority is unchanged.
+Setup, Service installation, CLI self-rescue, and managed Skill contracts are
+unchanged. Legacy unscoped execution keeps its existing payload and epoch.
+
+The owner-shard work-coordinator record advances to v3 for the durable migration
+marker and serial/parallel policy. Its reader accepts v1/v2 and the original
+legacy execution-admission record; it preserves previously accepted five-slot
+data. An earlier v2 binary is not a supported rollback reader for v3 policy.
+
+`GET` and `PATCH /v1/agent-profiles/:id/execution-mode` use the shared execution
+mode schemas. PATCH accepts only `serial` or `parallel`; the response reports
+Profile id, mode, migration phase, and revision. Core rechecks current
+Organization and Profile ownership, then mutates the existing owner-shard
+record under the same transaction/index-generation fences as admission. Clients
+cannot use this endpoint to supply native IDs, migration boundaries, or higher
+numeric capacity. An additive reader-first release is required before exposing
+the new CLI caller.
+
+Scoped delivery carrying the Core-owned legacy association requires a fresh
+Service adapter declaration of `executionContextVersion: 2`, as well as
+runtime-specific file-access verification. The reader still accepts version-1
+capability declarations and existing task envelopes without the additive legacy
+association. An older Service receives a visible update-required outcome when
+it cannot read the selected task contract, never a delivery that silently reuses
+the Binding conversation. Assignment/history version remains 1; the capability
+increment identifies the new Service-side migration guard. Older Core strictly
+rejects unknown capability declarations, so deploy Core/Gateway support
+before distributing this Service and Web/CLI feature. This ordered rollout is
+required; publishing the local component first is unsupported. Local-component
+release metadata is deferred in the feature PR and must be produced by the
+guarded release workflow before production rollout.
+
+The legacy association is server-owned metadata from a current primary Binding
+read under the owner-shard mutation lease. The local Service compares only the
+selected pre-isolation Profile/controller/transport/workspace ledger lookup;
+two known, unequal native IDs reject before execution. Missing evidence does
+not choose or rewrite an identity, and unrelated historical roots are not
+treated as conflicts. The association is omitted from local workspace identity
+and never grants the requesting member access to the legacy transcript.
 
 ## Agent Profile Binding Contract
 

@@ -240,6 +240,7 @@ test("resolveExecutablePathsOnPath returns every matching PATH hit once", async 
 });
 
 test("resolveInstalledNodeScriptLaunchCandidates dedupes installs by canonical launch contract", async () => {
+  const commandName = "openmeld-dedupe-fixture";
   const fixtureDir = await mkdtemp(join(tmpdir(), "adapter-core-candidates-"));
   const binDirA = join(fixtureDir, "bin-a");
   const binDirB = join(fixtureDir, "bin-b");
@@ -247,8 +248,8 @@ test("resolveInstalledNodeScriptLaunchCandidates dedupes installs by canonical l
   const moduleDir = join(fixtureDir, "lib", "node_modules", "openclaw");
   const nodePath = join(realBinDir, "node");
   const scriptPath = join(moduleDir, "openclaw.mjs");
-  const commandPathA = join(binDirA, "openclaw");
-  const commandPathB = join(binDirB, "openclaw");
+  const commandPathA = join(binDirA, commandName);
+  const commandPathB = join(binDirB, commandName);
   const originalHome = process.env.HOME;
   const originalPath = process.env.PATH;
   const originalSearchEnv = snapshotEnvVars(EXECUTABLE_SEARCH_ENV_KEYS);
@@ -269,21 +270,21 @@ test("resolveInstalledNodeScriptLaunchCandidates dedupes installs by canonical l
   ]);
   await chmod(nodePath, 0o755);
   await chmod(scriptPath, 0o755);
-  await symlink(join(realBinDir, "openclaw"), commandPathA).catch(() => null);
-  await symlink(join(realBinDir, "openclaw"), commandPathB).catch(() => null);
+  await symlink(join(realBinDir, commandName), commandPathA).catch(() => null);
+  await symlink(join(realBinDir, commandName), commandPathB).catch(() => null);
   await writeFile(
-    join(realBinDir, "openclaw"),
+    join(realBinDir, commandName),
     "#!/usr/bin/env node\nconsole.log('openclaw');\n",
     "utf8"
   );
-  await chmod(join(realBinDir, "openclaw"), 0o755);
+  await chmod(join(realBinDir, commandName), 0o755);
 
   try {
     process.env.HOME = fixtureDir;
     process.env.PATH = [binDirA, binDirB].join(":");
     isolateExecutableSearchEnv(fixtureDir);
     const resolution = await resolveInstalledNodeScriptLaunchCandidates({
-      commandName: "openclaw",
+      commandName,
       displayName: "OpenClaw",
     });
 

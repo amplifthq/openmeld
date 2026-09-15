@@ -88,6 +88,7 @@ class DispatchSnapshotOversizeError extends Error {
 }
 
 export const createDispatchOutboxRecord = (input: {
+  contextSelection?: OpenMeldDaemonDispatchQueueMessage["contextSelection"];
   bindingState: "bound" | "missing";
   bindingEnabled: boolean;
   agentControllerRef?: string | null;
@@ -175,6 +176,9 @@ export const createDispatchOutboxRecord = (input: {
   const replyToSnapshot = buildReplyToSnapshot(input.replyToSnapshot);
 
   const message: OpenMeldDaemonDispatchQueueMessage = {
+    ...(input.contextSelection
+      ? { contextSelection: input.contextSelection }
+      : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     v: OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
     dispatchId,

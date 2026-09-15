@@ -124,6 +124,13 @@ new writers create only `space_mention`.
 
 ## Item contract and ownership
 
+Independent Local Agent Contexts do not create new Inbox identities or a new
+execution authority. Recovery and interaction items remain keyed to the exact
+Wake, source message, requester, and target Agent Profile. Multiple reserved or
+interrupted Wakes may coexist; the first reserved work reference is only a
+compatibility projection. Reading or dismissing one item cannot settle another
+Context, release its reservation, or publish a reply.
+
 Core owns one canonical item with:
 
 - stable item id and recipient;

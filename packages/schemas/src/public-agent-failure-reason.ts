@@ -1243,6 +1243,42 @@ const PUBLIC_FAILURE_RECOVERY_BY_CODE: readonly PublicAgentFailureRecoveryMappin
       recoveryTarget: "prepare_setup",
     },
     {
+      body: "This independent project task needs a connected Git repository with at least one commit. Choose that repository's root as the Agent's working folder, then start a new task.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "execution_context.project_repository_required",
+        "execution_context.project_repository_root_required",
+        "execution_context.project_commit_required",
+      ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "OpenMeld couldn't verify this task's project file boundary. Check this computer's file-access settings and use a task workspace outside system temporary folders, then start a new task.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "execution_context.workspace_access_unverified",
+        "execution_context.workspace_probe_unsupported",
+        "execution_context.workspace_probe_timeout",
+      ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
+      body: "This local Agent couldn't start with only the tools authorized for this task. Check the Agent's MCP configuration, then start a new task.",
+      kind: "local_agent_prepare",
+      patterns: [
+        "execution_context.mcp_server_namespace_conflict",
+        "execution_context.mcp_inventory_timeout",
+        "context.mcp_isolation_unverified",
+      ],
+      primaryActionId: "manage_local_agent",
+      preferMappedReasonOverDetail: true,
+      recoveryTarget: "computer",
+    },
+    {
       body: "This agent is missing its local workspace on this device. Run `openmeld doctor --repair`, then `openmeld setup --profile <agent-profile-id>`, and try again.",
       kind: "local_agent_prepare",
       patterns: ["workspace.missing", "profile.workspace.missing"],

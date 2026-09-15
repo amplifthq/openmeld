@@ -1,6 +1,7 @@
 import type {
   AdapterDispatchExecutionMode,
   AdapterDispatchFailure,
+  AdapterDispatchRequest,
   AdapterDispatchTelemetry,
   AdapterErrorType,
   AdapterInstructionPrompt,
@@ -34,6 +35,7 @@ type ClaudeProviderAccessEvidence = NonNullable<
 >;
 
 type ClaudeInvokeOnceInput = {
+  executionContext?: AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeTimeoutMs: number | null;
@@ -87,6 +89,7 @@ export class ClaudeRuntimeError extends Error {
 }
 
 export async function invokeClaudeWithSingleContextHeal(input: {
+  executionContext?: AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeTimeoutMs: number | null;
@@ -115,7 +118,10 @@ export async function invokeClaudeWithSingleContextHeal(input: {
 }> {
   const result = await invokeWithSingleContextHeal({
     contextId: input.sessionId,
-    contextLossPolicy: input.executionMode === "repair" ? "fail" : "rebuild",
+    contextLossPolicy:
+      input.executionContext || input.executionMode === "repair"
+        ? "fail"
+        : "rebuild",
     createRebuildFailedError: (error) => {
       const providerAccessEvidence = getClaudeProviderAccessEvidence(error);
       const originalError = getClaudeOriginalError(error);
@@ -131,6 +137,7 @@ export async function invokeClaudeWithSingleContextHeal(input: {
     },
     invokeOnce: (sessionId) =>
       invokeClaudeOnce({
+        executionContext: input.executionContext,
         agentControllerPermissionMode: input.agentControllerPermissionMode,
         launchContract: input.launchContract,
         claudeTimeoutMs: input.claudeTimeoutMs,
@@ -185,6 +192,9 @@ async function invokeClaudeOnce(
 ): Promise<ClaudeInvokeResult> {
   try {
     if ((input.claudeTransport ?? "agent-sdk") === "cli") {
+      if (input.executionContext) {
+        throw new Error("execution_context.transport_unsupported");
+      }
       return await invokeClaudeOnceWithCli(input);
     }
 
@@ -250,6 +260,7 @@ function invokeClaudeOnceWithAgentSdk(
   input: ClaudeInvokeOnceInput
 ): Promise<ClaudeInvokeResult> {
   return invokeClaudeAgentSdkTransport({
+    executionContext: input.executionContext,
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     launchContract: input.launchContract,
     claudeTimeoutMs: input.claudeTimeoutMs,

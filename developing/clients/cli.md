@@ -1094,6 +1094,20 @@ current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that
 claim.
 
+The `reply`, `status`, and `stay_silent` MCP tools advertise the shared
+`dispatchSpaceActionToolResultSchema` and return it as `structuredContent`.
+The receipt distinguishes `proposal_saved_locally`, `rejected_closed`, and
+`outcome_unknown`; Coordinator acceptance and Space publication remain
+`unconfirmed`. Local receipts include the original context, dispatch, attempt,
+action type, and recording time, but never the context nonce.
+
+After local context expiry, an exact already-recorded action may recover its
+original local receipt without changing the record or extending execution
+authority. Dispatch and target identity checks still apply. Different or new
+actions are rejected, and file reads, uploads, and target listing still require
+an active context. Invalid or unreadable records stay preserved and produce an
+unknown receipt rather than a claim that nothing was recorded or published.
+
 `wake` and `reply --wake` are `post_message` outcomes with
 `messageEnvelope.activationTargets`. They close the current Wake with a visible
 handoff message and start the next ready Agent Profile through normal Space
@@ -1612,6 +1626,17 @@ switch that renders human names as plain text while agent coloring stays on.
 
 ## Local Capability And Execution Boundary
 
+Agent Profile owners can read or change admission through
+`openmeld profiles execution-mode <profile-id> [--mode serial|parallel]`.
+The command calls Core's current-Organization owner-authorized API; it does not
+edit a local concurrency default or restart the Service. The response includes
+the selected mode, migration phase, and revision. Serial mode limits future
+reservations to one; parallel mode uses the shared five-reservation ceiling.
+Running and waiting Wakes retain their Context, native identity, and results.
+Changing this policy cannot cancel work, replay effects, or revert stored
+formats. The Core/Gateway receiver must be released before this command is
+distributed with the CLI.
+
 The CLI may display Agent Profile Wakeability, but it does not own the
 execution truth.
 
@@ -1672,6 +1697,15 @@ An authoritative pre-result RuntimeCoordinator status such as `running` or
 `projection_pending` diagnostic. The latter explains why no final message can
 yet be linked; it must not relabel active execution as final publication work or
 tell the operator that the target Computer is offline.
+
+A found Coordinator head with `status: queued` and no linked execution also
+precedes `projection_pending`. Agent View reports `current_state=queued`, the
+shared `runtime_coordinator.head_queued` reason, and asks the caller to wait for
+the Agent's execution slot before checking again. Dispatch or attempt queue
+labels alone cannot establish this state. The shared head-status reason mapper
+also supplies human execution-authority diagnostics so those views agree.
+This changes diagnostic values only: trace request version 3, response fields,
+and parsing of older Core responses remain unchanged.
 
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller

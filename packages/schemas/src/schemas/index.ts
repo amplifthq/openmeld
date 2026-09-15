@@ -961,6 +961,12 @@ export {
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "./http/agent-profile-creation-request";
 export {
+  agentProfileExecutionModeResponseSchema,
+  agentProfileExecutionModeSchema,
+  runtimeTransportAgentProfileExecutionModeRequestSchema,
+  updateAgentProfileExecutionModeBodySchema,
+} from "./http/agent-profile-execution-mode";
+export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,
   reconcileDeletedAgentProfileResponseSchema,
@@ -2104,6 +2110,7 @@ export {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
+  resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
@@ -2588,6 +2595,15 @@ export {
   spaceLiveSignalFrameSchema,
 } from "./protocol/envelope";
 export {
+  executionContextAssignmentSchema,
+  executionContextCompletionSchema,
+  executionContextLegacyAssociationSchema,
+  executionContextRequestSchema,
+  executionContextScopeSchema,
+  executionContextSelectionSchema,
+  executionContextTaskSchema,
+} from "./protocol/execution-context";
+export {
   helloAckSchema,
   helloCapabilitiesSchema,
   helloSchema,
@@ -2903,6 +2919,15 @@ export {
   dispatchResultPublicOutcomeSchema,
   dispatchResultSchema,
 } from "./space-mesh/dispatch-result";
+export {
+  dispatchSpaceActionClosedReasonCodeSchema,
+  dispatchSpaceActionReceiptSchema,
+  dispatchSpaceActionToolResultSchema,
+} from "./space-mesh/dispatch-space-action-receipt";
+export {
+  dispatchSpaceHistoryRequestSchema,
+  dispatchSpaceHistoryResultSchema,
+} from "./space-mesh/dispatch-space-history";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,

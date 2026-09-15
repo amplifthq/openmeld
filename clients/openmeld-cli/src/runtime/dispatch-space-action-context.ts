@@ -14,6 +14,7 @@ import {
   spaceMemberDirectoryEntrySchema,
 } from "@openmeld/schemas";
 import type {
+  DispatchSpaceActionClosedReasonCode,
   OpenMeldSpaceEgressAction,
   SpaceContract,
   SpaceMemberDirectoryEntry,
@@ -30,6 +31,20 @@ import {
 
 export const OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV =
   "OPENMELD_SPACE_ACTION_CONTEXT_PATH";
+
+/** The local action context is known expired/closed/mismatched: a new ordinary action must be rejected, never recorded. */
+export class DispatchSpaceActionClosedError extends Error {
+  readonly receipt = "rejected_closed" as const;
+  readonly reasonCode: DispatchSpaceActionClosedReasonCode;
+  constructor(
+    reasonCode: DispatchSpaceActionClosedReasonCode,
+    message: string
+  ) {
+    super(message);
+    this.name = "DispatchSpaceActionClosedError";
+    this.reasonCode = reasonCode;
+  }
+}
 
 const DISPATCH_SPACE_ACTION_CONTEXT_VERSION = 1 as const;
 const DISPATCH_SPACE_ACTION_RECORD_VERSION = 1 as const;
@@ -151,6 +166,18 @@ export function createDispatchSpaceActionContext(input: {
 export function readDispatchSpaceActionContextFromEnv(
   env: NodeJS.ProcessEnv = process.env
 ): DispatchSpaceActionContext {
+  const context = readDispatchSpaceActionContextForReceiptFromEnv(env);
+  assertContextActive(context, Date.now());
+  return context;
+}
+
+// Expiry does not erase a prior receipt. Callers may use this context to compare
+// an exact existing action; writeDispatchSpaceActionRecord still rejects new
+// actions after expiry. File reads/uploads and target listing use the active
+// context reader instead.
+export function readDispatchSpaceActionContextForReceiptFromEnv(
+  env: NodeJS.ProcessEnv = process.env
+): DispatchSpaceActionContext {
   const contextPath = normalizeOptionalText(
     env[OPENMELD_SPACE_ACTION_CONTEXT_PATH_ENV]
   );
@@ -161,7 +188,6 @@ export function readDispatchSpaceActionContextFromEnv(
   }
   const context = readDispatchSpaceActionContext(contextPath);
   assertDispatchRuntimeEnvMatchesContext({ context, env });
-  assertContextActive(context, Date.now());
   return context;
 }
 
@@ -177,7 +203,6 @@ export function writeDispatchSpaceActionRecord(input: {
   context: DispatchSpaceActionContext;
   nowMs?: number;
 }): DispatchSpaceActionRecord {
-  assertContextActive(input.context, input.nowMs ?? Date.now());
   const parsedAction = openMeldSpaceEgressActionSchema.safeParse(input.action);
   if (!parsedAction.success) {
     throw parsedAction.error;
@@ -187,6 +212,18 @@ export function writeDispatchSpaceActionRecord(input: {
       "An Agent cannot Wake itself. To reply to the current message, omit wakeTargets (CLI: --wake) and submit the reply again. No action was recorded."
     );
   }
+
+  const existing = readDispatchSpaceActionRecord({ context: input.context });
+  if (existing.status === "invalid") {
+    throw new Error(existing.errorMessage);
+  }
+  if (
+    existing.status === "loaded" &&
+    isDeepStrictEqual(existing.record.action, parsedAction.data)
+  ) {
+    return existing.record;
+  }
+  assertContextActive(input.context, input.nowMs ?? Date.now());
 
   const record: DispatchSpaceActionRecord = {
     version: DISPATCH_SPACE_ACTION_RECORD_VERSION,
@@ -327,7 +364,8 @@ function assertDispatchRuntimeEnvMatchesContext(input: {
     );
   }
   if (envDispatchId !== input.context.dispatchId) {
-    throw new Error(
+    throw new DispatchSpaceActionClosedError(
+      "space_action.context_mismatch",
       "OpenMeld Space Action dispatch context does not match the active dispatch runtime."
     );
   }
@@ -341,7 +379,8 @@ function assertDispatchRuntimeEnvMatchesContext(input: {
     );
   }
   if (envTargetProfileId !== input.context.targetProfileId) {
-    throw new Error(
+    throw new DispatchSpaceActionClosedError(
+      "space_action.context_mismatch",
       "OpenMeld Space Action target profile does not match the active dispatch runtime."
     );
   }
@@ -434,7 +473,10 @@ function assertContextActive(
   nowMs: number
 ): void {
   if (nowMs > context.expiresAtMs) {
-    throw new Error("The OpenMeld Space Action dispatch context has expired.");
+    throw new DispatchSpaceActionClosedError(
+      "space_action.context_expired",
+      "The OpenMeld Space Action dispatch context has expired."
+    );
   }
 }
 

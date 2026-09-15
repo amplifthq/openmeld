@@ -216,6 +216,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     input.message.deliveryRecoveryReason
   );
   const payloadCandidate: RuntimeTransportDeliverDispatchPayload = {
+    executionContext: input.message.executionContext,
     runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
       dispatchId: input.message.dispatchId,
       spaceId: input.message.spaceId,
@@ -295,13 +296,10 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     ...(input.targetProfileIsCenterAgent === true
       ? { targetProfileIsCenterAgent: true }
       : {}),
-    ...(normalizeOptionalText(input.agentControllerConversationId)
-      ? {
-          agentControllerConversationId: normalizeOptionalText(
-            input.agentControllerConversationId
-          ) as string,
-        }
-      : {}),
+    ...buildBindingConversationDeliveryFields(
+      input.message,
+      input.agentControllerConversationId
+    ),
     ...(deliveryRecoveryReason ? { deliveryRecoveryReason } : {}),
     ...(input.message.dispatchChainId
       ? { dispatchChainId: input.message.dispatchChainId }
@@ -362,6 +360,17 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   }
   const { attachments: _attachments, ...textOnlySnapshot } = snapshot;
   return textOnlySnapshot;
+}
+
+function buildBindingConversationDeliveryFields(
+  message: OpenMeldDaemonDispatchQueueMessage,
+  conversationId?: string | null
+): { agentControllerConversationId?: string } {
+  if (message.executionContext) {
+    return {};
+  }
+  const value = normalizeOptionalText(conversationId);
+  return value ? { agentControllerConversationId: value } : {};
 }
 
 function routeSupportsLocalFileImageInput(input: {
