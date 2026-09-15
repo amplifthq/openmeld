@@ -3698,6 +3698,13 @@ Failed attachments are never silently omitted, and publication failure preserves
 the entire message for retry with the same upload identities, including files
 that already published. Navigation preserves each conversation's attachment draft.
 
+Each file-publication request has a 30-second deadline and reuses the existing
+single automatic retry with the same mutation identity. If both attempts fail,
+the message keeps its attachments and exposes Retry; its send queue reservation
+is released so later messages can proceed. This bounds publication of an already
+staged file, not the byte upload or an Agent execution. A lost publication response
+does not justify creating a new file identity on retry.
+
 After publication, Web submits only server-returned Space File references. A pending
 outgoing message may use a local image preview until the canonical signal with
 the same client message id arrives. Durable message cards fetch an image
