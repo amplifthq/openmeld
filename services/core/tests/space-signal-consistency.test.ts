@@ -932,6 +932,7 @@ const createDispatchRulesSqlStub = (
     }[];
     failOnLegacyDispatchPolicyQuery?: boolean;
     spaceMemberRows?: Record<string, unknown>[];
+    recentSignals?: SignalEnvelope[];
   }
 ) => {
   const mentionAliasRows = options?.mentionAliasRows ?? [];
@@ -940,6 +941,22 @@ const createDispatchRulesSqlStub = (
   return {
     exec: vi.fn((query: string, ...params: unknown[]) => {
       const normalizedQuery = query.replace(/\s+/g, " ").trim();
+      if (
+        normalizedQuery.includes(
+          "SELECT id, ts, payload_json FROM space_signals"
+        )
+      ) {
+        return {
+          toArray: () =>
+            (options?.recentSignals ?? [])
+              .toSorted((a, b) => b.ts - a.ts)
+              .map((signal) => ({
+                id: signal.id,
+                ts: signal.ts,
+                payload_json: JSON.stringify(signal),
+              })),
+        };
+      }
       if (
         options?.failOnLegacyDispatchPolicyQuery === true &&
         normalizedQuery.includes("space_dispatch_policies")
@@ -1357,6 +1374,75 @@ describe("space signal consistency matrix", () => {
       )
     ).rejects.toThrow("signal.text payload is invalid");
     expect(buildTextSignalSpy).not.toHaveBeenCalled();
+  });
+
+  it("carries the latest preceding request through the SQL history order on a bare Wake", () => {
+    const targetProfileId = "agt_22222222-2222-4222-8222-222222222222";
+    const profile = {
+      kind: "human" as const,
+      profileId: "human-1",
+      profileName: "Casey",
+    };
+    const source: SignalEnvelope = {
+      v: 1,
+      id: "bare-wake",
+      spaceId: "space-1",
+      ts: 100,
+      profile,
+      type: "signal.text",
+      data: {
+        text: "@Agent A",
+        messageEnvelope: createMessageEnvelope({
+          text: "@Agent A",
+          activationTargets: [targetProfileId],
+        }),
+      },
+    };
+    const history: SignalEnvelope[] = Array.from(
+      { length: 25 },
+      (_, index) => ({
+        ...source,
+        id: `previous-${index}`,
+        ts: index + 1,
+        data: {
+          text:
+            index === 24 ? "Read the latest attachment" : "An older request",
+        },
+      })
+    );
+    const records = prepareDispatchOutboxRecordsForSignal.call(
+      {
+        ctx: {
+          storage: {
+            sql: createDispatchRulesSqlStub(1, {
+              recentSignals: history,
+              spaceMemberRows: [
+                createDispatchRulesSpaceMemberRow({
+                  profileId: targetProfileId,
+                  profileName: "Agent A",
+                }),
+              ],
+            }),
+          },
+        },
+      },
+      source
+    );
+    expect(records).toHaveLength(1);
+    const record = records[0];
+    if (!record) {
+      throw new Error("Expected the bare Wake to produce a dispatch");
+    }
+    const payload = JSON.parse(
+      record.payloadJson
+    ) as OpenMeldDaemonDispatchQueueMessage;
+    expect(
+      payload.sourceSignalSnapshot?.contextMessages?.map(
+        ({ signalId, text }) => ({ signalId, text })
+      )
+    ).toEqual([
+      { signalId: "previous-24", text: "Read the latest attachment" },
+    ]);
   });
 
   it("dispatches unique activationTargets from messageEnvelope", () => {

@@ -16702,6 +16702,7 @@ export class Space extends DurableObject<CoreBindings> {
         : null,
       readRecentSignals: () =>
         recentSignals
+          .toReversed()
           .filter(
             (candidate) =>
               candidate.profile.profileId === signal.profile.profileId &&
