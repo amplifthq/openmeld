@@ -4,6 +4,8 @@ title: Bring Agents into a conversation with clearer mentions
 kind: fixed
 areas: ["agents", "spaces"]
 audiences: ["users"]
+publishedAt: 2026-09-15
+evidence: ["pr:1068", "commit:b96b139292217db0bcd1a86c2604b0c99349ca91", "workflow:34941004106"]
 ---
 
 Sending only an Agent mention now carries relevant preceding conversation and

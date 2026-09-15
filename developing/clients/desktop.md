@@ -241,6 +241,11 @@ Its header allowlist preserves shared Inbox, Space addressing, and Space access 
 negotiation. These version headers select an existing response contract; they
 do not grant authorization. Renderer cookies and authorization remain excluded.
 
+File download responses preserve `x-openmeld-file-revision` for the shared
+Space file reader. Local image previews use Blob URLs, which are allowed only
+in the image CSP directive; script, connection, frame, and credential boundaries
+remain unchanged.
+
 `pilot-transport.ts` owns one private persistent Electron Session shared by the
 BrowserWindow and protocol handler. Its partition lives under the existing
 isolated application data directory, so shared Web appearance preferences survive
