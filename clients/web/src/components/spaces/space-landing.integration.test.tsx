@@ -1,6 +1,8 @@
 import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
 import {
 	createFetchTransport,
+	createOpenMeldApiClient,
+	createSpaceApi,
 	OpenMeldApiClientHttpError,
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
@@ -48,6 +50,7 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	readComposerFileDrafts: async () => [],
 	removeComposerFileDraft: async () => undefined,
 	saveComposerFileDraft: async () => undefined,
+	saveComposerFileDraftUpload: async () => undefined,
 }));
 
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
@@ -14882,6 +14885,121 @@ describe("SpaceLanding", () => {
 			await Promise.resolve();
 		});
 		expect(textarea.getAttribute("contenteditable")).toBe("true");
+	});
+
+	it.each([
+		"automatic",
+		"manual",
+	] as const)("recovers a stalled file publication through %s retry without blocking later text", async (recovery) => {
+		const hanging = createHangingFetchRequest();
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "progress.txt",
+		});
+		const publicationApi = createSpaceApi(
+			createOpenMeldApiClient({
+				baseUrl: "https://gateway.openmeld.invalid",
+				transport: createFetchTransport({
+					fetch: hanging.fetchMock as typeof fetch,
+				}),
+			})
+		);
+		const publish = vi.fn(publicationApi.publishComposerUpload);
+		const post = vi.fn().mockImplementation(async (input) =>
+			createTextSignal({
+				id: input.meta.clientMessageId,
+				text: input.text,
+				files: input.files,
+			})
+		);
+		const stage = vi.fn().mockImplementation(async (input) =>
+			createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: post,
+			publishComposerUpload: publish,
+			stageComposerUpload: stage,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+		renderSpaceLanding();
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["progress"], "progress.txt", { type: "text/plain" })],
+			},
+		});
+		const send = screen.getByRole("button", { name: "Send message" });
+		await waitFor(() => expect(send).toHaveProperty("disabled", false));
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		await setComposerValue(editor, "Progress with attachment");
+		fireEvent.click(send);
+		await waitFor(() => expect(hanging.fetchMock).toHaveBeenCalledTimes(1));
+		// This assertion fails before the fix: the stalled fetch has no deadline.
+		expect(hanging.timeoutSpy).toHaveBeenCalledWith(30_000);
+		await setComposerValue(editor, "Following text");
+		fireEvent.keyDown(editor, { key: "Enter" });
+		await waitFor(() => expect(readComposerValue(editor)).toBe(""));
+		await setComposerValue(editor, "Next draft");
+		expect(post).not.toHaveBeenCalled();
+		const recover = () =>
+			hanging.fetchMock.mockImplementation(async () =>
+				Response.json({ file: descriptor })
+			);
+		if (recovery === "automatic") {
+			recover();
+		}
+		await act(async () => hanging.abortForTimeout());
+		await waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+		if (recovery === "manual") {
+			await act(async () => hanging.abortForTimeout());
+			await screen.findByText(
+				"A file couldn't be attached. Your message wasn't sent."
+			);
+			await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+			expect(post.mock.calls[0]?.[0].text).toBe("Following text");
+			expect(
+				screen.getByText("Progress with attachment", { selector: "p" })
+			).toBeTruthy();
+			recover();
+			fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		}
+		await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+		const original = post.mock.calls.find(
+			([input]) => input.text === "Progress with attachment"
+		)?.[0];
+		expect(original?.files).toEqual([
+			createSpaceMessageFileReference(descriptor),
+		]);
+		expect(post.mock.calls.map(([input]) => input.text)).toEqual(
+			recovery === "automatic"
+				? ["Progress with attachment", "Following text"]
+				: ["Following text", "Progress with attachment"]
+		);
+		expect(
+			publish.mock.calls.every(
+				([input]) =>
+					input.clientMutationId ===
+						publish.mock.calls[0]?.[0].clientMutationId &&
+					input.uploadId === stage.mock.calls[0]?.[0].uploadId
+			)
+		).toBe(true);
+		expect(stage).toHaveBeenCalledTimes(1);
+		expect(readComposerValue(editor)).toBe("Next draft");
+		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 	});
 
 	it("preserves both the failed submission and a next draft written during sending", async () => {
