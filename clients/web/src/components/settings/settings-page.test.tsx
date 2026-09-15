@@ -410,8 +410,15 @@ describe("Settings grouped navigation", () => {
 			slug: "felix",
 		});
 
-		expect(personalItems.personal).toEqual(organizationItems.personal);
-		expect(personalItems.organization).toEqual(["General", "Center Agent"]);
+		expect(personalItems.personal).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Center Agent",
+			"Send feedback",
+		]);
+		expect(personalItems.organization).toEqual(["General"]);
 		expect(organizationItems).toEqual({
 			badges: [],
 			organization: [
@@ -433,13 +440,14 @@ describe("Settings grouped navigation", () => {
 		});
 		expect(personalItems).toEqual({
 			badges: [],
-			organization: ["General", "Center Agent"],
+			organization: ["General"],
 			organizationLabel: "Felix",
 			personal: [
 				"Account",
 				"Appearance",
 				"Notifications",
 				"Privacy & Safety",
+				"Center Agent",
 				"Send feedback",
 			],
 			storedOrganizationNameVisible: true,
