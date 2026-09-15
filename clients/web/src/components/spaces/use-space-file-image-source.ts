@@ -13,6 +13,7 @@ type SpaceFileObjectUrl = {
 export function useSpaceFileImageSource(input: {
 	api: Pick<SpaceApi, "downloadFileContent">;
 	fileId: string;
+	enabled?: boolean;
 	isLocal?: boolean;
 	localPreviewUrl?: string | null;
 	mimeType: string;
@@ -30,7 +31,8 @@ export function useSpaceFileImageSource(input: {
 	const contentQuery = useQuery(
 		spaceFileContentQueryOptions({
 			api: input.api,
-			enabled: !(input.localPreviewUrl || input.isLocal),
+			enabled:
+				input.enabled !== false && !(input.localPreviewUrl || input.isLocal),
 			fileId: input.fileId,
 			revision: input.revision,
 			spaceId: input.spaceId,
