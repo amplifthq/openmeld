@@ -148,7 +148,7 @@ describe("SpaceConversationPanel", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("returns from the retained Graph view to Messages with the draft intact", () => {
+	it("returns from the retained Graph view to Messages with the draft intact", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
 			activeSpaceView: "graph",
@@ -171,7 +171,9 @@ describe("SpaceConversationPanel", () => {
 				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
 			})
 		).toBeNull();
-		expect(screen.getByRole("region", { name: "Space Graph" })).toBeTruthy();
+		expect(
+			await screen.findByRole("region", { name: "Space Graph" })
+		).toBeTruthy();
 		expect(screen.getByText("Review the release plan.")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));

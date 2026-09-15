@@ -618,6 +618,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
   const readinessReads = createAgentExecutionReadinessReads({
+    batchProfileReads: true,
     profileFacts: input.profileFacts,
   });
 

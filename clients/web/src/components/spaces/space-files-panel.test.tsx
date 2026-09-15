@@ -218,15 +218,23 @@ describe("SpaceFilesPanel", () => {
 	});
 
 	it("shows image thumbnails instead of generic file icons in Files", async () => {
-		const callbacks: IntersectionObserverCallback[] = [];
+		let reveal: (() => void) | undefined;
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
 				constructor(callback: IntersectionObserverCallback) {
-					callbacks.push(callback);
+					reveal = () =>
+						callback(
+							[{ isIntersecting: true } as IntersectionObserverEntry],
+							this as unknown as IntersectionObserver
+						);
 				}
-				observe = vi.fn();
-				disconnect = vi.fn();
+				observe() {
+					/* Visibility is explicitly controlled by the test. */
+				}
+				disconnect() {
+					/* No native observer is registered. */
+				}
 			}
 		);
 		spaceApiMocks.listFiles.mockResolvedValue({
@@ -247,14 +255,7 @@ describe("SpaceFilesPanel", () => {
 
 		await screen.findByText("launch-diagram.png");
 		expect(spaceApiMocks.downloadFileContent).not.toHaveBeenCalled();
-		act(() => {
-			for (const callback of callbacks) {
-				callback(
-					[{ isIntersecting: true } as IntersectionObserverEntry],
-					{} as IntersectionObserver
-				);
-			}
-		});
+		act(() => reveal?.());
 		await waitFor(() => {
 			expect(
 				view.container.querySelector('[data-slot="space-file-image-thumbnail"]')

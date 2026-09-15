@@ -1979,16 +1979,31 @@ export function useSpaceLandingController(input: {
 		}
 
 		let cancelled = false;
+		const abort = new AbortController();
+		const completed = new Set<string>();
 		pollWakeProgress({
+			signal: abort.signal,
 			openMeldProfileId: input.profileId,
 			clientMessageIds,
-			onItems: (items) => {
+			onItems: (items, fulfilledClientMessageIds) => {
+				for (const id of fulfilledClientMessageIds) {
+					completed.add(id);
+				}
 				if (cancelled || items.length === 0) {
 					return;
 				}
 				mergeRecoveredWakeProgressItems(items);
 			},
-			onSettled: () => undefined,
+			onSettled: () => {
+				if (cancelled) {
+					return;
+				}
+				for (const id of clientMessageIds) {
+					if (!completed.has(id)) {
+						recoveredWakeProgressClientMessageIdsRef.current.delete(id);
+					}
+				}
+			},
 			spaceId: input.spaceId,
 		}).catch((error) => {
 			console.warn("[openmeld.web.space.wake_progress_recovery_unhandled]", {
@@ -1999,6 +2014,12 @@ export function useSpaceLandingController(input: {
 
 		return () => {
 			cancelled = true;
+			abort.abort();
+			for (const id of clientMessageIds) {
+				if (!completed.has(id)) {
+					recoveredWakeProgressClientMessageIdsRef.current.delete(id);
+				}
+			}
 		};
 	}, [input.profileId, input.spaceId, statusReady, timelineEnvelopes]);
 
@@ -4276,6 +4297,7 @@ function useWakeProgressPolling(input: {
 		}
 		let cancelled = false;
 		let timeoutId: number | null = null;
+		const abort = new AbortController();
 		const schedulePoll = () => {
 			const delayMs = resolveWakeProgressPollDelayMs({
 				attemptCounts: pendingClientMessageIds.map(
@@ -4283,27 +4305,32 @@ function useWakeProgressPolling(input: {
 				),
 			});
 			timeoutId = window.setTimeout(() => {
+				const polledItems: WakeProgressItem[] = [];
+				const fulfilledIds: string[] = [];
 				pollWakeProgress({
+					signal: abort.signal,
 					openMeldProfileId: profileId,
 					clientMessageIds: pendingClientMessageIds,
 					onItems: (items, fulfilledClientMessageIds) => {
-						if (cancelled) {
-							return;
-						}
-						const visibleItems = filterVisibleWakeProgressItems({ items });
-						setItems((currentItems) =>
-							reconcilePolledWakeProgressItems({
-								currentItems,
-								fulfilledClientMessageIds,
-								incomingItems: visibleItems,
-								signals,
-							})
-						);
+						polledItems.push(...items);
+						fulfilledIds.push(...fulfilledClientMessageIds);
 					},
 					onSettled: () => {
 						if (cancelled) {
 							return;
 						}
+						// Updating items replaces this effect. Finish all bounded groups
+						// before publishing so early groups cannot starve later targets.
+						setItems((currentItems) =>
+							reconcilePolledWakeProgressItems({
+								currentItems,
+								fulfilledClientMessageIds: fulfilledIds,
+								incomingItems: filterVisibleWakeProgressItems({
+									items: polledItems,
+								}),
+								signals,
+							})
+						);
 						for (const clientMessageId of pendingClientMessageIds) {
 							pollAttemptsRef.current.set(
 								clientMessageId,
@@ -4324,6 +4351,7 @@ function useWakeProgressPolling(input: {
 		schedulePoll();
 		return () => {
 			cancelled = true;
+			abort.abort();
 			if (timeoutId !== null) {
 				window.clearTimeout(timeoutId);
 			}
