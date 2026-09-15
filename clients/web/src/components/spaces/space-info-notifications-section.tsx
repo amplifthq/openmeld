@@ -8,10 +8,8 @@ import { useOptionalAppOrganization } from "#/lib/organizations/organization-con
 /**
  * Global browser-notification switch surfaced inside Space Info.
  *
- * Phase 1 has no per-Space subscriptions: this is the same global, per-browser
- * preference as Settings -> Personal -> Notifications, shown here so members
- * can discover and flip it from any conversation. The copy must keep saying
- * "everywhere" so the control is never mistaken for a per-Space toggle.
+ * This controls delivery in this browser. The header bell owns the current
+ * conversation's account-saved message preference.
  */
 export function SpaceInfoNotificationsSection() {
 	const organization = useOptionalAppOrganization();
@@ -33,7 +31,8 @@ export function SpaceInfoNotificationsSection() {
 				<p className="font-medium text-sm">Notifications</p>
 				<p className="text-muted-foreground text-xs/relaxed">
 					Applies to all your Spaces and chats in this browser. You can also
-					change this in Settings &gt; Notifications.
+					change this in Settings &gt; Notifications. Use the bell at the top of
+					this conversation to choose which messages notify you.
 				</p>
 			</div>
 			<div className="flex items-center justify-between gap-3">
@@ -64,6 +63,6 @@ function resolveSpaceInfoNotificationStatusDescription(input: {
 		return resolveBrowserNotificationDescription(input.permission);
 	}
 	return input.enabled
-		? "On for all conversations while OpenMeld runs in the background."
+		? "On. Messages follow your default and conversation settings."
 		: "Off for all conversations.";
 }

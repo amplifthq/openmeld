@@ -7,7 +7,9 @@ import { Switch } from "@openmeld/ui/components/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
+import { BrowserNotificationExample } from "#/components/inbox/browser-notification-example";
 import { BrowserNotificationControl } from "#/components/inbox/browser-notification-toggle";
+import { DefaultMessageNotificationSetting } from "#/components/inbox/default-message-notification-setting";
 import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
 import { resolveBrowserNotificationDescription } from "#/lib/inbox/browser-notifications";
 import { updateCurrentInboxNotificationPreferences } from "#/lib/organizations/inbox";
@@ -114,13 +116,21 @@ export function NotificationsSection() {
 				id="notification-delivery"
 				title="Delivery"
 			>
+				<DefaultMessageNotificationSetting key={currentUserId} />
 				<SettingsRow
 					control={
-						<BrowserNotificationControl
-							disabled={browserPending}
-							onChange={updateBrowserNotifications}
-							settings={browserSettings}
-						/>
+						<div className="flex max-w-sm flex-col items-end gap-3">
+							<BrowserNotificationControl
+								disabled={browserPending}
+								onChange={updateBrowserNotifications}
+								settings={browserSettings}
+							/>
+							<BrowserNotificationExample
+								enabled={browserSettings.enabled}
+								key={currentUserId}
+								userId={currentUserId}
+							/>
+						</div>
 					}
 					description={browserDescription}
 					error={browserError ?? undefined}

@@ -1,4 +1,7 @@
-import type { InboxItem } from "@openmeld/schemas/types";
+import type {
+	InboxConversationNotificationMode,
+	InboxItem,
+} from "@openmeld/schemas/types";
 import {
 	queueInboxBrowserNotificationSound,
 	readInboxBrowserNotificationSoundEnabled,
@@ -24,7 +27,7 @@ export function resolveBrowserNotificationDescription(
 	if (permission === "denied") {
 		return "Notifications are blocked. Allow them in your browser’s site settings, then return here.";
 	}
-	return "Notify for directly addressed messages, actions, and urgent items in this browser. Applies to every Space and Direct Message.";
+	return "Show notifications in this browser while OpenMeld is open. Messages follow your default and conversation settings. Your browser and operating system must also allow notifications.";
 }
 
 export type InboxBrowserNotificationDeliveryResult =
@@ -159,9 +162,46 @@ export function readInboxBrowserNotificationPermission(): InboxBrowserNotificati
 	return window.Notification.permission;
 }
 
-export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
+export function inboxMessageNotificationSpaceId(
+	item: InboxItem
+): string | undefined {
+	if (item.attention !== "update") {
+		return undefined;
+	}
+	if (
+		item.sourceTarget.kind !== "space" &&
+		item.sourceTarget.kind !== "center_agent"
+	) {
+		return undefined;
+	}
+	if (
+		![
+			"space_message",
+			"space_mention",
+			"agent_reply",
+			"wake_outcome",
+			"center_agent_update",
+		].includes(item.kind)
+	) {
+		return undefined;
+	}
+	return item.sourceTarget.spaceId;
+}
+
+export function isInboxBrowserNotificationEligible(
+	item: InboxItem,
+	mode: InboxConversationNotificationMode = "mentions_and_replies"
+): boolean {
 	if (item.resolutionStatus === "resolved") {
 		return false;
+	}
+	if (inboxMessageNotificationSpaceId(item)) {
+		if (mode === "muted") {
+			return false;
+		}
+		if (mode === "all_messages") {
+			return true;
+		}
 	}
 	if (item.importance === "urgent") {
 		return true;
@@ -178,6 +218,34 @@ export function isInboxBrowserNotificationEligible(item: InboxItem): boolean {
 			item.sourceTarget.kind === "space" &&
 			item.sourceTarget.directMessage === true)
 	);
+}
+
+/** A local example has no Inbox identity, unread mutation, or delivery receipt. */
+export function showInboxBrowserNotificationExample(
+	userId: string
+): Notification {
+	if (!readInboxBrowserNotificationSettings({ userId }).enabled) {
+		throw new Error("Enable browser notifications before showing an example.");
+	}
+	const notification = new window.Notification(
+		"OpenMeld notification example",
+		{
+			body: "This is how OpenMeld notifications appear on this device.",
+			icon: ICON_PATH,
+			tag: "openmeld-notification-example",
+		}
+	);
+	notification.onshow = () =>
+		queueInboxBrowserNotificationSound({
+			userId,
+			item: {
+				importance: "normal",
+				attention: "update",
+				resolutionStatus: "not_applicable",
+			},
+		});
+	notification.onclick = () => notification.close();
+	return notification;
 }
 
 /** Updates addressed to the member, including mentions, replies and Wake outcomes. */
@@ -204,7 +272,14 @@ export async function showInboxBrowserNotification(input: {
 	if (readInboxBrowserNotificationPermission() !== "granted") {
 		return { reason: "permission_unavailable", status: "deferred" };
 	}
-	if (!isInboxBrowserNotificationEligible(input.item)) {
+	// The listener revalidates the saved preference after acquiring the lock.
+	// Admit ordinary messages here only when that authoritative callback exists.
+	if (
+		!isInboxBrowserNotificationEligible(
+			input.item,
+			input.resolveCurrentReadiness ? "all_messages" : "mentions_and_replies"
+		)
+	) {
 		return { status: "ineligible" };
 	}
 	if (document.visibilityState === "visible" && input.viewingSourceSession) {

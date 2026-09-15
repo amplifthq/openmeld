@@ -124,8 +124,10 @@ export {
 export { openMeldDaemonForgottenDevices } from "./forgotten-device.schema.ts";
 export {
   inboxCenterAgentReadWatermarks,
+  inboxConversationNotificationPreferences,
   inboxEmailDeliveries,
   inboxItems,
+  inboxMessageNotificationDefaults,
   inboxNotificationPreferences,
   inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";

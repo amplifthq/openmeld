@@ -74,6 +74,55 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("routes message preferences separately from email and validates conversation writes", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/inbox/message-notification-preferences?spaceId=space-1"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.getInboxMessageNotificationPreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: "space-1" })
+    );
+    const saved = await app.fetch(
+      jsonRequest(
+        "http://local/v1/inbox/message-notification-preferences",
+        "PATCH",
+        { scope: "conversation", spaceId: "space-1", mode: "muted" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(saved.status).toBe(200);
+    expect(
+      coreRpc.updateInboxMessageNotificationPreferences
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preference: {
+          scope: "conversation",
+          spaceId: "space-1",
+          mode: "muted",
+        },
+      })
+    );
+    expect(coreRpc.updateInboxNotificationPreferences).not.toHaveBeenCalled();
+    const invalid = await app.fetch(
+      jsonRequest(
+        "http://local/v1/inbox/message-notification-preferences",
+        "PATCH",
+        { scope: "account", mode: "muted" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(invalid.status).toBe(400);
+    expect(
+      coreRpc.updateInboxMessageNotificationPreferences
+    ).toHaveBeenCalledOnce();
+  });
   it("exposes complete conversation counts only to summary-aware clients", async () => {
     const { coreRpc, env } = makeEnv();
     const legacy = {
@@ -573,6 +622,20 @@ describe("Inbox routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    getInboxMessageNotificationPreferences: vi.fn(async () => ({
+      organizationId: "org-1",
+      spaceId: "space-1",
+      defaultMode: "mentions_and_replies",
+      overrideMode: null,
+      effectiveMode: "mentions_and_replies",
+    })),
+    updateInboxMessageNotificationPreferences: vi.fn(async () => ({
+      organizationId: "org-1",
+      spaceId: "space-1",
+      defaultMode: "mentions_and_replies",
+      overrideMode: "muted",
+      effectiveMode: "muted",
+    })),
     dismissInboxItem: vi.fn(async () => ({
       dismissedItemId: ITEM.id,
     })),

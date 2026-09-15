@@ -143,6 +143,7 @@ import {
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import { MessageActionTooltipProvider } from "./space-message-actions";
+import { SpaceNotificationMenu } from "./space-notification-menu";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -1699,6 +1700,12 @@ function SpaceLandingReady({
 									: undefined
 							}
 							menuLabel="Center Agent menu"
+							notificationControl={
+								<SpaceNotificationMenu
+									isGuest={input.isGuest}
+									spaceId={controller.status.spaceId}
+								/>
+							}
 							onDeleteSpace={controller.onDeleteSpace}
 							onLeaveSpace={currentProfileLeaveAction}
 							onRecallPinnedItems={() =>

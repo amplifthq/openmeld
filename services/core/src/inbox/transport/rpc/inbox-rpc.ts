@@ -5,10 +5,12 @@ import {
   getCenterAgentInboxSummaryRpcInputSchema,
   getInboxItemResponseSchema,
   getInboxItemRpcInputSchema,
+  getInboxMessageNotificationPreferencesRpcInputSchema,
   getInboxNotificationPreferencesRpcInputSchema,
   getInboxSummaryRpcInputSchema,
   getSpaceInboxSummaryRpcInputSchema,
   getSpaceInboxUnreadTargetsRpcInputSchema,
+  inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
   listInboxItemsResponseSchema,
@@ -23,6 +25,7 @@ import {
   markSpaceInboxReadThroughRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
+  updateInboxMessageNotificationPreferencesRpcInputSchema,
   updateInboxNotificationPreferencesRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
@@ -32,6 +35,7 @@ import type {
   GetCenterAgentInboxSummaryRpcInput,
   GetInboxItemResponse,
   GetInboxItemRpcInput,
+  GetInboxMessageNotificationPreferencesRpcInput,
   GetInboxNotificationPreferencesRpcInput,
   GetInboxSummaryRpcInput,
   GetSpaceInboxSummaryRpcInput,
@@ -50,12 +54,14 @@ import type {
   MarkSpaceInboxReadThroughRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
 import { type CoreBindings, inboxDb } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
+import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
 import {
   createInboxService,
   InboxServiceError,
@@ -301,6 +307,48 @@ export async function rpcUpdateInboxNotificationPreferences(
       prepared.service.updatePreferences({
         urgentEmailEnabled: request.urgentEmailEnabled,
         userId: prepared.userId,
+      })
+    )
+  );
+}
+
+export async function rpcGetInboxMessageNotificationPreferences(
+  env: CoreBindings,
+  input: GetInboxMessageNotificationPreferencesRpcInput
+) {
+  const request = parseRequest(
+    getInboxMessageNotificationPreferencesRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    inboxMessageNotificationPreferencesResponseSchema,
+    await runService(() =>
+      createInboxMessageNotificationPreferencesService(prepared.db).get({
+        userId: prepared.userId,
+        organizationId: prepared.organizationId,
+        spaceId: request.spaceId,
+      })
+    )
+  );
+}
+
+export async function rpcUpdateInboxMessageNotificationPreferences(
+  env: CoreBindings,
+  input: UpdateInboxMessageNotificationPreferencesRpcInput
+) {
+  const request = parseRequest(
+    updateInboxMessageNotificationPreferencesRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    inboxMessageNotificationPreferencesResponseSchema,
+    await runService(() =>
+      createInboxMessageNotificationPreferencesService(prepared.db).update({
+        userId: prepared.userId,
+        organizationId: prepared.organizationId,
+        preference: request.preference,
       })
     )
   );

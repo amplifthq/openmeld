@@ -299,6 +299,49 @@ export const updateInboxNotificationPreferencesBodySchema = z.strictObject({
   urgentEmailEnabled: z.boolean(),
 });
 
+export const inboxMessageNotificationModeSchema = z.enum([
+  "all_messages",
+  "mentions_and_replies",
+]);
+export const inboxConversationNotificationModeSchema = z.enum([
+  "all_messages",
+  "mentions_and_replies",
+  "muted",
+]);
+export const inboxMessageNotificationPreferencesQuerySchema = z.strictObject({
+  spaceId: identifierSchema.optional(),
+});
+export const inboxMessageNotificationPreferencesResponseSchema = z.strictObject(
+  {
+    organizationId: identifierSchema,
+    spaceId: identifierSchema.nullable(),
+    defaultMode: inboxMessageNotificationModeSchema,
+    overrideMode: inboxConversationNotificationModeSchema.nullable(),
+    effectiveMode: inboxConversationNotificationModeSchema,
+  }
+);
+export const updateInboxMessageNotificationPreferencesBodySchema =
+  z.discriminatedUnion("scope", [
+    z.strictObject({
+      scope: z.literal("account"),
+      mode: inboxMessageNotificationModeSchema,
+    }),
+    z.strictObject({
+      scope: z.literal("conversation"),
+      spaceId: identifierSchema,
+      mode: inboxConversationNotificationModeSchema.nullable(),
+    }),
+  ]);
+export const getInboxMessageNotificationPreferencesRpcInputSchema =
+  inboxMessageNotificationPreferencesQuerySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const updateInboxMessageNotificationPreferencesRpcInputSchema =
+  z.strictObject({
+    context: openMeldRequestContextSchema,
+    preference: updateInboxMessageNotificationPreferencesBodySchema,
+  });
+
 export const inboxItemRouteParamsSchema = z.strictObject({
   itemId: identifierSchema,
 });

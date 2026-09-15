@@ -13,6 +13,8 @@ import {
   getInboxItemResponseSchema,
   getInboxItemWireResponseSchema,
   inboxItemRouteParamsSchema,
+  inboxMessageNotificationPreferencesQuerySchema,
+  inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
   listInboxItemsQuerySchema,
@@ -29,6 +31,7 @@ import {
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
+  updateInboxMessageNotificationPreferencesBodySchema,
   updateInboxNotificationPreferencesBodySchema,
 } from "@openmeld/schemas";
 import type { Context, Hono } from "hono";
@@ -51,11 +54,58 @@ const SPACE_INBOX_UNREAD_TARGETS_ROUTE = `${INBOX_ROUTE}/spaces/:spaceId/unread-
 const SPACE_INBOX_READ_THROUGH_ROUTE = `${INBOX_ROUTE}/spaces/read-through`;
 const INBOX_MARK_ALL_READ_ROUTE = `${INBOX_ROUTE}/mark-all-read`;
 const INBOX_PREFERENCES_ROUTE = `${INBOX_ROUTE}/preferences`;
+const INBOX_MESSAGE_PREFERENCES_ROUTE = `${INBOX_ROUTE}/message-notification-preferences`;
 const INBOX_ITEM_READ_ROUTE = `${INBOX_ROUTE}/items/:itemId/read`;
 const INBOX_ITEM_DISMISS_ROUTE = `${INBOX_ROUTE}/items/:itemId/dismiss`;
 const INBOX_ITEM_ROUTE = `${INBOX_ROUTE}/items/:itemId`;
 
 export function registerInboxRoutes(app: Hono<HonoBindings>): void {
+  app.get(INBOX_MESSAGE_PREFERENCES_ROUTE, (c) => {
+    const query = inboxMessageNotificationPreferencesQuerySchema.safeParse(
+      c.req.query()
+    );
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_MESSAGE_PREFERENCES_ROUTE,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
+      c,
+      execute: () =>
+        c.var.coreRpc.getInboxMessageNotificationPreferences({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "GET",
+      responseSchema: inboxMessageNotificationPreferencesResponseSchema,
+      route: INBOX_MESSAGE_PREFERENCES_ROUTE,
+    });
+  });
+  app.patch(INBOX_MESSAGE_PREFERENCES_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      INBOX_MESSAGE_PREFERENCES_ROUTE,
+      "PATCH",
+      updateInboxMessageNotificationPreferencesBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      execute: () =>
+        c.var.coreRpc.updateInboxMessageNotificationPreferences({
+          preference: body.data,
+          context: buildCoreRpcContext(c),
+        }),
+      method: "PATCH",
+      responseSchema: inboxMessageNotificationPreferencesResponseSchema,
+      route: INBOX_MESSAGE_PREFERENCES_ROUTE,
+    });
+  });
   app.get(CENTER_AGENT_INBOX_SUMMARY_ROUTE, (c) =>
     executeRpcRoute({
       c,

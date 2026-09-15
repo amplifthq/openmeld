@@ -17,6 +17,7 @@ import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-co
 import {
 	clearInboxBrowserNotificationItemPending,
 	type InboxBrowserNotificationDeliveryReadiness,
+	inboxMessageNotificationSpaceId,
 	isInboxBrowserNotificationEligible,
 	markInboxBrowserNotificationItemPending,
 	readInboxBrowserNotificationSettings,
@@ -28,7 +29,10 @@ import {
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
 } from "#/lib/inbox/source-target";
-import { getCurrentInboxItem } from "#/lib/organizations/inbox";
+import {
+	getCurrentInboxItem,
+	getCurrentInboxMessageNotificationPreferences,
+} from "#/lib/organizations/inbox";
 import {
 	inboxBrowserNotificationRecoveryItemQueryOptions,
 	inboxItemsInfiniteQueryOptions,
@@ -593,6 +597,42 @@ async function resolveCurrentInboxBrowserNotificationReadiness(input: {
 		return { status: "revalidation_failed" };
 	}
 
+	try {
+		const spaceId = inboxMessageNotificationSpaceId(currentItem);
+		if (spaceId) {
+			const preferences = await getCurrentInboxMessageNotificationPreferences({
+				organizationId: input.organizationId,
+				spaceId,
+			});
+			if (
+				!isInboxBrowserNotificationEligible(
+					currentItem,
+					preferences.effectiveMode
+				)
+			) {
+				return { status: "ineligible" };
+			}
+		}
+	} catch (error) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"code" in error &&
+			error.code === "inbox.conversation_not_found"
+		) {
+			return { status: "ineligible" };
+		}
+		console.warn(
+			"[openmeld.web.inbox.message_notification_preference_read_failed]",
+			{
+				error: error instanceof Error ? error.message : String(error),
+				itemId: input.itemId,
+				organizationId: input.organizationId,
+			}
+		);
+		return { status: "revalidation_failed" };
+	}
+
 	if (!isCurrentInboxBrowserNotificationDeliveryContext(input)) {
 		return { status: "context_changed" };
 	}
@@ -691,7 +731,10 @@ function clearPendingInboxBrowserNotificationItem(input: {
 function shouldDeliverInboxBrowserNotification(
 	item: BrowserNotificationInboxItem
 ): boolean {
-	return item.readAt === null && isInboxBrowserNotificationEligible(item);
+	return (
+		item.readAt === null &&
+		isInboxBrowserNotificationEligible(item, "all_messages")
+	);
 }
 
 function mergeInboxBrowserNotificationItems(input: {

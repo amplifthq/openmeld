@@ -4,11 +4,13 @@ import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
 import {
   rpcDismissInboxItem,
   rpcGetInboxItem,
+  rpcGetInboxMessageNotificationPreferences,
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
   rpcListInboxItems,
   rpcMarkSpaceInboxReadThrough,
+  rpcUpdateInboxMessageNotificationPreferences,
 } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
@@ -17,6 +19,40 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("saves message preferences only for the verified member and rejects recipient injection", async () => {
+    const harness = createInboxHarness();
+    try {
+      applyDrizzleMigrationsForTables(harness, [
+        "inbox_message_notification_defaults",
+        "inbox_conversation_notification_preferences",
+      ]);
+      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      await expect(
+        rpcUpdateInboxMessageNotificationPreferences(env, {
+          context: contextFor("user-1"),
+          preference: { scope: "account", mode: "all_messages" },
+        })
+      ).resolves.toMatchObject({ defaultMode: "all_messages" });
+      await expect(
+        rpcGetInboxMessageNotificationPreferences(env, {
+          context: contextFor("user-2"),
+        })
+      ).resolves.toMatchObject({ defaultMode: "mentions_and_replies" });
+      await expect(
+        rpcUpdateInboxMessageNotificationPreferences(env, {
+          context: contextFor("user-1"),
+          // @ts-expect-error Client-selected recipients are not part of this contract.
+          preference: {
+            scope: "account",
+            mode: "all_messages",
+            userId: "user-2",
+          },
+        })
+      ).rejects.toMatchObject({ status: 400 });
+    } finally {
+      harness.close();
+    }
+  });
   it("derives the recipient from verified active membership", async () => {
     const harness = createInboxHarness();
     try {

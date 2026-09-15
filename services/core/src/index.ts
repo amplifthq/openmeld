@@ -182,6 +182,7 @@ import type {
   GetCenterAgentOperatingStateResponse,
   GetInboxItemResponse,
   GetInboxItemRpcInput,
+  GetInboxMessageNotificationPreferencesRpcInput,
   GetInboxNotificationPreferencesRpcInput,
   GetInboxSummaryRpcInput,
   GetLocalRuntimeExpectedRoutesResponse,
@@ -340,6 +341,7 @@ import type {
   UpdateCenterAgentOperatingStateResponse,
   UpdateCenterAgentRoutineResponse,
   UpdateFeedbackIssueStatusForOrganizationRequest,
+  UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
   UpdateOrganizationDocumentFolderResponse,
   UpdateOrganizationDocumentFolderRpcInput,
@@ -410,6 +412,7 @@ import {
   rpcDismissInboxItem,
   rpcGetCenterAgentInboxSummary,
   rpcGetInboxItem,
+  rpcGetInboxMessageNotificationPreferences,
   rpcGetInboxNotificationPreferences,
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
@@ -419,6 +422,7 @@ import {
   rpcMarkCenterAgentInboxReadThrough,
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
+  rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
 import {
@@ -1484,6 +1488,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return rpcGetInboxNotificationPreferences(this.env, input);
+  }
+
+  getInboxMessageNotificationPreferences(
+    input: GetInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return rpcGetInboxMessageNotificationPreferences(this.env, input);
+  }
+
+  updateInboxMessageNotificationPreferences(
+    input: UpdateInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return rpcUpdateInboxMessageNotificationPreferences(this.env, input);
   }
 
   localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
@@ -3787,6 +3803,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return super.getInboxNotificationPreferences(input);
+  }
+
+  getInboxMessageNotificationPreferences(
+    input: GetInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return super.getInboxMessageNotificationPreferences(input);
+  }
+
+  updateInboxMessageNotificationPreferences(
+    input: UpdateInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return super.updateInboxMessageNotificationPreferences(input);
   }
 
   updateInboxNotificationPreferences(
