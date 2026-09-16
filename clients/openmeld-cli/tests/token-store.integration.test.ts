@@ -170,6 +170,14 @@ describe("token-store command execution options", () => {
 
   it("loads DPAPI in each fresh PowerShell process and keeps credentials on stdin", async () => {
     setProcessPlatform("win32");
+    const powershellChildren: ReturnType<typeof createMockExecFileChild>[] = [];
+    execFileMock.mockImplementation(() => {
+      const child = createMockExecFileChild(
+        powershellChildren.length === 0 ? "encrypted-value" : "token-123"
+      );
+      powershellChildren.push(child);
+      return child;
+    });
 
     await withTempHome(async () => {
       process.env.OPENMELD_AUTH_ALLOW_INSECURE_FILE_TOKEN = undefined;
@@ -179,7 +187,26 @@ describe("token-store command execution options", () => {
         authBaseUrl: "https://auth.openmeld.invalid",
         clientId: "openmeld-cli",
       });
-      await readAccessToken(ref);
+      expect(ref.provider).toBe("windows-dpapi");
+      if (ref.provider !== "windows-dpapi") {
+        throw new Error("Expected Windows DPAPI token storage");
+      }
+      await expect(readAccessToken(ref)).resolves.toEqual({
+        status: "found",
+        accessToken: "token-123",
+      });
+
+      expect(powershellChildren).toHaveLength(2);
+      expect(
+        JSON.parse(
+          String(powershellChildren[0]?.stdin.write.mock.calls[0]?.[0])
+        )
+      ).toEqual({ token: "token-123", entropy: ref.key });
+      expect(
+        JSON.parse(
+          String(powershellChildren[1]?.stdin.write.mock.calls[0]?.[0])
+        )
+      ).toEqual({ token: "encrypted-value", entropy: ref.key });
     });
 
     const powershellCalls = execFileMock.mock.calls.filter(
