@@ -1200,6 +1200,7 @@ function SpaceAddProfilesSectionView({
 				dialogId={input.dialogId}
 				directoryHasData={Boolean(model.directoryQuery.data)}
 				directoryIsError={model.directoryQuery.isError}
+				directoryIsFetching={model.directoryQuery.isFetching}
 				directoryIsPending={model.directoryQuery.isPending}
 				emptyMessage={resolveAddMembersEmptyMessage({
 					addQuery: model.addQuery,
@@ -1313,6 +1314,7 @@ type SpaceAddProfilesDialogProps = {
 	candidateGroups: SpaceAddMembersCandidateGroups;
 	directoryHasData: boolean;
 	directoryIsError: boolean;
+	directoryIsFetching: boolean;
 	directoryIsPending: boolean;
 	dialogId: string;
 	emptyMessage: string;
@@ -1392,11 +1394,12 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 									: "Couldn’t load people and agents. Try again."}
 							</p>
 							<Button
+								disabled={input.directoryIsFetching}
 								onClick={input.onRetryDirectory}
 								size="xs"
 								variant="outline"
 							>
-								Try again
+								{input.directoryIsFetching ? "Retrying…" : "Try again"}
 							</Button>
 						</div>
 					) : null}

@@ -228,15 +228,20 @@ describe("SpaceMembersSidePanel", () => {
 			humanProfileId: "22222222-2222-4222-8222-222222222222",
 		});
 		let rejectRefresh: (reason: Error) => void = () => undefined;
+		let resolveRetry: (value: OrganizationDirectoryResponse) => void = () =>
+			undefined;
 		const pending = new Promise<OrganizationDirectoryResponse>(
 			(_resolve, reject) => {
 				rejectRefresh = reject;
 			}
 		);
+		const retry = new Promise<OrganizationDirectoryResponse>((resolve) => {
+			resolveRetry = resolve;
+		});
 		const read = vi
 			.mocked(readCurrentOrganizationDirectory)
 			.mockReturnValueOnce(pending)
-			.mockResolvedValue(directory);
+			.mockReturnValueOnce(retry);
 		const client = createTestQueryClient();
 		client.setQueryData(organizationQueryKeys.directory("org-acme"), directory);
 		const surface = (nonce: number) => (
@@ -287,6 +292,17 @@ describe("SpaceMembersSidePanel", () => {
 		await screen.findByText(refreshMessage);
 		expect(choice.getAttribute("aria-checked")).toBe("true");
 		fireEvent.click(screen.getByText("Try again"));
+		const retrying = await screen.findByRole("button", { name: "Retrying…" });
+		expect(retrying.hasAttribute("disabled")).toBe(true);
+		expect(
+			screen
+				.getByRole("button", { name: "Add 1 member" })
+				.hasAttribute("disabled")
+		).toBe(false);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(retrying);
+		expect(read).toHaveBeenCalledTimes(2);
+		resolveRetry(directory);
 		await waitFor(() => expect(screen.queryByText(refreshMessage)).toBeNull());
 		expect(read).toHaveBeenCalledTimes(2);
 		expect(choice.getAttribute("aria-checked")).toBe("true");
@@ -1312,12 +1328,16 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
 
-		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
-		const joinedAgent = screen.getByRole("checkbox", { name: "Joined Agent" });
-		expect(joinedAgent.getAttribute("aria-checked")).toBe("true");
-		expect(joinedAgent.getAttribute("aria-disabled")).toBe("true");
-		expect(within(joinedAgent).getByText("In this Space")).toBeTruthy();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Felix" })
+		).toBeNull();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Joined Agent" })
+		).toBeNull();
+		expect(within(dialog).getByText("Joined Agent")).toBeTruthy();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("checkbox", { name: "Codex Agent" }));
 		fireEvent.click(screen.getByRole("button", { name: "Add 1 member" }));
@@ -1666,22 +1686,19 @@ describe("SpaceMembersSidePanel", () => {
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
 		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
-		const joinedCheckbox = within(dialog).getByRole("checkbox", {
-			name: "Research Agent",
-		});
 		expect(
 			within(dialog).getAllByRole("button", { name: "New Agent" })
 		).toHaveLength(1);
 		expect(
 			within(dialog).queryByRole("checkbox", { name: "Felix" })
 		).toBeNull();
-		expect(joinedCheckbox.getAttribute("aria-checked")).toBe("true");
-		expect(joinedCheckbox.getAttribute("aria-disabled")).toBe("true");
-		expect(within(joinedCheckbox).getByText("In this Space")).toBeTruthy();
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Research Agent" })
+		).toBeNull();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 		expect(
 			readTextOrder(dialog, ["Research Agent", "Available Agent"])
 		).toEqual(["Research Agent", "Available Agent"]);
-		fireEvent.click(joinedCheckbox);
 		expect(within(dialog).getByText("Select members to add")).toBeTruthy();
 	});
 
@@ -2125,11 +2142,10 @@ describe("SpaceMembersSidePanel", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
-		expect(
-			within(screen.getByRole("checkbox", { name: "Joined Agent" })).getByText(
-				"In this Space"
-			)
-		).toBeTruthy();
+		const dialog = screen.getByRole("dialog", { name: "Add People or Agents" });
+		expect(screen.queryByRole("checkbox", { name: "Joined Agent" })).toBeNull();
+		expect(within(dialog).getByText("Joined Agent")).toBeTruthy();
+		expect(within(dialog).getByText("In this Space")).toBeTruthy();
 		unmount();
 
 		renderWithQueryClient(
