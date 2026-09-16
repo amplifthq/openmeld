@@ -307,7 +307,9 @@ function TaskHumanReworkControl(input: {
 	}
 	return (
 		<div className="mt-4 rounded-md border border-border bg-muted/40 p-3">
-			<p className="text-sm">Two automatic rework rounds are complete.</p>
+			<p className="text-sm">
+				Needs decision — two rework rounds did not pass review.
+			</p>
 			<Button
 				className="mt-2"
 				disabled={input.input.busy}
