@@ -69,7 +69,7 @@ function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
     mounted = true;
     const app = path.join(mount, "OpenMeld Desktop.app");
     inspect("codesign", ["--verify", "--deep", "--strict", app]);
-    const signature = inspect("codesign", ["-dvv", app]);
+    const signature = inspect("codesign", ["-dvvv", app]);
     if (
       !(
         signature
@@ -90,7 +90,7 @@ function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
       const zipApp = path.join(zipRoot, "OpenMeld Desktop.app");
       inspect("codesign", ["--verify", "--deep", "--strict", zipApp]);
       inspect("xcrun", ["stapler", "validate", zipApp]);
-      const zipSignature = inspect("codesign", ["-dvv", zipApp]);
+      const zipSignature = inspect("codesign", ["-dvvv", zipApp]);
       const digest = (value) =>
         value.split("\n").find((line) => line.startsWith("CDHash="));
       if (!digest(signature) || digest(signature) !== digest(zipSignature)) {
