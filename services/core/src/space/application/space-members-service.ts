@@ -850,6 +850,7 @@ export const readSpaceStatusMembersSummaryUseCase = async (input: {
   timing?: SpaceMembersSnapshotTiming;
 }): Promise<SpaceStatusMembersSummary> => {
   const snapshot = await listSpaceMembersSnapshotUseCase({
+    includeAgentReadiness: false,
     profileFacts: input.profileFacts,
     sql: input.sql,
     spaceId: input.spaceId,
