@@ -1,6 +1,7 @@
 import {
   createInboxApi,
   createOpenMeldApiClient,
+  inboxMessageNotificationSpaceId,
   isInboxItemVisibleConversation,
   isInboxNotificationEligible,
 } from "@openmeld/api-client";
@@ -70,13 +71,12 @@ export function createPilotNotifications(input: {
   };
   const currentAccount = async (userId: string, epoch: number) =>
     (await input.auth.session()).user?.id === userId && epoch === generation;
-  const readItem = async (reference: DesktopNotificationReference) => {
-    await input.ensureCompatible();
-    const api = createInboxApi(
+  const createApi = (reference: DesktopNotificationReference) =>
+    createInboxApi(
       createOpenMeldApiClient({
         baseUrl: input.webOrigin,
         transport: ({ url, init }) =>
-          input.auth.cloudRequest(new URL(url).pathname, {
+          input.auth.cloudRequest(new URL(url).pathname + new URL(url).search, {
             method: "GET",
             headers: new Headers({
               origin: DESKTOP_APP_ORIGIN,
@@ -92,7 +92,11 @@ export function createPilotNotifications(input: {
           }),
       })
     );
-    const { item } = await api.get({ itemId: reference.itemId });
+  const readItem = async (reference: DesktopNotificationReference) => {
+    await input.ensureCompatible();
+    const { item } = await createApi(reference).get({
+      itemId: reference.itemId,
+    });
     if (
       item.recipientUserId !== reference.userId ||
       item.organizationId !== reference.organizationId ||
@@ -232,10 +236,26 @@ export function createPilotNotifications(input: {
         return "context_changed";
       }
       const item = await readItem(request);
+      const spaceId = inboxMessageNotificationSpaceId(item);
+      const preferences = spaceId
+        ? await createApi(request).getMessageNotificationPreferences({
+            spaceId,
+          })
+        : null;
+      if (
+        preferences &&
+        (preferences.organizationId !== request.organizationId ||
+          preferences.spaceId !== spaceId)
+      ) {
+        throw new Error("Notification preference scope changed.");
+      }
       if (!((await currentAccount(request.userId, epoch)) && isCurrent())) {
         return "context_changed";
       }
-      if (item.readAt !== null || !isInboxNotificationEligible(item)) {
+      if (
+        item.readAt !== null ||
+        !isInboxNotificationEligible(item, preferences?.effectiveMode)
+      ) {
         return "ineligible";
       }
       if (isSourceVisible(item)) {

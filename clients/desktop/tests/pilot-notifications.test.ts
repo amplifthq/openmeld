@@ -61,7 +61,17 @@ function setup(window: BrowserWindow | null = null) {
   }));
   const cloudRequest = vi.fn<
     Parameters<typeof createPilotNotifications>[0]["auth"]["cloudRequest"]
-  >(async () => Response.json({ item }));
+  >(async (path) =>
+    path.startsWith("/v1/inbox/message-notification-preferences")
+      ? Response.json({
+          organizationId: "org-a",
+          spaceId: "space-a",
+          defaultMode: "mentions_and_replies",
+          overrideMode: null,
+          effectiveMode: "mentions_and_replies",
+        })
+      : Response.json({ item })
+  );
   const notifications = createPilotNotifications({
     auth: { session, cloudRequest },
     webOrigin: "https://openmeld.ai",
@@ -82,6 +92,48 @@ function setup(window: BrowserWindow | null = null) {
 beforeEach(() => {
   vi.useFakeTimers();
   native.created.mockClear();
+});
+
+it.each([
+  ["all_messages", false, true],
+  ["mentions_and_replies", false, false],
+  ["mentions_and_replies", true, true],
+  ["muted", true, false],
+] as const)("uses fresh native message preferences: %s, Human reply %s", async (mode, replyToRecipient, eligible) => {
+  const { notifications, cloudRequest } = setup();
+  cloudRequest.mockImplementation(async (path) =>
+    path.startsWith("/v1/inbox/message-notification-preferences")
+      ? Response.json({
+          organizationId: item.organizationId,
+          spaceId: "space-a",
+          defaultMode: "mentions_and_replies",
+          overrideMode: mode,
+          effectiveMode: mode,
+        })
+      : Response.json({
+          item: {
+            ...item,
+            sourceTarget: {
+              kind: "space",
+              spaceId: "space-a",
+              signalId: "signal-a",
+              replyToRecipient,
+            },
+          },
+        })
+  );
+  const delivery = notifications.show(request);
+  if (eligible) {
+    await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
+    native.created.mock.calls[0]?.[0].emit("show");
+    expect(await delivery).toBe("delivered");
+  } else {
+    expect(await delivery).toBe("ineligible");
+    expect(native.created).not.toHaveBeenCalled();
+  }
+  expect(cloudRequest.mock.calls[1]?.[0]).toBe(
+    "/v1/inbox/message-notification-preferences?spaceId=space-a"
+  );
 });
 
 it.each([
@@ -117,7 +169,7 @@ it.each([
     );
   }
   notification.emit("click");
-  await vi.waitFor(() => expect(cloudRequest).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(cloudRequest).toHaveBeenCalledTimes(3));
   if (authorized) {
     await vi.waitFor(() => expect(window.focus).toHaveBeenCalledOnce());
     expect(window.restore).toHaveBeenCalledOnce();

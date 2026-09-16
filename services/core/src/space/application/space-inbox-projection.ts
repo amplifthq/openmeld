@@ -181,12 +181,9 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
           kind: "space",
           signalId: focusSignalId,
           spaceId: signal.spaceId,
-          ...(input.signalContext?.threadContext?.rootSignalId
-            ? {
-                threadRootSignalId:
-                  input.signalContext.threadContext.rootSignalId,
-              }
-            : {}),
+          ...(isThreadRootAuthor &&
+            kind === "space_message" && { replyToRecipient: true }),
+          threadRootSignalId: input.signalContext?.threadContext?.rootSignalId,
         },
         title: buildTitle({
           actorName,

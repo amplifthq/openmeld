@@ -12,10 +12,16 @@ import { NotificationsSection } from "./notifications-section";
 
 const getCurrentInboxNotificationPreferencesMock = vi.hoisted(() => vi.fn());
 const updateCurrentInboxNotificationPreferencesMock = vi.hoisted(() => vi.fn());
+const getMessagePreferencesMock = vi.hoisted(() => vi.fn());
+const updateMessagePreferencesMock = vi.hoisted(() => vi.fn());
+const ALL_MESSAGES_PATTERN = /All new messages/;
+const MENTIONS_PATTERN = /Mentions and replies/;
+const EXAMPLE_PATTERN = /Example requested/;
 const desktopPlatformMock = vi.hoisted(() => vi.fn());
 vi.mock("#/desktop/platform", () => ({
 	getDesktopPlatform: desktopPlatformMock,
 }));
+
 const ACCOUNT_EMAIL_PATTERN = /felix@amplift\.ai/;
 
 vi.mock("#/components/app/app-shell-account", () => ({
@@ -37,6 +43,9 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 }));
 
 vi.mock("#/lib/organizations/inbox", () => ({
+	getCurrentInboxMessageNotificationPreferences: getMessagePreferencesMock,
+	updateCurrentInboxMessageNotificationPreferences:
+		updateMessagePreferencesMock,
 	getCurrentInboxNotificationPreferences:
 		getCurrentInboxNotificationPreferencesMock,
 	getCurrentInboxSummary: vi.fn(),
@@ -60,9 +69,7 @@ describe("NotificationsSection", () => {
 		expect(
 			screen.queryByRole("switch", { name: "Browser notifications" })
 		).toBeNull();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Send test notification" })
-		);
+		fireEvent.click(screen.getByRole("button", { name: "Show an example" }));
 		await waitFor(() =>
 			expect(testNotification).toHaveBeenCalledWith({
 				userId: "user-123",
@@ -74,7 +81,26 @@ describe("NotificationsSection", () => {
 	let requestPermissionMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
+		getMessagePreferencesMock.mockReset().mockResolvedValue({
+			organizationId: "organization-123",
+			spaceId: null,
+			defaultMode: "mentions_and_replies",
+			overrideMode: null,
+			effectiveMode: "mentions_and_replies",
+		});
+		updateMessagePreferencesMock.mockReset().mockImplementation(() => {
+			const response = {
+				organizationId: "organization-123",
+				spaceId: null,
+				defaultMode: "all_messages",
+				overrideMode: null,
+				effectiveMode: "all_messages",
+			};
+			getMessagePreferencesMock.mockResolvedValue(response);
+			return Promise.resolve(response);
+		});
 		desktopPlatformMock.mockReset().mockReturnValue(null);
+
 		window.localStorage.clear();
 		requestPermissionMock = vi.fn().mockResolvedValue("granted");
 		installNotificationMock(requestPermissionMock);
@@ -109,6 +135,62 @@ describe("NotificationsSection", () => {
 		expect(
 			screen
 				.getByRole("switch", { name: "Browser notifications" })
+				.getAttribute("aria-checked")
+		).toBe("true");
+	});
+
+	it("saves the account message default independently and exposes the enabled example", async () => {
+		renderNotificationsSection();
+		expect(
+			screen
+				.getByRole("button", { name: "Show an example" })
+				.hasAttribute("disabled")
+		).toBe(true);
+		fireEvent.click(
+			await screen.findByRole("radio", { name: ALL_MESSAGES_PATTERN })
+		);
+		await waitFor(() =>
+			expect(updateMessagePreferencesMock).toHaveBeenCalledWith({
+				organizationId: "organization-123",
+				preference: { scope: "account", mode: "all_messages" },
+			})
+		);
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("radio", { name: ALL_MESSAGES_PATTERN })
+					.getAttribute("aria-checked")
+			).toBe("true")
+		);
+		expect(
+			updateCurrentInboxNotificationPreferencesMock
+		).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+		await waitFor(() =>
+			expect(
+				screen
+					.getByRole("button", { name: "Show an example" })
+					.hasAttribute("disabled")
+			).toBe(false)
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Show an example" }));
+		expect(screen.getByText(EXAMPLE_PATTERN)).toBeTruthy();
+	});
+
+	it("keeps the confirmed default and shows a save failure", async () => {
+		updateMessagePreferencesMock.mockRejectedValue(
+			new Error("Could not save notification preferences.")
+		);
+		renderNotificationsSection();
+		fireEvent.click(
+			await screen.findByRole("radio", { name: ALL_MESSAGES_PATTERN })
+		);
+		expect(
+			await screen.findByText("Could not save notification preferences.")
+		).toBeTruthy();
+		expect(
+			screen
+				.getByRole("radio", { name: MENTIONS_PATTERN })
 				.getAttribute("aria-checked")
 		).toBe("true");
 	});

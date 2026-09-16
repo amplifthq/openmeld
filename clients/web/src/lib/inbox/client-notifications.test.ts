@@ -28,6 +28,7 @@ import {
 	readInboxNotificationSettings,
 	readPendingInboxNotificationItemIds,
 	setInboxNotificationSoundEnabled,
+	showInboxBrowserNotificationExample,
 	showInboxNotification,
 	subscribeInboxNotificationSettings,
 } from "./client-notifications";
@@ -37,6 +38,168 @@ const PREFERENCE_KEY = `openmeld.inbox.browser-notifications.enabled:${USER_ID}`
 const PROMPT_DISMISSED_KEY = `openmeld.inbox.browser-notifications.prompt-dismissed:${USER_ID}`;
 
 describe("Inbox browser notifications", () => {
+	it("notifies a Human reply from the recipient marker, not the title or thread membership", async () => {
+		await enableInboxNotifications({ userId: USER_ID });
+		const item = createInboxItem({
+			kind: "space_message",
+			attention: "update",
+			importance: "normal",
+			resolutionStatus: "not_applicable",
+			title: "A neutral localized title",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "space-123",
+				signalId: "human-reply",
+				threadRootSignalId: "root",
+				replyToRecipient: true,
+			},
+		});
+		expect(isInboxNotificationEligible(item, "mentions_and_replies")).toBe(
+			true
+		);
+		expect(isInboxNotificationEligible(item, "muted")).toBe(false);
+		const { replyToRecipient: _reply, ...ordinaryTarget } =
+			item.sourceTarget as Extract<
+				InboxItem["sourceTarget"],
+				{ kind: "space" }
+			>;
+		expect(
+			isInboxNotificationEligible(
+				{
+					...item,
+					title: "Someone replied to your thread",
+					sourceTarget: ordinaryTarget,
+				},
+				"mentions_and_replies"
+			)
+		).toBe(false);
+		expect(
+			await showInboxNotification({
+				item,
+				userId: USER_ID,
+				sourcePath:
+					"/o/amplift/spaces/space-123?threadRootSignalId=root&focusSignalId=human-reply",
+				viewingSourceSession: false,
+			})
+		).toMatchObject({ status: "delivered" });
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+	});
+	it("creates an ordinary-message notification only after the saved policy revalidation allows it", async () => {
+		await enableInboxNotifications({ userId: USER_ID });
+		const item = createInboxItem({
+			kind: "space_message",
+			attention: "update",
+			importance: "normal",
+			resolutionStatus: "not_applicable",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "space-123",
+				signalId: "message-123",
+			},
+		});
+		const input = {
+			item,
+			userId: USER_ID,
+			sourcePath: "/o/amplift/spaces/space-123",
+			viewingSourceSession: false,
+		};
+		expect(
+			await showInboxNotification({
+				...input,
+				resolveCurrentReadiness: () => ({ status: "ineligible" }),
+			})
+		).toEqual({ status: "ineligible" });
+		expect(notificationConstructorMock).not.toHaveBeenCalled();
+		expect(
+			await showInboxNotification({
+				...input,
+				resolveCurrentReadiness: () => ({ status: "eligible", item }),
+			})
+		).toMatchObject({ status: "delivered" });
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+	});
+	it.each([
+		["all_messages", "space_message", "normal", true],
+		["mentions_and_replies", "space_message", "normal", false],
+		["mentions_and_replies", "space_mention", "normal", true],
+		["mentions_and_replies", "agent_reply", "normal", true],
+		["muted", "space_mention", "normal", false],
+		["muted", "space_message", "urgent", false],
+		["muted", "wake_outcome", "urgent", false],
+	] as const)("applies %s to %s messages (%s)", (mode, kind, importance, expected) => {
+		const item = createInboxItem({
+			kind,
+			importance,
+			attention: "update",
+			resolutionStatus: "not_applicable",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "conversation",
+				signalId: "message",
+			},
+		});
+		expect(isInboxNotificationEligible(item, mode)).toBe(expected);
+	});
+
+	it("keeps direct messages eligible and does not mute independent action requests", () => {
+		const directMessage = createInboxItem({
+			kind: "space_message",
+			importance: "normal",
+			attention: "update",
+			resolutionStatus: "not_applicable",
+			sourceTarget: {
+				kind: "space",
+				spaceId: "dm",
+				signalId: "message",
+				directMessage: true,
+			},
+		});
+		expect(
+			isInboxNotificationEligible(directMessage, "mentions_and_replies")
+		).toBe(true);
+		expect(isInboxNotificationEligible(directMessage, "muted")).toBe(false);
+		expect(
+			isInboxNotificationEligible(
+				{
+					...directMessage,
+					attention: "action_required",
+					resolutionStatus: "open",
+				},
+				"muted"
+			)
+		).toBe(true);
+	});
+
+	it("shows an example only when enabled without adding delivery or unread records", async () => {
+		expect(() => showInboxBrowserNotificationExample(USER_ID)).toThrow(
+			"Enable browser notifications"
+		);
+		await enableInboxNotifications({ userId: USER_ID });
+		const before = Object.entries(window.localStorage);
+		const notification = showInboxBrowserNotificationExample(USER_ID);
+		expect(notificationConstructorMock).toHaveBeenCalledWith(
+			"OpenMeld notification example",
+			expect.objectContaining({ tag: "openmeld-notification-example" })
+		);
+		expect(Object.entries(window.localStorage)).toEqual(before);
+		expect(queueSoundMock).not.toHaveBeenCalled();
+		notification.onshow?.call(notification, new Event("show"));
+		expect(queueSoundMock).toHaveBeenCalledOnce();
+		disableInboxNotifications({ userId: USER_ID });
+		expect(() => showInboxBrowserNotificationExample(USER_ID)).toThrow(
+			"Enable browser notifications"
+		);
+		await enableInboxNotifications({ userId: USER_ID });
+		installNotificationMock({
+			constructorMock: notificationConstructorMock,
+			permission: "denied",
+			requestPermissionMock,
+		});
+		expect(() => showInboxBrowserNotificationExample(USER_ID)).toThrow(
+			"Enable browser notifications before showing an example."
+		);
+		expect(notificationConstructorMock).toHaveBeenCalledOnce();
+	});
 	it("keeps Desktop preferences independent and only settles acknowledged native delivery", async () => {
 		window.localStorage.setItem(PREFERENCE_KEY, "disabled");
 		const showNotification = vi

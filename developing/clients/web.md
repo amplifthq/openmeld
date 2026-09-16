@@ -981,6 +981,17 @@ as an intermediate destination.
 
 **Settings -> Personal -> Notifications** owns phase 1 delivery preferences:
 
+- **Default message notifications** saves the account-wide All new messages or
+  Mentions and replies default. The shared Space/DM header bell exposes Use
+  default (with its current value), both explicit choices, and Mute message
+  notifications. The selected value comes from Core; failed saves preserve the
+  last confirmed choice and show the error. A conversation override belongs to
+  the signed-in member, not the displayed Agent Profile. The bell links to
+  global settings and explains that urgent email remains independent.
+- **Show an example** requests a local sample notification beside the browser
+  control. It is disabled until browser notifications are enabled, never writes
+  an Inbox item, and does not claim that a native banner was displayed.
+
 - **Browser notifications** reflects permission in the current browser and
   explains when the browser has blocked the permission. If permission is still
   undecided after Account Setup Studio, Web presents one browser-local
@@ -998,10 +1009,10 @@ as an intermediate destination.
   the fixed full app volume, and the setting explains that browser or operating
   system notification sounds are controlled separately. Blocked or failed
   audio does not change delivery truth or trigger a notification retry.
-- **Email for urgent items** is a durable account preference, enabled by
+- **Urgent email alerts** is a durable account preference, enabled by
   default, and may be disabled without hiding Inbox items.
 
-Phase 1 intentionally has no per-source switches, schedules, quiet hours,
+Phase 1 intentionally has no schedules, quiet hours,
 digests, snooze, Slack delivery, closed-browser Web Push, Desktop, Mobile, or
 CLI controls.
 
