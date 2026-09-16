@@ -29,7 +29,7 @@ import {
   createAgentComputerWorkspaceAccess,
 } from "./agent-computer-workspace-access";
 import { buildComputerCommandProcess } from "./computer-command-process";
-import { buildAgentComputerName } from "./computer-identity";
+import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { AGENT_COMPUTER_CONTAINER_BACKEND_ID } from "./computer-workspace";
 
 const PREFIX = "openmeld:remote-agent:computer-command:";
@@ -474,7 +474,7 @@ export async function stopRemoteAgentComputerCommands(input: {
   const access = createAgentComputerWorkspaceAccess({
     namespace,
     computerId: namespace.idFromName(
-      buildAgentComputerName(input.context.agentProfileId)
+      resolveRemoteAgentComputerName(input.context)
     ),
   });
   let unfinished = 0;

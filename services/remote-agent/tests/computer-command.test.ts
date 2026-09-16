@@ -4,6 +4,7 @@ import type {
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
 import { defineTool } from "@flue/runtime";
+import { buildPersonalRemoteAgentConversationId } from "@openmeld/schemas";
 import { type GenericSchema, parse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -20,20 +21,48 @@ import {
   readCommandSlice,
   stopRemoteAgentComputerCommands,
 } from "../flue-adapter/computer-command";
+import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sandbox";
 import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
 import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
 import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
-import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import {
+  createSubmitTurnRequest,
+  createSubmitTurnRequestV2,
+  TEST_NOW_MS,
+} from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const cleanupAccess = vi.hoisted(() => vi.fn());
-vi.mock("../flue-adapter/agent-computer-workspace-access", () => ({
-  createAgentComputerWorkspaceAccess: cleanupAccess,
-}));
+vi.mock(
+  "../flue-adapter/agent-computer-workspace-access",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../flue-adapter/agent-computer-workspace-access")
+    >()),
+    createAgentComputerWorkspaceAccess: cleanupAccess,
+    materializeAgentComputerWorkspace: async () => ({
+      workingDirectory: "/computer/spaces/a",
+      documents: null,
+    }),
+  })
+);
 
-function context(submissionId: string) {
-  const request = createSubmitTurnRequest();
+function context(submissionId: string, personal = false) {
+  const base = createSubmitTurnRequestV2();
+  const conversationId = buildPersonalRemoteAgentConversationId(base);
+  const request = personal
+    ? {
+        ...base,
+        v: 4 as const,
+        conversationId,
+        runtimeConversation: { generation: 0, id: conversationId },
+        conversationIdentity: {
+          kind: "personal_agent" as const,
+          agentProfileId: base.agentProfileId,
+        },
+      }
+    : createSubmitTurnRequest();
   return createRemoteAgentCallbackContext({
     request,
     nowMs: TEST_NOW_MS,
@@ -108,11 +137,15 @@ function fixture() {
 
 describe("retained Computer commands", () => {
   it.each([
-    false,
-    true,
-  ])("keeps a safety-fenced command stoppable and recovers cleanup before publication (Stop=%s)", async (cancel) => {
+    { cancel: false, personal: false },
+    { cancel: true, personal: false },
+    { cancel: true, personal: true },
+  ])("keeps a safety-fenced command stoppable and recovers cleanup before publication ($personal, Stop=$cancel)", async ({
+    cancel,
+    personal,
+  }) => {
     const f = fixture();
-    const executionContext = context("execution-a");
+    const executionContext = context("execution-a", personal);
     const identity = buildRemoteAgentExecutionIdentity(executionContext);
     await putRemoteAgentCallbackContext(f.storage, executionContext);
     await initializeRemoteAgentExecutionState({
@@ -120,11 +153,33 @@ describe("retained Computer commands", () => {
       storage: f.storage,
       acceptedAtMs: TEST_NOW_MS,
     });
-    cleanupAccess.mockReturnValue(f.workspaceAccess);
-    const env = { AGENT_COMPUTER: { idFromName: () => "computer-id" } };
+    const expectedName = personal
+      ? `agent-computer:${JSON.stringify([executionContext.agentProfileId, executionContext.spaceId])}`
+      : `agent-computer:${executionContext.agentProfileId}`;
+    cleanupAccess.mockImplementation(({ computerId }) => {
+      if (computerId !== expectedName) {
+        throw new Error(`Accessed another Computer: ${computerId}`);
+      }
+      return f.workspaceAccess;
+    });
+    const idFromName = vi.fn((name: string) => name);
+    const env = { AGENT_COMPUTER: { idFromName } };
+    const capability = await createRemoteAgentComputerCapability({
+      context: executionContext,
+      coreWorker: {},
+      env,
+      storage: f.storage,
+      includeOrganizationDocuments: false,
+    });
+    const definition = capability.definitions.find(
+      (tool) => tool.name === "computer_command"
+    );
+    if (!definition) {
+      throw new Error("Missing Computer command tool");
+    }
     const invoke = () =>
       executeRemoteAgentToolDefinition({
-        definition: f.tool(),
+        definition,
         storage: f.storage,
         submissionId: "execution-a",
         callLimit: 1,
@@ -202,6 +257,10 @@ describe("retained Computer commands", () => {
       })
     );
     expect(f.exec).toHaveBeenCalledOnce();
+    expect(idFromName.mock.calls.length).toBeGreaterThan(1);
+    expect(idFromName.mock.calls.every(([name]) => name === expectedName)).toBe(
+      true
+    );
   });
   it("keeps owned work pending until its retained completion receipt is collected", async () => {
     const f = fixture();
