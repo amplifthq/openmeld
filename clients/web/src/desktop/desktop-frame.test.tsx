@@ -17,6 +17,7 @@ import {
 } from "../lib/composer-draft-storage";
 import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "../lib/spaces/conversation-layout-preference";
 import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "../lib/spaces/self-message-alignment-preference";
+import { completeAccountAuthChange } from "../query/auth-boundary";
 import { userQueryKeys } from "../query/query-keys";
 import { DesktopFrame } from "./desktop-frame";
 import { useDesktopTitlebar } from "./titlebar-context";
@@ -227,6 +228,62 @@ describe("Desktop document hydration", () => {
 		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
 		await waitFor(() => expect(router.invalidate).toHaveBeenCalledTimes(1));
 		expect(readComposerDraft(scope)).toBeNull();
+		client.clear();
+	});
+
+	it("preserves new-account drafts after Desktop Entry completes the account handoff", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		const staleSignOutRead = createDeferred<DesktopSession>();
+		const accountA = {
+			user: { id: "account-a", email: "a@example.com", name: "A" },
+		};
+		const accountB = {
+			user: { id: "account-b", email: "b@example.com", name: "B" },
+		};
+		bridge.session
+			.mockResolvedValueOnce(accountA)
+			.mockReturnValueOnce(staleSignOutRead.promise)
+			.mockResolvedValueOnce(accountB);
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		const page = () => (
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const view = render(page());
+
+		act(() => window.dispatchEvent(new Event("focus")));
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
+
+		await completeAccountAuthChange(client, "signed-out");
+		native.pathname = "/desktop-shell";
+		view.rerender(page());
+		await act(() => staleSignOutRead.resolve({ user: null }));
+
+		seedAccountSession(client, "account-b");
+		native.pathname = "/o/team/spaces";
+		view.rerender(page());
+		const accountBDraft = {
+			kind: "space" as const,
+			ownerAccountId: "account-b",
+			profileId: "human-b",
+			spaceId: "account-b-space",
+		};
+		writeComposerDraft(accountBDraft, privateDraft());
+		act(() => window.dispatchEvent(new Event("focus")));
+
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(3));
+		expect(readComposerDraft(accountBDraft)?.text).toBe("Private draft");
 		client.clear();
 	});
 

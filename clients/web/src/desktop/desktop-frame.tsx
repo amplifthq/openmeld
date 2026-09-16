@@ -34,6 +34,11 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 		if (!bridge) {
 			return;
 		}
+		if (pathname === "/desktop-shell") {
+			// DesktopEntry owns identity revalidation on the shell. Retire the
+			// previous workspace baseline so its completed handoff is not replayed.
+			confirmedAccountIdRef.current = undefined;
+		}
 		const desktopBridge = bridge;
 		let disposed = false;
 		let revision = 0;
