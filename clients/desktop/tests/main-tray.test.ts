@@ -284,6 +284,8 @@ beforeEach(() => {
   electronMock.dialog.showErrorBox.mockClear();
   electronMock.dialog.showMessageBox.mockClear();
   electronMock.dialog.showMessageBox.mockResolvedValue({ response: 1 });
+  electronMock.shell.openExternal.mockReset();
+  electronMock.shell.openExternal.mockResolvedValue(undefined);
   electronMock.Menu.buildFromTemplate.mockClear();
   electronMock.Menu.setApplicationMenu.mockClear();
   electronMock.appIcon.isEmpty.mockClear();
@@ -440,7 +442,7 @@ describe("main tray behavior", () => {
     );
   });
 
-  it("blocks renderer-created windows and renderer-initiated navigation", async () => {
+  it("opens ordinary external links in the system browser without creating an Electron window", async () => {
     await importMain();
 
     const window = electronMock.windowInstances.at(0);
@@ -449,9 +451,69 @@ describe("main tray behavior", () => {
       expect.any(Function)
     );
     const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
-      .calls[0]?.[0] as (() => { action: "deny" }) | undefined;
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
 
-    expect(windowOpenHandler?.()).toEqual({ action: "deny" });
+    expect(
+      windowOpenHandler?.({ url: "https://example.com/docs?q=1#section" })
+    ).toEqual({ action: "deny" });
+    await Promise.resolve();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledOnce();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "https://example.com/docs?q=1#section"
+    );
+  });
+
+  it.each([
+    "not a URL",
+    "javascript:alert(1)",
+    "file:///tmp/private",
+    "data:text/html,unsafe",
+    "openmeld-desktop://app/o/team/spaces",
+    "https://user:password@example.com/private",
+  ])("denies unsafe external link %s", async (url) => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
+
+    expect(windowOpenHandler?.({ url })).toEqual({ action: "deny" });
+    expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("reports a rejected system-browser handoff without allowing a new window", async () => {
+    const failure = new Error("Browser unavailable");
+    electronMock.shell.openExternal.mockRejectedValueOnce(failure);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
+
+    expect(windowOpenHandler?.({ url: "http://example.com/support" })).toEqual({
+      action: "deny",
+    });
+    await vi.waitFor(() =>
+      expect(consoleError).toHaveBeenCalledWith(
+        "[openmeld-desktop.background_task_failed]",
+        failure
+      )
+    );
+  });
+
+  it("continues blocking renderer-initiated document navigation", async () => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
     expect(window?.webContents.on).toHaveBeenCalledWith(
       "will-navigate",
       expect.any(Function)

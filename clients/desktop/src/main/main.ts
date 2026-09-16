@@ -108,7 +108,10 @@ function createMainWindow(
   const window = new BrowserWindow(options);
   pilot?.observeWindow(window.webContents);
 
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalBrowserUrl(url);
+    return { action: "deny" };
+  });
   window.webContents.on("will-navigate", (event) => {
     event.preventDefault();
   });
@@ -139,6 +142,23 @@ function createMainWindow(
     })
   );
   return window;
+}
+
+function openExternalBrowserUrl(value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return;
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username.length > 0 ||
+    url.password.length > 0
+  ) {
+    return;
+  }
+  runBackgroundTask(shell.openExternal(url.href), { showError: false });
 }
 
 function configureAppIdentity(): void {
