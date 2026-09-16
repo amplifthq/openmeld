@@ -2,6 +2,252 @@
   "schemaVersion": 1,
   "entries": [
     {
+      "id": "more-opencode-and-cursor-model-choices",
+      "title": "Choose more OpenCode and Cursor models",
+      "kind": "new",
+      "areas": [
+        "agent-profiles",
+        "model-selection"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1130",
+        "pr:1133",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "workflow:35133498793",
+        "workflow:35136910148"
+      ],
+      "body": "OpenCode Agent Profiles can now select DeepSeek V4.1 Flash and Hy4 Preview\nthrough OpenCode Go, or Ling 3.0 Flash Fin Free through OpenCode's free route.\nCursor Agent Profiles can also select Claude Opus 5, Grok 4.6, and Muse Spark\n1.3 when the signed-in Cursor account offers those exact choices."
+    },
+    {
+      "id": "desktop-computer-connection-controls",
+      "title": "Clearer computer connection controls in Desktop",
+      "kind": "improved",
+      "areas": [
+        "desktop",
+        "computers"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1131",
+        "pr:1133",
+        "pr:1134",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "desktop-candidate:76d8b271aadb5cb125ef445337c150bec1f1409854d6f599bf2927b41d85dc86"
+      ],
+      "body": "Desktop shows when this Mac is connected and lets you disconnect it with\nconfirmation, keeping your Desktop sign-in and saved computer record. Computer\ndetails also offer Forget this computer, and Back returns to the profile you\nstarted from.\n\nConnection setup shows its actual progress and preserves useful failure details\nfor retry and diagnosis. Disconnect requires updated OpenMeld Tools."
+    },
+    {
+      "id": "space-member-picker-clarity",
+      "title": "Clearer Space member additions",
+      "kind": "improved",
+      "areas": [
+        "spaces",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1126",
+        "pr:1133",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "workflow:35133498793"
+      ],
+      "body": "The Space member picker clearly separates adding existing teammates from creating\nan Agent or inviting someone by email. Reopening refreshes an outdated list while\nkeeping cached results available. If the update fails, the picker preserves your\nselection and offers a retry."
+    },
+    {
+      "id": "desktop-in-app-updates",
+      "title": "Download and update OpenMeld Desktop",
+      "kind": "new",
+      "areas": [
+        "desktop",
+        "web"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1128",
+        "pr:1133",
+        "pr:1134",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "desktop-candidate:76d8b271aadb5cb125ef445337c150bec1f1409854d6f599bf2927b41d85dc86"
+      ],
+      "body": "Download Desktop from the Web account menu. Installed Desktop can check for a\nnew version, show download progress, and restart to update when you choose.\nChoosing Later keeps the current version installed. Restart waits until drafts\ncan be saved and pending messages and uploads are finished. Updates in Settings\nkeeps the installed version visible while showing the available version and its\ncurrent download or restart state separately."
+    },
+    {
+      "id": "desktop-native-interaction-reliability",
+      "title": "Keep Desktop work safe through native interruptions",
+      "kind": "fixed",
+      "areas": [
+        "desktop",
+        "spaces"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1131",
+        "pr:1133",
+        "pr:1134",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "desktop-candidate:76d8b271aadb5cb125ef445337c150bec1f1409854d6f599bf2927b41d85dc86"
+      ],
+      "body": "OpenMeld Desktop now keeps unsent drafts through temporary sign-in rechecks,\nopens safe web links in your system browser, returns to normal close-to-hide\nbehavior after a blocked quit, and refreshes Space access when the live\nconnection reports that permissions changed."
+    },
+    {
+      "id": "notification-message-navigation",
+      "title": "Open messages from notifications with less waiting",
+      "kind": "improved",
+      "areas": [
+        "inbox",
+        "spaces",
+        "desktop"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1128",
+        "pr:1133",
+        "pr:1134",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "workflow:35133498793",
+        "desktop-candidate:76d8b271aadb5cb125ef445337c150bec1f1409854d6f599bf2927b41d85dc86"
+      ],
+      "body": "Browser notifications open conversations without reloading the app. Desktop\nbrings its window forward promptly and reuses the checked notification target.\nLinked Threads can show messages while the rest of the Space is still loading."
+    },
+    {
+      "id": "recover-openmeld-tools-downloads",
+      "title": "Recover interrupted OpenMeld Tools downloads",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "computers",
+        "desktop",
+        "openmeld-service",
+        "web"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1031",
+        "pr:1133",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "workflow:35136910148"
+      ],
+      "body": "OpenMeld Tools updates now keep progressing on slow connections and make\nbounded retries after temporary download interruptions instead of ending at a\nfixed one-minute limit. Retry timing follows the download server's guidance\nwithout exceeding the update's total recovery budget. Integrity failures still\nstop before installation.\n\nWhen an update cannot complete, the Computer page preserves a specific,\nuser-safe failure reason. A Service update failure only reports the Service\noutcome; it no longer claims that the CLI is ready without evidence."
+    },
+    {
+      "id": "windows-dpapi-token-storage",
+      "title": "Restore secure Windows CLI sign-in",
+      "kind": "fixed",
+      "areas": [
+        "cli",
+        "authentication"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1125",
+        "pr:1133",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "workflow:35136910148"
+      ],
+      "body": "The Windows CLI now loads the system encryption component before saving or\nreading sign-in credentials. Credential-storage failures report a clear reason\nand error code without exposing tokens or repeating the same error."
+    },
+    {
+      "id": "desktop-menu-bar-inbox-count",
+      "title": "See unread Inbox items in the Mac menu bar",
+      "kind": "new",
+      "areas": [
+        "desktop",
+        "inbox"
+      ],
+      "audiences": [
+        "users"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1131",
+        "pr:1133",
+        "pr:1134",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "desktop-candidate:76d8b271aadb5cb125ef445337c150bec1f1409854d6f599bf2927b41d85dc86"
+      ],
+      "body": "The OpenMeld menu bar icon shows your current workspace's unread Inbox count,\nincluding ordinary messages, even when the Desktop window is hidden. The number\nis independent of notification permissions and disappears when there are no\nunread items, the count is unavailable, or you sign out."
+    },
+    {
+      "id": "daily-conversation-experience",
+      "title": "Smoother new chats, activity navigation, and Settings",
+      "kind": "fixed",
+      "areas": [
+        "center-agent",
+        "spaces",
+        "settings"
+      ],
+      "audiences": [
+        "members"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1105",
+        "pr:1133",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "workflow:35133498793"
+      ],
+      "body": "New Center Agent chats support attachment previews, paste and drop, and saved\nattachment drafts. The first message appears while the chat is being created,\neven when sidebar settings are still loading. Attachments added while an existing\nchat loads keep their previews and carry over into the conversation.\nSending while attachments finish preparing preserves any newer draft and files.\nRemoved or sent attachments stay out of the composer when an older draft finishes loading.\nThe welcome area and first message stay in place as the new chat finishes loading.\n\nSidebar activity indicators open the conversation or Thread where the agent is working.\nCompleted work stays finished when you close a Thread, add replies, or return\nto a conversation. An older reply no longer hides a newer run by the same agent,\nand activity links continue to open work that is still active.\nCenter Agent chat links retain both the selected session and Thread.\nMessage previews in the sidebar link directly to the displayed message, including\nThread replies. Conversation menus have clearer labels and action icons.\nSettings keeps its navigation and dialog in place while a section loads.\nSpaces and direct messages keep the conversation sidebar, header, and centered\nmessage and composer layout visible while loading. Saved Members panel widths\nand open states also apply to the loading placeholder."
+    },
+    {
+      "id": "verify-local-agent-install-changes",
+      "title": "Verify a local Agent before switching installs",
+      "kind": "fixed",
+      "areas": [
+        "agents",
+        "cli",
+        "computers"
+      ],
+      "audiences": [
+        "members",
+        "admins"
+      ],
+      "publishedAt": "2026-09-16",
+      "release": "v0.3.212",
+      "evidence": [
+        "pr:1031",
+        "pr:1133",
+        "commit:b8dcd2b62dab99a9f852783550a913afe718abd4",
+        "workflow:35136910148"
+      ],
+      "body": "When OpenMeld discovers a local Agent for the first time or you choose a\ndifferent installation during repair, it now verifies that exact installation\ncan start before saving it or reporting it ready. A failed or unfinished check\nkeeps the available choices visible; repair also preserves the current install\nand its enabled setting so you can safely retry."
+    },
+    {
       "id": "agent-mentions-and-context",
       "title": "Bring Agents into a conversation with clearer mentions",
       "kind": "fixed",
