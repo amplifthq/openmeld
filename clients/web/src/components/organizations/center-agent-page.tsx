@@ -39,6 +39,7 @@ import { ChatTitleEditor } from "./chat-title-editor";
 export function CenterAgentPage(input: {
 	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData | null;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialSpaceView?: SpaceView;
 	presentation?: "compact" | "full";
@@ -49,6 +50,7 @@ export function CenterAgentPage(input: {
 	return (
 		<CenterAgentDirectMessagePage
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialSpaceView={input.initialSpaceView}
 			presentation={input.presentation}
@@ -60,6 +62,7 @@ export function CenterAgentPage(input: {
 function CenterAgentDirectMessagePage(input: {
 	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialSpaceView?: SpaceView;
 	presentation?: "compact" | "full";
@@ -71,6 +74,7 @@ function CenterAgentDirectMessagePage(input: {
 		<CenterAgentDirectMessageOrganizationBoundary
 			currentUserAvatarImageUrl={currentAccountAvatar?.avatar ?? null}
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialSpaceView={input.initialSpaceView}
 			key={`${currentOrganization.id}:${input.sessionId ?? "default"}`}
@@ -86,6 +90,7 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialSpaceView?: SpaceView;
 	organizationId: string;
@@ -107,6 +112,7 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 		<CenterAgentDirectMessageEntry
 			currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialSpaceView={input.initialSpaceView}
 			onConnectRequired={(organizationId) => {
@@ -126,6 +132,7 @@ function CenterAgentDirectMessageEntry(input: {
 	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialSpaceView?: SpaceView;
 	onConnectRequired: (organizationId: string) => void;
@@ -266,6 +273,7 @@ function CenterAgentDirectMessageEntry(input: {
 				)}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 				initialComposerDraft={composerDraft.record}
+				initialFocusRequestId={input.initialFocusRequestId}
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialPendingMessage={pendingMessage}
 				initialSpaceView={input.initialSpaceView}

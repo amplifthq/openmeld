@@ -100,7 +100,9 @@ read completes. Main owns the single activation-time Inbox read and current
 account check, then hands the validated structured source target to the bundled
 renderer. The renderer uses the shared source-route mapper without fetching the
 same Inbox item again; source endpoints still enforce their own permissions.
-Later clicks and intervening renderer navigation supersede outstanding reads.
+Later clicks and explicit renderer navigation supersede outstanding reads;
+passive completion of the conversation already loading does not cancel the
+notification target.
 Preload retains only the latest unconsumed click while no listener is mounted,
 clears it on session invalidation, and waits through updater navigation freezes.
 This is an in-memory navigation handoff, not a notification store or a guarantee

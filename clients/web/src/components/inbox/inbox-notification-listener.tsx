@@ -31,7 +31,7 @@ import {
 	subscribeInboxNotificationSettings,
 } from "#/lib/inbox/client-notifications";
 import { isNotificationConversationVisible } from "#/lib/inbox/desktop-notifications";
-
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import {
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
@@ -82,7 +82,10 @@ export function InboxNotificationListener(input: {
 				if (navigation.openInNewTab) {
 					return;
 				}
-				navigate({ to: navigation.href }).catch((error: unknown) =>
+				navigate({
+					to: navigation.href,
+					state: requestInboxSourceFocus,
+				}).catch((error: unknown) =>
 					console.warn("[openmeld.desktop.notification_navigation_failed]", {
 						error,
 					})
@@ -632,11 +635,16 @@ function processInboxNotificationItems(input: {
 				if (navigation.openInNewTab) {
 					window.open(navigation.href, "_blank", "noopener,noreferrer");
 				} else {
-					input.navigate({ to: navigation.href }).catch((error: unknown) =>
-						console.warn("[openmeld.web.notification_navigation_failed]", {
-							error,
+					input
+						.navigate({
+							to: navigation.href,
+							state: requestInboxSourceFocus,
 						})
-					);
+						.catch((error: unknown) =>
+							console.warn("[openmeld.web.notification_navigation_failed]", {
+								error,
+							})
+						);
 				}
 			},
 			organizationSlug: input.organizationSlug,

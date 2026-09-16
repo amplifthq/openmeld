@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useLocation } from "@tanstack/react-router";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { SpaceWindowShell } from "#/components/spaces/app-space-shell";
@@ -7,6 +7,7 @@ import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
+import { readInboxSourceFocusRequestId } from "#/lib/inbox/source-focus-request";
 import { prefetchSpaceConversationRouteData } from "#/lib/organizations/app-route-prefetch";
 import {
 	APP_SIDEBAR_DEFAULT_STATES,
@@ -74,10 +75,14 @@ function DirectMessageConversationRoute() {
 	const { orgSlug, spaceId } = Route.useParams();
 	const search = Route.useSearch();
 	const { sidebarStates } = Route.useLoaderData();
+	const focusRequestId = useLocation({
+		select: (location) => readInboxSourceFocusRequestId(location.state),
+	});
 
 	return (
 		<AppSpaceEntryContent
 			focusInteractionId={search.focusInteractionId}
+			focusRequestId={focusRequestId}
 			focusSignalId={search.focusSignalId}
 			focusThreadRootSignalId={search.focusThreadRootSignalId}
 			initialSidebarStates={sidebarStates}

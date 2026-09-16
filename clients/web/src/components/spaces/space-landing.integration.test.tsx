@@ -623,6 +623,7 @@ function renderSpaceLanding(
 		accountProfiles?: readonly AuthProfileView[];
 		currentUserAvatarImageUrl?: string | null;
 		initialFocusInteractionId?: string;
+		initialFocusRequestId?: string;
 		initialFocusSignalId?: string;
 		initialFocusThreadRootSignalId?: string;
 		initialPendingMessage?: {
@@ -680,6 +681,7 @@ function renderSpaceLanding(
 				accountProfiles={input.accountProfiles}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 				initialFocusInteractionId={input.initialFocusInteractionId}
+				initialFocusRequestId={input.initialFocusRequestId}
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				initialPendingMessage={input.initialPendingMessage}
@@ -15604,7 +15606,7 @@ describe("SpaceLanding", () => {
 		).toBeNull();
 	});
 
-	it("opens an Inbox source at the highlighted message", () => {
+	it("opens an Inbox source at the highlighted message", async () => {
 		const offsetHeightSpy = vi
 			.spyOn(HTMLElement.prototype, "offsetHeight", "get")
 			.mockReturnValue(500);
@@ -15647,7 +15649,10 @@ describe("SpaceLanding", () => {
 			}),
 		});
 
-		renderSpaceLanding({ initialFocusSignalId: "sig-inbox-target" });
+		const view = renderSpaceLanding({
+			initialFocusRequestId: "visit-1",
+			initialFocusSignalId: "sig-inbox-target",
+		});
 
 		const target = document.querySelector(
 			'[data-signal-id="sig-inbox-target"]'
@@ -15658,6 +15663,29 @@ describe("SpaceLanding", () => {
 			screen.getByRole("log", { name: "Conversation history" }).scrollTop
 		).toBe(480);
 		expect(document.activeElement).toBe(target);
+		(target as HTMLElement | null)?.blur();
+		expect(document.activeElement).not.toBe(target);
+		(
+			screen.getByRole("log", { name: "Conversation history" }) as HTMLElement
+		).scrollTop = 0;
+		view.rerender(
+			<SpaceLanding
+				initialFocusRequestId="visit-2"
+				initialFocusSignalId="sig-inbox-target"
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		await waitFor(() => {
+			const refocusedTarget = document.querySelector(
+				'[data-signal-id="sig-inbox-target"]'
+			);
+			expect(
+				screen.getByRole("log", { name: "Conversation history" }).scrollTop
+			).toBe(480);
+			expect(document.activeElement).toBe(refocusedTarget);
+		});
 		rectSpy.mockRestore();
 		offsetHeightSpy.mockRestore();
 	});
@@ -15833,19 +15861,24 @@ describe("SpaceLanding", () => {
 				? { bootstrap: createQueryResult({ isPending: true }) }
 				: {}),
 			status,
-			members: createQueryResult({
-				isSuccess: true,
-				data: createMembersSnapshot(),
-			}),
-			history: createQueryResult({
-				isSuccess: true,
-				data: { envelopes: [rootSignal], nextCursor: null },
-			}),
+			members: bootstrapPending
+				? createQueryResult({ isPending: true })
+				: createQueryResult({
+						isSuccess: true,
+						data: createMembersSnapshot(),
+					}),
+			history: bootstrapPending
+				? createQueryResult({ isPending: true })
+				: createQueryResult({
+						isSuccess: true,
+						data: { envelopes: [rootSignal], nextCursor: null },
+					}),
 			threads,
 			threadSignals,
 		});
 
 		const view = renderSpaceLanding({
+			initialFocusRequestId: "visit-1",
 			initialFocusSignalId: replySignal.id,
 			initialFocusThreadRootSignalId: rootSignal.id,
 		});
@@ -15862,6 +15895,7 @@ describe("SpaceLanding", () => {
 			);
 			view.rerender(
 				<SpaceLanding
+					initialFocusRequestId="visit-1"
 					initialFocusSignalId={replySignal.id}
 					initialFocusThreadRootSignalId={rootSignal.id}
 					orgSlug="acme"
@@ -15877,7 +15911,9 @@ describe("SpaceLanding", () => {
 		expect(
 			within(threadPanel).getByText("Thread", { exact: true })
 		).toBeTruthy();
-		expect(within(threadPanel).getByRole("textbox")).toBeTruthy();
+		if (!bootstrapPending) {
+			expect(within(threadPanel).getByRole("textbox")).toBeTruthy();
+		}
 		expect(within(threadPanel).queryByText("Exact linked reply")).toBeNull();
 		Object.assign(
 			threads,
@@ -15900,6 +15936,7 @@ describe("SpaceLanding", () => {
 		);
 		view.rerender(
 			<SpaceLanding
+				initialFocusRequestId="visit-1"
 				initialFocusSignalId={replySignal.id}
 				initialFocusThreadRootSignalId={rootSignal.id}
 				orgSlug="acme"
@@ -15914,6 +15951,7 @@ describe("SpaceLanding", () => {
 		);
 		view.rerender(
 			<SpaceLanding
+				initialFocusRequestId="visit-1"
 				initialFocusSignalId={replySignal.id}
 				initialFocusThreadRootSignalId={rootSignal.id}
 				orgSlug="acme"
@@ -15931,6 +15969,30 @@ describe("SpaceLanding", () => {
 		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
 			replySignal.id
 		);
+		fireEvent.click(
+			within(threadPanel).getByRole("button", { name: "Close thread" })
+		);
+		expect(screen.queryByRole("complementary", { name: "Thread" })).toBeNull();
+		view.rerender(
+			<SpaceLanding
+				initialFocusRequestId="visit-2"
+				initialFocusSignalId={replySignal.id}
+				initialFocusThreadRootSignalId={rootSignal.id}
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		const reopenedThreadPanel = await screen.findByRole("complementary", {
+			name: "Thread",
+		});
+		await waitFor(() => {
+			const target = reopenedThreadPanel.querySelector(
+				`[data-signal-id="${replySignal.id}"]`
+			);
+			expect(target?.getAttribute("data-highlighted")).toBe("true");
+			expect(document.activeElement).toBe(target);
+		});
 	});
 
 	it("prefills a Wake mention when replying directly to an agent message", async () => {

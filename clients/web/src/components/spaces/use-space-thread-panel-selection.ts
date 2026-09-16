@@ -17,16 +17,22 @@ export function useSpaceThreadPanelSelection(input: {
 	availableThreadsReady: boolean;
 	profileId: string;
 	spaceId: string;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	threadIdsByRootSignalId?: ReadonlyMap<string, string>;
 }) {
 	const initialFocus = useMemo(
 		() => ({
+			requestId: input.initialFocusRequestId,
 			rootSignalId: input.initialFocusThreadRootSignalId,
 			signalId: input.initialFocusSignalId,
 		}),
-		[input.initialFocusThreadRootSignalId, input.initialFocusSignalId]
+		[
+			input.initialFocusRequestId,
+			input.initialFocusThreadRootSignalId,
+			input.initialFocusSignalId,
+		]
 	);
 	const [selection, setSelection] = useState<SpaceThreadPanelSelection>(() => ({
 		profileId: input.profileId,

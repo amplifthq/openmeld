@@ -2,6 +2,7 @@ import type { InboxItem } from "@openmeld/schemas/types";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
 const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
@@ -217,11 +218,19 @@ describe("InboxNotificationListener", () => {
 		};
 		click?.(activation);
 		expect(navigateMock).toHaveBeenCalledExactlyOnceWith({
+			state: requestInboxSourceFocus,
 			to: "/o/amplift/spaces/space-123?focusSignalId=reply&focusThreadRootSignalId=root",
 		});
 		expect(getCurrentInboxItemMock).not.toHaveBeenCalled();
+		click?.(activation);
+		expect(navigateMock).toHaveBeenCalledTimes(2);
+		const firstState = requestInboxSourceFocus({});
+		const secondState = requestInboxSourceFocus(firstState);
+		expect(secondState.inboxSourceFocusRequestId).not.toBe(
+			firstState.inboxSourceFocusRequestId
+		);
 		click?.({ ...activation, userId: "another-user" });
-		expect(navigateMock).toHaveBeenCalledTimes(1);
+		expect(navigateMock).toHaveBeenCalledTimes(2);
 	});
 
 	it.each([
@@ -307,6 +316,7 @@ describe("InboxNotificationListener", () => {
 		);
 		showInboxNotificationMock.mock.calls[0]?.[0].onActivate(newItem);
 		expect(navigateMock).toHaveBeenCalledExactlyOnceWith({
+			state: requestInboxSourceFocus,
 			to: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
 		});
 	});

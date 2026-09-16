@@ -34,6 +34,7 @@ export function createPilotNotifications(input: {
 }) {
   let generation = 0;
   let activationRevision = 0;
+  let navigationRevision = 0;
   let context: DesktopNotificationContext = null;
   let contextRevision = 0;
   const active = new Set<Notification>();
@@ -119,6 +120,7 @@ export function createPilotNotifications(input: {
     }
     const revision = ++activationRevision;
     const navigationContext = context;
+    const initialNavigationRevision = navigationRevision;
     const window = input.getWindow();
     if (!window || window.isDestroyed()) {
       return;
@@ -133,7 +135,8 @@ export function createPilotNotifications(input: {
       if (
         !(await currentAccount(reference.userId, epoch)) ||
         revision !== activationRevision ||
-        !sameNotificationNavigation(navigationContext, context) ||
+        navigationRevision !== initialNavigationRevision ||
+        !sameNotificationScope(navigationContext, context) ||
         window.isDestroyed()
       ) {
         return;
@@ -225,6 +228,11 @@ export function createPilotNotifications(input: {
     refreshVisibility,
     async setContext(raw: unknown) {
       const next = desktopNotificationContextSchema.parse(raw);
+      navigationRevision = nextNotificationNavigationRevision({
+        current: context,
+        next,
+        revision: navigationRevision,
+      });
       const scopeChanged =
         context?.userId !== next?.userId ||
         context?.organizationId !== next?.organizationId;
@@ -321,17 +329,35 @@ export function createPilotNotifications(input: {
   };
 }
 
-function sameNotificationNavigation(
+function sameNotificationScope(
   current: DesktopNotificationContext,
   next: DesktopNotificationContext
 ): boolean {
+  if (!current) {
+    return true;
+  }
   return (
-    current?.navigationKey === next?.navigationKey &&
-    current?.userId === next?.userId &&
-    current?.organizationId === next?.organizationId &&
-    current?.visibleConversation?.spaceId ===
-      next?.visibleConversation?.spaceId &&
-    current?.visibleConversation?.threadRootSignalId ===
-      next?.visibleConversation?.threadRootSignalId
+    current.userId === next?.userId &&
+    current.organizationId === next?.organizationId
+  );
+}
+
+function didNotificationNavigationChange(
+  current: DesktopNotificationContext,
+  next: DesktopNotificationContext
+): boolean {
+  return Boolean(
+    current?.navigationKey && current.navigationKey !== next?.navigationKey
+  );
+}
+
+function nextNotificationNavigationRevision(input: {
+  current: DesktopNotificationContext;
+  next: DesktopNotificationContext;
+  revision: number;
+}): number {
+  return (
+    input.revision +
+    (didNotificationNavigationChange(input.current, input.next) ? 1 : 0)
   );
 }

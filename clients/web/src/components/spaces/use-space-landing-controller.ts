@@ -1374,6 +1374,7 @@ function showSpaceExecutionRecoveryFailureToast(input: {
 }
 
 export function useSpaceLandingController(input: {
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	centerAgentProfileId?: string | null;
@@ -1816,6 +1817,7 @@ export function useSpaceLandingController(input: {
 	);
 	const threadController = useSpaceThreadController({
 		entryConfirmed,
+		initialFocusRequestId: input.initialFocusRequestId,
 		isMembersLoading: membersLoading,
 		membersErrorMessage,
 		membersRefetch: membersQuery.refetch,
@@ -3448,6 +3450,7 @@ export function useSpaceLandingController(input: {
 
 function useSpaceThreadController(input: {
 	entryConfirmed: boolean;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	displayHistory: SpaceHistorySnapshot | null;
@@ -3524,6 +3527,7 @@ function useSpaceThreadController(input: {
 		[threads]
 	);
 	const threadPanelSelection = useSpaceThreadPanelSelection({
+		initialFocusRequestId: input.initialFocusRequestId,
 		initialFocusSignalId: input.initialFocusSignalId,
 		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 		threadIdsByRootSignalId: new Map(

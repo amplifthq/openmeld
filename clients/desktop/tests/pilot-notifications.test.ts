@@ -250,9 +250,11 @@ it.each([
   notifications.clear();
 });
 it.each([
-  "new click",
-  "user navigation",
-] as const)("drops an outdated notification activation after %s", async (supersededBy) => {
+  ["new click", 1],
+  ["user navigation", 0],
+  ["the visible conversation finishes loading", 1],
+  ["the first navigation context arrives", 1],
+] as const)("handles a pending notification activation after %s", async (change, expectedSends) => {
   const send = vi.fn();
   const window = {
     isDestroyed: () => false,
@@ -264,6 +266,15 @@ it.each([
   const { notifications, cloudRequest } = setup(
     window as unknown as BrowserWindow
   );
+  if (change !== "the first navigation context arrives") {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: null,
+      navigationKey: "route-a",
+    });
+  }
   const delivery = notifications.show(request);
   await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
   const notification = native.created.mock.calls[0]?.[0] as EventEmitter;
@@ -278,10 +289,10 @@ it.each([
   );
   notification.emit("click");
   await vi.waitFor(() => expect(completeFirst).toBeDefined());
-  if (supersededBy === "new click") {
+  if (change === "new click") {
     notification.emit("click");
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
-  } else {
+  } else if (change === "user navigation") {
     await notifications.setContext({
       userId: request.userId,
       organizationId: request.organizationId,
@@ -289,10 +300,22 @@ it.each([
       visibleConversation: null,
       navigationKey: "user-opened-another-page",
     });
+  } else {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: {
+        kind: "space",
+        spaceId: "space-that-finished-loading",
+        threadRootSignalId: null,
+      },
+      navigationKey: "route-a",
+    });
   }
   completeFirst(Response.json({ item }));
   await vi.runAllTimersAsync();
-  expect(send).toHaveBeenCalledTimes(supersededBy === "new click" ? 1 : 0);
+  expect(send).toHaveBeenCalledTimes(expectedSends);
   notifications.clear();
 });
 afterEach(() => {

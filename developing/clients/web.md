@@ -608,6 +608,9 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    take precedence over a previously saved open Thread, and target message reads
    begin alongside Space prefetch. Known Thread targets show a loading panel
    during access and bootstrap checks without rendering protected messages early.
+   Each Inbox row or notification activation carries a new in-memory focus request,
+   so selecting the same target again reopens its Thread and refocuses the message
+   without remounting the conversation or discarding its draft and read cache.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
