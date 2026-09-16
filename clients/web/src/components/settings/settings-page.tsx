@@ -1,4 +1,5 @@
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -181,7 +182,7 @@ function SettingsPageShell(input: {
 	);
 	const content = (
 		<Suspense
-			fallback={<output>Loading settings…</output>}
+			fallback={<SettingsContentSkeleton />}
 			key={input.activeSectionId}
 		>
 			{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
@@ -230,6 +231,26 @@ function SettingsPageShell(input: {
 			</AppSurfaceLayout>
 			<SendFeedbackDialog onOpenChange={setFeedbackOpen} open={feedbackOpen} />
 		</>
+	);
+}
+
+function SettingsContentSkeleton() {
+	return (
+		<output aria-label="Loading settings" className="block w-full space-y-8">
+			<div aria-hidden="true" className="space-y-3">
+				<Skeleton className="h-3 w-16 animate-none" />
+				<Skeleton className="h-7 w-40 animate-none" />
+				<Skeleton className="h-4 w-3/4 max-w-md animate-none" />
+			</div>
+			<div aria-hidden="true" className="space-y-6">
+				{[0, 1, 2].map((row) => (
+					<div className="space-y-3 border-border border-t pt-6" key={row}>
+						<Skeleton className="h-4 w-28 animate-none" />
+						<Skeleton className="h-9 w-full max-w-sm animate-none" />
+					</div>
+				))}
+			</div>
+		</output>
 	);
 }
 

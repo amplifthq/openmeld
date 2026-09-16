@@ -148,7 +148,9 @@ describe("Web Settings capability gating", () => {
 		);
 		const dialog = screen.getByRole("dialog", { name: "App settings" });
 		expect(screen.getByRole("button", { name: "Appearance" })).toBeTruthy();
-		expect(screen.getByText("Loading settings…")).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading settings" })
+		).toBeTruthy();
 		await screen.findByText("Account settings content");
 		expect(screen.getByRole("dialog", { name: "App settings" })).toBe(dialog);
 	});
