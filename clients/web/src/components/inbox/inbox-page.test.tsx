@@ -19,6 +19,7 @@ import type {
 	ReactNode,
 } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { inboxQueryKeys } from "#/query/organizations/inbox";
 import { InboxPage } from "./inbox-page";
 
@@ -28,6 +29,7 @@ const getCurrentInboxSummaryMock = vi.hoisted(() => vi.fn());
 const markAllCurrentInboxItemsReadMock = vi.hoisted(() => vi.fn());
 const markCurrentInboxItemReadMock = vi.hoisted(() => vi.fn());
 const dismissCurrentInboxItemMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
 const DEEP_LINKED_APPROVAL_NAME_PATTERN = /Deep-linked approval/;
 const INBOX_ITEM_UNAVAILABLE_NAME_PATTERN = /Inbox item isn't available/;
 const NEW_SPACE_MESSAGE_LINK_NAME_PATTERN = /New Space message/;
@@ -56,18 +58,11 @@ vi.mock("@tanstack/react-router", () => ({
 		onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
 		to: string;
 	} & AnchorHTMLAttributes<HTMLAnchorElement>) => (
-		<a
-			href={to}
-			onAuxClick={onAuxClick}
-			onClick={(event) => {
-				event.preventDefault();
-				onClick?.(event);
-			}}
-			{...props}
-		>
+		<a href={to} onAuxClick={onAuxClick} onClick={onClick} {...props}>
 			{children}
 		</a>
 	),
+	useNavigate: () => navigateMock,
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
@@ -134,6 +129,7 @@ describe("InboxPage", () => {
 		});
 		markCurrentInboxItemReadMock.mockReset();
 		dismissCurrentInboxItemMock.mockReset();
+		navigateMock.mockReset().mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -298,6 +294,10 @@ describe("InboxPage", () => {
 		);
 
 		fireEvent.click(itemLink);
+		expect(navigateMock).toHaveBeenCalledExactlyOnceWith({
+			state: requestInboxSourceFocus,
+			to: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+		});
 
 		await waitFor(() => {
 			expect(markCurrentInboxItemReadMock).toHaveBeenCalledWith({

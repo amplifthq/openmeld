@@ -57,9 +57,9 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 	"account",
 	"appearance",
 	"notifications",
-	"updates",
 	"service",
 	"privacy",
+	"updates",
 ] as const;
 const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"general",

@@ -27,6 +27,25 @@
 
 ## Desktop platform contract
 
+`computer-connection.ts` owns the account-bound native Connect/Disconnect
+requests, progress events, and connection result. These IPC additions ship with
+their bundled renderer. Progress accepts the CLI's existing verbose and compact
+Agent View envelopes. Failed Connect results may include a local redacted
+diagnostic-file path; it is not a cloud URL or credential.
+
+The existing strict `computer-connection-v1` review output is unchanged, so old
+Desktop builds can still read new CLI versions. The additive reviewed
+`computer disconnect` CLI command requires updated Tools; an older CLI refuses
+it without stopping or logging out. Existing cloud setup, Wake, Space actions,
+status, diagnostics, and self-rescue contracts are unchanged in both rollout
+directions. No execution epoch or cloud minimum-version increase is needed.
+Publish the compatible CLI update before shipping this Desktop capability;
+local-component stamping remains deferred to the authorized release worktree.
+Feature candidates still run base-aware `verify:release-ready --defer-release`
+through Final Candidate; deferring publication metadata does not skip packaged
+CLI/Service build verification.
+The explicit-device Forget route already uses Core account authorization.
+
 `desktop-updater.ts` owns main/renderer update snapshots, action names and the
 request-scoped restart preparation reply. Existing trusted-window authorization
 applies before every updater IPC call. Renderer replies contain only the main
@@ -56,6 +75,14 @@ late native events cannot turn cancellation into delivery. Delivered alerts
 retain click-back across Organization switches; account invalidation clears all.
 This is a delivery permit, not account or Inbox authority; native
 session and recipient-authorized Core reads remain mandatory.
+The optional nullable `unreadCount` in the same context projects the existing
+Core Inbox summary's `totalUnreadCount` for the macOS menu bar. It includes
+ordinary unread items, not read unresolved actions, and is independent of delivery
+preferences. Main accepts only a bounded numeric value, checks native account
+identity, and rejects results after context or session invalidation; it never
+accepts arbitrary tray text. Zero and unknown counts hide the number. The
+existing native refresh signal refreshes the shared summary without introducing
+another polling owner or unread store.
 These additions ship with the matching local renderer and require no cloud,
 CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
 their existing behavior; cloud rollout does not require a new Desktop floor.

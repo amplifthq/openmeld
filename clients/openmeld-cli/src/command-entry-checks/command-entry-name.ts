@@ -87,6 +87,7 @@ const COMMAND_ENTRY_NAME_BY_ROUTE = {
   "computer list": "computer.list",
   "computer current": "computer.current",
   "computer rename": "computer.rename",
+  "computer disconnect": "computer.disconnect",
   service: "service.menu",
   daemon: "service.menu",
   "service run": "service.run",

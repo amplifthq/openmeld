@@ -352,10 +352,15 @@ describe("CenterAgentPage", () => {
 	});
 
 	it("hands an Inbox reply target to the Center Agent conversation", () => {
-		renderCenterAgentPage(readyRouteData(), "signal-from-inbox");
+		renderCenterAgentPage(
+			readyRouteData(),
+			"signal-from-inbox",
+			"focus-request-1"
+		);
 
 		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
 			expect.objectContaining({
+				initialFocusRequestId: "focus-request-1",
 				initialFocusSignalId: "signal-from-inbox",
 			})
 		);
@@ -602,11 +607,13 @@ describe("CenterAgentPage", () => {
 
 function renderCenterAgentPage(
 	directMessageRouteData: CenterAgentDirectMessageRouteData,
-	initialFocusSignalId?: string
+	initialFocusSignalId?: string,
+	initialFocusRequestId?: string
 ) {
 	return renderWithQueryClient(
 		<CenterAgentPage
 			directMessageRouteData={directMessageRouteData}
+			initialFocusRequestId={initialFocusRequestId}
 			initialFocusSignalId={initialFocusSignalId}
 		/>
 	);

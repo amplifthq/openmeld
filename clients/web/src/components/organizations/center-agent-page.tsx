@@ -39,6 +39,7 @@ import { ChatTitleEditor } from "./chat-title-editor";
 export function CenterAgentPage(input: {
 	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData | null;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
@@ -50,6 +51,7 @@ export function CenterAgentPage(input: {
 	return (
 		<CenterAgentDirectMessagePage
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
@@ -62,6 +64,7 @@ export function CenterAgentPage(input: {
 function CenterAgentDirectMessagePage(input: {
 	sessionId?: string;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
@@ -74,6 +77,7 @@ function CenterAgentDirectMessagePage(input: {
 		<CenterAgentDirectMessageOrganizationBoundary
 			currentUserAvatarImageUrl={currentAccountAvatar?.avatar ?? null}
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
@@ -90,6 +94,7 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
@@ -112,6 +117,7 @@ function CenterAgentDirectMessageOrganizationBoundary(input: {
 		<CenterAgentDirectMessageEntry
 			currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 			directMessageRouteData={input.directMessageRouteData}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			initialSpaceView={input.initialSpaceView}
@@ -132,6 +138,7 @@ function CenterAgentDirectMessageEntry(input: {
 	sessionId?: string;
 	currentUserAvatarImageUrl: string | null;
 	directMessageRouteData: CenterAgentDirectMessageRouteData;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	initialSpaceView?: SpaceView;
@@ -295,6 +302,7 @@ function CenterAgentDirectMessageEntry(input: {
 				)}
 				currentUserAvatarImageUrl={input.currentUserAvatarImageUrl}
 				initialComposerDraft={composerDraft.record}
+				initialFocusRequestId={input.initialFocusRequestId}
 				initialFocusSignalId={input.initialFocusSignalId}
 				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				initialPendingMessage={pendingMessage}

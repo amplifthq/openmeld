@@ -230,7 +230,7 @@ export async function showInboxNotification(input: {
 	resolveCurrentReadiness?: () =>
 		| InboxNotificationDeliveryReadiness
 		| Promise<InboxNotificationDeliveryReadiness>;
-	sourcePath: string;
+	onActivate: (item: InboxItem) => void;
 	organizationSlug?: string;
 	userId: string;
 	viewingSourceSession: boolean;
@@ -304,7 +304,7 @@ export async function showInboxNotification(input: {
 		});
 		notification.onclick = () => {
 			window.focus();
-			window.location.assign(input.sourcePath);
+			input.onActivate(currentItem);
 			notification.close();
 		};
 		recordInboxNotificationReceipt(currentItem.id, deliveryKey);

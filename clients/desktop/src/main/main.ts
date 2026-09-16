@@ -64,8 +64,18 @@ let handlers: DesktopHandlers;
 let ipcDisposer: (() => void) | null = null;
 let isQuitting = false;
 let mainWindow: BrowserWindow | null = null;
-const pilot = initializeDesktopPilot(() => mainWindow);
 let tray: Tray | null = null;
+let trayUnreadTitle = "";
+const pilot = initializeDesktopPilot(
+  () => mainWindow,
+  (count) => {
+    if (process.platform === "darwin") {
+      const title = count !== null && count > 0 ? String(count) : "";
+      trayUnreadTitle = count !== null && count > 99 ? "99+" : title;
+      tray?.setTitle(trayUnreadTitle);
+    }
+  }
+);
 let latestServiceView: ServiceView | null = null;
 let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
 
@@ -315,6 +325,9 @@ function sendWindowDestination(
 function createTray(): Tray {
   const nextTray = new Tray(createTrayImage());
   tray = nextTray;
+  if (process.platform === "darwin") {
+    nextTray.setTitle(trayUnreadTitle);
+  }
   updateTrayMenu();
   runBackgroundTask(refreshTrayStatus(), { showError: false });
   return nextTray;

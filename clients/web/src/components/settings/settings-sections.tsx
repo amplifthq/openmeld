@@ -70,20 +70,6 @@ export function buildSettingsSections(
 ): readonly SettingsSectionDef[] {
 	const settingsRoutes = buildSettingsRoutes(orgSlug);
 	return [
-		...(getDesktopPlatform()
-			? [
-					{
-						id: "updates",
-						title: "Updates",
-						to: settingsRoutes.updates,
-						render: () => (
-							<SettingsLeafLayout>
-								<DesktopUpdatesSection />
-							</SettingsLeafLayout>
-						),
-					},
-				]
-			: []),
 		{
 			id: "account",
 			title: "Account",
@@ -143,6 +129,20 @@ export function buildSettingsSections(
 				</SettingsLeafLayout>
 			),
 		},
+		...(getDesktopPlatform()
+			? [
+					{
+						id: "updates",
+						title: "Updates",
+						to: settingsRoutes.updates,
+						render: () => (
+							<SettingsLeafLayout>
+								<DesktopUpdatesSection presentation="settings" />
+							</SettingsLeafLayout>
+						),
+					},
+				]
+			: []),
 		{
 			id: "center-agent",
 			title: "Center Agent",

@@ -31,6 +31,7 @@ const testSettingsSections = buildSettingsSections(TEST_ORG_SLUG);
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() =>
 	vi.fn().mockResolvedValue("owner")
 );
+const getDesktopPlatformMock = vi.hoisted(() => vi.fn());
 let currentOrganization: OrganizationSummary = {
 	id: "org-acme",
 	name: "Acme",
@@ -53,6 +54,10 @@ vi.mock("@tanstack/react-router", async () => {
 		),
 	};
 });
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: getDesktopPlatformMock,
+}));
 
 vi.mock("#/query/organizations/invitation-requests", () => ({
 	useInvitationReviewCount: () => ({ data: 0 }),
@@ -126,6 +131,7 @@ vi.mock("./account-section", () => ({
 
 afterEach(() => {
 	cleanup();
+	getDesktopPlatformMock.mockReset();
 	currentOrganization = {
 		id: "org-acme",
 		name: "Acme",
@@ -225,6 +231,43 @@ describe("Web Settings capability gating", () => {
 });
 
 describe("Settings grouped navigation", () => {
+	it("places Desktop Updates after Privacy and before Send feedback", () => {
+		getDesktopPlatformMock.mockReturnValue({});
+		const navItems = toSettingsNavItems(
+			resolveSettingsSections(
+				buildSettingsSections(TEST_ORG_SLUG),
+				CLOUD_CAPABILITIES
+			)
+		);
+
+		render(
+			<SettingsInnerSidebar
+				activeSectionId="updates"
+				isPersonalWorkspace={false}
+				items={navItems}
+				onSendFeedback={vi.fn()}
+				organizationName="Acme"
+				organizationRole="owner"
+			/>
+		);
+
+		const personalNavigation = screen.getByRole("navigation", {
+			name: "Personal settings",
+		});
+		expect(
+			Array.from(personalNavigation.querySelectorAll("a, button")).map(
+				(item) => item.textContent
+			)
+		).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Updates",
+			"Send feedback",
+		]);
+	});
+
 	it("uses section actions instead of full-page links inside the dialog", () => {
 		const onNavigate = vi.fn();
 		render(

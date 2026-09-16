@@ -1,5 +1,7 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { findActiveProfileById } from "#/lib/profiles/profiles";
+import { resolveAppSpacesProfile } from "#/lib/spaces/app-spaces-profile";
+import { readLastUsedHumanProfileId } from "#/lib/spaces/last-used-profile";
 import { applySpaceBootstrapSnapshotToCache } from "#/lib/spaces/member-cache";
 import {
 	resolveSpaceThreadTarget,
@@ -108,13 +110,15 @@ export async function prefetchSpaceConversationRouteData(
 			storageScope: scope.storageScope,
 		})
 	);
-	if (!input.profileId) {
-		return;
-	}
-	const selectedHumanProfile = findActiveProfileById(profiles, {
-		profileId: input.profileId,
-		profileKind: "human",
-	});
+	const selectedHumanProfile = input.profileId
+		? findActiveProfileById(profiles, {
+				profileId: input.profileId,
+				profileKind: "human",
+			})
+		: resolveAppSpacesProfile({
+				profiles,
+				selectedHumanProfileId: readLastUsedHumanProfileId(scope.storageScope),
+			});
 	if (!selectedHumanProfile) {
 		return;
 	}

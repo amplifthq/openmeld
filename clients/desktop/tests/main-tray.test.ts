@@ -4,7 +4,20 @@ import type { IpcMainInvokeEvent } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
 
-vi.mock("../src/main/pilot", () => ({ initializeDesktopPilot: () => null }));
+const inboxTitle = vi.hoisted(() => ({
+  update: null as ((count: number | null) => void) | null,
+  initial: null as number | null,
+}));
+vi.mock("../src/main/pilot", () => ({
+  initializeDesktopPilot: (
+    _getWindow: unknown,
+    update: (count: number | null) => void
+  ) => {
+    inboxTitle.update = update;
+    update(inboxTitle.initial);
+    return null;
+  },
+}));
 
 const electronMock = vi.hoisted(() => {
   const desktopVersion = "0.1.0-preview.0";
@@ -265,6 +278,8 @@ async function importMain(): Promise<void> {
 }
 
 beforeEach(() => {
+  inboxTitle.initial = null;
+  inboxTitle.update = null;
   vi.resetModules();
   restoreTestPlatform();
   desktopMock.resetHandlers();
@@ -296,6 +311,23 @@ beforeEach(() => {
 });
 
 describe("main tray behavior", () => {
+  it("applies unread counts received before tray creation and updates the native title", async () => {
+    setTestPlatform("darwin");
+    inboxTitle.initial = 7;
+    await importMain();
+    const tray = electronMock.trayInstances[0];
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("7");
+    for (const [count, title] of [
+      [100, "99+"],
+      [0, ""],
+      [3, "3"],
+      [null, ""],
+    ] as const) {
+      inboxTitle.update?.(count);
+      expect(tray?.setTitle).toHaveBeenLastCalledWith(title);
+    }
+  });
+
   it("quits duplicate desktop instances before creating another tray", async () => {
     electronMock.app.requestSingleInstanceLock.mockReturnValueOnce(false);
 
@@ -398,6 +430,7 @@ describe("main tray behavior", () => {
   });
 
   it("uses the generated OpenMeld logo resource for the menu bar tray icon", async () => {
+    setTestPlatform("darwin");
     await importMain();
 
     const tray = electronMock.trayInstances.at(0);
@@ -410,7 +443,7 @@ describe("main tray behavior", () => {
       true
     );
     expect(tray?.image).toBe(electronMock.resizedTrayIcon);
-    expect(tray?.setTitle).not.toHaveBeenCalled();
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("");
   });
 
   it("restores the window and delivers Settings after its document loads", async () => {

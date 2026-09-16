@@ -2090,6 +2090,15 @@ connected-computer ownership, and contract generation under the auth mutation
 mutex. The lock order is lifecycle then auth; no OS command, startup wait, or
 work drain holds the auth mutex.
 
+The bounded Computer Disconnect command composes this Stop with exact-session
+auth cleanup. Its optional reviewed session identity is checked inside the same
+admission mutex before reservation, so a new session for the same account cannot
+be stopped by an old review. The existing reentrant lifecycle lock covers Stop
+and cleanup; auth cleanup rechecks the reviewed session and preserves any later
+sign-in. This adds no Service lifecycle owner. Failed Stop retains credentials;
+only explicit matching stopped intent plus verified runtime absence permits a
+retry to finish cleanup without stopping again.
+
 The auth-owned `auth/service-account-admission.json` file contains the current
 command reservation/outcome and at most one receipt of an accepted Start.
 Updated credential writers and transition recovery reject a live pending

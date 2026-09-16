@@ -30,8 +30,11 @@ export function createPilotNotifications(input: {
   installed: boolean;
   ensureCompatible: () => Promise<void>;
   getWindow: () => BrowserWindow | null;
+  setUnreadCount?: (count: number | null) => void;
 }) {
   let generation = 0;
+  let activationRevision = 0;
+  let navigationRevision = 0;
   let context: DesktopNotificationContext = null;
   let contextRevision = 0;
   const active = new Set<Notification>();
@@ -61,6 +64,8 @@ export function createPilotNotifications(input: {
   const clear = () => {
     generation += 1;
     contextRevision += 1;
+    context = null;
+    input.setUnreadCount?.(null);
     for (const attempt of pending.values()) {
       attempt.cancel();
     }
@@ -113,16 +118,9 @@ export function createPilotNotifications(input: {
     if (epoch !== generation) {
       return;
     }
-    if (reference) {
-      const item = await readItem(reference);
-      if (!(await currentAccount(reference.userId, epoch))) {
-        return;
-      }
-      if (item.sourceTarget.kind === "message_channel") {
-        await shell.openExternal(item.sourceTarget.permalink);
-        return;
-      }
-    }
+    const revision = ++activationRevision;
+    const navigationContext = context;
+    const initialNavigationRevision = navigationRevision;
     const window = input.getWindow();
     if (!window || window.isDestroyed()) {
       return;
@@ -133,7 +131,24 @@ export function createPilotNotifications(input: {
     window.show();
     window.focus();
     if (reference) {
-      window.webContents.send(PILOT_IPC.notificationClick, reference);
+      const item = await readItem(reference);
+      if (
+        !(await currentAccount(reference.userId, epoch)) ||
+        revision !== activationRevision ||
+        navigationRevision !== initialNavigationRevision ||
+        !sameNotificationScope(navigationContext, context) ||
+        window.isDestroyed()
+      ) {
+        return;
+      }
+      if (item.sourceTarget.kind === "message_channel") {
+        await shell.openExternal(item.sourceTarget.permalink);
+        return;
+      }
+      window.webContents.send(PILOT_IPC.notificationClick, {
+        ...reference,
+        sourceTarget: item.sourceTarget,
+      });
     }
   };
   const deliver = (
@@ -211,17 +226,42 @@ export function createPilotNotifications(input: {
   return {
     clear,
     refreshVisibility,
-    setContext(raw: unknown) {
+    async setContext(raw: unknown) {
       const next = desktopNotificationContextSchema.parse(raw);
-      if (
+      navigationRevision = nextNotificationNavigationRevision({
+        current: context,
+        next,
+        revision: navigationRevision,
+      });
+      const scopeChanged =
         context?.userId !== next?.userId ||
-        context?.organizationId !== next?.organizationId ||
-        context?.enabled !== next?.enabled
-      ) {
+        context?.organizationId !== next?.organizationId;
+      if (scopeChanged || context?.enabled !== next?.enabled) {
         contextRevision += 1;
+      }
+      if (scopeChanged) {
+        input.setUnreadCount?.(null);
       }
       context = next;
       refreshVisibility();
+      const epoch = generation;
+      if (next?.unreadCount == null) {
+        input.setUnreadCount?.(null);
+        return;
+      }
+      let accountMatches: boolean;
+      try {
+        accountMatches = await currentAccount(next.userId, epoch);
+      } catch (error) {
+        if (context === next && generation === epoch) {
+          input.setUnreadCount?.(null);
+        }
+        throw error;
+      }
+      if (context !== next || generation !== epoch) {
+        return;
+      }
+      input.setUnreadCount?.(accountMatches ? next.unreadCount : null);
     },
     async show(raw: unknown): Promise<DesktopNotificationResult> {
       const request = desktopNotificationRequestSchema.parse(raw);
@@ -287,4 +327,37 @@ export function createPilotNotifications(input: {
       );
     },
   };
+}
+
+function sameNotificationScope(
+  current: DesktopNotificationContext,
+  next: DesktopNotificationContext
+): boolean {
+  if (!current) {
+    return true;
+  }
+  return (
+    current.userId === next?.userId &&
+    current.organizationId === next?.organizationId
+  );
+}
+
+function didNotificationNavigationChange(
+  current: DesktopNotificationContext,
+  next: DesktopNotificationContext
+): boolean {
+  return Boolean(
+    current?.navigationKey && current.navigationKey !== next?.navigationKey
+  );
+}
+
+function nextNotificationNavigationRevision(input: {
+  current: DesktopNotificationContext;
+  next: DesktopNotificationContext;
+  revision: number;
+}): number {
+  return (
+    input.revision +
+    (didNotificationNavigationChange(input.current, input.next) ? 1 : 0)
+  );
 }

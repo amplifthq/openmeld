@@ -61,8 +61,15 @@ describe("useSpaceThreadPanelSelection", () => {
 	it.each([
 		"close",
 		"switch",
-	])("opens a pending linked Thread immediately and respects %s before its catalog arrives", (action) => {
-		function Harness({ ready }: { ready: boolean }) {
+		"reactivate",
+	] as const)("opens a pending linked Thread immediately and respects %s before its catalog arrives", (action) => {
+		function Harness({
+			ready,
+			requestId,
+		}: {
+			ready: boolean;
+			requestId: string;
+		}) {
 			const selection = useSpaceThreadPanelSelection({
 				profileId: "profile-1",
 				spaceId: "space-1",
@@ -70,6 +77,7 @@ describe("useSpaceThreadPanelSelection", () => {
 					ready ? ["thread-1", "thread-2"] : ["thread-2"]
 				),
 				availableThreadsReady: ready,
+				initialFocusRequestId: requestId,
 				threadIdsByRootSignalId: new Map(
 					ready
 						? [
@@ -90,7 +98,7 @@ describe("useSpaceThreadPanelSelection", () => {
 					</output>
 					<button
 						onClick={() =>
-							action === "close"
+							action === "close" || action === "reactivate"
 								? selection.close()
 								: selection.open("thread-2")
 						}
@@ -101,12 +109,22 @@ describe("useSpaceThreadPanelSelection", () => {
 				</>
 			);
 		}
-		const view = render(<Harness ready={false} />);
+		const view = render(<Harness ready={false} requestId="visit-1" />);
 		expect(screen.getByLabelText("Panel").textContent).toBe("loading");
 		fireEvent.click(screen.getByRole("button", { name: "Leave target" }));
-		view.rerender(<Harness ready={true} />);
+		view.rerender(
+			<Harness
+				ready={true}
+				requestId={action === "reactivate" ? "visit-2" : "visit-1"}
+			/>
+		);
+		const expectedPanelByAction = {
+			close: "closed",
+			reactivate: "thread-1",
+			switch: "thread-2",
+		} as const;
 		expect(screen.getByLabelText("Panel").textContent).toBe(
-			action === "close" ? "closed" : "thread-2"
+			expectedPanelByAction[action]
 		);
 	});
 

@@ -373,6 +373,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "listing computers",
     serviceAction: null,
   },
+  "computer.disconnect": {
+    signInAction: "disconnecting this computer",
+    profileAction: null,
+    cliUpdateAction: "disconnecting this computer",
+    serviceAction: null,
+  },
   "computer.current": {
     signInAction: "showing this computer",
     profileAction: null,
