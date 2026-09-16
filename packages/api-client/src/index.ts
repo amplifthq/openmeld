@@ -138,7 +138,10 @@ export type {
   SubmitFeedbackIssueInput,
 } from "./feedback/types";
 export { createInboxApi } from "./inbox/api";
-export { isInboxNotificationEligible } from "./inbox/notification-policy";
+export {
+  isInboxItemVisibleConversation,
+  isInboxNotificationEligible,
+} from "./inbox/notification-policy";
 export {
   buildCenterAgentInboxReadThroughPath,
   buildCenterAgentInboxSummaryPath,

@@ -1,5 +1,14 @@
 import * as z from "zod/v4";
 
+export const inboxVisibleConversationSchema = z.strictObject({
+  kind: z.literal("space"),
+  spaceId: z.string().min(1),
+  threadRootSignalId: z.string().min(1).nullable(),
+});
+export type InboxVisibleConversation = z.infer<
+  typeof inboxVisibleConversationSchema
+>;
+
 export const desktopNotificationReferenceSchema = z.strictObject({
   userId: z.string().min(1),
   organizationId: z.string().min(1),
@@ -19,6 +28,7 @@ export const desktopNotificationContextSchema = z
     userId: z.string().min(1),
     organizationId: z.string().min(1),
     enabled: z.boolean(),
+    visibleConversation: inboxVisibleConversationSchema.nullable(),
   })
   .nullable();
 export type DesktopNotificationContext = z.infer<
@@ -38,6 +48,7 @@ export const desktopNotificationResultSchema = z.enum([
   "unavailable",
   "context_changed",
   "ineligible",
+  "source_visible",
 ]);
 export type DesktopNotificationResult = z.infer<
   typeof desktopNotificationResultSchema

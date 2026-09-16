@@ -74,6 +74,7 @@ function setup(window: BrowserWindow | null = null) {
     userId: request.userId,
     organizationId: request.organizationId,
     enabled: true,
+    visibleConversation: null,
   });
   return { notifications, session, cloudRequest };
 }
@@ -104,6 +105,12 @@ it.each([
   const notification = native.created.mock.calls[0]?.[0] as EventEmitter;
   notification.emit("show");
   await delivery;
+  notifications.setContext({
+    userId: request.userId,
+    organizationId: "other-org",
+    enabled: true,
+    visibleConversation: null,
+  });
   if (!authorized) {
     cloudRequest.mockResolvedValueOnce(
       new Response("Forbidden", { status: 403 })
@@ -183,6 +190,7 @@ it.each([
       organizationId:
         change === "organization" ? "other-org" : request.organizationId,
       enabled: change !== "disabled",
+      visibleConversation: null,
     });
   }
   pending.resolve({
@@ -190,4 +198,91 @@ it.each([
   });
   await expect(delivery).resolves.toBe("context_changed");
   expect(native.created).not.toHaveBeenCalled();
+});
+
+it.each([
+  "space-a",
+  "other-space",
+])("rechecks native focus and current conversation after held auth: %s", async (spaceId) => {
+  let focused = false;
+  const window = {
+    isFocused: () => focused,
+    isVisible: () => true,
+  } as BrowserWindow;
+  const { notifications, session } = setup(window);
+  const held = Promise.withResolvers<Awaited<ReturnType<typeof session>>>();
+  session.mockReturnValueOnce(held.promise);
+  const delivery = notifications.show(request);
+  await vi.waitFor(() => expect(session).toHaveBeenCalledOnce());
+  focused = true;
+  notifications.setContext({
+    userId: request.userId,
+    organizationId: request.organizationId,
+    enabled: true,
+    visibleConversation: { kind: "space", spaceId, threadRootSignalId: null },
+  });
+  held.resolve({ user: { id: "user-a", name: "A", email: "a@example.com" } });
+  if (spaceId === "space-a") {
+    await expect(delivery).resolves.toBe("source_visible");
+    expect(native.created).not.toHaveBeenCalled();
+  } else {
+    await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
+    (native.created.mock.calls[0]?.[0] as EventEmitter).emit("show");
+    await expect(delivery).resolves.toBe("delivered");
+  }
+  notifications.clear();
+});
+
+it.each([
+  "account",
+  "disabled",
+  "organization",
+  "focus",
+])("settles and closes submitted pending attempts immediately on %s, ignoring late native events", async (change) => {
+  let focused = false;
+  const window = {
+    isFocused: () => focused,
+    isVisible: () => true,
+  } as BrowserWindow;
+  const { notifications } = setup(window);
+  notifications.setContext({
+    userId: request.userId,
+    organizationId: request.organizationId,
+    enabled: true,
+    visibleConversation: {
+      kind: "space",
+      spaceId: "space-a",
+      threadRootSignalId: null,
+    },
+  });
+  const settled = vi.fn();
+  const delivery = notifications.show(request).then((result) => {
+    settled(result);
+    return result;
+  });
+  await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
+  const notification = native.created.mock.calls[0]?.[0] as EventEmitter & {
+    close(): void;
+  };
+  const close = vi.spyOn(notification, "close");
+  if (change === "account") {
+    notifications.clear();
+  } else if (change === "focus") {
+    focused = true;
+    notifications.refreshVisibility();
+  } else {
+    notifications.setContext({
+      userId: request.userId,
+      organizationId:
+        change === "organization" ? "other-org" : request.organizationId,
+      enabled: change !== "disabled",
+      visibleConversation: null,
+    });
+  }
+  expect(close).toHaveBeenCalledOnce();
+  await expect(delivery).resolves.toBe("context_changed");
+  expect(vi.getTimerCount()).toBe(0);
+  notification.emit("show");
+  notification.emit("failed", {}, "late failure");
+  expect(settled.mock.calls).toEqual([["context_changed"]]);
 });

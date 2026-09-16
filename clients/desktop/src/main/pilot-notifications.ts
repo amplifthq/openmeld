@@ -1,6 +1,7 @@
 import {
   createInboxApi,
   createOpenMeldApiClient,
+  isInboxItemVisibleConversation,
   isInboxNotificationEligible,
 } from "@openmeld/api-client";
 import { OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID } from "@openmeld/gateway-contract";
@@ -16,6 +17,7 @@ import {
   desktopNotificationRequestSchema,
   desktopNotificationTestSchema,
 } from "@openmeld/schemas";
+import type { InboxItem } from "@openmeld/schemas/types";
 import { type BrowserWindow, Notification, shell } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
 import type { createPilotAuth } from "./pilot-auth";
@@ -32,9 +34,35 @@ export function createPilotNotifications(input: {
   let context: DesktopNotificationContext = null;
   let contextRevision = 0;
   const active = new Set<Notification>();
+  const pending = new Map<
+    Notification,
+    { valid: () => boolean; cancel: () => void }
+  >();
+  const refreshVisibility = () => {
+    for (const attempt of pending.values()) {
+      if (!attempt.valid()) {
+        attempt.cancel();
+      }
+    }
+  };
+  const isSourceVisible = (item: InboxItem) => {
+    if (
+      !isInboxItemVisibleConversation(
+        item,
+        context?.visibleConversation ?? null
+      )
+    ) {
+      return false;
+    }
+    const window = input.getWindow();
+    return window?.isFocused() === true && window.isVisible();
+  };
   const clear = () => {
     generation += 1;
     contextRevision += 1;
+    for (const attempt of pending.values()) {
+      attempt.cancel();
+    }
     for (const notification of active) {
       notification.close();
     }
@@ -122,24 +150,35 @@ export function createPilotNotifications(input: {
         silent: !soundEnabled,
       });
       active.add(notification);
+      let settled = false;
+      const valid = () => epoch === generation && isCurrent();
       const finish = (result: DesktopNotificationResult) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
         clearTimeout(timer);
+        pending.delete(notification);
+        notification.removeAllListeners("show");
+        notification.removeAllListeners("failed");
+        if (result !== "delivered") {
+          notification.removeAllListeners("click");
+          active.delete(notification);
+          notification.close();
+        }
         resolve(result);
       };
       // A missing native acknowledgement is not delivery. The existing Inbox
       // pending ledger owns retries; close this attempt before returning.
       const timer = setTimeout(() => {
-        notification.close();
-        active.delete(notification);
         finish("unavailable");
       }, 10_000);
+      pending.set(notification, {
+        valid,
+        cancel: () => finish("context_changed"),
+      });
       notification.once("show", () => {
-        if (epoch !== generation || !isCurrent()) {
-          notification.close();
-          finish("context_changed");
-        } else {
-          finish("delivered");
-        }
+        finish(valid() ? "delivered" : "context_changed");
       });
       notification.once("failed", (_event, error) => {
         console.warn("[openmeld.desktop.notification_failed]", { error });
@@ -167,9 +206,18 @@ export function createPilotNotifications(input: {
   };
   return {
     clear,
+    refreshVisibility,
     setContext(raw: unknown) {
-      context = desktopNotificationContextSchema.parse(raw);
-      contextRevision += 1;
+      const next = desktopNotificationContextSchema.parse(raw);
+      if (
+        context?.userId !== next?.userId ||
+        context?.organizationId !== next?.organizationId ||
+        context?.enabled !== next?.enabled
+      ) {
+        contextRevision += 1;
+      }
+      context = next;
+      refreshVisibility();
     },
     async show(raw: unknown): Promise<DesktopNotificationResult> {
       const request = desktopNotificationRequestSchema.parse(raw);
@@ -190,6 +238,9 @@ export function createPilotNotifications(input: {
       if (item.readAt !== null || !isInboxNotificationEligible(item)) {
         return "ineligible";
       }
+      if (isSourceVisible(item)) {
+        return "source_visible";
+      }
       const { soundEnabled, ...reference } = request;
       return deliver(
         item.title,
@@ -199,7 +250,7 @@ export function createPilotNotifications(input: {
         soundEnabled,
         epoch,
         reference,
-        isCurrent
+        () => isCurrent() && !isSourceVisible(item)
       );
     },
     async test(raw: unknown): Promise<DesktopNotificationResult> {

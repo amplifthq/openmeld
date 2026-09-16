@@ -102,12 +102,27 @@ export function InboxNotificationListener(input: {
 				userId: input.userId,
 				organizationId: input.organizationId,
 				enabled: notificationsEnabled,
+				visibleConversation,
 			})
 			.catch(reportFailure);
-		return () => {
-			desktop.setNotificationContext(null).catch(reportFailure);
-		};
-	}, [input.userId, input.organizationId, notificationsEnabled]);
+	}, [
+		input.userId,
+		input.organizationId,
+		notificationsEnabled,
+		visibleConversation,
+	]);
+	useLayoutEffect(
+		() => () => {
+			getDesktopPlatform()
+				?.setNotificationContext(null)
+				.catch((error: unknown) =>
+					console.warn("[openmeld.desktop.notification_context_failed]", {
+						error,
+					})
+				);
+		},
+		[]
+	);
 	const [observedItemIds] = useState(() => new Set<string>());
 	const [settledItemIds] = useState(() => new Set<string>());
 	const [inFlightItemIds] = useState(() => new Set<string>());

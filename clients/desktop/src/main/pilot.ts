@@ -8,7 +8,7 @@ import {
 } from "@openmeld/schemas";
 import {
   app,
-  type BrowserWindow,
+  BrowserWindow,
   dialog,
   type IpcMainInvokeEvent,
   ipcMain,
@@ -162,6 +162,10 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       disposeTransport?.();
     },
     observeWindow(contents: WebContents) {
+      BrowserWindow.fromWebContents(contents)?.on(
+        "focus",
+        notifications.refreshVisibility
+      );
       if (diagnosticsEnabled) {
         observePilotWindow(contents);
       }

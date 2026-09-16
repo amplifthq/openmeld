@@ -644,6 +644,9 @@ async function deliverDesktopInboxNotification(
 	if (result === "ineligible") {
 		return { status: "ineligible" };
 	}
+	if (result === "source_visible") {
+		return { reason: "source_visible", status: "deferred" };
+	}
 	if (result !== "delivered") {
 		return {
 			reason:
