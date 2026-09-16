@@ -6,13 +6,24 @@ import type {
 import { defineTool } from "@flue/runtime";
 import { type GenericSchema, parse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
-import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import {
+  createRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext,
+} from "../agent-core/callback-context";
+import {
+  buildRemoteAgentExecutionIdentity,
+  initializeRemoteAgentExecutionState,
+  readRemoteAgentExecutionState,
+} from "../agent-core/execution-state";
 import {
   createComputerCommandTool,
   readCommandSlice,
   stopRemoteAgentComputerCommands,
 } from "../flue-adapter/computer-command";
+import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
 import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
+import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -96,6 +107,102 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it.each([
+    false,
+    true,
+  ])("keeps a safety-fenced command stoppable and recovers cleanup before publication (Stop=%s)", async (cancel) => {
+    const f = fixture();
+    const executionContext = context("execution-a");
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    cleanupAccess.mockReturnValue(f.workspaceAccess);
+    const env = { AGENT_COMPUTER: { idFromName: () => "computer-id" } };
+    const invoke = () =>
+      executeRemoteAgentToolDefinition({
+        definition: f.tool(),
+        storage: f.storage,
+        submissionId: "execution-a",
+        callLimit: 1,
+        toolInput: { action: "start", key: "long", command: "sleep 300" },
+      });
+    await invoke();
+    await expect(invoke()).rejects.toThrow("safety limit");
+    await expect(
+      readRemoteAgentExecutionState({ identity, storage: f.storage })
+    ).resolves.toMatchObject({
+      execution: { status: "pending", completedAtMs: null },
+    });
+    const completeRemoteAgentSubmission = vi.fn(() =>
+      Promise.resolve({ status: "accepted" as const })
+    );
+    const readSubmission = vi.fn(() =>
+      Promise.resolve({ status: "running" as "running" | "settled" })
+    );
+    const reconcile = () =>
+      reconcileRemoteAgentExecution({
+        identity,
+        storage: f.storage,
+        env,
+        readSubmission,
+        coreWorker: { completeRemoteAgentSubmission },
+      });
+    await reconcile();
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    expect(f.killExec).not.toHaveBeenCalled();
+    const abortSubmission = vi.fn(async () => {
+      await stopRemoteAgentComputerCommands({
+        context: executionContext,
+        storage: f.storage,
+        env,
+      });
+      return { aborted: true };
+    });
+    if (cancel) {
+      await expect(
+        cancelFlueRemoteAgentExecution({
+          identity,
+          storage: f.storage,
+          nowMs: TEST_NOW_MS + 1,
+          abortSubmission,
+        })
+      ).resolves.toMatchObject({
+        response: { status: "cancellation_requested" },
+        abortedFlueSubmission: true,
+      });
+      expect(abortSubmission).toHaveBeenCalledOnce();
+    }
+    readSubmission.mockResolvedValue({ status: "settled" });
+    // Reconstruct through the recovery entry point, without a prompt observer.
+    await expect(reconcile()).rejects.toThrow(
+      "termination is not yet confirmed"
+    );
+    expect(f.killExec).toHaveBeenCalled();
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(
+        handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
+      )
+    );
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: cancel ? "aborted" : "failed" },
+    });
+    await reconcile();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: cancel
+          ? "remote_agent.execution_cancelled"
+          : "remote_agent.tool_call_budget_exceeded",
+      })
+    );
+    expect(f.exec).toHaveBeenCalledOnce();
+  });
   it("keeps owned work pending until its retained completion receipt is collected", async () => {
     const f = fixture();
     const append = vi.fn();

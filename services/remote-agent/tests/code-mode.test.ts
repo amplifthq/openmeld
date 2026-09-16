@@ -9,6 +9,10 @@ import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
+import {
+  buildRemoteAgentExecutionIdentity,
+  initializeRemoteAgentExecutionState,
+} from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import { RemoteAgentToolCallBudgetExceededError } from "../agent-core/tool-progress";
 import { RemoteAgentToolResultTooLargeError } from "../agent-core/tool-result-boundary";
@@ -674,6 +678,14 @@ describe("Remote Agent Code Mode", () => {
 
   it("counts outer Code Mode calls toward the submission tool budget", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
+    await initializeRemoteAgentExecutionState({
+      identity: buildRemoteAgentExecutionIdentity({
+        ...createSubmitTurnRequest(),
+        submissionId: SUBMISSION_ID,
+      }),
+      acceptedAtMs: TEST_NOW_MS,
+      storage,
+    });
     const tool = await createRemoteAgentCodeModeFlueTool({
       callLimit: 64,
       definitions: [],

@@ -28,6 +28,7 @@ const EXECUTION_STATE_PREFIX = "openmeld:remote-agent:execution-state:";
 type RemoteAgentStoredExecutionState = RemoteAgentWorkerExecutionState & {
   completedText?: string;
   terminalFailure?: RemoteAgentTerminalFailureFact;
+  requestedFailure?: RemoteAgentTerminalFailureFact;
   workLoopCheckpoint?: RemoteAgentWorkLoopCheckpoint;
 };
 
@@ -217,6 +218,7 @@ async function readRemoteAgentStoredExecutionState(input: {
   const {
     completedText: storedCompletedText,
     terminalFailure: storedTerminalFailure,
+    requestedFailure: storedRequestedFailure,
     workLoopCheckpoint: storedCheckpoint,
     ...executionInput
   } = stored as Record<string, unknown>;
@@ -228,6 +230,7 @@ async function readRemoteAgentStoredExecutionState(input: {
     };
   }
   const completedText = parseStoredCompletedText(storedCompletedText);
+  parseRemoteAgentTerminalFailureFact(storedRequestedFailure);
   if (storedCheckpoint !== undefined) {
     remoteAgentWorkLoopCheckpointSchema.parse(storedCheckpoint);
     if (execution.status !== "completed" || completedText) {
@@ -260,6 +263,52 @@ async function readRemoteAgentStoredExecutionState(input: {
     stored: stored as RemoteAgentStoredExecutionState,
     terminalFailure,
   };
+}
+
+/** Fence further tools without claiming the live runtime has settled. */
+export async function requestRemoteAgentExecutionFailure(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  failure: RemoteAgentTerminalFailureFact;
+  storage: RemoteAgentStorage;
+}): Promise<void> {
+  while (true) {
+    const result = await readRemoteAgentStoredExecutionState(input);
+    if (result.status !== "found") {
+      throw new Error(
+        "Remote Agent failure requires its matching execution owner."
+      );
+    }
+    if (
+      isTerminalStatus(result.execution.status) ||
+      result.stored.requestedFailure
+    ) {
+      return;
+    }
+    if (
+      await input.storage.compareAndSet(
+        buildRemoteAgentExecutionStateKey(input.identity.submissionId),
+        result.stored,
+        { ...result.stored, requestedFailure: input.failure }
+      )
+    ) {
+      return;
+    }
+  }
+}
+
+export async function readRemoteAgentRequestedExecutionFailure(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: Pick<RemoteAgentStorage, "get">;
+}): Promise<RemoteAgentTerminalFailureFact | null> {
+  const result = await readRemoteAgentStoredExecutionState(input);
+  if (result.status === "identity_mismatch") {
+    throw new Error(
+      "Remote Agent execution identity does not match its durable state."
+    );
+  }
+  return result.status === "found"
+    ? (result.stored.requestedFailure ?? null)
+    : null;
 }
 
 export async function markRemoteAgentExecutionProgress(input: {
@@ -336,12 +385,7 @@ export async function completeRemoteAgentExecutionState(
     if (isTerminalStatus(result.execution.status)) {
       return result.execution;
     }
-    const requestedStatus =
-      input.status === "checkpoint" ? "completed" : input.status;
-    const settledStatus =
-      result.execution.status === "cancellation_requested"
-        ? "aborted"
-        : requestedStatus;
+    const settledStatus = resolveSettledExecutionStatus(input, result.stored);
     const next = remoteAgentWorkerExecutionStateSchema.parse({
       ...result.execution,
       completedAtMs: input.nowMs,
@@ -354,7 +398,8 @@ export async function completeRemoteAgentExecutionState(
     });
     const terminalFailure = resolveSettledTerminalFailure({
       execution: result.execution,
-      requestedTerminalFailure,
+      requestedTerminalFailure:
+        result.stored.requestedFailure ?? requestedTerminalFailure,
       settledStatus,
     });
     if (
@@ -374,6 +419,19 @@ export async function completeRemoteAgentExecutionState(
       return next;
     }
   }
+}
+
+function resolveSettledExecutionStatus(
+  input: CompleteRemoteAgentExecutionStateInput,
+  stored: RemoteAgentStoredExecutionState
+): "aborted" | "completed" | "failed" {
+  if (stored.status === "cancellation_requested") {
+    return "aborted";
+  }
+  if (stored.requestedFailure) {
+    return "failed";
+  }
+  return input.status === "checkpoint" ? "completed" : input.status;
 }
 
 function settledCheckpoint(
@@ -618,7 +676,7 @@ export async function assertRemoteAgentExecutionCanContinue(input: {
   identity: RemoteAgentWorkerExecutionQuery;
   storage: Pick<RemoteAgentStorage, "get">;
 }): Promise<void> {
-  const result = await readRemoteAgentExecutionState(input);
+  const result = await readRemoteAgentStoredExecutionState(input);
   if (result.status === "identity_mismatch") {
     throw new Error(
       "Remote Agent execution identity does not match its durable state."
@@ -630,6 +688,16 @@ export async function assertRemoteAgentExecutionCanContinue(input: {
       result.execution.status === "aborted")
   ) {
     throw new RemoteAgentExecutionCancelledError();
+  }
+  if (result.status === "found" && result.stored.requestedFailure) {
+    throw new Error(
+      `Remote Agent tool execution is fenced: ${result.stored.requestedFailure.code}`
+    );
+  }
+  if (result.status === "found" && isTerminalStatus(result.execution.status)) {
+    throw new Error(
+      "Remote Agent execution has already settled; no further tools may run."
+    );
   }
 }
 
@@ -662,6 +730,10 @@ function compareAndSetRemoteAgentExecutionState(input: {
     input.expected,
     {
       ...input.next.execution,
+      ...(!isTerminalStatus(input.next.execution.status) &&
+      input.expected.requestedFailure
+        ? { requestedFailure: input.expected.requestedFailure }
+        : {}),
       ...(input.next.workLoopCheckpoint
         ? { workLoopCheckpoint: input.next.workLoopCheckpoint }
         : {}),

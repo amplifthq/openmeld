@@ -773,10 +773,16 @@ freezes the configured positive integer for the Organization/Profile/dispatch;
 recovery, compaction, idle time, and internal submission replacement do not
 refill it. Direct tools and actual Code Mode inner calls share that counter;
 the outer Code Mode invocation also counts so script-only retries are bounded.
-Unchanged observation protection and bounded result policies still apply.
-Reaching the backstop persists a failed execution and publishes an explicit
-incomplete outcome. It does not create another continuation, refund unknown
-writes, or allow later assistant prose to turn that failure into success.
+Unchanged observation protection and bounded result policies still apply;
+refused unchanged observations consume attempts without repeating the read.
+Reaching the backstop durably requests failure and fences further tools and
+model rounds through the existing runtime boundary. The execution remains
+stoppable until Flue settles and retained Computer commands have confirmed
+termination. The observer and recovery reconciler share that cleanup gate;
+a stop request alone is not termination evidence. Only then does the execution
+publish an explicit incomplete outcome, with an intervening Stop taking
+precedence. It does not create another continuation, refund unknown writes,
+or allow later assistant prose to turn that failure into success.
 
 Long Computer operations retain their command keys and are followed through
 separate bounded `computer_command` polls. Code Mode's 60-second script timeout
@@ -814,8 +820,8 @@ No new migration or callback shape is introduced by continuous execution.
 The existing Core continuation consumer must remain while old checkpoints can
 be recovered. New workers accept old stored checkpoints and seed assignment
 accounting from their existing submission chain; missing or inconsistent chain
-evidence fails closed. The new private execution checkpoint field and aggregate
-counter require retaining this worker implementation until in-flight work and
+evidence fails closed. The new private execution checkpoint, requested failure,
+and aggregate counter require retaining this worker implementation until in-flight work and
 checkpoint callbacks drain before rollback to an older worker. Do not remove
 Core's continuation consumer or its original migration during that period.
 Gateway, Web, CLI, OpenMeld Service, daemon, setup, Space actions, and workstation

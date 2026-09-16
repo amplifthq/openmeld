@@ -7,8 +7,11 @@ import {
 } from "../agent-core/callback-context";
 import {
   buildRemoteAgentExecutionIdentity,
+  completeRemoteAgentExecutionState,
   initializeRemoteAgentExecutionState,
+  markRemoteAgentExecutionProgress,
   readRemoteAgentExecutionState,
+  readRemoteAgentRequestedExecutionFailure,
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
@@ -235,7 +238,61 @@ describe("Remote Agent tool execution", () => {
         storage,
         identity: buildRemoteAgentExecutionIdentity(context),
       })
-    ).resolves.toMatchObject({ execution: { status: "failed" } });
+    ).resolves.toMatchObject({
+      execution: { status: "pending", completedAtMs: null },
+    });
+    await markRemoteAgentExecutionProgress({
+      identity: buildRemoteAgentExecutionIdentity(context),
+      storage,
+      nowMs: TEST_NOW_MS + 1,
+      progressKind: "tool_failed",
+    });
+    await expect(
+      readRemoteAgentRequestedExecutionFailure({
+        identity: buildRemoteAgentExecutionIdentity(context),
+        storage,
+      })
+    ).resolves.toMatchObject({
+      code: "remote_agent.tool_call_budget_exceeded",
+    });
+    await expect(
+      completeRemoteAgentExecutionState({
+        identity: buildRemoteAgentExecutionIdentity(context),
+        storage,
+        nowMs: TEST_NOW_MS + 1,
+        status: "completed",
+        completedText: "Everything is done.",
+      })
+    ).resolves.toMatchObject({ status: "failed" });
+  });
+
+  it("charges direct no-progress refusals without repeating the redundant read", async () => {
+    const { storage } = await createToolExecutionTestContext();
+    const execute = vi.fn(() => Promise.resolve({ status: "waiting" }));
+    const definition: RemoteAgentToolDefinition = {
+      name: "unchanged_observation",
+      description: "Read a status.",
+      input: object({}),
+      execute,
+      progressTracking: "observation",
+    };
+    const call = () =>
+      executeRemoteAgentToolDefinition({
+        definition,
+        storage,
+        submissionId: SUBMISSION_ID,
+        toolInput: {},
+        callLimit: 4,
+      });
+    await call();
+    await call();
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    await expect(call()).rejects.toBeInstanceOf(RemoteAgentNoProgressError);
+    await expect(call()).rejects.toBeInstanceOf(
+      RemoteAgentToolCallBudgetExceededError
+    );
+    await expect(call()).rejects.toThrow("tool execution is fenced");
+    expect(execute).toHaveBeenCalledTimes(3);
   });
 
   it("retains a frozen assignment allowance across replacement submissions and idle time", async () => {
@@ -458,7 +515,7 @@ describe("Remote Agent tool execution", () => {
         submissionId: SUBMISSION_ID,
         toolInput: {},
       })
-    ).rejects.toBeInstanceOf(RemoteAgentTurnEndedError);
+    ).rejects.toThrow("remote_agent.tool_progress_state_invalid");
     expect(execute).not.toHaveBeenCalled();
   });
 

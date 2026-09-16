@@ -19,6 +19,7 @@ import {
   completeRemoteAgentExecutionState,
   markRemoteAgentExecutionProgress,
   RemoteAgentTerminalExecutionOwnerMissingError,
+  readRemoteAgentRequestedExecutionFailure,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 import {
@@ -37,12 +38,12 @@ import {
   emitRemoteAgentCloudflareRuntimeEvidence,
   emitRemoteAgentExecutionStageEvidence,
 } from "./cloudflare-runtime-evidence";
-import { stopRemoteAgentComputerCommands } from "./computer-command";
 import {
   isConversationCompactionObservation,
   type RemoteAgentConversationCompactionObserver,
   remoteAgentConversationCompactionObserver,
 } from "./conversation-compaction";
+import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
 import { getRemoteAgentExecutionSubmissionId } from "./execution-context";
 import {
   extractAssistantText,
@@ -339,6 +340,14 @@ async function handleCenterAgentStreamDelta(input: {
     return;
   }
   if (
+    await readRemoteAgentRequestedExecutionFailure({
+      identity: buildRemoteAgentExecutionIdentity(context),
+      storage,
+    })
+  ) {
+    return;
+  }
+  if (
     execution &&
     ["failed", "aborted", "cancellation_requested"].includes(execution.status)
   ) {
@@ -450,11 +459,12 @@ async function handleCenterAgentPromptCompletion(input: {
     event: input.event,
     hasAssistantText: hasAssistantText || !!callbackContext?.workLoopCheckpoint,
   });
-  const commandFailure = await finishComputerCommands(
-    callbackContext,
-    input.dependencies
-  );
-  const terminalFailure = commandFailure ?? observedFailure;
+  await finishRemoteAgentComputerCommands({
+    context: callbackContext,
+    env,
+    storage,
+  });
+  const terminalFailure = observedFailure;
   const settledExecution =
     callbackContext?.workLoopCheckpoint && !terminalFailure && executionIdentity
       ? await completeRemoteAgentExecutionState({
@@ -544,30 +554,6 @@ async function handleCenterAgentPromptCompletion(input: {
     } else {
       await cleanup;
     }
-  }
-}
-
-async function finishComputerCommands(
-  context: RemoteAgentCallbackContext | null,
-  dependencies: RemoteAgentObservationDependencies
-): Promise<RemoteAgentTerminalFailureFact | null> {
-  if (!context) {
-    return null;
-  }
-  try {
-    const unfinished = await stopRemoteAgentComputerCommands({
-      context,
-      env: dependencies.env,
-      storage: dependencies.storage,
-    });
-    if (unfinished > 0) {
-      throw new Error(
-        "Center Agent ended with unfinished Computer commands. Stop was requested; command completion was not proven."
-      );
-    }
-    return null;
-  } catch (error) {
-    return createRemoteAgentTerminalFailureFact({ status: "failed", error });
   }
 }
 

@@ -58,13 +58,15 @@ export type RemoteAgentToolAttempt = {
 export class RemoteAgentNoProgressError extends Error {
   readonly reasonCode = "remote_agent.tool_no_progress";
   readonly toolName: string;
+  readonly attempt?: RemoteAgentToolAttempt;
 
-  constructor(toolName: string) {
+  constructor(toolName: string, attempt?: RemoteAgentToolAttempt) {
     super(
       "This exact read returned unchanged data three times. Do not run it again with the same input. Use different arguments or another source, or finish with the evidence already available."
     );
     this.name = "RemoteAgentNoProgressError";
     this.toolName = toolName;
+    this.attempt = attempt;
   }
 }
 
@@ -110,7 +112,7 @@ export async function beginRemoteAgentToolAttempt(input: {
         })
       : undefined;
   const expiresAtMs = Number.MAX_SAFE_INTEGER;
-  return await updateRemoteAgentToolProgressState({
+  const { attempt, refused } = await updateRemoteAgentToolProgressState({
     expiresAtMs,
     nowMs,
     storage: input.storage,
@@ -119,14 +121,6 @@ export async function beginRemoteAgentToolAttempt(input: {
       const matchingObservation = current?.observations.find(
         (observation) => observation.callFingerprint === callFingerprint
       );
-      if (
-        callFingerprint &&
-        matchingObservation &&
-        matchingObservation.repeatCount >=
-          REMOTE_AGENT_UNCHANGED_OBSERVATION_LIMIT
-      ) {
-        throw new RemoteAgentNoProgressError(input.toolName);
-      }
       const callCount = current?.callCount ?? 0;
       const callLimit =
         current?.callLimit ?? input.callLimit ?? REMOTE_AGENT_TOOL_CALL_LIMIT;
@@ -145,14 +139,26 @@ export async function beginRemoteAgentToolAttempt(input: {
           v: 1,
         },
         result: {
-          callLimit,
-          ...(callFingerprint ? { callFingerprint } : {}),
-          callNumber: callCount + 1,
-          toolName: input.toolName,
+          refused:
+            !!matchingObservation &&
+            matchingObservation.repeatCount >=
+              REMOTE_AGENT_UNCHANGED_OBSERVATION_LIMIT,
+          attempt: {
+            callLimit,
+            ...(callFingerprint ? { callFingerprint } : {}),
+            callNumber: callCount + 1,
+            toolName: input.toolName,
+          },
         },
       };
     },
   });
+  // Refusals still consume a round of model/tool execution. Persist the charge
+  // before rejecting the redundant read, so direct calls cannot loop for free.
+  if (refused) {
+    throw new RemoteAgentNoProgressError(input.toolName, attempt);
+  }
+  return attempt;
 }
 
 export async function recordRemoteAgentToolResultProgress(input: {

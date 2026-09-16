@@ -24,6 +24,7 @@ import {
 } from "../../agent-core/callback-context";
 import { callCoreRpc } from "../../agent-core/core-rpc";
 import {
+  assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
   markRemoteAgentExecutionProgress,
   readRemoteAgentExecutionState,
@@ -281,6 +282,13 @@ async function prepareCenterAgentRender() {
   });
 
   return {
+    beforeModel: executionContext
+      ? () =>
+          assertRemoteAgentExecutionCanContinue({
+            identity: buildRemoteAgentExecutionIdentity(executionContext),
+            storage,
+          })
+      : undefined,
     checkFinish: executionContext
       ? (
           finish: Parameters<
@@ -597,6 +605,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const readSubmission = requireFlueSubmissionReader(this);
         await reconcileAndRedeliverRemoteAgentCallbacks({
+          env: this.env,
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
           readSubmission,
@@ -619,6 +628,7 @@ export const cloudflare = extend<Agent<CloudflareBindings>>({
         const storage = createRemoteAgentSqlStorage(this.ctx.storage.sql);
         const readSubmission = requireFlueSubmissionReader(this);
         const reconciled = await reconcileRemoteAgentExecution({
+          env: this.env,
           coreWorker: this.env
             .OPENMELD_CORE_WORKER as unknown as RemoteAgentCoreWorkerBinding,
           identity: request,

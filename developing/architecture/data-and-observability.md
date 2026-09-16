@@ -2092,6 +2092,12 @@ text. Callback context receives the same answer as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
 retry the ordinary Core callback. Partial stream text, failed execution,
 cancellation, and observability records cannot become this answer authority.
+That same execution record retains a requested failure while runtime settlement
+or Computer cleanup is pending. This fences new work without claiming terminal
+execution; progress updates preserve it and Stop remains available. Both the
+observer and recovery reconciler require settled runtime and confirmed command
+cleanup before terminal publication. Cancellation takes precedence over the
+requested failure, and successful-looking assistant text cannot erase it.
 Every observer and reconciliation path derives its callback from the terminal
 compare-and-set winner. A stale or conflicting callback-context answer is
 replaced by the execution record's exact normalized answer before publication;
@@ -2189,7 +2195,8 @@ request preparation and response headers, first model event, first visible
 assistant content, model completion, model and tool counts, capability search
 and describe results, the source of each tool call, and whether the
 assignment safety budget was exhausted. For current workers, `toolCallCount`
-is the aggregate admitted attempt number across the same dispatch and
+is the aggregate charged attempt number across the same dispatch, including
+unchanged-observation refusals that do not execute another read, and
 `toolCallLimit` is its frozen configured limit; source counters and recent events
 remain submission-local. Legacy records retain their original per-submission
 meaning. Active accounting does not expire; after Core accepts a final callback,

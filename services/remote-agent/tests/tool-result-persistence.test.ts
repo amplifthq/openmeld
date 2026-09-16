@@ -3,7 +3,13 @@ import {
   fauxProvider,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { init, setProvider, useModel, useTool } from "@flue/runtime";
+import {
+  init,
+  instrument,
+  setProvider,
+  useModel,
+  useTool,
+} from "@flue/runtime";
 import type { ConversationRecord } from "@flue/runtime/adapter";
 import {
   createFlueContext,
@@ -20,10 +26,16 @@ import {
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
+  assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
   initializeRemoteAgentExecutionState,
+  readRemoteAgentRequestedExecutionFailure,
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import {
+  REMOTE_AGENT_EXECUTION_INSTRUMENTATION,
+  registerRemoteAgentExecutionPreparation,
+} from "../flue-adapter/execution-context";
 import { getRemoteAgentFlueTools } from "../flue-adapter/tools";
 import {
   TEST_CODE_MODE_LOADER,
@@ -49,6 +61,86 @@ describe("Remote Agent canonical tool result persistence", () => {
       await cleanup();
     }
     resetModelsForTests();
+  });
+
+  it("settles an actual SDK refusal loop without another model request after the safety fence", async () => {
+    const storage = await createToolExecutionStorage();
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      CALLBACK_SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing execution context");
+    }
+    const identity = buildRemoteAgentExecutionIdentity(context);
+    let reads = 0;
+    const tools = await getRemoteAgentFlueTools({
+      codeModeRuntime: TEST_CODE_MODE_RUNTIME,
+      coreWorker: {},
+      env: { LOADER: TEST_CODE_MODE_LOADER },
+      storage,
+      submissionId: CALLBACK_SUBMISSION_ID,
+      callLimit: 4,
+      sandboxDefinitions: [
+        {
+          name: TOOL_NAME,
+          input: object({}),
+          description: "Read one unchanged status.",
+          progressTracking: "observation",
+          execute: () => {
+            reads += 1;
+            return Promise.resolve({ status: "waiting" });
+          },
+        },
+      ],
+    });
+    const registeredTool = tools.find((tool) => tool.name === TOOL_NAME);
+    if (!registeredTool) {
+      throw new Error("Missing observation tool");
+    }
+    const provider = fauxProvider({
+      provider: "refusal-loop",
+      tokensPerSecond: Number.POSITIVE_INFINITY,
+    });
+    const model = provider.getModel();
+    provider.setResponses(
+      Array.from({ length: 25 }, (_, index) =>
+        fauxAssistantMessage(
+          fauxToolCall(TOOL_NAME, {}, { id: `read-${index}` }),
+          { stopReason: "toolUse" }
+        )
+      )
+    );
+    cleanups.push(instrument(REMOTE_AGENT_EXECUTION_INSTRUMENTATION));
+    cleanups.push(
+      registerRemoteAgentExecutionPreparation(() =>
+        Promise.resolve({
+          beforeModel: () =>
+            assertRemoteAgentExecutionCanContinue({ identity, storage }),
+        })
+      )
+    );
+    const agentFunction = () => {
+      useModel(`${model.provider}/${model.id}`);
+      useTool(registeredTool);
+      return "Read the status until it changes.";
+    };
+    const runtime = await start({
+      agents: [agentFunction],
+      providers: [provider.provider],
+    });
+    cleanups.push(() => runtime.stop());
+    const agent = init(agentFunction, { id: "refusal-loop" });
+    await expect(
+      agent.read(await agent.dispatch("Read the status."))
+    ).rejects.toMatchObject({ outcome: "failed" });
+    expect(provider.state.callCount).toBe(5);
+    expect(reads).toBe(3);
+    await expect(
+      readRemoteAgentRequestedExecutionFailure({ identity, storage })
+    ).resolves.toMatchObject({
+      code: "remote_agent.tool_call_budget_exceeded",
+    });
   });
 
   it.each([
