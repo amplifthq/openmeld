@@ -27,6 +27,20 @@
 
 ## Desktop platform contract
 
+`desktop-updater.ts` owns main/renderer update snapshots, action names and the
+request-scoped restart preparation reply. Existing trusted-window authorization
+applies before every updater IPC call. Renderer replies contain only the main
+request ID and whether existing owners saved their work. Main alone selects the
+fixed production feed and starts download or installation. These local IPC
+additions ship with the matching bundled renderer; cloud, CLI, Service, Skills,
+Core and Gateway execution contracts and their version floors do not change.
+
+`desktop-release.ts` owns immutable candidate metadata and the sole promoted
+release pointer. The optional ZIP metadata preserves older DMG-only candidate
+links, but promotion requires a ZIP. The default page, legacy JSON and updater
+feed derive their version from that same pointer. No separate latest manifest
+may be edited or uploaded for electron-updater.
+
 `desktop-notifications.ts` owns additive renderer/native Inbox reference,
 test-request and delivery-result contracts. Only the current trusted window
 can request delivery. Native credentials reread the recipient-authorized Core
@@ -7087,6 +7101,17 @@ projection into separate `view` and `participation` outcomes. This separation
 is required because `public_view_join_password` permits reading while still
 requiring a password to join. Web, CLI, and Agent View consume the result; they
 must not rebuild the access table from HTTP status codes or client caches.
+
+Entry resolution reads the existing authorized Space metadata RPC for the name
+and access mode, then the existing viewer membership projection. It must not
+read full status, Agent readiness, runtime routes, or Service health to decide
+entry. Metadata and status enforce the same canonical Space access policy;
+missing access-mode evidence fails closed. The response contract is unchanged.
+Status member summaries also omit optional readiness counts and do not enrich
+runtime readiness. Operational members remain the readiness owner, and absence
+of those optional counts is not an offline verdict. Existing schema consumers
+accept these omissions; no CLI, Service, Wake, setup, publication, or diagnostic
+contract/version changes or coordinated rollout are required.
 
 The resolver is a read projection, not an authorization token. Every content
 or mutation endpoint still performs its own Core-owned authorization. Same-

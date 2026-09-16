@@ -35,6 +35,16 @@ export function createPendingCenterAgentMessage(
 	};
 }
 
+export function hasPendingCenterAgentMessages(
+	queryClient: QueryClient
+): boolean {
+	return queryClient
+		.getQueriesData<PendingCenterAgentMessage>({
+			queryKey: centerAgentPendingMessageKeys.all,
+		})
+		.some(([, message]) => !!message);
+}
+
 export function activateCenterAgentPendingMessageScope(
 	queryClient: QueryClient,
 	scope: CenterAgentPendingMessageScope

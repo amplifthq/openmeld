@@ -129,12 +129,17 @@ export {
 } from "./desktop-client";
 export * from "./desktop-notifications";
 export {
+  DESKTOP_PROMOTED_RELEASE_KEY,
+  DESKTOP_UPDATE_FEED_URL,
   type DesktopCandidateManifest,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
+  desktopPromotedReleaseSchema,
+  desktopUpdaterFeedSchema,
 } from "./desktop-release";
+export * from "./desktop-updater";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,

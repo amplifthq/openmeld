@@ -1191,6 +1191,18 @@ function handleLiveInvalidationMessage(
 	if (frame.type !== "wake.progress.changed") {
 		debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 	}
+	if (
+		frame.type === "space.meta.changed" ||
+		frame.type === "space.members.changed"
+	) {
+		input.queryClient
+			.invalidateQueries({
+				queryKey: ["spaces", "entry-resolution", input.spaceId],
+			})
+			.catch((error: unknown) =>
+				console.warn("Failed to refresh Space access.", error)
+			);
+	}
 	if (frame.type === "space.meta.changed") {
 		input.queryClient
 			.invalidateQueries({

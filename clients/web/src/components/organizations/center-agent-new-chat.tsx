@@ -10,7 +10,8 @@ import { Button } from "@openmeld/ui/components/button";
 import { PlusIcon, XIcon } from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
@@ -173,6 +174,13 @@ export function CenterAgentNewChat({
 		},
 		onError: (cause) => setError(toStructuredApiClientFailure(cause).message),
 	});
+	useLayoutEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(
+				() => files.length > 0 || send.isPending
+			),
+		[files.length, send.isPending]
+	);
 	return (
 		<div className="flex min-h-0 w-full flex-1 flex-col">
 			{error && (

@@ -18,6 +18,7 @@ import {
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
+import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolution";
 import type { SpaceHistorySnapshot } from "#/query/spaces/history";
 import { spaceHistoryPrefetchQueryOptions } from "#/query/spaces/history-sync";
 import { spaceQueryKeys } from "#/query/spaces/status";
@@ -215,6 +216,17 @@ export async function prefetchKnownSpaceConversationData(
 		spaceId: input.spaceId,
 		openMeldProfileId: input.openMeldProfileId,
 	});
+	// Warm the exact access query consumed by the gate, including linked targets.
+	// A bootstrap is display data and cannot stand in for this server decision.
+	const entryPrefetch = input.queryClient.prefetchQuery(
+		spaceEntryResolutionQueryOptions({
+			enabled: true,
+			spaceId: input.spaceId,
+			openMeldProfileId: input.openMeldProfileId,
+			signalId: input.focusSignalId,
+			threadRootSignalId: input.focusThreadRootSignalId,
+		})
+	);
 	prefetchTargetThread(input).catch((error: unknown) =>
 		console.error("Could not prefetch the linked Thread.", error)
 	);
@@ -231,6 +243,7 @@ export async function prefetchKnownSpaceConversationData(
 		await input.queryClient.prefetchQuery(
 			spaceHistoryPrefetchQueryOptions(input.queryClient, input)
 		);
+		await entryPrefetch;
 		return;
 	}
 	const bootstrap = await input.queryClient.fetchQuery(
@@ -249,6 +262,7 @@ export async function prefetchKnownSpaceConversationData(
 		spaceId: input.spaceId,
 		viewerProfileId: input.openMeldProfileId,
 	});
+	await entryPrefetch;
 }
 
 async function prefetchTargetThread(
