@@ -14,6 +14,74 @@ const ACCOUNT_SPACE_PIN_OVERLAY_CLEARS = Symbol(
 	"account-space-pin-overlay-clears"
 );
 const ACCOUNT_SPACE_PIN_OVERLAY_MAX_AGE_MS = 60_000;
+const ACCOUNT_SPACE_ACCEPTED_MESSAGE = Symbol("account-space-accepted-message");
+type AcceptedMessageItem = AccountSpaceItem & {
+	[ACCOUNT_SPACE_ACCEPTED_MESSAGE]?: { expiresAtMs: number };
+};
+
+export function applyAcceptedAccountSpaceMessage(
+	sections: AccountSpaceSections,
+	spaceId: string,
+	messagePreview: NonNullable<AccountSpaceItem["messagePreview"]>
+): AccountSpaceSections {
+	const update = (item: AccountSpaceItem) => {
+		if (
+			item.spaceId !== spaceId ||
+			(item.messagePreview?.timestamp ?? 0) > messagePreview.timestamp
+		) {
+			return item;
+		}
+		const next = { ...item, messagePreview };
+		Object.defineProperty(next, ACCOUNT_SPACE_ACCEPTED_MESSAGE, {
+			value: { expiresAtMs: Date.now() + 30_000 },
+		});
+		return next;
+	};
+	return {
+		...sections,
+		pinnedItems: sections.pinnedItems.map(update),
+		spaceItems: sections.spaceItems.map(update),
+	};
+}
+
+function preserveAcceptedAccountSpaceMessages(
+	previous: AccountSpaceSections,
+	incoming: AccountSpaceSections
+): AccountSpaceSections {
+	const previousById = new Map(
+		[...previous.pinnedItems, ...previous.spaceItems].map((item) => [
+			item.spaceId,
+			item,
+		])
+	);
+	const update = (item: AccountSpaceItem) => {
+		if ((item as AcceptedMessageItem)[ACCOUNT_SPACE_ACCEPTED_MESSAGE]) {
+			return item;
+		}
+		const older = previousById.get(item.spaceId) as
+			| AcceptedMessageItem
+			| undefined;
+		const receipt = older?.[ACCOUNT_SPACE_ACCEPTED_MESSAGE];
+		if (
+			!receipt ||
+			Date.now() >= receipt.expiresAtMs ||
+			!older?.messagePreview ||
+			(item.messagePreview?.timestamp ?? 0) >= older.messagePreview.timestamp
+		) {
+			return item;
+		}
+		const next = { ...item, messagePreview: older.messagePreview };
+		Object.defineProperty(next, ACCOUNT_SPACE_ACCEPTED_MESSAGE, {
+			value: receipt,
+		});
+		return next;
+	};
+	return {
+		...incoming,
+		pinnedItems: incoming.pinnedItems.map(update),
+		spaceItems: incoming.spaceItems.map(update),
+	};
+}
 
 type AccountSpacePinOverlay = {
 	baselinePinnedAt: string | null;
@@ -239,7 +307,7 @@ export function preserveOptimisticAccountSpacePinUpdates(
 		}
 		next = applyAccountSpacePinOverlay(next, ownerItem, overlay);
 	}
-	return next;
+	return preserveAcceptedAccountSpaceMessages(previous, next);
 }
 
 function applyAccountSpacePinOverlay(

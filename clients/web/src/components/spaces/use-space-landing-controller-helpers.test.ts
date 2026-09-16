@@ -15,13 +15,21 @@ import {
 	OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
 	OPENMELD_WELCOMING_SPACE_PURPOSE,
 } from "@openmeld/space";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
+import { spaceQueryKeys } from "#/query/spaces/status";
+import {
+	spaceThreadSignalsQueryOptions,
+	spaceThreadsQueryOptions,
+} from "#/query/spaces/threads";
 import {
 	areWakeProgressItemsEqual,
 	createStatusAndMembersRefreshDedupe,
 	listPendingWakeProgressClientMessageIds,
+	listRecoverableWakeProgressClientMessageIds,
 	mergeActiveWakeProgressPresentation,
+	mergeLiveThreadSignalIntoCache,
 	mergeThreadSignalsCache,
 	mergeWakeProgressItemState,
 	pollWakeProgress,
@@ -38,6 +46,149 @@ vi.mock("#/lib/spaces/api", () => ({
 const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
 
 describe("Thread conversation policy during live replies", () => {
+	it.each([
+		false,
+		true,
+	])("refreshes an incomplete live snapshot or an explicit Wake selection (complete cache: %s)", async (completeSnapshot) => {
+		const queryClient = new QueryClient();
+		const signal = (id: string, ts: number): SignalEnvelope => ({
+			v: 1,
+			id,
+			ts,
+			spaceId: "space",
+			type: "signal.text",
+			profile: { kind: "human", profileId: "H" },
+			data: {
+				text: id,
+				...(completeSnapshot
+					? {
+							messageEnvelope: {
+								text: id,
+								activationTargets: ["A"],
+								referenceTargets: [],
+							},
+						}
+					: {}),
+			},
+		});
+		const signals = [
+			signal("older", 1),
+			signal("newer", 2),
+			signal("newest", 3),
+		];
+		const listThreadSignals = vi
+			.fn()
+			.mockResolvedValue({ signals, placements: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			listThreadSignals,
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
+		queryClient.setQueryData(spaceQueryKeys.threads("space", "viewer"), {
+			threads: [{ threadId: "thread", rootSignalId: "root" }],
+			previews: [],
+		});
+		if (completeSnapshot) {
+			queryClient.setQueryData(
+				spaceQueryKeys.threadSignals("space", "thread", "viewer"),
+				{ signals: [signals[0]], placements: [] }
+			);
+		}
+		for (const reply of signals.slice(1)) {
+			mergeLiveThreadSignalIntoCache({
+				queryClient,
+				spaceId: "space",
+				openMeldProfileId: "viewer",
+				signal: reply,
+				threadContext: { threadId: "thread", rootSignalId: "root" },
+				placement: {
+					threadId: "thread",
+					signalId: reply.id,
+					placement: "thread",
+					createdAt: new Date(reply.ts).toISOString(),
+				},
+			});
+		}
+		const observer = new QueryObserver(
+			queryClient,
+			spaceThreadSignalsQueryOptions({
+				spaceId: "space",
+				threadId: "thread",
+				openMeldProfileId: "viewer",
+				enabled: true,
+			})
+		);
+		const unsubscribe = observer.subscribe(vi.fn());
+		await vi.waitFor(() =>
+			expect(
+				observer.getCurrentResult().data?.signals.map((reply) => reply.id)
+			).toEqual(["older", "newer", "newest"])
+		);
+		expect(listThreadSignals).toHaveBeenCalledTimes(1);
+		unsubscribe();
+		queryClient.clear();
+	});
+	it.each([
+		false,
+		true,
+	])("makes a new live Thread discoverable with the bootstrap-owned catalog (%s)", async (knownThread) => {
+		const queryClient = new QueryClient();
+		const key = spaceQueryKeys.threads("space", "viewer");
+		const thread = {
+			threadId: "thread",
+			spaceId: "space",
+			rootSignalId: "root",
+			createdByProfileId: "A",
+			createdAt: "2026-09-14T00:00:00.000Z",
+			updatedAt: "2026-09-14T00:00:00.000Z",
+		};
+		const listThreads = vi
+			.fn()
+			.mockResolvedValue({ threads: [thread], previews: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			listThreads,
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
+		queryClient.setQueryData(key, {
+			threads: knownThread ? [thread] : [],
+			previews: [],
+		});
+		const observer = new QueryObserver(
+			queryClient,
+			spaceThreadsQueryOptions({
+				spaceId: "space",
+				openMeldProfileId: "viewer",
+				enabled: false,
+			})
+		);
+		const unsubscribe = observer.subscribe(vi.fn());
+		mergeLiveThreadSignalIntoCache({
+			queryClient,
+			spaceId: "space",
+			openMeldProfileId: "viewer",
+			threadContext: { threadId: "thread", rootSignalId: "root" },
+			placement: {
+				threadId: "thread",
+				signalId: "reply",
+				placement: "thread",
+				createdAt: "2026-09-14T00:00:00.000Z",
+			},
+			signal: {
+				v: 1,
+				id: "reply",
+				spaceId: "space",
+				ts: 1,
+				type: "signal.text",
+				profile: { kind: "agent", profileId: "A" },
+				data: { text: "The review is ready." },
+			},
+		});
+		await vi.waitFor(() =>
+			expect(observer.getCurrentResult().data?.threads).toEqual([
+				expect.objectContaining({ threadId: "thread", rootSignalId: "root" }),
+			])
+		);
+		expect(listThreads).toHaveBeenCalledTimes(knownThread ? 0 : 1);
+		unsubscribe();
+		queryClient.clear();
+	});
 	it("retains the server's direct conversation policy when an Agent reply arrives", () => {
 		const signal: SignalEnvelope = {
 			v: 1,
@@ -561,6 +712,38 @@ function createMembersSnapshot(input?: {
 }
 
 describe("pollWakeProgress", () => {
+	it("bounds a large recovery and stops queued reads when its Space closes", async () => {
+		const abort = new AbortController();
+		const reads: Array<() => void> = [];
+		const getWakeProgress = vi.fn(
+			() =>
+				new Promise<{ items: [] }>((resolve) => {
+					reads.push(() => resolve({ items: [] }));
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			getWakeProgress,
+		} as unknown as ReturnType<typeof createUnscopedWebSpaceApi>);
+		const onItems = vi.fn();
+		const onSettled = vi.fn();
+		const recovery = pollWakeProgress({
+			openMeldProfileId: "viewer",
+			spaceId: "space",
+			clientMessageIds: Array.from({ length: 76 }, (_, i) => `message-${i}`),
+			signal: abort.signal,
+			onItems,
+			onSettled,
+		});
+		expect(getWakeProgress).toHaveBeenCalledTimes(4);
+		abort.abort();
+		for (const finish of reads) {
+			finish();
+		}
+		await recovery;
+		expect(getWakeProgress).toHaveBeenCalledTimes(4);
+		expect(onItems).not.toHaveBeenCalled();
+		expect(onSettled).toHaveBeenCalledOnce();
+	});
 	it("opts Web wake progress polling into Wake Stop eligibility", async () => {
 		const getWakeProgress = vi.fn().mockResolvedValue({ items: [] });
 		const onItems = vi.fn();
@@ -609,6 +792,53 @@ describe("pollWakeProgress", () => {
 		});
 
 		expect(onItems).toHaveBeenCalledWith([], ["client-message-completed"]);
+	});
+});
+
+describe("historical Wake recovery", () => {
+	it("skips recorded outcomes but retains a source with an unresolved sibling", () => {
+		const sources: SignalEnvelope[] = Array.from({ length: 76 }, (_, i) => ({
+			v: 1,
+			id: `source-${i}`,
+			spaceId: "space",
+			ts: i,
+			type: "signal.text",
+			profile: { kind: "human", profileId: "viewer" },
+			data: {
+				text: "Review",
+				meta: { clientMessageId: `message-${i}` },
+				messageEnvelope: {
+					activationTargets: i === 75 ? ["agent-a", "agent-b"] : ["agent-a"],
+					text: "Review",
+					referenceTargets: [],
+				},
+			},
+		}));
+		const replies: SignalEnvelope[] = sources.map((source) => ({
+			v: 1,
+			id: `reply-${source.id}`,
+			spaceId: "space",
+			ts: 100,
+			type: "signal.text",
+			profile: { kind: "agent", profileId: "agent-a" },
+			data: {
+				text: "Done",
+				meta: { purpose: AGENT_REPLY_FINAL_PURPOSE },
+				replyTo: {
+					signalId: source.id,
+					profileId: "viewer",
+					profileKind: "human",
+					profileName: "Reviewer",
+					previewText: "Review",
+				},
+			},
+		}));
+		expect(
+			listRecoverableWakeProgressClientMessageIds({
+				signals: [...sources, ...replies],
+				alreadyRequestedClientMessageIds: new Set(),
+			})
+		).toEqual(["message-75"]);
 	});
 });
 

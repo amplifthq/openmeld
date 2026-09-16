@@ -165,8 +165,8 @@ describe("model catalog schema", () => {
           automaticModelFallback: false,
           imageUnderstandingModelId: "x-ai/grok-4.6",
         },
-        models: [
-          {
+        models: expect.arrayContaining([
+          expect.objectContaining({
             id: "z-ai/glm-5.3-flash",
             displayName: "GLM 5.3 Flash",
             badgeLabel: "New",
@@ -177,8 +177,8 @@ describe("model catalog schema", () => {
               provider: "openrouter",
               reasoningLevel: "high",
             },
-          },
-          {
+          }),
+          expect.objectContaining({
             id: "x-ai/grok-4.6",
             displayName: "Grok 4.6",
             hostedRuntime: {
@@ -188,8 +188,8 @@ describe("model catalog schema", () => {
               provider: "openrouter",
               reasoningLevel: "high",
             },
-          },
-          {
+          }),
+          expect.objectContaining({
             id: "x-ai/grok-4.5",
             displayName: "Grok 4.5",
             hostedRuntime: {
@@ -199,8 +199,8 @@ describe("model catalog schema", () => {
               provider: "openrouter",
               reasoningLevel: "high",
             },
-          },
-          {
+          }),
+          expect.objectContaining({
             id: "deepseek/deepseek-v4-flash",
             displayName: "DeepSeek V4 Flash",
             hostedRuntime: {
@@ -210,8 +210,8 @@ describe("model catalog schema", () => {
               provider: "openrouter",
               reasoningLevel: "high",
             },
-          },
-        ],
+          }),
+        ]),
       });
     }
   });

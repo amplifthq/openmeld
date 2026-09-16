@@ -82,6 +82,7 @@ type ExecutePublicRpcRouteInput = {
   retryMode?: "transient" | "none";
   responseSchema?: z.ZodType<unknown>;
   successStatus?: number;
+  resolveSuccessHeaders?: ExecuteRpcRouteInput["resolveSuccessHeaders"];
 };
 
 type RespondBadRequestInput = {
@@ -225,6 +226,7 @@ export async function executeRpcRoute(
 ): Promise<Response> {
   const { c, route, method, spaceId } = input;
   const context = c.var.openMeldRequestContext;
+  const requestId = resolvePublicRouteRequestId(c);
   const startedAt = c.var.startedAt;
 
   try {
@@ -257,7 +259,7 @@ export async function executeRpcRoute(
       status: input.successStatus ?? 200,
       latencyMs: Date.now() - startedAt,
       ...(spaceId ? { spaceId } : {}),
-      ...contextAuditFields(context),
+      ...(context ? contextAuditFields(context) : { requestId }),
     });
 
     const status = input.successStatus ?? 200;
@@ -279,7 +281,7 @@ export async function executeRpcRoute(
           status,
         }
       ),
-      context.actorContext.requestId
+      requestId
     );
   } catch (err) {
     return mapCoreRpcError({
@@ -335,6 +337,11 @@ export async function executePublicRpcRoute(
         projectSpaceAccessResponse(responsePayload, route, c.req.raw.headers),
         {
           status: input.successStatus ?? 200,
+          headers: input.resolveSuccessHeaders?.({
+            payload: validatedResult.payload,
+            result,
+            status: input.successStatus ?? 200,
+          }),
         }
       ),
       requestId
@@ -517,6 +524,9 @@ export function buildCoreRpcContext(
 function mapCoreRpcError(input: CoreRpcErrorInput): Response {
   const { c, route, method, spaceId, err } = input;
   const context = c.var.openMeldRequestContext;
+  if (!context) {
+    return mapPublicCoreRpcError(input);
+  }
   const startedAt = c.var.startedAt;
   const parsed = parseRpcHttpError(err);
 
@@ -601,7 +611,7 @@ function mapPublicCoreRpcError(input: CoreRpcErrorInput): Response {
   });
 }
 
-function resolvePublicRouteRequestId(c: Context<HonoBindings>): string {
+export function resolvePublicRouteRequestId(c: Context<HonoBindings>): string {
   if (c.var.spaceAccessContext) {
     return getSpaceAccessRequestId(c.var.spaceAccessContext);
   }
@@ -886,7 +896,7 @@ function validateSuccessResponse(input: {
 }): { ok: true; payload: unknown } | { ok: false; response: Response } {
   return validateSuccessResponseForRequestId({
     ...input,
-    requestId: input.c.var.openMeldRequestContext.actorContext.requestId,
+    requestId: resolvePublicRouteRequestId(input.c),
   });
 }
 
@@ -931,7 +941,9 @@ function validateSuccessResponseForRequestId(input: {
       `invalid_success_payload ${issuePath} ${issueMessage}`,
       320
     ),
-    ...contextAuditFields(input.c.var.openMeldRequestContext),
+    ...(input.c.var.openMeldRequestContext
+      ? contextAuditFields(input.c.var.openMeldRequestContext)
+      : { requestId: input.requestId }),
   });
 
   return {

@@ -19,6 +19,12 @@ import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import {
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+  downloadCliBinaryUpdateArtifact,
+  resolveCliBinaryUpdatePlan,
+  verifyCliBinaryCodeSignature,
+} from "@openmeld/local-service/cli-binary-update-artifact";
 import { readDaemonRuntimeLease } from "../../config/daemon-runtime-lease";
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
 import { readDaemonServiceUpdateWorkerProtectedBundleIds } from "../../config/daemon-service-update-worker-registration";
@@ -48,12 +54,6 @@ import {
   performManagedInstall,
   resolveCliSelfVersion,
 } from "../../local-components/managed-install";
-import {
-  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
-  downloadCliBinaryUpdateArtifact,
-  resolveCliBinaryUpdatePlan,
-  verifyCliBinaryCodeSignature,
-} from "../../runtime/cli-binary-update-artifact";
 import {
   isBinaryDistribution,
   type OpenMeldDistribution,

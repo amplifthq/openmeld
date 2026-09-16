@@ -17,24 +17,131 @@ import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld
 
 export type AgentProfileCreationRequestsFailure = StructuredApiClientFailure;
 
+export type OptimisticAgentProfileCreation = {
+	requestFingerprint?: string;
+	configuration: AgentProfileCreationConfiguration;
+	failureMessage: string | null;
+	id: string;
+	profileName: string;
+	status: "creating" | "failed";
+	targetOwnerUserId: string;
+};
+
 function createApi(organizationId: string) {
 	return createOrganizationApi(
 		createOrganizationScopedWebOpenMeldApiFoundation({ organizationId })
 	);
 }
 
+// A failed request's intent is immutable. Cancel it through Core before
+// submitting the replacement, and reuse one key across tabs and lost responses.
+export async function restartAgentProfileCreationOnComputer(input: {
+	onAccepted?: (request: AgentProfileCreationRequest) => void;
+	organizationId: string;
+	requestId: string;
+	currentUserId: string;
+	computerId: string;
+}): Promise<CreateAgentProfileCreationRequestResponse> {
+	const api = createApi(input.organizationId);
+	const idempotencyKey = `recovery:${input.requestId}`;
+	const existing = await api.listAgentProfileCreationRequests({
+		organizationId: input.organizationId,
+		idempotencyKey,
+	});
+	const replacement = existing.requests[0];
+	if (replacement) {
+		if (
+			replacement.organizationId !== input.organizationId ||
+			replacement.requesterUserId !== input.currentUserId ||
+			replacement.targetOwnerUserId !== input.currentUserId
+		) {
+			throw new Error(
+				"You can only restart your own Agent setup in this organization."
+			);
+		}
+		input.onAccepted?.(replacement);
+		return { replayed: true, request: replacement };
+	}
+	const original = await api.listAgentProfileCreationRequests({
+		organizationId: input.organizationId,
+		requestId: input.requestId,
+	});
+	const request = original.requests.find((item) => item.id === input.requestId);
+	if (
+		!request ||
+		request.organizationId !== input.organizationId ||
+		request.requesterUserId !== input.currentUserId ||
+		request.targetOwnerUserId !== input.currentUserId ||
+		request.createdAgentProfileId ||
+		!["failed", "cancelled"].includes(request.status) ||
+		!request.configuration.targetComputerId ||
+		(request.sessionStrategy !== "new" &&
+			request.configuration.targetComputerId !== input.computerId)
+	) {
+		throw new Error(
+			"This setup has changed. Close this window and review its latest status before continuing."
+		);
+	}
+	if (request.status === "failed") {
+		await api.cancelAgentProfileCreationRequest({
+			organizationId: input.organizationId,
+			requestId: request.id,
+		});
+	}
+	return await createAgentProfileCreationRequest({
+		onAccepted: input.onAccepted,
+		configuration: {
+			...request.configuration,
+			targetComputerId: input.computerId,
+			// Public Computer/controller selection lets Core resolve and validate
+			// the current connection instead of replaying an obsolete runtime ID.
+			localAgentConnectionCandidateId: null,
+		},
+		idempotencyKey,
+		organizationId: input.organizationId,
+		profileName: request.profileName,
+		targetOwnerUserId: request.targetOwnerUserId,
+		nativeSessionId: request.nativeSessionId,
+		sessionStrategy: request.sessionStrategy,
+		requestedSpaceId: request.requestedSpaceId,
+	});
+}
+
 export async function createAgentProfileCreationRequest(input: {
 	configuration: AgentProfileCreationConfiguration;
 	idempotencyKey: string;
 	nativeSessionId?: string | null;
+	onAccepted?: (
+		request: AgentProfileCreationRequest,
+		optimisticId: string
+	) => void | Promise<void>;
+	onFailed?: (
+		creation: OptimisticAgentProfileCreation,
+		failure: AgentProfileCreationRequestsFailure
+	) => void;
+	onStarted?: (creation: OptimisticAgentProfileCreation) => void;
 	organizationId: string;
 	profileName: string;
 	requestedSpaceId?: string | null;
 	sessionStrategy?: "new" | "resume" | "fork";
 	targetOwnerUserId: string;
 }): Promise<CreateAgentProfileCreationRequestResponse> {
+	const optimisticCreation: OptimisticAgentProfileCreation = {
+		configuration: input.configuration,
+		failureMessage: null,
+		id: `optimistic:${input.idempotencyKey}`,
+		profileName: input.profileName,
+		status: "creating",
+		targetOwnerUserId: input.targetOwnerUserId,
+	};
 	try {
-		const result = await createApi(
+		input.onStarted?.(optimisticCreation);
+	} catch (error) {
+		console.warn("Could not present the Agent being created.", error);
+	}
+	let result: CreateAgentProfileCreationRequestResponse;
+	try {
+		result = await createApi(
 			input.organizationId
 		).createAgentProfileCreationRequest({
 			configuration: input.configuration,
@@ -47,10 +154,38 @@ export async function createAgentProfileCreationRequest(input: {
 			source: "web",
 			targetOwnerUserId: input.targetOwnerUserId,
 		});
-		return { ...result, request: await waitForCreationResult(result.request) };
 	} catch (error) {
-		throw toStructuredApiClientFailure(error);
+		const failure = toStructuredApiClientFailure(error);
+		try {
+			input.onFailed?.(
+				{
+					...optimisticCreation,
+					failureMessage: failure.message,
+					status: "failed",
+				},
+				failure
+			);
+		} catch (presentationError) {
+			console.warn(
+				"Could not present the failed Agent creation request.",
+				presentationError
+			);
+		}
+		throw failure;
 	}
+
+	try {
+		await input.onAccepted?.(result.request, optimisticCreation.id);
+	} catch (error) {
+		// The server has already accepted the request. A local navigation or cache
+		// failure must not turn that accepted request into a creation failure.
+		console.warn(
+			"Could not present the accepted Agent creation request.",
+			error
+		);
+	}
+
+	return { ...result, request: await waitForCreationResult(result.request) };
 }
 
 async function waitForCreationResult(

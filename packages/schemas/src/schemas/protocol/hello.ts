@@ -2,6 +2,7 @@ import * as z from "zod/v4";
 import { profileSchema } from "./profile";
 
 export const helloCapabilitiesSchema = z.object({
+  agentReplyPlacement: z.boolean().optional(),
   liveSignalHistory: z.boolean().optional(),
   spaceMessageAddressing: z.boolean().optional(),
 });

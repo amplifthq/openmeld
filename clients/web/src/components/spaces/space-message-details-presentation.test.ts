@@ -22,6 +22,37 @@ describe("resolveMessageDetailsDiagnosticReportStatus", () => {
 });
 
 describe("buildSpaceMessageDetailsPresentation", () => {
+	it("shows conversation occupancy as waiting with the other-app explanation", () => {
+		const entries = resolveWakeProgressThinkingEntry({
+			item: {
+				...createWakeProgressItem({
+					clientMessageId: "client-1",
+					dispatchId: "dispatch-1",
+					phase: "connecting",
+					sourceSignalId: "message-1",
+					targetProfileId: "profile-codex",
+					targetLabel: "Codex",
+					updatedAtMs: 1,
+				}),
+				waitReasonCode: "runtime.agent_controller_conversation.occupied",
+			},
+			showElapsedTime: false,
+		});
+		const presentation = buildSpaceMessageDetailsPresentation({
+			data: createMessageDetailsResponse("signal.text"),
+			item: createTimelineItem({ wakeTargetProfileIds: ["profile-codex"] }),
+			wakeProgressEntries: entries,
+			replyItems: [],
+			wakeIssueEntries: [],
+		});
+		expect(
+			presentation.activityItems.find((item) => item.kind === "target")
+		).toMatchObject({
+			status: "pending",
+			description: "Waiting for Codex. Another app is using this conversation.",
+		});
+	});
+
 	it("keeps waiting concise in the timeline and puts the exact expiry and reason in details", () => {
 		const deadlineAtMs = 1_900_000_000_000;
 		const entries = resolveWakeProgressThinkingEntry({

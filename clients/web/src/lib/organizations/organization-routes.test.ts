@@ -23,6 +23,7 @@ import {
 	buildOrganizationDirectoryRootPath,
 	buildOrganizationInboxItemPath,
 	buildOrganizationInboxPath,
+	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationMemoryPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrganizationsPath,
@@ -41,7 +42,7 @@ import {
 
 describe("organization default route", () => {
 	it("keeps Home separate from the Center Agent chat destination", () => {
-		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme");
+		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme/spaces");
 		expect(buildOrganizationCenterAgentChatPath("acme")).toBe(
 			"/o/acme/chats/center-agent"
 		);
@@ -76,6 +77,9 @@ describe("integration management routes", () => {
 			"/o/acme/center-agent/memory"
 		);
 		expect(buildOrganizationCenterAgentSettingsPath("acme")).toBe(
+			"/o/acme/settings/center-agent"
+		);
+		expect(buildOrganizationLegacyCenterAgentSettingsPath("acme")).toBe(
 			"/o/acme/center-agent/settings"
 		);
 	});
@@ -248,8 +252,8 @@ describe("resolveOrganizationSwitchPath", () => {
 		],
 		[
 			"Center Agent settings",
-			"/o/acme/center-agent/settings",
-			"/o/beta/center-agent/settings",
+			"/o/acme/settings/center-agent",
+			"/o/beta/settings/center-agent",
 		],
 		["Projects", "/o/acme/projects", "/o/beta/projects"],
 		["Project detail", "/o/acme/projects/project-acme", "/o/beta/projects"],

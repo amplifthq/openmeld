@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { BrainIcon, GearSixIcon } from "@phosphor-icons/react";
+import { BrainIcon } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	SpaceHeaderNavigationMenu,
@@ -12,11 +12,13 @@ import {
 	resolveSpaceView,
 	type SpaceView,
 } from "#/components/spaces/space-view";
+
+type CenterAgentConversationView = Exclude<SpaceView, "tasks">;
+
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
-	buildOrganizationCenterAgentSettingsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationMemoryPath,
 	buildOrganizationSkillsPath,
@@ -28,10 +30,10 @@ const CHANNELS_TAB_INDEX = 5;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
-	activeSpaceView?: SpaceView;
+	activeSpaceView?: CenterAgentConversationView;
 	className?: string;
 	idPrefix: string;
-	onSpaceViewChange?: (view: SpaceView) => void;
+	onSpaceViewChange?: (view: CenterAgentConversationView) => void;
 	organizationSlug: string;
 }) {
 	const navigate = useNavigate();
@@ -59,6 +61,9 @@ export function CenterAgentHeaderTabs(input: {
 			onSelect={(index) => {
 				if (index <= 2) {
 					const view = resolveSpaceView(index);
+					if (view === "tasks") {
+						return;
+					}
 					if (input.onSpaceViewChange) {
 						input.onSpaceViewChange(view);
 						return;
@@ -110,6 +115,11 @@ export function CenterAgentHeaderMenu(input: { organizationSlug: string }) {
 	);
 }
 
+/**
+ * Center Agent settings are no longer listed here. They live in the global App
+ * Settings destination, grouped under the current Organization (or Personal in
+ * a Personal Workspace), so this menu keeps only Center Agent work surfaces.
+ */
 export function buildCenterAgentHeaderMenuItems(
 	organizationSlug: string
 ): readonly SpaceHeaderNavigationMenuItem[] {
@@ -119,17 +129,12 @@ export function buildCenterAgentHeaderMenuItems(
 			label: "Memory",
 			to: buildOrganizationMemoryPath(organizationSlug),
 		},
-		{
-			icon: GearSixIcon,
-			label: "Center Agent settings",
-			to: buildOrganizationCenterAgentSettingsPath(organizationSlug),
-		},
 	];
 }
 
 function resolveCenterAgentHeaderTabIndex(input: {
 	activeSectionId: CenterAgentSectionId;
-	activeSpaceView?: SpaceView;
+	activeSpaceView?: CenterAgentConversationView;
 }): number {
 	if (input.activeSectionId === "routines") {
 		return ROUTINES_TAB_INDEX;

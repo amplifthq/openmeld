@@ -1,7 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { appShellStaticData } from "#/components/app/shell-layout";
-import { DeskPage } from "#/components/desk/desk-page";
-import { buildOrganizationCenterAgentChatPath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationCenterAgentChatPath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
 
 export const Route = createFileRoute("/o/$orgSlug/_center-agent/")({
 	staticData: appShellStaticData.home,
@@ -12,6 +14,9 @@ export const Route = createFileRoute("/o/$orgSlug/_center-agent/")({
 				replace: true,
 			});
 		}
+		throw redirect({
+			to: buildOrganizationSpacesPath(params.orgSlug),
+			replace: true,
+		});
 	},
-	component: DeskPage,
 });

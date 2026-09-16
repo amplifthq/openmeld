@@ -11,6 +11,7 @@ import {
   runtimeTransportDispatchLifecycleRequestSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchToolActivityRequestSchema,
   runtimeTransportSubmitTaskResultRequestSchema,
@@ -26,6 +27,7 @@ import type {
   RuntimeTransportAgentControllerConversationOccupancy,
   RuntimeTransportDispatchLifecyclePhase,
   RuntimeTransportDispatchLocalQueueDiagnostics,
+  RuntimeTransportDispatchReasoningRequest,
   RuntimeTransportDispatchRuntimeEvidencePhase,
   RuntimeTransportHeartbeatRequest,
   RuntimeTransportRegisterSessionRequest,
@@ -216,6 +218,25 @@ export function sendDispatchRuntimeEvidenceFrame(input: {
   sendDaemonFrame(input.socket, {
     code: "daemon.dispatch.runtime_evidence",
     payload: runtimeEvidenceRequest.data,
+  });
+}
+
+export function sendDispatchReasoningFrame(
+  input: Omit<RuntimeTransportDispatchReasoningRequest, "v"> & {
+    socket: WsClient;
+  }
+): void {
+  const { socket, ...payload } = input;
+  const parsed = runtimeTransportDispatchReasoningRequestSchema.safeParse({
+    ...payload,
+    v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+  });
+  if (!parsed.success) {
+    return;
+  }
+  sendDaemonFrame(socket, {
+    code: "daemon.dispatch.reasoning",
+    payload: parsed.data,
   });
 }
 
@@ -637,6 +658,7 @@ function sendDaemonFrame(
       | "daemon.dispatch.result"
       | "daemon.dispatch.runtime_evidence"
       | "daemon.dispatch.tool_activity"
+      | "daemon.dispatch.reasoning"
       | "daemon.session.heartbeat"
       | "daemon.session.register";
     payload:

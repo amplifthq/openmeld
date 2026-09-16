@@ -6,6 +6,18 @@ import {
 } from "../src/local-service/state/service-connection-state";
 
 describe("classifyConnectionFailureReason", () => {
+  it("does not treat arbitrary authentication wording as a rejected credential", () => {
+    expect(
+      classifyConnectionFailureReason(
+        "authentication required while credential storage is unavailable"
+      )
+    ).toBe("internal");
+    expect(
+      classifyConnectionFailureReason(
+        "network error: unauthorized intermediary"
+      )
+    ).toBe("network_unreachable");
+  });
   it("keeps daemon stream 5xx upgrade rejection classified as internal", () => {
     expect(
       classifyConnectionFailureReason(

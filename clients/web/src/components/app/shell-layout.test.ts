@@ -53,7 +53,7 @@ describe("app shell layout", () => {
 		[appShellStaticData.connect, "spaces"],
 		[appShellStaticData.directMessages, "directMessages"],
 		[appShellStaticData.home, "home"],
-		[appShellStaticData.inbox, null],
+		[appShellStaticData.inbox, "inbox"],
 		[appShellStaticData.organizations, null],
 		[appShellStaticData.people, "people"],
 		[appShellStaticData.plugins, "people"],

@@ -7,6 +7,7 @@ import {
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import {
@@ -17,6 +18,7 @@ import {
 	saveComposerFileDraftUpload,
 } from "#/lib/spaces/composer-file-drafts";
 import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
+import { SPACE_COMPOSER_FILE_PUBLISH_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import { formatSpaceFileSizeLimitError } from "./space-file-utils";
 
 type ComposerFileScope = {
@@ -43,6 +45,18 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 	const [, refresh] = useReducer((version: number) => version + 1, 0);
 	const sessions = useRef(
 		new Map<string, ReturnType<typeof createFileSession>>()
+	);
+	useEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(() =>
+				[...sessions.current.values()].some(
+					(entry) =>
+						entry.uploadTasks.size > 0 ||
+						entry.submittingIds.size > 0 ||
+						entry.files.some((file) => file.status !== "ready")
+				)
+			),
+		[]
 	);
 	const scopeKey = `${input.organizationSlug}:${input.profileId}:${input.spaceId}${input.draftScope ? `:${input.draftScope}` : ""}`;
 	// Async uploads and sends keep their original conversation's session even
@@ -519,6 +533,7 @@ async function publishPendingFile(input: {
 				await api.publishComposerUpload({
 					clientMutationId: input.file.publishMutationId,
 					spaceId: input.spaceId,
+					timeoutMs: SPACE_COMPOSER_FILE_PUBLISH_TIMEOUT_MS,
 					uploadId: upload.id,
 				})
 		);

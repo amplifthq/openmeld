@@ -3,6 +3,13 @@ import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
+import {
+  type CliBinaryUpdatePlan,
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
+  downloadCliBinaryUpdateArtifact,
+  resolveCliBinaryUpdatePlan,
+  verifyCliBinaryCodeSignature,
+} from "@openmeld/local-service/cli-binary-update-artifact";
 import type {
   OpenMeldToolsUpdateFailureCode,
   OpenMeldToolsUpdateOperation,
@@ -38,13 +45,6 @@ import {
 } from "../local-service/maintenance/openmeld-tools-update-failure";
 import { resolveExternalOpenMeldToolsUpdate } from "../local-service/maintenance/openmeld-tools-update-join";
 import { parseOpenMeldToolsUpdateFailureFrame } from "../local-service/maintenance/openmeld-tools-update-process-frame";
-import {
-  type CliBinaryUpdatePlan,
-  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
-  downloadCliBinaryUpdateArtifact,
-  resolveCliBinaryUpdatePlan,
-  verifyCliBinaryCodeSignature,
-} from "../runtime/cli-binary-update-artifact";
 import {
   formatInlineOpenMeldCliCommands,
   formatOpenMeldCliTextBlock,

@@ -2,7 +2,7 @@ import {
 	type OrganizationJoinRequestInput,
 	organizationJoinRequestResponseSchema,
 } from "@openmeld/schemas";
-import { requestAuthEndpoint } from "#/lib/auth-transport";
+import { requestAuthBusiness } from "#/lib/auth-business";
 
 export async function requestOrganizationJoinRequests(
 	request: OrganizationJoinRequestInput | { token: string }
@@ -13,24 +13,15 @@ export async function requestOrganizationJoinRequests(
 export async function requestOrganizationJoinRequestResult(
 	request: OrganizationJoinRequestInput | { token: string }
 ) {
-	const response = await requestAuthEndpoint({
+	const result = await requestAuthBusiness({
 		path:
 			"token" in request
-				? "/organization/join-link/request?responseVersion=2"
-				: "/organization/join-requests?responseVersion=3",
-		fallbackMessage: "Could not load the invitation request. Try again.",
-		request: {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify(request),
-		},
+				? "/v1/organization-join-link/request?responseVersion=2"
+				: "/v1/organization-join-requests?responseVersion=3",
+		method: "POST",
+		body: request,
+		schema: organizationJoinRequestResponseSchema,
 	});
-	if (response.error) {
-		throw new Error(
-			response.error.message ?? "Could not load the invitation request."
-		);
-	}
-	const result = organizationJoinRequestResponseSchema.parse(response.data);
 	if (!result.ok) {
 		throw new Error(result.message);
 	}

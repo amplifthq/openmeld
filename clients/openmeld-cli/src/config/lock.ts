@@ -19,6 +19,7 @@ import {
 import {
   CURRENT_PROCESS_START_IDENTITY,
   isProcessIdentityAlive,
+  readProcessStartIdentity,
 } from "../system/process-identity";
 import { resolveOpenMeldLaneDescriptor } from "./openmeld-lane-descriptor";
 import {
@@ -193,7 +194,69 @@ export async function releaseLock(lock: OpenMeldLock): Promise<void> {
   if (!removedOwnerEntry) {
     return;
   }
-  await rmdir(lock.path);
+  await rmdir(lock.path).catch((error) => {
+    if (!["ENOENT", "ENOTEMPTY"].includes(getErrorCode(error) ?? "")) {
+      throw error;
+    }
+  });
+}
+
+/** Attach a waiting native process before granting it permission to exec. */
+export async function attachLockProcess(
+  lock: OpenMeldLock,
+  pid: number
+): Promise<OpenMeldLock> {
+  const ownerProcessStartedAt = readProcessStartIdentity(pid);
+  if (!ownerProcessStartedAt?.startsWith("ps:")) {
+    throw new Error("Cannot establish native command process identity.");
+  }
+  const parent = await open(
+    resolveOwnerEntryPath(lock.path, lock.ownerId),
+    "r"
+  );
+  try {
+    const meta = parseOpenMeldLockMeta(await parent.readFile("utf8"));
+    if (
+      meta?.ownerId !== lock.ownerId ||
+      meta.pid !== process.pid ||
+      meta.ownerProcessStartedAt !== CURRENT_PROCESS_START_IDENTITY
+    ) {
+      throw new Error("Native command does not own the lifecycle lock.");
+    }
+    const participant = { path: lock.path, ownerId: randomUUID() };
+    const contents = `${JSON.stringify({
+      ownerId: participant.ownerId,
+      parentOwnerId: lock.ownerId,
+      pid,
+      ownerProcessStartedAt,
+      at: new Date().toISOString(),
+    })}\n`;
+    await writeFile(
+      resolveOwnerEntryPath(lock.path, participant.ownerId),
+      contents,
+      {
+        encoding: "utf8",
+        flag: "wx",
+        mode: 0o600,
+      }
+    );
+    // A failed attachment must never grant execution. Keep its entry until
+    // the waiting process exits; subsequent recovery proves that identity dead.
+    const snapshot = await readLockSnapshot(lock.path);
+    if (
+      readProcessStartIdentity(pid) !== ownerProcessStartedAt ||
+      !(snapshot.ownerEntryNames ?? [snapshot.ownerEntryName]).includes(
+        `${encodeURIComponent(participant.ownerId)}.owner.json`
+      )
+    ) {
+      throw new Error(
+        "Native command lifecycle attachment could not be verified."
+      );
+    }
+    return participant;
+  } finally {
+    await parent.close();
+  }
 }
 
 export function releaseLockSync(lock: OpenMeldLock): void {
@@ -381,6 +444,7 @@ type LockSnapshot = {
   exists: boolean;
   fileIdentity: string | null;
   ownerEntryName: string | null;
+  ownerEntryNames?: string[];
   modifiedAtMs: number | null;
   metaRaw: string | null;
   meta: OpenMeldLockMeta | null;
@@ -540,14 +604,48 @@ async function readLockSnapshot(
 
 async function readDirectoryLockSnapshot(
   path: string,
-  pathStats: Awaited<ReturnType<typeof lstat>>
+  pathStats: Awaited<ReturnType<typeof lstat>>,
+  selectedEntry?: string
 ): Promise<LockSnapshot> {
   const ownerEntries = (await readdir(path, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith(".owner.json"))
     .map((entry) => entry.name)
     .sort();
-  const ownerEntryName = ownerEntries.length === 1 ? ownerEntries[0] : null;
+  const ownerEntryName =
+    selectedEntry ?? (ownerEntries.length === 1 ? ownerEntries[0] : null);
   const directoryIdentity = `${pathStats.dev}:${pathStats.ino}:${pathStats.mtimeMs}`;
+
+  if (!selectedEntry && ownerEntries.length > 1) {
+    const snapshots = await Promise.all(
+      ownerEntries.map((entry) =>
+        readDirectoryLockSnapshot(path, pathStats, entry)
+      )
+    );
+    const recognized = snapshots.every(
+      (snapshot) =>
+        typeof snapshot.meta?.ownerId === "string" &&
+        snapshot.ownerEntryName ===
+          `${encodeURIComponent(snapshot.meta.ownerId)}.owner.json` &&
+        typeof snapshot.meta.ownerProcessStartedAt === "string" &&
+        snapshot.meta.ownerProcessStartedAt.startsWith("ps:") &&
+        snapshot.pid !== null
+    );
+    return {
+      exists: true,
+      fileIdentity: snapshots
+        .map((snapshot) => snapshot.fileIdentity)
+        .join("|"),
+      ownerEntryName: null,
+      ownerEntryNames: recognized ? ownerEntries : undefined,
+      modifiedAtMs: Number(pathStats.mtimeMs),
+      metaRaw: null,
+      meta: null,
+      pid: recognized ? (snapshots[0]?.pid ?? null) : null,
+      hasStaleOwner:
+        recognized && snapshots.every((snapshot) => snapshot.hasStaleOwner),
+      storageKind: "directory",
+    };
+  }
 
   if (!ownerEntryName) {
     return {
@@ -656,9 +754,10 @@ async function cleanupStaleDirectoryLock(
   path: string,
   snapshot: LockSnapshot
 ): Promise<boolean> {
-  if (snapshot.ownerEntryName) {
+  for (const entry of snapshot.ownerEntryNames ??
+    (snapshot.ownerEntryName ? [snapshot.ownerEntryName] : [])) {
     try {
-      await unlink(join(path, snapshot.ownerEntryName));
+      await unlink(join(path, entry));
     } catch (error) {
       if (getErrorCode(error) === "ENOENT") {
         return false;

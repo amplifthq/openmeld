@@ -64,22 +64,14 @@ describe("AgentProfileGenerator", () => {
 		expect(onStart).toHaveBeenCalledOnce();
 		if (state === "local_agents") {
 			expect(
-				screen.getByTestId("local-agent-catalog-empty").className
-			).toContain("border-dashed");
-			for (const name of [
-				"Codex",
-				"Claude Code",
-				"Grok Build",
-				"OpenCode",
-				"Cursor CLI",
-			]) {
-				expect(
-					within(screen.getByTestId("local-agent-catalog-empty")).getByText(
-						name,
-						{ selector: "div" }
-					)
-				).toBeTruthy();
-			}
+				screen.getByText("Local agent details aren’t available")
+			).toBeTruthy();
+			expect(screen.queryByText("No supported agents detected")).toBeNull();
+			expect(
+				screen.getByText(
+					"If you haven’t installed a local agent, install one such as Codex or Claude Code, then check again."
+				)
+			).toBeTruthy();
 			const guide = screen.getByRole("link", {
 				name: "See the install guide (opens in a new tab)",
 			});
@@ -191,8 +183,25 @@ describe("AgentProfileGenerator", () => {
 		expect(review.disabled).toBe(false);
 		expect(review.type).toBe("button");
 		fireEvent.click(screen.getByRole("button", { name: "Review permissions" }));
+		const outcome = await screen.findByTestId(
+			"agent-controller-permission-mode-outcome"
+		);
+		const permissionSelect = screen.getByRole("combobox", {
+			name: "Codex permissions mode",
+		});
+		expect(permissionSelect.textContent).toBe("Full access");
+		expect(permissionSelect.getAttribute("aria-describedby")).toBe(
+			`${outcome.id}-description`
+		);
+		const technicalDetails = within(outcome)
+			.getByText("Technical details")
+			.closest("details") as HTMLDetailsElement;
+		expect(technicalDetails.open).toBe(false);
+		expect(technicalDetails.textContent).toContain(
+			"--dangerously-bypass-approvals-and-sandbox"
+		);
 		const confirmation = await screen.findByRole("checkbox", {
-			name: "I understand this permissions mode can run with dangerous full access.",
+			name: "I understand this mode may run dangerous actions without asking.",
 		});
 		await waitFor(() => expect(document.activeElement).toBe(confirmation));
 		fireEvent.click(confirmation);

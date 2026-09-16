@@ -105,7 +105,7 @@ export function subscribeInboxBrowserNotificationSoundSettings(
 }
 
 export function queueInboxBrowserNotificationSound(input: {
-	item: InboxItem;
+	item: Pick<InboxItem, "importance" | "attention" | "resolutionStatus">;
 	userId: string;
 }): void {
 	if (!readInboxBrowserNotificationSoundEnabled({ userId: input.userId })) {
@@ -139,7 +139,7 @@ export function cancelPendingInboxBrowserNotificationSound(input?: {
 }
 
 export function resolveInboxBrowserNotificationSoundCue(
-	item: InboxItem
+	item: Pick<InboxItem, "importance" | "attention" | "resolutionStatus">
 ): InboxBrowserNotificationSoundCue {
 	if (
 		item.importance === "urgent" ||

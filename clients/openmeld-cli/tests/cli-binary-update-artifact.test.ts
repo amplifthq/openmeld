@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { createServer } from "node:http";
+import { downloadCliBinaryUpdateArtifact } from "@openmeld/local-service/cli-binary-update-artifact";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CliBinaryReleaseInfo } from "../src/config/version-state";
-import { downloadCliBinaryUpdateArtifact } from "../src/runtime/cli-binary-update-artifact";
 
 const DOWNLOAD_URL = "https://downloads.openmeld.test/openmeld";
 const DELTA_DOWNLOAD_URL = `${DOWNLOAD_URL}.delta`;

@@ -430,6 +430,10 @@ export type RuntimeTransportDispatchToolActivityRequest =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchToolActivityRequestSchema"]
   >;
 
+export type RuntimeTransportDispatchReasoningRequest = import("zod/v4").infer<
+  typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchReasoningRequestSchema"]
+>;
+
 export type RuntimeTransportDispatchInteractionRequest = import("zod/v4").infer<
   typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportDispatchInteractionRequestSchema"]
 >;

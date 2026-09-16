@@ -58,6 +58,7 @@ packageExtensions:
       es-toolkit: 1.46.0
 
 patchedDependencies:
+  '@better-auth/electron@1.6.30': patches/@better-auth__electron@1.6.30.patch
   '@cloudflare/computer@0.2.1': patches/@cloudflare__computer@0.2.1.patch
   '@flue/runtime@2.0.3': patches/@flue__runtime@2.0.3.patch
   thinking-orbs@0.3.1: patches/thinking-orbs@0.3.1.patch

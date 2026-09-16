@@ -276,14 +276,11 @@ ordinary message presentation. A Local Agent that needs more Organization
 context asks through this same command and receives only what the represented
 member and current environment authorize.
 
-When the Center Agent creates one or more canonical Tasks during that turn, the
-visible reply already carries typed Task references. Agent View preserves those
-references and adds Organization-scoped Web URLs instead of reducing the reply
-to text. The CLI still does not create a parallel Task API or decide that every
-request is a Task: quick answers and immediate safe actions stay in Chat, while
-the Center Agent may create durable, asynchronous, parallel, or recoverable
-work through the existing Task tool. A returned Task reference means the work
-already exists and must not be resubmitted.
+The private Center Agent Direct Message does not create Space Tasks or return a
+parallel Task reference. When the same Agent Profile participates in an
+ordinary shared Space, it may use the Space-owned Task contract described
+below. Quick answers and immediate safe actions stay in Messages on both
+surfaces.
 
 If the Center Agent needs human input, Human View points the member to the same
 Center Agent Chat. Agent View returns the structured pending interaction and
@@ -595,6 +592,17 @@ the local service is ready. `openmeld upgrade` reports separate timings for the
 release check, CLI download/install, and OpenMeld Service alignment. These are
 user-visible stage timings, not hidden debug logs, so a slow network, install,
 or service restart is immediately distinguishable.
+
+Local integrations can use `openmeld service start|stop --json --expected-account
+<account-id>` for an already connected POSIX Service. The CLI verifies that
+account at the mutation owner, including concurrent sign-in changes. The option
+requires JSON output and rejects profile, force, and startup overrides. It does
+not log in, install a missing Service, or take over another account's Service.
+Missing, expired, mismatched, busy, or unsupported ownership returns an explicit
+error; no unguarded retry is allowed. The
+[Service admission contract](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop)
+owns its cross-process behavior. Desktop's pilot controls remain disabled.
+
 The binary download stage also shows the manifest-declared transfer size: an
 exact-base delta when available, otherwise the complete gzip archive (currently
 about 25 MB), never the larger installed executable size.
@@ -998,6 +1006,21 @@ use the same message file contract.
 
 ### OpenMeld Space Action Commands
 
+The dispatch Space Action MCP also exposes non-final `list_tasks`,
+`create_task`, `start_task`, `submit_task_result`, `review_task`, and
+`cancel_task` tools in an eligible shared Space. Their Space, source Signal,
+and Agent actor are fixed by the active dispatch context. They call the shared
+Space Task API through normal CLI authentication and recheck that the context
+did not change before accepting the result. A Task tool does not consume or
+replace the Wake's one required final Space action.
+
+Agents create a Task only for a clear delivery obligation that needs durable
+ownership, progress, review, or later closure. Questions and tiny same-turn
+actions stay in Messages. Creating assigns the current Agent by default and
+leaves the Task in To do; starting, result submission, review, and cancellation
+are explicit revision-bound writes. Task cancellation may request the existing
+Wake Stop path, but the Task receipt never claims that a process stopped.
+
 An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
 final outcome. A supported controller receives first-party `reply`, `status`,
 and `stay_silent` tools for text, status, and silent outcomes. Those tools are
@@ -1082,6 +1105,20 @@ The command result must describe that record as an unpublished proposal for the
 current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that
 claim.
+
+The `reply`, `status`, and `stay_silent` MCP tools advertise the shared
+`dispatchSpaceActionToolResultSchema` and return it as `structuredContent`.
+The receipt distinguishes `proposal_saved_locally`, `rejected_closed`, and
+`outcome_unknown`; Coordinator acceptance and Space publication remain
+`unconfirmed`. Local receipts include the original context, dispatch, attempt,
+action type, and recording time, but never the context nonce.
+
+After local context expiry, an exact already-recorded action may recover its
+original local receipt without changing the record or extending execution
+authority. Dispatch and target identity checks still apply. Different or new
+actions are rejected, and file reads, uploads, and target listing still require
+an active context. Invalid or unreadable records stay preserved and produce an
+unknown receipt rather than a claim that nothing was recorded or published.
 
 `wake` and `reply --wake` are `post_message` outcomes with
 `messageEnvelope.activationTargets`. They close the current Wake with a visible
@@ -1601,6 +1638,17 @@ switch that renders human names as plain text while agent coloring stays on.
 
 ## Local Capability And Execution Boundary
 
+Agent Profile owners can read or change admission through
+`openmeld profiles execution-mode <profile-id> [--mode serial|parallel]`.
+The command calls Core's current-Organization owner-authorized API; it does not
+edit a local concurrency default or restart the Service. The response includes
+the selected mode, migration phase, and revision. Serial mode limits future
+reservations to one; parallel mode uses the shared five-reservation ceiling.
+Running and waiting Wakes retain their Context, native identity, and results.
+Changing this policy cannot cancel work, replay effects, or revert stored
+formats. The Core/Gateway receiver must be released before this command is
+distributed with the CLI.
+
 The CLI may display Agent Profile Wakeability, but it does not own the
 execution truth.
 
@@ -1661,6 +1709,15 @@ An authoritative pre-result RuntimeCoordinator status such as `running` or
 `projection_pending` diagnostic. The latter explains why no final message can
 yet be linked; it must not relabel active execution as final publication work or
 tell the operator that the target Computer is offline.
+
+A found Coordinator head with `status: queued` and no linked execution also
+precedes `projection_pending`. Agent View reports `current_state=queued`, the
+shared `runtime_coordinator.head_queued` reason, and asks the caller to wait for
+the Agent's execution slot before checking again. Dispatch or attempt queue
+labels alone cannot establish this state. The shared head-status reason mapper
+also supplies human execution-authority diagnostics so those views agree.
+This changes diagnostic values only: trace request version 3, response fields,
+and parsing of older Core responses remain unchanged.
 
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller

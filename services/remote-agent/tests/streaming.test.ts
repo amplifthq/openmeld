@@ -273,7 +273,7 @@ describe("Remote Agent streaming", () => {
     );
   });
 
-  it("keeps text streaming after the transient thinking budget is exhausted", async () => {
+  it("keeps a bounded live thinking tail and preserves text streaming during long turns", async () => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
@@ -320,7 +320,11 @@ describe("Remote Agent streaming", () => {
 
     expect(overflow).toMatchObject({
       contentKind: "thinking",
-      status: "dropped",
+      status: "published",
+    });
+    expect(submitRemoteAgentStreamDelta.mock.calls.at(-2)?.[0]).toMatchObject({
+      kind: "thinking",
+      snapshot: `${"t".repeat(AGENT_STREAM_SNAPSHOT_MAX_CHARS - "overflow".length)}overflow`,
     });
     expect(text).toMatchObject({
       contentKind: "text",

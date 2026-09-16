@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { constants } from "node:fs";
 import {
   access,
@@ -22,6 +21,7 @@ import {
 } from "../../config/paths";
 import { assertSafePublishedProductionServiceRegistrationMutation } from "../../config/published-production-safety";
 import { resolveDaemonServiceIdentity } from "./daemon-service-identity";
+import { runNativeServiceCommand as runCommand } from "./native-command";
 import {
   readWindowsTaskAction,
   runWindowsUserTask,
@@ -265,60 +265,6 @@ export async function startLaunchdService(input: {
     command: "launchctl",
     args: ["kickstart", input.serviceKey],
     throwOnError: true,
-  });
-}
-
-async function runCommand(input: RunCommandOptions): Promise<RunCommandResult> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(input.command, input.args, {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: input.env ?? process.env,
-      windowsHide: true,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.on("data", (chunk) => {
-      stdout += chunk.toString();
-    });
-    child.stderr?.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    child.once("error", (error) => {
-      if (input.throwOnError) {
-        reject(error);
-        return;
-      }
-      resolve({
-        exitCode: 1,
-        stdout,
-        stderr: `${stderr}${String(error)}`,
-      });
-    });
-
-    child.once("close", (code) => {
-      const exitCode = typeof code === "number" ? code : 1;
-      if (input.throwOnError && exitCode !== 0) {
-        reject(
-          new Error(
-            [
-              `command failed: ${input.command} ${input.args.join(" ")}`,
-              stdout.trim(),
-              stderr.trim(),
-            ]
-              .filter(Boolean)
-              .join(" | ")
-          )
-        );
-        return;
-      }
-      resolve({
-        exitCode,
-        stdout,
-        stderr,
-      });
-    });
   });
 }
 

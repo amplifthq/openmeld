@@ -245,8 +245,16 @@ export function useMessageReactions(input?: MessageReactionInput) {
 					: old
 			);
 		} catch {
-			setError("Couldn’t update your reaction. Try again.");
-			query.refetch();
+			// A failed response does not prove the write failed. Keep the user's
+			// optimistic intent visible until a fresh read confirms the outcome.
+			const refreshed = await query.refetch({ throwOnError: false });
+			const confirmed =
+				refreshed.isSuccess &&
+				Boolean(
+					refreshed.data.groups.find((group) => group.emoji === emoji.emoji)
+						?.reactedByMe
+				) === active;
+			setError(confirmed ? null : "Couldn’t update your reaction. Try again.");
 		} finally {
 			inFlight.current.delete(emoji.emoji);
 			setPending((previous) => {
@@ -409,15 +417,24 @@ function reactionLabel(
 	const remaining = Math.max(0, group.count - names.length);
 	return `${names.join(", ")}${remaining ? ` and ${remaining} others` : ""}${group.reactedByMe && !readOnly ? " (click to remove)" : ""}`;
 }
-export function MessageReactionRow({
-	state,
-	readOnly,
-	profileId,
-}: {
+type MessageReactionRowProps = {
 	state: MessageReactionsState;
 	readOnly?: boolean;
 	profileId: string;
-}) {
+};
+
+export function MessageReactionRow(props: MessageReactionRowProps) {
+	if (props.state.groups.length === 0) {
+		return null;
+	}
+	return <PopulatedMessageReactionRow {...props} />;
+}
+
+function PopulatedMessageReactionRow({
+	state,
+	readOnly,
+	profileId,
+}: MessageReactionRowProps) {
 	const measureRef = useRef<HTMLDivElement>(null);
 	const rowRef = useRef<HTMLDivElement>(null);
 	const [visibleCount, setVisibleCount] = useState(0);
@@ -485,13 +502,10 @@ export function MessageReactionRow({
 	const hidden = state.groups.slice(visibleCount);
 	return (
 		<div
-			className={cn(
-				"relative flex min-w-0 shrink items-center gap-1",
-				state.groups.length ? "max-w-full" : "hidden"
-			)}
+			className="relative flex min-w-0 max-w-full shrink items-center gap-1"
 			data-slot="message-reactions"
 			ref={rowRef}
-			style={{ width: naturalWidth, minWidth: state.groups.length ? 36 : 0 }}
+			style={{ width: naturalWidth, minWidth: 36 }}
 		>
 			<div
 				aria-hidden="true"

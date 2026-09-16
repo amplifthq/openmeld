@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildStoredAuthSessionIdentity } from "../src/config/auth-session";
 import type { Presenter } from "../src/runtime/presenter";
 import type { RuntimeContext } from "../src/runtime/types";
 
@@ -732,6 +733,54 @@ describe("Computer authorization handoff", () => {
     expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
       candidateSession
     );
+  });
+
+  it.each([
+    "matching",
+    "different_account",
+    "replaced_session",
+  ] as const)("binds GUI connection consent to the exact reviewed session: %s", async (review) => {
+    const previous = {
+      ...existingSession,
+      user: { id: "user-other", email: "other@example.com" },
+    };
+    getAuthSessionStateMock.mockResolvedValueOnce({
+      state: "valid",
+      session: previous,
+    });
+    const result = runComputerAuthorizationHandoff({
+      deviceCode: "approved-device-code",
+      interactive: false,
+      presenter,
+      runtime: agentRuntime,
+      startSession: "starttok_demo",
+      view: "agent",
+      connectionIntent: {
+        expectedAccount:
+          review === "different_account"
+            ? "unexpected-account"
+            : candidateSession.user.id,
+        previousSessionIdentity: buildStoredAuthSessionIdentity(
+          review === "replaced_session"
+            ? { ...previous, createdAt: "2026-08-30T00:00:00.000Z" }
+            : previous
+        ),
+      },
+    });
+    if (review === "matching") {
+      await expect(result).resolves.toMatchObject({ status: "completed" });
+      expect(beginAuthSessionTransitionMock).toHaveBeenCalledWith(
+        candidateSession,
+        expect.objectContaining({ expectedPreviousSession: previous })
+      );
+    } else {
+      await expect(result).rejects.toThrow("The computer sign-in changed");
+      expect(beginAuthSessionTransitionMock).not.toHaveBeenCalled();
+      expect(revokePreparedAuthSessionMock).toHaveBeenCalledWith(
+        candidateSession
+      );
+    }
+    expect(promptConfirmMock).not.toHaveBeenCalled();
   });
 
   it("switches accounts only after an interactive human confirms it", async () => {

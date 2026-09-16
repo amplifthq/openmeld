@@ -36,6 +36,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { ReactElement, ReactNode } from "react";
 import { toast } from "sonner";
 import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-controller-avatar";
+import { AgentTaskActivitySummary } from "#/components/agents/agent-task-activity";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import type {
 	DirectoryAgentProfileSummary,
@@ -137,6 +138,15 @@ export function AgentProfileDetailsContent(input: {
 				onOpen={input.onOpenDirectMessage}
 				profileName={input.entry.profileName}
 			/>
+			{!input.isCenterAgent && (
+				<div className="mt-3 border-border border-t pt-3">
+					<AgentProfileUsage
+						profileId={input.entry.profileId}
+						variant="popover"
+					/>
+				</div>
+			)}
+			<AgentTaskActivitySummary profileId={input.entry.profileId} />
 		</div>
 	);
 }
@@ -210,9 +220,6 @@ function AgentProfileDetailsHeader(input: {
 				{modelSummary}
 			</p>
 			{!input.isCenterAgent && <AgentProfileOwner entry={input.entry} />}
-			{!input.isCenterAgent && (
-				<AgentProfileUsage profileId={input.entry.profileId} />
-			)}
 			{showAvailabilitySummary ? (
 				<p className="mt-1 text-muted-foreground text-xs">
 					{input.entry.availabilitySummary}
@@ -262,19 +269,24 @@ function AgentProfileDetailsAction(input: {
 	if (!input.href) {
 		return null;
 	}
-	if (!input.canEdit) {
-		return null;
-	}
 	return (
 		<a
-			aria-label={`Edit ${input.profileName}`}
+			aria-label={
+				input.canEdit
+					? `Edit ${input.profileName}`
+					: `View ${input.profileName}'s profile`
+			}
 			className={cn(
 				buttonVariants({ size: "icon-xs", variant: "ghost" }),
 				"shrink-0"
 			)}
 			href={input.href}
 		>
-			<PencilSimpleIcon aria-hidden="true" />
+			{input.canEdit ? (
+				<PencilSimpleIcon aria-hidden="true" />
+			) : (
+				<ArrowRightIcon aria-hidden="true" />
+			)}
 		</a>
 	);
 }

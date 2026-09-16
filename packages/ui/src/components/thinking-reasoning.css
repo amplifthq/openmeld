@@ -1,0 +1,86 @@
+/* AICSS Thinking + Reasoning, adapted to OpenMeld tokens and live text. */
+.om-reasoning {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  color: var(--muted-foreground);
+}
+.om-reasoning-header {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+}
+.om-reasoning-header:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.om-reasoning-header svg {
+  transition: transform 180ms ease-out;
+}
+.om-reasoning-header[aria-expanded="true"] svg {
+  transform: rotate(180deg);
+}
+.om-reasoning-label {
+  font-weight: 500;
+}
+.om-reasoning-timing {
+  font-size: 11px;
+  font-weight: 400;
+}
+.om-reasoning-live {
+  animation: om-reasoning-pulse 2s ease-in-out infinite;
+}
+@keyframes om-reasoning-pulse {
+  50% {
+    opacity: 0.6;
+  }
+}
+.om-reasoning-collapsible {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition:
+    grid-template-rows 180ms ease-out,
+    opacity 150ms ease-out;
+}
+.om-reasoning-collapsible[data-open="true"] {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+.om-reasoning-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.om-reasoning-viewport {
+  max-height: 180px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.om-reasoning-stream {
+  padding-block: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 20px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .om-reasoning-live {
+    animation: none;
+  }
+  .om-reasoning-header svg {
+    transition: none;
+  }
+  .om-reasoning-collapsible {
+    transition: opacity 150ms ease-out;
+  }
+}

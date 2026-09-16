@@ -1,9 +1,12 @@
 import {
   appendFile,
+  copyFile,
   mkdir,
+  open,
   readFile,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { dirnamePath } from "../core/logger";
@@ -23,11 +26,10 @@ export function createLedgerIo() {
       });
     },
     copyFile: async (fromPath: string, toPath: string): Promise<void> => {
-      const raw = await readFile(fromPath, "utf8");
       await mkdir(dirnamePath(toPath), {
         recursive: true,
       });
-      await writeFile(toPath, raw, "utf8");
+      await copyFile(fromPath, toPath);
     },
     mkdir: async (
       dirPath: string,
@@ -45,6 +47,22 @@ export function createLedgerIo() {
         recursive: true,
       });
       await rename(fromPath, toPath);
+    },
+    syncPath: async (fileOrDirectoryPath: string): Promise<void> => {
+      const isWindows = process.platform === "win32";
+      if (isWindows && (await stat(fileOrDirectoryPath)).isDirectory()) {
+        // Node does not provide a supported Windows directory flush. File
+        // flushes and atomic rename remain required, but power-loss durability
+        // of directory entries is not guaranteed on this platform.
+        return;
+      }
+      // Windows FlushFileBuffers requires a handle opened with write access.
+      const handle = await open(fileOrDirectoryPath, isWindows ? "r+" : "r");
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
     },
     rm: async (
       filePath: string,

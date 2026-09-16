@@ -50,7 +50,6 @@ import {
 	buildOrganizationAgentsPath,
 	buildOrganizationComputersPath,
 	buildOrganizationConnectPath,
-	buildOrganizationDefaultPath,
 	buildOrganizationDirectMessagePath,
 	buildOrganizationDirectMessagesPath,
 	buildOrganizationInboxPath,
@@ -309,7 +308,6 @@ function CommandCenterContents(input: {
 		});
 	}
 	for (const [label, to, destination] of [
-		["Desk", buildOrganizationDefaultPath(orgSlug), "home"],
 		["Spaces", buildOrganizationSpacesPath(orgSlug), "spaces"],
 		[
 			"Direct messages",

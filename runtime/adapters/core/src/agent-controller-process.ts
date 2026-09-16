@@ -27,7 +27,9 @@ export type ListAgentControllerDescendantProcessIds = (
 ) => Promise<number[]>;
 
 export type ListAgentControllerSupervisedProcessIds = (input: {
-  processId: number;
+  fresh?: boolean;
+  // Null requests the whole marked invocation after its original owner exited.
+  processId: number | null;
   supervisionId: string;
 }) => Promise<number[]>;
 
@@ -35,16 +37,16 @@ export function createAgentControllerProcessTableSnapshotReader(input: {
   maxAgeMs: number;
   now?: () => number;
   readProcessTable: () => Promise<string>;
-}): () => Promise<string> {
+}): (options?: { fresh?: boolean }) => Promise<string> {
   if (!(Number.isFinite(input.maxAgeMs) && input.maxAgeMs > 0)) {
     throw new Error("process table snapshot max age must be positive");
   }
   const now = input.now ?? Date.now;
   let snapshot: AgentControllerProcessTableSnapshot | null = null;
 
-  return async () => {
+  return async (options) => {
     const readAtMs = now();
-    if (snapshot) {
+    if (snapshot && !options?.fresh) {
       const ageMs = readAtMs - snapshot.capturedAtMs;
       if (snapshot.pending || (ageMs >= 0 && ageMs < input.maxAgeMs)) {
         return await snapshot.processTable;
@@ -235,9 +237,10 @@ export function spawnAgentControllerProcess(input: {
   cwd: string;
   env: NodeJS.ProcessEnv;
   shell: boolean;
+  supervisionId?: string;
 }): SpawnedAgentControllerProcess {
   const signalTarget = resolveAgentControllerProcessSignalTarget();
-  const supervisionId = randomUUID();
+  const supervisionId = input.supervisionId ?? randomUUID();
   const child = spawn(input.bin, input.args, {
     cwd: input.cwd,
     detached: signalTarget === "process_group",
@@ -503,7 +506,9 @@ export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervi
         processTable,
       });
     }
-    const processTable = await readMacOsSupervisedProcessTable();
+    const processTable = await readMacOsSupervisedProcessTable({
+      fresh: input.fresh,
+    });
     processDiscoveryDiagnostics.recovered("supervision_marker");
     return resolveAgentControllerSupervisedProcessIds({
       ...input,
@@ -513,7 +518,7 @@ export const listAgentControllerSupervisedProcessIds: ListAgentControllerSupervi
 
 export function resolveAgentControllerSupervisedProcessIds(input: {
   markedProcessIds?: Iterable<number>;
-  processId: number;
+  processId: number | null;
   processTable: string;
   supervisionId: string;
 }): number[] {
@@ -525,7 +530,7 @@ export function resolveAgentControllerSupervisedProcessIds(input: {
 
 function resolveAgentControllerProcessIdsFromTable(input: {
   markedProcessIds?: Iterable<number>;
-  processId: number;
+  processId: number | null;
   processTable: string;
   supervisionMarker?: string;
 }): number[] {
@@ -562,6 +567,9 @@ function resolveAgentControllerProcessIdsFromTable(input: {
     ) {
       markedProcessIds.add(processId);
     }
+  }
+  if (input.processId === null) {
+    return [...markedProcessIds];
   }
   return resolveOutOfGroupAgentControllerProcessIds({
     childrenByParentProcessId,

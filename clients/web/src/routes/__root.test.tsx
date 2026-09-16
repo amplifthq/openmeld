@@ -39,6 +39,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 			</a>
 		),
 		useNavigate: () => useNavigateMock,
+		useRouter: () => ({ invalidate: vi.fn() }),
 		useRouterState: (input: {
 			select: (state: { location: { pathname: string } }) => string;
 		}) => input.select({ location: { pathname: "/" } }),

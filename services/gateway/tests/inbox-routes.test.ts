@@ -1,6 +1,8 @@
 import type {
+  GetInboxItemResponse,
   InboxSummaryResponse,
   ListInboxItemsResponse,
+  MarkInboxItemReadResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
@@ -74,6 +76,55 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("routes message preferences separately from email and validates conversation writes", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/inbox/message-notification-preferences?spaceId=space-1"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.getInboxMessageNotificationPreferences).toHaveBeenCalledWith(
+      expect.objectContaining({ spaceId: "space-1" })
+    );
+    const saved = await app.fetch(
+      jsonRequest(
+        "http://local/v1/inbox/message-notification-preferences",
+        "PATCH",
+        { scope: "conversation", spaceId: "space-1", mode: "muted" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(saved.status).toBe(200);
+    expect(
+      coreRpc.updateInboxMessageNotificationPreferences
+    ).toHaveBeenCalledWith(
+      expect.objectContaining({
+        preference: {
+          scope: "conversation",
+          spaceId: "space-1",
+          mode: "muted",
+        },
+      })
+    );
+    expect(coreRpc.updateInboxNotificationPreferences).not.toHaveBeenCalled();
+    const invalid = await app.fetch(
+      jsonRequest(
+        "http://local/v1/inbox/message-notification-preferences",
+        "PATCH",
+        { scope: "account", mode: "muted" }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(invalid.status).toBe(400);
+    expect(
+      coreRpc.updateInboxMessageNotificationPreferences
+    ).toHaveBeenCalledOnce();
+  });
   it("exposes complete conversation counts only to summary-aware clients", async () => {
     const { coreRpc, env } = makeEnv();
     const legacy = {
@@ -104,7 +155,7 @@ describe("Inbox routes", () => {
     }
   });
 
-  it("preserves thread and DM routing while gating owner activity to version 6", async () => {
+  it("preserves older routing while exposing recipient reply facts only to version 7", async () => {
     const { coreRpc, env } = makeEnv();
     const sourceTarget = {
       kind: "space" as const,
@@ -113,33 +164,56 @@ describe("Inbox routes", () => {
       threadRootSignalId: "root",
       directMessage: true,
       agentOwnerActivity: true,
+      replyToRecipient: true,
     };
     coreRpc.listInboxItems.mockResolvedValue({
       items: [{ ...HUMAN_MENTION_ITEM, sourceTarget }],
       nextCursor: null,
       organizationId: "org-1",
     });
-    for (const version of ["4", "5", "6"]) {
-      const response = await app.fetch(
-        new Request("http://local/v1/inbox", {
-          headers: { "x-openmeld-inbox-source-target-version": version },
-        }),
-        env,
-        TEST_EXECUTION_CONTEXT
-      );
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as {
-        items: { sourceTarget: unknown }[];
-      };
-      expect(body.items[0]?.sourceTarget).toEqual({
+    coreRpc.getInboxItem.mockResolvedValue({
+      item: { ...HUMAN_MENTION_ITEM, sourceTarget },
+    });
+    coreRpc.markInboxItemRead.mockResolvedValue({
+      item: { ...HUMAN_MENTION_ITEM, sourceTarget },
+    });
+    for (const version of ["4", "5", "6", "7"]) {
+      const headers = { "x-openmeld-inbox-source-target-version": version };
+      const expectedTarget = {
         kind: "space",
         spaceId: "dm",
         signalId: "reply",
         threadRootSignalId: "root",
         ...(version !== "4" ? { directMessage: true } : {}),
-        ...(version === "6" ? { agentOwnerActivity: true } : {}),
-      });
+        ...(["6", "7"].includes(version) ? { agentOwnerActivity: true } : {}),
+        ...(version === "7" ? { replyToRecipient: true } : {}),
+      };
+      for (const request of [
+        new Request("http://local/v1/inbox", { headers }),
+        new Request("http://local/v1/inbox/items/inbox-item-human-mention", {
+          headers,
+        }),
+        jsonRequest(
+          "http://local/v1/inbox/items/inbox-item-human-mention/read",
+          "PATCH",
+          { read: true },
+          headers
+        ),
+      ]) {
+        const response = await app.fetch(request, env, TEST_EXECUTION_CONTEXT);
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as {
+          items?: { sourceTarget: unknown }[];
+          item?: { sourceTarget: unknown };
+        };
+        expect((body.item ?? body.items?.[0])?.sourceTarget).toEqual(
+          expectedTarget
+        );
+      }
     }
+    expect(coreRpc.listInboxItems).toHaveBeenLastCalledWith(
+      expect.objectContaining({ includeReplyToRecipient: true })
+    );
   });
 
   it("keeps an absent count unknown when talking to old Core", async () => {
@@ -573,13 +647,31 @@ describe("Inbox routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    getInboxMessageNotificationPreferences: vi.fn(async () => ({
+      organizationId: "org-1",
+      spaceId: "space-1",
+      defaultMode: "mentions_and_replies",
+      overrideMode: null,
+      effectiveMode: "mentions_and_replies",
+    })),
+    updateInboxMessageNotificationPreferences: vi.fn(async () => ({
+      organizationId: "org-1",
+      spaceId: "space-1",
+      defaultMode: "mentions_and_replies",
+      overrideMode: "muted",
+      effectiveMode: "muted",
+    })),
     dismissInboxItem: vi.fn(async () => ({
       dismissedItemId: ITEM.id,
     })),
-    getInboxItem: vi.fn(async (input: { itemId: string }) => ({
-      item:
-        input.itemId === MESSAGE_CHANNEL_ITEM.id ? MESSAGE_CHANNEL_ITEM : ITEM,
-    })),
+    getInboxItem: vi.fn(
+      async (input: { itemId: string }): Promise<GetInboxItemResponse> => ({
+        item:
+          input.itemId === MESSAGE_CHANNEL_ITEM.id
+            ? MESSAGE_CHANNEL_ITEM
+            : ITEM,
+      })
+    ),
     getInboxNotificationPreferences: vi.fn(async () => ({
       updatedAt: null,
       urgentEmailEnabled: true,
@@ -635,14 +727,18 @@ function makeEnv() {
       markedReadCount: 1,
       readThroughAt: "2026-04-02T02:40:00.000Z",
     })),
-    markInboxItemRead: vi.fn(async (input: { itemId: string }) => ({
-      item: {
-        ...(input.itemId === MESSAGE_CHANNEL_ITEM.id
-          ? MESSAGE_CHANNEL_ITEM
-          : ITEM),
-        readAt: "2026-08-04T01:01:00.000Z",
-      },
-    })),
+    markInboxItemRead: vi.fn(
+      async (input: {
+        itemId: string;
+      }): Promise<MarkInboxItemReadResponse> => ({
+        item: {
+          ...(input.itemId === MESSAGE_CHANNEL_ITEM.id
+            ? MESSAGE_CHANNEL_ITEM
+            : ITEM),
+          readAt: "2026-08-04T01:01:00.000Z",
+        },
+      })
+    ),
     updateInboxNotificationPreferences: vi.fn(async () => ({
       updatedAt: "2026-08-04T01:01:00.000Z",
       urgentEmailEnabled: false,

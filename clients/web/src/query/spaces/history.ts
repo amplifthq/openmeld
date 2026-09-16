@@ -2,6 +2,7 @@ import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import type {
 	GetSpaceUpdatesResponse,
+	ListSpaceThreadsResponse,
 	SignalEnvelope,
 	SpaceMessageReactions,
 } from "@openmeld/schemas/types";
@@ -54,7 +55,52 @@ export const SPACE_HISTORY_SIGNAL_KINDS = [
 export type SpaceHistorySnapshot = {
 	envelopes: readonly SignalEnvelope[];
 	nextCursor: string | null;
+	/** Bounded display context only; never seeds the authoritative Thread query. */
+	threadDisplay?: ListSpaceThreadsResponse;
 };
+
+export const SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES = 256 * 1024;
+
+export function boundSpaceThreadDisplay(
+	envelopes: readonly SignalEnvelope[],
+	snapshot: ListSpaceThreadsResponse
+): ListSpaceThreadsResponse {
+	const roots = new Set(envelopes.map((signal) => signal.id));
+	const previews = new Map(
+		snapshot.previews.map((preview) => [preview.threadId, preview])
+	);
+	const result: ListSpaceThreadsResponse = { threads: [], previews: [] };
+	const encoder = new TextEncoder();
+	let bytes = 32;
+	for (const thread of snapshot.threads.toReversed()) {
+		if (!roots.has(thread.rootSignalId)) {
+			continue;
+		}
+		const source = previews.get(thread.threadId);
+		const signals = source?.signals.slice(0, 2) ?? [];
+		const preview = {
+			threadId: thread.threadId,
+			replyCount: source?.replyCount ?? 0,
+			signals:
+				encoder.encode(JSON.stringify(signals)).byteLength <= 16 * 1024
+					? signals
+					: [],
+			placements: [],
+		};
+		const size =
+			encoder.encode(JSON.stringify(thread) + JSON.stringify(preview))
+				.byteLength + 2;
+		if (bytes + size > SPACE_SAVED_THREAD_DISPLAY_MAX_BYTES) {
+			break;
+		}
+		bytes += size;
+		result.threads.push(thread);
+		result.previews.push(preview);
+	}
+	result.threads.reverse();
+	result.previews.reverse();
+	return result;
+}
 
 export function mergeSpaceHistorySnapshots(input: {
 	current: SpaceHistorySnapshot | undefined;
@@ -64,9 +110,17 @@ export function mergeSpaceHistorySnapshots(input: {
 		current: input.current?.envelopes ?? [],
 		incoming: input.incoming.envelopes,
 	});
+	const envelopes = boundSavedSpaceHistory(mergedEnvelopes);
+	const threadDisplay =
+		input.incoming.threadDisplay ?? input.current?.threadDisplay;
 	const nextSnapshot = {
 		...input.incoming,
-		envelopes: boundSavedSpaceHistory(mergedEnvelopes),
+		...(threadDisplay
+			? {
+					threadDisplay: boundSpaceThreadDisplay(envelopes, threadDisplay),
+				}
+			: {}),
+		envelopes,
 	};
 	return replaceEqualDeep(input.current, nextSnapshot);
 }

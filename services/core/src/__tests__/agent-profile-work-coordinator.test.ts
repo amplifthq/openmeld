@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_WORK_MAX_WAITING } from "@openmeld/agent-runtime";
 import { describe, expect, it } from "vitest";
 import {
   AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING,
@@ -20,6 +21,165 @@ const workItem = (index: number) => ({
   dispatchId: `dispatch-${index}`,
   enqueuedAtMs: 1_700_000_000_000 + index,
   targetWakeLifecycleId: `wake-${index}`,
+});
+
+describe("independent execution context reservations", () => {
+  const empty = () =>
+    createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+  const accept = (
+    coordinator: ReturnType<typeof empty>,
+    index: number,
+    context: string
+  ) =>
+    acceptAgentProfileWork({
+      coordinator,
+      item: { ...workItem(index), executionContextId: context },
+      nowMs: 1_700_000_000_000 + index,
+    });
+
+  it("starts five contexts and admits the sixth when a non-head execution finishes", () => {
+    let coordinator = empty();
+    const statuses = [1, 2, 3, 4, 5, 6].map((index) => {
+      const result = accept(coordinator, index, `context-${index}`);
+      coordinator = result.coordinator;
+      return result.status;
+    });
+    expect(statuses).toEqual([
+      "start",
+      "start",
+      "start",
+      "start",
+      "start",
+      "queued",
+    ]);
+    expect(summarizeAgentProfileWorkCoordinator(coordinator).waitingCount).toBe(
+      1
+    );
+    const settled = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      targetWakeLifecycleId: "wake-2",
+      outcome: "succeeded",
+    });
+    expect(settled.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-6",
+    ]);
+    expect(
+      summarizeAgentProfileWorkCoordinator(
+        settled.coordinator
+      ).currentWorks.map((item) => item.dispatchId)
+    ).toEqual([
+      "dispatch-1",
+      "dispatch-3",
+      "dispatch-4",
+      "dispatch-5",
+      "dispatch-6",
+    ]);
+  });
+
+  it("serializes one context without blocking independent work", () => {
+    const first = accept(empty(), 1, "context-a");
+    const followUp = accept(first.coordinator, 2, "context-a");
+    const independent = accept(followUp.coordinator, 3, "context-b");
+    expect(followUp.status).toBe("queued");
+    expect(independent.status).toBe("start");
+    const finished = settleAgentProfileWork({
+      coordinator: independent.coordinator,
+      nowMs: 1_700_000_000_100,
+      targetWakeLifecycleId: "wake-1",
+      outcome: "succeeded",
+    });
+    expect(finished.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-2",
+    ]);
+    expect(
+      summarizeAgentProfileWorkCoordinator(finished.coordinator).currentWorks
+    ).toHaveLength(2);
+  });
+
+  it("keeps legacy work exclusive while independent contexts drain", () => {
+    const first = accept(empty(), 1, "context-a");
+    const legacy = acceptAgentProfileWork({
+      coordinator: first.coordinator,
+      item: workItem(2),
+      nowMs: 1_700_000_000_002,
+    });
+    const later = accept(legacy.coordinator, 3, "context-b");
+    expect(legacy.status).toBe("queued");
+    expect(later.status).toBe("queued");
+    const firstDone = removeAgentProfileWork({
+      coordinator: later.coordinator,
+      nowMs: 1_700_000_000_100,
+      targetWakeLifecycleId: "wake-1",
+    });
+    expect(firstDone.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-2",
+    ]);
+    const legacyDone = removeAgentProfileWork({
+      coordinator: firstDone.coordinator,
+      nowMs: 1_700_000_000_200,
+      targetWakeLifecycleId: "wake-2",
+    });
+    expect(legacyDone.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-3",
+    ]);
+  });
+
+  it("does not free a running context when its queued follow-up is cancelled", () => {
+    const first = accept(empty(), 1, "context-a");
+    const followUp = accept(first.coordinator, 2, "context-a");
+    const cancelled = removeAgentProfileWork({
+      coordinator: followUp.coordinator,
+      nowMs: 1_700_000_000_100,
+      targetWakeLifecycleId: "wake-2",
+    });
+    expect(cancelled.promotedItems).toEqual([]);
+    expect(
+      summarizeAgentProfileWorkCoordinator(
+        cancelled.coordinator
+      ).currentWorks.map((item) => item.dispatchId)
+    ).toEqual(["dispatch-1"]);
+  });
+
+  it("retains concurrent interrupted work and lets other reservations finish", () => {
+    let coordinator = empty();
+    for (const index of [1, 2, 3, 4, 5, 6]) {
+      coordinator = accept(coordinator, index, `context-${index}`).coordinator;
+    }
+    const firstFailure = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      targetWakeLifecycleId: "wake-2",
+      outcome: "usage_exhausted",
+    });
+    expect(firstFailure.promotedItems).toEqual([]);
+    expect(
+      summarizeAgentProfileWorkCoordinator(firstFailure.coordinator)
+        .currentWorks
+    ).toHaveLength(4);
+    const secondFailure = settleAgentProfileWork({
+      coordinator: firstFailure.coordinator,
+      nowMs: 1_700_000_000_101,
+      targetWakeLifecycleId: "wake-3",
+      outcome: "usage_exhausted",
+    });
+    expect(
+      secondFailure.coordinator.recoveryGate?.interruptedWork.dispatchId
+    ).toBe("dispatch-2");
+    expect(
+      secondFailure.coordinator.recoveryGate?.additionalInterruptedWork?.map(
+        (item) => item.dispatchId
+      )
+    ).toEqual(["dispatch-3"]);
+    expect(
+      summarizeAgentProfileWorkCoordinator(
+        secondFailure.coordinator
+      ).currentWorks.map((item) => item.dispatchId)
+    ).toEqual(["dispatch-1", "dispatch-4", "dispatch-5"]);
+  });
 });
 
 describe("Agent Profile Work Coordinator", () => {
@@ -181,6 +341,9 @@ describe("Agent Profile Work Coordinator", () => {
     ]);
     expect(summarizeAgentProfileWorkCoordinator(occupied.coordinator)).toEqual({
       currentWaitReason: "controller_conversation_occupied",
+      currentWorks: [
+        { ...workItem(1), waitReason: "controller_conversation_occupied" },
+      ],
       currentWork: {
         ...workItem(1),
         waitReason: "controller_conversation_occupied",
@@ -236,6 +399,7 @@ describe("Agent Profile Work Coordinator", () => {
     });
     expect(summarizeAgentProfileWorkCoordinator(coordinator)).toEqual({
       currentWork: null,
+      currentWorks: [],
       queuedWork: [],
       status: "idle",
       waitingCount: 0,
@@ -251,6 +415,7 @@ describe("Agent Profile Work Coordinator", () => {
 
     expect(summarizeAgentProfileWorkCoordinator(coordinator)).toEqual({
       currentWork: workItem(1),
+      currentWorks: [workItem(1)],
       queuedWork: [workItem(2), workItem(3)],
       status: "working",
       waitingCount: 2,
@@ -294,6 +459,7 @@ describe("Agent Profile Work Coordinator", () => {
     });
     expect(summarizeAgentProfileWorkCoordinator(later.coordinator)).toEqual({
       currentWork: null,
+      currentWorks: [],
       queuedWork: [workItem(2), workItem(3), workItem(4)],
       status: "paused",
       waitingCount: 3,
@@ -374,6 +540,7 @@ describe("Agent Profile Work Coordinator", () => {
     expect(summarizeAgentProfileWorkCoordinator(continued.coordinator)).toEqual(
       {
         currentWork: null,
+        currentWorks: [],
         queuedWork: [workItem(2), workItem(3), workItem(4)],
         status: "paused",
         waitingCount: 3,
@@ -388,6 +555,7 @@ describe("Agent Profile Work Coordinator", () => {
     expect(approved.coordinator.recoveryGate).toBeNull();
     expect(summarizeAgentProfileWorkCoordinator(approved.coordinator)).toEqual({
       currentWork: workItem(2),
+      currentWorks: [workItem(2)],
       queuedWork: [workItem(3), workItem(4)],
       status: "working",
       waitingCount: 2,
@@ -488,6 +656,7 @@ describe("Agent Profile Work Coordinator", () => {
     expect(skipped.promotedItem).toEqual(workItem(2));
     expect(summarizeAgentProfileWorkCoordinator(skipped.coordinator)).toEqual({
       currentWork: workItem(2),
+      currentWorks: [workItem(2)],
       queuedWork: [],
       status: "working",
       waitingCount: 0,
@@ -543,6 +712,7 @@ describe("Agent Profile Work Coordinator", () => {
     });
     expect(summarizeAgentProfileWorkCoordinator(stopped.coordinator)).toEqual({
       currentWork: null,
+      currentWorks: [],
       queuedWork: [workItem(2)],
       status: "paused",
       waitingCount: 1,
@@ -596,9 +766,19 @@ describe("Agent Profile Work Coordinator", () => {
     expect(stopped.coordinator.recoveryGate).toBeNull();
     expect(summarizeAgentProfileWorkCoordinator(stopped.coordinator)).toEqual({
       currentWork: null,
+      currentWorks: [],
       queuedWork: [],
       status: "idle",
       waitingCount: 0,
     });
+  });
+});
+
+describe("agent-profile-work-coordinator shared policy", () => {
+  it("reads the waiting limit from the shared agent-runtime work policy", () => {
+    expect(AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING).toBe(
+      AGENT_PROFILE_WORK_MAX_WAITING
+    );
+    expect(AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING).toBe(50);
   });
 });

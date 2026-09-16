@@ -62,6 +62,7 @@ export type SpaceReplyToSignalInput = {
 };
 
 export type SpaceComposerAddressingTarget = {
+	agentControllerRef?: string | null;
 	agentWakeAvailability?: import("@openmeld/schemas/types").SpaceMemberAgentSnapshot["agentWakeAvailability"];
 	deviceWaitTarget?: import("@openmeld/schemas/types").WakeDeviceWaitTarget;
 	runtimeDeviceDisplayName?: string | null;
@@ -633,6 +634,7 @@ export function buildSpaceComposerAddressingTargets(input: {
 			(candidate) => candidate.profileId === target.profileId
 		);
 		targetByProfileId.set(mention.profileId, {
+			agentControllerRef: member?.agentControllerRef,
 			agentWakeAvailability: member?.agentWakeAvailability,
 			deviceWaitTarget: member?.deviceWaitTarget,
 			runtimeDeviceDisplayName: target.runtimeDeviceDisplayName,

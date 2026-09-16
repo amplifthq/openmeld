@@ -77,12 +77,18 @@ describe("readCurrentOrganizationDirectory", () => {
 
 		expect(fetchMock).toHaveBeenCalledWith(
 			expect.stringContaining(
-				"/v1/organizations/current/agent-runtime-overview?agentProfileWorkRecoveryVersion=2"
+				"/v1/organizations/current/agent-runtime-overview?"
 			),
 			expect.objectContaining({
 				credentials: "include",
 				signal: abortController.signal,
 			})
 		);
+		const requestUrl = new URL(String(vi.mocked(fetch).mock.calls[0]?.[0]));
+		expect(requestUrl.searchParams.get("includeUsageLimits")).toBe("true");
+		expect(requestUrl.searchParams.get("agentProfileWorkRecoveryVersion")).toBe(
+			"2"
+		);
+		expect(requestUrl.searchParams.get("includeTaskActivity")).toBe("true");
 	});
 });

@@ -48,6 +48,7 @@
       "cache": false,
       "persistent": true,
       "passThroughEnv": [
+        "AUTH_DESKTOP_DEVELOPMENT_TARGET",
         "BETTER_AUTH_URL",
         "VITE_BETTER_AUTH_URL",
         "VITE_OPENMELD_HOME",

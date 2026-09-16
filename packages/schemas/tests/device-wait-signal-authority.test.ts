@@ -15,6 +15,31 @@ const deviceWait = {
 };
 
 describe("device-wait signal authority", () => {
+  it("keeps task selection in stored authority while preserving older history readers", () => {
+    const signal = {
+      type: "signal.text",
+      data: {
+        text: "Independent task",
+        contextSelection: {
+          mode: "new" as const,
+          access: "space_context" as const,
+        },
+      },
+    };
+    expect(postNormalMessageBodySchema.safeParse(signal.data).success).toBe(
+      true
+    );
+    const wire = toSpaceSignalReadWireValue({ signals: [signal] });
+    expect(wire.signals[0]?.data).toEqual({ text: "Independent task" });
+    expect(signal.data.contextSelection).toEqual({
+      mode: "new",
+      access: "space_context",
+    });
+    expect(
+      z.strictObject({ text: z.string() }).safeParse(wire.signals[0]?.data)
+        .success
+    ).toBe(true);
+  });
   it("rejects meta-authored waiting on both HTTP and signal writes", () => {
     for (const topLevel of [undefined, deviceWait]) {
       const data = {

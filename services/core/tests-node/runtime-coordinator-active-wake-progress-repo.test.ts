@@ -3,12 +3,13 @@ import type {
   RuntimeCoordinatorExecutionRecord,
   RuntimeCoordinatorExecutionStatus,
 } from "@openmeld/schemas/types";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { listActiveRemoteAgentNativeDeliveryWakeProgressEvidenceBySpace } from "../src/remote-agent/infrastructure/d1/native-delivery-ledger-repo";
 import {
   listActiveRuntimeCoordinatorExecutionProjectionsBySpace,
   listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace,
   readRuntimeCoordinatorExecutionProjectionById,
+  readRuntimeCoordinatorExecutionRunningAtMs,
   writeRuntimeCoordinatorExecutionEventFromParts,
   writeRuntimeCoordinatorExecutionProjection,
 } from "../src/runtime-transport/infrastructure/d1/runtime-coordinator-execution-repo";
@@ -18,6 +19,80 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("RuntimeCoordinator active Wake progress projection repo", () => {
+  it("keeps working time separate from waiting, heartbeat replacement, and missing legacy evidence", async () => {
+    const harness = createSqliteD1Harness();
+    for (const table of [
+      "openMeldDaemon_runtime_coordinator_executions",
+      "openMeldDaemon_runtime_coordinator_execution_events",
+      "openMeldDaemon_dispatch_ledger",
+      "openMeldDaemon_dispatch_attempts",
+    ]) {
+      applyDrizzleMigrationForTable(harness, table);
+    }
+    try {
+      await writeExecution(harness.db, {
+        dispatchId: "dispatch-timing",
+        runtimeCoordinatorExecutionId: "rce-timing",
+        sourceClientMessageId: "client-timing",
+        status: "running",
+        targetProfileId: "agt_target",
+        updatedAtMs: 100,
+      });
+      const readStart = () =>
+        readRuntimeCoordinatorExecutionRunningAtMs({
+          db: harness.db,
+          runtimeCoordinatorExecutionId: "rce-timing",
+        });
+      const prepared = vi.spyOn(harness.db, "prepare");
+      expect(await readStart()).toBeNull();
+      const timingSql = prepared.mock.calls[0]?.[0];
+      expect(timingSql).toBeTypeOf("string");
+      const plan = harness.queryAll<{ detail: string }>({
+        sql: `EXPLAIN QUERY PLAN ${timingSql}`,
+        params: ["rce-timing"],
+      });
+      expect(
+        plan.some((row) =>
+          row.detail.includes(
+            "runtime_coordinator_execution_id=? AND event_type=?"
+          )
+        )
+      ).toBe(true);
+      prepared.mockRestore();
+      for (const observedAtMs of [4_260_000, 4_440_000]) {
+        await writeRuntimeCoordinatorExecutionEventFromParts({
+          db: harness.db,
+          eventType: "lifecycle_running",
+          idempotencyKey: "running:available",
+          observedAtMs,
+          payload: { runningAtMs: 4_260_000, lifecycleAtMs: observedAtMs },
+          replaceCurrentState: true,
+          runtimeCoordinatorExecutionId: "rce-timing",
+          statusAfter: "running",
+        });
+        expect(await readStart()).toBe(4_260_000);
+        const [item] =
+          await listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace(
+            {
+              db: harness.db,
+              spaceId: "space-1",
+              includeTiming: true,
+            }
+          );
+        expect(item?.runningAtMs).toBe(4_260_000);
+      }
+      const [withoutTiming] =
+        await listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace(
+          {
+            db: harness.db,
+            spaceId: "space-1",
+          }
+        );
+      expect(withoutTiming?.runningAtMs).toBeNull();
+    } finally {
+      harness.close();
+    }
+  });
   it("lists active native delivery evidence without a RuntimeCoordinator execution", async () => {
     const harness = createSqliteD1Harness();
     applyDrizzleMigrationForTable(

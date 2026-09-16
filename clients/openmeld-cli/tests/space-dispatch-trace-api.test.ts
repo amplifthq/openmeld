@@ -104,7 +104,7 @@ describe("Space dispatch trace API", () => {
       "invalid space dispatch trace response at correlation: Invalid input"
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://gateway.openmeld.invalid/v1/spaces/space-trace-test/dispatches/dispatch-trace-test/trace",
+      "https://gateway.openmeld.invalid/v1/spaces/space-trace-test/dispatches/dispatch-trace-test/trace?includeServiceConnectionDiagnostics=true",
       expect.objectContaining({
         headers: {
           authorization: "Bearer test-token",

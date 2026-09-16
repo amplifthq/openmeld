@@ -1,6 +1,18 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes stable public entrypoints.
 
 export {
+  ACCOUNT_ORGANIZATION_CONTEXT_PATH,
+  type AccountOrganizationContext,
+  accountOrganizationContextSchema,
+  type OrganizationSummary,
+  organizationSummarySchema,
+} from "./account-organization-context";
+export {
+  ACCOUNT_SESSION_PATH,
+  type AccountSession,
+  accountSessionSchema,
+} from "./account-session";
+export {
   AGENT_CONTEXT_ENVELOPE_VERSION,
   AGENT_CONTEXT_PROGRESSIVE_POLICY_VERSION,
   type AgentContextEnvelope,
@@ -65,10 +77,69 @@ export {
   resolveCenterAgentCompletedCallbackMessage,
 } from "./center-agent-publication-copy";
 export {
+  CLI_RELEASE_PATH,
+  type CliRelease,
+  cliReleaseSchema,
+} from "./cli-release";
+export {
+  type ClientEnvironmentResponse,
+  clientEnvironmentResponseSchema,
+} from "./client-environment";
+export {
   toCompatibleSpaceAddressingRequestWireValue,
   toLegacySpaceAddressingWireValue,
 } from "./compatibility/legacy-space-addressing-wire";
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
+export {
+  type ComputerConnectionIntent,
+  computerConnectionIntentSchema,
+  computerConnectionReviewSchema,
+  type DesktopComputerConnectionRequest,
+  type DesktopComputerConnectionResult,
+  desktopComputerConnectionRequestSchema,
+  desktopComputerConnectionResultSchema,
+} from "./computer-connection";
+export {
+  DESKTOP_APP_ORIGIN,
+  DESKTOP_AUTH_SCHEME,
+  DESKTOP_COMPATIBILITY_PATH,
+  DESKTOP_CONTRACT_HEADER,
+  DESKTOP_CONTRACT_VERSION,
+  DESKTOP_INSTALLED_AUTH_SCHEME,
+  DESKTOP_TEST_AUTH_SCHEME,
+  DESKTOP_WEB_BUILD_HEADER,
+  type DesktopInstalledTarget,
+  type DesktopLocalComputer,
+  type DesktopPlatform,
+  type DesktopSession,
+  type DesktopSpaceStreamBridge,
+  type DesktopSpaceStreamEvent,
+  type DesktopSpaceStreamInput,
+  desktopAuthIdentity,
+  desktopCompatibilitySchema,
+  desktopInstalledTargetSchema,
+  desktopLocalComputerSchema,
+  desktopPlatformSchema,
+  desktopProductionSourceSchema,
+  desktopSessionSchema,
+  desktopSpaceStreamEventSchema,
+  desktopSpaceStreamIdSchema,
+  desktopSpaceStreamInputSchema,
+  desktopWebBuildSchema,
+} from "./desktop-client";
+export * from "./desktop-notifications";
+export {
+  DESKTOP_PROMOTED_RELEASE_KEY,
+  DESKTOP_UPDATE_FEED_URL,
+  type DesktopCandidateManifest,
+  desktopCandidateIdSchema,
+  desktopCandidateLocation,
+  desktopCandidateManifestKey,
+  desktopCandidateManifestSchema,
+  desktopPromotedReleaseSchema,
+  desktopUpdaterFeedSchema,
+} from "./desktop-release";
+export * from "./desktop-updater";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
@@ -94,6 +165,7 @@ export {
   officialCliSkillPayloadSchema,
   officialCliSkillReleaseSchema,
 } from "./official-cli-skill";
+export * from "./organization-actions";
 export {
   type OrganizationJoinRequest,
   type OrganizationJoinRequestInput,
@@ -105,6 +177,7 @@ export {
   organizationJoinRequestRpcInputSchema,
   organizationJoinRequestSchema,
 } from "./organization-join-request";
+export { normalizeOrganizationList } from "./organization-list";
 export { ORGANIZATION_REQUEST_CONTEXT_MISMATCH_MESSAGE } from "./organization-request-context";
 export {
   CENTER_AGENT_CONTEXT_WINDOW_EXCEEDED_PUBLIC_COPY,
@@ -177,6 +250,17 @@ export {
 } from "./schemas/http/space-message-mutation";
 export * from "./schemas/index";
 export { agentControllerSessionTitleSchema } from "./schemas/runtime/agent-controller-session";
+export {
+  SERVICE_ACCOUNT_STOP_REFUSED_CODE,
+  type ServiceAccountAdmission,
+  type ServiceAccountAdmissionIdentity,
+  type ServiceAccountControlRequest,
+  serviceAccountAdmissionIdentitySchema,
+  serviceAccountAdmissionSchema,
+  serviceAccountControlRequestSchema,
+  serviceControlCapabilitiesSchema,
+  serviceControlCarrierCapabilitySchema,
+} from "./service-account-admission";
 export {
   projectLegacySpaceAccessView,
   SPACE_ACCESS_VERSION,

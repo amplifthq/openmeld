@@ -239,6 +239,23 @@ continuity. Both roles share the same filesystem and execution implementation.
 Selected Space files, including binary files up to the existing 10 MiB limit,
 can be downloaded into the current Computer and published back through canonical
 Space Files. Published files attach their exact revision to the final reply.
+
+Center Agent final Space replies and Space Routine reports may prepare explicit
+Human Profile recipients with `openmeld_set_final_reply_mentions`. The latest
+selection replaces the earlier selection for that turn; an empty list clears it.
+The native completion callback carries `mentionTargets`, and the existing Space
+publication boundary validates active Human membership and creates normal Mention
+notifications with the final message. Preparation is not publication, and plain
+names never create notifications or Agent Wakes. Web renders explicit recipients
+even when the message prose does not contain an inline mention.
+
+Contract Impact Audit: the optional callback field is Core/Remote Agent only.
+Deploy the accepting Core before a Remote Agent build can send this field; older
+Core uses a strict callback schema and rejects unknown fields. Old Remote Agent
+callbacks remain accepted by new Core. CLI, Service, Skills, Gateway, setup,
+workstation Wake admission, and diagnostics have no new required fields or
+minimum versions from this addition. Existing Space addressing remains the
+publication and notification authority.
 No bucket credentials or another conversation's Computer are exposed.
 
 `browser_execute` uses the Agents SDK browser tools with a native Code Mode
@@ -1301,9 +1318,12 @@ worker sends the authenticated gateway token plus that exact
 tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
-The repo-owned `center-agent` catalog exposes GLM 5.3 Flash, Grok 4.6, Grok
-4.5, and DeepSeek V4 Flash, with GLM 5.3 Flash as the OpenMeld default since
-2026-08-27. Core resolves a complete immutable route for each new turn. The
+The repo-owned `center-agent` catalog exposes curated models from OpenAI,
+Anthropic, Google, DeepSeek, xAI, and Z.ai, with GLM 5.3 Flash as the OpenMeld
+default since 2026-08-27. The exact selection and captured metadata are owned by
+[Agent Profile Model Selection](agent-model-selection.md#55-hosted-center-agent-catalog).
+These are model vendors; all hosted routes still use OpenRouter. Core resolves
+a complete immutable route for each new turn. The
 route contains the exact OpenRouter model id, friendly display name, input
 modalities, context window, output budget, reasoning level, catalog timestamp,
 preference kind, auxiliary image-understanding model, and
@@ -1670,8 +1690,11 @@ final-outcome authority.
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
 typed stream callback. Text WebSocket frames keep their legacy shape. Web also
-ignores any legacy thinking frame so a stale producer cannot expose private
-reasoning. Rollback removes the Remote Agent producer before Core or Web
+renders provider-emitted thinking in the same transient Thinking + Reasoning
+component used for Local Agents. Center Agent and Remote Agent conversations
+share its bounded viewport, manual scroll control, and reduced-motion behavior.
+Thinking keeps a bounded latest tail during long turns and never enters persisted
+stream state or final message metadata. Rollback removes the Remote Agent producer before Core or Web
 consumers.
 
 Workstation Local Agents may use the same downstream Space tool-part and
@@ -1850,8 +1873,14 @@ surface adopts official features where they are free**:
   callers), read bounded recent Dispatch Ledger diagnostics, create Spaces,
   create Agent Profiles, enable Agent Profiles, add active Organization members
   and Agent Profiles to Spaces, remove Agent Profiles from Spaces, update Space
-  settings, post plain Space messages, and Wake Agent Profiles in Spaces through
-  Space activation targets. For an ordinary verified-member Slack turn, Core
+  settings, post plain Space messages, manage revision-bound Space Tasks in the
+  current ordinary shared Space, and Wake Agent Profiles in Spaces through
+  Space activation targets. Space Task creation is reserved for clear delivery
+  obligations; assignment, start, submission, review, and cancellation remain
+  distinct. Task review handoffs use the existing Space Wake path and stop after
+  two automatic rework rounds for a human decision. This Task surface does not
+  replace Agent Task Handles or native-delivery execution truth. For an ordinary
+  verified-member Slack turn, Core
   may place one encrypted, event-bound search authorization in the trusted turn
   envelope. The normal Flue Agent loop decides semantically whether public
   workspace search advances the request; no keyword gate or second model

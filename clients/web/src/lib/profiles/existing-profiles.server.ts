@@ -1,7 +1,6 @@
-import { listProfilesResponseSchema } from "@openmeld/schemas";
 import type { AuthProfileView } from "@openmeld/schemas/types";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { readSessionExpiredErrorFromResponse } from "#/lib/session-expired";
+import { readStartProfilesResponse } from "./profile-list-response";
 
 export async function readStartProfiles(input: {
 	requestHeaders: Headers;
@@ -23,25 +22,7 @@ export async function readStartProfiles(input: {
 			headers,
 		}
 	);
-	if (!response.ok) {
-		const sessionExpiredError =
-			await readSessionExpiredErrorFromResponse(response);
-		if (sessionExpiredError) {
-			throw sessionExpiredError;
-		}
-
-		throw new Error(
-			"OpenMeld could not load your profiles right now. Try again."
-		);
-	}
-
-	const payload = await response.json();
-	const parsed = listProfilesResponseSchema.safeParse(payload);
-	if (!parsed.success) {
-		throw new Error(`Invalid start profiles response: ${parsed.error.message}`);
-	}
-
-	return parsed.data.profiles;
+	return await readStartProfilesResponse(response);
 }
 
 export async function fetchStartProfilesFromRequest(input: {

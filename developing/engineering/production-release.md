@@ -259,6 +259,26 @@ Gateway/Core release remains valid before the CLI publication. Compatible
 profiles may choose a different order between Gateway and Core, but both must
 still precede CLI.
 
+The `space-task-receivers-first` profile recognizes the Space Task schema,
+Core RPC and Space receiver, and a Task caller together. Core deploys with the
+immutable current published CLI projection first, followed by Gateway, Web,
+Remote Agent, and CLI when selected. CLI and Web call Gateway's Task HTTP
+routes; Remote Agent calls Core directly and does not require Gateway.
+Every selected consumer requires Core in the plan, and CLI/Web also require
+Gateway. Core-only and Core/Gateway receiver stages remain supported without
+requiring the future Service fingerprint to match the published channel;
+the existing receiver executor verifies the real channel and immutable tag.
+Opposing receiver constraints fail closed rather than overriding their order.
+
+Keep the same pre-feature base (for example the previously published CLI tag)
+through every stage, including after a version-only PR. A narrow version-PR
+diff cannot establish the Task dependency. Use the guarded ordered local
+Core/Gateway/Web/CLI plan for the first publication; CLI-only with that base is
+rejected. The static hosted fleet admission also rejects a selected order it
+cannot execute. No direct receiver script invocation or hash-check bypass is
+part of this rollout. The final normal CLI stage publishes artifacts and
+updates Core to the new CLI projection after the receivers are healthy.
+
 When any receiver-first profile includes both Core and CLI, the first Core
 deploy reads the stable production CLI version, loads that version's
 `release/local-components.json` from its immutable `v<version>` Git tag, and
@@ -283,6 +303,12 @@ release advertise or emit the new strict capability. An explicit scope that
 publishes CLI without Core fails closed. This profile is structural and
 provider-neutral: it protects any strict Service-to-Core protocol addition
 without coupling release order to one Agent Controller or business workflow.
+
+This profile also supports a cloud-only receiver stage before the signed GitHub
+CLI release. Selecting Core without CLI uses the same immutable published CLI
+projection, with its existing channel and tag checks, instead of requiring the
+future CLI bundle to be published first. Keep the pre-feature base in both stage
+plans; publish CLI only after the Core receiver is healthy.
 
 The coordinated device-wait schema, Space receiver, and Gateway route select
 `device-wait-receivers-first`: Database, Auth, Core, Gateway, Web, Remote Agent,
@@ -524,7 +550,8 @@ checks.
 ## Local Scoped Release
 
 The `people-computers-receivers-first` profile recognizes the shared computer
-schema, Core projection, and Gateway endpoint together. It deploys selected
+schema, Core projection, and Gateway endpoint together, or the shared Service
+connection evidence schema with its Core and Gateway receivers. It deploys selected
 Auth, Core, Gateway, Web, Remote Agent, then CLI scopes (Database remains first
 when selected). Core and Gateway must precede new computer callers. A staged
 Core receiver deploy uses the immutable current stable CLI projection even when

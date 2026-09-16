@@ -781,6 +781,13 @@ function parseAgentsRegistryRuntimeCapabilityDeclaration(
   context: string
 ): AgentsRegistryRuntimeCapabilityDeclaration {
   const objectValue = readObjectValue(value, context);
+  if (
+    objectValue.executionContextVersion !== undefined &&
+    objectValue.executionContextVersion !== 1 &&
+    objectValue.executionContextVersion !== 2
+  ) {
+    throw new Error(`${context}.executionContextVersion is unsupported`);
+  }
   const streamingCapability = readEnumValue(
     objectValue.streamingCapability,
     `${context}.streamingCapability`,
@@ -814,6 +821,10 @@ function parseAgentsRegistryRuntimeCapabilityDeclaration(
 
   return {
     continuationCapability,
+    ...(objectValue.executionContextVersion === 1 ||
+    objectValue.executionContextVersion === 2
+      ? { executionContextVersion: objectValue.executionContextVersion }
+      : {}),
     ...(imageInputCapability ? { imageInputCapability } : {}),
     preparationRequirement,
     runtimeWorkingDirectoryMode,

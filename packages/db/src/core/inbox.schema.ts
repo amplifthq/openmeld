@@ -3,6 +3,7 @@ import {
   check,
   index,
   integer,
+  primaryKey,
   sqliteTable,
   text,
   uniqueIndex,
@@ -142,6 +143,49 @@ export const inboxNotificationPreferences = sqliteTable(
     check(
       "inbox_notification_preferences_timestamps_check",
       sql`"created_at_ms" >= 0 and "updated_at_ms" >= "created_at_ms"`
+    ),
+  ]
+);
+
+export const inboxMessageNotificationDefaults = sqliteTable(
+  "inbox_message_notification_defaults",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    mode: text("mode").notNull(),
+  },
+  (table) => [
+    check(
+      "inbox_message_notification_defaults_mode_check",
+      sql`${table.mode} in ('all_messages', 'mentions_and_replies')`
+    ),
+  ]
+);
+
+export const inboxConversationNotificationPreferences = sqliteTable(
+  "inbox_conversation_notification_preferences",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    spaceId: text("space_id").notNull(),
+    mode: text("mode").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.userId, table.organizationId, table.spaceId],
+    }),
+    check(
+      "inbox_conversation_notification_preferences_mode_check",
+      sql`${table.mode} in ('all_messages', 'mentions_and_replies', 'muted')`
+    ),
+    check(
+      "inbox_conversation_notification_preferences_space_check",
+      sql`length(trim(${table.spaceId})) > 0`
     ),
   ]
 );

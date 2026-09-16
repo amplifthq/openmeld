@@ -5,6 +5,10 @@ import { AppFullWidthLayout } from "./app-full-width-layout";
 
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
 
+vi.mock("#/components/directory/team-sidebar-header", () => ({
+	TeamSidebarHeader: () => <h2>Team</h2>,
+}));
+
 vi.mock("#/components/app/app-outer-rail", () => ({
 	AppOuterRail: (props: { contextualNavigation?: ReactNode }) => {
 		appOuterRailSpy(props);

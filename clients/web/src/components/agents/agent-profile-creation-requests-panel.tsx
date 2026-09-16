@@ -18,7 +18,7 @@ import {
 	TableRow,
 } from "@openmeld/ui/components/table";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { formatAgentCreationFailure } from "#/lib/profiles/agent-creation-failure";
 import {
@@ -35,6 +35,7 @@ import {
 	agentProfileCreationRequestQueryKeys,
 	agentProfileCreationRequestsQueryOptions,
 } from "#/query/profiles/agent-profile-creation-requests";
+import { AgentCreationComputerRecovery } from "./agent-creation-computer-recovery";
 
 type DirectoryMember = OrganizationProfileDirectoryResponse["members"][number];
 
@@ -46,10 +47,14 @@ export function AgentProfileCreationRequestsPanel(input: {
 	focusRequestId: string | null;
 	onCreateAgent: () => void;
 	onOpenAgent: (profileId: string) => void;
+	onOpenRequest?: (requestId: string) => void;
 	organizationId: string;
+	orgSlug?: string;
 	storageScope: string;
 }) {
 	const queryClient = useQueryClient();
+	const [recoveryRequest, setRecoveryRequest] =
+		useState<AgentProfileCreationRequest | null>(null);
 	const focusedRequestRef = useRef<HTMLTableRowElement | null>(null);
 	const selectedHumanProfileId =
 		input.directory.members.find(
@@ -119,6 +124,9 @@ export function AgentProfileCreationRequestsPanel(input: {
 			toast.error(error.message);
 		},
 		onSuccess: async ({ localSetup, result }) => {
+			if (result.request.status === "cancelled") {
+				toast.success("Setup cancelled. No Agent was created.");
+			}
 			if (localSetup?.failureMessage) {
 				toast.warning(
 					`${result.request.profileName} setup is still incomplete. ${localSetup.failureMessage} Open the Agent to finish setup.`
@@ -190,6 +198,56 @@ export function AgentProfileCreationRequestsPanel(input: {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-3">
+			{recoveryRequest ? (
+				<AgentCreationComputerRecovery
+					currentUserId={input.currentUserId}
+					onClose={() => setRecoveryRequest(null)}
+					onRecovered={async (request) => {
+						const setup = await continuePendingAgentProfileCreationLocalSetup({
+							organizationId: input.organizationId,
+							request,
+							selectedHumanProfileId,
+							storageScope: input.storageScope,
+						});
+						if (setup?.failureMessage) {
+							toast.warning(setup.failureMessage);
+						}
+						await Promise.all([
+							queryClient.invalidateQueries({
+								queryKey: agentProfileCreationRequestQueryKeys.byOrganization(
+									input.organizationId
+								),
+							}),
+							queryClient.invalidateQueries({
+								queryKey: organizationQueryKeys.profileDirectory(
+									input.organizationId
+								),
+							}),
+						]);
+						if (request.createdAgentProfileId) {
+							input.onOpenAgent(request.createdAgentProfileId);
+						} else {
+							input.onOpenRequest?.(request.id);
+							if (request.status === "failed") {
+								toast.error(
+									"Setup still needs attention. Review the latest attempt for the next step."
+								);
+							} else if (request.status === "cancelled") {
+								toast.info(
+									"This setup was cancelled. Select Restart setup on that attempt to continue."
+								);
+							} else {
+								toast.success(
+									"Setup started. You can follow its progress here."
+								);
+							}
+						}
+					}}
+					orgSlug={input.orgSlug}
+					request={recoveryRequest}
+					storageScope={input.storageScope}
+				/>
+			) : null}
 			{TEAMMATE_AGENT_REQUESTS_ENABLED ? (
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<p className="max-w-2xl text-muted-foreground text-xs leading-5">
@@ -288,7 +346,10 @@ export function AgentProfileCreationRequestsPanel(input: {
 										</Badge>
 										{request.failureMessage ? (
 											<p className="text-destructive text-xs leading-5">
-												{formatAgentCreationFailure(request.failureMessage)}
+												{formatAgentCreationFailure(
+													request.failureMessage,
+													Boolean(request.createdAgentProfileId)
+												)}
 											</p>
 										) : null}
 										{localSetupPathMissing ? (
@@ -314,6 +375,7 @@ export function AgentProfileCreationRequestsPanel(input: {
 											localSetupPending={localSetupPending}
 											localSetupRetryAvailable={!localSetupPathMissing}
 											onAction={(kind) => mutation.mutate({ kind, request })}
+											onChooseComputer={() => setRecoveryRequest(request)}
 											onOpenAgent={input.onOpenAgent}
 											request={request}
 										/>
@@ -334,6 +396,7 @@ type RequestAction = {
 };
 
 function RequestActions(input: {
+	onChooseComputer: () => void;
 	currentUserId: string;
 	isPending: boolean;
 	localSetupPending: boolean;
@@ -409,6 +472,18 @@ function RequestActions(input: {
 			</div>
 		);
 	}
+	const canChooseComputer =
+		isRequester &&
+		isTarget &&
+		Boolean(input.request.configuration?.targetComputerId) &&
+		!input.request.createdAgentProfileId;
+	if (input.request.status === "cancelled" && canChooseComputer) {
+		return (
+			<Button onClick={input.onChooseComputer} size="sm" variant="outline">
+				Restart setup
+			</Button>
+		);
+	}
 	if (input.request.status === "failed") {
 		return (
 			<div className="flex shrink-0 flex-wrap gap-2">
@@ -419,16 +494,26 @@ function RequestActions(input: {
 						size="sm"
 						variant="outline"
 					>
-						Cancel
+						Cancel setup
 					</Button>
 				) : null}
-				<Button
-					disabled={input.isPending}
-					onClick={() => input.onAction("retry")}
-					size="sm"
-				>
-					Retry
-				</Button>
+				{canChooseComputer ? (
+					<Button
+						disabled={input.isPending}
+						onClick={input.onChooseComputer}
+						size="sm"
+					>
+						Choose computer
+					</Button>
+				) : (
+					<Button
+						disabled={input.isPending}
+						onClick={() => input.onAction("retry")}
+						size="sm"
+					>
+						Retry setup
+					</Button>
+				)}
 			</div>
 		);
 	}

@@ -41,6 +41,18 @@ const DETAILED_PROVIDER_FAILURE_SUMMARY_RE =
   /^invalid_value \(invalid_request_error\): Invalid value for reasoning effort\./;
 
 describe("public agent failure reason mapping", () => {
+  it.each([
+    [
+      "execution_context.project_repository_required",
+      "connected Git repository",
+    ],
+    ["execution_context.workspace_access_unverified", "project file boundary"],
+    ["context.mcp_isolation_unverified", "tools authorized for this task"],
+  ])("explains local task preparation failure %s without blaming the provider", (errorCode, expected) => {
+    const reason = resolveMappedPublicAgentFailureReason(errorCode);
+    expect(reason).toContain(expected);
+    expect(reason).not.toContain("provider was unreachable");
+  });
   it("does not turn a service conflict into an update or setup instruction", () => {
     const recovery = resolvePublicAgentFailureRecovery({
       errorCode: "service.drifted",

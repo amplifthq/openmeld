@@ -110,6 +110,8 @@ export type LedgerPaths = {
 };
 
 export type CurrentDaemonSocketRef = {
+  reasoningStreamEnabled?: boolean;
+  reasoningPreferenceListeners?: Set<() => void>;
   connectionGeneration: number | null;
   socket: import("../../transport/ws").WsClient | null;
 };
@@ -225,6 +227,7 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
   callerContext?: NonNullable<
     RuntimeTransportDeliverDispatchRequest["payload"]["sourceSignalSnapshot"]
   >["callerContext"];
@@ -337,6 +340,8 @@ export type ParsedDaemonFrame = {
     | "daemon.dispatch.result"
     | "daemon.dispatch.runtime_evidence"
     | "daemon.dispatch.tool_activity"
+    | "daemon.dispatch.reasoning"
+    | "daemon.reasoning.preferences"
     | "daemon.error"
     | "daemon.computer_file_access.read_policy"
     | "daemon.computer_file_access.read_policy_result"

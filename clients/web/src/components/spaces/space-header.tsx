@@ -15,6 +15,7 @@ import {
 	useHasModuleSidebar,
 } from "#/components/app/app-module-sidebar";
 import type { SpaceLiveState } from "#/lib/spaces/timeline";
+import { ChatArchiveButton } from "./chat-archive-button";
 import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import {
 	SpaceHeaderNavigationMenu,
@@ -229,6 +230,12 @@ export function SpaceHeader(input: {
 							</div>
 						) : null}
 						<SpacePinsRecallAction onRecall={input.onRecallPinnedItems} />
+						{isDirectMessage && input.currentProfileId ? (
+							<ChatArchiveButton
+								profileId={input.currentProfileId}
+								spaceId={input.status.spaceId}
+							/>
+						) : null}
 						{input.membersControl ?? null}
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog

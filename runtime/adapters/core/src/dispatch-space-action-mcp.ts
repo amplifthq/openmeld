@@ -9,6 +9,13 @@ export const OPENMELD_SPACE_ACTION_MCP_SERVER_ID =
   "openmeld_internal_dispatch_space_action";
 export const OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES = [
   "read_file",
+  "read_history",
+  "list_tasks",
+  "create_task",
+  "start_task",
+  "submit_task_result",
+  "review_task",
+  "cancel_task",
   "reply",
   "status",
   "stay_silent",

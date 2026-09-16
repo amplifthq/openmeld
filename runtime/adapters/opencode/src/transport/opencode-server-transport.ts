@@ -161,6 +161,7 @@ export async function invokeOpenCodeServerTransport(
         })
       : normalizeOptionalText(input.sessionId);
     result = await runOpenCodeServerTurn({
+      onRuntimeEvent: input.onRuntimeEvent,
       client,
       conversationPolicy: input.conversationPolicy,
       instructionPrompt: input.instructionPrompt,
@@ -492,6 +493,7 @@ function readRemainingTimeoutMs(deadlineMs: number | null): number | null {
 }
 
 async function runOpenCodeServerTurn(input: {
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
   client: ReturnType<typeof createOpencodeClient>;
   conversationPolicy?: ConversationPolicy;
   instructionPrompt?: AdapterInstructionPrompt;
@@ -541,6 +543,8 @@ async function runOpenCodeServerTurn(input: {
     }
   );
   const eventLoop = consumeOpenCodeEvents({
+    onRuntimeEvent: input.onRuntimeEvent,
+    reasoningPartIds: new Set<string>(),
     eventReady,
     eventFailure,
     interactionHandler,
@@ -730,6 +734,8 @@ type OpenCodeTurnState = {
 };
 
 async function consumeOpenCodeEvents(input: {
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+  reasoningPartIds: Set<string>;
   eventReady: Deferred<void>;
   eventFailure: Deferred<never>;
   interactionHandler: OpenCodeInteractionHandler;
@@ -757,8 +763,66 @@ async function consumeOpenCodeEvents(input: {
   }
 }
 
+function observeOpenCodeReasoning(
+  input: {
+    turnState: OpenCodeTurnState;
+    reasoningPartIds: Set<string>;
+    onRuntimeEvent?: AdapterRuntimeEventCallback;
+  },
+  event: { type: string },
+  properties: Record<string, unknown>
+): void {
+  if (!input.turnState.promptDispatchStarted) {
+    return;
+  }
+  const part = toRecord(properties.part);
+  if (
+    event.type === "message.part.updated" &&
+    part?.type === "reasoning" &&
+    typeof part.id === "string" &&
+    typeof part.text === "string" &&
+    typeof part.messageID === "string" &&
+    input.turnState.assistantMessageIds.has(part.messageID)
+  ) {
+    input.reasoningPartIds.add(part.id);
+    if (input.reasoningPartIds.size > 128) {
+      const oldest = input.reasoningPartIds.values().next().value;
+      if (oldest) {
+        input.reasoningPartIds.delete(oldest);
+      }
+    }
+    Promise.resolve(
+      input.onRuntimeEvent?.({
+        phase: "reasoning",
+        blockId: part.id,
+        text: part.text,
+        mode: "snapshot",
+        tsMs: Date.now(),
+      })
+    ).catch(() => undefined);
+  } else if (
+    event.type === "message.part.delta" &&
+    properties.field === "text" &&
+    typeof properties.partID === "string" &&
+    input.reasoningPartIds.has(properties.partID) &&
+    typeof properties.delta === "string"
+  ) {
+    Promise.resolve(
+      input.onRuntimeEvent?.({
+        phase: "reasoning",
+        blockId: properties.partID,
+        text: properties.delta,
+        mode: "append",
+        tsMs: Date.now(),
+      })
+    ).catch(() => undefined);
+  }
+}
+
 function dispatchOpenCodeEvent(
   input: {
+    onRuntimeEvent?: AdapterRuntimeEventCallback;
+    reasoningPartIds: Set<string>;
     eventFailure: Deferred<never>;
     interactionHandler: OpenCodeInteractionHandler;
     onPreview?: AdapterPreviewCallback;
@@ -777,6 +841,7 @@ function dispatchOpenCodeEvent(
     return;
   }
   observeOpenCodeTurnLifecycle(input.turnState, event.type, properties);
+  observeOpenCodeReasoning(input, event, properties);
   const eventFailure = readOpenCodeTurnEventFailure(
     input.turnState,
     event.type,

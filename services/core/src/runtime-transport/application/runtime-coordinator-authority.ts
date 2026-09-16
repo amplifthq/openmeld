@@ -288,6 +288,7 @@ export const RUNTIME_COORDINATOR_MAX_PRE_ACCEPT_REDELIVERIES = 2;
 export const RUNTIME_COORDINATOR_PRE_ACCEPT_REDELIVERY_WINDOW_MS = 30_000;
 export const RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS =
   5 * 60_000;
+export const RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS = 30 * 60_000;
 export const RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE =
   "runtime_coordinator.delivery_expired" as const;
 export const RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE =
@@ -381,6 +382,8 @@ export type RuntimeCoordinatorRunCommandState = {
   lastCommandReasonCode: string | null;
   lastDeliveryProvenance: RuntimeCoordinatorDeliveryProvenanceSnapshot;
   lastWatchdogCheckAtMs?: number | null;
+  /** Last accepted progress for which transport recovery was required. */
+  communicationRecoveryBaselineAtMs?: number | null;
   localProgress: RuntimeCoordinatorRunLocalProgressState;
   modelVersion: typeof RUNTIME_COORDINATOR_RUN_COMMAND_STATE_MODEL_VERSION;
   ownerUserId: string;
@@ -1093,11 +1096,14 @@ export const hasRuntimeCoordinatorLocalProgressStaleTerminalExpired = (input: {
   }
   return (
     input.nowMs - lastLocalProgressAtMs >=
-    RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS
+    (input.commandState.communicationRecoveryBaselineAtMs ===
+    lastLocalProgressAtMs
+      ? RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS
+      : RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS)
   );
 };
 
-const resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs = (
+export const resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs = (
   commandState: RuntimeCoordinatorRunCommandState
 ): number => {
   const observedLocalProgressAtMs =
@@ -1148,8 +1154,17 @@ export const buildRuntimeCoordinatorRunExpiryEventPayload = (input: {
     return {
       progressStale: {
         ...common,
+        communicationRecoveryBaselineAtMs:
+          input.commandState.communicationRecoveryBaselineAtMs ?? null,
+        communicationRecoveryWindowMs:
+          RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS,
         progressEvidenceStaleTerminalAfterMs:
-          RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS,
+          input.commandState.communicationRecoveryBaselineAtMs ===
+          resolveRuntimeCoordinatorWatchdogProgressBaselineAtMs(
+            input.commandState
+          )
+            ? RUNTIME_COORDINATOR_COMMUNICATION_RECOVERY_WINDOW_MS
+            : RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS,
       },
     };
   }
@@ -1499,6 +1514,9 @@ export const isRuntimeCoordinatorRunCommandState = (
     typeof record.targetProfileId !== "string" ||
     typeof record.updatedAtMs !== "number" ||
     !isOptionalNullableNonNegativeNumber(record.lastWatchdogCheckAtMs) ||
+    !isOptionalNullableNonNegativeNumber(
+      record.communicationRecoveryBaselineAtMs
+    ) ||
     !isOptionalNullableString(record.stopReason) ||
     !isRuntimeCoordinatorRunLocalProgressState(record.localProgress) ||
     !record.lastDeliveryProvenance ||

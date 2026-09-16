@@ -17,6 +17,10 @@ export function createFetchTransport(input: {
   defaultTimeoutMs?: number;
 }): OpenMeldApiClientTransport {
   const defaultTimeoutMs = normalizeOptionalTimeoutMs(input.defaultTimeoutMs);
+  // Fetch is an injected callable, not a method of this options object.
+  // Worker globals reject that accidental receiver; explicitly bound callers
+  // must also retain their own receiver.
+  const fetchImpl = input.fetch;
 
   return async function fetchTransport(request): Promise<Response> {
     const timeoutMs =
@@ -32,7 +36,7 @@ export function createFetchTransport(input: {
     const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
 
     try {
-      return await input.fetch(request.url, {
+      return await fetchImpl(request.url, {
         ...request.init,
         signal,
       });

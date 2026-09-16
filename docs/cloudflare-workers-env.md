@@ -94,6 +94,7 @@ Workers, and verifies the public entry points. See
   - `BETTER_AUTH_URL`
   - `VITE_BETTER_AUTH_URL`
   - `VITE_APP_TITLE`
+  - `AUTH_DESKTOP_DEVELOPMENT_TARGET` (empty normally; `disposable` only on an isolated local backend shared with Auth)
 - `.dev.vars` / `.dev.vars.prod`
   - `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`
 - Cloudflare production secrets
@@ -110,6 +111,7 @@ Workers, and verifies the public entry points. See
   - `BETTER_AUTH_URL`
   - `WEB_APP_URL`
   - `AUTH_WORKER_NODE_ENV`
+  - `AUTH_DESKTOP_DEVELOPMENT_TARGET` (empty normally; `private` or `disposable` in development only; nonempty production values are rejected)
   - `AUTH_DEVICE_ALLOWED_CLIENT_IDS`
   - `OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED`
   - `AUTH_BRAND_NAME`

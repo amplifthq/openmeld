@@ -758,6 +758,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     cliUpdateAction: "updating a profile",
     serviceAction: null,
   },
+  "profile.execution-mode": {
+    signInAction: "managing independent-task admission",
+    profileAction: null,
+    cliUpdateAction: "managing independent-task admission",
+    serviceAction: null,
+  },
   "profile.delete": {
     signInAction: "deleting a profile",
     profileAction: null,

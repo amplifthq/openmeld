@@ -210,7 +210,27 @@ flow for creating an Agent Profile owned by the requester or by another member.
 Web, CLI, Local Agents, and the Center Agent use the same Core-owned request
 state machine rather than implementing separate approval rules.
 
-Each request freezes these product facts:
+Each request freezes its creation intent.
+
+Web recovery keeps a failed creation's context. **Review setup** opens that
+request rather than ordinary New Agent. Before identity creation, an owner can
+choose a current Computer for the same local controller while retaining the
+name, model, permissions, Project, session strategy, and intended Space. Resume
+and fork recovery stays on the original Computer. The existing Core cancellation
+and creation contracts end the old attempt before submitting the revised intent;
+one requester-scoped recovery idempotency key per original request prevents
+duplicate replacements across retries and tabs. A lost read fails closed. A
+cancelled attempt can be explicitly restarted, including after interruption
+between cancellation and replacement acceptance. Once a replacement is accepted,
+recovery opens it rather than changing its frozen intent. A committed Profile
+always uses the existing finish-setup path and must never be replaced this way.
+The existing browser-local custom-folder intent follows an accepted replacement.
+Private paths remain per-tab and may continue only on the same Computer; another
+Computer retains the incomplete-setup marker and requires folder reselection.
+Cancellation is presented as **Cancel setup**, followed by an explicit cancelled
+outcome; it must not imply that the Agent was created or repaired.
+
+The frozen facts are:
 
 - requester user and acting Profile
 - target owner user
@@ -443,6 +463,11 @@ Codex, Grok Build, and future controllers use different permission names and
 enforcement models. Grok Build uses its native `default`, `acceptEdits`, `plan`,
 `auto`, `dontAsk`, and `bypassPermissions` modes. Plan remains a controller
 execution mode, not proof of a filesystem boundary.
+Owner-facing selection surfaces retain compact controller-native mode names
+and explain the selected mode once in plain language. Relevant launch settings
+remain inside technical details.
+Outcome copy must not imply that Agent Controller Permission Mode changes Space
+access, Agent availability, or separate Computer file-access limits.
 
 Owners may edit Binding-level runtime settings while a Wake is running. The
 accepted Binding id and configuration revision remain the dispatch's immutable
@@ -865,8 +890,8 @@ Center Agent do not use this state machine or execution chain.
 
 For one Agent Profile, the Coordinator owns exactly these facts:
 
-- which accepted Wake currently owns the Profile's work slot
-- the ordered Wakes waiting behind it
+- which accepted Wakes hold the Profile's bounded work reservations
+- the ordered Wakes waiting for a context or reservation
 - whether queued work is held for an explicit recovery approval
 - the current privacy-safe workload projection
 
@@ -894,13 +919,65 @@ outcome for that exact head and the Work Coordinator continues normal terminal
 promotion. Reconnect, recovery, or later re-enabling cannot revive that settled
 Wake.
 
-One Agent Profile may have one current Wake and at most 50 waiting Wakes. FIFO
-order is the owner-shard transaction acceptance order across every Space and
-Direct Message that targets that Profile. There is no priority system in this
-version. A source message is visible in its conversation immediately; its Wake
+One Agent Profile may have up to five independent Execution Contexts reserved
+and at most 50 waiting Wakes. Follow-ups in one context remain serial. New task,
+completed-history fork, and independent discussion scopes can run together when
+the local Service verifies their resource isolation. Legacy work without a
+context drains exclusively. Waiting order is the owner-shard transaction
+acceptance order; a blocked context does not prevent eligible independent work
+from using a free reservation. There is no priority system in this version.
+A source message is visible in its conversation immediately; its Wake
 may show that it is queued, but Web does not hide or stack the message above the
 Composer until execution starts. Different Agent Profiles remain independently
 admissible and may work in parallel.
+
+For migrated Profiles this replaces the former one-slot FIFO and Profile-wide
+native conversation model. The primary Binding still owns the connection and
+launch settings. Migration freezes a finite legacy boundary, preserves accepted
+legacy/recovery work, and retains the old native conversation as an unclassified
+legacy association. Current Binding identity is reread under the existing owner
+mutation boundary before Context mode activates. Switching to serial admission
+preserves existing Contexts, running reservations, waiting Wakes, and their
+source/result associations; it does not downgrade the persisted format or merge
+native histories.
+
+The Web Task menu offers new work and source-specific continuation or fork for
+supported local Agents. CLI sends use `--new-task`, `--continue-from <signal-id>`,
+or `--fork-from <signal-id>` with one explicit `--wake` target. Source selection
+never copies permissions, active work, or publication authority. Multiple retained
+branches in the same discussion require an explicit source choice.
+
+Connected harnesses without Execution Context support retain their ordinary
+thread Wake behavior: work for one Profile remains serial through its existing
+Binding. Explicit task/context selections fail visibly until the harness supports
+them; a thread alone does not opt an unsupported harness into the new protocol.
+This compatibility rule does not enable suspended controllers or bypass current
+connection, permissions, or readiness requirements.
+
+New tasks default to Space context without requiring a local repository. Forks
+inherit the source context's access unless an explicit supported choice changes
+it. Claude Code supports independent Space-context tasks with local tools disabled.
+Codex App Server also supports explicitly selected independent project worktrees,
+or read-only/current-folder access. The CLI options
+are `--task-access space_context|read_only|workspace` and
+`--task-workspace isolated|current`. Current-folder writers wait for conflicting
+local work. An independent project task requires a confirmed working folder that
+is the root of a Git repository with a committed HEAD. The Service checks the
+source against the Computer owner's file policy, then prepares a private Git
+repository and worktree from the exact commit observed at first local preparation.
+It copies committed content only; dirty files, ignored configuration, credentials,
+and dependency directories are not copied. Each task owns its Git metadata.
+Retries and continuation preserve the task's worktree and frozen starting commit.
+The local Agent receives the repository label, task working folder, and starting
+commit; it does not discover a source by searching the computer.
+
+The task boundary confines project files and Git metadata while retaining the
+native runtime's platform temporary-directory rules. This is not a promise of
+complete temporary-directory isolation. Before model execution, a native command
+must prove allowed access inside the task and denied reads/writes to an owned
+sentinel outside its boundary. A worktree under a platform-wide temporary grant
+fails this check and cannot run as an isolated project task. Selecting an
+independent worktree does not grant access to an otherwise forbidden source.
 
 The first accepted Wake request remains frozen while it waits, moves to the
 front, or is redriven after transport recovery. Prompt, attachments, source
@@ -914,7 +991,8 @@ the changed content. Its failure tells the user to send the request again and
 open Diagnostics if needed; it does not expose a Check status/Recovery action
 or change current Wakeability.
 
-`Queued` means another Wake owns this Profile's work slot. It is not the
+`Queued` means that a Profile reservation or the selected context's writer is
+unavailable. It is not the
 existing RuntimeCoordinator `waiting` state used after a Wake reaches the head
 but is waiting for an OpenMeld Service route. Normal queue time has no fixed
 failure deadline. A terminal current Wake promotes the next queued Wake

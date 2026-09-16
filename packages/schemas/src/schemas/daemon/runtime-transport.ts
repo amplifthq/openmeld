@@ -4,6 +4,10 @@ import {
   executionRecoveryDestinationSchema,
   executionRecoveryIdentitySchema,
 } from "../http/execution-recovery";
+import {
+  LOCAL_AGENT_REASONING_MAX_CHARS,
+  localAgentReasoningStateSchema,
+} from "../http/local-agent-reasoning";
 import { organizationProtectedInformationSchema } from "../http/organization-information-protection";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
@@ -25,6 +29,7 @@ import {
   MAX_PROFILE_NAME_LENGTH,
   MAX_TEXT_LENGTH,
 } from "../protocol/constants";
+import { executionContextTaskSchema } from "../protocol/execution-context";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import {
   agentProfileIdSchema,
@@ -368,6 +373,8 @@ export const runtimeTransportErrorCodeSchema = z.enum([
   "runtime_coordinator.execution_token_authority_unavailable",
   "runtime_coordinator.execution_token_scope_mismatch",
   "runtime_coordinator.execution_token_unavailable",
+  "runtime_coordinator.execution_context_mismatch",
+  "runtime_coordinator.execution_context_unavailable",
 ]);
 
 export const runtimeTransportLeaseSchema = z.strictObject({
@@ -1151,6 +1158,7 @@ export const runtimeTransportDeliverDispatchPayloadSchema = z.strictObject({
   targetProfileMentionLabel: spaceMentionLabelSchema.optional(),
   targetProfileIsCenterAgent: z.boolean().optional(),
   agentControllerConversationId: z.string().trim().min(1).optional(),
+  executionContext: executionContextTaskSchema.optional(),
   deliveryRecoveryReason:
     openMeldDaemonDispatchDeliveryRecoveryReasonSchema.optional(),
   dispatchChainId: z.string().min(1).optional(),
@@ -1398,6 +1406,7 @@ export const runtimeTransportRuntimeCoordinatorHeadAcceptRequestSchema =
 export const runtimeTransportRuntimeCoordinatorHeadAcceptResponseSchema =
   z.discriminatedUnion("status", [
     z.strictObject({
+      executionContext: executionContextTaskSchema.optional(),
       acceptedDispatchSnapshot:
         openMeldDaemonAcceptedDispatchSnapshotSchema.optional(),
       action: runtimeTransportRuntimeCoordinatorHeadAcceptActionSchema,
@@ -1930,6 +1939,8 @@ export const runtimeTransportAgentControllerConversationOccupancySchema =
   });
 
 export const runtimeTransportDispatchLocalQueueWaitReasonSchema = z.enum([
+  "workspace_conflict",
+  "agent_profile_concurrency",
   "agent_controller_maintenance",
   "global_concurrency",
   "local_execution_lane_concurrency",
@@ -2041,6 +2052,14 @@ export const runtimeTransportDispatchToolActivityRequestSchema = z.strictObject(
     part: localAgentStreamToolPartSchema,
   }
 );
+
+export const runtimeTransportDispatchReasoningRequestSchema =
+  runtimeTransportDispatchToolActivityRequestSchema
+    .omit({ part: true })
+    .extend({
+      thinkingSnapshot: z.string().max(LOCAL_AGENT_REASONING_MAX_CHARS),
+      reasoningState: localAgentReasoningStateSchema,
+    });
 
 export const runtimeTransportDispatchInteractionRequestSchema = z.strictObject({
   v: z.literal(RUNTIME_TRANSPORT_SCHEMA_VERSION),
@@ -2240,6 +2259,8 @@ export const daemonStreamCodeSchema = z.enum([
   "daemon.dispatch.lifecycle",
   "daemon.dispatch.runtime_evidence",
   "daemon.dispatch.tool_activity",
+  "daemon.dispatch.reasoning",
+  "daemon.reasoning.preferences",
   "daemon.dispatch.interaction_request",
   "daemon.dispatch.interaction_response",
   "daemon.dispatch.interaction_delivered",

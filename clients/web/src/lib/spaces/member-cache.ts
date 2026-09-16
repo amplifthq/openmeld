@@ -135,6 +135,7 @@ export function applyConfirmedHumanSpaceMemberToCache(input: {
 
 export function applySpaceBootstrapSnapshotToCache(input: {
 	bootstrap: SpaceBootstrapSnapshot;
+	bootstrapUpdatedAt?: number;
 	queryClient: QueryClient;
 	spaceId: string;
 	viewerProfileId: string;
@@ -148,28 +149,35 @@ export function applySpaceBootstrapSnapshotToCache(input: {
 		spaceQueryKeys.status(input.spaceId, input.viewerProfileId),
 		input.bootstrap.status
 	);
-	input.queryClient.setQueryData<SpaceMembersSnapshot>(
-		membersQueryKey,
-		(current) => {
-			presentationMembers = resolveSpaceMembersPresentationSnapshot({
-				bootstrap: input.bootstrap.members,
-				current: current ?? null,
-			});
-			if (current && presentationMembers === current) {
-				return current;
+	// A display bootstrap must never replace a full operational snapshot.
+	if (input.bootstrap.includesAgentReadiness !== false) {
+		input.queryClient.setQueryData<SpaceMembersSnapshot>(
+			membersQueryKey,
+			(current) => {
+				presentationMembers = resolveSpaceMembersPresentationSnapshot({
+					bootstrap: input.bootstrap.members,
+					current: current ?? null,
+				});
+				if (current && presentationMembers === current) {
+					return current;
+				}
+				if (!current) {
+					return input.bootstrap.members;
+				}
+				return {
+					...mergeSpaceMembersSnapshot(
+						current,
+						listSpaceMemberSnapshotItems(input.bootstrap.members)
+					),
+					generatedAt: input.bootstrap.members.generatedAt,
+				};
 			}
-			if (!current) {
-				return input.bootstrap.members;
-			}
-			return {
-				...mergeSpaceMembersSnapshot(
-					current,
-					listSpaceMemberSnapshotItems(input.bootstrap.members)
-				),
-				generatedAt: input.bootstrap.members.generatedAt,
-			};
-		}
-	);
+		);
+	} else {
+		presentationMembers =
+			input.queryClient.getQueryData<SpaceMembersSnapshot>(membersQueryKey) ??
+			presentationMembers;
+	}
 	input.queryClient.setQueryData<SpaceBootstrapSnapshot["history"]>(
 		spaceQueryKeys.history(input.spaceId, input.viewerProfileId),
 		(current) =>
@@ -181,18 +189,36 @@ export function applySpaceBootstrapSnapshotToCache(input: {
 				}),
 			})
 	);
-	input.queryClient.setQueryData(
-		spaceQueryKeys.threads(input.spaceId, input.viewerProfileId),
-		input.bootstrap.threads
+	const threadsKey = spaceQueryKeys.threads(
+		input.spaceId,
+		input.viewerProfileId
 	);
+	const threadsUpdatedAt =
+		input.queryClient.getQueryState(threadsKey)?.dataUpdatedAt ?? 0;
+	if (
+		input.bootstrapUpdatedAt === undefined ||
+		threadsUpdatedAt <= input.bootstrapUpdatedAt
+	) {
+		input.queryClient.setQueryData(
+			threadsKey,
+			input.bootstrap.threads,
+			input.bootstrapUpdatedAt === undefined
+				? undefined
+				: { updatedAt: input.bootstrapUpdatedAt }
+		);
+	}
 }
 
 export function resolveSpaceMembersPresentationSnapshot(input: {
 	bootstrap: SpaceMembersSnapshot;
+	includesAgentReadiness?: boolean;
 	current: SpaceMembersSnapshot | null;
 }): SpaceMembersSnapshot {
 	if (input.current === null) {
 		return input.bootstrap;
+	}
+	if (input.includesAgentReadiness === false) {
+		return input.current;
 	}
 
 	return Date.parse(input.current.generatedAt) >

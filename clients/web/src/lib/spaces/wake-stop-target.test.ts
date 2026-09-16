@@ -38,6 +38,25 @@ const UNSUPPORTED_WAKE_STOP_ELIGIBILITY = {
 
 describe("resolveSpaceMessageWakeStopTarget", () => {
 	it.each([
+		"connecting",
+		"running",
+	] as const)("only offers waiting cancellation before running: %s", (phase) => {
+		const target = resolveSpaceMessageWakeStopTarget({
+			item: createTimelineItem(),
+			wakeProgressItems: [
+				{
+					...createWakeProgressItem({
+						phase,
+						wakeStopEligibility: CANCEL_BACKED_WAKE_STOP_ELIGIBILITY,
+					}),
+					waitReasonCode: "runtime.agent_controller_conversation.occupied",
+				},
+			],
+		});
+		expect(target.canStop).toBe(true);
+		expect(target.isWaitingToStart).toBe(phase === "connecting");
+	});
+	it.each([
 		"timeline",
 		"details",
 	] as const)("uses server publication eligibility for %s Stop", (variant) => {

@@ -15,6 +15,7 @@ import {
 	CaretRightIcon,
 	DesktopTowerIcon,
 	GearSixIcon,
+	MagnifyingGlassIcon,
 	MoonIcon,
 	SignOutIcon,
 	SunIcon,
@@ -26,6 +27,9 @@ import { toast } from "sonner";
 import { useOrganizationInviteEntry } from "#/components/organizations/use-organization-invite-entry";
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { useAppSettings } from "#/components/settings/use-app-settings";
+import { DesktopSignOutMenuItem } from "#/desktop/desktop-account-actions";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopUpdater } from "#/desktop/updater";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
 import {
 	AccountsSwitcherView,
@@ -41,6 +45,39 @@ import {
 	CurrentComputerAttentionIndicator,
 	useCurrentComputer,
 } from "./current-computer";
+
+function DesktopUpdateDot() {
+	const state = useDesktopUpdater();
+	if (
+		!(
+			getDesktopPlatform() &&
+			(state?.status === "available" || state?.status === "downloaded")
+		)
+	) {
+		return null;
+	}
+	return (
+		<span
+			aria-label="Desktop update available"
+			className="absolute top-1 right-1 size-1.5 rounded-full bg-primary"
+			role="img"
+		/>
+	);
+}
+function DesktopDownloadMenuItem({ index }: { index: number }) {
+	if (getDesktopPlatform()) {
+		return null;
+	}
+	return (
+		<FluidDropdownMenuItem
+			index={index}
+			onClick={() => window.location.assign("/desktop")}
+		>
+			<DesktopTowerIcon />
+			Download Desktop
+		</FluidDropdownMenuItem>
+	);
+}
 
 export function AppSidebarFooter({
 	account,
@@ -62,10 +99,14 @@ export function AppSidebarFooter({
 	const openSettings = useAppSettings();
 	const { dismiss, presentation } = useAppNavigationPresentation();
 	const logout = useLogoutAction();
+	const desktop = getDesktopPlatform();
 	const [menuOpen, setMenuOpen] = useState(false);
 	const invitationEntry = useOrganizationInviteEntry(() => setMenuOpen(false));
 	const [showAccounts, setShowAccounts] = useState(false);
-	const accounts = useAccountSwitcher(account, menuOpen && showAccounts);
+	const accounts = useAccountSwitcher(
+		account,
+		!desktop && menuOpen && showAccounts
+	);
 	const { resolvedTheme, setTheme } = useTheme();
 	const dark = resolvedTheme === "dark";
 	const openAccount = () => {
@@ -103,6 +144,22 @@ export function AppSidebarFooter({
 				)}
 			>
 				<CollapsedRailTooltip
+					label="Search or run a command"
+					side={iconOnly ? "right" : "top"}
+				>
+					<button
+						aria-label="Search or run a command"
+						className={actionClass}
+						onClick={() => {
+							dismiss();
+							window.dispatchEvent(new Event("openmeld:command-center"));
+						}}
+						type="button"
+					>
+						<MagnifyingGlassIcon className="size-4" />
+					</button>
+				</CollapsedRailTooltip>
+				<CollapsedRailTooltip
 					label={settingsLabel}
 					side={iconOnly ? "right" : "top"}
 				>
@@ -114,6 +171,7 @@ export function AppSidebarFooter({
 						type="button"
 					>
 						<GearSixIcon className="size-4" />
+						<DesktopUpdateDot />
 					</button>
 				</CollapsedRailTooltip>
 				<CollapsedRailTooltip
@@ -143,7 +201,7 @@ export function AppSidebarFooter({
 				className={iconOnly ? "w-9" : "min-w-0 flex-1"}
 				iconOnly={iconOnly}
 				menu={
-					showAccounts ? (
+					showAccounts && !desktop ? (
 						<AccountsSwitcherView
 							{...accounts}
 							account={account}
@@ -164,7 +222,9 @@ export function AppSidebarFooter({
 								className="gap-2 py-2"
 								closeOnClick={false}
 								index={0}
-								onClick={() => setShowAccounts(true)}
+								onClick={() =>
+									desktop ? openAccount() : setShowAccounts(true)
+								}
 							>
 								{avatar}
 								<span className="min-w-0 flex-1 text-left">
@@ -194,22 +254,31 @@ export function AppSidebarFooter({
 								<GearSixIcon />
 								Settings
 							</FluidDropdownMenuItem>
-							<FluidDropdownMenuItem
-								disabled={logout.isPending}
+							<DesktopDownloadMenuItem
 								index={invitationEntry.nextMenuIndex + 2}
-								onClick={() => {
-									logout.mutate(undefined, {
-										onSuccess: () => window.location.assign("/"),
-										onError: (error) =>
-											toast.error(
-												error.message || "Unable to log out. Try again."
-											),
-									});
-								}}
-							>
-								<SignOutIcon />
-								Log out
-							</FluidDropdownMenuItem>
+							/>
+							{desktop ? (
+								<DesktopSignOutMenuItem
+									index={invitationEntry.nextMenuIndex + 2}
+								/>
+							) : (
+								<FluidDropdownMenuItem
+									disabled={logout.isPending}
+									index={invitationEntry.nextMenuIndex + 3}
+									onClick={() => {
+										logout.mutate(undefined, {
+											onSuccess: () => window.location.assign("/"),
+											onError: (error) =>
+												toast.error(
+													error.message || "Unable to log out. Try again."
+												),
+										});
+									}}
+								>
+									<SignOutIcon />
+									Log out
+								</FluidDropdownMenuItem>
+							)}
 						</>
 					)
 				}
@@ -249,7 +318,7 @@ function AccountAvatarWithComputerAttention({
 			{showAttention ? (
 				<>
 					<span className="sr-only">{computer.accessibleLabel}</span>
-					<span className="absolute -top-0.5 -right-0.5 rounded-full bg-sidebar p-0.5">
+					<span className="absolute -top-0.5 -right-0.5 flex size-2.5 items-center justify-center rounded-full bg-sidebar leading-none">
 						<CurrentComputerAttentionIndicator status={computer.status} />
 					</span>
 				</>

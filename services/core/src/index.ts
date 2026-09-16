@@ -15,6 +15,7 @@ import type {
   AccountSpaceActiveWakeSummaryResponse,
   AccountSpaceIndexResponse,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileExecutionModeResponse,
   ApproveOrganizationDocumentDraftResponse,
   ApproveOrganizationDocumentDraftRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
@@ -181,6 +182,7 @@ import type {
   GetCenterAgentOperatingStateResponse,
   GetInboxItemResponse,
   GetInboxItemRpcInput,
+  GetInboxMessageNotificationPreferencesRpcInput,
   GetInboxNotificationPreferencesRpcInput,
   GetInboxSummaryRpcInput,
   GetLocalRuntimeExpectedRoutesResponse,
@@ -226,9 +228,11 @@ import type {
   ListOrganizationSkillsRpcInput,
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
+  LocalAgentReasoningPreferencesRpc,
   LocalRuntimeEnrollmentResponse,
   LocalRuntimesResponse,
   MarkAllInboxItemsReadResponse,
@@ -292,6 +296,8 @@ import type {
   RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
   SelectCurrentLocalAgentInstallationResponse,
+  ServiceConnectionIncidentReportRpcInput,
+  ServiceConnectionIncidentsReadRpcInput,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceResponse,
@@ -324,6 +330,8 @@ import type {
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
+  SpaceTaskMutationReceipt,
+  SpaceTaskResponse,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   StartCenterAgentMemberResearchRpcInput,
@@ -336,6 +344,7 @@ import type {
   UpdateCenterAgentOperatingStateResponse,
   UpdateCenterAgentRoutineResponse,
   UpdateFeedbackIssueStatusForOrganizationRequest,
+  UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
   UpdateOrganizationDocumentFolderResponse,
   UpdateOrganizationDocumentFolderRpcInput,
@@ -406,6 +415,7 @@ import {
   rpcDismissInboxItem,
   rpcGetCenterAgentInboxSummary,
   rpcGetInboxItem,
+  rpcGetInboxMessageNotificationPreferences,
   rpcGetInboxNotificationPreferences,
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
@@ -415,6 +425,7 @@ import {
   rpcMarkCenterAgentInboxReadThrough,
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
+  rpcUpdateInboxMessageNotificationPreferences,
   rpcUpdateInboxNotificationPreferences,
 } from "./inbox/transport/rpc/inbox-rpc";
 import {
@@ -517,6 +528,7 @@ import {
   type AddCenterAgentToSpaceInput,
   type AddOrganizationDirectoryProfilesToSpaceInput,
   type AddSpaceMembersInput,
+  type AgentProfileExecutionModeInput,
   type ArchiveProjectInput,
   type AssertCurrentDesignatedCenterAgentInput,
   type AuthorizeConnectorDisconnectInput,
@@ -598,6 +610,7 @@ import {
   type CreateSpaceDiagnosticReportInput,
   type CreateSpaceFolderInput,
   type CreateSpaceInput,
+  type CreateSpaceTaskInput,
   type DeleteRoutineInput,
   type DeleteSpaceAttachmentRecordInput,
   type DeleteSpaceAttachmentRecordResult,
@@ -654,6 +667,7 @@ import {
   type GetSpaceMessageReactionsInput,
   type GetSpaceMetaInput,
   type GetSpaceStatusInput,
+  type GetSpaceTaskInput,
   type GetSpaceThreadInput,
   type GetSpaceUpdatesInput,
   type GetSpaceViewerMembershipInput,
@@ -679,9 +693,11 @@ import {
   type ListSignalsInput,
   type ListSignalsResult,
   type ListSpaceFilesInput,
+  type ListSpaceTasksInput,
   type ListSpaceThreadEventsInput,
   type ListSpaceThreadSignalsInput,
   type ListSpaceThreadsInput,
+  type MutateSpaceTaskInput,
   type NotifyAgentProfileRouteCatalogChangedInput,
   type NotifyAgentProfilesRouteCatalogChangedInput,
   type OpenCenterAgentDirectMessageSpaceInput,
@@ -729,6 +745,7 @@ import {
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
+  rpcAgentProfileExecutionMode,
   rpcArchiveProject,
   rpcAssertCurrentDesignatedCenterAgent,
   rpcAuthorizeConnectorDisconnect,
@@ -802,6 +819,8 @@ import {
   rpcConnectCandidate,
   rpcConnectCenterAgentSlackWorkspace,
   rpcConnectDeclaredPath,
+  rpcConnectPeopleComputerProjectCandidate,
+  rpcConnectPeopleComputerProjectPath,
   rpcConsumeMessageChannelIdentityLink,
   rpcConsumeSlackIdentityLink,
   rpcConsumeSlackOAuthState,
@@ -815,6 +834,7 @@ import {
   rpcCreateSpace,
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
+  rpcCreateSpaceTask,
   rpcDeleteRoutine,
   rpcDeleteSpace,
   rpcDeleteSpaceAttachmentRecord,
@@ -878,6 +898,7 @@ import {
   rpcGetSpaceMessageReactions,
   rpcGetSpaceMeta,
   rpcGetSpaceStatus,
+  rpcGetSpaceTask,
   rpcGetSpaceThread,
   rpcGetSpaceUpdates,
   rpcGetSpaceViewerMembership,
@@ -905,10 +926,12 @@ import {
   rpcListSignals,
   rpcListSpaceFileRevisions,
   rpcListSpaceFiles,
+  rpcListSpaceTasks,
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
   rpcMutateSpaceMessage,
+  rpcMutateSpaceTask,
   rpcNotifyAgentProfileRouteCatalogChanged,
   rpcNotifyAgentProfilesRouteCatalogChanged,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -935,6 +958,7 @@ import {
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
   rpcReadPeopleComputerFileAccessPolicy,
+  rpcReadServiceConnectionIncidents,
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
@@ -946,6 +970,7 @@ import {
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
+  rpcReportServiceConnectionIncident,
   rpcRequestCurrentOpenMeldToolsUpdate,
   rpcRequestMessageChannelSetup,
   rpcRequestPeopleComputerOpenMeldToolsUpdate,
@@ -970,6 +995,7 @@ import {
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSetPeopleComputerOpenMeldToolsMaintenance,
+  rpcSetPeopleComputerProjectDefaultConnection,
   rpcSetSpaceAccessMode,
   rpcSetSpaceMessageReaction,
   rpcSpaceFilePins,
@@ -1050,6 +1076,7 @@ import {
   type WriteCurrentDeviceObservedMetadataInput,
   type WriteSpaceFileContentRpcInput,
 } from "./rpc/methods";
+import { reasoningPreferences } from "./runtime-transport/application/reasoning-preferences";
 import { RuntimeTransportHub } from "./runtime-transport/transport/do/runtime-transport-hub";
 import {
   ROUTINE_TICK_CRON,
@@ -1292,6 +1319,32 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcDiscoverPeopleComputerProjects(this.env, input);
   }
 
+  connectPeopleComputerProjectCandidate(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
+  ) {
+    return rpcConnectPeopleComputerProjectCandidate(this.env, input);
+  }
+  setPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    const { deviceId, runtimeLane, ...request } = input;
+    return rpcSetCurrentAgentProfileWorkspace(this.env, request, {
+      deviceId,
+      runtimeLane,
+    });
+  }
+  connectPeopleComputerProjectPath(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
+  ) {
+    return rpcConnectPeopleComputerProjectPath(this.env, input);
+  }
+  setPeopleComputerProjectDefaultConnection(
+    input: Parameters<typeof rpcSetPeopleComputerProjectDefaultConnection>[1]
+  ) {
+    return rpcSetPeopleComputerProjectDefaultConnection(this.env, input);
+  }
+
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return rpcReadComputerFileAccessPolicy(this.env, input);
   }
@@ -1475,6 +1528,22 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return rpcGetInboxNotificationPreferences(this.env, input);
+  }
+
+  getInboxMessageNotificationPreferences(
+    input: GetInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return rpcGetInboxMessageNotificationPreferences(this.env, input);
+  }
+
+  updateInboxMessageNotificationPreferences(
+    input: UpdateInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return rpcUpdateInboxMessageNotificationPreferences(this.env, input);
+  }
+
+  localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
+    return reasoningPreferences(this.env, input);
   }
 
   updateInboxNotificationPreferences(
@@ -2118,6 +2187,26 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcSpaceMessagePins(this.env, input);
   }
 
+  listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
+    return rpcListSpaceTasks(this.env, input);
+  }
+
+  getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    return rpcGetSpaceTask(this.env, input);
+  }
+
+  createSpaceTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return rpcCreateSpaceTask(this.env, input);
+  }
+
+  mutateSpaceTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return rpcMutateSpaceTask(this.env, input);
+  }
+
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
     return rpcGetSpaceContract(this.env, input);
   }
@@ -2309,6 +2398,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return rpcExecuteAgentProfileWorkRecovery(this.env, input);
+  }
+
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return rpcAgentProfileExecutionMode(this.env, input);
   }
 
   getAgentProfileControllerChangeEligibility(
@@ -3387,6 +3482,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcListPeopleComputers(this.env, input);
   }
 
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return rpcReadServiceConnectionIncidents(this.env, input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return rpcReportServiceConnectionIncident(this.env, input);
+  }
+
   setPeopleComputerLocalAgentEnabled(
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
@@ -3579,6 +3686,28 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.discoverPeopleComputerProjects(input);
   }
 
+  connectPeopleComputerProjectCandidate(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
+  ) {
+    return super.connectPeopleComputerProjectCandidate(input);
+  }
+  setPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.setPeopleComputerAgentProfileWorkspace(input);
+  }
+  connectPeopleComputerProjectPath(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
+  ) {
+    return super.connectPeopleComputerProjectPath(input);
+  }
+  setPeopleComputerProjectDefaultConnection(
+    input: Parameters<typeof rpcSetPeopleComputerProjectDefaultConnection>[1]
+  ) {
+    return super.setPeopleComputerProjectDefaultConnection(input);
+  }
+
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return super.readComputerFileAccessPolicy(input);
   }
@@ -3756,6 +3885,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return super.getInboxNotificationPreferences(input);
+  }
+
+  getInboxMessageNotificationPreferences(
+    input: GetInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return super.getInboxMessageNotificationPreferences(input);
+  }
+
+  updateInboxMessageNotificationPreferences(
+    input: UpdateInboxMessageNotificationPreferencesRpcInput
+  ) {
+    return super.updateInboxMessageNotificationPreferences(input);
   }
 
   updateInboxNotificationPreferences(
@@ -4186,6 +4327,26 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.spaceMessagePins(input);
   }
 
+  listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
+    return super.listSpaceTasks(input);
+  }
+
+  getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    return super.getSpaceTask(input);
+  }
+
+  createSpaceTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return super.createSpaceTask(input);
+  }
+
+  mutateSpaceTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return super.mutateSpaceTask(input);
+  }
+
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
     return super.getSpaceContract(input);
   }
@@ -4300,6 +4461,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
     return super.listPeopleComputers(input);
+  }
+
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return super.readServiceConnectionIncidents(input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return super.reportServiceConnectionIncident(input);
   }
 
   setPeopleComputerLocalAgentEnabled(
@@ -4471,6 +4644,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return super.executeAgentProfileWorkRecovery(input);
+  }
+
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return super.agentProfileExecutionMode(input);
   }
 
   getAgentProfileControllerChangeEligibility(
@@ -5334,6 +5513,10 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentReadTurnDiagnostics(this.env, input);
   }
 
+  centerAgentSetReplyPlacement(input: CenterAgentSetReplyPlacementInput) {
+    return rpcCenterAgentSetReplyPlacement(this.env, input);
+  }
+
   centerAgentListOpportunities(input: CenterAgentListOpportunitiesInput) {
     return rpcCenterAgentListOpportunities(this.env, input);
   }
@@ -5453,6 +5636,7 @@ export default CoreEntrypoint;
 import type {
   CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileResponse,
+  CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { rpcPluginAction } from "./connectors/plugin-actions";
 import {
@@ -5463,3 +5647,4 @@ import {
   type CenterAgentReadChannelFileInput,
   rpcCenterAgentReadChannelFile,
 } from "./remote-agent/application/message-channel-file-service";
+import { rpcCenterAgentSetReplyPlacement } from "./rpc/methods";

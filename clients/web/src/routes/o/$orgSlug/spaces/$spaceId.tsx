@@ -24,10 +24,16 @@ import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { SpaceLandingLoadingShell } from "#/components/spaces/space-state-surfaces";
+import { useSpaceThreadTarget } from "#/components/spaces/use-space-thread-target";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
+import {
+	observeSpaceOpen,
+	readSpacePrefetch,
+	recordSpacePrefetch,
+} from "#/lib/observability/space-open";
 import {
 	prefetchSpaceConversationRouteData,
 	restoreSpaceConversationRouteData,
@@ -51,9 +57,12 @@ import {
 	writeLastUsedHumanProfileId,
 } from "#/lib/spaces/last-used-profile";
 import { centerAgentDirectMessageSpaceProjectionQueryOptions } from "#/query/organizations/center-agent";
+import { organizationSpacesQueryOptions } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { isQueryCancellationError } from "#/query/query-cancellation";
+import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
+import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import { spaceConversationDisplaySnapshotQueryOptions } from "#/query/spaces/display-snapshot";
 import { spaceHistoryQueryOptions } from "#/query/spaces/history";
 import { spaceStatusQueryOptions } from "#/query/spaces/status";
@@ -78,14 +87,30 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 		const parsed = appSpaceRouteSearchSchema.safeParse(search);
 		return parsed.success ? parsed.data : {};
 	},
-	loaderDeps: ({ search }) => ({ profileId: search.profileId }),
+	loaderDeps: ({ search }) => ({
+		profileId: search.profileId,
+		focusSignalId: search.focusSignalId,
+		focusThreadRootSignalId: search.focusThreadRootSignalId,
+	}),
 	pendingComponent: AppSpaceConversationPendingRoute,
 	pendingMinMs: APP_ROUTE_PENDING_MIN_DURATION_MS,
 	pendingMs: APP_ROUTE_PENDING_DELAY_MS,
 	// SSR-read persisted rail/sidebar geometry so the shell renders at the
 	// remembered sizes with no first-paint flash.
-	loader: async ({ context, deps, location, params }) => {
+	loader: async ({ context, deps, location, params, preload }) => {
 		const sidebarStates = getAppSidebarStatesForRoute("spaces");
+		const prefetchKey = JSON.stringify([
+			params.orgSlug,
+			params.spaceId,
+			deps.profileId,
+		]);
+		if (preload) {
+			recordSpacePrefetch(prefetchKey, "in_flight");
+		} else {
+			observeSpaceOpen(params.spaceId, {
+				prefetch: readSpacePrefetch(prefetchKey),
+			});
+		}
 		await restoreSpaceConversationRouteData({
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
@@ -95,24 +120,33 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 			spaceId: params.spaceId,
 		});
 		prefetchSpaceConversationRouteData({
+			focusSignalId: deps.focusSignalId,
+			focusThreadRootSignalId: deps.focusThreadRootSignalId,
 			organizationSlug: params.orgSlug,
 			profileId: deps.profileId,
 			queryClient: context.queryClient,
 			queryPersistence: context.queryPersistence,
 			routeFamily: location.href,
 			spaceId: params.spaceId,
-		}).catch((error: unknown) => {
-			if (isQueryCancellationError(error)) {
-				return;
-			}
-			console.error("Failed to prefetch the Space conversation data.", error);
-		});
+		})
+			.then(() => {
+				if (preload) {
+					recordSpacePrefetch(prefetchKey, "complete");
+				}
+			})
+			.catch((error: unknown) => {
+				if (isQueryCancellationError(error)) {
+					return;
+				}
+				console.error("Failed to prefetch the Space conversation data.", error);
+			});
 		return { sidebarStates: await sidebarStates };
 	},
 	component: AppSpaceEntryRoute,
 });
 
 function AppSpaceConversationPendingRoute() {
+	const search = Route.useSearch();
 	return (
 		<SpaceWindowShell
 			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
@@ -120,7 +154,9 @@ function AppSpaceConversationPendingRoute() {
 			sidebarPreferenceKey="spaces"
 		>
 			<AppMainContent bodyClassName="flex" header={null}>
-				<SpaceLandingLoadingShell />
+				<SpaceLandingLoadingShell
+					threadOpen={Boolean(search.focusThreadRootSignalId)}
+				/>
 			</AppMainContent>
 		</SpaceWindowShell>
 	);
@@ -257,7 +293,9 @@ function MissingAppSpaceProfileContent(
 				navigationSurface={input.navigationSurface}
 				spaceId={input.spaceId}
 			>
-				<SpaceProfileCheckState />
+				<SpaceProfileCheckState
+					threadOpen={Boolean(input.focusThreadRootSignalId)}
+				/>
 			</AppSpaceEntryShell>
 		);
 	}
@@ -292,7 +330,9 @@ function MissingAppSpaceProfileContent(
 				spaceId={input.spaceId}
 				verifiedProfileId={recommendedProfileId}
 			>
-				<SpaceProfileCheckState />
+				<SpaceProfileCheckState
+					threadOpen={Boolean(input.focusThreadRootSignalId)}
+				/>
 			</AppSpaceEntryShell>
 		);
 	}
@@ -360,7 +400,9 @@ function ValidatedAppSpaceEntryContent(
 				navigationSurface={input.navigationSurface}
 				spaceId={input.spaceId}
 			>
-				<SpaceProfileCheckState />
+				<SpaceProfileCheckState
+					threadOpen={Boolean(input.focusThreadRootSignalId)}
+				/>
 			</AppSpaceEntryShell>
 		);
 	}
@@ -443,7 +485,7 @@ function ValidatedAppSpaceEntryContent(
 }
 
 function ResolvedAppSpaceEntryContent(
-	input: {
+	props: {
 		accountProfiles: ComponentProps<typeof SpaceLanding>["accountProfiles"];
 		centerAgentDirectMessageSpaceId: string | null;
 		initialSidebarStates?: AppSidebarPersistedStates;
@@ -454,6 +496,12 @@ function ResolvedAppSpaceEntryContent(
 		spaceId: string;
 	} & AppSpaceFocusSearch
 ) {
+	const target = useSpaceThreadTarget(props);
+	const input = {
+		...props,
+		focusThreadRootSignalId:
+			props.focusThreadRootSignalId ?? target?.rootSignalId,
+	};
 	const allowedContent =
 		input.navigationSurface === "directMessages" ? (
 			<ValidatedDirectMessageEntryContent
@@ -510,12 +558,13 @@ function ResolvedAppSpaceEntryContent(
 	return (
 		<AppSpaceAccessGate
 			focusSignalId={input.focusSignalId}
-			focusThreadRootSignalId={input.focusThreadRootSignalId}
+			focusThreadRootSignalId={props.focusThreadRootSignalId}
 			initialSidebarStates={input.initialSidebarStates}
 			navigationSurface={input.navigationSurface}
 			orgSlug={input.orgSlug}
 			profileId={input.profileId}
 			spaceId={input.spaceId}
+			threadOpen={Boolean(input.focusThreadRootSignalId)}
 		>
 			{allowedContent}
 		</AppSpaceAccessGate>
@@ -530,6 +579,7 @@ function AppSpaceAccessGate(
 		orgSlug: string;
 		profileId: string;
 		spaceId: string;
+		threadOpen: boolean;
 	} & Pick<AppSpaceFocusSearch, "focusSignalId" | "focusThreadRootSignalId">
 ) {
 	const organization = useAppOrganization();
@@ -563,6 +613,30 @@ function AppSpaceAccessGate(
 			openMeldProfileId: input.profileId,
 		})
 	);
+	const accountSpaces = useQuery(
+		accountSpaceItemsQueryOptions({
+			profileId: input.profileId,
+			enabled: false,
+		})
+	);
+	const directory = useQuery(
+		organizationSpacesQueryOptions({
+			organizationId: organization.currentOrganization.id,
+			enabled: false,
+		})
+	);
+	const knownTitle =
+		display.data?.status.name ??
+		[
+			...(accountSpaces.data?.pinnedItems ?? []),
+			...(accountSpaces.data?.spaceItems ?? []),
+		].find(
+			(space) =>
+				space.spaceId === input.spaceId &&
+				space.organizationId === organization.currentOrganization.id
+		)?.spaceName ??
+		directory.data?.spaces.find((space) => space.spaceId === input.spaceId)
+			?.name;
 	const history = useQuery(
 		spaceHistoryQueryOptions({
 			spaceId: input.spaceId,
@@ -606,13 +680,21 @@ function AppSpaceAccessGate(
 		}),
 		spaceId: input.spaceId,
 	});
+	const pendingContent = (
+		<SpaceLandingLoadingShell
+			threadOpen={input.threadOpen}
+			title={knownTitle}
+		/>
+	);
 	return (
 		<SpaceEntryGate
 			backHref={buildOrganizationSpacesPath(input.orgSlug)}
 			onAccessRejected={onAccessRejected}
 			openMeldProfileId={input.profileId}
+			pendingContent={pendingContent}
 			renderFrame={(content) => (
 				<AppSpaceEntryShell
+					conversationLayout={content === pendingContent}
 					initialSidebarStates={input.initialSidebarStates}
 					navigationSurface={input.navigationSurface}
 					spaceId={input.spaceId}
@@ -634,18 +716,13 @@ function AppSpaceAccessGate(
 	);
 }
 
-function ValidatedSpaceNavigationContent(
-	input: {
-		children: ReactNode;
-		initialSidebarStates?: AppSidebarPersistedStates;
-		orgSlug: string;
-		profileId: string;
-		spaceId: string;
-	} & AppSpaceFocusSearch
-) {
+function useSpaceConversationEntryQueries(input: {
+	spaceId: string;
+	profileId: string;
+}) {
 	const statusQuery = useQuery(
 		spaceStatusQueryOptions({
-			enabled: true,
+			enabled: false,
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
 		})
@@ -656,26 +733,37 @@ function ValidatedSpaceNavigationContent(
 			openMeldProfileId: input.profileId,
 		})
 	);
-	if (
-		!statusQuery.data &&
-		statusQuery.isPending &&
-		!displaySnapshotQuery.data
-	) {
-		return (
-			<AppSpaceEntryShell
-				initialSidebarStates={input.initialSidebarStates}
-				spaceId={input.spaceId}
-				verifiedProfileId={input.profileId}
-			>
-				<SpaceConversationCheckState />
-			</AppSpaceEntryShell>
-		);
-	}
+	// Classification consumes the conversation's existing bootstrap/status read.
+	// It must not start a second full status request merely to choose the route.
+	const bootstrapQuery = useQuery(
+		spaceBootstrapQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+			enabled:
+				statusQuery.isPending &&
+				!statusQuery.data &&
+				!displaySnapshotQuery.data,
+		})
+	);
+	return {
+		status: statusQuery.data ?? bootstrapQuery.data?.status,
+		bootstrapQuery,
+		displaySnapshotQuery,
+	};
+}
 
-	if (
-		statusQuery.data &&
-		isDirectMessageSpace(toDirectMessageState(statusQuery.data))
-	) {
+function ValidatedSpaceNavigationContent(
+	input: {
+		children: ReactNode;
+		initialSidebarStates?: AppSidebarPersistedStates;
+		orgSlug: string;
+		profileId: string;
+		spaceId: string;
+	} & AppSpaceFocusSearch
+) {
+	const { status } = useSpaceConversationEntryQueries(input);
+
+	if (status && isDirectMessageSpace(toDirectMessageState(status))) {
 		return (
 			<RedirectToCanonicalDirectMessage
 				focusInteractionId={input.focusInteractionId}
@@ -701,36 +789,9 @@ function ValidatedDirectMessageEntryContent(
 		spaceId: string;
 	} & AppSpaceFocusSearch
 ) {
-	const statusQuery = useQuery(
-		spaceStatusQueryOptions({
-			enabled: true,
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-		})
-	);
-	const displaySnapshotQuery = useQuery(
-		spaceConversationDisplaySnapshotQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-		})
-	);
-	if (
-		!statusQuery.data &&
-		statusQuery.isPending &&
-		!displaySnapshotQuery.data
-	) {
-		return (
-			<AppSpaceEntryShell
-				initialSidebarStates={input.initialSidebarStates}
-				navigationSurface="directMessages"
-				spaceId={input.spaceId}
-				verifiedProfileId={input.profileId}
-			>
-				<SpaceConversationCheckState />
-			</AppSpaceEntryShell>
-		);
-	}
-	if (!statusQuery.data && statusQuery.isError && !displaySnapshotQuery.data) {
+	const { status, bootstrapQuery, displaySnapshotQuery } =
+		useSpaceConversationEntryQueries(input);
+	if (!status && bootstrapQuery.isError && !displaySnapshotQuery.data) {
 		return (
 			<AppSpaceEntryShell
 				initialSidebarStates={input.initialSidebarStates}
@@ -739,9 +800,9 @@ function ValidatedDirectMessageEntryContent(
 				verifiedProfileId={input.profileId}
 			>
 				<DirectMessagesLoadFailureState
-					isRetrying={statusQuery.isRefetching}
+					isRetrying={bootstrapQuery.isRefetching}
 					onRetry={() => {
-						statusQuery.refetch().catch((error: unknown) => {
+						bootstrapQuery.refetch().catch((error: unknown) => {
 							console.error("Failed to refresh Direct Messages.", error);
 						});
 					}}
@@ -749,10 +810,7 @@ function ValidatedDirectMessageEntryContent(
 			</AppSpaceEntryShell>
 		);
 	}
-	if (
-		statusQuery.data &&
-		!isDirectMessageSpace(toDirectMessageState(statusQuery.data))
-	) {
+	if (status && !isDirectMessageSpace(toDirectMessageState(status))) {
 		return (
 			<RedirectToCanonicalSpace
 				focusInteractionId={input.focusInteractionId}
@@ -804,7 +862,10 @@ function toDirectMessageState(status: {
 	};
 }
 
-function SpaceProfileCheckState() {
+function SpaceProfileCheckState(input: { threadOpen?: boolean }) {
+	if (input.threadOpen) {
+		return <SpaceLandingLoadingShell threadOpen />;
+	}
 	return (
 		<output
 			aria-label="Checking profile"
@@ -823,33 +884,19 @@ function SpaceProfileCheckState() {
 	);
 }
 
-function SpaceConversationCheckState() {
-	return (
-		<output
-			aria-label="Opening conversation"
-			className="flex w-full max-w-sm flex-col items-center gap-4 text-center"
-		>
-			<Bars aria-hidden="true" className="h-7 w-10 text-muted-foreground" />
-			<div className="space-y-2">
-				<h1 className="font-medium text-base text-foreground">
-					Opening this conversation
-				</h1>
-				<p className="text-muted-foreground text-sm">
-					OpenMeld is checking access and loading the latest messages.
-				</p>
-			</div>
-		</output>
-	);
-}
-
 function AppSpaceEntryShell(input: {
 	children: ReactNode;
+	conversationLayout?: boolean;
 	spaceId: string;
 	verifiedProfileId?: string;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	navigationSurface?: AppSpaceNavigationSurface;
 }) {
-	const content = (
+	const content = input.conversationLayout ? (
+		<AppMainContent bodyClassName="flex" header={null}>
+			{input.children}
+		</AppMainContent>
+	) : (
 		<AppMainContent>
 			<div className="flex h-full items-center justify-center px-6 py-10">
 				{input.children}
@@ -976,7 +1023,9 @@ function RedirectToAppSpaceProfile(
 			spaceId={input.spaceId}
 			verifiedProfileId={input.profileId}
 		>
-			<SpaceProfileCheckState />
+			<SpaceProfileCheckState
+				threadOpen={Boolean(input.focusThreadRootSignalId)}
+			/>
 		</AppSpaceEntryShell>
 	);
 }
@@ -1018,7 +1067,9 @@ function RedirectToCanonicalSpace(
 
 	return (
 		<AppSpaceEntryShell spaceId={input.spaceId}>
-			<SpaceProfileCheckState />
+			<SpaceProfileCheckState
+				threadOpen={Boolean(input.focusThreadRootSignalId)}
+			/>
 		</AppSpaceEntryShell>
 	);
 }
@@ -1063,7 +1114,9 @@ function RedirectToCanonicalDirectMessage(
 
 	return (
 		<AppSpaceEntryShell spaceId={input.spaceId}>
-			<SpaceProfileCheckState />
+			<SpaceProfileCheckState
+				threadOpen={Boolean(input.focusThreadRootSignalId)}
+			/>
 		</AppSpaceEntryShell>
 	);
 }

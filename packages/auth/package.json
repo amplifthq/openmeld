@@ -38,6 +38,7 @@
     "email:export": "email export --dir src/templates"
   },
   "dependencies": {
+    "@better-auth/electron": "1.6.30",
     "@better-auth/passkey": "1.6.30",
     "@better-auth/utils": "0.4.2",
     "@openmeld/db": "workspace:*",

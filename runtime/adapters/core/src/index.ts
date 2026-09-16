@@ -23,6 +23,7 @@ import type {
   AgentInteractionResponse,
   ComputerFileAccessPolicy,
   ConversationPolicy,
+  ExecutionContextTask,
   OpenCodePermissionConfig,
   OpenMeldDaemonProviderAccessEvidence,
   ProviderDispatchRuntimeContext,
@@ -169,7 +170,7 @@ export type AdapterDispatchExecutionMode = "normal" | "repair";
 export type AdapterComputerFileAccessBoundary = Extract<
   ComputerFileAccessPolicy,
   { mode: "block_selected_folders" | "only_selected_folders" }
->;
+> & { executionContextAccess?: ExecutionContextTask["access"] };
 export type AdapterComputerFileAccessVerificationRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   boundary: AdapterComputerFileAccessBoundary;
@@ -242,7 +243,17 @@ export type AdapterRuntimeEvent =
   | AdapterProviderConversationObservedEvent
   | AdapterProviderTurnAcceptedEvent
   | AdapterProviderUsageLimitsObservedEvent
-  | AdapterToolActivityEvent;
+  | AdapterToolActivityEvent
+  | AdapterReasoningEvent;
+
+/** Transient provider output. Never journal, log, or persist this event. */
+export type AdapterReasoningEvent = {
+  phase: "reasoning";
+  blockId: string;
+  text: string;
+  mode: "append" | "snapshot";
+  tsMs: number;
+};
 export type AdapterRuntimeEventCallback = (
   event: AdapterRuntimeEvent
 ) => Promise<void> | void;
@@ -285,6 +296,7 @@ export type AdapterDispatchRequest = {
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   conversationPolicy?: ConversationPolicy;
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
+  executionContext?: ExecutionContextTask;
   dispatchId?: string;
   env?: Record<string, string | undefined>;
   executionMode?: AdapterDispatchExecutionMode;

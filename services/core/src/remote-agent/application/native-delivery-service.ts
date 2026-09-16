@@ -36,6 +36,7 @@ import {
   resolveCenterAgentCompletedCallbackMessage,
   resolveSpaceFileContentResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
@@ -635,6 +636,7 @@ function buildRemoteAgentSourceText(
     ? renderDispatchSourceText({
         text: rawText,
         quotedMessage: message.sourceSignalSnapshot?.quotedMessage,
+        contextMessages: message.sourceSignalSnapshot?.contextMessages,
         pinnedFiles: message.sourceSignalSnapshot?.pinnedFiles,
       })
     : null;
@@ -2965,6 +2967,8 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
   failureCode: string;
   failureMessage: string;
 }): Promise<SignalEnvelope> {
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
@@ -3022,9 +3026,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
     }),
     spaceId: input.delivery.spaceId,
     text: input.failureMessage,
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
   });
 }
 
@@ -6508,6 +6510,7 @@ function buildRoutinePublisherActorContext(input: {
 }
 
 async function publishRemoteAgentRoutineText(input: {
+  mentionTargets?: string[];
   personalAgent?: boolean;
   agentStreamId?: string;
   attachments?: SpaceMessageAttachment[];
@@ -6571,6 +6574,9 @@ async function publishRemoteAgentRoutineText(input: {
         : {}),
       referenceTargets: [],
       text: input.text,
+      ...(input.mentionTargets?.length
+        ? { mentionTargets: input.mentionTargets }
+        : {}),
     },
     meta: {
       clientMessageId: input.clientMessageId,
@@ -6871,12 +6877,25 @@ async function readRemoteAgentSubmissionAttachments(input: {
       spaceId: input.message.spaceId,
       targetProfileId: input.message.targetProfileId,
     });
-    const signal = await readRemoteAgentSpaceSourceSignal({
-      env: input.env,
-      sourceSignalId: input.message.sourceEventId,
-      spaceAccess,
-      spaceId: input.message.spaceId,
-    });
+    const sourceIds = [
+      ...new Set([
+        input.message.sourceEventId,
+        ...(input.message.sourceSignalSnapshot?.contextMessages ?? []).map(
+          (message) => message.signalId
+        ),
+      ]),
+    ];
+    const signals = await Promise.all(
+      sourceIds.map((sourceSignalId) =>
+        readRemoteAgentSpaceSourceSignal({
+          env: input.env,
+          sourceSignalId,
+          spaceAccess,
+          spaceId: input.message.spaceId,
+        })
+      )
+    );
+    const signal = signals[0];
     if (signal?.type !== "signal.text") {
       if (!signal) {
         logRemoteAgentAttachmentReferenceDegradation({
@@ -6886,8 +6905,18 @@ async function readRemoteAgentSubmissionAttachments(input: {
       }
       return [];
     }
+    const currentMessages = signals.filter(
+      (item): item is Extract<SignalEnvelope, { type: "signal.text" }> =>
+        item?.type === "signal.text" && !item.data.meta?.recalledAt
+    );
     const legacyAttachments = spaceMessageAttachmentsSchema.safeParse(
-      signal.data.attachments ?? []
+      [
+        ...new Map(
+          currentMessages
+            .flatMap((item) => item.data.attachments ?? [])
+            .map((attachment) => [attachment.id, attachment])
+        ).values(),
+      ].slice(0, SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE)
     );
     if (!legacyAttachments.success) {
       logRemoteAgentAttachmentReferenceDegradation({
@@ -6901,7 +6930,13 @@ async function readRemoteAgentSubmissionAttachments(input: {
       0,
       SPACE_MESSAGE_FILE_MAX_COUNT - legacyAttachments.data.length
     );
-    const canonicalImageFiles = (signal.data.files ?? [])
+    const canonicalImageFiles = [
+      ...new Map(
+        currentMessages
+          .flatMap((item) => item.data.files ?? [])
+          .map((file) => [`${file.fileId}:${file.revision}`, file])
+      ).values(),
+    ]
       .filter(
         (file) =>
           file.mimeType === "image/jpeg" || file.mimeType === "image/png"
@@ -11241,6 +11276,8 @@ async function publishRemoteAgentCallbackFailureText(input: {
     }
     return { id: original.publishedSignalId };
   }
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   if (input.delivery.conversationKind === "message_channel") {
     throw new Error(
       "Message Channel failure publication requires the provider publication coordinator"
@@ -11345,9 +11382,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
         spaceId: input.delivery.spaceId,
         targetProfileId: input.delivery.profileId,
       }),
-      ...(input.delivery.threadContext
-        ? { threadContext: input.delivery.threadContext }
-        : {}),
+      ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
       context,
     });
   }
@@ -11386,9 +11421,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
       spaceId: input.delivery.spaceId,
       targetProfileId: input.delivery.profileId,
     }),
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     context,
   });
 }
@@ -11443,6 +11476,8 @@ async function publishRemoteAgentCallbackReply(input: {
   if (recovery?.resultRef && input.delivery.conversationKind === "space") {
     return await publishRemoteAgentRecoveredSpaceReply({ ...input, recovery });
   }
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   if (input.delivery.conversationKind === "message_channel") {
     throw new Error(
       "Message Channel reply publication requires the provider publication coordinator"
@@ -11471,6 +11506,7 @@ async function publishRemoteAgentCallbackReply(input: {
     });
     return await publishRemoteAgentRoutineText({
       agentStreamId: buildRemoteAgentStreamId(input.body.submissionId),
+      mentionTargets: input.body.mentionTargets,
       personalAgent: isPersonalRoutineDelivery(input.delivery),
       ...(input.body.attachments?.length
         ? { attachments: input.body.attachments }
@@ -11531,6 +11567,7 @@ async function publishRemoteAgentCallbackReply(input: {
       ...(navigationAction ? { navigationAction } : {}),
       replyToSignalId: input.delivery.triggerMessageId,
       text: replyText,
+      mentionTargets: input.body.mentionTargets,
     },
     meta: {
       clientMessageId: input.body.submissionId,
@@ -11555,9 +11592,7 @@ async function publishRemoteAgentCallbackReply(input: {
       spaceId: input.delivery.spaceId,
       targetProfileId: input.delivery.profileId,
     }),
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     context,
   });
 }
@@ -11594,6 +11629,10 @@ async function publishRemoteAgentRecoveredSpaceReply(input: {
   recovery: NonNullable<RemoteAgentWorkerSubmitTurnRequest["replyRecovery"]>;
 }): Promise<{ id: string }> {
   const original = await requireReplyRecoveryOriginalDelivery(input);
+  const replyThreadContext = await resolveNativeDeliveryReplyThreadContext({
+    env: input.env,
+    delivery: original,
+  });
   if (!input.recovery.resultRef) {
     throw new Error("execution_recovery.identity_mismatch");
   }
@@ -11631,9 +11670,7 @@ async function publishRemoteAgentRecoveredSpaceReply(input: {
       spaceId: original.spaceId,
       targetProfileId: original.profileId,
     }),
-    ...(original.threadContext
-      ? { threadContext: original.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     data: {
       actorProfileId: original.profileId,
       ...(targetProfile.profileName
@@ -12673,3 +12710,5 @@ function normalizeOptionalText(value: unknown): string | null {
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+import { resolveNativeDeliveryReplyThreadContext } from "./reply-placement";

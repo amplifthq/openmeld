@@ -139,8 +139,8 @@ function resolveGenericSpaceWakeStatusLabel(input: {
 }): string {
 	if (input.isWaitingForCurrentTask) {
 		return input.activeWakeCount === 1
-			? "An agent is waiting for its current task"
-			: `${String(input.activeWakeCount)} Wakes are waiting for current tasks`;
+			? "An agent is waiting for its session"
+			: `${String(input.activeWakeCount)} Wakes are waiting for sessions`;
 	}
 	return input.activeWakeCount === 1
 		? "A Wake is active"
@@ -165,7 +165,7 @@ function resolveAttributedSpaceWakeStatusLabel(input: {
 	}
 	const plural = input.activeTargets.length > 1;
 	const status = input.isWaitingForCurrentTask
-		? `${plural ? "are" : "is"} waiting for ${plural ? "their" : "its"} current task`
+		? `${plural ? "are" : "is"} waiting for ${plural ? "their sessions" : "its session"}`
 		: `${plural ? "have" : "has"} an active Wake`;
 	return capitalizeStatusFragment(
 		`${formatEnglishList(targetLabels)} ${status}`

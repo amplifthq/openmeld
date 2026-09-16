@@ -1,4 +1,27 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared schema package intentionally exposes stable contract entrypoints.
+
+export {
+  SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  serviceConnectionDiagnosticIdSchema,
+} from "./daemon/service-connection-correlation";
+export {
+  serviceConnectionEvidenceEventSchema,
+  serviceConnectionEvidenceJournalSchema,
+  serviceConnectionIncidentReceiptSchema,
+  serviceConnectionIncidentReportRpcInputSchema,
+  serviceConnectionIncidentReportSchema,
+  serviceConnectionIncidentSchema,
+  serviceConnectionIncidentsReadRpcInputSchema,
+  serviceConnectionIncidentsResponseSchema,
+} from "./daemon/service-connection-evidence";
+export {
+  LOCAL_AGENT_REASONING_MAX_CHARS,
+  localAgentReasoningPreferencesRpcSchema,
+  localAgentReasoningPreferencesSchema,
+  localAgentReasoningStateSchema,
+  OPENMELD_REASONING_STREAM_HEADER,
+} from "./http/local-agent-reasoning";
+
 export {
   HUMAN_PRESENCE_HEARTBEAT_MS,
   HUMAN_PRESENCE_IDLE_MS,
@@ -574,6 +597,7 @@ export {
   runtimeTransportDispatchLifecycleSnapshotSchema,
   runtimeTransportDispatchPreviewEndRequestSchema,
   runtimeTransportDispatchPreviewRequestSchema,
+  runtimeTransportDispatchReasoningRequestSchema,
   runtimeTransportDispatchRuntimeEvidencePhaseSchema,
   runtimeTransportDispatchRuntimeEvidenceRequestSchema,
   runtimeTransportDispatchSourceSignalSchema,
@@ -936,6 +960,12 @@ export {
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
 } from "./http/agent-profile-creation-request";
+export {
+  agentProfileExecutionModeResponseSchema,
+  agentProfileExecutionModeSchema,
+  runtimeTransportAgentProfileExecutionModeRequestSchema,
+  updateAgentProfileExecutionModeBodySchema,
+} from "./http/agent-profile-execution-mode";
 export {
   RECONCILE_DELETED_AGENT_PROFILE_MAX_SPACES,
   reconcileDeletedAgentProfileRequestSchema,
@@ -1877,8 +1907,11 @@ export {
   authProfileViewSchema,
   createAgentProfileBodySchema,
   createAgentProfileResponseSchema,
+  createdAgentProfileActionResponseSchema,
+  createdHumanProfileActionResponseSchema,
   createHumanProfileBodySchema,
   createHumanProfileResponseSchema,
+  deletedAgentProfileActionResponseSchema,
   deleteProfileResponseSchema,
   ensureManagedAgentProfileBodySchema,
   ensureManagedAgentProfileResponseSchema,
@@ -2077,6 +2110,7 @@ export {
   listSpaceDispatchTraceFinalVisibleSignalCandidates,
   projectSpaceDispatchTraceFinalVisibleOutcome,
   projectSpaceDispatchTraceRootCause,
+  resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
   SPACE_DISPATCH_TRACE_PROMPT_PREVIEW_MAX_CHARS,
   SPACE_DISPATCH_TRACE_RESPONSE_CONTRACT_VERSION,
@@ -2298,6 +2332,7 @@ export {
   spacePasswordStateSchema,
   upsertSpacePasswordBodySchema,
 } from "./http/space-password";
+export { spaceReadContextSchema } from "./http/space-read-context";
 export {
   getSpaceDispatchResultInputSchema,
   getSpaceDispatchResultResponseSchema,
@@ -2323,6 +2358,30 @@ export {
   spaceStatusLatestVisibleUpdateSchema,
   spaceStatusMembersSummarySchema,
 } from "./http/space-status";
+export {
+  createSpaceTaskBodySchema,
+  listSpaceTasksQuerySchema,
+  listSpaceTasksResponseSchema,
+  mutateSpaceTaskBodySchema,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
+  SPACE_TASK_DESCRIPTION_MAX_CHARS,
+  SPACE_TASK_LIST_MAX_ITEMS,
+  SPACE_TASK_OPERATION_ID_MAX_CHARS,
+  SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
+  SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
+  SPACE_TASK_TITLE_MAX_CHARS,
+  spaceTaskActorSchema,
+  spaceTaskEventSchema,
+  spaceTaskEventTypeSchema,
+  spaceTaskIdSchema,
+  spaceTaskMutationReceiptSchema,
+  spaceTaskPhaseSchema,
+  spaceTaskResponseSchema,
+  spaceTaskResultSchema,
+  spaceTaskReviewSchema,
+  spaceTaskSchema,
+} from "./http/space-tasks";
 export {
   createSpaceThreadBodySchema,
   createSpaceThreadResponseSchema,
@@ -2526,6 +2585,7 @@ export {
 export {
   AGENT_STREAM_SNAPSHOT_MAX_CHARS,
   agentStreamToolPartSchema,
+  clearSpaceReasoningReplaySchema,
   spaceAgentActivitySchema,
   spaceAgentStreamDeltaFrameSchema,
   spaceAgentStreamPartFrameSchema,
@@ -2564,6 +2624,15 @@ export {
   spaceLiveInvalidationFrameSchema,
   spaceLiveSignalFrameSchema,
 } from "./protocol/envelope";
+export {
+  executionContextAssignmentSchema,
+  executionContextCompletionSchema,
+  executionContextLegacyAssociationSchema,
+  executionContextRequestSchema,
+  executionContextScopeSchema,
+  executionContextSelectionSchema,
+  executionContextTaskSchema,
+} from "./protocol/execution-context";
 export {
   helloAckSchema,
   helloCapabilitiesSchema,
@@ -2859,6 +2928,15 @@ export {
   remoteAgentWorkerExecutionInputRequestSchema,
   remoteAgentWorkerExecutionInputResponseSchema,
 } from "./runtime/remote-agent-execution-input";
+export {
+  AGENT_REPLY_PLACEMENT_HEADER,
+  agentReplyPlacementSchema,
+  agentStreamForReplyPlacementReader,
+  agentStreamsForReplyPlacementReader,
+  centerAgentSetReplyPlacementInputSchema,
+  nativeReplyPlacementSchema,
+  resolveNativeReplyPlacementInputSchema,
+} from "./space-mesh/agent-reply-placement";
 export { spaceAuthorityOrderSchema } from "./space-mesh/authority-order";
 export { continuitySchema } from "./space-mesh/continuity";
 export { dispatchBriefSchema } from "./space-mesh/dispatch-brief";
@@ -2871,6 +2949,15 @@ export {
   dispatchResultPublicOutcomeSchema,
   dispatchResultSchema,
 } from "./space-mesh/dispatch-result";
+export {
+  dispatchSpaceActionClosedReasonCodeSchema,
+  dispatchSpaceActionReceiptSchema,
+  dispatchSpaceActionToolResultSchema,
+} from "./space-mesh/dispatch-space-action-receipt";
+export {
+  dispatchSpaceHistoryRequestSchema,
+  dispatchSpaceHistoryResultSchema,
+} from "./space-mesh/dispatch-space-history";
 export { entryBriefSchema } from "./space-mesh/entry-brief";
 export {
   getSpaceMessageReactionsInputSchema,

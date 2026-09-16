@@ -90,6 +90,14 @@ export function buildRemoteAgentSystemPrompt(
 function renderReplySurfacePrompt(
   turnEnvelope: RemoteAgentTurnEnvelope | null
 ): string | null {
+  if (
+    turnEnvelope?.trigger.source === "space_wake" ||
+    turnEnvelope?.trigger.source === "web_dm" ||
+    turnEnvelope?.trigger.source === "task_continuation" ||
+    turnEnvelope?.trigger.source === "task_watch_continuation"
+  ) {
+    return "Space reply placement: In shared Spaces, your answer continues in the thread under the triggering message. Existing thread conversations continue in that thread. In a direct message, answer directly. Follow the user's expressed conversation preference: when they ask for replies in the main conversation, call openmeld_set_reply_placement with placement=conversation before composing the answer. Apply their continuing preference to subsequent turns while it remains relevant. OpenMeld publishes the answer in the selected location.";
+  }
   if (turnEnvelope?.trigger.source === "slack") {
     return `Slack reply presentation:
 

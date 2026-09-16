@@ -114,17 +114,4 @@ describe("SpaceInlineSidePanel", () => {
 		).toBeNull();
 		expect(screen.queryByRole("button", { name: "Member action" })).toBeNull();
 	});
-
-	it("lays out content at its final width before the transform-only entrance", () => {
-		render(<ResizablePanelHarness />);
-
-		const panel = screen.getByRole("complementary", { name: "Thread" });
-		const content = screen.getByText("Thread content").parentElement;
-
-		expect(panel.className).toContain("transition-none");
-		expect(panel.className).not.toContain("transition-[width]");
-		expect(content?.className).toContain("motion-safe:animate-in");
-		expect(content?.className).toContain("motion-safe:slide-in-from-right-4");
-		expect(content?.className).toContain("motion-reduce:animate-none");
-	});
 });

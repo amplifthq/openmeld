@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
   ArrowClockwiseIcon,
   DesktopIcon,
@@ -14,6 +15,7 @@ import {
   BrowserWindow,
   type BrowserWindowConstructorOptions,
   dialog,
+  type IpcMainInvokeEvent,
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
@@ -29,9 +31,13 @@ import {
 } from "../shared/ipc-contract";
 import type { CliProblem, ServiceView } from "../shared/view-types";
 import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
+import { installedCommandEnvironment } from "./installed-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
+import { initializeDesktopPilot } from "./pilot";
+import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
-import { readDesktopUpdateStatus } from "./update/desktop-update";
+import { assertTrustedRenderer } from "./renderer-trust";
+import { registerAppUpdater } from "./update/register-app-updater";
 
 // Keep the native window at the full Desktop workspace size from launch so the
 // app shell never flashes through a compact splash-sized frame.
@@ -58,8 +64,10 @@ let handlers: DesktopHandlers;
 let ipcDisposer: (() => void) | null = null;
 let isQuitting = false;
 let mainWindow: BrowserWindow | null = null;
+const pilot = initializeDesktopPilot(() => mainWindow);
 let tray: Tray | null = null;
 let latestServiceView: ServiceView | null = null;
+let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
 
 type SyncTrayOptions = {
   showProblem: boolean;
@@ -86,6 +94,7 @@ function createMainWindow(
     backgroundColor: WINDOW_BACKGROUND,
     titleBarStyle: "hiddenInset",
     webPreferences: {
+      ...(pilot ? { session: pilot.getSession() } : {}),
       preload: join(import.meta.dirname, "../preload/index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
@@ -97,6 +106,7 @@ function createMainWindow(
   }
 
   const window = new BrowserWindow(options);
+  pilot?.observeWindow(window.webContents);
 
   window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   window.webContents.on("will-navigate", (event) => {
@@ -158,6 +168,12 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       label: APP_NAME,
       submenu: [
         { label: `About ${APP_NAME}`, role: "about" },
+        {
+          label: "Check for Updates…",
+          click: () => {
+            appUpdater?.showNative().catch(console.error);
+          },
+        },
         { type: "separator" },
         {
           accelerator: "Command+,",
@@ -206,6 +222,26 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       ],
     }
   );
+  if (pilot?.diagnosticsEnabled) {
+    template.push({
+      label: "Developer",
+      submenu: [
+        {
+          label: "Reopen Developer Tools",
+          accelerator: "Alt+CommandOrControl+I",
+          click: () => {
+            const contents = mainWindow?.webContents;
+            if (!contents || contents.isDestroyed()) {
+              return;
+            }
+            // Recreate a closed/minimized inspector without reloading the app.
+            contents.closeDevTools();
+            contents.openDevTools({ mode: "detach", activate: true });
+          },
+        },
+      ],
+    });
+  }
   return template;
 }
 
@@ -215,12 +251,26 @@ function createAppIcon() {
 }
 
 async function loadRenderer(window: BrowserWindow): Promise<void> {
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  if (!app.isPackaged && rendererUrl) {
-    await window.loadURL(rendererUrl);
-    return;
+  await window.loadURL(resolveRendererUrl());
+}
+
+function resolveRendererUrl(): string {
+  if (pilot) {
+    return pilot.rendererUrl;
   }
-  await window.loadFile(join(import.meta.dirname, "../renderer/index.html"));
+  if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
+    return process.env.ELECTRON_RENDERER_URL;
+  }
+  return pathToFileURL(join(import.meta.dirname, "../renderer/index.html"))
+    .href;
+}
+
+function authorizeRenderer(event: IpcMainInvokeEvent): void {
+  assertTrustedRenderer(
+    event,
+    mainWindow?.webContents ?? null,
+    resolveRendererUrl()
+  );
 }
 
 function showStatusWindow(): void {
@@ -251,6 +301,12 @@ function sendWindowDestination(
   destination: DesktopWindowDestination
 ): void {
   if (window.isDestroyed()) {
+    return;
+  }
+  if (window.webContents.isLoadingMainFrame()) {
+    window.webContents.once("did-finish-load", () =>
+      sendWindowDestination(window, destination)
+    );
     return;
   }
   window.webContents.send(WINDOW_IPC.navigateDestination, destination);
@@ -317,6 +373,9 @@ function updateTrayMenu(): void {
  * mirrors the GUI's per-state screens — we never show both Start and Stop.
  */
 function serviceMenuItems(): MenuItemConstructorOptions[] {
+  if (pilot) {
+    return [];
+  }
   const setupItem: MenuItemConstructorOptions = {
     icon: createTrayMenuIcon("setup"),
     label: resolveSetupComputerLabel(),
@@ -578,7 +637,27 @@ if (hasSingleInstanceLock) {
 function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
+      pilot?.install(authorizeRenderer);
+      const updater = registerAppUpdater({
+        enabled:
+          app.isPackaged &&
+          process.platform === "darwin" &&
+          pilot?.installedTarget?.kind === "production",
+        authorize: authorizeRenderer,
+        getWindow: () => mainWindow,
+        setInstalling: (value) => {
+          isQuitting = value;
+        },
+      });
+      appUpdater = updater;
+      const commandDeps = pilot?.installedTarget
+        ? installedCommandEnvironment(
+            pilot.installedTarget,
+            app.getPath("userData")
+          )
+        : undefined;
       handlers = createDesktopHandlers({
+        commandDeps,
         openExternal: shell.openExternal,
         desktopSettings: {
           getOpenAtLogin: () => app.getLoginItemSettings().openAtLogin,
@@ -587,34 +666,43 @@ function bootstrapApp(): void {
           },
         },
         desktopUpdate: {
-          getStatus: () =>
-            readDesktopUpdateStatus({
-              currentVersion: app.getVersion(),
-              env: process.env,
-            }),
+          getStatus: updater.legacyStatus,
           openDownloadPage: async () => {
             await shell.openExternal(
-              resolveDesktopDownloadPageUrl({ env: process.env })
+              resolveDesktopDownloadPageUrl({
+                env: commandDeps?.env ?? process.env,
+              })
             );
           },
         },
       });
       configureAppIdentity();
+      if (pilot) {
+        handlers = createPilotServiceHandlers(
+          handlers,
+          pilot.auth,
+          commandDeps
+        );
+      }
       ipcDisposer = registerOpenMeldIpcHandlers(
-        createWindowIpcHandlers(handlers)
+        createWindowIpcHandlers(handlers),
+        authorizeRenderer
       );
       ipcMain.handle(WINDOW_IPC.enterApp, (event) => {
+        authorizeRenderer(event);
         const window = BrowserWindow.fromWebContents(event.sender);
         if (window && !window.isDestroyed()) {
           window.setSize(APP_WIDTH, APP_HEIGHT, true);
           window.center();
         }
       });
-      ipcMain.handle(WINDOW_IPC.quitDesktop, () => {
+      ipcMain.handle(WINDOW_IPC.quitDesktop, (event) => {
+        authorizeRenderer(event);
         quitDesktop();
       });
       createTray();
       showStatusWindow();
+      appUpdater.check()?.catch(console.error);
     })
   );
 }
@@ -644,13 +732,13 @@ function createWindowIpcHandlers(
       syncTrayServiceView(view, { showProblem: false });
       return view;
     },
-    async startService() {
-      const view = await baseHandlers.startService();
+    async startService(expectedAccount) {
+      const view = await baseHandlers.startService(expectedAccount);
       syncTrayServiceView(view, { showProblem: false });
       return view;
     },
-    async stopService() {
-      const view = await baseHandlers.stopService();
+    async stopService(expectedAccount) {
+      const view = await baseHandlers.stopService(expectedAccount);
       syncTrayServiceView(view, { showProblem: false });
       return view;
     },
@@ -678,6 +766,7 @@ function createWindowIpcHandlers(
 }
 
 app.on("will-quit", () => {
+  pilot?.dispose();
   ipcDisposer?.();
   ipcDisposer = null;
   ipcMain.removeHandler(WINDOW_IPC.enterApp);

@@ -69,6 +69,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import {
 	type ComputerSummaryStatus,
@@ -97,6 +98,7 @@ import {
 	formatRuntimeLane,
 } from "./agents-page-formatters";
 import { resolveCurrentLocalRuntimeServiceActionLabel } from "./agents-page-service-action";
+import { ComputerConnectionHistory } from "./computer-connection-history";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
 
@@ -228,7 +230,7 @@ function resolveTeamOpenMeldToolsStatusDescription(
 		case "needs_attention":
 			return `${computer.ownerLabel} needs to update OpenMeld on this computer.`;
 		case "not_connected":
-			return `${computer.ownerLabel} needs to reconnect OpenMeld Service on this computer.`;
+			return `No active OpenMeld connection is reported for ${computer.ownerLabel} on this computer.`;
 		default:
 			return "OpenMeld is waiting for a current status from this computer.";
 	}
@@ -511,6 +513,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	if (!input.hasSelectedEnvironment) {
 		const setupLabel = "Set up";
 		const needsSelection = input.computer.executionTargets.length > 1;
+		const showSetup = canConfigureLocalComputer(!needsSelection);
 		return (
 			<OpenMeldToolsCardFrame
 				action={
@@ -541,7 +544,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 						{input.currentLocalRuntimeReplyReadiness.message}
 					</p>
 				) : null}
-				{needsSelection ? null : (
+				{showSetup ? (
 					<Link
 						className={cn(
 							buttonVariants({ size: "sm", variant: "outline" }),
@@ -551,7 +554,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 					>
 						{setupLabel}
 					</Link>
-				)}
+				) : null}
 				<ComputerReportDetails computer={input.computer} />
 			</OpenMeldToolsCardFrame>
 		);
@@ -626,6 +629,10 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 			description="Connects this computer to OpenMeld and manages local tools."
 		>
 			{serviceContent}
+			<ComputerConnectionHistory
+				storageScope={input.recovery.storageScope}
+				target={input.currentLocalRuntimeReplyReadiness?.currentTarget}
+			/>
 			<ComputerReportDetails computer={input.computer} />
 		</OpenMeldToolsCardFrame>
 	);
@@ -710,7 +717,8 @@ function OpenMeldServiceMoreMenu(input: {
 						className="z-50 min-w-56 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg outline-none"
 						finalFocus={false}
 					>
-						{typeof input.automaticUpdatesEnabled === "boolean" ? (
+						{canConfigureLocalComputer() &&
+						typeof input.automaticUpdatesEnabled === "boolean" ? (
 							<div className="mb-1 border-b px-2.5 py-3">
 								<div className="flex items-center justify-between gap-6">
 									<span className="text-sm">Automatic updates</span>
@@ -741,14 +749,16 @@ function OpenMeldServiceMoreMenu(input: {
 								{input.isCheckingStatus ? "Checking..." : "Check status"}
 							</button>
 						) : null}
-						<Link
-							className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
-							onClick={() => setIsOpen(false)}
-							to={input.setupPath}
-						>
-							<WrenchIcon aria-hidden="true" className="h-4 w-4" />
-							{setupLabel}
-						</Link>
+						{canConfigureLocalComputer() ? (
+							<Link
+								className="flex w-full items-center gap-2 rounded-sm px-2.5 py-2 text-left text-sm transition-colors hover:bg-muted focus-visible:bg-muted focus-visible:outline-none"
+								onClick={() => setIsOpen(false)}
+								to={input.setupPath}
+							>
+								<WrenchIcon aria-hidden="true" className="h-4 w-4" />
+								{setupLabel}
+							</Link>
+						) : null}
 					</Popover.Popup>
 				</Popover.Positioner>
 			</Popover.Portal>
@@ -903,7 +913,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 		serviceUpdate,
 	});
 	const componentDetails = buildOpenMeldToolsComponentDetails({
-		canManage: true,
+		canManage: canConfigureLocalComputer(),
 		cliUpdate,
 		serviceConnected,
 		serviceUpdate,
@@ -955,7 +965,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 						{display.description}
 					</p>
 				</div>
-				{primaryAction ? (
+				{canConfigureLocalComputer() && primaryAction ? (
 					<div className="flex w-fit shrink-0 items-center gap-3">
 						{primaryAction.kind === "managed" ? (
 							<Link

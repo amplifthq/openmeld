@@ -1,9 +1,11 @@
+import type { AccountOrganizationContext } from "@openmeld/schemas";
 import { redirect } from "@tanstack/react-router";
 import { createServerFn } from "@tanstack/react-start";
 import { getRequestHeaders } from "@tanstack/react-start/server";
 import { z } from "zod/v4";
 import { getRequiredServerEnv } from "#/env";
 import { fetchSessionFromGateway } from "#/lib/auth-session.server";
+import { readCurrentAccountOrganizationContext } from "./account-organization-context";
 import { fetchAuthOrganizations } from "./auth-organizations.server";
 import {
 	buildOrganizationDefaultPath,
@@ -11,15 +13,7 @@ import {
 	buildOrganizationPluginsPath,
 	buildOrganizationSpacePath,
 } from "./organization-routes";
-import {
-	createOrganizationScopeTimingCollector,
-	normalizeOrganizationScopeRouteFamilyForObservability,
-	type OrganizationScopeTimingMetric,
-	type OrganizationScopeTimingStage,
-} from "./organization-scope-observability";
-import { scheduleOrganizationScopeTimingEvidence } from "./organization-scope-observability.server";
 import type {
-	OrganizationScopeAccount,
 	OrganizationScopeResolution,
 	OrganizationSummary,
 } from "./organization-types";
@@ -48,14 +42,6 @@ export function resolvePublicLoginRedirectTarget(routeFamily: string): string {
 	return match?.[1] ? buildOrganizationPluginsPath(match[1]) : routeFamily;
 }
 
-function readRequiredUserId(session: { user: { id?: string } }): string {
-	const userId = session.user.id?.trim();
-	if (!userId) {
-		throw new Error("Authenticated session is missing user id.");
-	}
-	return userId;
-}
-
 function readActiveOrganizationId(session: {
 	session: Record<string, unknown>;
 }): string | null {
@@ -72,16 +58,6 @@ function readLastSelectedOrganizationId(session: {
 	return typeof value === "string" && value.trim().length > 0
 		? value.trim()
 		: null;
-}
-
-function toAccount(session: {
-	user: { email?: string; image?: string | null; name?: string };
-}): OrganizationScopeAccount {
-	return {
-		email: session.user.email ?? null,
-		image: session.user.image ?? null,
-		name: session.user.name ?? null,
-	};
 }
 
 function findOrganizationBySlug(
@@ -124,150 +100,45 @@ export function resolveDefaultOrganizationForSession(input: {
 	);
 }
 
-export function resolveOrganizationScopeForSession(input: {
-	organizations: readonly OrganizationSummary[];
-	orgSlug: string;
-	session: OrganizationSessionLike;
-}): OrganizationScopeResolution {
-	const activeOrganization = resolveDefaultOrganizationForSession({
-		organizations: input.organizations,
-		session: input.session,
-	});
-	const currentOrganization = findOrganizationBySlug(
-		input.organizations,
-		input.orgSlug
-	);
-	const account = toAccount(input.session);
-	const currentUserId = readRequiredUserId(input.session);
-	const storageScope = currentUserId;
-
-	if (!currentOrganization) {
-		return {
-			access: "denied",
-			account,
-			activeOrganization,
-			currentUserId,
-			organizations: [...input.organizations],
-			storageScope,
-		};
-	}
-
-	return {
-		access: "authorized",
-		account,
-		activeOrganization,
-		currentOrganization,
-		currentUserId,
-		organizations: [...input.organizations],
-		storageScope,
-	};
-}
-
-export const resolveOrganizationScope = createServerFn({ method: "GET" })
-	.validator((input: unknown) => organizationScopeInputSchema.parse(input))
-	.handler(async ({ data }): Promise<OrganizationScopeResolution> => {
-		const requestHeaders = getRequestHeaders();
-		const timing = createOrganizationScopeTimingCollector();
-		let failure: unknown;
-		let failureStage: OrganizationScopeTimingStage | null = null;
-		let resolution: OrganizationScopeResolution | null = null;
-
-		try {
-			const [sessionResult, organizationsResult] = await Promise.allSettled([
-				timing.measure("auth_session", async () =>
-					fetchSessionFromGateway({
-						betterAuthUrl: getRequiredServerEnv("BETTER_AUTH_URL"),
-						currentUserSessionExpectation: "required",
-						requestHeaders,
-						routeFamily: data.routeFamily,
-					})
-				),
-				timing.measure("organization_list", async () =>
-					fetchAuthOrganizations({
-						betterAuthUrl: getRequiredServerEnv("BETTER_AUTH_URL"),
-						requestHeaders,
-					})
-				),
-			]);
-			if (sessionResult.status === "rejected") {
-				failureStage = "auth_session";
-				throw sessionResult.reason;
-			}
-			const session = sessionResult.value;
-
-			if (!session) {
-				failureStage = "auth_session";
-				throw redirect({
-					search: {
-						redirect: resolvePublicLoginRedirectTarget(data.routeFamily),
-					},
-					to: "/login",
-				});
-			}
-			if (organizationsResult.status === "rejected") {
-				failureStage = "organization_list";
-				throw organizationsResult.reason;
-			}
-			const organizations = organizationsResult.value;
-			resolution = timing.measureSync("scope_resolution", () =>
-				resolveOrganizationScopeForSession({
-					organizations,
-					orgSlug: data.orgSlug,
-					session,
-				})
-			);
-			return resolution;
-		} catch (error) {
-			failure = error;
-			throw error;
-		} finally {
-			const metrics = timing.finish({
-				...(failure === undefined ? {} : { error: failure }),
-				reasonCode: resolveOrganizationScopeTotalReasonCode({
-					failure,
-					lastStage: failureStage ?? timing.lastStage(),
-					resolution,
-				}),
-				status: failure === undefined ? "succeeded" : "failed",
-			});
-			emitOrganizationScopeTimingEvidenceBestEffort({
-				metrics,
-				requestHeaders,
-				routeFamily: data.routeFamily,
-			});
-		}
-	});
-
-function resolveOrganizationScopeTotalReasonCode(input: {
-	failure: unknown;
-	lastStage: OrganizationScopeTimingStage | null;
-	resolution: OrganizationScopeResolution | null;
-}): string {
-	if (input.failure !== undefined) {
-		return `total_failed_after_${input.lastStage ?? "start"}`;
-	}
-	if (input.resolution?.access === "denied") {
-		return "total_denied";
-	}
-	return "total_authorized";
-}
-
-function emitOrganizationScopeTimingEvidenceBestEffort(input: {
-	metrics: readonly OrganizationScopeTimingMetric[];
-	requestHeaders: Headers;
-	routeFamily: string;
-}): void {
-	try {
-		scheduleOrganizationScopeTimingEvidence(input);
-	} catch (error) {
-		console.error({
-			event: "web.openmeld.organization_scope_timing_emission_failed",
-			errorName: error instanceof Error ? error.name : typeof error,
-			routeFamily: normalizeOrganizationScopeRouteFamilyForObservability(
-				input.routeFamily
-			),
+export async function resolveOrganizationScope(input: {
+	data: { orgSlug: string; routeFamily: string };
+}): Promise<OrganizationScopeResolution> {
+	const data = organizationScopeInputSchema.parse(input.data);
+	const context = await readCurrentAccountOrganizationContext(data.routeFamily);
+	if (!context) {
+		throw redirect({
+			to: "/login",
+			search: {
+				redirect: resolvePublicLoginRedirectTarget(data.routeFamily),
+			},
 		});
 	}
+	return resolveOrganizationScopeForContext({ context, orgSlug: data.orgSlug });
+}
+
+export function resolveOrganizationScopeForContext(input: {
+	context: AccountOrganizationContext;
+	orgSlug: string;
+}): OrganizationScopeResolution {
+	const { account, currentUserId, organizations, defaultOrganizationId } =
+		input.context;
+	const common = {
+		account,
+		currentUserId,
+		organizations,
+		activeOrganization: findOrganizationById(
+			organizations,
+			defaultOrganizationId
+		),
+		storageScope: currentUserId,
+	};
+	const currentOrganization = findOrganizationBySlug(
+		organizations,
+		input.orgSlug
+	);
+	return currentOrganization
+		? { ...common, access: "authorized", currentOrganization }
+		: { ...common, access: "denied" };
 }
 
 export const resolveActiveOrganizationEntryPath = createServerFn({
@@ -291,25 +162,25 @@ export const resolveActiveOrganizationEntryPath = createServerFn({
 		return entryPath;
 	});
 
-export const resolveOptionalActiveOrganizationEntryPath = createServerFn({
-	method: "GET",
-})
-	.validator((input: unknown) =>
-		z
-			.strictObject({
-				routeFamily: z.string().trim().min(1),
-			})
-			.parse(input)
-	)
-	.handler(async ({ data }): Promise<string | null> => {
-		const activeOrganization = await resolveActiveOrganizationForRequest({
-			currentUserSessionExpectation: "optional",
-			routeFamily: data.routeFamily,
-		});
-		return activeOrganization
-			? buildOrganizationDefaultPath(activeOrganization.slug)
-			: null;
-	});
+export async function resolveOptionalActiveOrganizationEntryPath(input: {
+	data: { routeFamily: string };
+}): Promise<string | null> {
+	z.strictObject({ routeFamily: z.string().trim().min(1) }).parse(input.data);
+	const context = await readCurrentAccountOrganizationContext(
+		input.data.routeFamily
+	);
+	if (!context) {
+		return null;
+	}
+	const organization = findOrganizationById(
+		context.organizations,
+		context.defaultOrganizationId
+	);
+	if (!organization) {
+		throw new Error("No organization is available for this account.");
+	}
+	return buildOrganizationDefaultPath(organization.slug);
+}
 
 async function resolveActiveOrganizationEntryPathForRequest(input: {
 	currentUserSessionExpectation: "optional" | "required";

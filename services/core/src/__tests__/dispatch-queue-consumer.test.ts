@@ -4818,6 +4818,154 @@ describe("handleDispatchQueueBatch", () => {
     );
   });
 
+  it.each([
+    "deleted",
+    "lookup_unavailable",
+    "owner_missing",
+    "execution_linked",
+    "publication_ready",
+    "stop_unavailable",
+  ] as const)("settles a legacy redelivery through cancellation authority: %s", async (scenario) => {
+    const body = createDispatchBody({
+      dispatchId: "dispatch-deleted-legacy",
+      sourceEventId: "evt-deleted-legacy",
+      targetProfileId: "agt-deleted-legacy",
+      targetProfileNameSnapshot: "Former Agent",
+      visitedProfileIdsHash: "stable32:deleted-legacy",
+    });
+    const runtimeCoordinatorExecutionId = buildRuntimeCoordinatorExecutionId({
+      dispatchId: body.dispatchId,
+      spaceId: body.spaceId,
+      targetProfileId: body.targetProfileId,
+    });
+    vi.mocked(claimDispatchAttempt).mockResolvedValueOnce({
+      status: "deduped",
+      runtimeCoordinatorDecisionRequest: {
+        ownerUserId: scenario === "owner_missing" ? null : "owner-default",
+        claimDecision: "claim_existing_inside_window",
+        coordinatorDecision: {
+          coordinatorAction: "decide_retry_timeout_or_reclaim",
+          eventKind: "retry",
+          kind: "runtime_coordinator_decision_required",
+          mayPublishSpaceReply: false,
+          mayReconstructTokenFromFingerprintOrHash: false,
+          mayUseD1TokenProjection: false,
+          ownerConflictTokenClass: null,
+          queueOrAlarmRole: "trigger_only",
+          reasonCode: "runtime_coordinator.queue_or_alarm_trigger_only",
+          runId: null,
+          tokenStatus: null,
+          usesFinalClaimAuthority: false,
+          usesLegacyClaimLeaseAuthority: false,
+        },
+        eventKind: "retry",
+        reasonCode: "runtime_coordinator.queue_or_alarm_trigger_only",
+        runtimeCoordinatorExecutionId,
+        runtimeCoordinatorStatus: null,
+      },
+    });
+    const stop = vi
+      .spyOn(
+        runtimeCoordinatorClient,
+        "recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop"
+      )
+      .mockImplementation(() => {
+        if (scenario === "deleted") {
+          return Promise.resolve({
+            ok: true,
+            primaryDispatchId: body.dispatchId,
+            publicationIntentId: "rcpi:stopped:legacy-wake",
+            runtimeCoordinatorExecutionId: null,
+            reasonCode: "runtime_coordinator.pre_agent_stop_requested",
+            status: "stopped_before_execution",
+            targetWakeLifecycleId: "legacy-wake",
+          } as const);
+        }
+        return Promise.resolve({
+          ok: false,
+          primaryDispatchId: body.dispatchId,
+          publicationIntentId: null,
+          runtimeCoordinatorExecutionId:
+            scenario === "execution_linked"
+              ? runtimeCoordinatorExecutionId
+              : null,
+          reasonCode:
+            scenario === "publication_ready"
+              ? "runtime_coordinator.pre_agent_stop_after_publication_intent"
+              : "runtime_coordinator.pre_agent_stop_requested",
+          status: (
+            {
+              lookup_unavailable: "retry_later",
+              owner_missing: "retry_later",
+              execution_linked: "execution_linked",
+              publication_ready: "conflict",
+              stop_unavailable: "retry_later",
+            } as const
+          )[scenario],
+          targetWakeLifecycleId: "legacy-wake",
+        } as const);
+      });
+    const stopExecution = vi
+      .spyOn(
+        runtimeCoordinatorClient,
+        "requestRuntimeTransportRuntimeCoordinatorWakeStop"
+      )
+      .mockResolvedValue({
+        ok: true,
+        status: "cancellation_requested",
+        runtimeCoordinatorExecutionId,
+        targetProfileId: body.targetProfileId,
+        cancellationState: {
+          observedAtMs: Date.now(),
+          reasonCode: null,
+          status: "requested",
+        },
+      });
+    const message = createQueueMessage(body, 20);
+    await handleDispatchQueueBatch({
+      batch: { messages: [message] } as unknown as MessageBatch<unknown>,
+      env: makeEnvWithBindings(undefined, {
+        resolveProfileById: vi.fn().mockResolvedValue({
+          ok: false,
+          code:
+            scenario === "lookup_unavailable"
+              ? "profile.internal_error"
+              : "profile.not_found",
+          message: "Profile lookup result",
+        }),
+      }),
+    });
+    const shouldRetry = [
+      "lookup_unavailable",
+      "owner_missing",
+      "stop_unavailable",
+    ].includes(scenario);
+    expect(message.ack).toHaveBeenCalledTimes(shouldRetry ? 0 : 1);
+    expect(message.retry).toHaveBeenCalledTimes(shouldRetry ? 1 : 0);
+    expect(stop).toHaveBeenCalledTimes(
+      ["lookup_unavailable", "owner_missing"].includes(scenario) ? 0 : 1
+    );
+    if (scenario === "deleted") {
+      expect(stop).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ownerUserId: "owner-default",
+          preAgentStop: expect.objectContaining({
+            dispatchId: body.dispatchId,
+            reason: "The Agent Profile was deleted.",
+          }),
+        })
+      );
+    }
+    expect(stopExecution).toHaveBeenCalledTimes(
+      scenario === "execution_linked" ? 1 : 0
+    );
+    expect(
+      runtimeCoordinatorClient.deliverRuntimeTransportDispatch
+    ).not.toHaveBeenCalled();
+    expect(markDispatchStatus).not.toHaveBeenCalled();
+    expect(rpcPostSystemNoticeSignal).not.toHaveBeenCalled();
+  });
+
   it("retries RuntimeCoordinator trigger when durable authority is missing without re-delivering", async () => {
     const messageBody = createDispatchBody({
       dispatchId: "dispatch-rc-authority-missing-1",

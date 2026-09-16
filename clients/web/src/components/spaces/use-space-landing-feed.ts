@@ -19,10 +19,13 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
 import {
-	createSpaceLiveStreamUrl,
 	parseSpaceLiveMessage,
 	type SpaceLiveMessage,
 } from "#/lib/spaces/live-stream";
+import {
+	createSpaceLiveTransport,
+	type SpaceLiveTransport,
+} from "#/lib/spaces/live-transport";
 import {
 	isSpaceTimelineCatchUpAnchorSignal,
 	mergeSpaceTimelineEnvelopes,
@@ -39,6 +42,7 @@ import {
 	spaceUpdatesQueryOptions,
 } from "#/query/spaces/history-sync";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
+import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { messageReactionsKey } from "./space-message-reactions";
 import { useSpaceConversation } from "./use-space-conversation";
@@ -819,13 +823,11 @@ export function useSpaceLandingFeed(input: {
 		setLiveState("connecting");
 		setLiveErrorMessage(null);
 
-		const socket = new WebSocket(
-			createSpaceLiveStreamUrl({
-				origin: window.location.origin,
-				spaceId: input.spaceId,
-				profileId: input.openMeldProfileId,
-			})
-		);
+		const socket = createSpaceLiveTransport({
+			origin: window.location.origin,
+			spaceId: input.spaceId,
+			profileId: input.openMeldProfileId,
+		});
 
 		const onOpen = () => {
 			if (isDisposed) {
@@ -1074,7 +1076,7 @@ function resolveLiveReconnectDelayMs(attemptCount: number): number {
 function startSpaceLiveKeepaliveTimer(input: {
 	onStalled: () => void;
 	readLastInboundFrameTs: () => number | null;
-	socket: WebSocket;
+	socket: SpaceLiveTransport;
 }): () => void {
 	let hasSentKeepalivePing = false;
 	let stopped = false;
@@ -1189,6 +1191,18 @@ function handleLiveInvalidationMessage(
 	if (frame.type !== "wake.progress.changed") {
 		debounceRefetch(input.statusRefetchTimerRef, input.statusRefetch);
 	}
+	if (
+		frame.type === "space.meta.changed" ||
+		frame.type === "space.members.changed"
+	) {
+		input.queryClient
+			.invalidateQueries({
+				queryKey: ["spaces", "entry-resolution", input.spaceId],
+			})
+			.catch((error: unknown) =>
+				console.warn("Failed to refresh Space access.", error)
+			);
+	}
 	if (frame.type === "space.meta.changed") {
 		input.queryClient
 			.invalidateQueries({
@@ -1216,6 +1230,12 @@ function handleLiveInvalidationMessage(
 			.invalidateQueries({ queryKey: ["space-file-pins", input.spaceId] })
 			.catch((error) => console.warn("Failed to refresh pinned files.", error));
 		invalidateSpaceFiles(input.queryClient, input.spaceId, frame.reason);
+	} else if (frame.type === "space.tasks.changed") {
+		input.queryClient
+			.invalidateQueries({
+				queryKey: spaceTaskQueryKeys.space(input.spaceId),
+			})
+			.catch((error) => console.warn("Failed to refresh Space Tasks.", error));
 	} else if (
 		frame.type === "space.members.changed" ||
 		frame.type === "agent.readiness.invalidated"

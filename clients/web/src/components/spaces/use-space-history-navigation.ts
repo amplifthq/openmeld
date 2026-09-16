@@ -10,6 +10,7 @@ import { buildSpaceConversationScrollRestorationId } from "./space-conversation-
 export function useSpaceHistoryNavigation(input: {
 	spaceId: string;
 	profileId: string;
+	anonymous?: boolean;
 	enabled: boolean;
 	accessRejected: boolean;
 	liveEnvelopes: readonly SignalEnvelope[];
@@ -78,8 +79,11 @@ export function useSpaceHistoryNavigation(input: {
 		return () => flight.current?.abort();
 	}, [identity]);
 	const api = useCallback(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId }),
-		[input.profileId]
+		() =>
+			createUnscopedWebSpaceApi(
+				input.anonymous ? {} : { openMeldProfileId: input.profileId }
+			),
+		[input.profileId, input.anonymous]
 	);
 	const directory = useQuery({
 		queryKey: ["spaces", input.spaceId, input.profileId, "history-navigation"],
@@ -106,13 +110,16 @@ export function useSpaceHistoryNavigation(input: {
 	}, [identity, window, input.liveEnvelopes]);
 	const readWindow = async (
 		signalId: string,
-		direction?: "before" | "after"
+		direction?: "before" | "after",
+		signal?: AbortSignal
 	) => {
-		if (direction && flight.current) {
+		if (signal?.aborted || (direction && flight.current)) {
 			return false;
 		}
 		flight.current?.abort();
 		const controller = new AbortController();
+		const abort = () => controller.abort();
+		signal?.addEventListener("abort", abort, { once: true });
 		flight.current = controller;
 		const isCurrentRequest = () =>
 			!controller.signal.aborted && currentIdentity.current === identity;
@@ -156,6 +163,7 @@ export function useSpaceHistoryNavigation(input: {
 			}
 			return false;
 		} finally {
+			signal?.removeEventListener("abort", abort);
 			if (flight.current === controller) {
 				flight.current = null;
 				setPending(false);
@@ -185,7 +193,8 @@ export function useSpaceHistoryNavigation(input: {
 		activeWindow,
 		pending,
 		error,
-		open: (signalId: string) => readWindow(signalId),
+		open: (signalId: string, signal?: AbortSignal) =>
+			readWindow(signalId, undefined, signal),
 		latest,
 		loadBefore: () =>
 			activeWindow?.hasBefore && activeWindow.envelopes[0]

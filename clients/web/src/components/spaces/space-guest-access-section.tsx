@@ -80,7 +80,9 @@ export function SpaceGuestAccessSection({
 						/>
 					</div>
 					<p className="text-muted-foreground text-xs/relaxed">
-						Invite guests from Share. They sign in to access only this Space.
+						Guests sign in to access only this Space. When link access allows
+						joining, they can join from the shared link; otherwise, invite them
+						from Share.
 					</p>
 					{status.data?.allowGuests && (
 						<p className="text-muted-foreground text-xs/relaxed">
