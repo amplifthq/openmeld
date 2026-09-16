@@ -12,6 +12,10 @@ import { NotificationsSection } from "./notifications-section";
 
 const getCurrentInboxNotificationPreferencesMock = vi.hoisted(() => vi.fn());
 const updateCurrentInboxNotificationPreferencesMock = vi.hoisted(() => vi.fn());
+const desktopPlatformMock = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
 const ACCOUNT_EMAIL_PATTERN = /felix@amplift\.ai/;
 
 vi.mock("#/components/app/app-shell-account", () => ({
@@ -44,9 +48,33 @@ vi.mock("#/lib/organizations/inbox", () => ({
 }));
 
 describe("NotificationsSection", () => {
+	it("shows Desktop delivery and a native test without requesting browser permission", async () => {
+		const testNotification = vi.fn().mockResolvedValue("delivered");
+		desktopPlatformMock.mockReturnValue({ testNotification });
+		renderNotificationsSection();
+		expect(
+			screen
+				.getByRole("switch", { name: "Desktop notifications" })
+				.getAttribute("aria-checked")
+		).toBe("true");
+		expect(
+			screen.queryByRole("switch", { name: "Browser notifications" })
+		).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Send test notification" })
+		);
+		await waitFor(() =>
+			expect(testNotification).toHaveBeenCalledWith({
+				userId: "user-123",
+				soundEnabled: true,
+			})
+		);
+		expect(requestPermissionMock).not.toHaveBeenCalled();
+	});
 	let requestPermissionMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
+		desktopPlatformMock.mockReset().mockReturnValue(null);
 		window.localStorage.clear();
 		requestPermissionMock = vi.fn().mockResolvedValue("granted");
 		installNotificationMock(requestPermissionMock);

@@ -125,6 +125,7 @@ export {
   desktopSpaceStreamInputSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
+export * from "./desktop-notifications";
 export {
   type DesktopCandidateManifest,
   desktopCandidateIdSchema,

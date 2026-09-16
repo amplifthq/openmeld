@@ -27,6 +27,25 @@
 
 ## Desktop platform contract
 
+`desktop-notifications.ts` owns additive renderer/native Inbox reference,
+test-request and delivery-result contracts. Only the current trusted window
+can request delivery. Native credentials reread the recipient-authorized Core
+item; callers cannot supply notification text or navigation URLs. Shared
+API-client notification policy derives eligibility from those Inbox facts.
+Refresh IPC is a signal to the existing reader, never a separate snapshot.
+The renderer projects its current delivery context (account, Organization,
+enabled preference, and existing rendered-conversation locator). Shared
+API-client matching and current native focus/visibility suppress the exact
+conversation immediately before submission, after asynchronous reads. Context
+invalidation cancels and settles submitted but unacknowledged native attempts;
+late native events cannot turn cancellation into delivery. Delivered alerts
+retain click-back across Organization switches; account invalidation clears all.
+This is a delivery permit, not account or Inbox authority; native
+session and recipient-authorized Core reads remain mandatory.
+These additions ship with the matching local renderer and require no cloud,
+CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
+their existing behavior; cloud rollout does not require a new Desktop floor.
+
 Installed Desktop contract version 1 uses the strict compatibility response at
 `GET /v1/desktop/compatibility` and `x-openmeld-desktop-contract: 1` on fixed-origin
 business requests and streams. The Web admission layer accepts this version

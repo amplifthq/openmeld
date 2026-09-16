@@ -2,11 +2,12 @@ import type { InboxItem } from "@openmeld/schemas/types";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { useLayoutEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { InboxBrowserNotificationListener } from "./inbox-browser-notification-listener";
+import { InboxNotificationListener } from "./inbox-notification-listener";
 
 const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
 const usePathnameMock = vi.hoisted(() => vi.fn());
-const showInboxBrowserNotificationMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
+const showInboxNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
 const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
@@ -30,6 +31,7 @@ type TestDeliveryInput = {
 };
 
 vi.mock("@tanstack/react-router", () => ({
+	useNavigate: () => navigateMock,
 	useLocation: () => ({ pathname: usePathnameMock() }),
 }));
 
@@ -38,30 +40,22 @@ vi.mock("@tanstack/react-query", () => ({
 	useQueryClient: () => queryClientMock,
 }));
 
-vi.mock("#/lib/inbox/browser-notifications", () => ({
-	clearInboxBrowserNotificationItemPending: (input: {
+vi.mock("#/lib/inbox/client-notifications", () => ({
+	clearInboxNotificationItemPending: (input: {
 		itemId: string;
 		organizationId: string;
 		userId: string;
 	}) => {
 		pendingItemIds.delete(buildPendingItemKey(input));
 	},
-	isInboxBrowserNotificationEligible: (item: InboxItem) =>
-		item.resolutionStatus !== "resolved" &&
-		(item.importance === "urgent" ||
-			(item.attention === "action_required" &&
-				item.resolutionStatus === "open") ||
-			item.kind === "space_mention" ||
-			item.kind === "agent_reply" ||
-			item.kind === "wake_outcome"),
-	markInboxBrowserNotificationItemPending: (input: {
+	markInboxNotificationItemPending: (input: {
 		itemId: string;
 		organizationId: string;
 		userId: string;
 	}) => {
 		pendingItemIds.add(buildPendingItemKey(input));
 	},
-	readPendingInboxBrowserNotificationItemIds: (input: {
+	readPendingInboxNotificationItemIds: (input: {
 		organizationId: string;
 		userId: string;
 	}) => {
@@ -72,13 +66,13 @@ vi.mock("#/lib/inbox/browser-notifications", () => ({
 				.map((key) => key.slice(prefix.length))
 		);
 	},
-	readInboxBrowserNotificationSettings: (input: { userId: string }) => ({
+	readInboxNotificationSettings: (input: { userId: string }) => ({
 		enabled: notificationSettingsByUserId.get(input.userId) ?? true,
 		permission: "granted",
 		soundEnabled: true,
 	}),
-	showInboxBrowserNotification: showInboxBrowserNotificationMock,
-	subscribeInboxBrowserNotificationSettings: (onChange: () => void) => {
+	showInboxNotification: showInboxNotificationMock,
+	subscribeInboxNotificationSettings: (onChange: () => void) => {
 		notificationSettingsSubscription.onChange = onChange;
 		return () => {
 			notificationSettingsSubscription.onChange = null;
@@ -114,7 +108,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 	invalidateInboxFacts: invalidateInboxFactsMock,
 }));
 
-describe("InboxBrowserNotificationListener", () => {
+describe("InboxNotificationListener", () => {
 	let currentItems: InboxItem[];
 	let queryDataItems: InboxItem[] | null;
 	let queryData:
@@ -135,7 +129,7 @@ describe("InboxBrowserNotificationListener", () => {
 		pendingItemIds.clear();
 		notificationSettingsByUserId.clear();
 		notificationSettingsSubscription.onChange = null;
-		showInboxBrowserNotificationMock
+		showInboxNotificationMock
 			.mockReset()
 			.mockResolvedValue({ notification: {}, status: "delivered" });
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
@@ -175,23 +169,23 @@ describe("InboxBrowserNotificationListener", () => {
 		currentItems = [existingItem];
 		const view = renderListener();
 
-		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 
 		currentItems = [newItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
 			/>
 		);
 
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 		expect(invalidateInboxFactsMock).toHaveBeenCalledWith({
 			organizationId: "organization-123",
 			queryClient: queryClientMock,
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: newItem,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
@@ -208,7 +202,7 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [existingItem];
 		const view = renderListener();
-		showInboxBrowserNotificationMock
+		showInboxNotificationMock
 			.mockResolvedValueOnce({
 				reason: "source_visible",
 				status: "deferred",
@@ -217,14 +211,14 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [newItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
 			/>
 		);
 		await waitFor(() => {
-			expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+			expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 		});
 
 		Object.defineProperty(document, "visibilityState", {
@@ -234,7 +228,7 @@ describe("InboxBrowserNotificationListener", () => {
 		act(() => notificationSettingsSubscription.onChange?.());
 
 		await waitFor(() => {
-			expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+			expect(showInboxNotificationMock).toHaveBeenCalledTimes(2);
 		});
 	});
 
@@ -247,14 +241,14 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [existingItem];
 		const view = renderListener();
-		showInboxBrowserNotificationMock
+		showInboxNotificationMock
 			.mockRejectedValueOnce(new Error("Notification constructor failed"))
 			.mockResolvedValueOnce({ notification: {}, status: "delivered" });
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
 		currentItems = [newItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -263,12 +257,12 @@ describe("InboxBrowserNotificationListener", () => {
 		await act(async () => {
 			await Promise.resolve();
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		expect(showInboxNotificationMock).toHaveBeenCalledTimes(2);
 	});
 
 	it.each([
@@ -283,7 +277,7 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [existingItem];
 		const view = renderListener();
-		showInboxBrowserNotificationMock
+		showInboxNotificationMock
 			.mockResolvedValueOnce({
 				reason,
 				status: "deferred",
@@ -292,7 +286,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [newItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -301,12 +295,12 @@ describe("InboxBrowserNotificationListener", () => {
 		await act(async () => {
 			await Promise.resolve();
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		expect(showInboxNotificationMock).toHaveBeenCalledTimes(2);
 	});
 
 	it("retries a pending delivery after the listener remounts", async () => {
@@ -317,14 +311,14 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [existingItem];
 		const view = renderListener();
-		showInboxBrowserNotificationMock.mockRejectedValueOnce(
+		showInboxNotificationMock.mockRejectedValueOnce(
 			new Error("Notification constructor failed")
 		);
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
 		currentItems = [pendingItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -334,14 +328,14 @@ describe("InboxBrowserNotificationListener", () => {
 			expect(hasPendingItem(pendingItem.id)).toBe(true);
 		});
 		view.unmount();
-		showInboxBrowserNotificationMock.mockResolvedValueOnce({
+		showInboxNotificationMock.mockResolvedValueOnce({
 			notification: {},
 			status: "delivered",
 		});
 
 		renderListener();
 		await waitFor(() => {
-			expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+			expect(showInboxNotificationMock).toHaveBeenCalledTimes(2);
 			expect(hasPendingItem(pendingItem.id)).toBe(false);
 		});
 	});
@@ -368,7 +362,7 @@ describe("InboxBrowserNotificationListener", () => {
 			expect(queryClientMock.fetchQuery).toHaveBeenCalledWith(
 				expect.objectContaining({ itemId: pendingItem.id })
 			);
-			expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+			expect(showInboxNotificationMock).toHaveBeenCalledWith(
 				expect.objectContaining({ item: pendingItem })
 			);
 			expect(hasPendingItem(pendingItem.id)).toBe(false);
@@ -391,7 +385,7 @@ describe("InboxBrowserNotificationListener", () => {
 		queryClientMock.fetchQuery.mockResolvedValue({ item: recoveredItem });
 		let queuedInput: TestDeliveryInput | undefined;
 		let resolveQueued: ((value: unknown) => void) | undefined;
-		showInboxBrowserNotificationMock.mockImplementationOnce(
+		showInboxNotificationMock.mockImplementationOnce(
 			(input: TestDeliveryInput) => {
 				queuedInput = input;
 				return new Promise((resolve) => {
@@ -410,7 +404,7 @@ describe("InboxBrowserNotificationListener", () => {
 		currentItems = [resolvedItem];
 		getCurrentInboxItemMock.mockResolvedValue({ item: resolvedItem });
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -427,7 +421,7 @@ describe("InboxBrowserNotificationListener", () => {
 		await waitFor(() => {
 			expect(hasPendingItem(recoveredItem.id)).toBe(false);
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 	});
 
 	it("revalidates a listed item against Core immediately before delivery", async () => {
@@ -445,7 +439,7 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		getCurrentInboxItemMock.mockResolvedValue({ item: resolvedItem });
 		let currentReadiness: TestDeliveryReadiness | undefined;
-		showInboxBrowserNotificationMock.mockImplementationOnce(
+		showInboxNotificationMock.mockImplementationOnce(
 			async (input: TestDeliveryInput) => {
 				currentReadiness = await input.resolveCurrentReadiness?.();
 				return currentReadiness?.status === "ineligible"
@@ -456,7 +450,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [queuedItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -492,7 +486,7 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		getCurrentInboxItemMock.mockResolvedValue({ item: freshItem });
 		let currentReadiness: TestDeliveryReadiness | undefined;
-		showInboxBrowserNotificationMock.mockImplementationOnce(
+		showInboxNotificationMock.mockImplementationOnce(
 			async (input: TestDeliveryInput) => {
 				currentReadiness = await input.resolveCurrentReadiness?.();
 				return { notification: {}, status: "delivered" };
@@ -501,7 +495,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [queuedItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -535,7 +529,7 @@ describe("InboxBrowserNotificationListener", () => {
 		await waitFor(() => {
 			expect(hasPendingItem(missingItemId)).toBe(false);
 		});
-		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 	});
 
 	it("clears an off-page pending item that is no longer eligible", async () => {
@@ -559,7 +553,7 @@ describe("InboxBrowserNotificationListener", () => {
 		await waitFor(() => {
 			expect(hasPendingItem(resolvedItem.id)).toBe(false);
 		});
-		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 	});
 
 	it("revalidates a recovered off-page item before retrying it", async () => {
@@ -588,14 +582,14 @@ describe("InboxBrowserNotificationListener", () => {
 		queryClientMock.fetchQuery
 			.mockResolvedValueOnce({ item: pendingItem })
 			.mockResolvedValue({ item: resolvedItem });
-		showInboxBrowserNotificationMock.mockResolvedValueOnce({
+		showInboxNotificationMock.mockResolvedValueOnce({
 			reason: "source_visible",
 			status: "deferred",
 		});
 
 		renderListener();
 		await waitFor(() => {
-			expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+			expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 			expect(hasPendingItem(pendingItem.id)).toBe(true);
 		});
 
@@ -609,7 +603,7 @@ describe("InboxBrowserNotificationListener", () => {
 			expect(queryClientMock.fetchQuery).toHaveBeenCalledTimes(2);
 			expect(hasPendingItem(pendingItem.id)).toBe(false);
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 	});
 
 	it("retries a temporary off-page pending item read failure", async () => {
@@ -643,7 +637,7 @@ describe("InboxBrowserNotificationListener", () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
 		expect(queryClientMock.fetchQuery).toHaveBeenCalledTimes(2);
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({ item: pendingItem })
 		);
 		expect(hasPendingItem(pendingItem.id)).toBe(false);
@@ -710,7 +704,7 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		let queuedInput: TestDeliveryInput | undefined;
 		let resolveQueued: ((value: unknown) => void) | undefined;
-		showInboxBrowserNotificationMock.mockImplementationOnce(
+		showInboxNotificationMock.mockImplementationOnce(
 			(input: TestDeliveryInput) => {
 				queuedInput = input;
 				return new Promise((resolve) => {
@@ -721,7 +715,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [queuedItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -729,7 +723,7 @@ describe("InboxBrowserNotificationListener", () => {
 		);
 		await waitFor(() => expect(queuedInput).toBeDefined());
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-456"
@@ -755,7 +749,7 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		let queuedInput: TestDeliveryInput | undefined;
 		let rejectQueued: ((reason: unknown) => void) | undefined;
-		showInboxBrowserNotificationMock.mockImplementationOnce(
+		showInboxNotificationMock.mockImplementationOnce(
 			(input: TestDeliveryInput) => {
 				queuedInput = input;
 				return new Promise((_resolve, reject) => {
@@ -767,7 +761,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [queuedItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -806,14 +800,14 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [existingItem];
 		const view = renderListener();
-		showInboxBrowserNotificationMock.mockRejectedValueOnce(
+		showInboxNotificationMock.mockRejectedValueOnce(
 			new Error("Notification constructor failed")
 		);
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
 		currentItems = [failedItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -822,7 +816,7 @@ describe("InboxBrowserNotificationListener", () => {
 		await act(async () => {
 			await Promise.resolve();
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 
 		notificationSettingsByUserId.set("user-456", false);
 		pendingItemIds.add(
@@ -834,7 +828,7 @@ describe("InboxBrowserNotificationListener", () => {
 		);
 		currentItems = [nextUserPendingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-456"
@@ -843,7 +837,7 @@ describe("InboxBrowserNotificationListener", () => {
 		await act(async () => {
 			await Promise.resolve();
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(10_000);
@@ -852,7 +846,7 @@ describe("InboxBrowserNotificationListener", () => {
 		expect(useInfiniteQueryMock).toHaveBeenLastCalledWith(
 			expect.objectContaining({ enabled: false })
 		);
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 	});
 
 	it("does not let a late recovery failure from an old Organization block the current feed retry", async () => {
@@ -889,7 +883,7 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [currentFeedExistingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-456"
 				organizationSlug="next-organization"
 				userId="user-123"
@@ -905,12 +899,12 @@ describe("InboxBrowserNotificationListener", () => {
 			importance: "urgent",
 			organizationId: "organization-456",
 		});
-		showInboxBrowserNotificationMock.mockRejectedValueOnce(
+		showInboxNotificationMock.mockRejectedValueOnce(
 			new Error("Notification constructor failed")
 		);
 		currentItems = [currentFeedItem, currentFeedExistingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-456"
 				organizationSlug="next-organization"
 				userId="user-123"
@@ -919,13 +913,13 @@ describe("InboxBrowserNotificationListener", () => {
 		await act(async () => {
 			await Promise.resolve();
 		});
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(10_000);
 		});
 
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
+		expect(showInboxNotificationMock).toHaveBeenCalledTimes(2);
 		expect(
 			pendingItemIds.has(
 				buildPendingItemKey({
@@ -952,7 +946,7 @@ describe("InboxBrowserNotificationListener", () => {
 		const view = renderListener();
 		let queuedInput: TestDeliveryInput | undefined;
 		let resolveQueued: ((value: unknown) => void) | undefined;
-		showInboxBrowserNotificationMock.mockImplementationOnce(
+		showInboxNotificationMock.mockImplementationOnce(
 			(input: TestDeliveryInput) => {
 				queuedInput = input;
 				return new Promise((resolve) => {
@@ -963,7 +957,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [queuedItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -972,7 +966,7 @@ describe("InboxBrowserNotificationListener", () => {
 		await waitFor(() => expect(queuedInput).toBeDefined());
 		usePathnameMock.mockReturnValue("/o/amplift/spaces/space-123");
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
@@ -1001,7 +995,7 @@ describe("InboxBrowserNotificationListener", () => {
 		currentItems = [existingItem];
 		getCurrentInboxItemMock.mockResolvedValue({ item: queuedItem });
 		let queuedInput: TestDeliveryInput | undefined;
-		showInboxBrowserNotificationMock.mockImplementationOnce(
+		showInboxNotificationMock.mockImplementationOnce(
 			(input: TestDeliveryInput) => {
 				queuedInput = input;
 				return new Promise(() => undefined);
@@ -1009,7 +1003,7 @@ describe("InboxBrowserNotificationListener", () => {
 		);
 		const view = render(
 			<>
-				<InboxBrowserNotificationListener
+				<InboxNotificationListener
 					organizationId="organization-123"
 					organizationSlug="amplift"
 					userId="user-123"
@@ -1020,7 +1014,7 @@ describe("InboxBrowserNotificationListener", () => {
 		currentItems = [queuedItem, existingItem];
 		view.rerender(
 			<>
-				<InboxBrowserNotificationListener
+				<InboxNotificationListener
 					organizationId="organization-123"
 					organizationSlug="amplift"
 					userId="user-123"
@@ -1034,7 +1028,7 @@ describe("InboxBrowserNotificationListener", () => {
 		let readinessDuringLayout: Promise<TestDeliveryReadiness> | undefined;
 		view.rerender(
 			<>
-				<InboxBrowserNotificationListener
+				<InboxNotificationListener
 					organizationId="organization-123"
 					organizationSlug="amplift"
 					userId="user-123"
@@ -1071,14 +1065,14 @@ describe("InboxBrowserNotificationListener", () => {
 			existingItem,
 		];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
 			/>
 		);
 
-		expect(showInboxBrowserNotificationMock).not.toHaveBeenCalled();
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 		expect(invalidateInboxFactsMock).toHaveBeenCalledOnce();
 	});
 
@@ -1098,22 +1092,22 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [reference, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
 			/>
 		);
 
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: reference,
 				viewingSourceSession: false,
 			})
 		);
 
-		showInboxBrowserNotificationMock.mockClear();
+		showInboxNotificationMock.mockClear();
 		usePathnameMock.mockReturnValue("/o/amplift/spaces/space-123");
 		const viewedReply = createInboxItem({
 			id: "viewed-reply",
@@ -1126,15 +1120,15 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [viewedReply, reference, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
 			/>
 		);
 
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledWith(
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: viewedReply,
 				viewingSourceSession: true,
@@ -1153,22 +1147,22 @@ describe("InboxBrowserNotificationListener", () => {
 
 		currentItems = [firstUserItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-123"
 			/>
 		);
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-456"
 			/>
 		);
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
 
 		const secondUserItem = createInboxItem({
 			id: "second-user-item",
@@ -1177,15 +1171,15 @@ describe("InboxBrowserNotificationListener", () => {
 		});
 		currentItems = [secondUserItem, firstUserItem, existingItem];
 		view.rerender(
-			<InboxBrowserNotificationListener
+			<InboxNotificationListener
 				organizationId="organization-123"
 				organizationSlug="amplift"
 				userId="user-456"
 			/>
 		);
 
-		expect(showInboxBrowserNotificationMock).toHaveBeenCalledTimes(2);
-		expect(showInboxBrowserNotificationMock).toHaveBeenLastCalledWith(
+		expect(showInboxNotificationMock).toHaveBeenCalledTimes(2);
+		expect(showInboxNotificationMock).toHaveBeenLastCalledWith(
 			expect.objectContaining({ item: secondUserItem })
 		);
 	});
@@ -1193,7 +1187,7 @@ describe("InboxBrowserNotificationListener", () => {
 
 function renderListener() {
 	return render(
-		<InboxBrowserNotificationListener
+		<InboxNotificationListener
 			organizationId="organization-123"
 			organizationSlug="amplift"
 			userId="user-123"

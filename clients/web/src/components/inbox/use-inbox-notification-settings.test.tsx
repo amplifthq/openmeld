@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useInboxBrowserNotificationSettings } from "./use-inbox-browser-notification-settings";
+import { useInboxNotificationSettings } from "./use-inbox-notification-settings";
 
 const disableMock = vi.hoisted(() => vi.fn());
 const enableMock = vi.hoisted(() => vi.fn());
@@ -8,15 +8,15 @@ const readSettingsMock = vi.hoisted(() => vi.fn());
 const setSoundEnabledMock = vi.hoisted(() => vi.fn());
 const subscribeMock = vi.hoisted(() => vi.fn());
 
-vi.mock("#/lib/inbox/browser-notifications", () => ({
-	disableInboxBrowserNotifications: disableMock,
-	enableInboxBrowserNotifications: enableMock,
-	readInboxBrowserNotificationSettings: readSettingsMock,
-	setInboxBrowserNotificationSoundEnabled: setSoundEnabledMock,
-	subscribeInboxBrowserNotificationSettings: subscribeMock,
+vi.mock("#/lib/inbox/client-notifications", () => ({
+	disableInboxNotifications: disableMock,
+	enableInboxNotifications: enableMock,
+	readInboxNotificationSettings: readSettingsMock,
+	setInboxNotificationSoundEnabled: setSoundEnabledMock,
+	subscribeInboxNotificationSettings: subscribeMock,
 }));
 
-describe("useInboxBrowserNotificationSettings", () => {
+describe("useInboxNotificationSettings", () => {
 	beforeEach(() => {
 		disableMock.mockReset();
 		enableMock.mockReset();
@@ -42,8 +42,7 @@ describe("useInboxBrowserNotificationSettings", () => {
 			})
 		);
 		const { rerender, result } = renderHook(
-			({ userId }: { userId: string }) =>
-				useInboxBrowserNotificationSettings(userId),
+			({ userId }: { userId: string }) => useInboxNotificationSettings(userId),
 			{ initialProps: { userId: "user-old" } }
 		);
 
@@ -94,8 +93,7 @@ describe("useInboxBrowserNotificationSettings", () => {
 				})
 			);
 		const { rerender, result } = renderHook(
-			({ userId }: { userId: string }) =>
-				useInboxBrowserNotificationSettings(userId),
+			({ userId }: { userId: string }) => useInboxNotificationSettings(userId),
 			{ initialProps: { userId: "user-old" } }
 		);
 		let oldOperation: Promise<void> | undefined;
@@ -133,7 +131,7 @@ describe("useInboxBrowserNotificationSettings", () => {
 
 	it("updates the current user's browser-local sound preference", () => {
 		const { result } = renderHook(() =>
-			useInboxBrowserNotificationSettings("user-current")
+			useInboxNotificationSettings("user-current")
 		);
 
 		act(() => {
