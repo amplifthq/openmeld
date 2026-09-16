@@ -8,6 +8,16 @@ import {
 	CenterAgentRoutePendingPage,
 } from "./center-agent-route-pending";
 
+vi.mock("@tanstack/react-router", async (original) => ({
+	...(await original<typeof import("@tanstack/react-router")>()),
+	useNavigate: () => vi.fn(),
+	useRouterState: ({
+		select,
+	}: {
+		select: (state: { location: { searchStr: string } }) => unknown;
+	}) => select({ location: { searchStr: "" } }),
+}));
+
 vi.mock("#/components/app/app-inner-sidebar", () => ({
 	AppInnerSidebar: ({ children }: { children: ReactNode }) => (
 		<aside>{children}</aside>

@@ -215,6 +215,11 @@ function CenterAgentDirectMessageEntry(input: {
 	const optimisticConversation = (
 		<CenterAgentOptimisticConversation
 			composerText={pendingMessage ? "" : composerText}
+			conversationTitle={
+				resolvedSessionId
+					? sidebar.preferences?.chats?.titles[resolvedSessionId]
+					: undefined
+			}
 			onComposerChange={setComposerText}
 			onSend={() => {
 				const text = composerText.trim();
@@ -229,8 +234,10 @@ function CenterAgentDirectMessageEntry(input: {
 				);
 				setPendingMessage(nextPendingMessage);
 			}}
+			organizationSlug={input.organizationSlug}
 			pendingMessage={pendingMessage}
 			presentation={input.presentation}
+			selfProfile={defaultHumanProfile}
 		/>
 	);
 

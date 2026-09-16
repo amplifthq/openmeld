@@ -72,10 +72,16 @@ vi.mock("@tanstack/react-router", async () => {
 			<a href={to}>{children}</a>
 		),
 		useNavigate: () => navigateSpy,
+		useRouterState: ({
+			select,
+		}: {
+			select: (state: { location: { searchStr: string } }) => unknown;
+		}) => select({ location: { searchStr: "" } }),
 	};
 });
 
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({ currentOrganization }),
 	useAppOrganization: () => ({ currentOrganization }),
 }));
 

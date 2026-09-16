@@ -305,6 +305,7 @@ export function CenterAgentNewChat({
 					}
 				}}
 				pendingMessage={send.isPending ? message : null}
+				selfProfile={defaultHumanProfile}
 			/>
 		</div>
 	);

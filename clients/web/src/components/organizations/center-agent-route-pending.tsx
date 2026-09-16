@@ -12,7 +12,9 @@ import {
 	readCenterAgentPendingMessage,
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
+import { findActiveDefaultHumanProfile } from "#/lib/profiles/human-profiles";
 import type { SidebarPersistedState } from "#/lib/sidebar-width-cookie";
+import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
 import { CenterAgentPendingLayout } from "./center-agent-layout";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 
@@ -64,6 +66,14 @@ export function CenterAgentPendingConversation(input: {
 	organizationSlug: string;
 }) {
 	const queryClient = useQueryClient();
+	const defaultHumanProfile = findActiveDefaultHumanProfile(
+		queryClient.getQueryData(
+			buildStartProfilesQueryOptions({
+				enabled: false,
+				storageScope: input.ownerAccountId ?? "",
+			}).queryKey
+		) ?? []
+	);
 	const scope = {
 		organizationSlug: input.organizationSlug,
 		...(input.sessionId === undefined ? {} : { sessionId: input.sessionId }),
@@ -109,7 +119,9 @@ export function CenterAgentPendingConversation(input: {
 				writeCenterAgentPendingMessage(queryClient, scope, nextPendingMessage);
 				setPendingMessage(nextPendingMessage);
 			}}
+			organizationSlug={input.organizationSlug}
 			pendingMessage={pendingMessage}
+			selfProfile={defaultHumanProfile}
 		/>
 	);
 }

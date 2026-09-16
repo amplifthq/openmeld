@@ -65,7 +65,10 @@ vi.mock("#/components/app/start-flow-state", () => ({
 }));
 vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 	useDefaultHumanProfile: () => ({
-		defaultHumanProfile: { openMeldProfileId: "human-1" },
+		defaultHumanProfile: {
+			openMeldProfileId: "human-1",
+			profileName: "Jordan Rivera",
+		},
 	}),
 }));
 vi.mock("#/components/app/use-sidebar-preferences", () => ({

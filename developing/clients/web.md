@@ -145,6 +145,10 @@ identities then pass to the Space upload/retry pipeline. Session creation shows
 the pending message immediately. Personal sidebar title/group persistence does
 not block message handoff. Leaving during creation preserves the draft without
 navigating back, and successful navigation only clears the draft version sent.
+The draft, route-pending, and Space-bootstrap presentations retain the same
+welcome content rail, conversation header, message primitives, and composer
+height. Sending must not remove the welcome area and then restore it when the
+canonical transcript arrives, shifting the first message between positions.
 
 Sidebar activity indicators resolve their destination from an authorized
 active-Wake progress read on click, without adding per-row subscriptions.
