@@ -1,3 +1,4 @@
+import { Dialog } from "@openmeld/ui/components/dialog";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -133,6 +134,26 @@ afterEach(() => {
 });
 
 describe("Web Settings capability gating", () => {
+	it("keeps one dialog and real navigation through the cold panel load", async () => {
+		render(
+			<TestQueryClientProvider>
+				<Dialog open>
+					<SettingsPage
+						activeSectionId="account"
+						onNavigate={vi.fn()}
+						presentation="dialog"
+					/>
+				</Dialog>
+			</TestQueryClientProvider>
+		);
+		const dialog = screen.getByRole("dialog", { name: "App settings" });
+		expect(screen.getByRole("button", { name: "Appearance" })).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading settings" })
+		).toBeTruthy();
+		await screen.findByText("Account settings content");
+		expect(screen.getByRole("dialog", { name: "App settings" })).toBe(dialog);
+	});
 	it("drops the local-service Service section on a plain Web (cloud) host", () => {
 		const sections = resolveSettingsSections(
 			testSettingsSections,

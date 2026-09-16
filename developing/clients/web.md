@@ -145,6 +145,57 @@ new chat in that group if it still exists. Explicit draft and session selectors
 cannot be combined. Existing-session loading and pending sends share one
 conversation skeleton inside the inset app frame.
 
+Space and direct-message pending routes retain the authorized conversation
+sidebar and use the loaded conversation's header and centered content/composer
+rails. They do not add an empty app header above the conversation header.
+Loading shells reserve persisted Members panel geometry without reading protected
+content or deciding membership. A later product-driven panel opening remains a
+separate interaction. The existing Space-open performance report also covers
+Organization direct-message routes; Center Agent session routes are not Space
+IDs and are excluded from that route matcher.
+
+New-chat attachments use the shared Space file picker, paste/drop handling,
+preview tray, and account-scoped browser draft storage. They remain local until
+the first send creates a session; their original attachment and publication
+identities then pass to the Space upload/retry pipeline. Session creation shows
+the pending message immediately. Personal sidebar title/group persistence does
+not block message handoff, including while the sidebar preference read is pending
+or failed. Naming reads the latest real preferences and revision before saving;
+its failure leaves the chat usable without retrying message creation. Leaving
+during creation preserves the draft without
+navigating back, and successful navigation only clears the draft version sent.
+The draft, route-pending, and Space-bootstrap presentations retain the same
+welcome content rail, conversation header, message primitives, and composer
+height. Sending must not remove the welcome area and then restore it when the
+canonical transcript arrives, shifting the first message between positions.
+Loading existing chats reuse the same attachment controller. Route-pending file
+drafts use account/Organization/session identity until the Space is known, then
+migrate without changing attachment or publication IDs. Late draft saves and
+queued sends remain observable by the ready route rather than being copied only
+at mount.
+Loading sends claim their message identity, text timestamp, and selected attachment
+IDs at click time, before asynchronous file preparation. A queued submission is
+not a composer draft: the ready conversation sends it independently, clears only
+the submitted draft revision, and leaves newer text and attachments untouched.
+Attachment restoration rejects IDs removed, cleared, or successfully consumed
+in the same file session, even when an older storage read finishes later. The
+admission rule is shared by restoration and explicit handoff; distinct late-saved
+IDs remain eligible for adoption.
+
+Sidebar activity indicators resolve their destination from an authorized
+active-Wake progress read on click, without adding per-row subscriptions.
+Multiple runs use the displayed status priority and oldest start time. The
+authorized Space bootstrap supplies reply placement: an explicit stream Thread
+root opens that Thread, `null` means main conversation, and only unknown placement
+uses the source Thread catalog. A Thread ID is never treated as a root message ID.
+Message-preview links retain their separate exact-message semantics.
+Center Agent session routes preserve the explicit Thread root through search
+validation, page props, and conversation-view navigation to the Space owner.
+Repeated selection scrolls again. If the
+work has finished, the conversation opens with an explanatory notice; failed
+reads retain an explicit retry path. Navigation does not change execution or
+Stop authority.
+
 Drafts and saved chats use the same header navigation and welcome template.
 Management tabs retain the session or draft selector when navigating back.
 Messages, Graph and Files remain scoped to that conversation; management tabs
@@ -884,7 +935,13 @@ the existing fixed status slot so revealing or focusing row actions cannot move
 or cover activity indicators. Priority sections wait for their first activity
 snapshot before showing an idle ordering; manual pins and Recent remain usable
 while that evidence loads. Full names and attributed activity remain available
-through the shared tooltips. Ordinary Space rows read Index previews without
+through the shared tooltips. Preview text is a separate message link beside the
+row's ordinary conversation link, with a subtle underline on hover or keyboard
+focus and no size change. It preserves the exact preview Signal ID and session
+selector, using the shared message/Thread focus resolver even outside the loaded
+history window. Needs-input copy and previews without an ID remain plain text.
+Row actions retain their own hit targets; menus reserve enough width for labels
+and use the shared action icons. Ordinary Space rows read Index previews without
 creating per-Space message-preview observers. Recent uses
 only message time, with an empty conversation at zero and Space ID as a stable
 tie-breaker; unread, visit time, and running progress do not promote it. Recent
@@ -1058,6 +1115,11 @@ states. `SettingsDialogContent` supplies the shared Space/App dialog shell;
 App settings uses its larger 1024px by 42rem variant, constrained to the viewport.
 Navigation and content scroll independently. Section components and their
 mutations do not fork by presentation.
+
+The dialog shell and section navigation mount once, including on a cold first
+open. Heavy section panels load lazily inside the content area; loading must
+not replace the dialog or its navigation. Unavailable dialog sections recover
+to Account through the same capability-filtered registry.
 
 The Settings secondary sidebar always shows these two groups:
 
@@ -4550,6 +4612,30 @@ client. If older evidence lacks that fact, omit the timer.
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
+
+The existing Space/viewer progress cache retains minimal accepted publication
+and terminal-progress evidence independently of message visibility. Closing a
+Thread, cropping its two-message preview, or revisiting a route must not forget
+that evidence. Explicitly different dispatch IDs remain different executions,
+even for the same Agent and source message. Local pending identity may be
+enriched by its matching dispatch, but a later identity-poor update cannot erase
+an already known dispatch ID. Merge, final cleanup, visible work, Stop visibility,
+sidebar status and activity destination selection respect this boundary.
+
+The evidence shares the presentation cache's 30-minute inactive GC lifetime;
+sidebar and Desk readers observe that same cache without adding network reads.
+Summary requests carry the cache lifetime they started in, so a cached summary
+or late response from a retired lifetime cannot re-enter a new one. Reply-stream
+bootstrap seeds must come from a read in the current presentation lifetime;
+older display caches cannot seed working streams after completion evidence has
+been collected. Live Thread progress is never stored in retained Thread history
+or previews. Accepted outcomes also suppress replayed streams for that execution.
+Evidence is not persisted and contains no message body or Stop permission.
+Neither snapshot omission, stream disappearance, ordinary Agent text nor human
+follow-ups establishes completion. Failed, stopped, publication-unknown and
+published outcomes retain their distinct meanings; Core still owns execution
+and viewer-authorized Stop policy.
+
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
 for <Agent name>` and explains `Another app is using this conversation.` The

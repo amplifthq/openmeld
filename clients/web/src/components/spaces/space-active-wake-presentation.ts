@@ -19,6 +19,7 @@ export type SpaceSidebarActiveWakeSummary =
 		waitReasonCode?: WakeProgressItem["waitReasonCode"];
 		statuses?: readonly WakeProgressStatusPresentation[];
 		hasMore?: boolean;
+		focusSignalId?: string;
 	};
 export function buildSpaceActiveWakeSummary(input: {
 	fallbackSummary?: AccountSpaceActiveWakeSummaryItem;
@@ -55,6 +56,8 @@ export function buildSpaceActiveWakeSummary(input: {
 	);
 	return {
 		activeTargets,
+		focusSignalId:
+			resolveSpaceActiveWakeTarget(activeItems)?.sourceSignalId ?? undefined,
 		statuses: [...activeItems]
 			.sort((left, right) => (left.startedAtMs ?? 0) - (right.startedAtMs ?? 0))
 			.flatMap((item) => {
@@ -82,6 +85,24 @@ export function buildSpaceActiveWakeSummary(input: {
 				? WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
 				: null,
 	};
+}
+
+/** The same priority and age order as the indicator, without inventing a locator. */
+export function resolveSpaceActiveWakeTarget(
+	items: readonly WakeProgressItem[]
+) {
+	return items
+		.flatMap((item) => {
+			const status = !item.terminal && resolveWakeProgressStatus(item);
+			return status
+				? [{ item, priority: WAKE_PROGRESS_STATUS_PRIORITY[status.kind] }]
+				: [];
+		})
+		.sort(
+			(left, right) =>
+				left.priority - right.priority ||
+				(left.item.startedAtMs ?? 0) - (right.item.startedAtMs ?? 0)
+		)[0]?.item;
 }
 
 export type SpaceActiveWakePresentation = {

@@ -2,7 +2,9 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { appShellStaticData } from "#/components/app/shell-layout";
 import { SpaceWindowShell } from "#/components/spaces/app-space-shell";
+import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
 import { SpaceLandingLoadingShell } from "#/components/spaces/space-state-surfaces";
+import { useSpacePanelWidth } from "#/components/spaces/use-space-panel-width";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
@@ -55,14 +57,19 @@ export const Route = createFileRoute("/o/$orgSlug/chats/$spaceId")({
 
 function DirectMessageConversationPendingRoute() {
 	const search = Route.useSearch();
+	const { spaceId } = Route.useParams();
+	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
 		<SpaceWindowShell
 			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
 			initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
+			sidebar={<ConversationsSidebar />}
 			sidebarPreferenceKey="direct-messages"
 		>
-			<AppMainContent bodyClassName="flex" header={null}>
+			<AppMainContent bodyClassName="flex" showHeader={false}>
 				<SpaceLandingLoadingShell
+					membersPanelWidth={membersPanel.width}
+					spaceId={spaceId}
 					threadOpen={Boolean(search.focusThreadRootSignalId)}
 				/>
 			</AppMainContent>

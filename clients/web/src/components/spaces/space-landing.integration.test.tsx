@@ -7,6 +7,7 @@ import {
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
+	type AccountSidebarSnapshot,
 	AGENT_REPLY_FINAL_PURPOSE,
 	AGENT_REPLYING_PURPOSE,
 	CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -22,6 +23,7 @@ import type {
 	CreateAgentProfileCreationRequestResponse,
 	CreateSpaceThreadResponse,
 	GetSpaceStatusResponse,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
@@ -48,7 +50,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	subscribeComposerFileDrafts: () => () => undefined,
 	readComposerFileDrafts: async () => [],
+	readComposerFileDraftsByIds: async () => [],
 	removeComposerFileDraft: async () => undefined,
 	saveComposerFileDraft: async () => undefined,
 	saveComposerFileDraftUpload: async () => undefined,
@@ -566,6 +570,7 @@ import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import { hardRefreshSpaceStatusAndMembers } from "./use-space-landing-controller";
 
 const DEFAULT_SPACE_PROFILE_ID = "11111111-1111-1111-1111-111111111111";
+const REMOVE_ATTACHMENT_NAME = /^Remove /;
 const DEFAULT_AGENT_PROFILE_ID = "agt_22222222-2222-2222-2222-222222222222";
 const SECOND_AGENT_PROFILE_ID = "agt_33333333-3333-3333-3333-333333333333";
 const HISTORY_BOOTSTRAP_ERROR_TEXT = /Couldn't load recent history\./;
@@ -13382,6 +13387,42 @@ describe("SpaceLanding", () => {
 	});
 
 	it("stages a selected image and publishes it as a Space File only on Send", async () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class implements IntersectionObserver {
+				readonly root = null;
+				readonly rootMargin = "0px";
+				readonly thresholds = [0];
+				private readonly callback: IntersectionObserverCallback;
+				constructor(callback: IntersectionObserverCallback) {
+					this.callback = callback;
+				}
+				observe(target: Element) {
+					const rect = target.getBoundingClientRect();
+					queueMicrotask(() =>
+						this.callback(
+							[
+								{
+									target,
+									time: 0,
+									isIntersecting: true,
+									intersectionRatio: 1,
+									boundingClientRect: rect,
+									intersectionRect: rect,
+									rootBounds: null,
+								},
+							],
+							this
+						)
+					);
+				}
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+				takeRecords(): IntersectionObserverEntry[] {
+					return [];
+				}
+			}
+		);
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
 		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
@@ -13453,7 +13494,7 @@ describe("SpaceLanding", () => {
 				spaceId: "space-123",
 				uploadId: expect.any(String),
 			});
-			expect(screen.getByText("Ready")).toBeTruthy();
+			expect(screen.getByRole("group", { name: "Files to send" })).toBeTruthy();
 		});
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		createWebSpaceApiMock.mockClear();
@@ -13483,6 +13524,7 @@ describe("SpaceLanding", () => {
 		expect(publishComposerUploadMock).toHaveBeenCalledWith({
 			clientMutationId: expect.any(String),
 			spaceId: "space-123",
+			timeoutMs: 30_000,
 			uploadId: expect.any(String),
 		});
 		const optimisticImage = document.querySelector(
@@ -13565,7 +13607,7 @@ describe("SpaceLanding", () => {
 			},
 		});
 
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(stageComposerUploadMock).toHaveBeenCalledTimes(2);
 		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toEqual(
 			stageComposerUploadMock.mock.calls[0]?.[0]
@@ -13628,7 +13670,7 @@ describe("SpaceLanding", () => {
 			},
 		});
 
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
 			false
@@ -13722,7 +13764,7 @@ describe("SpaceLanding", () => {
 		});
 
 		await screen.findByText("The Space does not belong to this Organization.");
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -13816,7 +13858,11 @@ describe("SpaceLanding", () => {
 			},
 		});
 		await waitFor(() => {
-			expect(screen.getAllByText("Ready")).toHaveLength(2);
+			expect(
+				within(
+					screen.getByRole("group", { name: "Files to send" })
+				).getAllByRole("button", { name: REMOVE_ATTACHMENT_NAME })
+			).toHaveLength(2);
 		});
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -13893,7 +13939,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["retry"], "retriable.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Send this with the file"
@@ -13955,7 +14001,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -13990,7 +14036,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
-		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByRole("group", { name: "Files to send" })).toBeTruthy();
 		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
@@ -14055,7 +14101,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -14130,7 +14176,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["broken"], "broken.png", { type: "image/png" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
@@ -14207,7 +14253,11 @@ describe("SpaceLanding", () => {
 		});
 
 		await waitFor(() => {
-			expect(screen.getAllByText("Ready")).toHaveLength(10);
+			expect(
+				within(
+					screen.getByRole("group", { name: "Files to send" })
+				).getAllByRole("button", { name: REMOVE_ATTACHMENT_NAME })
+			).toHaveLength(10);
 		});
 		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
 			"disabled",
@@ -14219,7 +14269,7 @@ describe("SpaceLanding", () => {
 	it.each([
 		"Review this file",
 		"",
-	])("uploads first-chat draft files before sending once (text: %s)", async (text) => {
+	])("sends queued files once without consuming a newer draft (text: %s)", async (text) => {
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
 		const postNormalMessage = vi.fn().mockResolvedValue(
@@ -14229,16 +14279,21 @@ describe("SpaceLanding", () => {
 				files: [messageFile],
 			})
 		);
-		const stageComposerUpload = vi.fn().mockImplementation((input) =>
-			Promise.resolve(
-				createSpaceComposerUpload({
-					id: input.uploadId,
-					mimeType: input.mimeType,
-					name: input.name,
-					sizeBytes: input.bytes.size,
-				})
-			)
-		);
+		let releaseUpload: () => void = () => undefined;
+		const uploadGate = new Promise<void>((resolve) => {
+			releaseUpload = resolve;
+		});
+		const stageComposerUpload = vi.fn().mockImplementation(async (input) => {
+			if (input.name === "launch.txt") {
+				await uploadGate;
+			}
+			return createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			});
+		});
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage,
 			stageComposerUpload,
@@ -14264,12 +14319,29 @@ describe("SpaceLanding", () => {
 				files: [new File(["launch"], "launch.txt", { type: "text/plain" })],
 			},
 		});
+		await waitFor(() => expect(stageComposerUpload).toHaveBeenCalledTimes(1));
+		const composer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(composer, "My next draft");
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["next"], "next.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() => expect(stageComposerUpload).toHaveBeenCalledTimes(2));
+		act(() => {
+			releaseUpload();
+		});
 		await waitFor(() =>
 			expect(postNormalMessage).toHaveBeenCalledWith(
 				expect.objectContaining({ files: [messageFile], text })
 			)
 		);
-		expect(stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(readComposerValue(composer)).toBe("My next draft");
+		expect(
+			screen.getByRole("button", { name: "Remove next.txt" })
+		).toBeTruthy();
 		expect(postNormalMessage).toHaveBeenCalledTimes(1);
 	});
 
@@ -15126,7 +15198,7 @@ describe("SpaceLanding", () => {
 				],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -15174,7 +15246,7 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
 			postNormalMessageMock.mock.calls[0]?.[0]
 		);
-		expect(screen.queryByText("Ready")).toBeNull();
+		expect(screen.queryByRole("group", { name: "Files to send" })).toBeNull();
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(sendButton);
 		expect(postNormalMessageMock).toHaveBeenCalledTimes(2);
@@ -17494,7 +17566,7 @@ describe("SpaceLanding", () => {
 				},
 			}
 		);
-		await within(threadPanel).findByText("Ready");
+		await within(threadPanel).findByRole("group", { name: "Files to send" });
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -17530,7 +17602,9 @@ describe("SpaceLanding", () => {
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		).toHaveProperty("disabled", true);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
-		expect(within(threadPanel).getByText("Ready")).toBeTruthy();
+		expect(
+			within(threadPanel).getByRole("group", { name: "Files to send" })
+		).toBeTruthy();
 		expect(
 			readComposerValue(
 				within(threadPanel).getByRole("textbox", {
@@ -17649,7 +17723,7 @@ describe("SpaceLanding", () => {
 				},
 			}
 		);
-		await within(threadPanel).findByText("Ready");
+		await within(threadPanel).findByRole("group", { name: "Files to send" });
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -17701,7 +17775,9 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock.mock.calls[1]?.[0]).toEqual(
 			postThreadSignalMock.mock.calls[0]?.[0]
 		);
-		expect(within(threadPanel).queryByText("Ready")).toBeNull();
+		expect(
+			within(threadPanel).queryByRole("group", { name: "Files to send" })
+		).toBeNull();
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(sendButton);
 		expect(postThreadSignalMock).toHaveBeenCalledTimes(2);
@@ -18897,6 +18973,32 @@ function mockSpaceQueries(input: {
 					);
 				}
 				return createQueryResult({ isPending: true });
+			}
+			if (
+				options.queryKey[0] === "organizations" &&
+				options.queryKey[2] === "agent-runtime-overview"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						organizationId: "org-acme",
+						generatedAt: "2026-07-16T00:00:00.000Z",
+						agentProfiles: [],
+					} satisfies OrganizationAgentRuntimeOverviewResponse,
+				});
+			}
+			if (options.queryKey[0] === "account-sidebar") {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						revision: 0,
+						preferences: {
+							pinned: { sort: "manual", spaceIds: [] },
+							spaces: { sort: "recent", spaceIds: [] },
+							groups: [],
+						},
+					} satisfies AccountSidebarSnapshot,
+				});
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);
 		}
