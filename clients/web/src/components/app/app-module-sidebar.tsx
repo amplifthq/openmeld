@@ -18,6 +18,7 @@ import {
 	useContext,
 	useState,
 } from "react";
+import { useDesktopTitlebar } from "#/desktop/titlebar-context";
 import {
 	OUTER_SIDEBAR_DEFAULT_STATE,
 	resolveClientSidebarInitialState,
@@ -36,6 +37,7 @@ export function AppModuleSidebarProvider(input: {
 	initialState?: SidebarPersistedState;
 	preferenceKey: string;
 }) {
+	const desktop = useDesktopTitlebar();
 	const [state, setState] = useState(() =>
 		resolveClientSidebarInitialState(
 			"outer",
@@ -68,6 +70,7 @@ export function AppModuleSidebarProvider(input: {
 					mode: state.tier === "expanded" ? "expanded" : "hidden",
 					width: Number.parseFloat(width) * (width.endsWith("rem") ? 16 : 1),
 				}}
+				keyboardShortcuts={!desktop}
 				onGeometryChange={onGeometryChange}
 				static={!input.available}
 				style={{ display: "contents" }}
@@ -95,7 +98,8 @@ export function useHasModuleSidebar() {
 
 export function AppModuleSidebarToggle() {
 	const available = useContext(ModuleSidebarContext);
-	return available ? (
+	const desktop = useDesktopTitlebar();
+	return available && !desktop ? (
 		<SidebarTrigger className="hidden size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted lg:inline-flex" />
 	) : null;
 }
@@ -106,6 +110,7 @@ export function AppModuleSidebar(input: {
 	scrollKey: string;
 }) {
 	const { presentation } = useAppNavigationPresentation();
+	const desktop = useDesktopTitlebar();
 	const { isPeeking } = useSidebar();
 	const restoreScroll = useCallback(
 		(node: HTMLDivElement | null) => {
@@ -143,7 +148,7 @@ export function AppModuleSidebar(input: {
 			className="h-full border-border border-r bg-sidebar text-sidebar-foreground [&_[data-sidebar=panel]]:bg-sidebar [&_[data-sidebar=restore]]:hidden [&_[data-sidebar=reveal]]:w-8"
 			data-testid="app-module-sidebar"
 		>
-			{isPeeking && (
+			{isPeeking && !desktop && (
 				<div className="flex shrink-0 justify-end px-3 pt-3">
 					<SidebarTrigger className="flex h-7 items-center gap-2 rounded-md px-2 text-muted-foreground text-xs hover:bg-muted hover:text-foreground">
 						<SidebarSimpleIcon aria-hidden="true" className="size-4" />
