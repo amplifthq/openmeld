@@ -63,7 +63,7 @@ function withCodeModeCallableHint(
 }
 const CODE_MODE_DESCRIPTION = `Use Code Mode after loading the capabilities you need with openmeld_search_capabilities and openmeld_describe_capabilities. Follow each model-visible input schema and description; runtime validation remains authoritative for normalization and custom constraints. Do not guess capability names or undeclared fields. A described capability named example_tool is available here as codemode.example_tool(input).
 
-Write one async JavaScript arrow function that returns the final result. Do not use TypeScript syntax, named top-level functions, Node.js APIs, process, require, direct fetch, or direct network connections. Generated code can reach external systems only through the typed tools above. Tool authorization, confirmation, identity, and audit rules still apply to every call.`;
+Write one async JavaScript arrow function that returns the final result. Each script has a 60-second limit, not a limit on the whole assignment. Use bounded orchestration and filtering. For long Computer commands, start once with computer_command and collect results through separate bounded polls; never put indefinite polling in one script. Do not use TypeScript syntax, named top-level functions, Node.js APIs, process, require, direct fetch, or direct network connections. Generated code can reach external systems only through the typed tools above. Tool authorization, confirmation, identity, and audit rules still apply to every call.`;
 
 const codeModeInputSchema = strictObject({
   code: pipe(
@@ -106,6 +106,7 @@ export type RemoteAgentCodeModeRuntime = {
 };
 
 export async function createRemoteAgentCodeModeFlueTool(input: {
+  callLimit?: number;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   definitions: RemoteAgentToolDefinition[];
   env: RemoteAgentToolUsageObservabilityEnv;
@@ -143,8 +144,10 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
     description,
     input: codeModeInputSchema,
     run: async ({ data: toolInput, signal }) => {
+      signal?.throwIfAborted();
       const context = await requireRemoteAgentToolExecutionContext(input);
       await beginRemoteAgentToolExecutionAttempt({
+        callLimit: input.callLimit,
         storage: input.storage,
         submissionId: input.submissionId,
         source: "direct",
@@ -165,6 +168,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
             onToolCall: () => {
               innerToolCallCount += 1;
             },
+            signal,
             storage: input.storage,
             streamPublisher:
               input.streamPublisher ?? remoteAgentStreamPublisher,
@@ -226,6 +230,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
 }
 
 function buildCodeModeToolSet(input: {
+  signal?: AbortSignal;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   definitions: RemoteAgentToolDefinition[];
   onToolCall(): void;
@@ -251,7 +256,9 @@ function buildCodeModeToolSet(input: {
             `codemode:${definition.name}:${String(fallbackToolCallSequence)}`;
           const result = await executeRemoteAgentToolDefinition({
             definition,
-            signal: options?.abortSignal,
+            // Code Mode 0.5.1 invokes tools without execution options.
+            // Bind cancellation to this invocation, not to SDK forwarding.
+            signal: input.signal ?? options?.abortSignal,
             source: "code_mode",
             storage: input.storage,
             submissionId: input.submissionId,

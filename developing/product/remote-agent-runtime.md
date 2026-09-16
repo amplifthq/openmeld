@@ -761,12 +761,44 @@ the connected provider API.
 
 ### Work-loop continuation
 
-A per-submission tool-call budget is a runtime safety checkpoint, not proof
-that the user's request is finished. When the Remote Agent reaches that budget,
-it persists a versioned `tool_call_budget_exhausted` checkpoint and sends Core a
-structured `continuation_required` callback. Assistant prose, including text
-such as "I stopped before testing," must never be inspected to decide whether
-work continues.
+Center and personal Remote Agents normally continue in the same Flue/Pi
+execution, using its automatic compaction and supported recovery. Crossing 64
+tool calls is not a finish, checkpoint, or request for the user to say
+"continue." A model segment ending is not proof that the assignment is done.
+
+The deployment-owned `REMOTE_AGENT_TOOL_CALL_LIMIT` defaults to 4096 admitted
+tool attempts per assignment. This is a coarse runaway backstop, not an
+experimentally optimized threshold or a cost meter. The first admitted tool
+freezes the configured positive integer for the Organization/Profile/dispatch;
+recovery, compaction, idle time, and internal submission replacement do not
+refill it. Direct tools and actual Code Mode inner calls share that counter;
+the outer Code Mode invocation also counts so script-only retries are bounded.
+Unchanged observation protection and bounded result policies still apply;
+refused unchanged observations consume attempts without repeating the read.
+Reaching the backstop durably requests failure and fences further tools and
+model rounds through the existing runtime boundary. The execution remains
+stoppable until Flue settles and retained Computer commands have confirmed
+termination. The observer and recovery reconciler share that cleanup gate;
+a stop request alone is not termination evidence. Only then does the execution
+publish an explicit incomplete outcome, with an intervening Stop taking
+precedence. It does not create another continuation, refund unknown writes,
+or allow later assistant prose to turn that failure into success.
+
+Long Computer operations retain their command keys and are followed through
+separate bounded `computer_command` polls. Code Mode's 60-second script timeout
+is not the assignment lifetime. The shared `useAgentFinish` check only feeds
+back owned pending command receipts; it neither judges arbitrary deliverable
+quality nor waits for downstream final publication. Completed receipts stop
+the feedback. Explicit stopping and command-loss handling remain authoritative.
+Cancellation reaches cancellable Code Mode inner operations and is checked
+again when each serialized operation can start. An aborted promise alone does
+not prove an accepted external effect was undone.
+
+Previously persisted `tool_call_budget_exhausted` checkpoints remain supported
+for bounded recovery. The worker execution owner retains this outcome even
+when assistant text follows, or no final text exists. Callback projection and
+reconciliation read that outcome; genuine failure or cancellation wins. This
+does not reopen deliveries already finalized by Core.
 
 Core keeps the same native delivery, conversation, Task, requester, frozen
 result surface, and model route. It durably archives the completed internal
@@ -776,18 +808,25 @@ without repeating completed work. Only a later structured completed or failed
 callback may finalize the native delivery or publish its result. A replay of an
 archived checkpoint is accepted without starting another submission.
 
-One delivery may advance through at most eight automatic work-loop
-continuations. Reaching the next checkpoint publishes one explicit
+Legacy deliveries may advance through at most eight automatic work-loop
+continuations. Reaching the next legacy checkpoint publishes one explicit
 OpenMeld-owned safe-limit failure instead of looping indefinitely. Stop,
 authorization, admission, quota, watchdog, publication fencing, and provider
 placement are rechecked through their ordinary owners for every internal
 submission. This contract applies equally to Space, Web Direct Message, Slack,
 generic Message Channel, Task, and Routine turns.
 
-The mixed-version rollout is D1 migration first, then Core as the new callback
-consumer, and Remote Agent last as the checkpoint producer. Rollback removes
-the Remote Agent producer before Core or the migration. Gateway, Web, CLI,
-OpenMeld Service, daemon, and workstation execution contracts are unchanged.
+No new migration or callback shape is introduced by continuous execution.
+The existing Core continuation consumer must remain while old checkpoints can
+be recovered. New workers accept old stored checkpoints and seed assignment
+accounting from their existing submission chain; missing or inconsistent chain
+evidence fails closed. The new private execution checkpoint, requested failure,
+and aggregate counter require retaining this worker implementation until in-flight work and
+checkpoint callbacks drain before rollback to an older worker. Do not remove
+Core's continuation consumer or its original migration during that period.
+Gateway, Web, CLI, OpenMeld Service, daemon, setup, Space actions, and workstation
+execution wire contracts are unchanged. This does not change Computer identity,
+filesystem isolation, or role-specific authorization and tool catalogs.
 
 ### Turn envelope (2026-07-09)
 

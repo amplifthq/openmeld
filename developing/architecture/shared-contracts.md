@@ -2822,8 +2822,16 @@ Agent Space-stream paths:
   identity and a versioned positive tool-call limit; it is not a completed or
   failed callback body and cannot carry assistant text. The turn envelope owns
   the matching continuation attempt, previous submission id, and reason. Core
-  consumes this additive event before the Remote Agent emits it; older final
-  callback bodies remain valid throughout rollout.
+  retains this consumer for existing checkpoint recovery. Current workers do
+  not emit a new checkpoint on normal tool-budget boundaries: assignment-wide
+  safety exhaustion produces the existing failed callback with shared reason
+  `remote_agent.tool_call_budget_exceeded`. The private worker execution record
+  owns a legacy checkpoint before callback projection; its public execution
+  status remains `completed` for that internal submission, not for the entire
+  native delivery. Failure and cancellation override checkpoint recovery.
+  Older final callback bodies remain valid; no CLI/Service protocol version or
+  D1 migration changes. Rollback must drain new private worker state as described
+  in the Remote Agent runtime owner document.
 - `packages/schemas/src/schemas/daemon/runtime-transport.ts` owns the Local
   OpenMeld Service-to-Core privacy-bounded tool-activity frame. The frame
   carries RuntimeCoordinator execution identity, current execution-token echo,

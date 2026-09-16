@@ -2092,13 +2092,24 @@ text. Callback context receives the same answer as a recoverable delivery
 projection; an instance restart may repopulate it from the execution record and
 retry the ordinary Core callback. Partial stream text, failed execution,
 cancellation, and observability records cannot become this answer authority.
+That same execution record retains a requested failure while runtime settlement
+or Computer cleanup is pending. This fences new work without claiming terminal
+execution; progress updates preserve it and Stop remains available. Both the
+observer and recovery reconciler require settled runtime and confirmed command
+cleanup before terminal publication. Cancellation takes precedence over the
+requested failure, and successful-looking assistant text cannot erase it.
 Every observer and reconciliation path derives its callback from the terminal
 compare-and-set winner. A stale or conflicting callback-context answer is
 replaced by the execution record's exact normalized answer before publication;
 a legacy callback-only answer cannot repair a completed execution that has no
 owner answer. That invalid legacy owner state is durably changed to failure,
 and either side of a restart can repeat the same explicit-failure projection.
-One terminal-outcome projector maps completed, failed, aborted, and missing
+Previously persisted work-loop checkpoints are an explicit exception to the
+completed-answer invariant: the execution owner adopts that structured fact
+before projection, retains it with no completed answer, and replays the existing
+continuation callback. Assistant text cannot replace it, while an authoritative
+failure or Stop wins. Already finalized Core deliveries are not reopened.
+One terminal-outcome projector maps completed, legacy checkpoint, failed, aborted, and missing
 execution outcomes into callback payloads for both observation and
 reconciliation. If the callback projection itself is missing, reconciliation
 fails with `remote_agent.terminal_callback_projection_missing`, leaves the
@@ -2182,8 +2193,16 @@ per-turn evidence and expires it after seven days. It records only structured
 milestones and decisions: provider
 request preparation and response headers, first model event, first visible
 assistant content, model completion, model and tool counts, capability search
-and describe results, the source of each tool call, and whether the per-attempt
-tool budget was exhausted. It never records prompt text, reply text, model
+and describe results, the source of each tool call, and whether the
+assignment safety budget was exhausted. For current workers, `toolCallCount`
+is the aggregate charged attempt number across the same dispatch, including
+unchanged-observation refusals that do not execute another read, and
+`toolCallLimit` is its frozen configured limit; source counters and recent events
+remain submission-local. Legacy records retain their original per-submission
+meaning. Active accounting does not expire; after Core accepts a final callback,
+the matching last submission's accounting can expire after one hour. An older
+submission's callback cannot expire a newer submission's accounting. It never
+records prompt text, reply text, model
 reasoning, tool arguments, tool results, tokens, or provider payloads.
 
 Core reports runtime evidence as `available`, `not_recorded`, or `unavailable`.
