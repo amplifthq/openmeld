@@ -14221,7 +14221,7 @@ describe("SpaceLanding", () => {
 	it.each([
 		"Review this file",
 		"",
-	])("uploads first-chat draft files before sending once (text: %s)", async (text) => {
+	])("sends queued files once without consuming a newer draft (text: %s)", async (text) => {
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
 		const postNormalMessage = vi.fn().mockResolvedValue(
@@ -14231,16 +14231,21 @@ describe("SpaceLanding", () => {
 				files: [messageFile],
 			})
 		);
-		const stageComposerUpload = vi.fn().mockImplementation((input) =>
-			Promise.resolve(
-				createSpaceComposerUpload({
-					id: input.uploadId,
-					mimeType: input.mimeType,
-					name: input.name,
-					sizeBytes: input.bytes.size,
-				})
-			)
-		);
+		let releaseUpload: () => void = () => undefined;
+		const uploadGate = new Promise<void>((resolve) => {
+			releaseUpload = resolve;
+		});
+		const stageComposerUpload = vi.fn().mockImplementation(async (input) => {
+			if (input.name === "launch.txt") {
+				await uploadGate;
+			}
+			return createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			});
+		});
 		createWebSpaceApiMock.mockReturnValue({
 			postNormalMessage,
 			stageComposerUpload,
@@ -14266,12 +14271,29 @@ describe("SpaceLanding", () => {
 				files: [new File(["launch"], "launch.txt", { type: "text/plain" })],
 			},
 		});
+		await waitFor(() => expect(stageComposerUpload).toHaveBeenCalledTimes(1));
+		const composer = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(composer, "My next draft");
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["next"], "next.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() => expect(stageComposerUpload).toHaveBeenCalledTimes(2));
+		act(() => {
+			releaseUpload();
+		});
 		await waitFor(() =>
 			expect(postNormalMessage).toHaveBeenCalledWith(
 				expect.objectContaining({ files: [messageFile], text })
 			)
 		);
-		expect(stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(readComposerValue(composer)).toBe("My next draft");
+		expect(
+			screen.getByRole("button", { name: "Remove next.txt" })
+		).toBeTruthy();
 		expect(postNormalMessage).toHaveBeenCalledTimes(1);
 	});
 

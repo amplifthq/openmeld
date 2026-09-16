@@ -157,6 +157,10 @@ drafts use account/Organization/session identity until the Space is known, then
 migrate without changing attachment or publication IDs. Late draft saves and
 queued sends remain observable by the ready route rather than being copied only
 at mount.
+Loading sends claim their message identity, text timestamp, and selected attachment
+IDs at click time, before asynchronous file preparation. A queued submission is
+not a composer draft: the ready conversation sends it independently, clears only
+the submitted draft revision, and leaves newer text and attachments untouched.
 
 Sidebar activity indicators resolve their destination from an authorized
 active-Wake progress read on click, without adding per-row subscriptions.
@@ -165,6 +169,8 @@ authorized Space bootstrap supplies reply placement: an explicit stream Thread
 root opens that Thread, `null` means main conversation, and only unknown placement
 uses the source Thread catalog. A Thread ID is never treated as a root message ID.
 Message-preview links retain their separate exact-message semantics.
+Center Agent session routes preserve the explicit Thread root through search
+validation, page props, and conversation-view navigation to the Space owner.
 Repeated selection scrolls again. If the
 work has finished, the conversation opens with an explanatory notice; failed
 reads retain an explicit retry path. Navigation does not change execution or

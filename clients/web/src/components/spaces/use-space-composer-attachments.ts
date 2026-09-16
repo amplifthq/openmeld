@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import {
-	type ComposerFileDraft,
+	type ComposerFileSelection,
 	readComposerFileDrafts,
 	readComposerFileDraftsByIds,
 	removeComposerFileDraft,
@@ -179,7 +179,10 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 	);
 
 	const addFiles = useCallback(
-		async (selectedFiles: readonly File[], restored?: ComposerFileDraft[]) => {
+		async (
+			selectedFiles: readonly File[],
+			restored?: ComposerFileSelection[]
+		) => {
 			const availableSlots = Math.max(
 				0,
 				SPACE_MESSAGE_FILE_MAX_COUNT -
@@ -308,16 +311,21 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		};
 	}, [scopeKey, migrationScopesKey, addFiles, session]);
 
-	const beginSubmission = useCallback(() => {
-		const submitted = session.files.filter(
-			(file) => !session.submittingIds.has(file.localId)
-		);
-		for (const file of submitted) {
-			session.submittingIds.add(file.localId);
-		}
-		refresh();
-		return submitted;
-	}, [session]);
+	const beginSubmission = useCallback(
+		(ids?: readonly string[]) => {
+			const submitted = session.files.filter((file) =>
+				ids
+					? ids.includes(file.localId)
+					: !session.submittingIds.has(file.localId)
+			);
+			for (const file of submitted) {
+				session.submittingIds.add(file.localId);
+			}
+			refresh();
+			return submitted;
+		},
+		[session]
+	);
 	const finishSubmission = useCallback(
 		(submitted: readonly SpaceComposerFile[]) => {
 			for (const file of submitted) {
@@ -409,6 +417,32 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 
 	return {
 		addFiles,
+		claimSubmissionDrafts: (): ComposerFileSelection[] => {
+			const submitted = beginSubmission();
+			return submitted.map((item) => {
+				const file = session.sourceFiles.get(item.localId);
+				if (!file) {
+					throw new Error("The selected attachment is no longer available.");
+				}
+				return {
+					id: item.localId,
+					file,
+					publishMutationId: item.publishMutationId,
+					upload: item.upload ?? undefined,
+				};
+			});
+		},
+		getSubmissionFiles: (input: {
+			ids?: readonly string[];
+			sources?: readonly File[];
+		}) =>
+			session.files.filter((file) =>
+				input.ids
+					? input.ids.includes(file.localId)
+					: input.sources?.some(
+							(source) => source === session.sourceFiles.get(file.localId)
+						)
+			),
 		getSourceFiles: () =>
 			session.files.flatMap((file) => {
 				const source = session.sourceFiles.get(file.localId);
@@ -416,17 +450,16 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			}),
 		readFileDrafts: async () => {
 			await session.restorationTask;
-			if (session.files.length === 0) {
+			const selectedIds = [...session.activeFileIds];
+			if (selectedIds.length === 0) {
 				return [];
 			}
-			await Promise.all(session.uploadTasks.values());
-			const drafts = await readComposerFileDraftsByIds([
-				...session.activeFileIds,
-			]);
+			await Promise.all(selectedIds.map((id) => session.uploadTasks.get(id)));
+			const drafts = await readComposerFileDraftsByIds(selectedIds);
 			const selected = drafts.filter((draft) =>
 				session.activeFileIds.has(draft.id)
 			);
-			if (selected.length !== session.files.length) {
+			if (selected.length !== selectedIds.length) {
 				throw new Error(
 					"Couldn't save your attachments. Remove them and add them again."
 				);

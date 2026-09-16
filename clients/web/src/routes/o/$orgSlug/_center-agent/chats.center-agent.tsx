@@ -57,7 +57,14 @@ function CenterAgentConversationPending() {
 
 function CenterAgentChatRoute() {
 	const directMessageRouteData = Route.useLoaderData();
-	const { focusSignalId, session, view, draft, group } = Route.useSearch();
+	const {
+		focusSignalId,
+		focusThreadRootSignalId,
+		session,
+		view,
+		draft,
+		group,
+	} = Route.useSearch();
 	if (draft === "new") {
 		return <CenterAgentNewChat group={group} view={view} />;
 	}
@@ -65,6 +72,7 @@ function CenterAgentChatRoute() {
 		<CenterAgentPage
 			directMessageRouteData={directMessageRouteData}
 			initialFocusSignalId={focusSignalId}
+			initialFocusThreadRootSignalId={focusThreadRootSignalId}
 			initialSpaceView={view}
 			key={session ?? "default"}
 			sessionId={session}

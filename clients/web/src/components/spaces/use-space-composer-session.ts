@@ -70,9 +70,12 @@ export function useSpaceComposerSession(input: {
 			setErrorMessage,
 		},
 		onEditorChange,
-		recordPendingSubmission: (includeFiles = true) => {
-			authoring.recordPendingSubmission();
-			return includeFiles ? files.beginSubmission() : [];
+		recordPendingSubmission: (submission?: {
+			fileIds?: readonly string[];
+			submittedAtMs?: number;
+		}) => {
+			authoring.recordPendingSubmission(submission?.submittedAtMs);
+			return files.beginSubmission(submission?.fileIds);
 		},
 		send: {
 			begin: beginSend,

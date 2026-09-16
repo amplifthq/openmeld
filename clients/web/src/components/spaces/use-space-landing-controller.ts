@@ -37,11 +37,9 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
-import {
-	type ComposerDraftRecord,
-	type ComposerDraftScope,
-	createComposerDraftRecord,
-	EMPTY_COMPOSER_DRAFT_CONTENT,
+import type {
+	ComposerDraftRecord,
+	ComposerDraftScope,
 } from "#/lib/composer-draft-storage";
 import { updateProfileSpaceHistoryStatus } from "#/lib/onboarding/update-profile-space-history-status";
 import { upsertProfileSpaceHistory } from "#/lib/onboarding/upsert-profile-space-history";
@@ -651,6 +649,18 @@ function restoreFailedPendingSubmission(input: {
 	);
 }
 
+function resolvePendingSubmissionFiles(
+	files: ReturnType<typeof useSpaceComposerSession>["files"],
+	pending?: PendingSpaceMessage | null
+) {
+	return pending
+		? files.getSubmissionFiles({
+				ids: pending.fileDrafts?.map((draft) => draft.id),
+				sources: pending.files,
+			})
+		: undefined;
+}
+
 function createSpaceMessageSendSeed(input: {
 	composerText: string;
 	pendingMessage: PendingSpaceMessage | undefined;
@@ -677,7 +687,11 @@ function prepareSpaceMessageSendAttempt(input: {
 		composerText: input.composerText,
 		pendingMessage: input.pendingMessage,
 	});
-	if (messageSeed.text.length === 0 && !fileSubmission.hasSendableFiles) {
+	if (
+		messageSeed.text.length === 0 &&
+		!fileSubmission.hasSendableFiles &&
+		!(input.pendingMessage?.files?.length && input.composerFiles.length)
+	) {
 		return {
 			errorMessage: "Enter a message or add a file before sending.",
 			status: "blocked" as const,
@@ -698,7 +712,9 @@ function prepareMainComposerSubmission(input: {
 	pendingMessage: PendingSpaceMessage | undefined;
 }): PendingComposerSubmission {
 	if (input.messageSeed.text.length === 0) {
-		return input.mentionAuthoring.prepareFileOnlySubmission();
+		return input.mentionAuthoring.prepareFileOnlySubmission(
+			input.pendingMessage !== undefined
+		);
 	}
 	if (input.pendingMessage) {
 		return input.mentionAuthoring.preparePlainTextSubmission(
@@ -1619,15 +1635,7 @@ export function useSpaceLandingController(input: {
 					}
 				: null,
 			openMeldProfileId: input.profileId,
-			initialComposerDraft: input.initialPendingMessage
-				? createComposerDraftRecord(
-						{
-							...EMPTY_COMPOSER_DRAFT_CONTENT,
-							text: input.initialPendingMessage.text,
-						},
-						input.initialPendingMessage.createdAtMs
-					)
-				: input.initialComposerDraft,
+			initialComposerDraft: input.initialComposerDraft,
 			isMembersLoading: membersLoading,
 			membersErrorMessage,
 			spaceId: input.spaceId,
@@ -1681,11 +1689,13 @@ export function useSpaceLandingController(input: {
 		stagedInitialFileMessageIdRef.current = pending.clientMessageId;
 		composerFilesController
 			.addFiles(pending.files, pending.fileDrafts)
-			.then(() => setPreparedInitialFileMessageId(pending.clientMessageId))
 			.catch((error: unknown) => {
 				console.error("Could not prepare the first chat attachments.", error);
 				setComposerErrorMessage("Could not attach the files. Try again.");
 			});
+		// Staging the local selection is synchronous. The existing publication
+		// pipeline owns upload waiting and retry; do not strand a queued bubble here.
+		setPreparedInitialFileMessageId(pending.clientMessageId);
 	}, [
 		input.initialPendingMessage,
 		statusReady,
@@ -1701,17 +1711,17 @@ export function useSpaceLandingController(input: {
 	);
 	useEffect(() => {
 		const pendingMessage = input.initialPendingMessage;
+		const pendingFiles =
+			resolvePendingSubmissionFiles(composerFilesController, pendingMessage) ??
+			[];
 		const canAttemptPendingMessage =
 			statusReady &&
 			(!pendingMessage?.files?.length ||
 				(preparedInitialFileMessageId === pendingMessage.clientMessageId &&
-					composerFilesController.files.every(
-						(file) => file.status === "ready"
-					))) &&
+					pendingFiles.length === pendingMessage.files.length)) &&
 			currentProfileIsActiveSpaceMember &&
 			(membersReady || membersError) &&
-			!isSendingMessage &&
-			mentionAuthoring.composerText.trim() === pendingMessage?.text.trim();
+			!isSendingMessage;
 		if (
 			!(pendingMessage && canAttemptPendingMessage) ||
 			consumedInitialPendingMessageIdRef.current ===
@@ -1730,12 +1740,11 @@ export function useSpaceLandingController(input: {
 	}, [
 		input.initialPendingMessage,
 		preparedInitialFileMessageId,
-		composerFilesController.files,
+		composerFilesController,
 		currentProfileIsActiveSpaceMember,
 		isSendingMessage,
 		membersError,
 		membersReady,
-		mentionAuthoring.composerText,
 		statusReady,
 	]);
 	const mergeConversationWakeProgressItems = useCallback(
@@ -2588,8 +2597,13 @@ export function useSpaceLandingController(input: {
 		if (composerSendInFlightRef.current) {
 			return;
 		}
+		const pendingFiles = resolvePendingSubmissionFiles(
+			composerFilesController,
+			options?.pendingMessage
+		);
 		const sendAttempt = prepareSpaceMessageSendAttempt({
-			composerFiles: options?.retryFiles ?? composerFilesController.files,
+			composerFiles:
+				options?.retryFiles ?? pendingFiles ?? composerFilesController.files,
 			composerText: mentionAuthoring.composerText,
 			pendingMessage: options?.pendingMessage,
 		});
@@ -2609,9 +2623,6 @@ export function useSpaceLandingController(input: {
 			composerText: mentionAuthoring.composerText,
 			pendingMessage: options?.pendingMessage,
 		});
-		const isTextOnlyPendingMessage =
-			options?.pendingMessage !== undefined &&
-			!options.pendingMessage.files?.length;
 
 		historyNavigation.latest();
 		composerSession.send.begin();
@@ -2640,7 +2651,10 @@ export function useSpaceLandingController(input: {
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				options?.retryFiles ??
-				composerSession.recordPendingSubmission(!isTextOnlyPendingMessage);
+				composerSession.recordPendingSubmission({
+					fileIds: pendingFiles?.map((file) => file.localId),
+					submittedAtMs: options?.pendingMessage?.createdAtMs,
+				});
 			markSpaceSendPending(messageSeed.clientMessageId, () => {
 				composerFilesController.consumePublishedFiles(
 					submittedFiles.map((file) => file.localId)

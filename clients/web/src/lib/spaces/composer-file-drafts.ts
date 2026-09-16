@@ -10,6 +10,11 @@ export type ComposerFileDraft = {
 	upload?: SpaceComposerUploadDescriptor;
 };
 
+export type ComposerFileSelection = Pick<
+	ComposerFileDraft,
+	"id" | "file" | "publishMutationId" | "upload"
+>;
+
 let database: Promise<IDBDatabase> | undefined;
 // File batches can be added within one millisecond; preserve selection order.
 let lastCreatedAt = 0;

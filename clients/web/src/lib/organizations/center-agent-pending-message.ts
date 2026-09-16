@@ -141,16 +141,6 @@ export function writeCenterAgentPendingMessage(
 	);
 }
 
-export function isCenterAgentPendingMessageScopeActive(
-	queryClient: QueryClient,
-	scope: CenterAgentPendingMessageScope
-): boolean {
-	const activeScope = queryClient.getQueryData<CenterAgentPendingMessageScope>(
-		centerAgentPendingMessageKeys.activeScope
-	);
-	return !!activeScope && isSamePendingMessageScope(activeScope, scope);
-}
-
 export function clearCenterAgentPendingMessage(
 	queryClient: QueryClient,
 	scope: CenterAgentPendingMessageScope

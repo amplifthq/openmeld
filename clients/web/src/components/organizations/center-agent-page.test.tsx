@@ -15,13 +15,18 @@ import type { ReactElement, ReactNode } from "react";
 import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
+import { readComposerDraft } from "#/lib/composer-draft-storage";
 import {
 	createPendingCenterAgentMessage,
+	readCenterAgentPendingMessage,
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
 import type { CenterAgentDirectMessageRouteData } from "#/lib/organizations/center-agent-route-loader";
+import { parseCenterAgentRouteSearch } from "#/lib/organizations/center-agent-route-search";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { Route as CenterAgentChatRoute } from "#/routes/o/$orgSlug/_center-agent/chats.center-agent";
 import { CenterAgentPage } from "./center-agent-page";
+import { CenterAgentPendingConversation } from "./center-agent-route-pending";
 
 const navigateSpy = vi.hoisted(() => vi.fn());
 const openCenterAgentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
@@ -145,6 +150,7 @@ describe("CenterAgentPage", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.restoreAllMocks();
 		vi.clearAllMocks();
 	});
 
@@ -281,12 +287,100 @@ describe("CenterAgentPage", () => {
 		expect(navigateSpy).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		"bootstrap",
+		"route",
+	])("claims a %s submission immediately while file persistence is delayed", async (loadingPhase) => {
+		const storage = await import("#/lib/spaces/composer-file-drafts");
+		renderSpaceLandingLoadingFallback = true;
+		const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
+		const file = new File(["first"], "first.txt", { type: "text/plain" });
+		let releaseSave: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			releaseSave = resolve;
+		});
+		const save = storage.saveComposerFileDraft;
+		const saveSpy = vi
+			.spyOn(storage, "saveComposerFileDraft")
+			.mockImplementation(async (draft) => {
+				await gate;
+				await save(draft);
+			});
+		const { queryClient } =
+			loadingPhase === "bootstrap"
+				? renderCenterAgentPage(readyRouteData())
+				: renderWithQueryClient(
+						<CenterAgentPendingConversation
+							organizationId="org-acme"
+							organizationSlug="acme"
+							ownerAccountId="user-1"
+						/>
+					);
+		const composer = screen.getByRole("textbox", {
+			name: "Message Center Agent",
+		});
+		fireEvent.change(composer, { target: { value: "First message" } });
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: { files: [file] },
+		});
+		await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const readPending = () =>
+			readCenterAgentPendingMessage(queryClient, { organizationSlug: "acme" });
+		const pending = readPending();
+		expect(pending).toMatchObject({
+			text: "First message",
+			createdAtMs: 1000,
+			files: [file],
+			fileDrafts: [{ id: saveSpy.mock.calls[0][0].id }],
+		});
+		expect(composer).toHaveProperty("disabled", true);
+		expect(
+			readComposerDraft({
+				kind: "center_agent_pending",
+				ownerAccountId: "user-1",
+				organizationId: "org-acme",
+			})?.text
+		).toBe("First message");
+		expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+		clock.mockReturnValue(3000);
+		await act(async () => {
+			releaseSave();
+			await gate;
+		});
+		expect(readPending()).toBe(pending);
+	});
+
 	it("hands an Inbox reply target to the Center Agent conversation", () => {
 		renderCenterAgentPage(readyRouteData(), "signal-from-inbox");
 
 		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				initialFocusSignalId: "signal-from-inbox",
+			})
+		);
+	});
+
+	it("forwards an activity Thread root through the actual Center Agent route and page", () => {
+		const search = parseCenterAgentRouteSearch({
+			session: "saved-chat",
+			focusSignalId: "root-1",
+			focusThreadRootSignalId: "root-1",
+		});
+		vi.spyOn(CenterAgentChatRoute, "useSearch").mockReturnValue(search);
+		vi.spyOn(CenterAgentChatRoute, "useLoaderData").mockReturnValue(
+			readyRouteData({ spaceId: "saved-chat" })
+		);
+		const ChatRoute = CenterAgentChatRoute.options.component;
+		if (!ChatRoute) {
+			throw new Error("Chat route component is missing");
+		}
+		renderWithQueryClient(<ChatRoute />);
+		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				spaceId: "saved-chat",
+				initialFocusSignalId: "root-1",
+				initialFocusThreadRootSignalId: "root-1",
 			})
 		);
 	});
