@@ -34,6 +34,32 @@ describe("local component update projection", () => {
     ]);
   });
 
+  it("keeps a healthy Service Wake-ready after a historical update failure", () => {
+    const projection = resolveLocalComponentUpdateProjection({
+      generatedAt: "2026-09-14T00:00:00.000Z",
+      localComponentsStatus: createLocalComponentsStatus({
+        cliReasonCodes: ["cli.update.download_stalled"],
+        includeUpdateOperation: true,
+        updateOperationPhase: "needs_help",
+      }),
+      releaseManifest: createReleaseManifest({}),
+      serviceConnected: true,
+      serviceVersion: "0.7.28",
+    });
+
+    expect(projection).toMatchObject({
+      setupAction: "none",
+      service: {
+        status: "current",
+        wakeBlocked: false,
+      },
+      updateOperation: {
+        phase: "needs_help",
+      },
+    });
+    expect(projection.cli.reasonCodes).toEqual(["cli.update.download_stalled"]);
+  });
+
   it("drops Service CLI update failure reasons without an update operation", () => {
     const projection = resolveLocalComponentUpdateProjection({
       generatedAt: "2026-09-14T00:00:00.000Z",

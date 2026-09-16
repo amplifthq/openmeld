@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { write } from "node:fs";
 import { compareSemver } from "../../config/version-state";
 import { readManagedCliInstallation } from "../../local-components/managed-install";
 import { isBinaryDistribution } from "../../runtime/distribution";
@@ -18,6 +19,18 @@ export type OpenMeldToolsUpgradeProcessResult = {
   processFailure?: OpenMeldToolsUpdateProcessFailure;
 };
 
+type BestEffortOutputWrite = (
+  fileDescriptor: number,
+  chunk: Buffer,
+  callback: (error: NodeJS.ErrnoException | null) => void
+) => void;
+
+type OpenMeldToolsUpgradeProcessDependencies = {
+  stderrFileDescriptor?: number;
+  stdoutFileDescriptor?: number;
+  writeOutput?: BestEffortOutputWrite;
+};
+
 export async function resolveMaintenanceCliInstallation(): Promise<{
   version: string;
   binaryPath: string;
@@ -31,7 +44,8 @@ export async function resolveMaintenanceCliInstallation(): Promise<{
 }
 
 export async function runOpenMeldToolsUpgradeProcess(
-  context: OpenMeldToolsUpdateContext
+  context: OpenMeldToolsUpdateContext,
+  dependencies: OpenMeldToolsUpgradeProcessDependencies = {}
 ): Promise<OpenMeldToolsUpgradeProcessResult> {
   const binaryDistribution = isBinaryDistribution();
   const cli = await resolveMaintenanceCliInstallation();
@@ -44,6 +58,19 @@ export async function runOpenMeldToolsUpgradeProcess(
     processExecutablePath: binaryDistribution
       ? cli.binaryPath
       : process.execPath,
+  });
+  const writeOutput: BestEffortOutputWrite =
+    dependencies.writeOutput ??
+    ((fileDescriptor, chunk, callback) => {
+      write(fileDescriptor, chunk, (error) => callback(error));
+    });
+  const forwardStdout = createBestEffortOutputForwarder({
+    fileDescriptor: dependencies.stdoutFileDescriptor ?? process.stdout.fd,
+    writeOutput,
+  });
+  const forwardStderr = createBestEffortOutputForwarder({
+    fileDescriptor: dependencies.stderrFileDescriptor ?? process.stderr.fd,
+    writeOutput,
   });
   return await new Promise((resolve, reject) => {
     let stdout = "";
@@ -61,10 +88,10 @@ export async function runOpenMeldToolsUpgradeProcess(
     child.stdout?.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString();
       stdout = appendBoundedOpenMeldToolsUpdateProcessOutput(stdout, text);
-      process.stdout.write(text);
+      forwardStdout(Buffer.from(text));
     });
     child.stderr?.on("data", (chunk: Buffer | string) => {
-      process.stderr.write(chunk);
+      forwardStderr(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
     });
     child.once("error", reject);
     child.once("close", (code) => {
@@ -75,6 +102,31 @@ export async function runOpenMeldToolsUpgradeProcess(
       });
     });
   });
+}
+
+function createBestEffortOutputForwarder(input: {
+  fileDescriptor: number | undefined;
+  writeOutput: BestEffortOutputWrite;
+}): (chunk: Buffer) => void {
+  let failed = !Number.isInteger(input.fileDescriptor);
+  let writeInFlight = false;
+  return (chunk) => {
+    if (failed || writeInFlight || input.fileDescriptor === undefined) {
+      return;
+    }
+    writeInFlight = true;
+    try {
+      input.writeOutput(input.fileDescriptor, chunk, (error) => {
+        writeInFlight = false;
+        if (error) {
+          failed = true;
+        }
+      });
+    } catch {
+      writeInFlight = false;
+      failed = true;
+    }
+  };
 }
 
 export function resolveOpenMeldToolsUpgradeProgram(input: {

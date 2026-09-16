@@ -708,13 +708,24 @@ describe("openmeld upgrade", () => {
       ]);
 
       try {
-        await expect(
-          runUpgrade({
+        let thrown: unknown;
+        try {
+          await runUpgrade({
             view: "human",
             yes: true,
+          });
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown).toEqual(
+          expect.objectContaining({
+            message: expect.stringContaining(
+              `npm install -g --prefix ${globalInstall.globalPrefix} openmeld@latest`
+            ),
           })
-        ).rejects.toThrow(
-          `npm install -g --prefix ${globalInstall.globalPrefix} openmeld@latest`
+        );
+        expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
+          "cli.update.install_failed"
         );
         expect(home.length).toBeGreaterThan(0);
       } finally {
@@ -828,15 +839,26 @@ describe("openmeld upgrade", () => {
         reasonCodes: ["duplicate_ownership_uncertain"],
       });
 
+      let thrown: unknown;
       const { stdout } = await withCapturedStdio(async () => {
-        await expect(
-          runUpgrade({
+        try {
+          await runUpgrade({
             view: "agent",
             internalAlignService: true,
-          })
-        ).rejects.toThrow("Service alignment is blocked");
+          });
+        } catch (error) {
+          thrown = error;
+        }
       });
 
+      expect(thrown).toEqual(
+        expect.objectContaining({
+          message: expect.stringContaining("Service alignment is blocked"),
+        })
+      );
+      expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
+        "cli.update.service_alignment_failed"
+      );
       expect(stdout).toContain('"code":"upgrade.reconcile.failed"');
       expect(scheduleDaemonServiceUpdateMock).not.toHaveBeenCalled();
     });

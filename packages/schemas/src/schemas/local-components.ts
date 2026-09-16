@@ -345,7 +345,7 @@ export function formatOpenMeldToolsUpdateFailureMessage(
     case "cli.update.integrity_check_failed":
       return "The downloaded update did not pass integrity checks, so it was not installed.";
     case "cli.update.install_failed":
-      return "The update was downloaded but could not be installed.";
+      return "The update could not be installed.";
     case "cli.update.service_alignment_failed":
       return "OpenMeld Service could not finish updating.";
     case "cli.update.failed":

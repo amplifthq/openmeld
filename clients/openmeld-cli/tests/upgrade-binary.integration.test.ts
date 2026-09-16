@@ -16,6 +16,7 @@ import {
 } from "@openmeld/local-service/cli-binary-update-artifact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
+import { resolveOpenMeldToolsUpdateFailure } from "../src/local-service/maintenance/openmeld-tools-update-failure";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { seedVersionState } from "./helpers/version";
 
@@ -245,6 +246,52 @@ describe("openmeld upgrade in binary distribution", () => {
         last_version: BINARY_VERSION,
         latest_version: BINARY_VERSION,
       });
+    });
+  });
+
+  it("classifies a temporary workspace failure before download as an install failure", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      const artifactBytes = Buffer.from("fake openmeld binary\n", "utf8");
+      const manifest = buildBinaryManifest(artifactBytes);
+      const fetchMock = mockBinaryFetch(manifest, artifactBytes);
+      vi.doMock("node:fs/promises", async () => {
+        const actual =
+          await vi.importActual<typeof import("node:fs/promises")>(
+            "node:fs/promises"
+          );
+        return {
+          ...actual,
+          mkdtemp: vi
+            .fn()
+            .mockRejectedValue(new Error("temporary directory unavailable")),
+        };
+      });
+
+      try {
+        const { runUpgrade } = await loadUpgradeModules();
+        let thrown: unknown;
+        await withCapturedStdio(async () => {
+          try {
+            await runUpgrade({ view: "agent", yes: true });
+          } catch (error) {
+            thrown = error;
+          }
+        });
+
+        expect(thrown).toEqual(
+          expect.objectContaining({
+            message: "temporary directory unavailable",
+          })
+        );
+        expect(resolveOpenMeldToolsUpdateFailure(thrown)).toBe(
+          "cli.update.install_failed"
+        );
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(spawn).not.toHaveBeenCalled();
+      } finally {
+        vi.doUnmock("node:fs/promises");
+      }
     });
   });
 

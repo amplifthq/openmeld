@@ -41,13 +41,17 @@ describe("OpenMeld Tools upgrade process", () => {
       })
     );
 
+    const forwarded = { stderr: "", stdout: "" };
     const captured = await withCapturedStdio(
       async () =>
-        await runOpenMeldToolsUpgradeProcess({
-          operationId: "update-1",
-          requestedAt: "2026-09-14T00:00:00.000Z",
-          requestSource: "web",
-        })
+        await runOpenMeldToolsUpgradeProcess(
+          {
+            operationId: "update-1",
+            requestedAt: "2026-09-14T00:00:00.000Z",
+            requestSource: "web",
+          },
+          createCapturedOutputDependencies(forwarded)
+        )
     );
 
     expect(captured.result).toEqual({
@@ -57,9 +61,11 @@ describe("OpenMeld Tools upgrade process", () => {
         failureCode: "cli.update.download_stalled",
       },
     });
-    expect(captured.stdout).toContain("presenter output");
-    expect(captured.stdout).toContain(frame);
-    expect(captured.stderr).toContain("worker diagnostic");
+    expect(captured.stdout).toBe("");
+    expect(captured.stderr).toBe("");
+    expect(forwarded.stdout).toContain("presenter output");
+    expect(forwarded.stdout).toContain(frame);
+    expect(forwarded.stderr).toContain("worker diagnostic");
     expect(spawnMock).toHaveBeenCalledWith(
       "/opt/openmeld/versions/99.0.0/openmeld",
       ["maintenance-upgrade"],
@@ -79,24 +85,90 @@ describe("OpenMeld Tools upgrade process", () => {
       createChildProcess({ exitCode: 1, stderr: "legacy failure\n" })
     );
 
+    const forwarded = { stderr: "", stdout: "" };
     const captured = await withCapturedStdio(
       async () =>
-        await runOpenMeldToolsUpgradeProcess({
-          operationId: "update-2",
-          requestedAt: "2026-09-14T00:00:00.000Z",
-          requestSource: "automatic",
-        })
+        await runOpenMeldToolsUpgradeProcess(
+          {
+            operationId: "update-2",
+            requestedAt: "2026-09-14T00:00:00.000Z",
+            requestSource: "automatic",
+          },
+          createCapturedOutputDependencies(forwarded)
+        )
     );
 
     expect(captured.result).toEqual({ exitCode: 1 });
-    expect(captured.stderr).toContain("legacy failure");
+    expect(forwarded.stderr).toContain("legacy failure");
+  });
+
+  it("keeps reading the terminal frame when log output is slow", async () => {
+    const frame = JSON.stringify({
+      detail: "download stopped",
+      failureCode: "cli.update.download_stalled",
+      schema: "openmeld-tools-update-process-failure-v1",
+      v: 1,
+    });
+    spawnMock.mockImplementationOnce(() =>
+      createChildProcess({
+        exitCode: 1,
+        stdout: ["first log line\n", "dropped log line\n", `${frame}\n`],
+      })
+    );
+    const writeOutput = vi.fn(() => {
+      // Intentionally never completes. The forwarder must not queue behind it.
+    });
+
+    await expect(
+      runOpenMeldToolsUpgradeProcess(
+        {
+          operationId: "update-3",
+          requestedAt: "2026-09-14T00:00:00.000Z",
+          requestSource: "automatic",
+        },
+        {
+          stderrFileDescriptor: 2,
+          stdoutFileDescriptor: 1,
+          writeOutput,
+        }
+      )
+    ).resolves.toEqual({
+      exitCode: 1,
+      processFailure: {
+        detail: "download stopped",
+        failureCode: "cli.update.download_stalled",
+      },
+    });
+    expect(writeOutput).toHaveBeenCalledOnce();
   });
 });
+
+function createCapturedOutputDependencies(output: {
+  stderr: string;
+  stdout: string;
+}) {
+  return {
+    stderrFileDescriptor: 2,
+    stdoutFileDescriptor: 1,
+    writeOutput(
+      fileDescriptor: number,
+      chunk: Buffer,
+      callback: (error: NodeJS.ErrnoException | null) => void
+    ) {
+      if (fileDescriptor === 1) {
+        output.stdout += chunk.toString();
+      } else {
+        output.stderr += chunk.toString();
+      }
+      callback(null);
+    },
+  };
+}
 
 function createChildProcess(input: {
   exitCode: number;
   stderr?: string;
-  stdout?: string;
+  stdout?: string | string[];
 }): EventEmitter & { stderr: EventEmitter; stdout: EventEmitter } {
   const child = new EventEmitter() as EventEmitter & {
     stderr: EventEmitter;
@@ -106,7 +178,11 @@ function createChildProcess(input: {
   child.stderr = new EventEmitter();
   queueMicrotask(() => {
     if (input.stdout) {
-      child.stdout.emit("data", Buffer.from(input.stdout));
+      for (const stdout of Array.isArray(input.stdout)
+        ? input.stdout
+        : [input.stdout]) {
+        child.stdout.emit("data", Buffer.from(stdout));
+      }
     }
     if (input.stderr) {
       child.stderr.emit("data", Buffer.from(input.stderr));

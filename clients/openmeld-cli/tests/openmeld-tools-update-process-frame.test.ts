@@ -1,10 +1,10 @@
+import { CliBinaryUpdateError } from "@openmeld/local-service/cli-binary-update-artifact";
 import { describe, expect, it } from "vitest";
 import {
   appendBoundedOpenMeldToolsUpdateProcessOutput,
   emitOpenMeldToolsUpdateFailureFrame,
   parseOpenMeldToolsUpdateFailureFrame,
 } from "../src/local-service/maintenance/openmeld-tools-update-process-frame";
-import { CliBinaryUpdateError } from "../src/runtime/cli-binary-update-artifact";
 import { withCapturedStdio } from "./helpers/fs";
 
 describe("OpenMeld Tools update process failure frame", () => {

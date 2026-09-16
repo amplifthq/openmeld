@@ -205,13 +205,9 @@ async function runUpgradeWithRuntime(
   }
 
   if (input.internalAlignService) {
-    await runInternalUpgradeServiceAlignment({
+    await alignServiceWithCurrentCli({
       presenter,
       resolvedView: runtime.resolvedView,
-      daemonVersion: await resolveCurrentDaemonExpectedVersion(),
-      ...(process.argv[1] && !isBinaryDistribution()
-        ? { cliScriptPath: process.argv[1] }
-        : {}),
     });
     return;
   }

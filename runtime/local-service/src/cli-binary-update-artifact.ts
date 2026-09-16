@@ -11,6 +11,7 @@ type CommandResult = {
 };
 
 const HARDENED_RUNTIME_FLAG_RE = /flags=.*runtime/iu;
+const RETRY_AFTER_SECONDS_RE = /^\d+$/u;
 const SIGNING_TIMESTAMP_RE = /^Timestamp=/mu;
 
 type CliBinaryDelta = NonNullable<CliBinaryRelease["deltas"]>[number];
@@ -38,6 +39,7 @@ export class CliBinaryUpdateError extends Error {
   readonly allowFullFallback: boolean;
   readonly code: `openmeld.tools.update.${CliBinaryUpdateErrorKind}`;
   readonly kind: CliBinaryUpdateErrorKind;
+  readonly retryAfterMs?: number;
   readonly retryable: boolean;
 
   constructor(input: {
@@ -45,6 +47,7 @@ export class CliBinaryUpdateError extends Error {
     cause?: unknown;
     kind: CliBinaryUpdateErrorKind;
     message: string;
+    retryAfterMs?: number;
     retryable: boolean;
   }) {
     super(
@@ -55,6 +58,7 @@ export class CliBinaryUpdateError extends Error {
     this.allowFullFallback = input.allowFullFallback;
     this.code = `openmeld.tools.update.${input.kind}`;
     this.kind = input.kind;
+    this.retryAfterMs = input.retryAfterMs;
     this.retryable = input.retryable;
   }
 }
@@ -162,6 +166,14 @@ export async function downloadCliBinaryUpdateArtifact(input: {
         throw resolvedError;
       }
       input.onDeltaFallback(resolvedError);
+      await waitForRetryDelay({
+        cause: resolvedError,
+        deadlineAtMs: recovery.deadlineAtMs,
+        delayMs:
+          resolvedError instanceof CliBinaryUpdateError
+            ? (resolvedError.retryAfterMs ?? 0)
+            : 0,
+      });
     }
     return downloadFullCliBinaryArtifact({
       ...input,
@@ -456,7 +468,7 @@ async function downloadBinaryBytesWithRecovery(input: {
       await waitForRetryDelay({
         cause: resolved,
         deadlineAtMs: input.recovery.deadlineAtMs,
-        delayMs,
+        delayMs: Math.max(delayMs, resolved.retryAfterMs ?? 0),
       });
     }
   }
@@ -489,6 +501,7 @@ async function downloadBinaryBytesAttempt(input: {
       cancelReadableStream(response.body);
       throw httpDownloadError({
         label: input.label,
+        retryAfter: response.headers.get("retry-after"),
         status: response.status,
         statusText: response.statusText,
       });
@@ -563,7 +576,7 @@ async function waitForDownloadProgress<T>(
 }
 
 async function waitForRetryDelay(input: {
-  cause: CliBinaryUpdateError;
+  cause: unknown;
   deadlineAtMs: number;
   delayMs: number;
 }): Promise<void> {
@@ -609,6 +622,7 @@ function normalizeDownloadError(
 
 function httpDownloadError(input: {
   label: string;
+  retryAfter: string | null;
   status: number;
   statusText: string;
 }): CliBinaryUpdateError {
@@ -620,14 +634,32 @@ function httpDownloadError(input: {
     input.status === 503 ||
     input.status === 504;
   const missingDelta = input.status === 404 || input.status === 410;
+  const retryAfterMs = input.retryAfter
+    ? parseRetryAfterMs(input.retryAfter)
+    : undefined;
   return new CliBinaryUpdateError({
     allowFullFallback: retryable || missingDelta,
     kind: "download_failed",
     message: `${input.label} download failed: HTTP ${input.status}${
       input.statusText ? ` ${input.statusText}` : ""
     }`,
+    ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
     retryable,
   });
+}
+
+function parseRetryAfterMs(value: string): number | undefined {
+  const trimmed = value.trim();
+  if (RETRY_AFTER_SECONDS_RE.test(trimmed)) {
+    const seconds = Number(trimmed);
+    const milliseconds = seconds * 1000;
+    return Number.isSafeInteger(milliseconds) ? milliseconds : undefined;
+  }
+  const retryAtMs = Date.parse(trimmed);
+  if (!Number.isFinite(retryAtMs)) {
+    return undefined;
+  }
+  return Math.max(0, retryAtMs - Date.now());
 }
 
 function stalledError(): CliBinaryUpdateError {

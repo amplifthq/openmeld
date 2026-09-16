@@ -99,6 +99,9 @@ describe("local components schema", () => {
         "cli.update.service_alignment_failed"
       )
     ).toBe("OpenMeld Service could not finish updating.");
+    expect(
+      formatOpenMeldToolsUpdateFailureMessage("cli.update.install_failed")
+    ).toBe("The update could not be installed.");
   });
 
   it("keeps Web and Center Agent maintenance requests on one contract", () => {
