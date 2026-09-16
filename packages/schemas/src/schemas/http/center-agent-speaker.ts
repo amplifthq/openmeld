@@ -59,6 +59,7 @@ export const CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES = [
   "github_list_workflow_runs",
   "github_get_workflow_run",
   "github_list_workflow_run_jobs",
+  "github_get_release_by_tag",
   "github_create_issue_batch",
   "github_create_issue",
   "github_create_issue_comment",
@@ -77,6 +78,7 @@ export const CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES = [
   "github_update_issue",
   "github_update_pull_request",
   "github_update_pull_request_branch",
+  "github_dispatch_workflow",
   "github_rerun_workflow",
 ] as const;
 
