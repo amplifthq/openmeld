@@ -573,6 +573,7 @@ function isFileNotFoundError(error: unknown): boolean {
 
 const WINDOWS_DPAPI_ENCRYPT_SCRIPT = [
   "$ErrorActionPreference='Stop'",
+  "Add-Type -AssemblyName System.Security -ErrorAction Stop",
   "$rawInput = [Console]::In.ReadToEnd()",
   "$payload = $rawInput | ConvertFrom-Json",
   "$plain=[System.Text.Encoding]::UTF8.GetBytes($payload.token)",
@@ -583,6 +584,7 @@ const WINDOWS_DPAPI_ENCRYPT_SCRIPT = [
 
 const WINDOWS_DPAPI_DECRYPT_SCRIPT = [
   "$ErrorActionPreference='Stop'",
+  "Add-Type -AssemblyName System.Security -ErrorAction Stop",
   "$rawInput = [Console]::In.ReadToEnd()",
   "$payload = $rawInput | ConvertFrom-Json",
   "$cipher=[System.Convert]::FromBase64String($payload.token)",

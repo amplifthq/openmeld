@@ -154,28 +154,42 @@ describe("token-store command execution options", () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
-  it("passes timeout options to stdin-based execFile path", async () => {
+  it("loads DPAPI in each fresh PowerShell process and keeps credentials on stdin", async () => {
     setProcessPlatform("win32");
 
     await withTempHome(async () => {
-      await storeAccessToken({
+      const ref = await storeAccessToken({
         accessToken: "token-123",
         authBaseUrl: "https://auth.openmeld.invalid",
         clientId: "openmeld-cli",
       });
+      await readAccessToken(ref);
     });
 
-    const powershellCall = execFileMock.mock.calls.find(
+    const powershellCalls = execFileMock.mock.calls.filter(
       (call) => call[0] === "powershell.exe" && typeof call[3] !== "function"
     );
-    expect(powershellCall).toBeDefined();
-    expect(powershellCall?.[2]).toEqual(
-      expect.objectContaining({
-        windowsHide: true,
-        maxBuffer: COMMAND_MAX_BUFFER_BYTES,
-        timeout: COMMAND_TIMEOUT_MS,
-      })
-    );
+    expect(powershellCalls).toHaveLength(2);
+    for (const powershellCall of powershellCalls) {
+      const args = powershellCall[1] as string[];
+      const script = args.at(-1) ?? "";
+      const loadIndex = script.indexOf(
+        "Add-Type -AssemblyName System.Security -ErrorAction Stop"
+      );
+      expect(loadIndex).toBeGreaterThanOrEqual(0);
+      expect(loadIndex).toBeLessThan(
+        script.indexOf("[System.Security.Cryptography.ProtectedData]")
+      );
+      expect(args.join(" ")).not.toContain("token-123");
+      expect(args).toContain("-NoProfile");
+      expect(powershellCall[2]).toEqual(
+        expect.objectContaining({
+          windowsHide: true,
+          maxBuffer: COMMAND_MAX_BUFFER_BYTES,
+          timeout: COMMAND_TIMEOUT_MS,
+        })
+      );
+    }
   });
 
   it("isolates native token refs by OPENMELD_HOME", async () => {
