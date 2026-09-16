@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "../../core/dist/index.js";
 import { buildCodexExecArgs } from "../dist/transport/codex-cli-transport.js";
 import {
   buildCodexFileAccessBoundaryGlobalArgs,
@@ -404,7 +405,7 @@ describe("Codex Space Action MCP config", () => {
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
         "-c",
-        'mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=["read_file","read_history","reply","status","stay_silent"]',
+        `mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=${JSON.stringify([...OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES])}`,
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
         "-c",
