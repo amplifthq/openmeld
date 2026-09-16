@@ -5,6 +5,7 @@ import {
   modelCatalogSchema,
 } from "../../src/index";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
+import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 
 describe("model catalog schema", () => {
   it("rejects unavailable creation recommendations and unsupported reasoning", () => {
@@ -46,22 +47,26 @@ describe("model catalog schema", () => {
         ],
       });
 
-      for (const [id, displayName, supportedReasoningLevels] of [
+      for (const [id, displayName, supportedReasoningLevels, minCliVersion] of [
         [
           "gpt-5.6-sol",
           "GPT-5.6 Sol",
           ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "0.144.0",
         ],
         [
           "gpt-5.6-terra",
           "GPT-5.6 Terra",
           ["low", "medium", "high", "xhigh", "max", "ultra"],
+          "0.144.0",
         ],
         [
           "gpt-5.6-luna",
           "GPT-5.6 Luna",
           ["low", "medium", "high", "xhigh", "max"],
+          "0.144.0",
         ],
+        ["gpt-5.5", "GPT-5.5", ["low", "medium", "high", "xhigh"], "0.124.0"],
       ] as const) {
         expect(
           result.data.agentControllers.codex?.models.find(
@@ -72,15 +77,16 @@ describe("model catalog schema", () => {
           displayName,
           unavailable: false,
           supportedReasoningLevels,
-          minCliVersion: null,
+          minCliVersion,
         });
       }
 
-      for (const [id, displayName, minCliVersion] of [
-        ["claude-fable-5", "Claude Fable 5", "2.1.170"],
-        ["claude-opus-5", "Claude Opus 5", "2.1.219"],
-        ["claude-opus-4-8", "Claude Opus 4.8", "2.1.154"],
-        ["claude-sonnet-5", "Claude Sonnet 5", "2.1.197"],
+      for (const [id, displayName, minCliVersion, badgeLabel] of [
+        ["claude-fable-5-1", "Claude Fable 5.1", "2.1.257", "New"],
+        ["claude-fable-5", "Claude Fable 5", "2.1.170", null],
+        ["claude-opus-5", "Claude Opus 5", "2.1.219", null],
+        ["claude-opus-4-8", "Claude Opus 4.8", "2.1.154", null],
+        ["claude-sonnet-5", "Claude Sonnet 5", "2.1.197", null],
       ] as const) {
         expect(
           result.data.agentControllers["claude-code"]?.models.find(
@@ -89,6 +95,7 @@ describe("model catalog schema", () => {
         ).toEqual({
           id,
           displayName,
+          ...(badgeLabel ? { badgeLabel } : {}),
           unavailable: false,
           supportedReasoningLevels: ["low", "medium", "high", "xhigh", "max"],
           minCliVersion,
@@ -120,6 +127,34 @@ describe("model catalog schema", () => {
         supportedReasoningLevels: ["low", "high", "max"],
         minCliVersion: null,
       });
+      const openCodeDisplayNames: Record<string, string> = {
+        "opencode-go/deepseek-v4.1-flash": "DeepSeek V4.1 Flash",
+        "opencode-go/hy4-preview": "Hy4 Preview",
+        "opencode/ling-3.0-flash-fin-free": "OpenCode Ling 3.0 Flash Fin Free",
+      };
+      for (const observedModel of openCodeModelCatalogCapture.models) {
+        const id = `${observedModel.providerID}/${observedModel.id}`;
+        expect(
+          result.data.agentControllers.opencode?.models.find(
+            (model) => model.id === id
+          )
+        ).toEqual({
+          id,
+          displayName: openCodeDisplayNames[id],
+          badgeLabel: "New",
+          unavailable: observedModel.status !== "active",
+          supportedReasoningLevels: Object.keys(observedModel.variants),
+          minCliVersion: null,
+        });
+      }
+      for (const preservedRoute of [
+        "openai/gpt-6-astra",
+        "openai/gpt-6-astra-fast",
+        "opencode/muse-spark-1.3-contributor-free",
+        "opencode-go/muse-spark-1.3-contributor",
+      ]) {
+        expect(opencodeModelIds).toContain(preservedRoute);
+      }
       expect(
         result.data.agentControllers.opencode?.models.find(
           (model) =>
@@ -149,6 +184,37 @@ describe("model catalog schema", () => {
       expect(result.data.agentControllers.cursor?.defaultModelId).toBe(
         "default[]"
       );
+      for (const [id, displayName] of [
+        [
+          "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
+          "Claude Opus 5",
+        ],
+        ["grok-4.6[effort=high,fast=true]", "Grok 4.6 — High Fast"],
+        ["muse-spark-1.3[context=300k,effort=high]", "Muse Spark 1.3"],
+      ] as const) {
+        expect(
+          result.data.agentControllers.cursor?.models.find(
+            (model) => model.id === id
+          )
+        ).toEqual({
+          id,
+          displayName,
+          badgeLabel: "New",
+          unavailable: false,
+          supportedReasoningLevels: [],
+          minCliVersion: null,
+        });
+      }
+      for (const preservedCursorId of [
+        "claude-fable-5-1[thinking=true,context=300k,effort=high]",
+        "gemini-3.8-flash[reasoning_effort=high]",
+      ]) {
+        expect(
+          result.data.agentControllers.cursor?.models.some(
+            (model) => model.id === preservedCursorId
+          )
+        ).toBe(true);
+      }
       expect(
         result.data.agentControllers.cursor?.models.find(
           (model) =>
@@ -213,6 +279,11 @@ describe("model catalog schema", () => {
           }),
         ]),
       });
+
+      for (const controller of Object.values(result.data.agentControllers)) {
+        const modelIds = controller.models.map((model) => model.id);
+        expect(new Set(modelIds).size).toBe(modelIds.length);
+      }
     }
   });
 
