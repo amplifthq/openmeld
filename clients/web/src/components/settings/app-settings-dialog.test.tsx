@@ -42,10 +42,14 @@ vi.mock("./settings-page", () => ({
 afterEach(() => {
 	cleanup();
 	document.body.inert = false;
+	document.body.removeAttribute("inert");
 	native.pending = true;
 });
 
-it("opens the existing dialog from an early native intent without leaving the thread or losing draft state", async () => {
+it.each([
+	false,
+	true,
+])("opens the existing dialog without losing context after initial freeze=%s", async (initialFreeze) => {
 	const root = createRootRoute({ component: Outlet });
 	const org = createRoute({
 		getParentRoute: () => root,
@@ -71,7 +75,18 @@ it("opens the existing dialog from an early native intent without leaving the th
 		history,
 	});
 	await router.load();
+	if (initialFreeze) {
+		document.body.inert = true;
+		document.body.setAttribute("inert", "");
+	}
 	render(<RouterProvider router={router} />);
+	if (initialFreeze) {
+		expect(screen.queryByText("Existing account settings")).toBeNull();
+		await act(() => {
+			document.body.inert = false;
+			document.body.removeAttribute("inert");
+		});
+	}
 	await screen.findByText("Existing account settings");
 	expect(history.location.pathname).toBe("/o/team/spaces/space");
 	expect(new URLSearchParams(history.location.search).get("thread")).toBe(
