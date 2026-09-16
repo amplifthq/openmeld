@@ -1,8 +1,8 @@
 import { createWakeProgressItem } from "@openmeld/space";
 import { describe, expect, it } from "vitest";
+import { buildSpaceMessageFocusHref } from "#/lib/spaces/thread-navigation";
 import {
 	buildSpaceActiveWakeSummary,
-	buildSpaceActivityHref,
 	resolveSpaceActiveWakePresentation,
 	resolveSpaceActiveWakeTarget,
 } from "./space-active-wake-presentation";
@@ -39,14 +39,14 @@ describe("Space working identity", () => {
 		).toBe("thread-reply");
 		expect(resolveSpaceActiveWakeTarget([finished])).toBeUndefined();
 		expect(
-			buildSpaceActivityHref(
+			buildSpaceMessageFocusHref(
 				"/o/acme/chats/center-agent?session=space&view=files",
 				"thread-reply"
 			)
 		).toBe(
 			"/o/acme/chats/center-agent?session=space&focusSignalId=thread-reply"
 		);
-		expect(buildSpaceActivityHref("/o/acme/spaces/space", null)).toBe(
+		expect(buildSpaceMessageFocusHref("/o/acme/spaces/space", null)).toBe(
 			"/o/acme/spaces/space"
 		);
 	});

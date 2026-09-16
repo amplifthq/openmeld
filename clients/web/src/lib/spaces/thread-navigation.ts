@@ -29,3 +29,18 @@ export function resolveSpaceThreadTarget(
 		(thread) => thread.threadId === preview?.threadId
 	);
 }
+
+export function buildSpaceMessageFocusHref(
+	url: string,
+	signalId?: string | null
+) {
+	if (!signalId) {
+		return url;
+	}
+	const target = new URL(url, "https://openmeld.invalid");
+	target.searchParams.set("focusSignalId", signalId);
+	target.searchParams.delete("focusThreadRootSignalId");
+	target.searchParams.delete("focusInteractionId");
+	target.searchParams.delete("view");
+	return `${target.pathname}${target.search}${target.hash}`;
+}

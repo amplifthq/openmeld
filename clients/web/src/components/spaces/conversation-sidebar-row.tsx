@@ -3,6 +3,7 @@ import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
+	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import {
@@ -17,9 +18,13 @@ import {
 	SidebarMenuButton,
 } from "@openmeld/ui/fluid/sidebar-menu";
 import {
+	ArchiveIcon,
+	ArrowUUpLeftIcon,
 	ChatCircleTextIcon,
 	CloudIcon,
 	DotsThreeIcon,
+	FolderIcon,
+	PencilSimpleIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,6 +37,7 @@ import {
 	resolveInboxAttentionLabel,
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
+import { buildSpaceMessageFocusHref } from "#/lib/spaces/thread-navigation";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
 import { CenterAgentChatAvatar } from "../organizations/center-agent-chat-avatar";
@@ -46,7 +52,6 @@ import {
 } from "./sidebar-conversation-time";
 import { SpaceActiveWakeIndicator } from "./space-active-wake-indicator";
 import {
-	buildSpaceActivityHref,
 	resolveSpaceActiveWakePresentation,
 	resolveSpaceActiveWakeTarget,
 	type SpaceActiveWakePresentation,
@@ -80,7 +85,11 @@ type ConversationSidebarRowProps = {
 	onUnpin: () => void;
 };
 
-type ConversationRowPreview = { timestamp: number | null; previewText: string };
+type ConversationRowPreview = {
+	timestamp: number | null;
+	previewText: string;
+	previewSignalId?: string;
+};
 
 export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 	if (input.conversation.kind === "space") {
@@ -88,6 +97,7 @@ export function ConversationSidebarRow(input: ConversationSidebarRowProps) {
 		return (
 			<ConversationSidebarRowContent
 				{...input}
+				previewSignalId={item.messagePreview?.signalId}
 				previewText={item.messagePreview?.text ?? "No messages yet"}
 				timestamp={resolveConversationTimestamp(
 					item.messagePreview?.timestamp,
@@ -111,6 +121,7 @@ function DirectMessageSidebarRow(input: ConversationSidebarRowProps) {
 	return (
 		<ConversationSidebarRowContent
 			{...input}
+			previewSignalId={preview?.data?.signalId}
 			previewText={resolvePreviewText(preview)}
 			timestamp={resolveConversationTimestamp(
 				preview?.data?.timestamp,
@@ -151,95 +162,109 @@ function ConversationSidebarRowContent(
 			style={drag.style}
 			value={input.conversation.spaceId}
 		>
-			<Tooltip>
-				<TooltipTrigger
-					render={
-						<SidebarMenuButton
-							actionLayout="heading"
-							asChild
-							className="h-auto"
-							isActive={input.selected}
-						>
-							<Link
-								{...drag.rowProps}
-								aria-current={input.selected ? "page" : undefined}
-								aria-label={[
-									input.title,
-									resolveInboxAttentionLabel(input.attentionTone),
-									hasUnread ? "unread messages" : null,
-									presentation?.label,
-								]
-									.filter(Boolean)
-									.join(", ")}
-								className={`flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm outline-none ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
-								resetScroll={false}
-								to={input.url}
-							>
-								<ConversationIcon
-									conversation={input.conversation}
-									memberAppearances={input.memberAppearances}
-									summary={input.activeWakeSummary}
-									title={input.title}
+			<SidebarMenuButton
+				actionLayout="heading"
+				asChild
+				className="h-auto"
+				isActive={input.selected}
+			>
+				<div
+					className={`relative flex min-h-12 w-full min-w-0 items-center gap-2 px-2 py-1.5 text-sm ${input.selected ? "font-medium text-sidebar-accent-foreground" : "text-muted-foreground"}`}
+				>
+					<Tooltip>
+						<TooltipTrigger
+							render={
+								<Link
+									{...drag.rowProps}
+									aria-current={input.selected ? "page" : undefined}
+									aria-label={[
+										input.title,
+										resolveInboxAttentionLabel(input.attentionTone),
+										hasUnread ? "unread messages" : null,
+										presentation?.label,
+									]
+										.filter(Boolean)
+										.join(", ")}
+									className="absolute inset-0 rounded-md outline-none focus-visible:ring-1 focus-visible:ring-ring"
+									resetScroll={false}
+									to={input.url}
 								/>
-								<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+							}
+						/>
+						<TooltipContent
+							className="max-w-sm flex-col items-start whitespace-normal text-left"
+							side="right"
+						>
+							<span>{input.title}</span>
+							{presentation && <span>{presentation.label}</span>}
+						</TooltipContent>
+					</Tooltip>
+					<span className="pointer-events-none contents">
+						<ConversationIcon
+							conversation={input.conversation}
+							memberAppearances={input.memberAppearances}
+							summary={input.activeWakeSummary}
+							title={input.title}
+						/>
+						<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+							<span
+								className="flex min-w-0 items-center gap-2"
+								data-sidebar="menu-heading"
+							>
+								<span className="flex min-w-0 flex-1 items-center gap-1.5">
 									<span
-										className="flex min-w-0 items-center gap-2"
-										data-sidebar="menu-heading"
+										className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : ""}`}
+										data-conversation-title="true"
 									>
-										<span className="flex min-w-0 flex-1 items-center gap-1.5">
-											<span
-												className={`truncate ${hasUnread ? "font-semibold text-sidebar-foreground" : ""}`}
-												data-conversation-title="true"
-											>
-												{input.title}
-											</span>
-										</span>
-										{chat?.session && (
-											<Tooltip>
-												<TooltipTrigger
-													render={
-														<span
-															aria-label="Agent direct message"
-															className="inline-flex shrink-0 text-muted-foreground"
-															role="img"
-														/>
-													}
-												>
-													<CloudIcon aria-hidden="true" className="size-3" />
-												</TooltipTrigger>
-												<TooltipContent>Agent direct message</TooltipContent>
-											</Tooltip>
-										)}
-										{timestamp !== null && !presentation && (
-											<SidebarConversationTime
-												now={new Date(nowMs)}
-												timestamp={timestamp}
-											/>
-										)}
-										{presentation && input.attentionTone && (
-											<span
-												aria-hidden="true"
-												className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
-												data-conversation-unread-indicator="true"
-											/>
-										)}
-									</span>
-									<span className="truncate font-normal text-muted-foreground text-xs leading-4">
-										{needsInput ? presentation?.label : previewText}
+										{input.title}
 									</span>
 								</span>
-							</Link>
-						</SidebarMenuButton>
-					}
-				/>
-				<TooltipContent
-					className="max-w-sm flex-col items-start whitespace-normal text-left"
-					side="right"
-				>
-					<span>{input.title}</span>
-					{presentation && <span>{presentation.label}</span>}
-				</TooltipContent>
-			</Tooltip>
+								{chat?.session && (
+									<Tooltip>
+										<TooltipTrigger
+											render={
+												<span
+													aria-label="Agent direct message"
+													className="inline-flex shrink-0 text-muted-foreground"
+													role="img"
+												/>
+											}
+										>
+											<CloudIcon aria-hidden="true" className="size-3" />
+										</TooltipTrigger>
+										<TooltipContent>Agent direct message</TooltipContent>
+									</Tooltip>
+								)}
+								{timestamp !== null && !presentation && (
+									<SidebarConversationTime
+										now={new Date(nowMs)}
+										timestamp={timestamp}
+									/>
+								)}
+								{presentation && input.attentionTone && (
+									<span
+										aria-hidden="true"
+										className={`status-dot shrink-0 ${resolveInboxIndicatorClassName(input.attentionTone)}`}
+										data-conversation-unread-indicator="true"
+									/>
+								)}
+							</span>
+							{input.previewSignalId && !needsInput ? (
+								<ConversationPreviewLink
+									signalId={input.previewSignalId}
+									text={previewText}
+									title={input.title}
+									url={input.url}
+								/>
+							) : (
+								<span className="truncate font-normal text-muted-foreground text-xs leading-4">
+									{needsInput ? presentation?.label : previewText}
+								</span>
+							)}
+						</span>
+					</span>
+				</div>
+			</SidebarMenuButton>
 			{presentation ? (
 				<SidebarMenuBadge className="p-0">
 					<ConversationActivityIndicator
@@ -265,6 +290,50 @@ function ConversationSidebarRowContent(
 
 			<ConversationRowActions {...input} />
 		</FluidNavMenuItem>
+	);
+}
+
+function ConversationPreviewLink(input: {
+	url: string;
+	signalId: string;
+	text: string;
+	title: string;
+}) {
+	const navigate = useNavigate();
+	const currentHref = useLocation({ select: (location) => location.href });
+	const href = buildSpaceMessageFocusHref(input.url, input.signalId);
+	return (
+		<Link
+			aria-label={`Open preview message in ${input.title}: ${input.text}`}
+			className="pointer-events-auto relative truncate font-normal text-muted-foreground text-xs leading-4 decoration-muted-foreground/50 underline-offset-2 outline-none hover:underline focus-visible:underline focus-visible:ring-1 focus-visible:ring-ring"
+			onClick={(event) => {
+				if (
+					currentHref !== href ||
+					event.button !== 0 ||
+					event.metaKey ||
+					event.ctrlKey ||
+					event.shiftKey ||
+					event.altKey
+				) {
+					return;
+				}
+				event.preventDefault();
+				navigate({
+					to: input.url,
+					replace: true,
+					resetScroll: false,
+				})
+					.then(() => navigate({ to: href, resetScroll: false }))
+					.catch((error: unknown) => {
+						console.error("Could not open preview message", error);
+						toast.error("Couldn't open this message. Try again.");
+					});
+			}}
+			resetScroll={false}
+			to={href}
+		>
+			{input.text}
+		</Link>
 	);
 }
 
@@ -295,7 +364,7 @@ function ConversationActivityIndicator({
 		},
 		[currentHref]
 	);
-	const href = buildSpaceActivityHref(url, focusSignalId);
+	const href = buildSpaceMessageFocusHref(url, focusSignalId);
 	const openActivity = async () => {
 		const attempt = ++navigationAttempt.current;
 		setOpening(true);
@@ -311,7 +380,10 @@ function ConversationActivityIndicator({
 				return;
 			}
 			const target = resolveSpaceActiveWakeTarget(progress.items);
-			const destination = buildSpaceActivityHref(url, target?.sourceSignalId);
+			const destination = buildSpaceMessageFocusHref(
+				url,
+				target?.sourceSignalId
+			);
 			if (!target) {
 				toast.info("This work has finished. Opening the conversation.");
 			}
@@ -469,16 +541,24 @@ function ConversationRowActions(input: ConversationSidebarRowProps) {
 				>
 					<DotsThreeIcon />
 				</DropdownMenuTrigger>
-				<DropdownMenuContent align="end">
+				<DropdownMenuContent
+					align="end"
+					className="w-56 max-w-[calc(100vw-2rem)]"
+				>
 					{input.onRename && (
 						<DropdownMenuItem
 							disabled={input.disabled}
 							onClick={input.onRename}
 						>
+							<PencilSimpleIcon aria-hidden="true" />
 							Rename
 						</DropdownMenuItem>
 					)}
 					<DropdownMenuItem disabled={input.disabled} onClick={togglePin}>
+						<PushPinIcon
+							aria-hidden="true"
+							weight={input.section === "pinned" ? "fill" : "regular"}
+						/>
 						{input.section === "pinned" ? "Unpin" : "Pin"}
 					</DropdownMenuItem>
 					{input.groups
@@ -489,16 +569,27 @@ function ConversationRowActions(input: ConversationSidebarRowProps) {
 								key={g.id}
 								onClick={() => input.onMove(g.id)}
 							>
-								Move to {g.name}
+								<FolderIcon aria-hidden="true" />
+								<span className="truncate" title={`Move to ${g.name}`}>
+									Move to {g.name}
+								</span>
 							</DropdownMenuItem>
 						))}
 					{input.onArchive && (
-						<DropdownMenuItem
-							disabled={input.disabled}
-							onClick={input.onArchive}
-						>
-							{input.archived ? "Unarchive" : "Archive"}
-						</DropdownMenuItem>
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem
+								disabled={input.disabled}
+								onClick={input.onArchive}
+							>
+								{input.archived ? (
+									<ArrowUUpLeftIcon aria-hidden="true" />
+								) : (
+									<ArchiveIcon aria-hidden="true" />
+								)}
+								{input.archived ? "Unarchive" : "Archive"}
+							</DropdownMenuItem>
+						</>
 					)}
 				</DropdownMenuContent>
 			</DropdownMenu>

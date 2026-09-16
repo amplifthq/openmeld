@@ -898,7 +898,13 @@ the existing fixed status slot so revealing or focusing row actions cannot move
 or cover activity indicators. Priority sections wait for their first activity
 snapshot before showing an idle ordering; manual pins and Recent remain usable
 while that evidence loads. Full names and attributed activity remain available
-through the shared tooltips. Ordinary Space rows read Index previews without
+through the shared tooltips. Preview text is a separate message link beside the
+row's ordinary conversation link, with a subtle underline on hover or keyboard
+focus and no size change. It preserves the exact preview Signal ID and session
+selector, using the shared message/Thread focus resolver even outside the loaded
+history window. Needs-input copy and previews without an ID remain plain text.
+Row actions retain their own hit targets; menus reserve enough width for labels
+and use the shared action icons. Ordinary Space rows read Index previews without
 creating per-Space message-preview observers. Recent uses
 only message time, with an empty conversation at zero and Space ID as a stable
 tie-breaker; unread, visit time, and running progress do not promote it. Recent

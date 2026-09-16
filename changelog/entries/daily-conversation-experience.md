@@ -13,4 +13,6 @@ without waiting for sidebar naming to finish.
 The welcome area and first message stay in place as the new chat finishes loading.
 
 Sidebar activity indicators open the message and Thread that started the work.
+Message previews in the sidebar link directly to the displayed message, including
+Thread replies. Conversation menus have clearer labels and action icons.
 Settings keeps its navigation and dialog in place while a section loads.

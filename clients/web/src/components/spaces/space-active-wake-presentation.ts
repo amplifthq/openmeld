@@ -105,18 +105,6 @@ export function resolveSpaceActiveWakeTarget(
 		)[0]?.item;
 }
 
-export function buildSpaceActivityHref(url: string, signalId?: string | null) {
-	if (!signalId) {
-		return url;
-	}
-	const target = new URL(url, "https://openmeld.invalid");
-	target.searchParams.set("focusSignalId", signalId);
-	target.searchParams.delete("focusThreadRootSignalId");
-	target.searchParams.delete("focusInteractionId");
-	target.searchParams.delete("view");
-	return `${target.pathname}${target.search}${target.hash}`;
-}
-
 export type SpaceActiveWakePresentation = {
 	isWaitingForCurrentTask: boolean;
 	label: string;
