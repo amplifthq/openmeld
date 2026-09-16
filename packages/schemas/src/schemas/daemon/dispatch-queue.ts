@@ -1,11 +1,21 @@
 import * as z from "../../lazy-zod";
-import { spaceMessageFileReferencesSchema } from "../http/space-files";
+import {
+  spaceMessageFileReferenceSchema,
+  spaceMessageFileReferencesSchema,
+} from "../http/space-files";
 import { spaceMentionLabelSchema } from "../http/space-mention-label";
 import { spacePasswordSchema } from "../http/space-password";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
+import {
+  executionContextAssignmentSchema,
+  executionContextRequestSchema,
+  executionContextSelectionSchema,
+  executionContextTaskSchema,
+} from "../protocol/execution-context";
 import { messageEnvelopeSchema } from "../protocol/message-envelope";
 import { signalTextReplyToSchema } from "../protocol/signal";
 import { spaceMessageAttachmentsSchema } from "../protocol/space-attachment";
+import { spaceCallerContextSchema } from "../protocol/space-caller-context";
 import { wakeDeviceWaitSchema } from "../protocol/wake-device-wait";
 import {
   agentTaskCompletionObservationSchema,
@@ -60,6 +70,8 @@ export const openMeldDaemonDispatchControllerSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonAcceptedDispatchSnapshotSchema = z.strictObject({
+  contextRequest: executionContextRequestSchema.optional(),
+  executionContext: executionContextAssignmentSchema.optional(),
   deviceWait: wakeDeviceWaitSchema.optional(),
   controllerSnapshot: z.strictObject({
     bindingId: z.string().trim().min(1),
@@ -91,6 +103,28 @@ export const openMeldDaemonDispatchSnapshotSchema = z.strictObject({
 });
 
 export const openMeldDaemonDispatchSourceSignalSnapshotSchema = z.strictObject({
+  contextMessages: z
+    .array(
+      z.strictObject({
+        signalId: z.string().min(1),
+        author: z.string().min(1).nullable(),
+        text: z.string().max(16_000),
+        files: spaceMessageFileReferencesSchema.optional(),
+        attachments: spaceMessageAttachmentsSchema.optional(),
+      })
+    )
+    .max(3)
+    .optional(),
+  callerContext: spaceCallerContextSchema.optional(),
+  pinnedFiles: z.array(spaceMessageFileReferenceSchema).max(100).optional(),
+  quotedMessage: z
+    .strictObject({
+      signalId: z.string().min(1),
+      author: z.string().min(1).nullable(),
+      text: z.string().max(16_000).nullable(),
+      status: z.enum(["available", "recalled", "unavailable"]),
+    })
+    .optional(),
   text: z.string().min(1),
   profileId: z.string().min(1).nullable(),
   profileKind: z.enum(["agent", "human", "system"]).nullable(),
@@ -126,6 +160,8 @@ export const openMeldDaemonDispatchQueueMessageSchema = z
   .strictObject({
     v: z.literal(OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION),
     dispatchId: z.string().min(1),
+    contextSelection: executionContextSelectionSchema.optional(),
+    executionContext: executionContextTaskSchema.optional(),
     deviceWait: wakeDeviceWaitSchema.optional(),
     spaceId: z.string().min(1),
     organizationId: z

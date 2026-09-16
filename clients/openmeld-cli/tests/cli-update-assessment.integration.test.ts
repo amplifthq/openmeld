@@ -164,21 +164,25 @@ describe("assessCliUpdate", () => {
     ).toBe(false);
   });
 
-  it("checks an isolated binary canary only when it has an explicit manifest", () => {
+  it.each([
+    "openmeld-canary",
+    "env OPENMELD_ENV_PRESET='canary' '/Users/dev/.openmeld-canary/bin/openmeld'",
+  ])("checks an isolated binary canary only with an explicit manifest: %s", (userFacingCommand) => {
+    const target = { ...CANARY_TARGET, userFacingCommand };
     expect(
-      isCliUpdateCheckApplicable(CANARY_TARGET, {
+      isCliUpdateCheckApplicable(target, {
         distribution: "binary",
         manifestUrl: "https://staging.openmeld.ai/cli/manifest.json",
       })
     ).toBe(true);
     expect(
-      isCliUpdateCheckApplicable(CANARY_TARGET, {
+      isCliUpdateCheckApplicable(target, {
         distribution: "npm",
         manifestUrl: "https://staging.openmeld.ai/cli/manifest.json",
       })
     ).toBe(false);
     expect(
-      isCliUpdateCheckApplicable(CANARY_TARGET, {
+      isCliUpdateCheckApplicable(target, {
         distribution: "binary",
         manifestUrl: null,
       })

@@ -187,6 +187,27 @@ async function main() {
   const [command, ...args] = process.argv.slice(2);
 
   switch (command) {
+    case "worktree":
+    case "web:worktree": {
+      assertNoLocalShadowFiles(repoRoot);
+      const status = await checkDopplerSources({
+        production: false,
+        sources: DEVELOPMENT_SECRET_SOURCES,
+      });
+      if (status !== 0) {
+        process.exitCode = status;
+        return;
+      }
+      replaceProcessEnvironment(buildInjectedEnvironment(process.env));
+      if (command === "worktree") {
+        const { runIsolatedDev } = await import("./dev-isolated.mjs");
+        await runIsolatedDev(args);
+      } else {
+        const { runIsolatedWeb } = await import("./dev-isolated-web.mjs");
+        await runIsolatedWeb();
+      }
+      return;
+    }
     case "help":
       printHelp();
       return;
@@ -333,11 +354,23 @@ export function buildNestedDopplerCommand(input) {
   return command;
 }
 
-export function buildDopplerComponentCommand(component, terminalArgs) {
-  resolveDevelopmentComponentSources(component);
+export function buildDopplerComponentCommand(
+  component,
+  terminalArgs,
+  env = process.env
+) {
   return {
-    args: [scriptPath, "component", component, "--", ...terminalArgs],
-    executable: process.execPath,
+    ...buildNestedDopplerCommand({
+      sources: resolveDevelopmentComponentSources(component),
+      terminalArgs: [
+        process.execPath,
+        scriptPath,
+        INTERNAL_RUN_COMPONENT_COMMAND,
+        component,
+        ...terminalArgs,
+      ],
+    }),
+    env: stripManagedSecrets(env, allManagedSecretSources()),
   };
 }
 
@@ -589,6 +622,17 @@ async function runInjectedComponentCommand(component, args) {
     );
   }
 
+  if (
+    args[0] === process.execPath &&
+    args[1] === resolve(repoRoot, "scripts/dev/run-isolated-worker-dev.mjs") &&
+    args[2] === component &&
+    args.length === 3
+  ) {
+    replaceProcessEnvironment(buildInjectedComponentEnvironment(component));
+    const { runIsolatedWorker } = await import("./run-isolated-worker-dev.mjs");
+    process.exitCode = await runIsolatedWorker(component);
+    return;
+  }
   const exitCode = await runCommand(args[0], args.slice(1), {
     cwd: process.cwd(),
     env: buildInjectedComponentEnvironment(component),
@@ -672,6 +716,17 @@ function buildCommandLaunchError(executable, error) {
 
 function hasEnvironmentValue(env, name) {
   return typeof env[name] === "string" && env[name].trim().length > 0;
+}
+
+// Object.assign alone would retain the managed secrets deliberately omitted
+// by the environment builder when entering a component in this process.
+function replaceProcessEnvironment(env) {
+  for (const name of Object.keys(process.env)) {
+    if (!(name in env)) {
+      delete process.env[name];
+    }
+  }
+  Object.assign(process.env, env);
 }
 
 function getSecretNames(sources) {

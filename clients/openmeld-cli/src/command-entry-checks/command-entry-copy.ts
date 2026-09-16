@@ -307,6 +307,21 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "listing Organization Skills",
     profileAction: null,
   },
+  "plugins.list": {
+    ...DEFAULT_COPY,
+    signInAction: "listing available plugin accounts",
+    profileAction: null,
+  },
+  "plugins.actions": {
+    ...DEFAULT_COPY,
+    signInAction: "discovering plugin actions",
+    profileAction: null,
+  },
+  "plugins.call": {
+    ...DEFAULT_COPY,
+    signInAction: "running a plugin action",
+    profileAction: null,
+  },
   "skills.show": {
     ...DEFAULT_COPY,
     signInAction: "reading an Organization Skill",
@@ -741,6 +756,12 @@ const COMMAND_ENTRY_COPY_BY_NAME: Readonly<
     signInAction: "updating a profile",
     profileAction: null,
     cliUpdateAction: "updating a profile",
+    serviceAction: null,
+  },
+  "profile.execution-mode": {
+    signInAction: "managing independent-task admission",
+    profileAction: null,
+    cliUpdateAction: "managing independent-task admission",
     serviceAction: null,
   },
   "profile.delete": {

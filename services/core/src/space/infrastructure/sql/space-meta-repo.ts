@@ -25,6 +25,8 @@ type SqlMetaRow = {
   creator_json: string | null;
   organization_id: string | null;
   organization_visibility: string | null;
+  owner_user_ids_json: string;
+  allow_guests: number;
   guide: string | null;
   access_mode: string | null;
   password_proof_json: string | null;
@@ -42,6 +44,8 @@ export type SpaceMetaRecord = {
     pairKey: string;
   };
   creator?: SpaceCreator;
+  ownerUserIds?: string[];
+  allowGuests?: boolean;
   organizationId: string;
   visibility: SpaceOrganizationVisibility;
   guide?: string;
@@ -66,6 +70,8 @@ export const readSpaceMetaRecordFromSql = (
           creator_json,
           organization_id,
           organization_visibility,
+          owner_user_ids_json,
+          allow_guests,
           guide,
           access_mode,
           password_proof_json,
@@ -107,6 +113,8 @@ export const readSpaceMetaRecordFromSql = (
     ...(row.purpose ? { purpose: row.purpose } : {}),
     ...(directMessage ? { directMessage } : {}),
     ...(creator ? { creator } : {}),
+    ownerUserIds: parseOwnerUserIds(row.owner_user_ids_json),
+    allowGuests: row.allow_guests === 1,
     organizationId,
     visibility,
     ...(row.guide ? { guide: row.guide } : {}),
@@ -142,6 +150,7 @@ export const initializeSpaceMetaRecordIfAbsent = (
         purpose,
         direct_message_json,
         creator_json,
+        owner_user_ids_json,
         organization_id,
         organization_visibility,
         guide,
@@ -151,13 +160,16 @@ export const initializeSpaceMetaRecordIfAbsent = (
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
     `,
     record.spaceId,
     record.name ?? null,
     record.purpose ?? null,
     directMessageJson,
     creatorJson,
+    JSON.stringify(
+      record.creator?.ownerUserId ? [record.creator.ownerUserId] : []
+    ),
     organizationId,
     visibility,
     record.guide ?? null,
@@ -200,6 +212,7 @@ export const upsertSpaceMetaRecord = (
         purpose,
         direct_message_json,
         creator_json,
+        owner_user_ids_json,
         organization_id,
         organization_visibility,
         guide,
@@ -209,7 +222,7 @@ export const upsertSpaceMetaRecord = (
         created_at,
         updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
       ON CONFLICT(space_id) DO UPDATE SET
         name = excluded.name,
         purpose = excluded.purpose,
@@ -227,6 +240,9 @@ export const upsertSpaceMetaRecord = (
     record.purpose ?? null,
     directMessageJson,
     creatorJson,
+    JSON.stringify(
+      record.creator?.ownerUserId ? [record.creator.ownerUserId] : []
+    ),
     organizationId,
     visibility,
     record.guide ?? null,
@@ -236,6 +252,19 @@ export const upsertSpaceMetaRecord = (
     updatedAtMs
   );
 };
+
+function parseOwnerUserIds(raw: string): string[] {
+  const value: unknown = JSON.parse(raw);
+  if (
+    !(
+      Array.isArray(value) &&
+      value.every((id) => typeof id === "string" && id.length > 0)
+    )
+  ) {
+    throw new Error("space_meta.owner_user_ids_json invalid");
+  }
+  return value;
+}
 
 function readOne<T extends Record<string, SqlStorageValue>>(
   cursor: SqlStorageCursor<T>

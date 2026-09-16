@@ -22,6 +22,8 @@ type SpaceMetaRow = {
   purpose: string | null;
   direct_message_json: string | null;
   creator_json: string | null;
+  owner_user_ids_json: string;
+  allow_guests: number;
   organization_id: string | null;
   organization_visibility: string | null;
   guide: string | null;
@@ -41,6 +43,8 @@ function createMetaRow(input: {
     purpose: null,
     direct_message_json: null,
     creator_json: null,
+    owner_user_ids_json: "[]",
+    allow_guests: 0,
     organization_id: "org-1",
     organization_visibility: "private",
     guide: null,

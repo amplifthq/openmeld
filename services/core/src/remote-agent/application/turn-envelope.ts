@@ -37,6 +37,9 @@ type OrganizationEnvelopeFacts = {
 };
 
 type SenderEnvelopeFacts = {
+  callerContext?: NonNullable<
+    OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
+  >["callerContext"];
   displayName: string;
   id: string;
   kind: "agent_profile" | "member";
@@ -121,7 +124,10 @@ export async function resolveRemoteAgentTurnEnvelope(input: {
     centerAgentInteractionSource:
       input.message.sourceSignalSnapshot?.centerAgentInteractionSource,
     organization,
-    sender,
+    sender: {
+      ...sender,
+      callerContext: input.message.sourceSignalSnapshot?.callerContext,
+    },
     space,
   });
 }
@@ -646,7 +652,10 @@ export function buildRemoteAgentTurnEnvelope(
     ...(input.centerAgentInteractionSource
       ? { centerAgentInteractionSource: input.centerAgentInteractionSource }
       : {}),
-    interactionEnvironment: resolveSpaceInteractionEnvironment(input.space),
+    interactionEnvironment:
+      input.sender.callerContext?.audience === "external"
+        ? "externally_shared"
+        : resolveSpaceInteractionEnvironment(input.space),
     sender: input.sender,
     space: input.space,
     organization: input.organization,

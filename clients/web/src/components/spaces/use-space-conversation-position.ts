@@ -35,10 +35,11 @@ export function resolveSpaceConversationPosition(
 	viewport: HTMLDivElement
 ): SpaceConversationPosition | null {
 	const top = getSpaceConversationVisibleTop(viewport);
-	const bottom = viewport.getBoundingClientRect().bottom;
 	// DOM order stays chronological after prepends. Only measure the binary
 	// search path, rather than forcing geometry reads for every old message.
-	const elements = viewport.querySelectorAll<HTMLElement>("[data-signal-id]");
+	const elements = viewport.querySelectorAll<HTMLElement>(
+		"[data-history-signal-id]"
+	);
 	let low = 0;
 	let high = elements.length;
 	while (low < high) {
@@ -49,17 +50,20 @@ export function resolveSpaceConversationPosition(
 			high = mid;
 		}
 	}
-	const element = elements[low];
-	if (!element?.dataset.signalId) {
+	// A long transient reply can fill the viewport. Keep a nearby recorded
+	// message as the reference, even when that message is just outside it.
+	const element = elements[Math.min(low, elements.length - 1)];
+	if (!element?.dataset.historySignalId) {
 		return null;
 	}
 	const bounds = element.getBoundingClientRect();
-	return bounds.top < bottom
-		? {
-				anchorSignalId: element.dataset.signalId,
-				offsetFromVisibleTop: bounds.top - top,
-			}
-		: null;
+	if (bounds.bottom <= bounds.top) {
+		return null;
+	}
+	return {
+		anchorSignalId: element.dataset.historySignalId,
+		offsetFromVisibleTop: bounds.top - top,
+	};
 }
 
 export function useSpaceConversationPosition(input: {
@@ -118,7 +122,6 @@ export function useSpaceConversationPosition(input: {
 			releasedKeyRef.current = null;
 		}
 		let disposed = false;
-		let frame = 0;
 		let ready = false;
 		let protectedAnchor =
 			shouldRestore && releasedKeyRef.current !== positionKey;
@@ -180,10 +183,6 @@ export function useSpaceConversationPosition(input: {
 			);
 			ready = true;
 		};
-		const schedule = () => {
-			window.cancelAnimationFrame(frame);
-			frame = window.requestAnimationFrame(restore);
-		};
 		const release = () => {
 			protectedAnchor = false;
 			releasedKeyRef.current = positionKey;
@@ -205,7 +204,11 @@ export function useSpaceConversationPosition(input: {
 				release();
 			}
 		};
-		const observer = new ResizeObserver(schedule);
+		// ResizeObserver already batches layout changes before paint. Deferring
+		// restoration to rAF would paint one frame at the wrong position when
+		// content-visibility reveals a row's actual height. Only adjust scrolling;
+		// do not resize the observed elements inside this callback.
+		const observer = new ResizeObserver(restore);
 		observer.observe(viewport);
 		for (const element of input.messageElementsRef.current.values()) {
 			observer.observe(element);
@@ -216,14 +219,15 @@ export function useSpaceConversationPosition(input: {
 		controls.addEventListener("pointerdown", release);
 		viewport.addEventListener("keydown", onKeyDown);
 		window.addEventListener("pagehide", save);
-		schedule();
+		// Align mounted history in this layout effect, before it can paint at the
+		// default start position. Resize corrections also run before paint.
+		restore();
 		return () => {
 			if (saveTimerRef.current) {
 				clearTimeout(saveTimerRef.current);
 			}
 			save();
 			disposed = true;
-			window.cancelAnimationFrame(frame);
 			observer.disconnect();
 			viewport.removeEventListener("wheel", release);
 			viewport.removeEventListener("touchstart", release);

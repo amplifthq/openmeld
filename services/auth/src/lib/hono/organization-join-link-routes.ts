@@ -85,42 +85,55 @@ async function authorizeLinkScope(
 }
 
 export function registerOrganizationJoinLinkRoutes(app: Hono<AppContext>) {
-  app.post(
-    `${ORGANIZATION_JOIN_LINK_ROUTE}/ensure`,
-    requireTrustedCookieOrigin,
-    authContextMiddleware,
-    async (c) => {
-      const user = c.var.user;
-      if (!user) {
-        return c.json(AUTHENTICATION_REQUIRED_RESPONSE, 401);
-      }
-      const body = organizationJoinLinkManagementQuerySchema.safeParse(
-        await c.req.json().catch(() => null)
-      );
-      if (!body.success) {
-        return c.json(INVALID_INPUT_RESPONSE, 400);
-      }
-      const authorization = await authorizeLinkScope(c, {
-        organizationId: body.data.organizationId,
-        spaceId: body.data.spaceId,
-      });
-      if (authorization) {
-        return authorization;
-      }
-      try {
-        const result = await getOrganizationJoinLinkService(c).ensure({
-          actorUserId: user.id,
-          ...body.data,
+  for (const action of ["ensure", "prepare"] as const) {
+    app.post(
+      `${ORGANIZATION_JOIN_LINK_ROUTE}/${action}`,
+      requireTrustedCookieOrigin,
+      authContextMiddleware,
+      async (c) => {
+        const user = c.var.user;
+        if (!user) {
+          return c.json(AUTHENTICATION_REQUIRED_RESPONSE, 401);
+        }
+        const body = organizationJoinLinkManagementQuerySchema.safeParse(
+          await c.req.json().catch(() => null)
+        );
+        if (!body.success) {
+          return c.json(INVALID_INPUT_RESPONSE, 400);
+        }
+        const authorization = await authorizeLinkScope(c, {
+          organizationId: body.data.organizationId,
+          spaceId: body.data.spaceId,
         });
-        return c.json({
-          ok: true,
-          joinLink: publicJoinLink(result.joinLink, body.data.responseVersion),
-        });
-      } catch (error) {
-        return handleOrganizationJoinLinkServiceError(c, error);
+        if (authorization) {
+          return authorization;
+        }
+        try {
+          const result = await getOrganizationJoinLinkService(c).ensure({
+            actorUserId: user.id,
+            ...body.data,
+            initialOnly: c.req.path.endsWith("/prepare"),
+          });
+          return c.json({
+            ok: true,
+            joinLink: publicJoinLink(
+              result.joinLink,
+              body.data.responseVersion
+            ),
+          });
+        } catch (error) {
+          if (
+            c.req.path.endsWith("/prepare") &&
+            error instanceof OrganizationJoinLinkServiceError &&
+            error.code === "organization.join_link.inactive"
+          ) {
+            return c.json({ ok: true, joinLink: null });
+          }
+          return handleOrganizationJoinLinkServiceError(c, error);
+        }
       }
-    }
-  );
+    );
+  }
   app.post(
     `${ORGANIZATION_JOIN_LINK_ROUTE}/request`,
     requireTrustedCookieOrigin,

@@ -68,7 +68,7 @@ describe("AgentConfigurationCard", () => {
 			</AgentConfigurationGrid>
 		);
 
-		const summary = screen.getByTitle("/Users/felix/a/very/long/project/path");
+		const summary = screen.getByText("/Users/felix/a/very/long/project/path");
 		expect(summary.className).toContain("truncate");
 	});
 

@@ -1,3 +1,4 @@
+import { toStructuredApiClientFailure } from "@openmeld/api-client";
 import { normalizeSpacePasswordText } from "@openmeld/schemas";
 import type { GetSpaceEntryResolutionResponse } from "@openmeld/schemas/types";
 import { Bars } from "@openmeld/ui/components/bars";
@@ -12,8 +13,16 @@ import {
 	WarningCircleIcon,
 } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+	copySpaceOpenDiagnosticId,
+	markSpaceOpen,
+	observeSpaceOpen,
+} from "#/lib/observability/space-open";
+import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import { joinOrganizationSpace } from "#/lib/organizations/organization-spaces";
 import { isSessionExpiredError } from "#/lib/session-expired";
 import { isCurrentSpaceAccessRejection } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
@@ -21,10 +30,12 @@ import { spaceEntryResolutionQueryOptions } from "#/query/spaces/entry-resolutio
 import { SpaceEntryConfirmationContext } from "./space-entry-confirmation";
 
 export function SpaceEntryGate(input: {
+	redirectToOrganization?: boolean;
 	backHref?: string;
 	children: (resolution: GetSpaceEntryResolutionResponse) => ReactNode;
 	/** Already identity-scoped, display-only app content; never used by public entry. */
 	restoredContent?: ReactNode;
+	pendingContent?: ReactNode;
 	onAccessRejected?: () => void;
 	openMeldProfileId?: string;
 	renderFrame: (content: ReactNode) => ReactNode;
@@ -37,6 +48,8 @@ export function SpaceEntryGate(input: {
 	const queryClient = useQueryClient();
 	const [passwordError, setPasswordError] = useState<string | null>(null);
 	const [isSubmittingPassword, setIsSubmittingPassword] = useState(false);
+	const [joinError, setJoinError] = useState<string | null>(null);
+	const [isJoining, setIsJoining] = useState(false);
 	const queryInput = {
 		spaceId: input.spaceId,
 		...(input.openMeldProfileId === undefined
@@ -52,6 +65,28 @@ export function SpaceEntryGate(input: {
 		enabled: typeof window !== "undefined",
 	});
 	const resolutionQuery = useQuery(resolutionOptions);
+	useEffect(() => {
+		observeSpaceOpen(input.spaceId, {
+			queryStatus: resolutionQuery.status,
+			fetchStatus: resolutionQuery.fetchStatus,
+			failureCount: Math.min(1000, resolutionQuery.failureCount),
+		});
+		if (resolutionQuery.error) {
+			markSpaceOpen(input.spaceId, "failed");
+		} else if (resolutionQuery.data) {
+			markSpaceOpen(
+				input.spaceId,
+				resolutionQuery.data.view.state === "allowed" ? "access" : "denied"
+			);
+		}
+	}, [
+		input.spaceId,
+		resolutionQuery.status,
+		resolutionQuery.fetchStatus,
+		resolutionQuery.failureCount,
+		resolutionQuery.error,
+		resolutionQuery.data,
+	]);
 	const ensureConfirmed = useCallback(async (): Promise<boolean> => {
 		if (resolutionQuery.data?.view.state === "allowed") {
 			return true;
@@ -91,6 +126,26 @@ export function SpaceEntryGate(input: {
 			input.onAccessRejected?.();
 		}
 	}, [rejected, input.onAccessRejected]);
+	const organizationSlug = resolutionQuery.data?.safeContext.organizationSlug;
+	if (
+		input.redirectToOrganization &&
+		organizationSlug &&
+		!resolutionQuery.error
+	) {
+		return (
+			<Navigate
+				replace
+				to={buildOrganizationSpacePath({
+					orgSlug: organizationSlug,
+					spaceId: input.spaceId,
+					search: {
+						focusSignalId: input.signalId,
+						focusThreadRootSignalId: input.threadRootSignalId,
+					},
+				})}
+			/>
+		);
+	}
 	if (!rejected && resolutionQuery.data?.view.state === "allowed") {
 		return (
 			<SpaceEntryConfirmationContext value={confirmation}>
@@ -105,6 +160,9 @@ export function SpaceEntryGate(input: {
 				{input.restoredContent}
 			</SpaceEntryConfirmationContext>
 		);
+	}
+	if (resolutionQuery.isPending && input.pendingContent) {
+		return input.renderFrame(input.pendingContent);
 	}
 
 	const retry = () => {
@@ -146,9 +204,32 @@ export function SpaceEntryGate(input: {
 	return input.renderFrame(
 		<SpaceEntryState
 			backHref={input.backHref}
+			diagnostic={<SpaceOpenDiagnostic spaceId={input.spaceId} />}
 			errorMessage={resolutionQuery.error?.message ?? null}
+			isJoining={isJoining}
 			isPending={resolutionQuery.isPending}
 			isRetrying={resolutionQuery.isRefetching}
+			joinError={joinError}
+			onJoin={async () => {
+				const organizationId = resolutionQuery.data?.safeContext.organizationId;
+				if (!organizationId) {
+					return;
+				}
+				setIsJoining(true);
+				setJoinError(null);
+				try {
+					await joinOrganizationSpace({
+						organizationId,
+						spaceId: input.spaceId,
+					});
+					await queryClient.invalidateQueries({ queryKey: ["spaces"] });
+					await resolutionQuery.refetch();
+				} catch (error) {
+					setJoinError(toStructuredApiClientFailure(error).message);
+				} finally {
+					setIsJoining(false);
+				}
+			}}
 			onPasswordChange={(value) => {
 				setPassword(value);
 				setPasswordError(null);
@@ -165,6 +246,10 @@ export function SpaceEntryGate(input: {
 }
 
 export function SpaceEntryState(input: {
+	diagnostic?: ReactNode;
+	joinError?: string | null;
+	isJoining?: boolean;
+	onJoin?: () => Promise<void>;
 	backHref?: string;
 	errorMessage: string | null;
 	isPending: boolean;
@@ -191,6 +276,7 @@ export function SpaceEntryState(input: {
 						Loading the latest messages…
 					</p>
 				</div>
+				{input.diagnostic}
 			</output>
 		);
 	}
@@ -199,14 +285,17 @@ export function SpaceEntryState(input: {
 		return (
 			<EntryStateLayout
 				action={
-					<Button
-						disabled={input.isRetrying}
-						onClick={input.onRetry}
-						type="button"
-						variant="outline"
-					>
-						{input.isRetrying ? "Checking…" : "Try again"}
-					</Button>
+					<div className="space-y-3">
+						<Button
+							disabled={input.isRetrying}
+							onClick={input.onRetry}
+							type="button"
+							variant="outline"
+						>
+							{input.isRetrying ? "Checking…" : "Try again"}
+						</Button>
+						{input.diagnostic}
+					</div>
 				}
 				description="OpenMeld couldn't confirm access to this Space."
 				icon={<WarningCircleIcon aria-hidden="true" />}
@@ -273,30 +362,7 @@ export function SpaceEntryState(input: {
 	}
 
 	if (resolution.view.state === "membership_required") {
-		const spaceName = resolution.safeContext.spaceName ?? "this Space";
-		const ownerName = resolution.safeContext.owner?.displayName;
-		return (
-			<EntryStateLayout
-				action={
-					input.backHref ? (
-						<a
-							className={buttonVariants({ variant: "outline" })}
-							href={input.backHref}
-						>
-							<ArrowLeftIcon aria-hidden="true" />
-							Back to Spaces
-						</a>
-					) : null
-				}
-				description={
-					ownerName
-						? `Ask ${ownerName} to add you to this Space.`
-						: "Ask a Space owner to add you."
-				}
-				icon={<UserPlusIcon aria-hidden="true" />}
-				title={`You don't have access to ${spaceName}`}
-			/>
-		);
+		return <SpaceMembershipRequired {...input} resolution={resolution} />;
 	}
 
 	return (
@@ -315,6 +381,98 @@ export function SpaceEntryState(input: {
 			description="It may have been removed, or this account may not have access."
 			icon={<WarningCircleIcon aria-hidden="true" />}
 			title="This Space isn't available"
+		/>
+	);
+}
+
+export function SpaceOpenDiagnostic({ spaceId }: { spaceId: string }) {
+	const [visible, setVisible] = useState(false);
+	const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
+	useEffect(() => {
+		const timer = setTimeout(() => setVisible(true), 5000);
+		return () => clearTimeout(timer);
+	}, []);
+	if (!visible) {
+		return null;
+	}
+	return (
+		<div className="text-sm">
+			<Button
+				onClick={() => {
+					copySpaceOpenDiagnosticId(spaceId)
+						.then(() => setStatus("copied"))
+						.catch(() => setStatus("failed"));
+				}}
+				size="sm"
+				variant="ghost"
+			>
+				Copy diagnostic ID
+			</Button>
+			{status === "copied" ? (
+				<output className="text-muted-foreground">
+					ID copied. Include it when reporting this problem.
+				</output>
+			) : null}
+			{status === "failed" ? (
+				<output className="text-muted-foreground">
+					Couldn't copy the ID. Try again.
+				</output>
+			) : null}
+		</div>
+	);
+}
+
+function SpaceMembershipRequired(
+	input: Omit<Parameters<typeof SpaceEntryState>[0], "resolution"> & {
+		resolution: GetSpaceEntryResolutionResponse;
+	}
+) {
+	const spaceName = input.resolution.safeContext.spaceName ?? "this Space";
+	if (
+		input.resolution.participation.state === "self_join_available" &&
+		input.onJoin
+	) {
+		return (
+			<EntryStateLayout
+				action={
+					<div className="space-y-3">
+						{input.joinError ? (
+							<p className="text-destructive text-sm" role="alert">
+								{input.joinError}
+							</p>
+						) : null}
+						<Button disabled={input.isJoining} onClick={input.onJoin}>
+							{input.isJoining ? "Joining…" : "Join Space"}
+						</Button>
+					</div>
+				}
+				description="This Space is open to everyone in your organization. Join to read and take part."
+				icon={<UserPlusIcon aria-hidden="true" />}
+				title={`Join ${spaceName}`}
+			/>
+		);
+	}
+	const ownerName = input.resolution.safeContext.owner?.displayName;
+	return (
+		<EntryStateLayout
+			action={
+				input.backHref ? (
+					<a
+						className={buttonVariants({ variant: "outline" })}
+						href={input.backHref}
+					>
+						<ArrowLeftIcon aria-hidden="true" />
+						Back to Spaces
+					</a>
+				) : null
+			}
+			description={
+				ownerName
+					? `Ask ${ownerName} to add you to this Space.`
+					: "Ask a Space owner to add you."
+			}
+			icon={<UserPlusIcon aria-hidden="true" />}
+			title={`You don't have access to ${spaceName}`}
 		/>
 	);
 }

@@ -19,6 +19,7 @@ vi.mock("../src/runtime/distribution", () => ({
 }));
 
 vi.mock("../src/config/macos-native-keychain", () => ({
+  getMacOsKeychainRetryAfterMs: () => 0,
   deleteMacOsNativeKeychainToken: vi.fn(
     (input: { account: string; service: string }) => {
       macOsNativeTokens.delete(`${input.service}\n${input.account}`);

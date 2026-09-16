@@ -19,7 +19,7 @@ export function resolveAgentProfileControllerModelDetail(input: {
 			? "Remote"
 			: input.controllerDisplayName
 	);
-	const effectiveModel = resolveEffectiveModel({
+	const effectiveModel = resolveAgentProfileModel({
 		agentControllerRef: input.agentControllerRef ?? null,
 		modelCatalog: input.modelCatalog ?? null,
 		modelSelection: input.modelSelection ?? null,
@@ -39,7 +39,7 @@ export function resolveAgentProfileControllerModelDetail(input: {
 	return parts.length > 0 ? parts.join(" · ") : null;
 }
 
-function resolveEffectiveModel(input: {
+export function resolveAgentProfileModel(input: {
 	agentControllerRef: string | null;
 	modelCatalog: ModelCatalog | null;
 	modelSelection: AgentProfileBindingModelSelection | null;

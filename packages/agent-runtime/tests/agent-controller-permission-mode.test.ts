@@ -35,6 +35,8 @@ describe("Agent Controller Permission Mode", () => {
     ).toMatchObject({
       fieldLabel: "Claude Code permissions mode",
       label: "Ask permissions",
+      technicalDetail:
+        'claude --permission-mode default --allowedTools "Bash(openmeld)" "Bash(openmeld *)"',
       tone: "neutral",
     });
 
@@ -45,6 +47,7 @@ describe("Agent Controller Permission Mode", () => {
     ).toMatchObject({
       fieldLabel: "Codex permissions mode",
       label: "Ask for approval",
+      technicalDetail: "codex -s workspace-write -a untrusted",
       tone: "neutral",
     });
 
@@ -65,6 +68,7 @@ describe("Agent Controller Permission Mode", () => {
     ).toMatchObject({
       fieldLabel: "Cursor permissions mode",
       label: "Auto-review (Smart Auto)",
+      technicalDetail: "cursor-agent --auto-review acp",
       tone: "neutral",
     });
 
@@ -75,6 +79,7 @@ describe("Agent Controller Permission Mode", () => {
     ).toMatchObject({
       fieldLabel: "Grok Build permissions mode",
       label: "Ask permissions",
+      technicalDetail: null,
       tone: "neutral",
     });
   });

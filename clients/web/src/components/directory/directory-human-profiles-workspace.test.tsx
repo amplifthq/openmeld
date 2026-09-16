@@ -3,14 +3,15 @@ import type {
 	ModelCatalog,
 } from "@openmeld/schemas/types";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
 	screen,
 	within,
 } from "@testing-library/react";
-import { cloneElement, type ReactElement, type ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganizationComputerGroup } from "#/components/computers/organization-computers";
 import type { DirectoryHumanProfileRow } from "#/components/directory/directory-human-profile-model";
 import { DirectoryHumanProfilesWorkspace } from "./directory-human-profiles-workspace";
@@ -52,6 +53,19 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 		currentOrganization: { id: "org-test" },
 		currentUserId: "viewer",
 	}),
+}));
+const testPresence = vi.hoisted(() => new Map<string, "online" | "offline">());
+beforeEach(() => {
+	testPresence.clear();
+	testPresence.set("profile-current", "online");
+	testPresence.set("profile-grace", "offline");
+	testPresence.set("online-person", "online");
+});
+vi.mock("#/components/profiles/human-presence", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("#/components/profiles/human-presence")
+	>()),
+	useHumanPresence: () => testPresence,
 }));
 vi.mock("../app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({
@@ -103,30 +117,6 @@ vi.mock("@openmeld/ui/components/local-agent-logo", () => ({
 	}) => (
 		<span data-testid={`local-agent-logo-${agentId}`} data-variant={variant} />
 	),
-}));
-
-vi.mock("@openmeld/ui/components/tooltip", () => ({
-	Tooltip: ({ children }: { children: ReactNode }) => <>{children}</>,
-	TooltipContent: ({
-		children,
-		side,
-	}: {
-		children: ReactNode;
-		side?: string;
-	}) => (
-		<span
-			data-side={side}
-			data-testid="sidebar-tooltip-content"
-			data-tooltip-label={String(children)}
-		/>
-	),
-	TooltipTrigger: ({
-		children,
-		render,
-	}: {
-		children: ReactNode;
-		render: ReactElement;
-	}) => cloneElement(render, undefined, children),
 }));
 
 vi.mock("#/components/app/app-contextual-layout", () => ({
@@ -218,6 +208,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const other = {
 			...buildMember({ current: false }),
 			name: "Alice",
+			presence: "online" as const,
 			computer: self.computer,
 		};
 		for (const sort of ["priority", "name", "manual", "recent"] as const) {
@@ -269,14 +260,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			sortSidebarPeople([other, self], settings).map((person) => person.id)
 		).toEqual([other.id, self.id]);
 	});
-	it("places Center Agent first and self first in Online without a default star", () => {
+	it("keeps People human-only and groups by Human presence without a default star", () => {
 		const self = buildMember({ current: true });
 		const offline = buildMember({ current: false });
 		const online = {
 			...offline,
 			id: "online-person",
 			name: "Online teammate",
-			computer: { ...self.computer },
+			computer: { ...offline.computer },
 		};
 		renderWorkspace({ members: [offline, online, self] });
 		const sidebar = screen.getByRole("navigation", { name: "People" });
@@ -294,12 +285,12 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Center Agent and people with online computers"
+				"People using OpenMeld"
 			)
 		).toBeTruthy();
 		expect(
 			within(screen.getByRole("region", { name: "Offline" })).getByText(
-				"Computer offline"
+				"People not currently active in OpenMeld"
 			)
 		).toBeTruthy();
 		expect(
@@ -312,14 +303,55 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				.getAllByRole("region")
 				.map((group) => group.getAttribute("aria-label"))
 		).toEqual(["Online", "Offline"]);
+		expect(screen.queryByText("Workspace assistant")).toBeNull();
+	});
+
+	it("offers Computer filters at the Team level independently of Human online groups", () => {
+		const self = buildMember({ current: true });
+		const other = {
+			...buildMember({ current: false }),
+			computer: { ...self.computer },
+		};
+		renderWorkspace({ members: [self, other], selectedProfileId: null });
+		const team = within(screen.getByRole("tabpanel"));
+		fireEvent.click(team.getByLabelText("Filter team"));
+		fireEvent.click(
+			screen.getByRole("menuitemcheckbox", {
+				name: "Computer connected",
+			})
+		);
 		expect(
-			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Workspace assistant"
-			)
+			team.getByRole("button", { name: "Open Felix's profile" })
+		).toBeTruthy();
+		expect(
+			team.getByRole("button", { name: "Open Grace Hopper's profile" })
+		).toBeTruthy();
+		fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Online" }));
+		expect(
+			team.queryByRole("button", { name: "Open Grace Hopper's profile" })
+		).toBeNull();
+		expect(
+			team.getByRole("button", { name: "Open Felix's profile" })
+		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("menuitemcheckbox", {
+				name: "Computer connected",
+			})
+		);
+		fireEvent.click(
+			screen.getByRole("menuitemcheckbox", {
+				name: "Computer disconnected",
+			})
+		);
+		expect(
+			team.queryByRole("button", { name: "Open Felix's profile" })
+		).toBeNull();
+		expect(
+			team.getByText("No members match your search or filters.")
 		).toBeTruthy();
 	});
 
-	it("keeps unknown and attention states in Offline with their explanation", () => {
+	it("does not infer Human presence from Computer status when presence is unavailable", () => {
 		const teammate = buildMember({ current: false });
 		renderWorkspace({
 			members: [
@@ -347,7 +379,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				},
 			],
 		});
-		const offline = screen.getByRole("region", { name: "Offline" });
+		const offline = screen.getByRole("region", { name: "People" });
 		expect(
 			within(offline).getByRole("img", { name: "Computer needs attention" })
 		).toBeTruthy();
@@ -357,14 +389,10 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(
 			screen.queryByRole("region", { name: "Status needs checking" })
 		).toBeNull();
-		expect(
-			within(screen.getByRole("region", { name: "Online" })).getByText(
-				"Workspace assistant"
-			)
-		).toBeTruthy();
+		expect(screen.queryByRole("region", { name: "Online" })).toBeNull();
 	});
 
-	it("keeps pending checks out of Offline until loading finishes", () => {
+	it("shows Human presence independently of pending Computer checks", () => {
 		const self = buildMember({ current: true });
 		const teammate = {
 			...buildMember({ current: false }),
@@ -376,8 +404,13 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 			},
 		};
 		renderWorkspace({ members: [self, teammate] });
-		expect(screen.getByText("Loading people")).toBeTruthy();
-		expect(screen.queryByRole("region", { name: "Offline" })).toBeNull();
+		expect(screen.queryByText("Loading people")).toBeNull();
+		expect(
+			within(screen.getByRole("region", { name: "Offline" })).getByRole(
+				"button",
+				{ name: "Open Grace Hopper's profile" }
+			)
+		).toBeTruthy();
 		cleanup();
 		renderWorkspace({
 			members: [
@@ -404,6 +437,8 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 	});
 
 	it("places an offline self in Offline", () => {
+		testPresence.set("profile-current", "offline");
+		testPresence.set("profile-grace", "online");
 		const self = {
 			...buildMember({ current: true }),
 			computer: {
@@ -440,7 +475,7 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		).toEqual(["Online", "Offline"]);
 	});
 
-	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", () => {
+	it("keeps profile metadata compact and separates Channel, Computer, and Local Agent signals", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(new Date("2026-08-28T03:00:00.000Z"));
 		renderWorkspace();
@@ -489,7 +524,14 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		const localAgentTriggers = within(localAgents).getAllByTestId(
 			"human-profile-local-agent"
 		);
+		const tooltipLabels: string[] = [];
 		for (const trigger of localAgentTriggers) {
+			fireEvent.mouseEnter(trigger);
+			fireEvent.mouseMove(trigger);
+			await act(() => vi.advanceTimersByTimeAsync(500));
+			tooltipLabels.push(screen.getByRole("tooltip").textContent ?? "");
+			fireEvent.mouseLeave(trigger);
+			await act(() => vi.advanceTimersByTimeAsync(200));
 			expect(trigger.classList.contains("ring-1")).toBe(false);
 			expect(trigger.classList.contains("border")).toBe(false);
 			const logo = trigger.querySelector(
@@ -513,6 +555,9 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 				true
 			);
 		}
+		expect(tooltipLabels).toEqual(
+			expect.arrayContaining(["Claude Code", "Codex", "Cursor", "Grok"])
+		);
 		const overflow = within(localAgents).getByText("+2").parentElement;
 		if (!overflow) {
 			throw new Error("Expected the Local Agent overflow indicator.");
@@ -522,18 +567,9 @@ describe("DirectoryHumanProfilesWorkspace", () => {
 		expect(overflow.classList.contains("overflow-hidden")).toBe(true);
 		expect(overflow.classList.contains("ring-1")).toBe(false);
 		expect(overflow.classList.contains("border")).toBe(false);
-		const tooltipLabels = within(felixItem)
-			.getAllByTestId("sidebar-tooltip-content")
-			.map((tooltip) => tooltip.dataset.tooltipLabel);
-		expect(tooltipLabels).toEqual(
-			expect.arrayContaining([
-				"Computer connected",
-				"Claude Code",
-				"Codex",
-				"Cursor",
-				"Grok",
-			])
-		);
+		expect(
+			within(felixItem).getByRole("img", { name: "Computer connected" })
+		).toBeTruthy();
 		const graceItem = screen.getByRole("button", {
 			name: "Open Grace Hopper's profile",
 		});
@@ -797,7 +833,7 @@ function renderWorkspace(
 		onRetryProfileReports?: () => void;
 		onSelectProfile?: (profileId: string) => void;
 		profileReportsErrorMessage?: string | null;
-		selectedProfileId?: string;
+		selectedProfileId?: string | null;
 	} = {}
 ) {
 	const members = input.members ?? [
@@ -831,7 +867,11 @@ function renderWorkspace(
 			profileReportsErrorMessage={input.profileReportsErrorMessage ?? null}
 			recovery={buildRecovery()}
 			researchErrorMessage={null}
-			selectedProfileId={input.selectedProfileId ?? "profile-current"}
+			selectedProfileId={
+				input.selectedProfileId === undefined
+					? "profile-current"
+					: input.selectedProfileId
+			}
 			state={{
 				context: "organization",
 				directMessage: "idle",
@@ -852,6 +892,7 @@ function buildMember(input: {
 	const userId = input.current ? "user-current" : "user-grace";
 	return {
 		agentProfiles: input.agentProfiles ?? [],
+		presence: input.current ? "online" : "offline",
 		agentProfilesPath: "/o/acme/agents",
 		avatarImageUrl: null,
 		canEdit: input.current,
@@ -916,6 +957,7 @@ function buildCurrentComputerGroup(): OrganizationComputerGroup {
 		deviceType: "laptop",
 		executionTargets: [
 			{
+				capabilities: [],
 				deviceId: "device-current",
 				isCurrent: true,
 				lastObservedAtMs: Date.now(),

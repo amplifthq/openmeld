@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { daemonRuntimeRootPath } from "../src/config/daemon-state";
 import { openMeldRootDir } from "../src/config/paths";
 import {
@@ -7,6 +7,13 @@ import {
   daemonServiceLegacyWrapperPath,
 } from "../src/local-service/lifecycle/daemon-service-bundle";
 import { listDaemonOwnedProcesses } from "../src/local-service/lifecycle/daemon-service-process-inventory";
+
+beforeEach(() => {
+  // These tests only classify injected process strings; they never scan or
+  // modify real Service state. Default-lane fixtures must not inherit the
+  // validation runner's custom home. Custom-home cases pass pathInput explicitly.
+  vi.stubEnv("OPENMELD_HOME", undefined);
+});
 
 describe("local service process inventory", () => {
   it("ignores ordinary openmeld cli commands that are not service runners", async () => {

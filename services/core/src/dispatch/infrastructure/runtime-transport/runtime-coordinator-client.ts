@@ -27,6 +27,8 @@ import {
   runtimeTransportRuntimeCoordinatorWakeStopResponseSchema,
   runtimeTransportWaitDispatchResultRequestSchema,
   runtimeTransportWaitDispatchResultResponseSchema,
+  SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
+  SPACE_MESSAGE_FILE_MAX_COUNT,
   wakeStopEligibilityReadModelSchema,
 } from "@openmeld/schemas";
 import type {
@@ -62,6 +64,7 @@ import type {
   WakeStopEligibilityReadModel,
   WorkingLanguageGuidance,
 } from "@openmeld/schemas/types";
+import { renderDispatchSourceText } from "@openmeld/space";
 import type { CoreBindings } from "../../../lib/bindings";
 import type { SpaceBootstrapTimingCollector } from "../../../space/application/space-bootstrap-timing";
 import { callRuntimeTransportApi } from "./runtime-transport-api-client";
@@ -215,6 +218,7 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     input.message.deliveryRecoveryReason
   );
   const payloadCandidate: RuntimeTransportDeliverDispatchPayload = {
+    executionContext: input.message.executionContext,
     runtimeCoordinatorExecutionId: buildRuntimeCoordinatorExecutionId({
       dispatchId: input.message.dispatchId,
       spaceId: input.message.spaceId,
@@ -234,7 +238,12 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
       ...(sourceProfileMentionLabel
         ? { profileMentionLabel: sourceProfileMentionLabel }
         : {}),
-      text: input.sourceSignal.text,
+      text: renderDispatchSourceText({
+        text: input.sourceSignal.text,
+        quotedMessage: input.message.sourceSignalSnapshot?.quotedMessage,
+        contextMessages: input.message.sourceSignalSnapshot?.contextMessages,
+        pinnedFiles: input.message.sourceSignalSnapshot?.pinnedFiles,
+      }),
     },
     targetProfileId: input.message.targetProfileId,
     ...(normalizeOptionalText(input.defaultProjectId)
@@ -290,13 +299,10 @@ export const buildRuntimeTransportDeliverDispatchRequest = (input: {
     ...(input.targetProfileIsCenterAgent === true
       ? { targetProfileIsCenterAgent: true }
       : {}),
-    ...(normalizeOptionalText(input.agentControllerConversationId)
-      ? {
-          agentControllerConversationId: normalizeOptionalText(
-            input.agentControllerConversationId
-          ) as string,
-        }
-      : {}),
+    ...buildBindingConversationDeliveryFields(
+      input.message,
+      input.agentControllerConversationId
+    ),
     ...(deliveryRecoveryReason ? { deliveryRecoveryReason } : {}),
     ...(input.message.dispatchChainId
       ? { dispatchChainId: input.message.dispatchChainId }
@@ -337,15 +343,60 @@ function buildRuntimeTransportSourceSignalSnapshot(input: {
   route: Extract<RuntimeTransportLookupRouteResponse, { online: true }>;
   sourceSignalSnapshot?: OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"];
 }): OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"] | undefined {
-  const snapshot = input.sourceSignalSnapshot;
-  if (!snapshot) {
+  if (!input.sourceSignalSnapshot) {
     return undefined;
   }
+  // Preserve the installed Service's strict snapshot shape. Context is rendered
+  // into the existing source text at this transport boundary.
+  const { quotedMessage, pinnedFiles, contextMessages, ...sourceSnapshot } =
+    input.sourceSignalSnapshot;
+  const snapshot = {
+    ...sourceSnapshot,
+    ...(contextMessages?.length
+      ? {
+          files: [
+            ...new Map(
+              [
+                ...(sourceSnapshot.files ?? []),
+                ...contextMessages.flatMap((message) => message.files ?? []),
+              ].map((file) => [`${file.fileId}:${file.revision}`, file])
+            ).values(),
+          ].slice(0, SPACE_MESSAGE_FILE_MAX_COUNT),
+          attachments: [
+            ...new Map(
+              [
+                ...(sourceSnapshot.attachments ?? []),
+                ...contextMessages.flatMap(
+                  (message) => message.attachments ?? []
+                ),
+              ].map((attachment) => [attachment.id, attachment])
+            ).values(),
+          ].slice(0, SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE),
+        }
+      : {}),
+    text: renderDispatchSourceText({
+      text: sourceSnapshot.text,
+      quotedMessage,
+      contextMessages,
+      pinnedFiles,
+    }),
+  };
   if (routeSupportsLocalFileImageInput(input)) {
     return snapshot;
   }
   const { attachments: _attachments, ...textOnlySnapshot } = snapshot;
   return textOnlySnapshot;
+}
+
+function buildBindingConversationDeliveryFields(
+  message: OpenMeldDaemonDispatchQueueMessage,
+  conversationId?: string | null
+): { agentControllerConversationId?: string } {
+  if (message.executionContext) {
+    return {};
+  }
+  const value = normalizeOptionalText(conversationId);
+  return value ? { agentControllerConversationId: value } : {};
 }
 
 function routeSupportsLocalFileImageInput(input: {

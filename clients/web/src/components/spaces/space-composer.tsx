@@ -1,20 +1,23 @@
 import { resolvePublicAgentAvailabilityCopy } from "@openmeld/schemas";
 import type { WakeDeviceWait } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowUpIcon } from "@phosphor-icons/react";
 import type { ComponentProps, ReactNode } from "react";
+import { useState } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
 	PromptInputActions,
 } from "#/components/ibelick/prompt-input";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import {
 	isSpaceComposerFileFailed,
-	isSpaceComposerFileInProgress,
 	type SpaceComposerFile,
 } from "#/lib/spaces/composer-attachment";
+import { isQuotaWakeFailure } from "#/lib/spaces/wake-failure-display";
 import {
 	SpaceComposerAddMenu,
 	SpaceComposerFileTray,
@@ -31,18 +34,25 @@ import {
 	createSpaceComposerDeviceWait,
 	type SpaceComposerSendOptions,
 } from "./space-composer-device-wait";
-import { SpaceComposerDeviceWaitControl } from "./space-composer-device-wait-control";
 import {
 	SpaceComposerEditor,
 	type SpaceComposerEditorChange,
 	type SpaceComposerInputRef,
 } from "./space-composer-editor";
+import {
+	type SpaceComposerTaskChoice,
+	SpaceComposerTaskMenu,
+	type SpaceTaskSource,
+} from "./space-composer-task-menu";
+import { useSpaceWakeRecommendation } from "./space-wake-recommendation";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
 
 export type SpaceComposerProps = {
+	taskSources?: readonly SpaceTaskSource[];
+	members?: { state: "loading" | "error"; onRetry: () => void };
 	recovery?: Omit<
 		ComponentProps<typeof SpaceComposerBlockedWakeRecoveryAction>,
 		"blockedWakeProfileId"
@@ -83,7 +93,6 @@ export type SpaceComposerProps = {
 	presentation?: {
 		className?: string;
 		dataSlot?: string;
-		errorClassName?: string;
 		maxHeight?: number;
 	};
 	slots?: {
@@ -106,14 +115,117 @@ const ignoreFiles = (_files: readonly File[]): Promise<void> =>
 	Promise.resolve();
 const ignoreFileRemoval = (_localId: string): void => undefined;
 
+function useComposerWakeSuggestion(input: SpaceComposerProps) {
+	const recommendations = useSpaceWakeRecommendation();
+	const candidate =
+		(input.context.placement === "thread" ||
+			input.context.conversationKind === "space") &&
+		input.availability.canSendMessage &&
+		input.content.authoredMentions.length === 0
+			? recommendations?.candidate
+			: null;
+	const recommended = candidate
+		? input.content.mentionPickerItems.find(
+				(item) =>
+					item.suggestion.profileId === candidate.profileId &&
+					item.suggestion.allowedRelations.wake &&
+					item.suggestion.wakeAvailability.status === "ready"
+			)
+		: undefined;
+	const acceptRecommendation = () => {
+		if (!recommended) {
+			return;
+		}
+		input.composerRef.current?.acceptWakeRecommendation?.(
+			recommended.suggestion.profileId
+		);
+		recommendations?.dismiss();
+	};
+	return { recommendations, recommended, acceptRecommendation };
+}
+
+function useComposerTaskChoice(input: SpaceComposerProps) {
+	const [choice, setChoice] = useState<SpaceComposerTaskChoice>();
+	const targets = input.content.addressingTargets.filter(
+		(target) => target.relation === "wake"
+	);
+	const target =
+		targets.length === 1 &&
+		["builtin:codex", "builtin:claude-code"].includes(
+			targets[0]?.agentControllerRef ?? ""
+		)
+			? targets[0]
+			: undefined;
+	const active =
+		choice?.targetProfileId === target?.profileId ? choice : undefined;
+	return {
+		menu: target ? (
+			<SpaceComposerTaskMenu
+				choice={active}
+				disabled={
+					hasPendingComposerMembers(input) ||
+					input.availability.isSendingMessage
+				}
+				onChange={setChoice}
+				sources={input.taskSources ?? []}
+				supportsLocalFiles={target.agentControllerRef === "builtin:codex"}
+				targetProfileId={target.profileId}
+			/>
+		) : null,
+		prepare: (options: SpaceComposerSendOptions): SpaceComposerSendOptions => {
+			if (!active) {
+				return options;
+			}
+			return {
+				...options,
+				contextSelection: active.selection,
+				onMessageStaged: (id) => {
+					setChoice(undefined);
+					options.onMessageStaged?.(id);
+				},
+			};
+		},
+	};
+}
+
 export function SpaceComposer(input: SpaceComposerProps) {
+	const taskContext = useComposerTaskChoice(input);
+	const membersPending = hasPendingComposerMembers(input);
+	const { recommendations, recommended, acceptRecommendation } =
+		useComposerWakeSuggestion(input);
+	const deviceWaitPresentation =
+		buildSpaceComposerDeviceWaitPresentation(input);
 	const submit = () => {
-		if (!resolveSpaceComposerBlockedWakeHint(input.content.addressingTargets)) {
+		if (deviceWaitPresentation.disabled || membersPending) {
+			return;
+		}
+		const deviceWait = deviceWaitPresentation.target
+			? createSpaceComposerDeviceWait(deviceWaitPresentation.target)
+			: undefined;
+		if (deviceWaitPresentation.target && !deviceWait) {
+			return;
+		}
+		const options = taskContext.prepare({
+			...(deviceWait ? { deviceWait } : {}),
+			...(recommendations &&
+			(recommendations.candidate || recommendations.nudge)
+				? {
+						onMessageStaged: (clientMessageId: string) =>
+							recommendations.recordSend(
+								recommended?.suggestion.profileId ?? null,
+								clientMessageId
+							),
+					}
+				: {}),
+		});
+		// Return focus within the gesture; network completion must not steal it.
+		input.composerRef.current?.focus();
+		if (options.deviceWait || options.onMessageStaged) {
+			input.actions.onSubmit(options);
+		} else {
 			input.actions.onSubmit();
 		}
 	};
-	const deviceWaitPresentation =
-		buildSpaceComposerDeviceWaitPresentation(input);
 
 	const policy = resolveSpaceComposerPolicy({
 		canSendMessage: input.availability.canSendMessage,
@@ -125,9 +237,6 @@ export function SpaceComposer(input: SpaceComposerProps) {
 		targetName: input.context.targetName,
 		text: input.content.text,
 	});
-	const uploadInProgress = input.content.files.some(
-		isSpaceComposerFileInProgress
-	);
 	const uploadsDisabled =
 		input.availability.isSendingMessage ||
 		!(input.availability.canUploadFiles ?? input.availability.canSendMessage);
@@ -145,13 +254,16 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	const fileHint = resolveSpaceComposerFileHint({
 		files: input.content.files,
 		fileLimitReached: input.availability.fileLimitReached,
-		uploadInProgress,
 	});
 	const blockedWakeHint = resolveSpaceComposerBlockedWakeHint(
 		input.content.addressingTargets
 	);
 	const composerHint =
-		deviceWaitPresentation.hint ?? fileHint ?? policy.wakeTextHint;
+		fileHint ??
+		resolvePerAgentComposerHint(
+			input.content.addressingTargets,
+			policy.wakeTextHint
+		);
 	const blockedWakeTarget = input.content.addressingTargets.find(
 		(target) =>
 			isBlockedWakeTarget(target) && !createSpaceComposerDeviceWait(target)
@@ -163,13 +275,13 @@ export function SpaceComposer(input: SpaceComposerProps) {
 	if (policy.wakeTextHint) {
 		composerHintClassName = "text-foreground";
 	}
-	if (blockedWakeHint) {
-		composerHintClassName = "text-destructive";
-	}
 	const primaryAction = renderSpaceComposerSendAction({
 		availability: input.availability,
-		blockedWakeHint,
-		deviceWaitControl: deviceWaitPresentation.control,
+		waitForComputer: Boolean(deviceWaitPresentation.target),
+		waitTooltip: deviceWaitPresentation.target
+			? `${deviceWaitPresentation.target.profileName}’s computer is offline. The task will run when it reconnects.`
+			: null,
+		waitDisabled: deviceWaitPresentation.disabled || membersPending,
 		onSubmit: submit,
 		override: input.slots?.primaryAction,
 		policy,
@@ -215,10 +327,19 @@ export function SpaceComposer(input: SpaceComposerProps) {
 						onSend={submit}
 						placeholder={policy.placeholder}
 						text={input.content.text}
+						wakeRecommendation={
+							recommended
+								? {
+										profileId: recommended.suggestion.profileId,
+										onAccept: acceptRecommendation,
+										onDismiss: () => recommendations?.dismiss(),
+									}
+								: undefined
+						}
 					/>
-					{deviceWaitPresentation.control}
 					<PromptInputActions className="min-w-0 justify-between gap-3 pt-2">
 						<div className="flex flex-1 items-center gap-0">
+							{taskContext.menu}
 							{input.capabilities?.attachments !== false ? (
 								<SpaceComposerAddMenu
 									addFiles={addFiles}
@@ -258,40 +379,103 @@ export function SpaceComposer(input: SpaceComposerProps) {
 									</p>
 								) : null)}
 							<ComposerRecovery
+								hint={blockedWakeHint}
 								recovery={input.recovery}
 								target={blockedWakeTarget}
 							/>
+							{input.content.addressingTargets
+								.filter(
+									(target) =>
+										target.relation === "wake" &&
+										target.wakeAvailability.reasonCodes.some(isQuotaWakeFailure)
+								)
+								.map((target) => (
+									<span
+										className="text-muted-foreground text-xs"
+										key={target.profileId}
+									>
+										{target.profileName}:{" "}
+										<AgentProfileUsage
+											profileId={target.profileId}
+											variant="reset"
+										/>
+									</span>
+								))}
 						</div>
 						<div className="flex min-w-0 items-center justify-end gap-2">
 							{input.slots?.profileControl}
 							{input.slots?.beforePrimaryAction}
+							{deviceWaitPresentation.hint ? (
+								<TooltipHint content={deviceWaitPresentation.hint}>
+									<span className="min-w-0 truncate text-muted-foreground text-xs">
+										{deviceWaitPresentation.hint}
+									</span>
+								</TooltipHint>
+							) : null}
+							<SpaceComposerMentionOnlyAction {...input} />
 							{primaryAction}
 						</div>
 					</PromptInputActions>
+					<ComposerFeedback
+						error={input.slots?.error}
+						members={input.members}
+						membersPending={membersPending}
+					/>
 				</PromptInput>
 			</div>
-			{input.slots?.error ? (
-				<div className={input.presentation?.errorClassName}>
-					{input.slots.error}
-				</div>
-			) : null}
 		</div>
 	);
 }
 
+function hasPendingComposerMembers(input: SpaceComposerProps) {
+	return Boolean(input.members && input.content.authoredMentions.length > 0);
+}
+
+function ComposerFeedback(input: {
+	members: SpaceComposerProps["members"];
+	membersPending: boolean;
+	error: ReactNode;
+}) {
+	if (!input.membersPending) {
+		return input.error;
+	}
+	return (
+		<output className="text-muted-foreground text-sm">
+			{input.members?.state === "error" ? (
+				<>
+					Couldn't load members.{" "}
+					<button
+						className="underline underline-offset-2"
+						onClick={input.members.onRetry}
+						type="button"
+					>
+						Retry
+					</button>
+				</>
+			) : (
+				"Loading members… You can keep typing."
+			)}
+		</output>
+	);
+}
+
 function ComposerRecovery(input: {
+	hint: string | null;
 	recovery: SpaceComposerProps["recovery"];
 	target: SpaceComposerAddressingTarget | undefined;
 }) {
 	const profileId =
 		input.recovery?.blockedWakeProfileId ?? input.target?.profileId;
 	if (!(profileId && input.recovery)) {
-		return null;
+		return input.target && input.hint ? (
+			<span className="ml-2 text-muted-foreground text-xs">{input.hint}</span>
+		) : null;
 	}
 	return (
 		<SpaceComposerBlockedWakeRecoveryAction
 			{...input.recovery}
 			blockedWakeProfileId={profileId}
+			hint={input.hint}
 		/>
 	);
 }
@@ -328,10 +512,50 @@ function resolveSpaceComposerBlockedWakeHint(
 	);
 }
 
+function resolvePerAgentComposerHint(
+	targets: readonly SpaceComposerAddressingTarget[],
+	fallback: string | null
+): string | null {
+	return targets.filter((target) => target.relation !== "mention").length > 1
+		? "Choose Wake or Mention only on each agent."
+		: fallback;
+}
+
+function SpaceComposerMentionOnlyAction(input: SpaceComposerProps) {
+	const targets = input.content.addressingTargets.filter(
+		(target) =>
+			target.relation === "wake" &&
+			target.wakeAvailability.status !== "ready" &&
+			target.allowedRelations.reference
+	);
+	if (!targets.length) {
+		return null;
+	}
+	return (
+		<Button
+			disabled={
+				input.availability.isSendingMessage ||
+				!input.availability.canSendMessage
+			}
+			onClick={() =>
+				input.composerRef.current?.setAgentMentionOnly?.(
+					targets.map((target) => target.profileId)
+				)
+			}
+			size="sm"
+			type="button"
+			variant="ghost"
+		>
+			Mention only instead
+		</Button>
+	);
+}
+
 function renderSpaceComposerSendAction(input: {
 	availability: SpaceComposerProps["availability"];
-	blockedWakeHint: string | null;
-	deviceWaitControl: ReactNode;
+	waitForComputer: boolean;
+	waitTooltip: string | null;
+	waitDisabled: boolean;
 	onSubmit: () => void;
 	override: ReactNode;
 	policy: ReturnType<typeof resolveSpaceComposerPolicy>;
@@ -339,26 +563,27 @@ function renderSpaceComposerSendAction(input: {
 	if (input.override) {
 		return input.override;
 	}
-	if (input.deviceWaitControl && input.blockedWakeHint) {
-		return null;
-	}
+	const label = input.waitForComputer
+		? "Send and wait"
+		: input.policy.sendButtonLabel;
 	return (
 		<PromptInputAction
-			className="hidden sm:inline-flex"
-			tooltip={input.policy.sendButtonTooltip}
+			className={input.waitForComputer ? "shrink-0" : "hidden sm:inline-flex"}
+			tooltip={input.waitTooltip ?? input.policy.sendButtonTooltip}
 		>
 			<Button
-				aria-label={input.policy.sendButtonLabel}
+				aria-label={label}
 				disabled={
 					input.availability.isSendingMessage ||
 					!input.availability.canSendMessage ||
-					input.blockedWakeHint !== null ||
-					input.availability.sendBlocked
+					input.availability.sendBlocked ||
+					input.waitDisabled
 				}
 				onClick={input.onSubmit}
-				size="icon-sm"
+				size={input.waitForComputer ? "sm" : "icon-sm"}
 				type="button"
 			>
+				{input.waitForComputer ? label : null}
 				<ArrowUpIcon aria-hidden="true" weight="bold" />
 			</Button>
 		</PromptInputAction>
@@ -366,24 +591,29 @@ function renderSpaceComposerSendAction(input: {
 }
 
 function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
-	control: ReactNode;
+	target: SpaceComposerAddressingTarget | null;
+	disabled: boolean;
 	hint: string | null;
 } {
 	const ordinary = {
-		control: null,
-		hint: resolveSpaceComposerBlockedWakeHint(input.content.addressingTargets),
+		target: null,
+		disabled: false,
+		hint: null,
 	};
 	if (!input.availability.canSendMessage) {
 		return ordinary;
 	}
-	const targets = input.content.addressingTargets.filter((target) =>
-		Boolean(createSpaceComposerDeviceWait(target))
+	const targets = input.content.addressingTargets.filter(
+		(target) =>
+			target.relation === "wake" &&
+			Boolean(createSpaceComposerDeviceWait(target))
 	);
 	// A wait covers one target. Never silently choose between offline Agents
 	// or admit another blocked Wake in the same message.
 	if (targets.length > 1) {
 		return {
-			control: null,
+			target: null,
+			disabled: false,
 			hint: "To wait for a computer, send to one offline Agent at a time.",
 		};
 	}
@@ -396,18 +626,12 @@ function buildSpaceComposerDeviceWaitPresentation(input: SpaceComposerProps): {
 		createSpaceComposerDeviceWait(target)
 	);
 	return {
-		hint,
-		control: (
-			<SpaceComposerDeviceWaitControl
-				disabled={
-					input.availability.isSendingMessage ||
-					input.availability.sendBlocked ||
-					hint !== null
-				}
-				onSubmit={input.actions.onSubmit}
-				target={target}
-			/>
-		),
+		target,
+		disabled:
+			input.availability.isSendingMessage ||
+			input.availability.sendBlocked ||
+			hint !== null,
+		hint: hint ?? "Computer offline · We’ll wait up to 24 hours",
 	};
 }
 
@@ -422,14 +646,7 @@ function SpaceComposerFileDropOverlay(input: { visible: boolean }) {
 export function resolveSpaceComposerFileHint(input: {
 	files: readonly SpaceComposerFile[];
 	fileLimitReached: boolean;
-	uploadInProgress?: boolean;
 }): string | null {
-	if (
-		input.uploadInProgress ??
-		input.files.some(isSpaceComposerFileInProgress)
-	) {
-		return "Uploading files…";
-	}
 	const failedCount = input.files.filter(isSpaceComposerFileFailed).length;
 	if (failedCount > 0) {
 		return failedCount === 1
@@ -438,12 +655,6 @@ export function resolveSpaceComposerFileHint(input: {
 	}
 	if (input.fileLimitReached) {
 		return "You can add up to 10 files.";
-	}
-	const readyCount = input.files.filter(
-		(file) => file.status === "ready"
-	).length;
-	if (readyCount > 0) {
-		return `${String(readyCount)} ${readyCount === 1 ? "file" : "files"} ready to send`;
 	}
 	return null;
 }

@@ -392,6 +392,7 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
         },
         tools: {
           openmeld_internal_dispatch_space_action_read_file: true,
+          openmeld_internal_dispatch_space_action_read_history: true,
           openmeld_internal_dispatch_space_action_reply: true,
           openmeld_internal_dispatch_space_action_status: true,
           openmeld_internal_dispatch_space_action_stay_silent: true,
@@ -400,6 +401,7 @@ test("opencode adapter dispatch passes official OpenCode permission env", async 
       permission: JSON.stringify({
         ...openCodePermission,
         openmeld_internal_dispatch_space_action_read_file: "allow",
+        openmeld_internal_dispatch_space_action_read_history: "allow",
         openmeld_internal_dispatch_space_action_reply: "allow",
         openmeld_internal_dispatch_space_action_status: "allow",
         openmeld_internal_dispatch_space_action_stay_silent: "allow",

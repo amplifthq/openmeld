@@ -4,10 +4,11 @@ import {
 	DropdownMenuSubContent,
 	DropdownMenuSubTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
+import { FolderIcon, type Icon, ListIcon } from "@phosphor-icons/react";
 import { useState } from "react";
 import { SidebarFilterBadge } from "./sidebar-filter-badge";
 
-type SidebarFilterOption = { id: string; label: string };
+type SidebarFilterOption = { id: string; label: string; icon?: Icon };
 
 export function useSidebarFilter(
 	options: readonly SidebarFilterOption[],
@@ -34,7 +35,7 @@ export function useSidebarFilter(
 					closeOnClick={false}
 					onCheckedChange={() => setSelection([])}
 				>
-					{allLabel}
+					<ListIcon /> {allLabel}
 				</DropdownMenuCheckboxItem>
 				{options.map((option) => (
 					<DropdownMenuCheckboxItem
@@ -43,6 +44,7 @@ export function useSidebarFilter(
 						key={option.id}
 						onCheckedChange={() => toggle(option.id)}
 					>
+						{option.icon ? <option.icon /> : <FolderIcon />}
 						<span className="min-w-0 text-left [overflow-wrap:anywhere]">
 							{option.label}
 						</span>
@@ -74,6 +76,7 @@ export function useSidebarGroupFilter(options: readonly SidebarFilterOption[]) {
 		menu: (
 			<DropdownMenuSub>
 				<DropdownMenuSubTrigger>
+					<FolderIcon />
 					Groups
 					{filter.selected.length > 0 ? ` (${filter.selected.length})` : ""}
 				</DropdownMenuSubTrigger>

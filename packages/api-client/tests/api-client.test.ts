@@ -61,6 +61,30 @@ const SPACE_STATUS_CANONICAL_RESPONSE = {
 };
 
 describe("@openmeld/api-client", () => {
+  it.each([
+    false,
+    true,
+  ])("preserves the injected callable receiver (explicitly bound: %s)", async (bound) => {
+    const caller = new AbortController();
+    const receiver = { transport: "caller-owned" };
+    const injected: typeof fetch = function (this: unknown, _url, init) {
+      expect(this).toBe(bound ? receiver : undefined);
+      expect(init?.signal).toBe(caller.signal);
+      return Promise.resolve(new Response("read"));
+    };
+    const transport = createFetchTransport({
+      fetch: bound ? injected.bind(receiver) : injected,
+    });
+    await expect(
+      (
+        await transport({
+          url: "https://auth.test",
+          operation: "read",
+          init: { signal: caller.signal },
+        })
+      ).text()
+    ).resolves.toBe("read");
+  });
   it("normalizes origin-only base URLs", () => {
     expect(normalizeApiBaseUrl("https://gateway.openmeld.invalid/")).toBe(
       "https://gateway.openmeld.invalid"
@@ -500,6 +524,48 @@ describe("@openmeld/api-client", () => {
       code: "network.timeout",
       message: "space.status.read request timed out after 5ms",
     });
+  });
+
+  it.each([
+    "timeout",
+    "caller",
+  ] as const)("keeps %s cancellation active after headers while the body is incomplete", async (source) => {
+    const caller = new AbortController();
+    const deadline = new AbortController();
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(deadline.signal);
+    try {
+      const transport = createFetchTransport({
+        fetch: (async (_url, init) =>
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                controller.enqueue(new TextEncoder().encode('{"partial":'));
+                init?.signal?.addEventListener(
+                  "abort",
+                  () => controller.error(init.signal?.reason),
+                  { once: true }
+                );
+              },
+            })
+          )) as typeof fetch,
+      });
+      const response = await transport({
+        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/status",
+        operation: "space.status.read",
+        init: { signal: caller.signal },
+        timeoutMs: 15_000,
+      });
+      const body = response.json();
+      const rejection = expect(body).rejects.toMatchObject({
+        name: "AbortError",
+      });
+      (source === "timeout" ? deadline : caller).abort();
+      await rejection;
+    } finally {
+      timeoutSpy.mockRestore();
+    }
   });
 
   it("annotates non-timeout network failures with the request target", async () => {

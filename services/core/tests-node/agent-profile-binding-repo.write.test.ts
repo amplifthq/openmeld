@@ -8,7 +8,7 @@ import {
   HOSTED_CENTER_AGENT_LOGICAL_RUNTIME_ID,
   HOSTED_CENTER_AGENT_RUNTIME_IDENTITY,
 } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ensurePrimaryAgentProfileBinding } from "../src/agent-profile-binding/application/agent-profile-binding-command-service";
 import {
   compareAndSetPrimaryAgentProfileBindingModelSelectionRecord,
@@ -16,7 +16,7 @@ import {
   disablePrimaryAgentProfileBindingRecord,
   ensurePrimaryAgentProfileBindingRecord,
   listEnabledPrimaryAgentProfileBindingRecordsForRuntimeAgentController,
-  listPrimaryAgentProfileControllerRefs,
+  listPrimaryAgentProfileConfigurations,
   readPrimaryAgentProfileBindingRecord,
   reconnectPrimaryAgentProfileBindingRecord,
   updatePrimaryAgentProfileBindingAgentControllerCollaborationModeRecord,
@@ -44,7 +44,7 @@ const OWNER = {
 } as const;
 
 describe("Agent Profile Binding repo write-side", () => {
-  it("reads only public Controller refs for exact authorized Profile/owner pairs", async () => {
+  it("reads member-visible configuration for exact authorized Profile/owner pairs without extra query rounds", async () => {
     const harness = createSqliteD1Harness();
     applyMigrationForTable(harness, "openMeldDaemon_agent_profile_bindings");
     try {
@@ -64,14 +64,59 @@ describe("Agent Profile Binding repo write-side", () => {
           ownerUserId: OWNER.id,
         })),
       ];
+      const legacyPrepare = vi.spyOn(harness.db, "prepare");
       expect([
-        ...(await listPrimaryAgentProfileControllerRefs({
+        ...(await listPrimaryAgentProfileConfigurations({
           db: harness.db,
           profiles,
         })),
-      ]).toEqual([[AGENT_PROFILE_ID, "builtin:codex"]]);
+      ]).toEqual([[AGENT_PROFILE_ID, { agentControllerRef: "builtin:codex" }]]);
+      expect(legacyPrepare).toHaveBeenCalledTimes(3);
+      expect(
+        legacyPrepare.mock.calls.map(([sql]) => sql.match(/\?/g)?.length)
+      ).toEqual([98, 98, 6]);
+      legacyPrepare.mockRestore();
+      await harness.db
+        .prepare(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET model_id = 'gpt-5.6-sol', reasoning_level = 'high' WHERE binding_id = 'branding-binding'"
+        )
+        .run();
+      const prepare = vi.spyOn(harness.db, "prepare");
+      const withModels = await listPrimaryAgentProfileConfigurations({
+        db: harness.db,
+        profiles,
+        includeModelSelection: true,
+      });
+      expect(prepare).toHaveBeenCalledTimes(3);
+      expect(
+        prepare.mock.calls.map(([sql]) => sql.match(/\?/g)?.length)
+      ).toEqual([98, 98, 6]);
+      expect([...withModels]).toEqual([
+        [
+          AGENT_PROFILE_ID,
+          {
+            agentControllerRef: "builtin:codex",
+            modelSelection: { modelId: "gpt-5.6-sol", reasoningLevel: "high" },
+          },
+        ],
+      ]);
+      prepare.mockRestore();
+      await harness.db
+        .prepare(
+          "UPDATE openMeldDaemon_agent_profile_bindings SET model_id = NULL WHERE binding_id = 'branding-binding'"
+        )
+        .run();
+      expect(
+        (
+          await listPrimaryAgentProfileConfigurations({
+            db: harness.db,
+            profiles,
+            includeModelSelection: true,
+          })
+        ).get(AGENT_PROFILE_ID)?.modelSelection
+      ).toBeNull();
       expect([
-        ...(await listPrimaryAgentProfileControllerRefs({
+        ...(await listPrimaryAgentProfileConfigurations({
           db: harness.db,
           profiles: [
             { profileId: AGENT_PROFILE_ID, ownerUserId: "wrong-owner" },
@@ -86,7 +131,7 @@ describe("Agent Profile Binding repo write-side", () => {
         reasonCode: "test",
       });
       expect([
-        ...(await listPrimaryAgentProfileControllerRefs({
+        ...(await listPrimaryAgentProfileConfigurations({
           db: harness.db,
           profiles,
         })),
@@ -140,6 +185,28 @@ describe("Agent Profile Binding repo write-side", () => {
           modelId: "deepseek/deepseek-v4-flash",
         },
       });
+      expect([
+        ...(await listPrimaryAgentProfileConfigurations({
+          db: harness.db,
+          profiles: [
+            {
+              profileId: record.agentProfileId,
+              ownerUserId: null,
+              managedRole: "center_agent",
+              organizationId: "org-1",
+            },
+          ],
+          includeModelSelection: true,
+        })),
+      ]).toEqual([
+        [
+          record.agentProfileId,
+          {
+            agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+            modelSelection: { modelId: "deepseek/deepseek-v4-flash" },
+          },
+        ],
+      ]);
 
       await expect(
         compareAndSetPrimaryAgentProfileBindingModelSelectionRecord({

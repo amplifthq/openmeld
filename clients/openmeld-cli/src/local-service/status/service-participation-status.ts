@@ -45,7 +45,7 @@ export async function resolveDaemonServiceParticipationStatus(input?: {
   expectedVersion?: string;
 }): Promise<DaemonServiceParticipationStatus> {
   const expectedVersion =
-    input?.expectedVersion ?? resolveCurrentDaemonExpectedVersion();
+    input?.expectedVersion ?? (await resolveCurrentDaemonExpectedVersion());
   const inventory = await inspectDaemonServiceInventory({
     expectedVersion,
   });

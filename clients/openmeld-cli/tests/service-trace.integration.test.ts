@@ -993,6 +993,93 @@ describe("service trace command", () => {
     });
   });
 
+  it.each([
+    true,
+    false,
+  ])("reports Profile queue waiting only with Coordinator head evidence (head present: %s)", async (headPresent) => {
+    await withTempHome(async () => {
+      resolveRuntimeContextMock.mockResolvedValue({
+        viewMode: "agent",
+        resolvedView: "agent",
+        interactive: false,
+      });
+      resolveCurrentReplyReadinessSnapshotMock.mockResolvedValue(
+        createReplyReadinessSnapshot()
+      );
+      const traceResponse = createTraceResponse();
+      if (!traceResponse.trace?.latestAttempt) {
+        throw new Error("expected trace fixture");
+      }
+      const head = createExecutionLinkedHeadLifecycle({
+        runtimeCoordinatorExecutionId: "unused-execution",
+      });
+      if (head.readStatus !== "found") {
+        throw new Error("expected found head fixture");
+      }
+      traceResponse.correlation = {
+        ...traceResponse.correlation,
+        publishedSignalId: null,
+        replySignalId: null,
+        resultRef: null,
+        runtimeCoordinatorExecutionId: null,
+      };
+      traceResponse.trace = {
+        ...traceResponse.trace,
+        dispatch: { ...traceResponse.trace.dispatch, status: "queued" },
+        latestAttempt: {
+          ...traceResponse.trace.latestAttempt,
+          status: "profile_queue_waiting",
+        },
+        runtimeCoordinatorExecution: null,
+        runtimeCoordinatorHeadLifecycle: headPresent
+          ? {
+              ...head,
+              status: "queued",
+              runtimeCoordinatorExecutionId: null,
+              executionLinkedAt: null,
+            }
+          : null,
+        result: null,
+        resultInbox: null,
+        replySignal: null,
+        finalVisibleMessage: null,
+        finalVisibleMessageLinkage: {
+          status: "projection_pending",
+          reasonCode: "final_visible_message.projection_pending",
+          sourceFact: "none",
+          candidateSignalIds: [],
+          claimSignalId: null,
+          selectedSignalId: null,
+        },
+      };
+      const { stdout } = await withCapturedStdio(async () => {
+        await runServiceTrace(
+          {
+            profile: "hum-actor",
+            space: "space-demo",
+            dispatchId: "dispatch-demo",
+            view: "agent",
+          },
+          createReadOnlyTraceDependencies(traceResponse)
+        );
+      });
+      if (headPresent) {
+        expect(stdout).toContain(
+          "current_state=queued reason=runtime_coordinator.head_queued"
+        );
+        expect(stdout).toContain(
+          "next_action=wait for the Agent's execution slot, then rerun trace with the same selector"
+        );
+        expect(stdout).toContain("rootCause=runtime_coordinator.head_queued");
+        expect(stdout).not.toContain("current_state=final_projection_pending");
+        expect(stdout).not.toContain("target computer is offline");
+      } else {
+        expect(stdout).toContain("current_state=final_projection_pending");
+        expect(stdout).not.toContain("current_state=queued");
+      }
+    });
+  });
+
   it("keeps an active RuntimeCoordinator execution ahead of final projection diagnostics", async () => {
     await withTempHome(async () => {
       resolveRuntimeContextMock.mockResolvedValue({

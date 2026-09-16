@@ -7,6 +7,7 @@ import path from "node:path";
 import process from "node:process";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildMacOsKeychainAddon } from "../../clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs";
+import { cliBinaryServiceReleaseSchema } from "../../packages/schemas/src/schemas/http/cli-binary-manifest.ts";
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, "..", "..");
@@ -65,6 +66,12 @@ export function buildBunCompileArgs(input) {
     DISTRIBUTION_DEFINE,
     "--define",
     `__OPENMELD_VERSION__=${JSON.stringify(input.version)}`,
+    ...(input.service
+      ? [
+          "--define",
+          `__OPENMELD_SERVICE_RELEASE__=${JSON.stringify(cliBinaryServiceReleaseSchema.parse(input.service))}`,
+        ]
+      : []),
     "--minify",
     "--keep-names",
     "--outfile",
@@ -121,7 +128,13 @@ export function buildCliBinary(input = {}) {
 
   const result = spawnSync(
     "bun",
-    buildBunCompileArgs({ bunTarget, entry: CLI_ENTRY, outFile, version }),
+    buildBunCompileArgs({
+      bunTarget,
+      entry: CLI_ENTRY,
+      outFile,
+      version,
+      service: input.service,
+    }),
     { cwd: CLI_DIR, env: process.env, stdio: "inherit" }
   );
   if (result.error) {

@@ -175,9 +175,7 @@ describe("LocalAgentSelector", () => {
 
 		expect(screen.getByText("Connect Computer")).toBeTruthy();
 		expect(
-			screen.getByText(
-				"Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
-			)
+			screen.getByText("Connect a computer to choose a local agent.")
 		).toBeTruthy();
 		expect(screen.queryByRole("radio")).toBeNull();
 	});

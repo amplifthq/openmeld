@@ -7,6 +7,7 @@ import type {
 	CenterAgentInboxSummaryResponse,
 	DismissInboxItemResponse,
 	GetInboxItemResponse,
+	InboxMessageNotificationPreferencesResponse,
 	InboxNotificationPreferencesResponse,
 	InboxSummaryResponse,
 	InboxView,
@@ -17,6 +18,7 @@ import type {
 	MarkSpaceInboxReadThroughResponse,
 	SpaceInboxSummaryResponse,
 	SpaceInboxUnreadTargetsResponse,
+	UpdateInboxMessageNotificationPreferencesBody,
 	UpdateInboxNotificationPreferencesBody,
 } from "@openmeld/schemas/types";
 import { createOrganizationScopedWebOpenMeldApiFoundation } from "#/lib/openmeld-api/client";
@@ -208,6 +210,50 @@ export async function updateCurrentInboxNotificationPreferences(
 			urgentEmailEnabled: input.urgentEmailEnabled,
 		})
 	);
+}
+
+export async function getCurrentInboxMessageNotificationPreferences(input: {
+	organizationId: string;
+	spaceId?: string;
+	signal?: AbortSignal;
+}): Promise<InboxMessageNotificationPreferencesResponse> {
+	return await runInboxOperation(async () => {
+		const response = await createWebInboxApi(
+			input.organizationId
+		).getMessageNotificationPreferences({
+			spaceId: input.spaceId,
+			signal: input.signal,
+		});
+		assertOrganizationMatch(response.organizationId, input.organizationId);
+		if (response.spaceId !== (input.spaceId ?? null)) {
+			throw new Error(
+				"Message notification preferences conversation mismatch."
+			);
+		}
+		return response;
+	});
+}
+
+export async function updateCurrentInboxMessageNotificationPreferences(input: {
+	organizationId: string;
+	preference: UpdateInboxMessageNotificationPreferencesBody;
+}): Promise<InboxMessageNotificationPreferencesResponse> {
+	return await runInboxOperation(async () => {
+		const response = await createWebInboxApi(
+			input.organizationId
+		).updateMessageNotificationPreferences({ preference: input.preference });
+		assertOrganizationMatch(response.organizationId, input.organizationId);
+		const spaceId =
+			input.preference.scope === "conversation"
+				? input.preference.spaceId
+				: null;
+		if (response.spaceId !== spaceId) {
+			throw new Error(
+				"Message notification preferences conversation mismatch."
+			);
+		}
+		return response;
+	});
 }
 
 async function runInboxOperation<T>(operation: () => Promise<T>): Promise<T> {

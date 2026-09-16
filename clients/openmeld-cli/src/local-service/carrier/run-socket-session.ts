@@ -49,12 +49,12 @@ import {
   manageAgentRegistrationInstallation,
   setAgentRegistrationEnabled,
 } from "../../agents/registry";
-import { resolveLocalComponentsStatus } from "../../local-components/manifest";
 import {
   ensureOpenMeldManagedProfileWorkspace,
   setCustomProfileWorkspace,
 } from "../../profile-workspace/service";
 import type { Presenter } from "../../runtime/presenter/types";
+import { OPENMELD_VERSION } from "../../runtime/version";
 import type { WsClient } from "../../transport/ws";
 import { resolveDaemonCapabilities } from "../adapters/resolve-daemon-capabilities";
 import {
@@ -108,7 +108,6 @@ import {
   consumeArmedAgentControllerInterfaceReprobe,
   resolveNextRuntimeAgentControllerReportSyncAtMs,
 } from "../inventory/agent-controller-interface-keeper";
-import { resolveCurrentDaemonExpectedVersion } from "../lifecycle/current-daemon-version";
 import { handleOpenMeldToolsControlRequest } from "../maintenance/openmeld-tools-control-handler";
 import type { OpenMeldToolsUpdateCoordinator } from "../maintenance/openmeld-tools-update-coordinator";
 import { didLocalProjectConnectionsChange } from "../projects/local-project-activity-sync";
@@ -148,6 +147,7 @@ import {
 } from "./frame-router";
 import { waitForHeartbeatResponse } from "./heartbeat-loop";
 import { waitForRegisterResponse } from "./register-session";
+import type { ServiceLocalComponentsObservation } from "./service-local-components-observation";
 
 function buildShutdownHeartbeatFacts(input: {
   acceptingDispatches: boolean;
@@ -446,6 +446,13 @@ function handleLocalFolderPickerSocketFrame(input: {
   return true;
 }
 
+function resetReasoningPreference(ref: CurrentDaemonSocketRef): void {
+  ref.reasoningStreamEnabled = undefined;
+  for (const listener of ref.reasoningPreferenceListeners ?? []) {
+    listener();
+  }
+}
+
 export async function runDaemonSocketSession(input: {
   computerFileAccessStorePath: string;
   contextStore: Map<string, string>;
@@ -466,6 +473,7 @@ export async function runDaemonSocketSession(input: {
   ledgerPaths: LedgerPaths;
   loadRouteCatalog?: () => Promise<RouteCatalog>;
   localAdapterContainer: LocalDaemonAdapterContainer;
+  localComponentsObservation: ServiceLocalComponentsObservation;
   localExecutionSlots: LocalExecutionSlots;
   lane: string;
   ownerUserId: string;
@@ -841,7 +849,7 @@ export async function runDaemonSocketSession(input: {
           leaseEpoch,
         }))
         .sort((left, right) => left.profileId.localeCompare(right.profileId));
-      const localComponentsStatus = await resolveSessionLocalComponentsStatus();
+      const localComponentsStatus = readSessionLocalComponentsStatus();
       const heartbeatRequest = runtimeTransportHeartbeatRequestSchema.safeParse(
         {
           v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -1090,27 +1098,20 @@ export async function runDaemonSocketSession(input: {
   let hasLoggedWaitingForProfiles =
     (input.isRouteCatalogResolved?.() ?? true) &&
     input.routeCatalogState.profileIds.length === 0;
-  const serviceVersion = resolveCurrentDaemonExpectedVersion();
+  const serviceVersion = OPENMELD_VERSION;
 
-  const resolveSessionLocalComponentsStatus =
-    async (): Promise<LocalComponentsStatus | null> => {
-      try {
-        return await resolveLocalComponentsStatus();
-      } catch (error) {
-        emitRunLine({
-          presenter: input.presenter,
-          code: "daemon.run.local_components_status_failed",
-          text: `local components status unavailable: ${toErrorMessage(error)}`,
-        });
-        return null;
+  const readSessionLocalComponentsStatus = (): LocalComponentsStatus | null =>
+    input.localComponentsObservation.read(() => {
+      if (lastHeartbeatSentAtMs !== null) {
+        scheduleHeartbeat({ delayMs: 0, reason: "local_components_refreshed" });
       }
-    };
+    });
 
   const registerDaemonSession = async (
     routeCatalog: RouteCatalog
   ): Promise<RuntimeTransportRegisterSessionResponse> => {
     const connectionGeneration = Math.max(1, input.reconnectAttempt + 1);
-    const localComponentsStatus = await resolveSessionLocalComponentsStatus();
+    const localComponentsStatus = readSessionLocalComponentsStatus();
     const registerPayload =
       runtimeTransportRegisterSessionRequestSchema.safeParse({
         v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
@@ -2585,6 +2586,7 @@ export async function runDaemonSocketSession(input: {
     );
   }
   if (currentSocketRef.socket === input.socket) {
+    resetReasoningPreference(currentSocketRef);
     currentSocketRef.socket = null;
     currentSocketRef.connectionGeneration = null;
   }

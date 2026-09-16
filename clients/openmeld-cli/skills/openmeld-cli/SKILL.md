@@ -31,6 +31,7 @@ explicit opt-in.
   `playbooks/space-ops.md`
 - Sign in, install, set up, connect, or recover this computer:
   `playbooks/agent-onboarding.md`
+- Discover or invoke an authorized plugin account: `playbooks/plugins.md`
 - Look up exact public command syntax: `references/commands.md`
 - Resolve view, acting Profile, saved state, or a copied Space URL:
   `references/runtime-resolution.md`

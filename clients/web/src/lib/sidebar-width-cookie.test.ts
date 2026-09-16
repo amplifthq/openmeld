@@ -48,7 +48,7 @@ describe("sidebar-width-cookie", () => {
 	});
 
 	it("lets the full app rail stay readable through a narrower desktop band", () => {
-		expect(OUTER_SIDEBAR_DEFAULT_WIDTH).toBe("13.75rem");
+		expect(OUTER_SIDEBAR_DEFAULT_WIDTH).toBe("19.25rem");
 		expect(OUTER_SIDEBAR_MIN_WIDTH).toBe("10rem");
 		expect(OUTER_SIDEBAR_MAX_WIDTH).toBe("24rem");
 		expect(clampSidebarWidth("9rem", "outer")).toBe("10rem");

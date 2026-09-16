@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createAuthConfig } from "../src/configs/auth.config";
 import { sendCloudflareEmail } from "../src/utils/email";
-import { buildMagicLinkEmailContent } from "../src/utils/email-templates";
+import {
+  buildMagicLinkEmailContent,
+  buildSpaceInvitationEmailContent,
+} from "../src/utils/email-templates";
 
 describe("sendCloudflareEmail", () => {
   it("sends lightweight HTML payloads through the Cloudflare Email Service binding", async () => {
@@ -73,8 +76,30 @@ describe("auth verification email config", () => {
 });
 
 describe("email content builders", () => {
-  it("escapes dynamic values in HTML while keeping plain text readable", () => {
-    const content = buildMagicLinkEmailContent({
+  it.each([
+    "guest",
+    "organization",
+  ] as const)("describes the %s invitation's actual membership scope", async (audience) => {
+    const content = await buildSpaceInvitationEmailContent({
+      audience,
+      brandName: "OpenMeld",
+      expiresAt: new Date("2030-01-01T00:00:00Z"),
+      invitationUrl: "https://openmeld.invalid/invitation/123",
+      inviterName: "Alex",
+      organizationName: "Acme",
+      spaceName: "Launch review",
+    });
+    for (const body of [content.html, content.text]) {
+      expect(body).toContain(
+        audience === "guest"
+          ? "does not make you a member of Acme"
+          : "Accepting joins Acme as a member"
+      );
+      expect(body).toContain("https://openmeld.invalid/invitation/123");
+    }
+  });
+  it("escapes dynamic values in HTML while keeping plain text readable", async () => {
+    const content = await buildMagicLinkEmailContent({
       brandName: "OpenMeld <Prod>",
       expiresInSeconds: 300,
       magicLinkUrl: "https://openmeld.invalid/magic-link?token=<token>&next=/",

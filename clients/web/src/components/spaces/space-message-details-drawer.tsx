@@ -9,6 +9,7 @@ import { Button } from "@openmeld/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -28,12 +29,14 @@ import type { CSSProperties } from "react";
 import { type ReactNode, useId, useState } from "react";
 import { toast } from "sonner";
 import { Drawer } from "vaul";
+import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
 	isSpaceOutcomeNoticeItem,
 	type SpaceTimelineItem,
 } from "#/lib/spaces/timeline";
 import {
+	isQuotaWakeFailure,
 	resolveHistoricalWakeFailureBody,
 	type WakeFailureTargetContext,
 } from "#/lib/spaces/wake-failure-display";
@@ -620,6 +623,10 @@ function ActivityItemRow(input: {
 						spaceReferencesById={activity.spaceReferencesById}
 					/>
 				) : null}
+				<WakeQuotaReset
+					profileId={item.targetProfileId}
+					reasonCode={outcomeNotice?.systemNoticeReasonCode}
+				/>
 				<WakeFailureActions
 					action={wakeFailureAction}
 					isAgentRecoveryPending={activity.isAgentRecoveryPending}
@@ -756,13 +763,16 @@ function ActivityTime(input: { occurredAtMs: number | null }) {
 		return null;
 	}
 	return (
-		<time
-			className="shrink-0 text-muted-foreground text-xs"
-			dateTime={new Date(input.occurredAtMs).toISOString()}
-			title={MESSAGE_DETAILS_TIME_FORMATTER.format(input.occurredAtMs)}
+		<TooltipHint
+			content={MESSAGE_DETAILS_TIME_FORMATTER.format(input.occurredAtMs)}
 		>
-			{MESSAGE_ACTIVITY_TIME_FORMATTER.format(input.occurredAtMs)}
-		</time>
+			<time
+				className="shrink-0 text-muted-foreground text-xs"
+				dateTime={new Date(input.occurredAtMs).toISOString()}
+			>
+				{MESSAGE_ACTIVITY_TIME_FORMATTER.format(input.occurredAtMs)}
+			</time>
+		</TooltipHint>
 	);
 }
 
@@ -887,7 +897,10 @@ function resolveActivityOutcomeNotice(input: {
 	if (bySignal) {
 		return bySignal;
 	}
-	if (!input.item.targetProfileId) {
+	if (
+		!input.item.targetProfileId ||
+		(input.item.status !== "failed" && input.item.status !== "stopped")
+	) {
 		return null;
 	}
 	return (
@@ -987,6 +1000,21 @@ function resolveNoticeRecoveryPresentation(input: {
 			targetLabel,
 		});
 	return { action: currentAction, body };
+}
+
+function WakeQuotaReset(input: {
+	profileId: string | null;
+	reasonCode: string | null | undefined;
+}) {
+	if (!(input.profileId && isQuotaWakeFailure(input.reasonCode))) {
+		return null;
+	}
+	return (
+		<div className="my-2 text-muted-foreground text-xs">
+			Current provider report:{" "}
+			<AgentProfileUsage profileId={input.profileId} variant="reset" />
+		</div>
+	);
 }
 
 function WakeFailureActions(input: {
@@ -1398,9 +1426,8 @@ function DiagnosticReportSection(input: {
 		<DetailsSection title="Report issue">
 			<div className="flex flex-col items-start gap-3 text-sm">
 				<p className="text-muted-foreground leading-6">
-					OpenMeld will save a diagnostic pointer for this message so you can
-					trace what happened later. The report sends message IDs and system
-					trace pointers, not the message text.
+					Send a report to help investigate this problem. Message text is not
+					included.
 				</p>
 				<Button
 					disabled={input.isPending || input.isSent}

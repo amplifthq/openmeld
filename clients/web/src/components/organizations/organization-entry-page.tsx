@@ -4,6 +4,7 @@ import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	ADD_CARD_PICKER_CLASS_NAME,
@@ -230,15 +231,16 @@ function OrganizationEntryPageContent(input: {
 				bodySlotName="organization-entry-content-scroll"
 				header={
 					<div className="flex h-full items-center px-4">
-						<Button
-							aria-label={backLabel}
-							onClick={handleBack}
-							size="icon-sm"
-							title={backLabel}
-							variant="ghost"
-						>
-							<ArrowLeftIcon aria-hidden="true" />
-						</Button>
+						<TooltipHint content={backLabel}>
+							<Button
+								aria-label={backLabel}
+								onClick={handleBack}
+								size="icon-sm"
+								variant="ghost"
+							>
+								<ArrowLeftIcon aria-hidden="true" />
+							</Button>
+						</TooltipHint>
 					</div>
 				}
 				headerClassName="border-b-0"

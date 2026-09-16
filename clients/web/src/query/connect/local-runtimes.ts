@@ -28,12 +28,13 @@ type ReplyReadinessQueryLike = {
 	state: {
 		data: CurrentLocalRuntimeReplyReadinessResponse | undefined;
 		dataUpdateCount: number;
+		errorUpdateCount?: number;
 	};
 };
 
 type ReplyReadinessRefreshBudget = {
 	evidenceKey: string;
-	pollCount: number;
+	initialSettledCount: number;
 };
 
 type LocalRuntimeCatalogReadyReconcileInput = {
@@ -66,16 +67,19 @@ export function boundedCurrentLocalRuntimeReplyReadinessRefetchInterval(
 		return false;
 	}
 	const evidenceKey = resolveReplyReadinessEvidenceKey(readiness);
+	const settledCount =
+		query.state.dataUpdateCount + (query.state.errorUpdateCount ?? 0);
 	const budget = replyReadinessRefreshBudgets.get(query);
 	if (budget?.evidenceKey !== evidenceKey) {
 		replyReadinessRefreshBudgets.set(query, {
 			evidenceKey,
-			pollCount: 1,
+			initialSettledCount: settledCount,
 		});
 		return CURRENT_LOCAL_RUNTIME_REPLY_READINESS_REFRESH_INTERVAL_MS;
 	}
-	budget.pollCount += 1;
-	return resolveReplyReadinessBackoffMs(budget.pollCount);
+	return resolveReplyReadinessBackoffMs(
+		1 + Math.max(0, settledCount - budget.initialSettledCount)
+	);
 }
 
 function resolveReplyReadinessBackoffMs(pollCount: number): number {

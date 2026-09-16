@@ -77,3 +77,6 @@ function normalizePositiveNumber(
   }
   return value;
 }
+
+// biome-ignore lint/performance/noBarrelFile: Public shared utility package entrypoint.
+export { digestCanonicalJson, stringifyCanonicalJson } from "./canonical-json";

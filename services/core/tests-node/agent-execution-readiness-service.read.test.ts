@@ -4,6 +4,7 @@ import {
 } from "@openmeld/agent-runtime";
 import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
+import { createAgentExecutionReadinessReads } from "../src/agent-execution/application/agent-execution-readiness-reads";
 import { resolveCoreAgentExecutionReadinessForProfile } from "../src/agent-execution/application/agent-execution-readiness-service";
 import { writeAcceptedAgentExecutionReadinessImpact } from "../src/agent-execution/infrastructure/d1/agent-execution-readiness-impact-repo";
 import { acceptProviderConversationProofRecord } from "../src/agent-execution/infrastructure/d1/provider-conversation-proof-repo";
@@ -27,7 +28,7 @@ const AVAILABLE_CODEX_AGENT_CONTROLLER_INTERFACE =
 // These readiness fixtures represent a supported Service. Keep the version
 // explicit so a release manifest that still describes the previous public
 // version cannot silently turn unrelated readiness tests into update tests.
-const CURRENT_SERVICE_VERSION = "0.3.168";
+const CURRENT_SERVICE_VERSION = "0.3.198";
 const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
   observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
@@ -35,7 +36,10 @@ const COMPATIBLE_DAEMON_EXECUTION_CONTRACT = {
   status: "compatible",
 } as const;
 
-describe("agent execution readiness service D1 read model", () => {
+describe.each([
+  false,
+  true,
+])("agent execution readiness service D1 read model (batch=%s)", (batchProfileReads) => {
   it("blocks readiness when the online daemon route is for a different Runtime than the Binding runtime", async () => {
     const harness = createSqliteD1Harness();
     applyReadinessMigrations(harness);
@@ -91,6 +95,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -186,6 +191,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -276,6 +282,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -394,6 +401,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -493,6 +501,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -600,6 +609,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -691,6 +701,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -767,6 +778,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,
@@ -848,6 +860,7 @@ describe("agent execution readiness service D1 read model", () => {
       });
 
       const readiness = await resolveCoreAgentExecutionReadinessForProfile({
+        reads: createAgentExecutionReadinessReads({ batchProfileReads }),
         activeOrganizationId: ORGANIZATION_ID,
         env: createReadinessEnv({
           db: harness.db,

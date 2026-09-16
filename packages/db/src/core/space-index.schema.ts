@@ -7,6 +7,23 @@ import {
   sqliteTable,
   text,
 } from "drizzle-orm/sqlite-core";
+import { members } from "../auth/auth.schema.ts";
+
+// A restrictive reference protects organization/account removal while the
+// owning Space still assigns management to this organization member.
+export const spaceOwnerMemberReferences = sqliteTable(
+  "space_owner_member_references",
+  {
+    spaceId: text("space_id").notNull(),
+    memberId: text("member_id")
+      .notNull()
+      .references(() => members.id, { onDelete: "restrict" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.spaceId, table.memberId] }),
+    index("idx_space_owner_member_references_member").on(table.memberId),
+  ]
+);
 
 export const spaceIndexSpaces = sqliteTable(
   "space_index_spaces",

@@ -655,6 +655,7 @@ async function enrichAgentBindingSnapshot(input: {
   const bindingStartedAtMs = Date.now();
   const { evidence: agentExecutionBinding, configurationRevision } =
     await resolveAgentExecutionBindingEvidence({
+      reads: input.reads,
       agentProfileId: input.agent.profileId,
       env: input.env,
       ownerUserId: input.snapshot.ownerUserId,
@@ -689,6 +690,7 @@ async function enrichAgentBindingSnapshot(input: {
       "claim_diagnostics_read",
       () =>
         resolveAgentProfileOrganizationClaimDiagnostics({
+          reads: input.reads,
           activeOrganizationId: input.activeOrganizationId,
           binding: agentExecutionBinding,
           env: input.env,
@@ -773,6 +775,7 @@ async function enrichAgentBindingSnapshot(input: {
     baseRuntimeReadinessPromise,
     measureReadinessStep(input.timing, "claim_diagnostics_read", () =>
       resolveAgentProfileOrganizationClaimDiagnostics({
+        reads: input.reads,
         activeOrganizationId: input.activeOrganizationId,
         binding: agentExecutionBinding,
         env: input.env,
@@ -1090,6 +1093,7 @@ async function resolveHostedCenterAgentReadiness(input: {
 }
 
 async function resolveAgentExecutionBindingEvidence(input: {
+  reads: AgentExecutionReadinessReads;
   agentProfileId: string;
   env: CoreBindings;
   ownerUserId: string | null;
@@ -1114,6 +1118,7 @@ async function resolveAgentExecutionBindingEvidence(input: {
       : await readAgentProfileOrganizationContext({
           agentProfileId: input.agentProfileId,
           db: domainDb,
+          readBatch: input.reads.readBatch,
         });
     let owner: { id: string; kind: "owner_account" | "organization" } | null =
       null;
@@ -1139,10 +1144,12 @@ async function resolveAgentExecutionBindingEvidence(input: {
       agentProfileId: input.agentProfileId,
       db: domainDb,
       owner,
+      readBatch: input.reads.readBatch,
     });
     if (bindingRecord?.agentControllerConversationId && input.ownerUserId) {
       const conflictingBinding =
         await readPrimaryAgentProfileBindingRecordByControllerConversation({
+          readBatch: input.reads.readBatch,
           agentControllerConversationId:
             bindingRecord.agentControllerConversationId,
           agentControllerRef: bindingRecord.agentControllerRef,
@@ -1156,6 +1163,7 @@ async function resolveAgentExecutionBindingEvidence(input: {
       if (conflictingBinding) {
         const conflictingProfileIsCurrent =
           await isCurrentConflictingAgentProfile({
+            reads: input.reads,
             authWorker: input.env.OPENMELD_AUTH_WORKER,
             conflictingAgentProfileId: conflictingBinding.agentProfileId,
             ownerUserId: input.ownerUserId,
@@ -1223,6 +1231,7 @@ async function resolveAgentExecutionBindingEvidence(input: {
 }
 
 async function isCurrentConflictingAgentProfile(input: {
+  reads: AgentExecutionReadinessReads;
   authWorker: CoreBindings["OPENMELD_AUTH_WORKER"] | undefined;
   conflictingAgentProfileId: string;
   ownerUserId: string;
@@ -1232,8 +1241,9 @@ async function isCurrentConflictingAgentProfile(input: {
   }
 
   try {
-    const result = await input.authWorker.resolveProfileById({
-      openMeldProfileId: input.conflictingAgentProfileId,
+    const result = await input.reads.resolveProfileById({
+      authWorker: input.authWorker,
+      profileId: input.conflictingAgentProfileId,
     });
     if (!result.ok) {
       return result.code !== "profile.not_found";
@@ -1784,6 +1794,7 @@ async function resolveAgentClaimDiagnostics(input: {
 }
 
 export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
+  reads?: AgentExecutionReadinessReads;
   activeOrganizationId: string | null;
   binding: AgentExecutionBindingEvidence | null;
   env: CoreBindings;
@@ -1818,6 +1829,7 @@ export async function resolveAgentProfileOrganizationClaimDiagnostics(input: {
     const profileContext = await readAgentProfileOrganizationContext({
       agentProfileId: input.binding.agentProfileId,
       db,
+      readBatch: input.reads?.readBatch,
     });
     if (!profileContext) {
       return mergeAgentProfileOrganizationClaimFailure({

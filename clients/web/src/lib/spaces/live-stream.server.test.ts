@@ -32,6 +32,7 @@ describe("space live stream server helpers", () => {
 					profileName: "Mira",
 				},
 				capabilities: {
+					agentReplyPlacement: true,
 					liveSignalHistory: true,
 					spaceMessageAddressing: true,
 				},
@@ -59,6 +60,7 @@ describe("space live stream server helpers", () => {
 					ownerName: "Mira Owner",
 				},
 				capabilities: {
+					agentReplyPlacement: true,
 					liveSignalHistory: true,
 					spaceMessageAddressing: true,
 				},
@@ -300,6 +302,7 @@ describe("space live stream server helpers", () => {
 					ownerName: "Mira Owner",
 				},
 				capabilities: {
+					agentReplyPlacement: true,
 					liveSignalHistory: true,
 					spaceMessageAddressing: true,
 				},

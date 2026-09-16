@@ -7,22 +7,25 @@ import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
-import { CenterAgentPluginsCatalogPanel } from "./center-agent-plugins-catalog-panel";
-import { useCenterAgentRouteState } from "./center-agent-route-state";
 import {
 	OrganizationPluginDetailPage,
 	OrganizationPluginNotFoundPage,
 } from "./organization-plugin-detail-page";
 import { findPluginDefinition, type PluginDefinition } from "./plugin-catalog";
+import { PluginScopeTabs } from "./plugin-scope-tabs";
+import { PluginsCatalogPanel } from "./plugins-catalog-panel";
 
-export function OrganizationPluginsPage() {
+export function OrganizationPluginsPage({
+	selectedService,
+}: {
+	selectedService: string | null;
+}) {
 	const { currentOrganization } = useAppOrganization();
-	const { pluginsSelectedService } = useCenterAgentRouteState();
-	const selectedPlugin = pluginsSelectedService
-		? findPluginDefinition(pluginsSelectedService)
+	const selectedPlugin = selectedService
+		? findPluginDefinition(selectedService)
 		: null;
 
-	if (pluginsSelectedService && !selectedPlugin) {
+	if (selectedService && !selectedPlugin) {
 		return (
 			<OrganizationPluginNotFoundPage
 				organizationSlug={currentOrganization.slug}
@@ -43,9 +46,9 @@ export function OrganizationPluginsPage() {
 		return (
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins={false}
-				connectionMode="all"
 				isPersonalWorkspace={currentOrganization.isPersonal === true}
 				organizationId={currentOrganization.id}
+				organizationName={currentOrganization.name}
 				organizationSlug={currentOrganization.slug}
 				plugin={selectedPlugin}
 			/>
@@ -55,19 +58,20 @@ export function OrganizationPluginsPage() {
 	return (
 		<>
 			<AppPageHeader
-				description={
-					currentOrganization.isPersonal === true
-						? "Connect your accounts so your Center Agent can use them. Every action shows which account it uses."
-						: `Connect your own accounts or review the accounts shared with ${currentOrganization.name}. Every action shows which account it uses.`
-				}
+				description="Plugins let you choose what your Agent can access and do for you."
 				eyebrow={
 					currentOrganization.isPersonal === true
 						? "Personal workspace"
-						: "Organization"
+						: currentOrganization.name
 				}
 				title="Plugins"
 			/>
-			<CenterAgentPluginsCatalogPanel
+			<PluginScopeTabs
+				isPersonalWorkspace={currentOrganization.isPersonal === true}
+				organizationName={currentOrganization.name}
+			/>
+			<PluginsCatalogPanel
+				isPersonalWorkspace={currentOrganization.isPersonal === true}
 				organizationId={currentOrganization.id}
 				organizationSlug={currentOrganization.slug}
 			/>
@@ -111,9 +115,9 @@ function AvailableOrganizationPluginPage(input: {
 	return (
 		<OrganizationPluginDetailPage
 			canManageSharedPlugins={canManageSharedPlugins}
-			connectionMode="all"
 			isPersonalWorkspace={input.organization.isPersonal === true}
 			organizationId={input.organization.id}
+			organizationName={input.organization.name}
 			organizationSlug={input.organization.slug}
 			permissionNotice={permissionNotice}
 			plugin={input.plugin}

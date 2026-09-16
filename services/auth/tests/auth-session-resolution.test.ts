@@ -8,7 +8,19 @@ const authMock = {
     setPassword: vi.fn(),
   },
 };
-const createAuthMock = vi.fn(() => authMock);
+const createAuthMock = vi.fn(() => ({
+  api: {
+    ...authMock.api,
+    // Better Auth's public returnHeaders option wraps the same payload. Keep
+    // identity-only RPC fixtures raw and give HTTP callers the vendor envelope.
+    async getSession(options: { returnHeaders?: boolean }) {
+      const response = await authMock.api.getSession(options);
+      return options.returnHeaders
+        ? { response, headers: new Headers() }
+        : response;
+    },
+  },
+}));
 let requestStateActive = false;
 const runWithAuthRequestStateMock = vi.fn(
   async <T>(callback: () => T | Promise<T>): Promise<T> => {

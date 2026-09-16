@@ -37,6 +37,7 @@ and policy-blocked system notices. The following cases use production components
 | Space | Scenario |
 | --- | --- |
 | Design feedback | Agent working status, elapsed time, and Stop in the conversation |
+| Engineering daily | Another app holds the conversation; waiting explanation and Cancel waiting |
 | Release coordination | Plan review in the normal Pending Agent actions surface |
 | Performance lab | Command permission in the normal Pending Agent actions surface |
 | Billing migration | Sandbox failure system message |

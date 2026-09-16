@@ -1,3 +1,5 @@
+import type { D1ReadBatch } from "../lib/d1-read-batch";
+
 export type AgentProfileOrganizationContext = {
   managedRole: string | null;
   organizationId: string | null;
@@ -17,8 +19,9 @@ export function isAgentProfileEligibleForOrganization(input: {
 export async function readAgentProfileOrganizationContext(input: {
   agentProfileId: string;
   db: D1Database;
+  readBatch?: D1ReadBatch;
 }): Promise<AgentProfileOrganizationContext | null> {
-  const row = await input.db
+  const statement = input.db
     .prepare(
       `
         SELECT
@@ -32,14 +35,17 @@ export async function readAgentProfileOrganizationContext(input: {
         LIMIT 1
       `
     )
-    .bind(input.agentProfileId)
-    .first<{
-      managed_role: string | null;
-      organization_id: string | null;
-      owner_user_id: string | null;
-      profile_kind: "human" | "agent" | "system";
-      profile_name: string;
-    }>();
+    .bind(input.agentProfileId);
+  type Row = {
+    managed_role: string | null;
+    organization_id: string | null;
+    owner_user_id: string | null;
+    profile_kind: "human" | "agent" | "system";
+    profile_name: string;
+  };
+  const row = input.readBatch
+    ? await input.readBatch.first<Row>(input.db, statement)
+    : await statement.first<Row>();
   if (!row) {
     return null;
   }

@@ -1,3 +1,4 @@
+import type { AccountSession } from "@openmeld/schemas";
 import type {
 	AccountAvatarResponse,
 	AuthProfileView,
@@ -11,7 +12,6 @@ import {
 	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
-import type { AuthSession } from "#/lib/auth-client-types";
 import { getFrontendCallbackURL } from "#/lib/auth-redirect";
 import {
 	changeUserPassword,
@@ -174,18 +174,21 @@ function setAccountAvatarIdentityProjection(
 		...projection,
 		ok: true,
 	});
-	queryClient.setQueryData<AuthSession>(userQueryKeys.session, (session) => {
-		if (!session) {
-			return session;
+	queryClient.setQueryData<AccountSession | null>(
+		userQueryKeys.session,
+		(session) => {
+			if (!session) {
+				return session;
+			}
+			return {
+				...session,
+				user: {
+					...session.user,
+					image: projection.avatar,
+				},
+			};
 		}
-		return {
-			...session,
-			user: {
-				...session.user,
-				image: projection.avatar,
-			},
-		};
-	});
+	);
 	queryClient.setQueriesData<readonly AuthProfileView[]>(
 		{ queryKey: startQueryKeys.allProfiles },
 		(profiles) =>
@@ -260,7 +263,7 @@ type AccountAvatarIdentitySnapshot = {
 	accountAvatar: AccountAvatarResponse | undefined;
 	directories: readonly [QueryKey, OrganizationDirectoryResponse | undefined][];
 	profiles: readonly [QueryKey, readonly AuthProfileView[] | undefined][];
-	session: AuthSession | undefined;
+	session: AccountSession | null | undefined;
 	spaceBootstraps: readonly [QueryKey, SpaceBootstrapSnapshot | undefined][];
 	spaceMembers: readonly [QueryKey, SpaceMembersSnapshot | undefined][];
 };
@@ -295,7 +298,9 @@ async function captureAccountAvatarIdentitySnapshot(
 		profiles: queryClient.getQueriesData<readonly AuthProfileView[]>({
 			queryKey: startQueryKeys.allProfiles,
 		}),
-		session: queryClient.getQueryData<AuthSession>(userQueryKeys.session),
+		session: queryClient.getQueryData<AccountSession | null>(
+			userQueryKeys.session
+		),
 		spaceBootstraps: queryClient.getQueriesData<SpaceBootstrapSnapshot>({
 			queryKey: spaceQueryKeys.allBootstraps,
 		}),

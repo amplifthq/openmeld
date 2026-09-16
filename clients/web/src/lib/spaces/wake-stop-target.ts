@@ -1,3 +1,4 @@
+import { WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE } from "@openmeld/schemas";
 import type {
 	PostSpaceWakeStopBody,
 	PostSpaceWakeStopResponse,
@@ -24,7 +25,7 @@ export type SpaceWakeStopUiStatus =
 export type SpaceWakeStopRequestStatus = PostSpaceWakeStopResponse["status"];
 
 export type SpaceWakeStopTargetResolution = {
-	isWaitingForDevice?: boolean;
+	isWaitingToStart?: boolean;
 	canStop: boolean;
 	clientMessageId: string | null;
 	selector: SpaceWakeStopSelector | null;
@@ -402,9 +403,13 @@ export function resolveWakeStopTargetForProgressItem(input: {
 
 	return {
 		canStop,
-		isWaitingForDevice: Boolean(
-			input.item.deviceWait &&
-				(input.item.phase === "request_sent" || input.item.phase === "queued")
+		isWaitingToStart: Boolean(
+			(input.item.deviceWait &&
+				(input.item.phase === "request_sent" ||
+					input.item.phase === "queued")) ||
+				(input.item.phase === "connecting" &&
+					input.item.waitReasonCode ===
+						WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE)
 		),
 		clientMessageId:
 			input.item.clientMessageId ??

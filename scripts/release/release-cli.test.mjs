@@ -683,7 +683,7 @@ test("preserves a failed stage error and prints the canonical resume command", a
           },
         },
         cwd: repoRoot,
-        env: {},
+        env: { PATH: process.env.PATH },
         withBinary: true,
       }),
       (error) => {
@@ -773,7 +773,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
           publishCliReleaseTag: () => sideEffects.push("tag"),
         },
         cwd: repoRoot,
-        env: {},
+        env: { PATH: process.env.PATH },
         withBinary: true,
       }),
       (error) => {

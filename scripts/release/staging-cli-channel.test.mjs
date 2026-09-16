@@ -17,6 +17,14 @@ test("accepts only guarded staging CLI channel commands", () => {
   assert.deepEqual(parseStagingCliChannelArgs(["verify"]), {
     command: "verify",
   });
+  assert.deepEqual(
+    parseStagingCliChannelArgs(["publish", "--retain-service"]),
+    { command: "publish", retainService: true }
+  );
+  assert.throws(
+    () => parseStagingCliChannelArgs(["verify", "--retain-service"]),
+    INVALID_COMMAND_PATTERN
+  );
   assert.throws(
     () => parseStagingCliChannelArgs(["deploy"]),
     INVALID_COMMAND_PATTERN
@@ -54,4 +62,11 @@ test("publishes only through the staging release credential and bucket", () => {
   });
   assert.equal(step.args.includes("prod"), false);
   assert.equal(step.args.includes("prd"), false);
+  assert.deepEqual(
+    buildStagingCliPublishStepSpec({
+      version: "0.3.122-staging.20260828001527123.30530093",
+      retainService: true,
+    }).args,
+    [...step.args, "--retain-service"]
+  );
 });

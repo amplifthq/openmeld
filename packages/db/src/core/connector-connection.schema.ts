@@ -20,6 +20,8 @@ export const connectorConnections = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     scope: text("scope").default("member").notNull(),
+    accessPolicy: text("access_policy"),
+    accessRevision: integer("access_revision").default(0).notNull(),
     service: text("service").notNull(),
     status: text("status").notNull(),
     createdAtMs: integer("created_at_ms").notNull(),
@@ -87,6 +89,37 @@ export const connectorConnections = sqliteTable(
     check(
       "connector_connections_disconnected_at_valid_check",
       sql`("status" = 'disconnected' and "disconnected_at_ms" is not null) or ("status" != 'disconnected' and "disconnected_at_ms" is null)`
+    ),
+  ]
+);
+
+export const connectorAccessEvents = sqliteTable(
+  "connector_access_events",
+  {
+    id: text("id").primaryKey(),
+    connectionName: text("connection_name").notNull(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorProfileId: text("actor_profile_id").notNull(),
+    actorUserId: text("actor_user_id").notNull(),
+    revision: integer("revision").notNull(),
+    previousPolicy: text("previous_policy").notNull(),
+    policy: text("policy").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+  },
+  (table) => [
+    uniqueIndex("connector_access_events_connection_revision_unique").on(
+      table.connectionName,
+      table.revision
+    ),
+    index("connector_access_events_org_created_idx").on(
+      table.organizationId,
+      table.createdAtMs
+    ),
+    check(
+      "connector_access_events_policy_json_check",
+      sql`json_valid("policy") and json_valid("previous_policy")`
     ),
   ]
 );
@@ -250,5 +283,21 @@ export const githubAppInstallationStates = sqliteTable(
       "github_app_installation_states_updated_at_valid_check",
       sql`"updated_at_ms" >= "created_at_ms"`
     ),
+  ]
+);
+export const pluginActionConfirmations = sqliteTable(
+  "plugin_action_confirmations",
+  {
+    token: text("token").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorProfileId: text("actor_profile_id").notNull(),
+    requestSignature: text("request_signature").notNull(),
+    accessRevision: integer("access_revision").notNull(),
+    expiresAtMs: integer("expires_at_ms").notNull(),
+  },
+  (table) => [
+    index("plugin_action_confirmations_expiry_idx").on(table.expiresAtMs),
   ]
 );

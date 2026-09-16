@@ -1,7 +1,7 @@
 "use client";
 
 import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
-import { BrainIcon, GearSixIcon } from "@phosphor-icons/react";
+import { BrainIcon } from "@phosphor-icons/react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import {
 	SpaceHeaderNavigationMenu,
@@ -16,17 +16,14 @@ import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navi
 import {
 	buildOrganizationCenterAgentChatPath,
 	buildOrganizationCenterAgentRoutinesPath,
-	buildOrganizationCenterAgentSettingsPath,
 	buildOrganizationChannelsPath,
 	buildOrganizationMemoryPath,
-	buildOrganizationPluginsPath,
 	buildOrganizationSkillsPath,
 } from "#/lib/organizations/organization-routes";
 
 const ROUTINES_TAB_INDEX = 3;
 const SKILLS_TAB_INDEX = 4;
-const PLUGINS_TAB_INDEX = 5;
-const CHANNELS_TAB_INDEX = 6;
+const CHANNELS_TAB_INDEX = 5;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
@@ -98,8 +95,7 @@ export function CenterAgentHeaderTabs(input: {
 
 			<TabsSubtleItem index={3} label="Routines" labelClassName="text-sm" />
 			<TabsSubtleItem index={4} label="Skills" labelClassName="text-sm" />
-			<TabsSubtleItem index={5} label="Plugins" labelClassName="text-sm" />
-			<TabsSubtleItem index={6} label="Channels" labelClassName="text-sm" />
+			<TabsSubtleItem index={5} label="Channels" labelClassName="text-sm" />
 		</TabsSubtle>
 	);
 }
@@ -113,6 +109,11 @@ export function CenterAgentHeaderMenu(input: { organizationSlug: string }) {
 	);
 }
 
+/**
+ * Center Agent settings are no longer listed here. They live in the global App
+ * Settings destination, grouped under the current Organization (or Personal in
+ * a Personal Workspace), so this menu keeps only Center Agent work surfaces.
+ */
 export function buildCenterAgentHeaderMenuItems(
 	organizationSlug: string
 ): readonly SpaceHeaderNavigationMenuItem[] {
@@ -121,11 +122,6 @@ export function buildCenterAgentHeaderMenuItems(
 			icon: BrainIcon,
 			label: "Memory",
 			to: buildOrganizationMemoryPath(organizationSlug),
-		},
-		{
-			icon: GearSixIcon,
-			label: "Center Agent settings",
-			to: buildOrganizationCenterAgentSettingsPath(organizationSlug),
 		},
 	];
 }
@@ -139,9 +135,6 @@ function resolveCenterAgentHeaderTabIndex(input: {
 	}
 	if (input.activeSectionId === "skills") {
 		return SKILLS_TAB_INDEX;
-	}
-	if (input.activeSectionId === "plugins") {
-		return PLUGINS_TAB_INDEX;
 	}
 	if (input.activeSectionId === "channels") {
 		return CHANNELS_TAB_INDEX;
@@ -163,8 +156,6 @@ function resolveCenterAgentHeaderDestination(input: {
 			return buildOrganizationCenterAgentRoutinesPath(input.organizationSlug);
 		case SKILLS_TAB_INDEX:
 			return buildOrganizationSkillsPath(input.organizationSlug);
-		case PLUGINS_TAB_INDEX:
-			return buildOrganizationPluginsPath(input.organizationSlug);
 		default:
 			throw new Error(`Unknown Center Agent header tab index: ${input.index}`);
 	}

@@ -79,6 +79,9 @@ async function writeFakeOpenCodeServer(fixturePath) {
       "  if (!promptMessageID || promptFinished) return;",
       "  promptFinished = true;",
       "  emit({ id: 'event-assistant', type: 'message.updated', properties: { sessionID: promptSessionID, info: { id: 'assistant-1', sessionID: promptSessionID, role: 'assistant', parentID: promptMessageID } } });",
+      // Official SDK v2 ReasoningPart and EventMessagePartDelta wire shapes.
+      "  emit({ type: 'message.part.updated', properties: { part: { id: 'reasoning-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'reasoning', text: 'Checking', time: { start: Date.now() } } } });",
+      "  emit({ type: 'message.part.delta', properties: { sessionID: promptSessionID, messageID: 'assistant-1', partID: 'reasoning-1', field: 'text', delta: ' dependencies.' } });",
       "  emit({ id: 'event-part', type: 'message.part.updated', properties: { sessionID: promptSessionID, time: Date.now(), part: { id: 'part-1', sessionID: promptSessionID, messageID: 'assistant-1', type: 'text', text: 'OpenCode server reply' } } });",
       "  emit({ id: 'event-idle', type: 'session.idle', properties: { sessionID: promptSessionID } });",
       "};",
@@ -359,6 +362,7 @@ test("OpenCode carries permission approval through its official server API", asy
   const { createOpenCodeAdapter } = await import("../dist/index.js");
   await withServerFixture(async ({ fixtureDir, fixturePath, logPath }) => {
     const requests = [];
+    const reasoningEvents = [];
     const openCodePermission = {
       edit: "ask",
     };
@@ -389,6 +393,11 @@ test("OpenCode carries permission approval through its official server API", asy
         };
       },
       openCodePermission,
+      onRuntimeEvent: (event) => {
+        if (event.phase === "reasoning") {
+          reasoningEvents.push(event);
+        }
+      },
       prompt: "Change the app",
       runtimeContext: createRuntimeContext(fixtureDir),
       sourceEventId: "source-opencode-permission",
@@ -398,6 +407,13 @@ test("OpenCode carries permission approval through its official server API", asy
 
     assert.equal(result.status, "success", JSON.stringify(result));
     assert.equal(result.output, "OpenCode server reply");
+    assert.deepEqual(
+      reasoningEvents.map(({ mode, text }) => ({ mode, text })),
+      [
+        { mode: "snapshot", text: "Checking" },
+        { mode: "append", text: " dependencies." },
+      ]
+    );
     assert.equal(
       result.contextDelta?.agentControllerConversationId,
       "opencode-session-server"

@@ -49,55 +49,58 @@ export function CenterAgentStarterActions(input: {
 	onSelect: (prompt: string) => void;
 }) {
 	return (
-		<FluidCardGroup
-			aria-label="Suggested starting points"
-			className="grid w-full grid-cols-1 gap-3 sm:grid-cols-3"
-			role="group"
-		>
-			{CENTER_AGENT_STARTER_ACTIONS.map((action) => {
-				const Icon = action.icon;
-				return (
-					<FluidCardItem
-						className="border border-border bg-transparent"
-						itemId={action.id}
-						key={action.id}
-					>
-						<button
-							className="flex h-full min-h-20 w-full items-start gap-3 rounded-md p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-32 sm:flex-col sm:justify-between sm:gap-5"
-							disabled={input.disabled}
-							onClick={() => {
-								if (action.kind === "computer_setup") {
-									input.onConnectComputer();
-									return;
-								}
-								input.onSelect(action.prompt);
-							}}
-							type="button"
+		<div className="@container/starter-actions w-full min-w-0">
+			<FluidCardGroup
+				aria-label="Suggested starting points"
+				className="grid w-full @[36rem]/starter-actions:grid-cols-3 grid-cols-1 gap-3"
+				role="group"
+			>
+				{CENTER_AGENT_STARTER_ACTIONS.map((action) => {
+					const Icon = action.icon;
+					return (
+						<FluidCardItem
+							className="border border-border bg-transparent"
+							itemId={action.id}
+							key={action.id}
 						>
-							<span className="text-muted-foreground">
-								<Icon aria-hidden="true" className="size-4" />
-							</span>
-							<span className="min-w-0">
-								<span className="block font-medium text-foreground text-sm leading-5">
-									{action.title}
+							<button
+								className="flex h-full @[36rem]/starter-actions:min-h-32 min-h-20 w-full @[36rem]/starter-actions:flex-col items-start @[36rem]/starter-actions:justify-between @[36rem]/starter-actions:gap-5 gap-3 rounded-md p-4 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+								disabled={input.disabled}
+								onClick={() => {
+									if (action.kind === "computer_setup") {
+										input.onConnectComputer();
+										return;
+									}
+									input.onSelect(action.prompt);
+								}}
+								type="button"
+							>
+								<span className="text-muted-foreground">
+									<Icon aria-hidden="true" className="size-4" />
 								</span>
-								<span className="mt-0.5 block text-muted-foreground text-xs leading-5">
-									{input.showAgentLogos && action.kind === "computer_setup" ? (
-										<>
-											<span className="sr-only">{action.description}</span>
-											<span aria-hidden="true">
-												Bring your <LocalAgentLogoStack /> into OpenMeld.
-											</span>
-										</>
-									) : (
-										action.description
-									)}
+								<span className="min-w-0">
+									<span className="block font-medium text-foreground text-sm leading-5">
+										{action.title}
+									</span>
+									<span className="mt-0.5 block text-muted-foreground text-xs leading-5">
+										{input.showAgentLogos &&
+										action.kind === "computer_setup" ? (
+											<>
+												<span className="sr-only">{action.description}</span>
+												<span aria-hidden="true">
+													Bring your <LocalAgentLogoStack /> into OpenMeld.
+												</span>
+											</>
+										) : (
+											action.description
+										)}
+									</span>
 								</span>
-							</span>
-						</button>
-					</FluidCardItem>
-				);
-			})}
-		</FluidCardGroup>
+							</button>
+						</FluidCardItem>
+					);
+				})}
+			</FluidCardGroup>
+		</div>
 	);
 }

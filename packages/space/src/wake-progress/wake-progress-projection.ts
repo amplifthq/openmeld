@@ -263,6 +263,25 @@ export function applyWakeProgressSignals(input: {
     if (!nextItem) {
       continue;
     }
+    // Transient text updates presentation, not Core's viewer-scoped Stop policy.
+    // Keep only the exact active execution's projection; full snapshots still
+    // replace it normally, including an explicit revocation or missing field.
+    if (
+      signal.type === "signal.text" &&
+      signal.data.meta?.transient === true &&
+      isActiveWakeProgressItem(nextItem) &&
+      nextItem.dispatchId
+    ) {
+      const current = items.find(
+        (item) =>
+          item.dispatchId === nextItem.dispatchId &&
+          item.targetProfileId === nextItem.targetProfileId &&
+          isActiveWakeProgressItem(item)
+      );
+      if (current && Object.hasOwn(current, "wakeStopEligibility")) {
+        nextItem.wakeStopEligibility = current.wakeStopEligibility;
+      }
+    }
     items = mergeWakeProgressItems({
       currentItems: items,
       incomingItems: [nextItem],

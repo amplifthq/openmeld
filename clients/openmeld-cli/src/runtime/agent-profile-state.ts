@@ -1,3 +1,7 @@
+import {
+  HOSTED_CENTER_AGENT_CONTROLLER_REF,
+  HOSTED_REMOTE_AGENT_CONTROLLER_REF,
+} from "@openmeld/agent-runtime";
 import type { OpenMeldProfile } from "../config/openmeld-profiles-api";
 import { formatDaemonRouteObservationLabel } from "../local-service/status/daemon-route-observation-presentation";
 import {
@@ -9,6 +13,10 @@ import {
   type OpenClawLocalDiagnostics,
   resolveOpenClawLocalDiagnosticsValue,
 } from "../provider-hosts/openclaw/diagnostics";
+import {
+  type AgentProfilePrimaryAgentControllerReport,
+  resolveAgentProfilePrimaryAgentControllerReport,
+} from "../system/agent-profile-primary-binding";
 import {
   type DaemonRouteObservation,
   resolveCurrentReplyReadinessSnapshot,
@@ -78,14 +86,36 @@ export function buildAgentProfileStateData(
 
 export async function resolveAgentProfileRuntimeState(
   profile: OpenMeldProfile,
-  _input: {
+  input: {
     includeDaemonRouteObservation?: boolean;
+    primaryBinding?: AgentProfilePrimaryAgentControllerReport | null;
   } = {}
 ): Promise<AgentProfileRuntimeState | null> {
   if (profile.profileKind !== "agent") {
     return null;
   }
+  const primaryBinding =
+    input.primaryBinding === undefined
+      ? await resolveAgentProfilePrimaryAgentControllerReport({
+          profile,
+        }).catch((error: unknown) => {
+          console.error(
+            "[openmeld.profile.binding_diagnostics_unavailable]",
+            error instanceof Error ? error.message : String(error)
+          );
+          return null;
+        })
+      : input.primaryBinding;
+  // This projection describes workstation diagnostics. A hosted Binding has
+  // no local workspace or Service; its Binding remains visible in Profile data.
+  if (
+    primaryBinding?.agentControllerRef === HOSTED_REMOTE_AGENT_CONTROLLER_REF ||
+    primaryBinding?.agentControllerRef === HOSTED_CENTER_AGENT_CONTROLLER_REF
+  ) {
+    return null;
+  }
   const currentReplyReadiness = await resolveCurrentReplyReadinessSnapshot({
+    primaryAgentControllerReport: primaryBinding,
     checkGatewayChain: true,
     includeDaemonRouteObservation: true,
     openClawDiagnosticsMode: "inspect",

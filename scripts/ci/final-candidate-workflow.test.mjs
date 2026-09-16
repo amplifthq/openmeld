@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,6 +50,48 @@ const FINAL_CANDIDATE_EVENT_GUARD = [
   " github.event.label.name == 'final-candidate' ||",
   " github.event.label.name == 'final-candidate-full')",
 ].join("\n      ");
+
+test("control validates evidence with only the schema package's production dependencies", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "openmeld-control-runtime-"));
+  try {
+    cpSync(path.join(REPO_ROOT, "scripts"), path.join(root, "scripts"), {
+      recursive: true,
+    });
+    const schemaRoot = path.join(root, "packages", "schemas");
+    const sourceSchemaRoot = path.join(REPO_ROOT, "packages", "schemas");
+    cpSync(path.join(sourceSchemaRoot, "src"), path.join(schemaRoot, "src"), {
+      recursive: true,
+    });
+    const manifest = JSON.parse(readRepoFile("packages/schemas/package.json"));
+    writeFileSync(
+      path.join(schemaRoot, "package.json"),
+      JSON.stringify(manifest)
+    );
+    for (const dependency of Object.keys(manifest.dependencies ?? {})) {
+      const target = path.join(schemaRoot, "node_modules", dependency);
+      mkdirSync(path.dirname(target), { recursive: true });
+      symlinkSync(
+        path.join(sourceSchemaRoot, "node_modules", dependency),
+        target,
+        "junction"
+      );
+    }
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--test",
+        "scripts/ci/final-candidate-publisher.test.mjs",
+        "scripts/ci/final-candidate-policy.test.mjs",
+        "scripts/ci/final-candidate-reuse.test.mjs",
+        "scripts/release/hosted-fleet-plan-admission.test.mjs",
+      ],
+      { cwd: root, encoding: "utf8", timeout: 30_000 }
+    );
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  } finally {
+    rmSync(root, { force: true, recursive: true });
+  }
+});
 
 test("keeps delivery review support optional and actor-neutral", () => {
   for (const relativePath of DELIVERY_ROUTER_PATHS) {
@@ -326,6 +370,7 @@ test("ready PR events run automatically while drafts and unrelated labels stay i
     "synchronize",
     "reopened",
     "ready_for_review",
+    "converted_to_draft",
     "labeled",
   ]);
   const pendingJob = readJob(workflow, "publish_pending", "candidate");
@@ -387,7 +432,7 @@ test("ready PR events run automatically while drafts and unrelated labels stay i
           );
           assert.equal(
             runInNewContext(groupExpression, context),
-            shouldRun
+            shouldRun || (base === "main" && action === "converted_to_draft")
               ? "final-candidate-325"
               : "ignored-final-candidate-event-100",
             scenario

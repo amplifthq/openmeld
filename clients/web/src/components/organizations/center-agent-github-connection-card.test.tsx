@@ -330,7 +330,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"Install the OpenMeld GitHub Plugin and choose the repositories the Center Agent can use. Organization work and Routines run as the OpenMeld bot."
+				"Choose the repositories Agents can use. Shared actions run as the OpenMeld bot."
 			)
 		).toBeTruthy();
 		expect(
@@ -639,7 +639,7 @@ describe("CenterAgentGitHubConnectionCard", () => {
 
 		expect(
 			await screen.findByText(
-				"GitHub is unavailable right now. Finish setup and connect it later in Center Agent → Plugins."
+				"GitHub is unavailable right now. Finish setup and connect it later in Plugins."
 			)
 		).toBeTruthy();
 		expect(

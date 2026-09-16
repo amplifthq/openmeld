@@ -406,6 +406,15 @@ request fails before mutation with Auth's stable capability error. A missing or
 invalid capability response fails closed for Human creation; Auth remains the
 final enforcement boundary for older CLI versions.
 
+Profile inspection reuses the primary Binding to select applicable diagnostics.
+For a hosted Binding, `profiles show` retains Binding information and omits the
+workstation runtime fields (`runtime: {}` in JSON); it does not inspect a
+local workspace or infer hosted Wakeability from local Service state.
+
+`agents repair --agent <id> --install <install-id>` may select another valid
+installation even when the current installation is ready. It uses the existing
+install resolver and preserves enabled state and all selector validation.
+
 `openmeld profiles create` is the one CLI and Local Agent creation entry for
 both self-owned and teammate-owned Agent Profiles. Supplying `--owner` routes
 the intent through the shared Agent Profile Creation Request capability:
@@ -586,6 +595,17 @@ the local service is ready. `openmeld upgrade` reports separate timings for the
 release check, CLI download/install, and OpenMeld Service alignment. These are
 user-visible stage timings, not hidden debug logs, so a slow network, install,
 or service restart is immediately distinguishable.
+
+Local integrations can use `openmeld service start|stop --json --expected-account
+<account-id>` for an already connected POSIX Service. The CLI verifies that
+account at the mutation owner, including concurrent sign-in changes. The option
+requires JSON output and rejects profile, force, and startup overrides. It does
+not log in, install a missing Service, or take over another account's Service.
+Missing, expired, mismatched, busy, or unsupported ownership returns an explicit
+error; no unguarded retry is allowed. The
+[Service admission contract](../architecture/local-openmeld-service.md#account-checked-service-start-and-stop)
+owns its cross-process behavior. Desktop's pilot controls remain disabled.
+
 The binary download stage also shows the manifest-declared transfer size: an
 exact-base delta when available, otherwise the complete gzip archive (currently
 about 25 MB), never the larger installed executable size.
@@ -1073,6 +1093,20 @@ The command result must describe that record as an unpublished proposal for the
 current Wake. It must not say `Posted to Space` or otherwise claim publication;
 only RuntimeCoordinator finalization followed by Space acceptance can make that
 claim.
+
+The `reply`, `status`, and `stay_silent` MCP tools advertise the shared
+`dispatchSpaceActionToolResultSchema` and return it as `structuredContent`.
+The receipt distinguishes `proposal_saved_locally`, `rejected_closed`, and
+`outcome_unknown`; Coordinator acceptance and Space publication remain
+`unconfirmed`. Local receipts include the original context, dispatch, attempt,
+action type, and recording time, but never the context nonce.
+
+After local context expiry, an exact already-recorded action may recover its
+original local receipt without changing the record or extending execution
+authority. Dispatch and target identity checks still apply. Different or new
+actions are rejected, and file reads, uploads, and target listing still require
+an active context. Invalid or unreadable records stay preserved and produce an
+unknown receipt rather than a claim that nothing was recorded or published.
 
 `wake` and `reply --wake` are `post_message` outcomes with
 `messageEnvelope.activationTargets`. They close the current Wake with a visible
@@ -1592,6 +1626,17 @@ switch that renders human names as plain text while agent coloring stays on.
 
 ## Local Capability And Execution Boundary
 
+Agent Profile owners can read or change admission through
+`openmeld profiles execution-mode <profile-id> [--mode serial|parallel]`.
+The command calls Core's current-Organization owner-authorized API; it does not
+edit a local concurrency default or restart the Service. The response includes
+the selected mode, migration phase, and revision. Serial mode limits future
+reservations to one; parallel mode uses the shared five-reservation ceiling.
+Running and waiting Wakes retain their Context, native identity, and results.
+Changing this policy cannot cancel work, replay effects, or revert stored
+formats. The Core/Gateway receiver must be released before this command is
+distributed with the CLI.
+
 The CLI may display Agent Profile Wakeability, but it does not own the
 execution truth.
 
@@ -1652,6 +1697,15 @@ An authoritative pre-result RuntimeCoordinator status such as `running` or
 `projection_pending` diagnostic. The latter explains why no final message can
 yet be linked; it must not relabel active execution as final publication work or
 tell the operator that the target Computer is offline.
+
+A found Coordinator head with `status: queued` and no linked execution also
+precedes `projection_pending`. Agent View reports `current_state=queued`, the
+shared `runtime_coordinator.head_queued` reason, and asks the caller to wait for
+the Agent's execution slot before checking again. Dispatch or attempt queue
+labels alone cannot establish this state. The shared head-status reason mapper
+also supplies human execution-authority diagnostics so those views agree.
+This changes diagnostic values only: trace request version 3, response fields,
+and parsing of older Core responses remain unchanged.
 
 In Agent View, `--details` requests the bounded Remote Agent runtime diagnostic
 projection when the selected dispatch used the hosted Center Agent. The caller
@@ -1800,3 +1854,24 @@ Use scoped owner documents for deeper rules:
   real installed product.
 - Detailed workflows and release gates belong in
   `developing/engineering/development-workflow.md`.
+## Plugins
+
+`openmeld plugins list`, `plugins actions <service>`, and
+`plugins call <service> <action-id>` use the current Organization's connected
+accounts through Core. Calls require a Local Agent owned by the signed-in
+account and an enabled workstation Binding; `--profile` selects that Agent.
+Inside a Wake the dispatch context selects it automatically and Core reads the
+recorded requester and destination to prevent accidental use of the Agent
+owner's private account for another member's request. A direct CLI invocation
+uses the signed-in account's authority. The local account and its Service are
+the trust boundary; a dispatch ID is provenance, not a RuntimeCoordinator token
+or a sandbox protecting the account from arbitrary local programs.
+
+Action discovery and execution explicitly select `--account personal|shared`.
+There is no fallback between these identities. `--view agent` returns the shared
+structured response. `--operation` is required for execution and identifies an
+exact request; changing input requires a new operation ID. High-risk actions
+first return a confirmation token; the Agent must review the exact action,
+input, and account with the requester before using `--confirm`. A replay reports
+the previous status rather than executing again. Failed or unknown outcomes
+exit unsuccessfully; discovery and confirmation are not successful execution.

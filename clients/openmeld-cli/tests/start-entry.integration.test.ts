@@ -1765,9 +1765,10 @@ describe("openmeld start entry flow", () => {
     const selectMock = vi.mocked(prompts.select);
     const outroMock = vi.mocked(prompts.outro);
 
-    runDaemonBackgroundStartForDecisionMock.mockResolvedValue(
-      "failed_with_card"
-    );
+    runDaemonBackgroundStartForDecisionMock.mockResolvedValue({
+      outcome: "failed_with_card",
+      errorMessage: "OpenMeld Service could not start.",
+    });
     selectMock
       .mockResolvedValueOnce(START_DISCLAIMER_ACCEPT)
       .mockResolvedValueOnce(START_ACTION_USE_DEFAULT)

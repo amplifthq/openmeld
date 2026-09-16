@@ -17,7 +17,7 @@ export const getSpaceEntryResolutionInputSchema = spaceEntryTargetSchema;
 
 export const spaceEntryAllowedViewSchema = z.strictObject({
   state: z.literal("allowed"),
-  experience: z.enum(["member", "public"]),
+  experience: z.enum(["member", "public", "guest"]),
 });
 
 export const spaceEntryBlockedViewSchema = z.discriminatedUnion("state", [

@@ -17,6 +17,9 @@ import {
 import { AgentProfileProjectSelector } from "./agent-profile-project-selector";
 
 const RECOMMENDED_COPY_PATTERN = /Recommended/u;
+const desktopPlatform = vi.hoisted(() => vi.fn());
+const discovery = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({ getDesktopPlatform: desktopPlatform }));
 
 const { connectCandidate, connectPath, discoveryController } = vi.hoisted(
 	() => ({
@@ -54,7 +57,10 @@ const { connectCandidate, connectPath, discoveryController } = vi.hoisted(
 );
 
 vi.mock("#/components/projects/use-project-discovery", () => ({
-	useProjectDiscovery: () => discoveryController,
+	useProjectDiscovery: (input: unknown) => {
+		discovery(input);
+		return discoveryController;
+	},
 }));
 vi.mock("#/lib/connect/local-folder-picker", async (importOriginal) => {
 	const original =
@@ -76,6 +82,7 @@ vi.mock("#/lib/organizations/local-project-control", async (importOriginal) => {
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
+	desktopPlatform.mockReturnValue(null);
 	discoveryController.projectView.mockImplementation(() => ({
 		connections: [],
 		discovery: {
@@ -97,6 +104,96 @@ afterEach(() => {
 });
 
 describe("AgentProfileProjectSelector folder moves", () => {
+	it.each([
+		false,
+		true,
+	])("uses native A while current is B, and refuses an explicitly selected B: %s", async (remoteSelected) => {
+		const nativeTarget = { deviceId: "mac-a", runtimeLane: "canary" as const };
+		desktopPlatform.mockReturnValue({
+			localComputer: () =>
+				Promise.resolve({
+					status: "available",
+					accountId: "account-a",
+					target: nativeTarget,
+				}),
+		});
+		render(
+			<AgentProfileProjectSelector
+				disabled={false}
+				manualPath=""
+				onConnectionReady={vi.fn()}
+				onManualPathChange={vi.fn()}
+				onProjectChange={vi.fn()}
+				organizationId="org-1"
+				projectId="project-1"
+				projects={[project()]}
+				selectedBindingGeneration={null}
+				target={
+					remoteSelected
+						? { deviceId: "mac-b", runtimeLane: "canary" }
+						: undefined
+				}
+			/>
+		);
+		if (remoteSelected) {
+			await screen.findByRole("alert");
+			expect(discovery).not.toHaveBeenCalled();
+		} else {
+			await waitFor(() =>
+				expect(discovery).toHaveBeenCalledWith(
+					expect.objectContaining({ target: nativeTarget })
+				)
+			);
+		}
+		expect(connectPath).not.toHaveBeenCalled();
+		expect(connectCandidate).not.toHaveBeenCalled();
+	});
+	it("does not connect on selection or reuse confirmation after choosing another folder", async () => {
+		vi.mocked(selectLocalFolders)
+			.mockResolvedValueOnce({
+				status: "selected",
+				deviceId: "device-current",
+				paths: ["/work/First 中文"],
+			})
+			.mockResolvedValueOnce({
+				status: "selected",
+				deviceId: "device-current",
+				paths: ["/work/Second 中文"],
+			});
+		connectPath.mockRejectedValueOnce({
+			code: "gateway.upstream_error",
+			upstreamCode: "needs_confirmation",
+			message: "Confirm a non-Git folder.",
+			status: 409,
+		});
+		render(
+			<AgentProfileProjectSelector
+				disabled={false}
+				manualPath=""
+				onConnectionReady={vi.fn()}
+				onManualPathChange={vi.fn()}
+				onProjectChange={vi.fn()}
+				organizationId="org-1"
+				projectId="project-1"
+				projects={[project()]}
+				selectedBindingGeneration={null}
+			/>
+		);
+		fireEvent.click(
+			screen.getByText("Choose a Project folder on this computer")
+		);
+		await screen.findByText("/work/First 中文");
+		expect(connectPath).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByText("Connect"));
+		await screen.findByText("Connect anyway");
+		fireEvent.click(
+			screen.getByText("Choose a Project folder on this computer")
+		);
+		await screen.findByText("/work/Second 中文");
+		expect(screen.queryByText("Connect anyway")).toBeNull();
+		expect(screen.getByText("Connect")).toBeTruthy();
+		expect(connectPath).toHaveBeenCalledTimes(1);
+	});
 	it("shows three independent working-folder sources", async () => {
 		discoveryController.projectView.mockReturnValue({
 			connections: [

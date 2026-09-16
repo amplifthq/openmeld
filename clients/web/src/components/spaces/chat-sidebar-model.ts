@@ -67,10 +67,12 @@ export function mergeChatPreferences(
 }
 
 export type Chat = {
+	messagePreview?: AccountSpaceItem["messagePreview"];
 	spaceId: string;
 	name: string | null;
 	createdAt: string | null;
 	viewerProfileId?: string;
 	peer?: ReturnType<typeof resolveDirectMessagePeer>;
 	session?: boolean;
+	centerAgentProfileName?: string;
 };

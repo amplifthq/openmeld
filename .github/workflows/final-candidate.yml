@@ -4,16 +4,17 @@ run-name: Final Candidate PR #${{ github.event.pull_request.number }} @ ${{ gith
 on:
   pull_request_target:
     branches: [main]
-    types: [opened, synchronize, reopened, ready_for_review, labeled]
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled]
 
 concurrency:
   group: >-
     ${{
       github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.draft == false &&
-      (github.event.action != 'labeled' ||
-       github.event.label.name == 'final-candidate' ||
-       github.event.label.name == 'final-candidate-full') &&
+      (github.event.action == 'converted_to_draft' ||
+       (github.event.pull_request.draft == false &&
+        (github.event.action != 'labeled' ||
+         github.event.label.name == 'final-candidate' ||
+         github.event.label.name == 'final-candidate-full'))) &&
       format('final-candidate-{0}', github.event.pull_request.number) ||
       format('ignored-final-candidate-event-{0}', github.run_id)
     }}
@@ -160,7 +161,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
+          pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --prod --ignore-scripts
 
       - name: Install candidate dependencies without repository scripts
         env:
@@ -268,11 +269,9 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: "24"
-          cache: pnpm
-          cache-dependency-path: trusted-control/pnpm-lock.yaml
 
       - name: Install the shared evidence parser only
-        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --ignore-scripts
+        run: pnpm --dir trusted-control install --frozen-lockfile --filter @openmeld/schemas --prod --ignore-scripts
 
       - name: Download candidate evidence
         continue-on-error: true

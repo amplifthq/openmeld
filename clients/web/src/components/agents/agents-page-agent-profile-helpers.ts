@@ -24,6 +24,7 @@ import {
 } from "@openmeld/ui/lib/status-tone";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { isAgentExecutionSelfHealingReadiness } from "#/lib/spaces/agent-route-status";
+import { compareAgentListRecency } from "./agent-list-model";
 import { normalizeOptionalText } from "./agents-page-formatters";
 
 type AgentsPageController = ReturnType<typeof useLocalAgentRecoveryController>;
@@ -156,32 +157,14 @@ export function sortAgentProfilesForDisplay(input: {
 	readinessByProfileId: ReadonlyMap<string, GetAgentExecutionReadinessResponse>;
 }): readonly AuthProfileView[] {
 	return [...input.profiles].sort((left, right) => {
-		const leftBindingRank = hasSpecificLocalAgentBinding({
-			profileId: left.openMeldProfileId,
-			readinessByProfileId: input.readinessByProfileId,
-		})
-			? 0
-			: 1;
-		const rightBindingRank = hasSpecificLocalAgentBinding({
-			profileId: right.openMeldProfileId,
-			readinessByProfileId: input.readinessByProfileId,
-		})
-			? 0
-			: 1;
 		return (
-			leftBindingRank - rightBindingRank ||
-			compareIsoDateTimeDescending(left.updatedAt, right.updatedAt) ||
-			compareIsoDateTimeDescending(left.createdAt, right.createdAt) ||
+			compareAgentListRecency(left, right) ||
 			left.profileName.localeCompare(right.profileName, undefined, {
 				sensitivity: "base",
 			}) ||
 			left.openMeldProfileId.localeCompare(right.openMeldProfileId)
 		);
 	});
-}
-
-function compareIsoDateTimeDescending(left: string, right: string): number {
-	return Date.parse(right) - Date.parse(left);
 }
 
 export function hasSpecificLocalAgentBinding(input: {

@@ -1,7 +1,10 @@
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
-import { rpcExecuteAgentProfileWorkRecovery } from "../src/rpc/methods";
+import {
+  rpcAgentProfileExecutionMode,
+  rpcExecuteAgentProfileWorkRecovery,
+} from "../src/rpc/methods";
 import {
   applyDrizzleMigrationForTable as applyMigrationForTable,
   createSqliteD1Harness,
@@ -25,6 +28,47 @@ const CONTEXT: OpenMeldRequestContext = {
 };
 
 describe("Agent Profile work recovery Core RPC", () => {
+  it("applies serial admission only through current Organization owner authorization", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub();
+    const env = createEnv({ db: harness.db, runtimeTransportStub });
+    try {
+      for (const context of [
+        { ...CONTEXT, activeOrganizationId: "org-2" },
+        {
+          ...CONTEXT,
+          actorContext: { ...CONTEXT.actorContext, ownerUserId: "other-owner" },
+        },
+      ]) {
+        await expect(
+          rpcAgentProfileExecutionMode(env, {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: { mode: "serial" },
+            context,
+          })
+        ).rejects.toThrow();
+      }
+      expect(
+        runtimeTransportStub.rpcAgentProfileExecutionMode
+      ).not.toHaveBeenCalled();
+      await expect(
+        rpcAgentProfileExecutionMode(env, {
+          agentProfileId: AGENT_PROFILE_ID,
+          body: { mode: "serial" },
+          context: CONTEXT,
+        })
+      ).resolves.toMatchObject({ mode: "serial", migration: "contexts" });
+      expect(
+        runtimeTransportStub.rpcAgentProfileExecutionMode
+      ).toHaveBeenCalledWith({
+        ownerUserId: "owner-1",
+        targetProfileId: AGENT_PROFILE_ID,
+        mode: "serial",
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it("rejects requests outside the Profile's canonical Organization before reading recovery state", async () => {
     const harness = createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub();
@@ -522,6 +566,14 @@ function createRuntimeTransportStub(input?: {
         | { status: "not_pending" });
 }) {
   return {
+    rpcAgentProfileExecutionMode: vi.fn(
+      async (request: { mode?: "parallel" | "serial" }) => ({
+        agentProfileId: AGENT_PROFILE_ID,
+        mode: request.mode ?? "parallel",
+        migration: "contexts" as const,
+        revision: 4,
+      })
+    ),
     rpcApproveAgentProfileWorkQueue: vi.fn(async () => ({
       status: "approved" as const,
     })),

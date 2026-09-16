@@ -63,7 +63,7 @@ export function OrganizationInvitationRequestForm(input: {
 							className="underline"
 							params={{ orgSlug: currentOrganization.slug }}
 							search={{ requestId: request.data[0].id }}
-							to="/o/$orgSlug/settings/invitations"
+							to="/o/$orgSlug/inbox"
 						>
 							View request
 						</Link>

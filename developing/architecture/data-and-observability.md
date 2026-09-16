@@ -20,6 +20,42 @@
 - Source of truth: This file owns the durable architecture boundary for data
   ownership and observability.
 
+## Human Presence
+
+Core owns Organization-scoped Human presence independently of Computer connection,
+Agent Activity, Wakeability, and historical member activity. Authenticated Web
+pages report their own random session ID and increasing sequence through
+`/v1/organizations/current/member-presence`; Core re-verifies the current member
+and active Human Profile and assigns all timestamps. One active session makes
+the member Online. A departing page affects only itself. Older or duplicate
+reports cannot renew a lease or overwrite a newer departure.
+
+Active foreground pages renew every 30 seconds. A lease expires after 90 seconds,
+and five minutes without a Human interaction independently ends online presence.
+Heartbeat-only sessions cannot establish presence. A temporary loss of focus or
+hidden tab stops renewals without sending a departure; the existing 90-second
+server lease bounds this grace period. Returning to the foreground resumes the
+same session. Space navigation within one Organization does not recreate it.
+Page departure or account/Organization exit ends its lease;
+missing departure delivery relies on expiry. Expired records retain ordering and
+are pruned on the member's next write after 24 hours; they are not an activity log.
+Reads re-check current Organization membership and current active profile identity.
+Clients consume one authorized batch projection, never Computer state or
+`lastActiveAt` to determine Online. Errors or missing evidence remain unknown.
+
+Historical activity stays in `organization_member_activity`. Web entry, foreground
+return, and actual interaction may advance it through its existing bounded writer;
+presence renewals alone do not. Accepted Human messages retain their historical
+activity semantics and do not claim sustained online presence. Space visit time
+keeps its own scope. No system-wide input or interaction contents are collected.
+
+The new endpoint and table are additive. Existing directory and activity payloads
+are unchanged for older CLI, Service, Skills, and cloud clients. Deployment order
+is additive database migration, Core, Gateway, then Web. New Web against an older
+receiver displays unknown presence; it never falls back to Computer connection.
+Setup, Wake, Space actions, and diagnostics remain interoperable without a local
+component contract bump. Rollback may retain the additive table.
+
 ## Space pin ownership
 
 Space Durable Object SQLite owns message and file pins, in separate
@@ -31,6 +67,13 @@ omitted. Retrying a pin preserves its original owner and timestamp, and unpin
 ownership is checked synchronously before deletion in the owning Space.
 
 ## Space message previews and slow Web experiences
+
+Space member snapshots use the existing request-local D1 read batch for Agent
+readiness profile reads. The batch changes transport round trips only: owning
+repositories retain SQL, validation, identity checks, and failure semantics.
+No readiness result survives into the next request, and separate physical
+databases never share a batch. Bootstrap keeps its current response and
+authorization contract.
 
 Space owns message preview truth. Message publication and retention capture a
 bounded text preview and a monotonically increasing Space-local revision into
@@ -62,6 +105,53 @@ The receiver validates payload size/shape and applies the current threshold
 and a best-effort per-isolate volume cap. These diagnostics are sampled failure
 evidence, not a complete traffic or latency distribution. Worker log retention
 governs how far back an investigation can look.
+
+The same receiver also accepts `kind=space_open`, logged as
+`web.openmeld.space_open`. An ephemeral attempt starts at browser initialization
+for a direct Space URL or at router navigation to a different Space path. Public
+to organization-route canonicalization preserves that attempt. Same-path focus
+changes are not new openings. The observation survives router resolution and
+ends only after confirmed access, rendered messages or a valid empty state,
+and an editable composer or a read-only presentation. Render milestones run
+after a paint opportunity; they are not exact browser paint timestamps, proof
+of Send admission, or evidence that Agents are online. Failures, access barriers,
+and navigation away remain distinct outcomes. Hidden time is disclosed, not
+subtracted or presented as foreground latency.
+
+After five seconds, a still-pending snapshot records the current stage, the
+entry query's status/fetch status/failure count, visibility, and the browser's
+online hint. That hint never controls readiness. Up to eight target-Space JSON
+requests begun during the attempt record preparation, send, response headers,
+validation, completion or failure, phase timings, HTTP status, and existing
+`x-openmeld-request-id` values. Requests already running before the attempt,
+server functions, and requests outside this allowlist are not covered by this
+detail; an empty list does not mean no network work occurred. No body is cloned
+or logged. Application-error reports share the ephemeral page and attempt IDs.
+The prolonged access-check surface can copy the attempt ID and attempt a
+best-effort snapshot submission; copying is not a delivery receipt.
+
+Ten percent of attempts are selected at start independently of latency. Completed
+normal-cohort reports (`sampling=normal`) support comparison of fast and slow
+opens. Additional slow and failure samples are separate cohorts; do not pool
+them into unweighted percentiles. Normal, slow, failure, and user-requested
+reports each have a separate twenty-per-hour browser quota. Receiver caps,
+visibility, missing terminal events, and best-effort delivery still limit the
+distribution; this is not complete traffic accounting. Legacy interaction
+reports remain accepted; new interactions use null for uncollected request and
+long-task metrics rather than claiming zero.
+
+Cache observations read the existing identity-scoped display/history queries
+at browser-cache activation and actual restore (`memory`, `restored`, or `cold`). Intent
+prefetch provenance is bounded to twenty ephemeral route/profile keys and five
+minutes; `complete` means observed prefetch completion, not guaranteed cache
+freshness or a cache hit. Unknown is retained when no provenance was observed.
+Neither these labels nor telemetry IDs authorize access or write product state.
+The shared schemas accept existing version-1 reports with additive optional
+diagnostics; new report kinds and nullable metrics require the updated Web
+receiver. Old Web assets remain accepted by new Web. A new asset talking to an
+older receiver may lose only diagnostics, with no effect on API results, access,
+setup, Wake, or publication. No CLI, Service, Core, or Gateway protocol changes
+or deployment are required by this Web-only telemetry extension.
 
 ## Boundary
 
@@ -125,20 +215,34 @@ Deleting the Space removes its input outbox with the rest of Space data.
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
-RuntimeTransportHub Durable Object. Each Profile has one current record with
-the running lifecycle id, at most 50 ordered waiting lifecycle ids, and only the
-minimum pending-promotion or recovery-hold metadata. It is current scheduling
+RuntimeTransportHub Durable Object. Each Profile has one current admission
+record with up to five reservations, at most 50 ordered waiting lifecycle ids,
+and bounded pending-promotion or recovery-hold metadata. The decoder retains
+previously accepted five-reservation records during a policy reduction. For
+Context-enabled Profiles this supersedes the former one-slot FIFO projection;
+the first reserved item is a compatibility view, not the only running Wake.
+The durable migration boundary and serial/parallel policy share this owner and
+survive idle queue cleanup. It is current scheduling
 state, not an append-only history. Complete prompts, attachments, and Space
 context remain in the Space durable outbox; durable execution and final-outcome
 evidence remain in the existing RuntimeCoordinator and Dispatch Ledger domains.
+
+Context, exact-Wake association, completed-history checkpoint, and native-ID
+reverse index records live in the same owner shard, outside the hot queue.
+They preserve continuity after Head retirement; they do not confer execution
+authority. A native conversation cannot belong to two Contexts in the same
+Runtime and Controller namespace. A frozen legacy association preserves its
+original unclassified visibility rather than adopting the last Space's scope.
 
 D1 may project `profile_queue_waiting`, queue counts, and correlation ids for
 queries and diagnostics. Those rows never promote work, reconstruct a Wake
 payload, or decide execution. Durable evidence useful for one collaboration's
 audit or trace follows the existing retention policy. Current coordinator
-snapshots, inactive admission rows, and execution head references are removed
-when they no longer own active work, recovery, promotion, or pending
-publication. Final publication records may keep their exact lifecycle record
+snapshots, inactive admission rows without durable mode/migration state, and
+execution head references are removed when they no longer own active work,
+recovery, promotion, or pending publication. Retained per-Profile policy does
+not count as active execution or keep a Profile in the active-work index.
+Final publication records may keep their exact lifecycle record
 for idempotent replay, but they are removed from the historical lifecycle
 index. A completed execution head may be deleted only after its deterministic
 terminal execution-token authority can reject the same head and dispatch on
@@ -182,7 +286,12 @@ Auth also owns `account_sidebar_preferences`, keyed by account user ID and
 Organization ID. It stores personal group names, opaque Space IDs, section sort
 modes, and manual ordering. Membership gates reads and writes; revision-checked
 updates reject stale devices instead of overwriting newer preferences. These
-preferences never grant Space access, write pins, or change Space membership.
+preferences never grant Space access, write ordinary Space/DM pin membership,
+or change Space membership. The shared Conversations Pinned section reads its
+manual order from the existing root `pinned.spaceIds`; ordinary pin membership
+continues to come from Space Index. Center Agent session pins remain in the
+existing `chats` preferences. Grouped and Recent are two Web presentations of
+these same owners, with no new conversation store or execution authority.
 The Web renders only Spaces returned by the existing authorized Space Index.
 Deleting a personal group removes its presentation association only.
 
@@ -218,6 +327,20 @@ Deleting a personal group removes its presentation association only.
 | Space Index                        | Cross-Space list projection.                                                                                                                                                                        | Rebuildable projection from Space truth.                                                                                                                                                                                                                                                                                                                               |
 | Ephemeral                          | Short-lived handoff/session state.                                                                                                                                                                  | Temporary state, not a permanent domain.                                                                                                                                                                                                                                                                                                                               |
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
+
+Inbox message notification preferences have two Core-owned D1 records:
+`inbox_message_notification_defaults` stores one mode per account, and
+`inbox_conversation_notification_preferences` stores explicit overrides per
+account, Organization, and Space. Absence of an override means live inheritance.
+These records never write Inbox read state, urgency, email deliveries, or Space
+membership. Core verifies active Organization membership and current conversation
+access before reading or changing a conversation preference. Browser delivery
+re-reads the authorized preference after its delivery lock; browser-local
+permission and sound settings remain local.
+Conversation preferences currently cascade on account or Organization deletion,
+but a deleted Space's override row remains inaccessible until that cascade.
+The active-Space access check excludes it from preference reads and writes;
+the row does not retain message content or grant Inbox visibility.
 
 Agent Profile Creation Requests keep the approval/update time, execution attempt
 number, and optional start time on the Core-owned request row. Recovery covers
@@ -400,6 +523,32 @@ preparation failure or exact completed replay does not create a misleading
 audit row.
 
 ## Connector Connection Data Boundary
+
+Connection access policy and revision live on `connector_connections`.
+`connector_access_events` records the actor, prior and next policies, and the
+new revision in the same D1 transaction as a conditional policy update. These
+records contain no provider credentials. Core owns this policy for Center,
+Local, and personal Remote Agent consumers.
+
+Local plugin calls reuse `center_agent_connector_action_operations` and the
+existing audit journal; its historical physical name does not restrict its
+consumer. A claim freezes the authenticated Agent, represented member, selected
+connection, input signature, and operation ID. An exact replay returns that
+record, including after revocation, and never starts a second provider call.
+New operations recheck access immediately before claiming. A revocation blocks
+new admission; it does not cancel a provider action already admitted.
+Unknown provider outcomes remain unknown and require investigation rather than
+automatic resubmission. Provider response data is returned to the caller but
+is not copied into the operation ledger.
+
+`plugin_action_confirmations` stores short-lived, exact-request confirmations
+bound to the organization, Agent, signature (including operation ID), and access
+revision. The operation ledger fences duplicate execution. Expired confirmation
+rows are removed when issuing new confirmations. The existing Remote Agent
+worker hosts the credential-bearing executor through an internal service
+binding, independently of any conversation or LLM. It rechecks provider action
+metadata against the admitted effect before execution. No broad runtime token
+or provider credential is returned to a CLI.
 
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,
@@ -975,6 +1124,14 @@ attribution. Its SQLite tables are canonical business state, not a D1
 projection. No Resources, Organization Documents, Center Agent Computer, or
 Space Index table mirrors this tree.
 
+The same Space owns `space_file_update_settings` and
+`space_file_update_outbox`. The file revision transaction enqueues notification
+intent only when a human has configured recipients; the deterministic identity
+is the file id plus revision. Alarm recovery publishes through the ordinary
+Space message, Inbox projection, and dispatch outbox paths, rechecking current
+consent and access. Retry state stores its last error and next attempt locally.
+These rows do not own Wake execution or claim that recipients read the file.
+
 Private immutable revision bytes live in the Space file R2 binding under the
 shared key constructor:
 
@@ -1141,6 +1298,20 @@ lookup errors. Audit action set `v12` includes this row; older strict readers
 exclude it.
 
 ## Runtime Transport Session Disconnect Diagnostics
+
+RuntimeCoordinator event writes preserve all existing valid event IDs. If the
+length-prefixed identity exceeds the shared 512-character bound, the writer uses
+a deterministic SHA-256 identity instead; the complete execution ID and
+idempotency key remain separate columns. Oversized legacy IDs never passed the
+schema, so this correction preserves replay identity for previously stored rows.
+Token redaction and payload validation still apply.
+
+Service-runtime restoration and awaited persistence propagate storage failures.
+A failed storage read is not an empty successful restore, and an awaited failed
+write cannot be reported as durable success. Diagnostic logs preserve bounded
+platform error text, any supplied platform reference, and explicit retryable or
+overloaded flags; missing flags remain unknown. These flags do not authorize
+unbounded retries inside a broken Durable Object.
 
 The owner-scoped Runtime Transport Durable Object owns the bounded session
 disconnect diagnostic projection. The socket close and socket error handlers
@@ -2933,6 +3104,65 @@ CLI trace is a user-operable diagnostic surface. Operator shortcuts may wrap it,
 but they must stay thin wrappers and must not become direct D1 readers or a
 second trace system.
 
+### Automatic Wake failure discovery
+
+`pnpm ops:wake-failures` is the privileged developer failure list. It discovers
+automatically retained failure facts without a user submitting Send report.
+Dispatch attempts own execution/admission failure evidence; RuntimeCoordinator
+execution events own workstation reply-publication failure evidence. The list
+is a read projection of these existing records, not a new report table, writer,
+notification queue, or execution authority. Unlike trace wrappers, this bounded
+discovery command may read these D1 projections using operator credentials.
+Detailed investigation still uses the authorized Space trace and Cloudflare
+selectors returned in each record. Discovery does not grant Space membership.
+
+The default interval is 24 hours; a request is limited to 30 days and 200 rows.
+The cursor uses the observation timestamp plus the source record ID, and callers
+reuse the returned interval for later pages. Group counts cover only the current
+page. Attempt observation uses its first recorded finish time, falling back to
+creation time only for older rows without a finish timestamp. Existing evidence
+retention applies; missing or delayed projection writes
+are not inferred as successful executions. A missing correlation row preserves
+the failure with null pointers instead of silently dropping it.
+
+Repeated lifecycle callbacks update one attempt primary key; publication events
+use their existing idempotency key. Independent failed attempts remain auditable
+even after a later successful attempt. Groups separate attempt failures from
+publication failures and preserve the structured reason code. Retryable failures
+are not represented as final Wake outcomes. The exact admission reasons
+`runtime_coordinator.device_waiting` and
+`runtime_coordinator.agent_profile_execution_active` describe expected waiting
+and are excluded only on retryable attempts. Terminal failures remain visible
+even if they reuse one of those reason codes. User cancellation, running work,
+and success are not failures.
+No failure produces a new message, GitHub Issue, or human Diagnostic Report.
+The command selects identifiers, statuses, timestamps, and reason codes only;
+it never selects prompts, result bodies, raw error messages, or event payloads.
+
+Remote Agent observes each provider stream's terminal `done` or `error` event
+before empty-response retry suppression and token-usage merging. The shared
+`remoteAgentProviderCompletionSchema` bounds the structured completion log:
+submission ID, call ID, provider attempt number, response ID, stop reason,
+allowlisted raw stop reason, trimmed text/thinking lengths, tool count, and
+numeric usage. It excludes text, reasoning, tool arguments, and error bodies.
+The existing Analytics Engine execution-stage event also records the content
+kind and stop reason, for example `provider.completed_empty_stop`. A completed
+provider stream is not proof of a successful Wake or published reply.
+
+An empty or thinking-only completion is recorded as a failed provider stage,
+even when transport completed normally. Attempt two records `recovered_*` or
+`recovery_exhausted_*`; non-deliverable completions use warning-level structured
+logs. Group these existing events by model and call ID to measure recovery rate,
+repeated failures, added latency, and token cost. Provider rerouting remains the
+existing OpenRouter same-model policy. These measurements do not automatically
+change a selected model or create user-submitted Diagnostic Reports.
+
+Completion observation adds no retry, per-token logging, execution timeout, or
+cross-service payload field. Reporter failure cannot interrupt stream delivery.
+These completion logs follow Workers log retention/access and Analytics Engine
+sampling; they are supporting evidence, not an unsampled durable failure ledger.
+An absent terminal event remains an evidence gap, not proof of an empty response.
+
 `EvidenceSyncHealth` is an owner-only diagnostic read model for explaining
 whether the evidence channels behind Wakeability were read, missing,
 stale, degraded, or blocked. It may compose Agent Profile identity, Binding,
@@ -2946,6 +3176,42 @@ Diagnostic surfaces such as CLI trace may show `EvidenceSyncHealth` to owners
 and operators so they can understand which evidence channel needs attention.
 
 ## Diagnostic Reports
+
+### Automatic Service connection evidence
+
+Service connection incidents are bounded operational evidence, separate from
+user-submitted Diagnostic Reports. The Service derives them from its existing
+carrier recovery identifier and lifecycle events. They do not own connection,
+readiness, retry policy, or Wake outcomes.
+
+`openmeld_service_connection_incidents` belongs to Diagnostics and uses
+`wakeEvidenceDb` (currently the shared production database). Reports contain
+only schema-whitelisted phases, times, safe native error codes, optional request
+IDs, opaque connection IDs, device/lane identity and Service version. No token,
+credential fingerprint, raw error, path, prompt, transcript or tool input is
+accepted. Gateway bounds a report to 128 KiB before JSON parsing.
+
+The uploader must authenticate as the owner and match the current registered
+device/lane Service session. Historical incidents can come from an earlier
+Service process on that same account and device. An immutable owner/incident
+key makes replay idempotent; conflicting evidence is rejected. Store at most
+100 incidents per owner/device/lane and expose at most 20 per read. The existing
+daily Core retention schedule deletes receipts older than 30 days in bounded
+batches, independently of the disabled physical-database-split retention gate.
+Expired records are excluded from reads immediately.
+
+Only the computer owner can read these details through Computer Connection
+history. Team membership alone does not grant access. The existing Wake Trace
+can opt into `serviceConnectionDiagnostics`; Core first authorizes the Space
+trace, verifies the runtime's account owner, and returns incident IDs whose
+intervals overlap that execution. Overlap is correlation, not proof of cause.
+No opt-in means no new response field, preserving strict older trace clients.
+An unavailable evidence read must not hide the underlying execution trace.
+
+Explicit owner-authorized sharing remains necessary for another teammate or
+support to receive the private incident contents.
+
+### User-submitted reports
 
 A Diagnostic Report is a user-submitted event.
 

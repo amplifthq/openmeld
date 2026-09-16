@@ -9,6 +9,7 @@ export type SpaceComposerProfileElement = TElement & {
 	mentionText: string;
 	profileId: string;
 	relation: MessageMentionType;
+	wakeRecommendationAccepted?: boolean;
 	type: typeof SPACE_COMPOSER_PROFILE_ELEMENT_TYPE;
 };
 

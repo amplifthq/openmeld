@@ -42,6 +42,11 @@ vi.mock("@tanstack/react-router", async () => {
 	);
 	return {
 		...actual,
+		useLocation: ({
+			select,
+		}: {
+			select: (location: { pathname: string }) => string;
+		}) => select({ pathname: "/o/acme/inbox" }),
 		Link: ({ children, to }: { children: ReactNode; to: string }) => (
 			<a href={to}>{children}</a>
 		),
@@ -53,6 +58,10 @@ vi.mock("#/query/organizations/invitation-requests", () => ({
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization,
+		currentUserId: "user-123",
+	}),
 	useAppOrganization: () => ({
 		currentOrganization,
 		currentUserId: "user-123",
@@ -136,6 +145,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -154,6 +164,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -164,6 +175,7 @@ describe("Web Settings capability gating", () => {
 			testSettingsRoutes.appearance,
 			testSettingsRoutes.notifications,
 			testSettingsRoutes.privacy,
+			testSettingsRoutes["center-agent"],
 			testSettingsRoutes.general,
 			testSettingsRoutes.members,
 			testSettingsRoutes.invitations,
@@ -182,6 +194,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -191,7 +204,30 @@ describe("Web Settings capability gating", () => {
 });
 
 describe("Settings grouped navigation", () => {
-	it("shows Personal and the current organization name with the organization role", () => {
+	it("uses section actions instead of full-page links inside the dialog", () => {
+		const onNavigate = vi.fn();
+		render(
+			<SettingsInnerSidebar
+				activeSectionId="account"
+				isPersonalWorkspace={false}
+				items={toSettingsNavItems(
+					resolveSettingsSections(testSettingsSections, CLOUD_CAPABILITIES)
+				)}
+				onNavigate={onNavigate}
+				onSendFeedback={vi.fn()}
+				organizationName="Acme"
+				organizationRole="owner"
+				presentation="dialog"
+			/>
+		);
+		expect(screen.queryAllByRole("link")).toHaveLength(0);
+		fireEvent.click(screen.getByRole("button", { name: "Appearance" }));
+		expect(onNavigate).toHaveBeenCalledWith("appearance");
+		fireEvent.click(screen.getByRole("button", { name: "Invitations" }));
+		expect(onNavigate).toHaveBeenLastCalledWith("invitations");
+	});
+
+	it("shows Personal and the current organization name without redundant badges", () => {
 		const onSendFeedback = vi.fn();
 		const navItems = toSettingsNavItems(
 			resolveSettingsSections(testSettingsSections, CLOUD_CAPABILITIES)
@@ -230,10 +266,7 @@ describe("Settings grouped navigation", () => {
 			Array.from(
 				organizationLabel?.querySelectorAll("[data-slot=badge]") ?? []
 			).map((badge) => badge.textContent)
-		).toEqual(["Org", "owner"]);
-		expect(screen.getByLabelText("Organization role: owner").textContent).toBe(
-			"owner"
-		);
+		).toEqual([]);
 		const personalNavigation = screen.getByRole("navigation", {
 			name: "Personal settings",
 		});
@@ -263,7 +296,13 @@ describe("Settings grouped navigation", () => {
 					.getByRole("navigation", { name: "Acme settings" })
 					.querySelectorAll("a")
 			).map((link) => link.textContent)
-		).toEqual(["General", "Members", "Invitations", "Security"]);
+		).toEqual([
+			"General",
+			"Center Agent",
+			"Members",
+			"Invitations",
+			"Security",
+		]);
 	});
 
 	it("uses the shared compact app-nav scale for labels and items", () => {
@@ -324,7 +363,9 @@ describe("Settings grouped navigation", () => {
 					<SettingsPage activeSectionId="account" />
 				</TestQueryClientProvider>
 			);
-			await screen.findByLabelText("Organization role: owner");
+			if (!organization.isPersonal) {
+				await screen.findByRole("link", { name: "Security" });
+			}
 			const groupLabel = screen.getByRole("heading", {
 				level: 2,
 				name: organizationLabel,
@@ -369,11 +410,24 @@ describe("Settings grouped navigation", () => {
 			slug: "felix",
 		});
 
-		expect(personalItems.personal).toEqual(organizationItems.personal);
+		expect(personalItems.personal).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Center Agent",
+			"Send feedback",
+		]);
 		expect(personalItems.organization).toEqual(["General"]);
 		expect(organizationItems).toEqual({
-			badges: ["Org", "owner"],
-			organization: ["General", "Members", "Invitations", "Security"],
+			badges: [],
+			organization: [
+				"General",
+				"Center Agent",
+				"Members",
+				"Invitations",
+				"Security",
+			],
 			organizationLabel: "Acme",
 			personal: [
 				"Account",
@@ -385,7 +439,7 @@ describe("Settings grouped navigation", () => {
 			storedOrganizationNameVisible: true,
 		});
 		expect(personalItems).toEqual({
-			badges: ["owner"],
+			badges: [],
 			organization: ["General"],
 			organizationLabel: "Felix",
 			personal: [
@@ -393,6 +447,7 @@ describe("Settings grouped navigation", () => {
 				"Appearance",
 				"Notifications",
 				"Privacy & Safety",
+				"Center Agent",
 				"Send feedback",
 			],
 			storedOrganizationNameVisible: true,

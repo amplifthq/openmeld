@@ -20,6 +20,37 @@ import {
 } from "./use-space-mention-authoring";
 
 describe("useSpaceMentionAuthoring composer drafts", () => {
+	it("keeps typed Thread text unchanged when member loading completes", () => {
+		let loading = true;
+		const composer = renderHook(() =>
+			useSpaceMentionAuthoring({
+				composerDraftScope: {
+					kind: "space_thread",
+					ownerAccountId: "account-1",
+					profileId: "human-1",
+					spaceId: "space-1",
+					threadId: "thread-continuation",
+				},
+				isMembersLoading: loading,
+				membersErrorMessage: null,
+				snapshot: null,
+				spaceId: "space-1",
+				openMeldProfileId: "human-1",
+			})
+		);
+		expect(composer.result.current.composerText).toBe("");
+		act(() =>
+			composer.result.current.onComposerEditorChange({
+				text: "Please continue",
+				authoredMentions: [],
+				selection: { start: 15, end: 15 },
+			})
+		);
+		loading = false;
+		composer.rerender();
+		expect(composer.result.current.composerText).toBe("Please continue");
+		expect(composer.result.current.authoredMentions).toEqual([]);
+	});
 	it.each([
 		"available_for_wake",
 		"offline_for_wake",
@@ -56,16 +87,12 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 		expect(result.current.authoredMentions).toEqual([
 			expect.objectContaining({
 				profileId,
-				relation: status === "available_for_wake" ? "wake" : "reference",
+				relation: "wake",
 			}),
 		]);
 		const submission = result.current.prepareSubmission("Members unavailable");
-		expect(submission.messageEnvelope?.activationTargets).toEqual(
-			status === "available_for_wake" ? [profileId] : []
-		);
-		expect(submission.messageEnvelope?.referenceTargets).toEqual(
-			status === "offline_for_wake" ? [profileId] : []
-		);
+		expect(submission.messageEnvelope?.activationTargets).toEqual([profileId]);
+		expect(submission.messageEnvelope?.referenceTargets).toEqual([]);
 		expect(() =>
 			result.current.composeExpiredDeviceWait({
 				sourceSignalId: "other-source",
@@ -360,35 +387,51 @@ describe("useSpaceMentionAuthoring composer drafts", () => {
 });
 
 describe("buildSpaceMentionTargetItems", () => {
-	it("defaults a blocked Agent to Reference while keeping it in the picker", () => {
+	it.each([
+		false,
+		true,
+	])("defaults an offline Agent to Wake only when waiting is supported: %s", (canWait) => {
 		const [item] = buildSpaceMentionTargetItems({
 			query: "@runner",
 			snapshot: createSpaceMembersSnapshot({
 				agents: [
-					createSpaceMemberAgentSnapshot({
-						agentWakeAvailability: {
-							action: "connect_service",
-							badgeLabel: "Offline",
-							category: "offline",
-							isRefreshing: false,
-							label: "Offline for Wake",
-							phase: "service_not_connected",
-							reasonCode: "service.not_running",
-							status: "offline_for_wake",
-							summary: "Connect your computer before this agent can reply.",
-							tooltip: "Computer not connected",
-						},
-						profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-						profileName: "Runner",
-					}),
+					{
+						...createSpaceMemberAgentSnapshot({
+							agentWakeAvailability: {
+								action: "connect_service",
+								badgeLabel: "Offline",
+								category: "offline",
+								isRefreshing: false,
+								label: "Offline for Wake",
+								phase: "service_not_connected",
+								reasonCode: "service.not_running",
+								status: "offline_for_wake",
+								summary: "Connect your computer before this agent can reply.",
+								tooltip: "Computer not connected",
+							},
+							profileId: "agt_aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+							profileName: "Runner",
+						}),
+						deviceWaitTarget: canWait
+							? {
+									bindingId: "binding-1",
+									openMeldServiceRuntimeId: "runtime-1",
+								}
+							: undefined,
+					},
 				],
 			}),
 		});
 
 		expect(item).toBeDefined();
 		expect(
-			item ? resolveDefaultSpaceComposerMentionRelation(item.suggestion) : null
-		).toBe("reference");
+			item
+				? resolveDefaultSpaceComposerMentionRelation(
+						item.suggestion,
+						item.agentMember
+					)
+				: null
+		).toBe(canWait ? "wake" : "reference");
 	});
 
 	it("orders non-recent mention targets by the same visible status order as the members panel", () => {

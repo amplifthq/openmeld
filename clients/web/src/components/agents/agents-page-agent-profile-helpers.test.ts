@@ -413,7 +413,7 @@ describe("Agent Profile availability presentation", () => {
 		).toBe(false);
 	});
 
-	it("sorts Agent Profiles by binding first, then recency, then stable identity", () => {
+	it("sorts by creation when task activity is absent, regardless of binding or edits", () => {
 		const oldestBoundProfile = createExpiredWakeRouteProfile(
 			"agt-older-bound",
 			"Older Bound Agent",
@@ -482,11 +482,11 @@ describe("Agent Profile availability presentation", () => {
 				]),
 			}).map((profile) => profile.openMeldProfileId)
 		).toEqual([
-			oldestBoundProfile.openMeldProfileId,
 			newestUnboundProfile.openMeldProfileId,
 			olderUnboundProfile.openMeldProfileId,
 			sameDateAProfile.openMeldProfileId,
 			sameDateBProfile.openMeldProfileId,
+			oldestBoundProfile.openMeldProfileId,
 		]);
 	});
 });

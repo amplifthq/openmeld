@@ -20,6 +20,7 @@ import {
 } from "./send-files";
 
 export async function runSend(input: {
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   wakeTargets?: readonly string[];
   referenceTargets?: readonly string[];
   mentionTargets?: readonly string[];
@@ -163,6 +164,7 @@ export async function runSend(input: {
   const replyToSignalId = String(input.replyToSignalId ?? "").trim();
   const payload = replyToSignalId
     ? await postReplyIntoThread({
+        contextSelection: input.contextSelection,
         spaceApi,
         space,
         requestContext,
@@ -174,6 +176,7 @@ export async function runSend(input: {
         files,
       })
     : await spaceApi.postNormalMessage({
+        contextSelection: input.contextSelection,
         spaceId: space,
         requestContext,
         ...(input.password === undefined
@@ -209,6 +212,7 @@ export async function runSend(input: {
 // otherwise unable to start a thread — only web did before). Reuses the existing
 // createThread/postThreadSignal API; backend untouched.
 async function postReplyIntoThread(input: {
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   spaceApi: ReturnType<typeof createCliSpaceApi>;
   space: string;
   requestContext: import("@openmeld/schemas/types").OpenMeldRequestContext;
@@ -248,6 +252,7 @@ async function postReplyIntoThread(input: {
     requestContext: input.requestContext,
     ...(input.password === undefined ? {} : { spacePassword: input.password }),
     body: {
+      contextSelection: input.contextSelection,
       text: input.outboundText,
       clientMessageId: input.clientMessageId,
       ...toSpaceMessageFilesField(input.files),

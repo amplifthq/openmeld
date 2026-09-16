@@ -370,11 +370,13 @@ describe("api-client space api", () => {
       "discardComposerUpload",
       "downloadFileContent",
       "executeExecutionRecovery",
+      "fileUpdateSettings",
       "getActiveWakeProgress",
       "getBootstrap",
       "getFile",
       "getHistoryNavigation",
       "getIdentityDirectory",
+      "getLinkPreviews",
       "getMemberDirectory",
       "getMembersSnapshot",
       "getMessageDetails",
@@ -408,6 +410,7 @@ describe("api-client space api", () => {
       "setAccessMode",
       "setMessageReaction",
       "stageComposerUpload",
+      "streamFileContent",
       "trashFileEntry",
       "updateFileContent",
       "updateFileEntry",
@@ -694,7 +697,10 @@ describe("api-client space api", () => {
     expect(transport).not.toHaveBeenCalled();
   });
 
-  it("reads bootstrap through the shared space api", async () => {
+  it.each([
+    undefined,
+    false,
+  ])("reads bootstrap through the shared space api (readiness: %s)", async (includeAgentReadiness) => {
     const transport = vi.fn(() =>
       Promise.resolve(
         new Response(
@@ -756,6 +762,7 @@ describe("api-client space api", () => {
     );
 
     const result = await api.getBootstrap({
+      includeAgentReadiness,
       spaceId: "space-123",
       requestContext: REQUEST_CONTEXT,
       includeAgentStreamPresence: true,
@@ -769,7 +776,7 @@ describe("api-client space api", () => {
     expect(result.status.spaceId).toBe("space-123");
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
-        url: "https://gateway.openmeld.invalid/v1/spaces/space-123/bootstrap?recent=1&limit=30&signalType=signal.text&signalType=signal.status&includeAgentStreamPresence=true",
+        url: `https://gateway.openmeld.invalid/v1/spaces/space-123/bootstrap?recent=1&limit=30&signalType=signal.text&signalType=signal.status&includeAgentStreamPresence=true${includeAgentReadiness === false ? "&includeAgentReadiness=false" : ""}`,
         operation: "space.bootstrap.read",
       })
     );
@@ -1133,6 +1140,7 @@ describe("api-client space api", () => {
         operation: "space.member_directory.read",
         init: expect.objectContaining({
           headers: {
+            "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
           },
@@ -1932,6 +1940,7 @@ describe("api-client space api", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
+            "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
           },
@@ -2026,6 +2035,7 @@ describe("api-client space api", () => {
           }),
           headers: {
             "content-type": "application/json",
+            "x-openmeld-agent-reply-placement": "1",
             [OPENMELD_HEADER_SPACE_ADDRESSING_VERSION]:
               OPENMELD_SPACE_ADDRESSING_VERSION,
           },

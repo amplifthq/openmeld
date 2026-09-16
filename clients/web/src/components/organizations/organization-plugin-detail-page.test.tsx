@@ -4,6 +4,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrganizationPluginDetailPage } from "./organization-plugin-detail-page";
 import { findPluginDefinition } from "./plugin-catalog";
 
+vi.mock("./plugin-agent-access", () => ({ PluginAgentAccess: () => null }));
+vi.mock("./plugin-scope-tabs", () => ({
+	PluginScopeTabs: () => null,
+	usePluginScope: () => "personal",
+}));
+
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({ children, to }: { children: ReactNode; to: string }) => (
 		<a href={to}>{children}</a>
@@ -29,8 +35,8 @@ vi.mock("./center-agent-github-connection-card", () => ({
 	),
 }));
 
-vi.mock("./center-agent-plugin-connection-card", () => ({
-	CenterAgentPluginConnectionCard: ({
+vi.mock("./plugin-connection-card", () => ({
+	PluginConnectionCard: ({
 		isPersonalWorkspace,
 	}: {
 		isPersonalWorkspace: boolean;
@@ -55,9 +61,9 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins
-				connectionMode="all"
 				isPersonalWorkspace={false}
 				organizationId="org-acme"
+				organizationName="Acme"
 				organizationSlug="acme"
 				plugin={github}
 			/>
@@ -69,13 +75,10 @@ describe("OrganizationPluginDetailPage", () => {
 		).toBe("true");
 		expect(
 			screen.getByRole("link", { name: "All Plugins" }).getAttribute("href")
-		).toBe("/o/acme/center-agent/plugins");
-		const appSummary = screen.getByTestId("plugin-detail-summary");
-		expect(appSummary.className).toContain("rounded-md");
-		expect(appSummary.className).toContain("bg-card");
-		const appAccess = screen.getByTestId("plugin-detail-access");
-		expect(appAccess.className).toContain("rounded-md");
-		expect(appAccess.className).toContain("bg-card");
+		).toBe("/o/acme/plugins");
+		expect(screen.getByTestId("github-access").getAttribute("data-mode")).toBe(
+			"member"
+		);
 	});
 
 	it("shows connection controls for an available OAuth App", () => {
@@ -88,9 +91,9 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins={false}
-				connectionMode="all"
 				isPersonalWorkspace={false}
 				organizationId="org-acme"
+				organizationName="Acme"
 				organizationSlug="acme"
 				plugin={googleDrive}
 			/>
@@ -114,9 +117,9 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins
-				connectionMode="all"
 				isPersonalWorkspace={false}
 				organizationId="org-acme"
+				organizationName="Acme"
 				organizationSlug="acme"
 				plugin={figma}
 			/>
@@ -138,18 +141,16 @@ describe("OrganizationPluginDetailPage", () => {
 		render(
 			<OrganizationPluginDetailPage
 				canManageSharedPlugins
-				connectionMode="all"
 				isPersonalWorkspace
 				organizationId="org-personal"
+				organizationName="Felix"
 				organizationSlug="felix"
 				plugin={googleDrive}
 			/>
 		);
 
 		expect(
-			screen.getByText(
-				"Your connection stays private to your requests. Workspace access is available to your Center Agent and Routines."
-			)
+			screen.getByText("Connect your account for your own requests.")
 		).toBeTruthy();
 		expect(
 			screen.getByTestId("plugin-access").getAttribute("data-personal")

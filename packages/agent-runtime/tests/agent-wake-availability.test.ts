@@ -1105,8 +1105,8 @@ describe("agent wake availability", () => {
       phase: "unavailable",
       reasonCode: "lookup_failed",
       status: "unavailable_for_wake",
-      summary: "This Agent's computer connection is unavailable right now.",
-      tooltip: "Computer connection unavailable",
+      summary: "OpenMeld couldn't check this agent's connection.",
+      tooltip: "Connection check unavailable",
     });
   });
 

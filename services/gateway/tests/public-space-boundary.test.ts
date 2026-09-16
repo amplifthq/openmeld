@@ -302,10 +302,56 @@ describe("public space boundary", () => {
     expect(listSpaceThreadSignals).not.toHaveBeenCalled();
   });
 
+  it("forwards message preview reads through Space authorization", async () => {
+    const spaceId = "a".repeat(64);
+    const getSpaceLinkPreviews = vi.fn(async () => ({
+      signalId: "message-1",
+      revision: 0,
+      previews: [],
+    }));
+    const { env } = makeEnv({
+      coreOverrides: { getSpaceLinkPreviews },
+      authOverrides: {
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            authenticated: false,
+            requestId: "req-preview",
+            ownerIds: [],
+            authMethod: "none",
+          },
+        })),
+      },
+    });
+    const response = await app.fetch(
+      new Request(
+        `http://local/v1/spaces/${spaceId}/link-previews?signalId=message-1`,
+        {
+          headers: { "x-openmeld-space-password": "  preview-password  " },
+        }
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(getSpaceLinkPreviews).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceId,
+        signalId: "message-1",
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({ kind: "anonymous_viewer" }),
+          proof: { kind: "space_password", password: "preview-password" },
+        }),
+      })
+    );
+  });
+
   it("keeps the anonymous read allowlist separate and read-only", () => {
     const spaceId =
       "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     const allowed = [
+      `/v1/spaces/${spaceId}/link-previews?signalId=message-1`,
       `/v1/spaces/${spaceId}/conversation-state`,
       `/v1/spaces/${spaceId}/entry-resolution`,
       `/v1/spaces/${spaceId}/status`,
@@ -651,6 +697,7 @@ describe("public space boundary", () => {
 
   it("exposes the approved public space boundary route set", () => {
     expect(PUBLIC_SPACE_BOUNDARY_ROUTES).toEqual([
+      { method: "GET", path: "/v1/spaces/:spaceId/link-previews" },
       { method: "GET", path: "/v1/spaces/:spaceId/conversation-state" },
       { method: "GET", path: "/v1/spaces/:spaceId/status" },
       { method: "GET", path: "/v1/spaces/:spaceId/entry-resolution" },

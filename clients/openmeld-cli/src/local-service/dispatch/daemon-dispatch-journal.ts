@@ -9,6 +9,7 @@ import { resolveCliContextId } from "../../config/session-profile";
 const DAEMON_DISPATCH_EVENT_TYPES = [
   "dispatch.deliver.received",
   "dispatch.local.phase",
+  "dispatch.reply_reconsideration",
   "dispatch.lifecycle.sent",
   "dispatch.lifecycle.send_failed",
   "dispatch.result.queued",

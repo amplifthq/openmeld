@@ -6,6 +6,7 @@ import { FEEDBACK_SUBMIT_ERROR_CODES } from "./feedback";
 import { MESSAGE_CHANNEL_ERROR_CODES } from "./message-channels";
 import { ORGANIZATION_DOCUMENT_ERROR_CODES } from "./organization-documents";
 import { ORGANIZATION_SKILL_ERROR_CODES } from "./organization-skills";
+import { PLUGIN_ERROR_CODES } from "./plugin-access";
 import { SPACE_FILE_ERROR_CODES } from "./space-files";
 import { SPACE_PASSWORD_RATE_LIMITED_ERROR_CODE } from "./space-password";
 
@@ -45,6 +46,7 @@ export const gatewayErrorCodeSchema = z.enum([
   ...MESSAGE_CHANNEL_ERROR_CODES,
   ...ORGANIZATION_DOCUMENT_ERROR_CODES,
   ...ORGANIZATION_SKILL_ERROR_CODES,
+  ...PLUGIN_ERROR_CODES,
   "connector.organization_context_changed",
   "organization.logo.conflict",
   "organization.logo.content_mismatch",

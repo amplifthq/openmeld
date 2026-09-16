@@ -69,6 +69,8 @@ import {
 } from "#/components/connect/start-bring-agents-error-state";
 import { StartChoicePage } from "#/components/connect/start-choice-page";
 import { StartSetupCommandCard } from "#/components/connect/start-setup-command-card";
+import { DesktopComputerConnection } from "#/desktop/computer-connection";
+import { getDesktopPlatform } from "#/desktop/platform";
 import {
 	buildWebSetupCommand,
 	copyCliEntryCommand,
@@ -156,7 +158,10 @@ export type StartBringAgentsSetupPageProps = {
 };
 
 type ComputerSetupFlowProps = StartBringAgentsSetupPageProps & {
-	onCompleted?: (snapshot: PrepareSessionSnapshot) => void;
+	onContinue?: () => void;
+	onCompleted?: (
+		snapshot: Pick<PrepareSessionSnapshot, "deviceId" | "runtimeLane">
+	) => void;
 	onNavigationActionAlreadyStarted?: () => void;
 	preferExistingConnection?: boolean;
 	presentation: "conversation" | "embedded" | "page";
@@ -173,6 +178,16 @@ export function StartBringAgentsSetupPage(
 
 export function ComputerSetupFlow(input: ComputerSetupFlowProps) {
 	const bringAgentsSetup = useBringAgentsSetupContext();
+	if (getDesktopPlatform()) {
+		return (
+			<DesktopComputerConnection
+				onCompleted={input.onCompleted}
+				onContinue={input.onContinue}
+				orgSlug={input.orgSlug}
+				sourceNavigationAction={input.sourceNavigationAction}
+			/>
+		);
+	}
 	if (input.presentation === "conversation") {
 		return (
 			<ConversationComputerConnectionGate
@@ -251,6 +266,11 @@ function ExistingComputerConnectionGate(input: {
 		input.bringAgentsSetup
 	);
 
+	// This gate only chooses whether setup is needed. Once started, the session
+	// owns completion; inventory refreshes must not unmount its Terminal handoff.
+	if (!setupRequested && connectionState.kind === "setup_required") {
+		setSetupRequested(true);
+	}
 	if (setupRequested) {
 		return <ComputerSetupSessionFlow {...input.input} />;
 	}
@@ -598,6 +618,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 					copyCommand={prepareSession.copyCommand}
 					copyStatus={prepareSession.copyStatus}
 					isRefreshingCommand={prepareSession.isRefreshingCommand}
+					onContinue={input.onContinue}
 					onStartOver={prepareSession.startOver}
 					opaqueTokenExpiresAt={prepareSession.commandExpiresAt}
 					presentation={input.presentation}
@@ -786,6 +807,7 @@ function EmbeddedSetupError(input: {
 }
 
 function PrepareSessionTimeline(input: {
+	onContinue?: () => void;
 	command: string | null;
 	commandPlatform: WebSetupCommandPlatform;
 	completionTarget: string;
@@ -899,11 +921,12 @@ function PrepareSessionTimeline(input: {
 							<ServiceUpdateVerificationNotice
 								verification={input.serviceUpdateVerification}
 							/>
-							{input.presentation !== "embedded" ? (
+							{input.presentation !== "embedded" || input.onContinue ? (
 								<PrepareReadyActions
 									completionReadiness={completionReadiness}
 									completionTarget={input.completionTarget}
 									completionVerified={step.state === "complete"}
+									onContinue={input.onContinue}
 									onStartOver={input.onStartOver}
 									presentation={input.presentation}
 									routeIntent={input.setup.routeIntent}
@@ -947,6 +970,7 @@ function ServiceUpdateVerificationNotice(input: {
 }
 
 function PrepareReadyActions(input: {
+	onContinue?: () => void;
 	completionReadiness: PrepareCompletionReadinessState;
 	completionTarget: string;
 	completionVerified: boolean;
@@ -980,7 +1004,12 @@ function PrepareReadyActions(input: {
 					>
 						Set up again
 					</Button>
-					{input.completionVerified && input.presentation === "page" ? (
+					{input.completionVerified && input.onContinue ? (
+						<Button onClick={input.onContinue}>{continueLabel}</Button>
+					) : null}
+					{input.completionVerified &&
+					!input.onContinue &&
+					input.presentation === "page" ? (
 						<Link className={buttonVariants()} to={input.completionTarget}>
 							{continueLabel}
 						</Link>

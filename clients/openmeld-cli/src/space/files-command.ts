@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { openAsBlob } from "node:fs";
+import { writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import {
   isSpaceFileTextEditable,
@@ -299,7 +300,7 @@ export async function runSpaceFilesDownload(
     interactive: isInteractiveHumanOutput(context, input.json),
     presenter: context.presenter,
     execute: async (spacePassword) =>
-      await context.spaceApi.downloadFileContent({
+      await context.spaceApi.streamFileContent({
         spaceId: input.space,
         requestContext: context.requestContext,
         fileId: input.fileId,
@@ -310,7 +311,24 @@ export async function runSpaceFilesDownload(
   if (read.status === "cancelled") {
     return;
   }
-  await writeFile(input.output, new Uint8Array(read.result.bytes), {
+  let sizeBytes = 0;
+  const chunks = async function* () {
+    const reader = read.result.bytes.getReader();
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) {
+          break;
+        }
+        sizeBytes += chunk.value.byteLength;
+        yield chunk.value;
+      }
+    } finally {
+      await reader.cancel();
+      reader.releaseLock();
+    }
+  };
+  await writeFile(input.output, chunks(), {
     flag: input.force ? "w" : "wx",
   });
   emitMutationOutput({
@@ -321,7 +339,7 @@ export async function runSpaceFilesDownload(
       output: input.output,
       revision: read.result.revision,
       mimeType: read.result.mimeType,
-      sizeBytes: read.result.bytes.byteLength,
+      sizeBytes,
     },
     json: input.json,
   });
@@ -633,10 +651,10 @@ function normalizeFolderId(value: string | undefined): string | null {
   return !normalized || normalized === "root" ? null : normalized;
 }
 
-async function readLocalFile(path: string): Promise<Uint8Array> {
-  const bytes = await readFile(path);
-  if (bytes.byteLength > SPACE_FILE_MAX_SIZE_BYTES) {
-    throw new Error("Space files must be 10 MiB or smaller.");
+async function readLocalFile(path: string): Promise<Blob> {
+  const bytes = await openAsBlob(path);
+  if (bytes.size > SPACE_FILE_MAX_SIZE_BYTES) {
+    throw new Error("Space files must be 250 MiB or smaller.");
   }
   return bytes;
 }
@@ -644,7 +662,7 @@ async function readLocalFile(path: string): Promise<Uint8Array> {
 async function resolveContentBytes(input: {
   file?: string;
   stdin: boolean;
-}): Promise<Uint8Array> {
+}): Promise<Uint8Array | Blob> {
   const file = input.file?.trim();
   if (Boolean(file) === input.stdin) {
     throw new Error(
@@ -660,7 +678,7 @@ async function resolveContentBytes(input: {
     const bytes = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
     total += bytes.byteLength;
     if (total > SPACE_FILE_MAX_SIZE_BYTES) {
-      throw new Error("Space files must be 10 MiB or smaller.");
+      throw new Error("Space files must be 250 MiB or smaller.");
     }
     chunks.push(bytes);
   }

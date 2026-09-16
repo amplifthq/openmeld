@@ -197,7 +197,10 @@ describe("mergeSpaceMembersSnapshot", () => {
 		expect(merged.summary.wakeableAgentCount).toBe(1);
 	});
 
-	it("seeds bootstrap members cache without thinning existing agent projection facts", () => {
+	it.each([
+		undefined,
+		false,
+	])("seeds bootstrap without thinning agent facts (readiness: %s)", (includesAgentReadiness) => {
 		const queryClient = new QueryClient();
 		const existingAgent = createAgentMember({
 			agentControllerConversationId: "conversation-123",
@@ -236,7 +239,10 @@ describe("mergeSpaceMembersSnapshot", () => {
 			);
 
 			applySpaceBootstrapSnapshotToCache({
-				bootstrap: createBootstrapSnapshot({ members: leanBootstrapMembers }),
+				bootstrap: {
+					...createBootstrapSnapshot({ members: leanBootstrapMembers }),
+					includesAgentReadiness,
+				},
 				queryClient,
 				spaceId: "space-123",
 				viewerProfileId: "viewer-profile",
@@ -256,6 +262,9 @@ describe("mergeSpaceMembersSnapshot", () => {
 			expect(cached?.agents[0]?.agentWakeAvailability?.status).toBe(
 				"available_for_wake"
 			);
+			if (includesAgentReadiness === false) {
+				expect(cached).toBe(current);
+			}
 		} finally {
 			queryClient.clear();
 		}
@@ -285,12 +294,26 @@ describe("mergeSpaceMembersSnapshot", () => {
 		} as SignalEnvelope;
 
 		try {
+			const threadsKey = spaceQueryKeys.threads("space-123", "viewer-profile");
+			const liveThreads = {
+				threads: [],
+				previews: [
+					{
+						threadId: "live-thread",
+						replyCount: 5,
+						signals: [],
+						placements: [],
+					},
+				],
+			};
+			queryClient.setQueryData(threadsKey, liveThreads, { updatedAt: 2000 });
 			queryClient.setQueryData(
 				spaceQueryKeys.members("space-123", "viewer-profile"),
 				currentMembers
 			);
 
 			applySpaceBootstrapSnapshotToCache({
+				bootstrapUpdatedAt: 1000,
 				bootstrap: createBootstrapSnapshot({
 					history: { envelopes: [staleSignal], nextCursor: null },
 					members: createSpaceMembersSnapshot({
@@ -312,6 +335,7 @@ describe("mergeSpaceMembersSnapshot", () => {
 			const cachedMembers = queryClient.getQueryData<SpaceMembersSnapshot>(
 				spaceQueryKeys.members("space-123", "viewer-profile")
 			);
+			expect(queryClient.getQueryData(threadsKey)).toEqual(liveThreads);
 			const cachedHistory = queryClient.getQueryData<{
 				envelopes: readonly SignalEnvelope[];
 			}>(spaceQueryKeys.history("space-123", "viewer-profile"));

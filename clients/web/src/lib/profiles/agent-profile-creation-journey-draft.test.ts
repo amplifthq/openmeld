@@ -29,6 +29,7 @@ describe("Agent Profile creation journey draft", () => {
 			agentControllerPermissionMode: "codex:askForApproval" as const,
 			agentId: "codex",
 			modelId: "gpt-5.6-sol",
+			profileName: "Research Agent",
 			openCodePermission: null,
 			reasoningLevel: "high",
 			selectedProjectId: "project-1",

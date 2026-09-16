@@ -1,6 +1,7 @@
 import {
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  agentProfileExecutionModeResponseSchema,
   currentAgentProfileSessionLookupQuerySchema,
   currentAgentProfileSessionLookupResponseSchema,
   disableAgentProfilePrimaryBindingResponseSchema,
@@ -19,6 +20,7 @@ import {
   updateAgentProfileDefaultProjectBodySchema,
   updateAgentProfileDefaultProjectResponseSchema,
   updateAgentProfileDefaultProjectRouteParamsSchema,
+  updateAgentProfileExecutionModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema,
   updateAgentProfilePrimaryBindingModelSelectionBodySchema,
@@ -63,6 +65,51 @@ const AGENT_PROFILE_WORK_RECOVERY_ROUTE =
 export function registerAgentProfileBindingRoutes(
   app: Hono<HonoBindings>
 ): void {
+  const executionModeRoute =
+    "/v1/agent-profiles/:agentProfileId/execution-mode";
+  app.on(["GET", "PATCH"], executionModeRoute, async (c) => {
+    const params = agentProfileBindingRouteParamsSchema.safeParse({
+      agentProfileId: c.req.param("agentProfileId"),
+    });
+    if (!params.success) {
+      return respondBadRequest({
+        c,
+        route: executionModeRoute,
+        method: c.req.method as "GET" | "PATCH",
+        code: "invalid_payload",
+        message: "Invalid Agent Profile ID.",
+      });
+    }
+    let body: { mode: "parallel" | "serial" } | undefined;
+    if (c.req.method === "PATCH") {
+      const raw = await readJsonRequestBody(c.req.raw);
+      const parsed = raw.ok
+        ? updateAgentProfileExecutionModeBodySchema.safeParse(raw.value)
+        : null;
+      if (!parsed?.success) {
+        return respondBadRequest({
+          c,
+          route: executionModeRoute,
+          method: "PATCH",
+          code: "invalid_payload",
+          message: "Execution mode must be parallel or serial.",
+        });
+      }
+      body = parsed.data;
+    }
+    return executeRpcRoute({
+      c,
+      route: executionModeRoute,
+      method: c.req.method as "GET" | "PATCH",
+      responseSchema: agentProfileExecutionModeResponseSchema,
+      execute: () =>
+        c.var.coreRpc.agentProfileExecutionMode({
+          agentProfileId: params.data.agentProfileId,
+          body,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   app.get(CURRENT_AGENT_PROFILE_SESSION_ROUTE, (c) => {
     const query = currentAgentProfileSessionLookupQuerySchema.safeParse({
       agentControllerConversationId: c.req.query(

@@ -55,8 +55,8 @@ const FILE = {
 };
 
 type CoreRpcMock = {
-  readSpaceFileContent: ReturnType<
-    typeof vi.fn<GatewayRpcEntrypoint["readSpaceFileContent"]>
+  streamSpaceFileContent: ReturnType<
+    typeof vi.fn<GatewayRpcEntrypoint["streamSpaceFileContent"]>
   >;
   writeSpaceFileContent: ReturnType<
     typeof vi.fn<GatewayRpcEntrypoint["writeSpaceFileContent"]>
@@ -83,15 +83,15 @@ function makeEnv(input?: { readBytes?: ArrayBuffer; writeError?: Error }): {
   env: CloudflareBindings;
 } {
   const coreRpc: CoreRpcMock = {
-    readSpaceFileContent: vi.fn<GatewayRpcEntrypoint["readSpaceFileContent"]>(
-      async () => ({
-        bytes: input?.readBytes ?? Uint8Array.from(TEXT_BYTES).buffer,
-        organizationId: ORGANIZATION_ID,
-        objectKey: OBJECT_KEY,
-        file: FILE,
-        revision: FILE.latestRevision,
-      })
-    ),
+    streamSpaceFileContent: vi.fn<
+      GatewayRpcEntrypoint["streamSpaceFileContent"]
+    >(async () => ({
+      bytes: new Blob([input?.readBytes ?? TEXT_BYTES]).stream(),
+      organizationId: ORGANIZATION_ID,
+      objectKey: OBJECT_KEY,
+      file: FILE,
+      revision: FILE.latestRevision,
+    })),
     writeSpaceFileContent: vi.fn<GatewayRpcEntrypoint["writeSpaceFileContent"]>(
       () =>
         input?.writeError
@@ -457,7 +457,7 @@ describe("Space file routes", () => {
     expect(response.headers.get("content-type")).toBe("text/markdown");
     expect(response.headers.get("x-openmeld-file-revision")).toBe("1");
     await expect(response.text()).resolves.toBe("Shared launch notes\n");
-    expect(coreRpc.readSpaceFileContent).toHaveBeenCalledOnce();
+    expect(coreRpc.streamSpaceFileContent).toHaveBeenCalledOnce();
     expect(bucket.get).not.toHaveBeenCalled();
   });
 
@@ -477,7 +477,7 @@ describe("Space file routes", () => {
     expect(bucket.put).not.toHaveBeenCalled();
   });
 
-  it("fails closed when Core returns incomplete bytes", async () => {
+  it("fails the streaming body when Core returns incomplete bytes", async () => {
     const { bucket, env } = makeEnv({ readBytes: new ArrayBuffer(1) });
     const response = await app.fetch(
       new Request(
@@ -487,10 +487,8 @@ describe("Space file routes", () => {
       TEST_EXECUTION_CONTEXT
     );
 
-    expect(response.status).toBe(502);
-    await expect(readError(response)).resolves.toMatchObject({
-      code: "upstream_unreachable",
-    });
+    expect(response.status).toBe(200);
+    await expect(response.arrayBuffer()).rejects.toThrow();
     expect(bucket.get).not.toHaveBeenCalled();
   });
 });

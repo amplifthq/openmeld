@@ -1,7 +1,3 @@
-import {
-	normalizeSpacePasswordText,
-	spaceAccessModeUsesPassword,
-} from "@openmeld/schemas";
 import type {
 	SpaceAccessMode,
 	SpaceOrganizationVisibility,
@@ -18,12 +14,10 @@ import { ArrowRightIcon, PlusIcon } from "@phosphor-icons/react";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { ComputerSetupChoiceCard } from "#/components/connect/computer-setup-choice-card";
-import { SpaceAccessModeRadioGroup } from "#/components/spaces/space-access-editor";
-import { SpaceVisibilityPicker } from "#/components/spaces/space-visibility-editor";
+import { SpaceVisibilityPicker } from "#/components/spaces/space-visibility-picker";
 import { WelcomeLayout } from "./welcome-layout";
 
 const SPACE_NAME_INPUT_ID = "welcome-space-name-input";
-const SPACE_PASSWORD_INPUT_ID = "welcome-space-password-input";
 const SPACE_ORGANIZATION_VISIBILITY_ID =
 	"welcome-space-organization-visibility";
 const SPACE_EXPLANATION = "A Space is where people and agents work together.";
@@ -43,6 +37,7 @@ export type WelcomeJoinableSpace = {
 export type WelcomeJoinableStatus = "loading" | "error" | "ready";
 
 export type WelcomeSpaceScreenProps = {
+	onDiscover?: () => void;
 	contextKind?: "organization" | "personal";
 	computerSetupActions?: {
 		centerAgentPath: string;
@@ -65,10 +60,8 @@ export type WelcomeSpaceScreenProps = {
 
 /**
  * The first-run "where do you want to work?" screen: two choices first (Create
- * a Space / Join a Space), then the chosen path expands in place. The Join
- * choice reflects the joinable-spaces query state — checking, failed (tap to
- * retry), settled-empty (disabled), or ready — so a user is never offered a
- * dead, premature, or fail-silent action.
+ * a Space / Join a Space). Organization joining opens the shared Discover
+ * directory. Personal context retains its existing Space picker.
  */
 type SpaceMode = "choices" | "create" | "join";
 
@@ -105,16 +98,17 @@ export function WelcomeSpaceScreen(props: WelcomeSpaceScreenProps) {
 	// Loading and settled-empty are dead ends (disabled); an error is actionable
 	// (clicking retries the query); ready-with-spaces opens the join list.
 	const joinDisabled =
-		props.joinableStatus === "loading" ||
-		(props.joinableStatus === "ready" && !hasJoinableSpaces);
-	const joinDescription = joinDescriptionFor(
-		props.joinableStatus,
-		hasJoinableSpaces
-	);
+		!props.onDiscover &&
+		(props.joinableStatus === "loading" ||
+			(props.joinableStatus === "ready" && !hasJoinableSpaces));
+	const joinDescription = props.onDiscover
+		? "Browse Spaces you can join"
+		: joinDescriptionFor(props.joinableStatus, hasJoinableSpaces);
 	const handleJoinChoice =
-		props.joinableStatus === "error"
+		props.onDiscover ??
+		(props.joinableStatus === "error"
 			? props.onRetryJoinable
-			: () => setMode("join");
+			: () => setMode("join"));
 
 	const showSearch = props.joinableSpaces.length > SEARCH_VISIBLE_THRESHOLD;
 	// Gate the query on `showSearch` so a stale search term can never keep
@@ -256,17 +250,10 @@ function CreateSpaceForm(props: {
 }) {
 	const createStartedRef = useRef(false);
 	const [name, setName] = useState("");
-	const [accessMode, setAccessMode] = useState<SpaceAccessMode>("members_only");
 	const [visibility, setVisibility] =
 		useState<SpaceOrganizationVisibility>("private");
-	const [password, setPassword] = useState("");
 	const trimmedName = name.trim();
-	const selectedModeNeedsPassword = spaceAccessModeUsesPassword(accessMode);
-	const normalizedPassword = normalizeSpacePasswordText(password);
-	const canCreate =
-		trimmedName.length > 0 &&
-		!props.isPending &&
-		(!selectedModeNeedsPassword || normalizedPassword.length > 0);
+	const canCreate = trimmedName.length > 0 && !props.isPending;
 
 	useEffect(() => {
 		if (!props.isPending) {
@@ -282,12 +269,9 @@ function CreateSpaceForm(props: {
 		createStartedRef.current = true;
 		try {
 			props.onCreate({
-				accessMode,
+				accessMode: "members_only",
 				name: trimmedName,
 				visibility: props.contextKind === "personal" ? "private" : visibility,
-				...(selectedModeNeedsPassword && normalizedPassword.length > 0
-					? { password: normalizedPassword }
-					: {}),
 			});
 		} catch (error) {
 			createStartedRef.current = false;
@@ -311,39 +295,14 @@ function CreateSpaceForm(props: {
 			</div>
 			{props.contextKind === "organization" ? (
 				<div className="grid gap-2">
-					<Label id={SPACE_ORGANIZATION_VISIBILITY_ID}>
-						Organization directory listing
+					<Label htmlFor={SPACE_ORGANIZATION_VISIBILITY_ID}>
+						Who can join this Space
 					</Label>
 					<SpaceVisibilityPicker
 						disabled={props.isPending}
+						id={SPACE_ORGANIZATION_VISIBILITY_ID}
 						onChange={setVisibility}
 						value={visibility}
-					/>
-				</div>
-			) : null}
-			<div className="grid gap-2">
-				<Label>Link access</Label>
-				<SpaceAccessModeRadioGroup
-					disabled={props.isPending}
-					onChange={(nextAccessMode) => {
-						setAccessMode(nextAccessMode);
-						if (!spaceAccessModeUsesPassword(nextAccessMode)) {
-							setPassword("");
-						}
-					}}
-					value={accessMode}
-				/>
-			</div>
-			{selectedModeNeedsPassword ? (
-				<div className="grid gap-2">
-					<Label htmlFor={SPACE_PASSWORD_INPUT_ID}>Set Space password</Label>
-					<Input
-						autoComplete="new-password"
-						disabled={props.isPending}
-						id={SPACE_PASSWORD_INPUT_ID}
-						onChange={(event) => setPassword(event.target.value)}
-						type="password"
-						value={password}
 					/>
 				</div>
 			) : null}

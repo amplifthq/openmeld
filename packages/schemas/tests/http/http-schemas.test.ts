@@ -1058,7 +1058,7 @@ describe("http schemas", () => {
     });
 
     it("uses one shared policy for a newly created Space's initial access", () => {
-      expect(resolveInitialSpaceAccessMode("public")).toBe("public");
+      expect(resolveInitialSpaceAccessMode("public")).toBe("members_only");
       expect(resolveInitialSpaceAccessMode("private")).toBe("members_only");
     });
 

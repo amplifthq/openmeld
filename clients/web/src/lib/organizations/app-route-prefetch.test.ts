@@ -1,16 +1,14 @@
 import { QueryClient } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
-import { organizationPluginConnectionQueryKeys } from "#/query/organizations/plugin-connections";
 import type { BrowserQueryPersistenceController } from "#/query/persistence/browser-query-persistence";
 import { startQueryKeys } from "#/query/query-keys";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import {
 	prefetchAgentsRouteIdentityData,
-	prefetchAppDetailRouteData,
 	prefetchCenterAgentConversationData,
 	prefetchKnownSpaceConversationData,
-	prefetchPluginCatalogRouteData,
 	prefetchSpaceConversationRouteData,
 	prefetchSpacesRouteData,
 	restoreSpaceConversationRouteData,
@@ -25,12 +23,12 @@ const getBootstrapMock = vi.hoisted(() => vi.fn());
 const getStatusMock = vi.hoisted(() => vi.fn());
 const listSignalEnvelopesMock = vi.hoisted(() => vi.fn());
 const createWebSpaceApiMock = vi.hoisted(() => vi.fn());
+const readThreadSelectionMock = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/spaces/thread-panel-storage", () => ({
+	readSpaceThreadPanelSelection: readThreadSelectionMock,
+}));
 const openCurrentCenterAgentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
 const readCurrentCenterAgentDirectMessageSpaceProjectionMock = vi.hoisted(() =>
-	vi.fn()
-);
-const listCurrentOrganizationAppConnectionsMock = vi.hoisted(() => vi.fn());
-const listCurrentOrganizationConnectorConnectionsMock = vi.hoisted(() =>
 	vi.fn()
 );
 let queryPersistence: BrowserQueryPersistenceController;
@@ -51,13 +49,6 @@ vi.mock("#/lib/organizations/organization-directory", () => ({
 
 vi.mock("#/lib/organizations/organization-spaces", () => ({
 	listCurrentOrganizationSpaces: listOrganizationSpacesMock,
-}));
-
-vi.mock("#/lib/organizations/connector-connections", () => ({
-	listCurrentOrganizationAppConnections:
-		listCurrentOrganizationAppConnectionsMock,
-	listCurrentOrganizationConnectorConnections:
-		listCurrentOrganizationConnectorConnectionsMock,
 }));
 
 vi.mock("#/lib/spaces/api", () => ({
@@ -136,6 +127,7 @@ const organizationSpaces = {
 describe("organization app route prefetch", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		readThreadSelectionMock.mockReturnValue(null);
 		resolveOrganizationScopeMock.mockResolvedValue(authorizedScope);
 		listStartProfilesMock.mockResolvedValue([humanProfile]);
 		readOrganizationProfileDirectoryMock.mockResolvedValue(
@@ -168,49 +160,7 @@ describe("organization app route prefetch", () => {
 			getStatus: getStatusMock,
 			listSignalEnvelopes: listSignalEnvelopesMock,
 		});
-		listCurrentOrganizationAppConnectionsMock.mockResolvedValue(
-			createConnectorResponse()
-		);
-		listCurrentOrganizationConnectorConnectionsMock.mockResolvedValue(
-			createConnectorResponse()
-		);
 		queryPersistence = createQueryPersistenceMock();
-	});
-
-	it("warms the Plugin Catalog connection snapshot", async () => {
-		const queryClient = createQueryClient();
-
-		await prefetchPluginCatalogRouteData({
-			organizationSlug: "acme",
-			queryClient,
-			queryPersistence,
-			routeFamily: "/o/acme/center-agent/plugins",
-		});
-
-		expect(
-			queryClient.getQueryData(
-				organizationPluginConnectionQueryKeys.catalog("org-acme")
-			)
-		).toEqual(createConnectorResponse());
-	});
-
-	it("warms one Plugin detail connection snapshot without loading the full Catalog", async () => {
-		const queryClient = createQueryClient();
-
-		await prefetchAppDetailRouteData({
-			organizationSlug: "acme",
-			queryClient,
-			queryPersistence,
-			routeFamily: "/o/acme/center-agent/plugins/github",
-			service: "github",
-		});
-
-		expect(
-			queryClient.getQueryData(
-				organizationPluginConnectionQueryKeys.service("org-acme", "github")
-			)
-		).toEqual(createConnectorResponse());
-		expect(listCurrentOrganizationAppConnectionsMock).not.toHaveBeenCalled();
 	});
 
 	it("warms Agent identities without blocking navigation on runtime status", async () => {
@@ -295,6 +245,145 @@ describe("organization app route prefetch", () => {
 			spaceId: "space-1",
 			openMeldProfileId: "human-1",
 		});
+	});
+	it("starts the restored Thread alongside a pending bootstrap and reuses its fresh result", async () => {
+		const queryClient = createQueryClient();
+		readThreadSelectionMock.mockReturnValue("thread-1");
+		const listThreadSignals = vi
+			.fn()
+			.mockResolvedValue({ signals: [], placements: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			getBootstrap: getBootstrapMock,
+			listThreadSignals,
+		});
+		let completeBootstrap:
+			| ((value: ReturnType<typeof createBootstrapResponse>) => void)
+			| undefined;
+		getBootstrapMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					completeBootstrap = resolve;
+				})
+		);
+		const prefetch = prefetchKnownSpaceConversationData({
+			organizationId: "org-acme",
+			organizationSlug: "acme",
+			ownerAccountId: "user-1",
+			queryClient,
+			queryPersistence,
+			spaceId: "space-1",
+			openMeldProfileId: "human-1",
+		});
+		await vi.waitFor(() => expect(listThreadSignals).toHaveBeenCalledTimes(1));
+		expect(
+			queryClient.getQueryData(spaceQueryKeys.bootstrap("space-1", "human-1"))
+		).toBeUndefined();
+		completeBootstrap?.(createBootstrapResponse());
+		await prefetch;
+		await queryClient.fetchQuery(
+			spaceThreadSignalsQueryOptions({
+				spaceId: "space-1",
+				threadId: "thread-1",
+				openMeldProfileId: "human-1",
+				enabled: true,
+			})
+		);
+		expect(listThreadSignals).toHaveBeenCalledTimes(1);
+		queryClient.clear();
+	});
+
+	it.each([
+		"cached",
+		"cold",
+	])("prefetches the explicit Thread instead of the saved Thread with a %s catalog", async (cacheState) => {
+		const queryClient = createQueryClient();
+		readThreadSelectionMock.mockReturnValue("previous-thread");
+		const catalog = {
+			threads: [
+				{
+					threadId: "thr_11111111-1111-4111-8111-111111111111",
+					spaceId: "space-1",
+					rootSignalId: "target-root",
+					createdByProfileId: "human-1",
+					createdAt: "2026-09-15T00:00:00Z",
+					updatedAt: "2026-09-15T00:00:00Z",
+				},
+			],
+			previews: [],
+		};
+		if (cacheState === "cached") {
+			queryClient.setQueryData(
+				spaceQueryKeys.threads("space-1", "human-1"),
+				catalog
+			);
+		}
+		const listThreads = vi.fn().mockResolvedValue(catalog);
+		const listThreadSignals = vi
+			.fn()
+			.mockResolvedValue({ signals: [], placements: [] });
+		let finishBootstrap!: (
+			value: ReturnType<typeof createBootstrapResponse>
+		) => void;
+		getBootstrapMock.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishBootstrap = resolve;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			getBootstrap: getBootstrapMock,
+			listThreads,
+			listThreadSignals,
+		});
+		const prefetch = prefetchSpaceConversationRouteData({
+			organizationSlug: "acme",
+			profileId: "human-1",
+			queryClient,
+			queryPersistence,
+			routeFamily: "/o/acme/spaces/space-1",
+			spaceId: "space-1",
+			focusThreadRootSignalId: "target-root",
+		});
+		await vi.waitFor(() =>
+			expect(listThreadSignals).toHaveBeenCalledWith(
+				expect.objectContaining({ threadId: catalog.threads[0].threadId })
+			)
+		);
+		expect(listThreads).toHaveBeenCalledTimes(cacheState === "cold" ? 1 : 0);
+		expect(
+			queryClient.getQueryData(spaceQueryKeys.bootstrap("space-1", "human-1"))
+		).toBeUndefined();
+		finishBootstrap(createBootstrapResponse());
+		await prefetch;
+		queryClient.clear();
+	});
+
+	it("does not prefetch a saved Thread for an explicit main-message link", async () => {
+		const queryClient = createQueryClient();
+		readThreadSelectionMock.mockReturnValue("previous-thread");
+		const listThreadSignals = vi.fn();
+		const listThreads = vi
+			.fn()
+			.mockResolvedValue({ threads: [], previews: [] });
+		createWebSpaceApiMock.mockReturnValue({
+			getBootstrap: getBootstrapMock,
+			listThreads,
+			listThreadSignals,
+		});
+		await prefetchKnownSpaceConversationData({
+			organizationId: "org-acme",
+			organizationSlug: "acme",
+			ownerAccountId: "user-1",
+			queryClient,
+			queryPersistence,
+			spaceId: "space-1",
+			openMeldProfileId: "human-1",
+			focusSignalId: "main-message",
+		});
+		await vi.waitFor(() => expect(listThreads).toHaveBeenCalledTimes(1));
+		expect(listThreadSignals).not.toHaveBeenCalled();
+		expect(readThreadSelectionMock).not.toHaveBeenCalled();
+		queryClient.clear();
 	});
 
 	it("restores a known Space cache before starting any current server read", async () => {
@@ -486,13 +575,5 @@ function createBootstrapResponse() {
 			spaceId: "space-1",
 		},
 		threads: { previews: [], threads: [] },
-	};
-}
-
-function createConnectorResponse() {
-	return {
-		connections: [],
-		currentUserId: "user-1",
-		organizationId: "org-acme",
 	};
 }

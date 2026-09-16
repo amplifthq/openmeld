@@ -1,7 +1,6 @@
 "use client";
 
 import { daemonServiceLaneSchema } from "@openmeld/schemas/schemas";
-import { Button } from "@openmeld/ui/components/button";
 import { useEffect, useState } from "react";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { BringAgentsSetupProvider } from "#/components/connect/bring-agents-setup-context";
@@ -27,11 +26,9 @@ type RecoveryInput = {
 };
 
 export function useAgentCreationComputerRecovery(input: RecoveryInput) {
-	const [setupTarget, setSetupTarget] = useState<SetupTarget | null>(null);
 	const [repairComputerId, setRepairComputerId] = useState<string | null>(null);
 	useEffect(() => {
 		if (!input.enabled) {
-			setSetupTarget(null);
 			setRepairComputerId(null);
 		}
 	}, [input.enabled]);
@@ -44,17 +41,15 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 		input.guidance !== "set_up_local_agents" ||
 		!input.hasLocalAgents;
 	const state = resolveRecoveryState(input, target);
-	const activeTarget =
-		setupTarget ?? resolveAutomaticSetupTarget(blocked, state, target);
+	const activeTarget = resolveAutomaticSetupTarget(blocked, state, target);
 	const recovery: AgentCreationComputerRecovery | undefined =
-		input.enabled && (blocked || setupTarget)
+		input.enabled && blocked
 			? {
 					state: activeTarget?.state ?? state,
 					computerName: activeTarget ? activeTarget.name : target.name,
 					onStart: input.onRetry,
-					onBack: setupTarget ? () => setSetupTarget(null) : undefined,
 					computerChoices:
-						!(setupTarget || selected) && enrolled.length > 1 ? (
+						!selected && enrolled.length > 0 ? (
 							<div className="grid gap-2">
 								<label className="grid gap-2 text-sm">
 									Computer to reconnect
@@ -98,7 +93,6 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 										});
 									}
 									input.onRetry();
-									setSetupTarget(null);
 								}}
 								orgSlug={input.orgSlug}
 								presentation="embedded"
@@ -110,18 +104,7 @@ export function useAgentCreationComputerRecovery(input: RecoveryInput) {
 			: undefined;
 	return {
 		computerRecovery: recovery,
-		connectAnotherComputer:
-			input.enabled && !recovery ? (
-				<Button
-					className="justify-self-start"
-					onClick={() => setSetupTarget({ state: "connect" })}
-					size="sm"
-					type="button"
-					variant="ghost"
-				>
-					Connect another computer
-				</Button>
-			) : null,
+		reconnectComputerId: target.connectedComputerId,
 	};
 }
 
@@ -141,25 +124,23 @@ function resolveRepairComputer(
 ) {
 	const computers =
 		input.recovery.localRuntimesQuery.data?.peopleComputers.computers ?? [];
-	const selected = computers.find((computer) =>
-		input.sessionComputerId
-			? computer.connectedComputerId === input.sessionComputerId
-			: computer.deviceId === input.recovery.deviceId ||
-				computer.legacyDeviceIds?.includes(input.recovery.deviceId ?? "")
-	);
+	// Catalog/routing selection (including recovery.deviceId) does not identify
+	// the machine running Desktop. Only an explicit session/reconnect intent may
+	// ask Prepare to attach this machine to an existing stable Computer.
+	const selected = input.sessionComputerId
+		? computers.find(
+				(computer) => computer.connectedComputerId === input.sessionComputerId
+			)
+		: undefined;
 	const enrolled = computers.filter(
 		(computer) => computer.identityStatus === "enrolled"
 	);
 	const repairComputer =
 		selected ??
-		enrolled.find((computer) => computer.deviceId === repairComputerId) ??
-		(enrolled.length === 1 ? enrolled[0] : undefined);
+		enrolled.find((computer) => computer.deviceId === repairComputerId);
 	const target: SetupTarget = {
 		connectedComputerId:
-			repairComputer?.connectedComputerId ??
-			(repairComputer?.identityStatus === "enrolled"
-				? repairComputer.deviceId
-				: input.sessionComputerId),
+			repairComputer?.connectedComputerId ?? input.sessionComputerId,
 		name: repairComputer?.deviceDisplayName,
 	};
 	return { target, selected, enrolled };
@@ -169,7 +150,11 @@ function resolveRecoveryState(
 	input: RecoveryInput,
 	target: SetupTarget
 ): AgentCreationComputerRecovery["state"] {
-	if (input.isPending || input.guidance === "checking") {
+	if (
+		input.isPending ||
+		input.recovery.localRuntimesQuery.isPending ||
+		input.guidance === "checking"
+	) {
 		return "checking";
 	}
 	if (input.guidance === "check_failed") {

@@ -4,6 +4,7 @@ import type {
   SpaceEntrySafeContext,
   SpaceEntryTarget,
 } from "@openmeld/schemas/types";
+import { resolveSpaceAccess } from "@openmeld/space";
 
 export type SpaceEntryAccessResult =
   | {
@@ -34,6 +35,13 @@ export function buildSpaceEntryResolution(input: {
   organizationMember: boolean;
   target: SpaceEntryTarget;
 }): GetSpaceEntryResolutionResponse {
+  const canJoinOrganizationSpace = resolveSpaceAccess({
+    visibility: input.indexed.visibility,
+    accessMode: "members_only",
+    organizationMember: input.organizationMember,
+    activeMember: false,
+    password: "missing",
+  }).canJoin;
   if (input.access.kind === "allowed") {
     const memberExperience =
       input.access.activeMember ||
@@ -44,11 +52,27 @@ export function buildSpaceEntryResolution(input: {
         state: "allowed",
         experience: memberExperience ? "member" : "public",
       },
-      participation: resolveAllowedParticipation(input.access),
+      participation:
+        canJoinOrganizationSpace && !input.access.activeMember
+          ? { state: "self_join_available" }
+          : resolveAllowedParticipation(input.access),
       safeContext: buildSafeContext({
         indexed: input.indexed,
         organizationMember: input.organizationMember,
         publicSpaceName: input.access.status.name,
+      }),
+      recovery: null,
+    };
+  }
+
+  if (canJoinOrganizationSpace) {
+    return {
+      target: input.target,
+      view: { state: "membership_required" },
+      participation: { state: "self_join_available" },
+      safeContext: buildSafeContext({
+        indexed: input.indexed,
+        organizationMember: true,
       }),
       recovery: null,
     };

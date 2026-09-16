@@ -8,6 +8,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { PeopleComputerInventory } from "#/lib/connect/local-runtimes";
 import { useProjectDiscovery } from "./use-project-discovery";
 
 const api = vi.hoisted(() => ({
@@ -374,7 +375,7 @@ function createWrapper(queryClient: QueryClient) {
 function localRuntimes(input?: {
 	bound?: boolean;
 	capabilityState?: "false" | "missing";
-}): LocalRuntimesResponse {
+}): PeopleComputerInventory {
 	const target: LocalRuntimeExecutionTarget = {
 		capabilities: [],
 		deviceId: "device-live",
@@ -437,6 +438,16 @@ function localRuntimes(input?: {
 		currentRuntimeLane: input?.bound ? "prod" : null,
 		legacyDeviceEvidence: [],
 		localRuntimes: [computer],
+		peopleComputers: {
+			generatedAt: "2026-09-07T00:00:00.000Z",
+			computers: [
+				{
+					...computer,
+					identityStatus: "enrolled",
+					connection: { status: "connected", reasonCodes: [], sessions: [] },
+				},
+			],
+		},
 	};
 }
 

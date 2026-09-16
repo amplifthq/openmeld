@@ -22,7 +22,7 @@ export function resolveAppNavigationItems(input: {
 }): AppNavigationItem[] {
 	const items = [
 		{
-			label: "Center Agent",
+			label: "Desk",
 			section: "home",
 			to: buildOrganizationRootPath(input.orgSlug),
 		},
@@ -32,12 +32,12 @@ export function resolveAppNavigationItems(input: {
 			to: buildOrganizationInboxPath(input.orgSlug),
 		},
 		{
-			label: "Spaces",
+			label: "Browse spaces",
 			section: "space",
 			to: buildOrganizationSpacesPath(input.orgSlug),
 		},
 		{
-			label: "Chats",
+			label: "Spaces",
 			section: "directMessages",
 			to: buildOrganizationDirectMessagesPath(input.orgSlug),
 		},

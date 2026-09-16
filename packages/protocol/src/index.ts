@@ -9,6 +9,12 @@ export {
   SPACE_STREAM_KEEPALIVE_PING,
   SPACE_STREAM_KEEPALIVE_PONG,
 } from "./constants";
+export type { MessageLink } from "./message-links";
+export {
+  collectMessageLinks,
+  collectMessagePreviewUrls,
+  normalizeMessageLink,
+} from "./message-links";
 export {
   normalizeProfileId,
   parseEnvelope,

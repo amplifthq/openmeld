@@ -176,6 +176,14 @@ Core callers and keeps a selected CLI unpublished until every cloud receiver is
 ready. Shared schemas and Core's native-delivery service are intentionally not
 directional path signals because they carry contracts in both directions.
 
+When a diff changes the worker schema, native-delivery service, and Center
+Agent receiver together without a recognized directional request owner, the
+planner rejects a combined Core/CLI and Remote Agent release. Review the actual
+contract direction and use explicitly ordered single-side stages. This prevents
+request-only recovery fields from being mistaken for response-only changes;
+adding the bidirectional service to a request allowlist would reverse the bug
+for response changes.
+
 The strict version-4 Center Agent conversation contract is such a request-side
 change. Apply its D1 generation-pointer migration first, deploy Remote Agent so
 it accepts version 4, and deploy Core last so it begins producing version 4.
@@ -276,6 +284,12 @@ publishes CLI without Core fails closed. This profile is structural and
 provider-neutral: it protects any strict Service-to-Core protocol addition
 without coupling release order to one Agent Controller or business workflow.
 
+This profile also supports a cloud-only receiver stage before the signed GitHub
+CLI release. Selecting Core without CLI uses the same immutable published CLI
+projection, with its existing channel and tag checks, instead of requiring the
+future CLI bundle to be published first. Keep the pre-feature base in both stage
+plans; publish CLI only after the Core receiver is healthy.
+
 The coordinated device-wait schema, Space receiver, and Gateway route select
 `device-wait-receivers-first`: Database, Auth, Core, Gateway, Web, Remote Agent,
 then CLI. Core must expose `postDeviceWaitingSignal` before Gateway calls it,
@@ -292,6 +306,16 @@ or receiver-first profile instead of weakening this default dependency.
 The planner reports this ordinary order as `default-auth-receiver-first`, which
 names its mixed-version invariant instead of implying that every boundary in
 the cloud graph is consumer-first.
+
+The `space-caller-context-receivers-first` profile handles the unified Space
+access contract: Database, Auth, Remote Agent, CLI (including Core), Gateway,
+then Web. The signed Service must be downloadable before Core raises its
+required Service floor and emits caller context. Do not deploy an intermediate
+Core with the old CLI projection. Existing clients use the legacy response
+projection until the new Gateway and Web are installed. For the hosted lane,
+run these explicit scopes in order, using one immutable release SHA; CLI uses
+the separate CLI Release workflow. A generic cloud/full dispatch cannot replace
+this sequence.
 
 The hosted `cloud` and `full` dispatcher implements one static scope order.
 Before any Production mutation it compares the exact release against the
@@ -506,7 +530,8 @@ checks.
 ## Local Scoped Release
 
 The `people-computers-receivers-first` profile recognizes the shared computer
-schema, Core projection, and Gateway endpoint together. It deploys selected
+schema, Core projection, and Gateway endpoint together, or the shared Service
+connection evidence schema with its Core and Gateway receivers. It deploys selected
 Auth, Core, Gateway, Web, Remote Agent, then CLI scopes (Database remains first
 when selected). Core and Gateway must precede new computer callers. A staged
 Core receiver deploy uses the immutable current stable CLI projection even when
@@ -945,8 +970,9 @@ approved that exact version; `--version` and `--next` are mutually exclusive.
 - Required is sometimes the least harmful user choice, but it is not the
   default and must not be applied to every release.
 
-The stamp command rebuilds the packaged CLI before recording its Service hash,
-rejects source drift, and verifies the result. Never hand-edit the hash, reuse
+The stamp command writes the version and required-update floor before building
+the packaged CLI, then records its Service hash and verifies the result. It
+rejects source drift and restores its metadata changes on failure. Never hand-edit the hash, reuse
 an existing `dist`, or pass `--current` to prepare a release manifest. Rerun the
 stamp after any merge, rebase, or later local-component change. Land the stamp
 through a versioned `codex/release-X.Y.Z-<baseSHA>` PR from a clean worktree;

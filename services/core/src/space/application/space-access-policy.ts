@@ -3,16 +3,13 @@ import {
   getSpaceAccessPassword,
   getSpaceAccessRequestContext,
   getSpaceAccessRequestId,
+  resolveSpaceAccess,
   type SpaceAccessContext,
 } from "@openmeld/space";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import type { SpaceMemberRecord } from "../infrastructure/sql/space-member-repo";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
-import {
-  normalizeOwnerUserId,
-  normalizeSpaceCreatorOwnerUserId,
-  normalizeSpaceCreatorProfileId,
-} from "../rules/access/space-creator-identity";
+import { normalizeOwnerUserId } from "../rules/access/space-creator-identity";
 import type { PasswordAuthorizationResult } from "./types";
 
 export type SpaceAccessViewerIdentity = {
@@ -54,8 +51,6 @@ export async function authorizeSpaceAccessProof(input: {
 export type ProtectedSpaceAccessGrantReason =
   | "unprotected_space"
   | "valid_password"
-  | "creator_profile"
-  | "creator_owner"
   | "active_member_profile"
   | "same_owner_active_member";
 
@@ -83,7 +78,15 @@ export async function authorizeProtectedSpaceAccess(input: {
   if (input.meta.accessMode === "members_only") {
     return authorizeMembersOnlySpaceAccess(input);
   }
-  if (input.meta.accessMode !== "protected") {
+  if (
+    resolveSpaceAccess({
+      visibility: input.meta.visibility,
+      accessMode: input.meta.accessMode,
+      organizationMember: false,
+      activeMember: false,
+      password: "missing",
+    }).canRead
+  ) {
     return { ok: true, reason: "unprotected_space" };
   }
   if (!input.meta.passwordProof) {
@@ -107,7 +110,15 @@ export async function authorizeSpaceJoinAccess(input: {
   if (input.meta.accessMode === "members_only") {
     return authorizeMembersOnlySpaceAccess(input);
   }
-  if (input.meta.accessMode === "public") {
+  if (
+    resolveSpaceAccess({
+      visibility: input.meta.visibility,
+      accessMode: input.meta.accessMode,
+      organizationMember: false,
+      activeMember: false,
+      password: "missing",
+    }).canJoin
+  ) {
     return { ok: true, reason: "unprotected_space" };
   }
   if (!input.meta.passwordProof) {
@@ -191,21 +202,6 @@ function resolveAuthenticatedProtectedSpaceAccessGrant(input: {
 
   const viewerProfileId = normalizeProfileId(actorContext.openMeldProfileId);
   const viewerOwnerUserId = normalizeOwnerUserId(actorContext.ownerUserId);
-  const creatorProfileId = normalizeSpaceCreatorProfileId(input.meta.creator);
-  if (viewerProfileId && viewerProfileId === creatorProfileId) {
-    return "creator_profile";
-  }
-
-  const creatorOwnerUserId = normalizeSpaceCreatorOwnerUserId(
-    input.meta.creator
-  );
-  if (
-    viewerOwnerUserId &&
-    creatorOwnerUserId &&
-    viewerOwnerUserId === creatorOwnerUserId
-  ) {
-    return "creator_owner";
-  }
 
   if (viewerProfileId) {
     const member = input.readMemberByProfileId(viewerProfileId);

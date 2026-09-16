@@ -439,6 +439,7 @@ describe("Remote Agent Message Channel publication", () => {
         providerPublicationIdempotencyKey: PROVIDER_PUBLICATION_KEY,
         sequence: 1,
         outcome: "completed",
+        replyDeliveryId: expect.any(String),
         text: "The launch plan is ready.",
       });
       await expect(
@@ -739,6 +740,7 @@ describe("Remote Agent Message Channel publication", () => {
         }),
         initialText: "B".repeat(2000),
         locator: createLocator(),
+        stopDeliveryId: expect.any(String),
       });
       expect(publishWorkingCard).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -757,6 +759,7 @@ describe("Remote Agent Message Channel publication", () => {
         providerPublicationIdempotencyKey: PROVIDER_PUBLICATION_KEY,
         sequence: 2,
         outcome: "completed",
+        replyDeliveryId: expect.any(String),
         text: "B".repeat(2000),
       });
       expect(adapter.publishReply).not.toHaveBeenCalled();
@@ -997,6 +1000,7 @@ describe("Remote Agent Message Channel publication", () => {
         providerPublicationIdempotencyKey: PROVIDER_PUBLICATION_KEY,
         sequence: 1,
         outcome: "failed",
+        replyDeliveryId: expect.any(String),
         text: "Center Agent did not accept this request in time. Please try again.",
       });
       await expect(

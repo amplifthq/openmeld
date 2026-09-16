@@ -626,6 +626,14 @@ function createRouteTruthD1Database(
     bindSpy,
     db: {
       prepare,
+      batch: vi.fn(async (statements: D1PreparedStatement[]) =>
+        Promise.all(
+          statements.map(async (statement) => {
+            const row = await statement.first();
+            return { success: true, results: row === null ? [] : [row] };
+          })
+        )
+      ),
     } as unknown as D1Database,
   };
 }
@@ -830,6 +838,48 @@ describe("space-members-service", () => {
       unavailableAgentCount: 2,
       liveHumanCount: 1,
       liveAgentCount: 1,
+    });
+  });
+
+  it("returns member identity without consulting runtime readiness for a display bootstrap", async () => {
+    const sql = new MutableSqlStorage();
+    const profile = createAgentProfile({
+      profileId: "agt_11111111-1111-4111-8111-111111111111",
+      profileName: "Agent on a slow computer",
+      ownerUserId: "owner-status",
+      agentControllerRef: "builtin:codex",
+    });
+    upsertJoinedSpaceMember({
+      sql: sql as unknown as SqlStorage,
+      spaceId: "space-display",
+      profile,
+      nowIso: "2026-03-06T12:05:00.000Z",
+    });
+    const snapshot = await listSpaceMembersSnapshotUseCase({
+      includeAgentReadiness: false,
+      sql: sql as unknown as SqlStorage,
+      env: {
+        OPENMELD_RUNTIME_TRANSPORT: {
+          idFromName: () => {
+            throw new Error("Runtime reads must not gate display");
+          },
+        },
+      } as unknown as CoreBindings,
+      spaceId: "space-display",
+      liveSessions: [],
+      nowIso: "2026-03-06T12:05:00.000Z",
+    });
+    expect(snapshot.agents[0]).toMatchObject({
+      profileId: profile.profileId,
+      profileName: profile.profileName,
+      agentControllerRef: "builtin:codex",
+    });
+    expect(snapshot.agents[0]?.agentWakeAvailability).toBeUndefined();
+    expect(snapshot.summary).toEqual({
+      totalCount: 1,
+      humanCount: 0,
+      agentCount: 1,
+      liveNowCount: 0,
     });
   });
 
@@ -3439,6 +3489,13 @@ describe("space-members-service", () => {
     });
 
     expect(lookupRoutesBatchSpy).toHaveBeenCalledOnce();
+
+    // Member readiness shares request-local D1 round trips across Agent profiles.
+    expect(
+      vi
+        .mocked(routeDb.db.batch)
+        .mock.calls.some(([statements]) => statements.length > 1)
+    ).toBe(true);
     expect(lookupRoutesBatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         ownerUserId: "owner-1",

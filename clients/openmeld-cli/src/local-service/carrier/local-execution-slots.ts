@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   createLocalExecutionSlots,
   type LocalExecutionSlots,
@@ -11,7 +12,10 @@ export function createDaemonLocalExecutionSlots(input: {
   presenter: Presenter;
 }): LocalExecutionSlots {
   return createLocalExecutionSlots({
-    limits: input.limits,
+    limits: {
+      ...input.limits,
+      contextConcurrency: AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
+    },
     onTaskDropped: (event) => {
       emitRunLine({
         presenter: input.presenter,

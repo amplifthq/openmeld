@@ -101,7 +101,7 @@ describe("CenterAgentSelfEvolutionCard", () => {
 		expect(screen.getByText("Slack · OpenMeld")).toBeTruthy();
 
 		fireEvent.click(
-			screen.getByRole("button", { name: "Set up Self-Evolution" })
+			await screen.findByRole("button", { name: "Set up Self-Evolution" })
 		);
 		const dialog = await screen.findByRole("dialog", {
 			name: "Set up Center Agent Self-Evolution",
@@ -525,7 +525,7 @@ function createRouteFetch(input: {
 			}
 			if (
 				route ===
-				`GET ${origin}/v1/organizations/current/directory?includeMemberLastActiveAt=true`
+				`GET ${origin}/v1/organizations/current/profile-directory?includeTaskActivity=true&includeModelSelection=true&includeMemberLastActiveAt=true`
 			) {
 				return jsonResponse({
 					agentProfiles: [],

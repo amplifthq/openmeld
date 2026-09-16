@@ -8,6 +8,7 @@ import {
 } from "../http/center-agent-routines";
 import { MAX_SPACE_GUIDE_LENGTH } from "../http/space-meta";
 import { centerAgentInteractionSourceSchema } from "../protocol/center-agent-interaction-source";
+import { spaceCallerContextSchema } from "../protocol/space-caller-context";
 import {
   agentDelegationSnapshotSchema,
   agentTaskCompletionObservationSchema,
@@ -89,6 +90,7 @@ export const centerAgentContextScopePlanSchema = z.strictObject({
 });
 
 const remoteAgentTurnEnvelopePersonSenderShape = {
+  callerContext: spaceCallerContextSchema.optional(),
   id: nonEmptyStringSchema,
   displayName: nonEmptyStringSchema,
   ownerUserId: nonEmptyStringSchema.optional(),

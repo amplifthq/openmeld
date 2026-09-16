@@ -7,8 +7,8 @@ import {
 } from "../agent-core/callback-context";
 import { REMOTE_AGENT_SANDBOX_CAPABILITY_TABLE } from "../agent-core/sandbox";
 import {
+  REMOTE_AGENT_OPENMELD_TOOL_NAMES as ALL_REMOTE_AGENT_OPENMELD_TOOL_NAMES,
   REMOTE_AGENT_MEMBER_RESEARCH_TOOL_NAMES,
-  REMOTE_AGENT_OPENMELD_TOOL_NAMES,
   REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES,
 } from "../agent-core/tools";
 import { expandRemoteAgentCapabilityDependencies } from "../flue-adapter/capability-catalog";
@@ -28,6 +28,14 @@ import {
   TEST_NOW_MS,
 } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
+
+// Request an Agent remains held in production; retained implementations are not exposed.
+const REMOTE_AGENT_OPENMELD_TOOL_NAMES =
+  ALL_REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
+    (name) =>
+      name !== "openmeld_get_agent_profile_creation_approval_preferences" &&
+      name !== "openmeld_set_agent_profile_creation_approval_preferences"
+  );
 
 async function getRemoteAgentFlueTools(
   input: Omit<Parameters<typeof buildRemoteAgentFlueTools>[0], "submissionId">
@@ -114,6 +122,13 @@ describe("remote agent Flue capability inventory", () => {
     expect(tools.map((tool) => tool.name)).toContain("web_fetch");
     expect(tools.map((tool) => tool.name)).toContain("browser_read_page");
     expect(tools.map((tool) => tool.name)).toContain("browser_screenshot");
+    const recoveryTools = await getRemoteAgentFlueTools({
+      coreWorker: {},
+      storage: await createCapabilityInventoryStorage(turnEnvelope),
+      turnEnvelope,
+      replyRecovery: true,
+    });
+    expect(recoveryTools).toEqual([]);
   });
 
   it("describes every executable capability from the final registered turn catalog", async () => {
@@ -575,8 +590,10 @@ describe("remote agent Flue capability inventory", () => {
     });
     const expectedOpenMeldToolNames = REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
       (name) =>
-        exposesOrganizationMemoryWrite ||
-        name !== "openmeld_remember_for_organization"
+        (source === "space_wake" ||
+          name !== "openmeld_set_final_reply_mentions") &&
+        (exposesOrganizationMemoryWrite ||
+          name !== "openmeld_remember_for_organization")
     );
 
     expect(tools.map((tool) => tool.name)).toEqual([
@@ -611,7 +628,9 @@ describe("remote agent Flue capability inventory", () => {
 
     expect(tools.map((tool) => tool.name)).toEqual([
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES.filter(
-        (name) => name !== "openmeld_remember_for_organization"
+        (name) =>
+          name !== "openmeld_remember_for_organization" &&
+          name !== "openmeld_set_final_reply_mentions"
       ),
       ...REMOTE_AGENT_CAPABILITY_DISCOVERY_TOOL_NAMES,
       "codemode",

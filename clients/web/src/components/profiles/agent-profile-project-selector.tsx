@@ -1,15 +1,18 @@
 "use client";
 
+import { desktopLocalComputerSchema } from "@openmeld/schemas";
 import type {
 	LocalProjectControlCandidate,
 	LocalProjectControlConnection,
 	LocalProjectControlConnectResponse,
 	LocalProjectControlPathConflictResponse,
+	PeopleComputerTarget,
 	Project,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { Label } from "@openmeld/ui/components/label";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { LocalFolderPickerButton } from "#/components/local-runtimes/local-folder-picker-button";
 import { SelectedLocalFolder } from "#/components/local-runtimes/selected-local-folder";
@@ -19,6 +22,7 @@ import { ProjectPickerActions } from "#/components/projects/project-picker-actio
 import type { ProjectComputerView } from "#/components/projects/use-project-discovery";
 import { useProjectDiscovery } from "#/components/projects/use-project-discovery";
 import { WorkingFolderSelect } from "#/components/projects/working-folder-select";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { resolveLocalFolderPickerDeviceId } from "#/lib/connect/local-folder-picker";
 import {
 	connectCurrentComputerProjectCandidate,
@@ -47,7 +51,8 @@ type PendingFolderMove =
 			kind: "declared_path";
 	  };
 
-export function AgentProfileProjectSelector(input: {
+type ProjectSelectorInput = {
+	target?: PeopleComputerTarget;
 	disabled: boolean;
 	manualPath: string;
 	onConnectionReady: (connection: LocalProjectControlConnection | null) => void;
@@ -61,8 +66,66 @@ export function AgentProfileProjectSelector(input: {
 	projects: readonly Project[];
 	selectedBindingGeneration: string | null;
 	workspaceFallbackMode?: "advanced" | "managed" | "project" | null;
-}) {
+};
+
+export function AgentProfileProjectSelector(input: ProjectSelectorInput) {
+	const desktop = getDesktopPlatform();
+	const native = useQuery({
+		queryKey: ["desktop", "working-folder-computer", input.organizationId],
+		queryFn: async () =>
+			desktopLocalComputerSchema.parse(await desktop?.localComputer()),
+		enabled: Boolean(desktop),
+		staleTime: 0,
+	});
+	if (!desktop) {
+		return <AgentProfileProjectSelectorContent {...input} />;
+	}
+	if (native.isPending) {
+		return (
+			<output className="text-muted-foreground text-sm">
+				Checking this computer…
+			</output>
+		);
+	}
+	const local = native.data;
+	const mismatch =
+		local?.status === "available" &&
+		input.target &&
+		(input.target.deviceId !== local.target.deviceId ||
+			input.target.runtimeLane !== local.target.runtimeLane);
+	if (native.isError || local?.status !== "available" || mismatch) {
+		let message =
+			"Couldn’t check this computer for folder selection. Try again.";
+		if (local?.status === "unavailable") {
+			message = local.message;
+		}
+		if (mismatch) {
+			message =
+				"The selected Agent runs on a different computer or environment. Select this computer to choose a local folder.";
+		}
+		return (
+			<div className="grid gap-2">
+				<p className="text-sm" role="alert">
+					{message}
+				</p>
+				<Button onClick={() => native.refetch()} size="sm" variant="outline">
+					Try again
+				</Button>
+			</div>
+		);
+	}
+	return (
+		<AgentProfileProjectSelectorContent
+			{...input}
+			key={`${local.accountId}:${local.target.deviceId}:${local.target.runtimeLane}`}
+			target={local.target}
+		/>
+	);
+}
+
+function AgentProfileProjectSelectorContent(input: ProjectSelectorInput) {
 	const controller = useProjectDiscovery({
+		target: input.target,
 		includeCandidates: false,
 		organizationId: input.organizationId,
 		projects: input.projects,
@@ -71,6 +134,7 @@ export function AgentProfileProjectSelector(input: {
 		? controller.projectView(input.projectId)
 		: null;
 	const search = useProjectDiscovery({
+		target: input.target,
 		organizationId: input.organizationId,
 		projects: input.projects.filter(
 			(project) => project.id === input.projectId
@@ -104,7 +168,9 @@ export function AgentProfileProjectSelector(input: {
 	const selectedProjectName =
 		input.projects.find((project) => project.id === input.projectId)?.name ??
 		"this Project";
-	const pickerDeviceId = resolveLocalFolderPickerDeviceId(controller.computer);
+	const pickerDeviceId = input.target
+		? (controller.folderPickerTarget?.deviceId ?? null)
+		: resolveLocalFolderPickerDeviceId(controller.computer);
 
 	useEffect(() => {
 		const connection =
@@ -127,6 +193,7 @@ export function AgentProfileProjectSelector(input: {
 		unavailableMessage: string
 	): Promise<LocalProjectControlConnection> => {
 		const response = await setCurrentComputerProjectDefaultConnection({
+			target: input.target,
 			clientGeneration: controller.claimMutationGeneration(),
 			expectedOrganizationId: input.organizationId,
 			idempotencyKey: crypto.randomUUID(),
@@ -220,6 +287,7 @@ export function AgentProfileProjectSelector(input: {
 		setErrorMessage(null);
 		try {
 			const response = await connectCurrentComputerProjectCandidate({
+				target: input.target,
 				candidateId: candidate.candidateId,
 				candidatePath: candidate.canonicalPath,
 				clientGeneration: controller.claimMutationGeneration(),
@@ -270,6 +338,7 @@ export function AgentProfileProjectSelector(input: {
 		setErrorMessage(null);
 		try {
 			const response = await connectCurrentComputerProjectPath({
+				target: input.target,
 				clientGeneration: controller.claimMutationGeneration(),
 				...(confirm ? { confirmNonGit: true } : {}),
 				declaredPath: path,
@@ -366,8 +435,14 @@ export function AgentProfileProjectSelector(input: {
 					disabled={input.disabled || pendingOperation !== null}
 					onConnectCandidate={connectCandidate}
 					onConnectPath={connectDeclaredPath}
-					onDeclaredPathChange={setDeclaredPath}
+					onDeclaredPathChange={(path) => {
+						setDeclaredPath(path);
+						setConfirmNonGit(false);
+						setPendingFolderMove(null);
+						setErrorMessage(null);
+					}}
 					onRetry={() => {
+						setErrorMessage(null);
 						controller.refresh();
 						search.refresh();
 					}}
@@ -375,6 +450,7 @@ export function AgentProfileProjectSelector(input: {
 					onSelectedCandidateChange={setSelectedCandidateId}
 					pendingOperation={pendingOperation}
 					pickerDeviceId={pickerDeviceId}
+					runtimeLane={input.target?.runtimeLane}
 					selectedBindingGeneration={input.selectedBindingGeneration}
 					selectedCandidateId={selectedCandidateId}
 					view={view}
@@ -431,6 +507,7 @@ export function AgentProfileProjectSelector(input: {
 				manualPath={input.manualPath}
 				onManualPathChange={input.onManualPathChange}
 				pickerDeviceId={pickerDeviceId}
+				runtimeLane={input.target?.runtimeLane}
 				visible={source === "custom"}
 				wasProjectSelected={Boolean(input.projectId)}
 				workspaceFallbackMode={input.workspaceFallbackMode}
@@ -521,6 +598,7 @@ function ProjectSourceControls(input: {
 }
 
 function WorkspaceFallbackControls(input: {
+	runtimeLane?: PeopleComputerTarget["runtimeLane"];
 	disabled: boolean;
 	manualPath: string;
 	onManualPathChange: (path: string) => void;
@@ -557,6 +635,7 @@ function WorkspaceFallbackControls(input: {
 								}
 							}}
 							purpose="agent_profile_working_folder"
+							runtimeLane={input.runtimeLane}
 							variant="default"
 						/>
 					) : null}
@@ -565,12 +644,12 @@ function WorkspaceFallbackControls(input: {
 					) : null}
 					{input.pickerDeviceId && !manualPathOpen ? (
 						<Button
-							className="justify-self-start"
+							className="justify-self-end"
 							disabled={input.disabled}
 							onClick={() => setManualPathOpen(true)}
 							size="sm"
 							type="button"
-							variant="ghost"
+							variant="secondary"
 						>
 							Enter path manually
 						</Button>
@@ -598,6 +677,7 @@ function WorkspaceFallbackControls(input: {
 }
 
 function ProjectSelectionDetails(input: {
+	runtimeLane?: PeopleComputerTarget["runtimeLane"];
 	onRetry: () => void;
 	branch: AgentProfileProjectSelectorBranch;
 	confirmNonGit: boolean;
@@ -703,6 +783,7 @@ function ProjectSelectionDetails(input: {
 				path={input.declaredPath}
 				pending={input.pendingOperation === "path"}
 				pickerDeviceId={input.pickerDeviceId}
+				runtimeLane={input.runtimeLane}
 			/>
 			{input.branch === "candidate" ? (
 				<MatchingProjectFolders
@@ -719,6 +800,7 @@ function ProjectSelectionDetails(input: {
 }
 
 function ProjectConnectionDraft(input: {
+	runtimeLane?: PeopleComputerTarget["runtimeLane"];
 	confirmNonGit: boolean;
 	disabled: boolean;
 	onConnectPath: (confirm: boolean) => Promise<void>;
@@ -745,6 +827,7 @@ function ProjectConnectionDraft(input: {
 						}
 					}}
 					purpose="project_connection"
+					runtimeLane={input.runtimeLane}
 					variant="default"
 				/>
 			) : null}
@@ -753,12 +836,12 @@ function ProjectConnectionDraft(input: {
 			) : null}
 			{input.pickerDeviceId && !manualPathOpen ? (
 				<Button
-					className="justify-self-start"
+					className="justify-self-end"
 					disabled={input.disabled}
 					onClick={() => setManualPathOpen(true)}
 					size="sm"
 					type="button"
-					variant="ghost"
+					variant="secondary"
 				>
 					Enter path manually
 				</Button>

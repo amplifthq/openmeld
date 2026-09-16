@@ -32,6 +32,7 @@ export async function recoverInterruptedComputerAuthHandoff(input: {
   runtime: RuntimeContext;
   view?: string;
 }): Promise<ComputerAuthHandoffRecoveryOutcome> {
+  await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
   const recovery = await getInterruptedComputerAuthSessionRecovery();
   if (!recovery) {
     return "none";
@@ -138,7 +139,6 @@ async function stopCurrentLaneDaemonServiceAfterToolsUpdate(input: {
 }): Promise<
   Awaited<ReturnType<typeof bestEffortStopCurrentLaneDaemonService>>
 > {
-  await waitForOpenMeldToolsUpdateBeforeComputerHandoff(input);
   let stopped = await bestEffortStopCurrentLaneDaemonService({
     runtime: input.runtime,
   });

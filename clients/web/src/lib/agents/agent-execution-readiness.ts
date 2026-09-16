@@ -25,6 +25,7 @@ export function chunkAgentExecutionReadinessProfileIds(
 export async function readAgentExecutionReadinessBatch(input: {
 	agentProfileIds: readonly string[];
 	organizationId: string;
+	signal?: AbortSignal;
 	targetRuntime?: AgentExecutionReadinessTargetRuntime;
 }): Promise<GetAgentExecutionReadinessBatchResponse> {
 	try {
@@ -37,8 +38,10 @@ export async function readAgentExecutionReadinessBatch(input: {
 		for (const agentProfileIds of chunkAgentExecutionReadinessProfileIds(
 			input.agentProfileIds
 		)) {
+			input.signal?.throwIfAborted();
 			responses.push(
 				await api.getExecutionReadinessBatch({
+					signal: input.signal,
 					agentProfileIds: [...agentProfileIds],
 					...(input.targetRuntime === undefined
 						? {}

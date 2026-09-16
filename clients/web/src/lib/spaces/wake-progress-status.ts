@@ -94,10 +94,9 @@ export function resolveWakeProgressStatus(
 		WAKE_PROGRESS_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
 	) {
 		return {
-			description:
-				"This Wake will start when the Agent’s current task finishes.",
+			description: "Another app is using this conversation.",
 			kind: "waiting_for_controller",
-			label: `Waiting for ${targetName}’s current task`,
+			label: `Waiting for ${targetName}`,
 			status: "active",
 		};
 	}
@@ -121,7 +120,7 @@ export function resolveWakeProgressStatus(
 			return {
 				description: "This Wake will start when the Agent is available.",
 				kind: "queued",
-				label: `${targetName} is queued`,
+				label: `${targetName} is queued · Waiting for earlier tasks`,
 				status: "active",
 			};
 		case "connecting":
@@ -178,7 +177,7 @@ function resolveDeviceWaitStatus(
 	wait: NonNullable<WakeProgressItem["deviceWait"]>,
 	targetName: string
 ): WakeProgressStatusPresentation {
-	let label = `${targetName} is queued`;
+	let label = `${targetName} is queued · Waiting for earlier tasks`;
 	let reason = "Earlier work must finish first.";
 	if (wait.reason === "device_offline") {
 		label = `Waiting for ${targetName}’s computer to come online`;

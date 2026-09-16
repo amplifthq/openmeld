@@ -32,6 +32,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
 
 export function parseStagingCliChannelArgs(argv) {
   const args = argv.filter((arg) => arg !== "--");
+  if (
+    args[0] === "publish" &&
+    args[1] === "--retain-service" &&
+    args.length === 2
+  ) {
+    return { command: "publish", retainService: true };
+  }
   if (!COMMANDS.has(args[0]) || args.length !== 1) {
     throw new Error(
       "Staging CLI channel command must be plan, publish, or verify."
@@ -70,6 +77,7 @@ export function buildStagingCliPublishStepSpec(input) {
       INTERNAL_PUBLISH_COMMAND,
       "--version",
       input.version,
+      ...(input.retainService ? ["--retain-service"] : []),
     ],
     command: "node",
   };
@@ -77,12 +85,15 @@ export function buildStagingCliPublishStepSpec(input) {
 
 async function runStagingCliChannel(argv) {
   if (argv[0] === INTERNAL_PUBLISH_COMMAND) {
-    const version = parseInternalPublishVersion(argv.slice(1));
-    await publishStagingCli(version);
+    const retainService = argv.at(-1) === "--retain-service";
+    const version = parseInternalPublishVersion(
+      argv.slice(1, retainService ? -1 : undefined)
+    );
+    await publishStagingCli(version, retainService);
     return;
   }
 
-  const { command } = parseStagingCliChannelArgs(argv);
+  const { command, retainService } = parseStagingCliChannelArgs(argv);
   if (command === "verify") {
     await verifyStagingCliChannel();
     return;
@@ -100,7 +111,7 @@ async function runStagingCliChannel(argv) {
   }
 
   assertCleanWorktree();
-  runStep(buildStagingCliPublishStepSpec({ version }));
+  runStep(buildStagingCliPublishStepSpec({ version, retainService }));
   await verifyStagingCliChannel({ expectedVersion: version });
 }
 
@@ -115,11 +126,23 @@ function parseInternalPublishVersion(argv) {
   return version;
 }
 
-async function publishStagingCli(version) {
+async function publishStagingCli(version, retainService) {
+  const stable = retainService ? await verifyStagingCliChannel() : undefined;
+  const service = stable
+    ? (stable.service ?? {
+        version: stable.version,
+        platforms: stable.platforms,
+      })
+    : undefined;
   await uploadCliBinary({
     bucketName: STAGING_CLI_BUCKET,
     downloadBaseUrl: STAGING_CLI_DOWNLOAD_BASE_URL,
     version,
+    service,
+  });
+  await verifyStagingCliChannel({
+    expectedVersion: version,
+    expectedServiceVersion: service?.version,
   });
 }
 
@@ -135,6 +158,14 @@ async function verifyStagingCliChannel(input = {}) {
   }
   const manifest = cliBinaryManifestSchema.parse(await response.json());
   const stable = manifest.channels.stable;
+  if (
+    input.expectedServiceVersion &&
+    stable.service?.version !== input.expectedServiceVersion
+  ) {
+    throw new Error(
+      "Staging Web did not preserve the selected Service release. Deploy the current manifest reader before retaining a Service."
+    );
+  }
   if (!STAGING_VERSION_PATTERN.test(stable.version)) {
     throw new Error(
       `Staging manifest returned non-staging version ${stable.version}.`
@@ -154,9 +185,26 @@ async function verifyStagingCliChannel(input = {}) {
       throw new Error(`Staging manifest points outside staging: ${url}`);
     }
   }
+  if (stable.service) {
+    assertStagingServiceSelection(stable.service);
+  }
   process.stdout.write(
     `[staging-cli] Ready: ${stable.version} from ${STAGING_CLI_MANIFEST_URL}\n`
   );
+  return stable;
+}
+
+export function assertStagingServiceSelection(service) {
+  if (!STAGING_VERSION_PATTERN.test(service.version)) {
+    throw new Error("Staging Service selection must use a staging prerelease.");
+  }
+  for (const artifact of Object.values(service.platforms)) {
+    for (const url of [artifact.url, artifact.archiveUrl].filter(Boolean)) {
+      if (!url.startsWith(`${STAGING_CLI_DOWNLOAD_BASE_URL}/`)) {
+        throw new Error("Staging Service artifact points outside staging.");
+      }
+    }
+  }
 }
 
 function resolveSourceIdentity() {

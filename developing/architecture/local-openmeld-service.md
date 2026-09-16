@@ -63,6 +63,13 @@ reply in the intended Space through the intended local execution path.
 
 ## Ownership Boundary
 
+A retained Service reports the installed managed CLI version, not its own
+carrier version. The CLI installer refreshes the existing local-components
+snapshot atomically. Its CLI command contract is usable only when the snapshot
+version matches the current managed executable. A missing or mismatched receipt
+does not establish the newer CLI's contract; the report fails closed for that
+contract while retaining the observed installed version.
+
 OpenMeld Service may own or report local execution evidence:
 
 - service availability
@@ -225,6 +232,16 @@ existing local controllers. The local controller remains the user's installed
 Codex, Claude Code, Grok Build, Cursor, OpenCode, or future controller; ACI is the adapter
 surface OpenMeld uses to detect it, launch it, inspect it, and drive its native
 control capabilities.
+
+Device inventory probes use an owned temporary directory outside Projects, not
+the caller's or Service's working directory. Native cwd parameters (including
+Codex skills/list and OpenCode's directory) use that same probe context. The
+selected executable, user configuration, authenticated account, and environment
+remain unchanged. Probe directories are removed after completion or failure.
+Inventory skills describe user/global controller context; they do not describe
+an incidental development repository. Actual execution continues to use the
+selected Project workspace and its access checks. Successful device inventory
+does not prove that a particular Project is accessible.
 
 ACI-owned local evidence may include:
 
@@ -520,9 +537,13 @@ exact App Server `-32600` response `thread <id> already has an active writer`
 for that resume is structured Agent Controller conversation occupancy, not a
 Wake failure. OpenMeld keeps the task at the Profile FIFO head, observes the
 official lock release, and retries that same metadata-only resume immediately.
-A low-frequency recovery check handles a missed filesystem event or abrupt
-writer exit without starting another App Server process while the official lock
-still exists. If the exact lock is unexpectedly not visible after Codex reports
+A low-frequency recovery retry (30 seconds) asks official admission again even
+when the lock file still exists: an abrupt writer exit releases the OS lock but
+can leave that file behind. This retry is not release evidence and does not clear
+the occupied projection. Only the provider may acquire or clean its own lock.
+Normal release events still retry immediately. This adds at most one admission
+attempt per recovery interval for an occupied FIFO head and no polling to normal
+execution. If the exact lock is unexpectedly not visible after Codex reports
 writer occupancy, the retry uses a short bounded backoff instead of spinning.
 Wake Stop aborts the task's lock watcher and retry boundary immediately, and
 that task must not issue another `thread/resume`. Normal execution adds no extra
@@ -743,6 +764,11 @@ error semantics. Stop is terminal only after the adapter cancels the live ACP
 session, closes it when supported, and the supervised controller process and
 descendants are reaped; a successful protocol cancellation alone is not final.
 
+ACP transport support alone does not declare Execution Context support. Context
+concurrency, completed-history forks, exclusive tool access, and project-file
+confinement require verified adapter capabilities; they must not be enabled by a
+generic ACP flag.
+
 Codex App Server maps current and legacy command/file approvals,
 `requestUserInput`, additional-permission approval, and MCP form or URL
 elicitation into the same contract. Claude Agent SDK maps `canUseTool`,
@@ -867,6 +893,129 @@ a retryable check failure, not as `Needs setup`. The next periodic pass should
 receive an accelerated one-shot retry even when a previous successful snapshot
 exists.
 
+## Execution Context Isolation
+
+An Execution Context is a Core-assigned work identity, separate from the Agent
+Profile, Binding, native conversation, and Service process. Scoped deliveries
+use a context-specific local lane and ledger key. The Service must not search
+the Profile's other contexts as a fallback or heal a missing scoped conversation
+by silently starting another one. Ledger v2 reads valid v1 state without resetting
+its native conversation mappings. Corrupt scoped evidence fails closed.
+
+The existing local slot owner enforces the five-context Profile cap and local
+resource exclusions. Isolated task folders have distinct canonical roots and
+must not be symlinks. Shared current-folder writers run exclusively; current-folder
+readers wait for potentially overlapping writers. These local checks implement
+Core's reservation, rather than creating another durable admission queue.
+The slot and scoped Core reservation stay occupied until native execution has
+settled, even when a Space Action proposal was saved earlier. Workspace deletion
+requires stronger, explicit process-tree quiescence evidence; a provider result
+or an expired shutdown grace period is not that evidence.
+
+Version-2 project workspace records distinguish preparation, native use,
+retirement, retained idle state, and released reproducible copies. Readers keep
+valid version-1 records, and records without a verified original baseline are
+retained. Preparation retries use the existing
+process-identity lock and the recorded source/base commit. They never choose a
+new source HEAD or overwrite ambiguous local changes. The Service may reclaim a
+generated checkout and its private repository only after quiescence and an
+unchanged content/metadata baseline are both verified. The exact retirement
+intent is persisted before moving the copy, and the fenced copy is checked
+again before deletion. Crash recovery uses that recorded path and preserves
+edits instead of adopting arbitrary sibling directories. Task edits, ignored or
+untracked files, new commits, and unknown ownership retain the workspace. An
+uncertain in-use record blocks another writer until ownership is reconciled.
+Continuation restores an eligible released copy at the same path and frozen
+commit; an unavailable source commit has an explicit failure. Native transcripts
+and task-created output are outside automatic deletion.
+
+An experimental version-1 record left in preparation has no durable process
+ownership evidence. It is retained with an explicit quiescence-unconfirmed
+failure; the Service does not invent safe deletion or silently recreate it.
+New version-2 preparations persist supervision identity before Git work so
+interruption and restart can be reconciled safely.
+
+Before replacing a valid v1 local ledger, the Service preserves and verifies a
+separate prior-version checkpoint. Copy, file flush, exact readback, and atomic
+rename must succeed before migration can replace the original; failure keeps
+the original or its verified checkpoint available. The checkpoint is distinct
+from an invalid-state recovery backup and must not be overwritten by it. Native
+conversation IDs and lookup keys are preserved. Windows file handles use write
+access for flushing; directory-entry durability across power loss is not claimed
+on Windows. Native Windows execution remains a separate validation gap.
+
+Explicit isolated project tasks use the already confirmed Project connection or
+Profile working folder as their source. The source must be the exact canonical
+Git root and must satisfy the current Computer file policy before Git inspection
+or copying. The Service creates a private bare repository and a Git worktree
+under the context root using a local fetch of the frozen committed HEAD; it does
+not register a linked worktree in the user's source repository. Git hooks,
+ambient Git configuration, filters, lazy fetching, and non-file protocols are
+disabled during preparation. No dirty or ignored source files are copied.
+The resulting task boundary includes only that context's worktree and Git data.
+Its protected preparation record is outside the task's writable root and binds
+the context identity, source path, starting commit, owned paths, and completion.
+Retry verifies and reuses completed preparation. Incomplete or mismatched records
+are retained and rejected rather than rebuilding over possible task effects.
+
+Space-context-only tasks use a Service-owned scratch directory, not a user
+project source. A Computer policy that allows only selected project folders
+does not require adding the Service directory to that allowlist. Native access
+remains limited to the assigned scratch root. Codex treats that root as its
+project boundary using `project_root_markers=[]`, so project instruction
+discovery cannot walk into an unrelated parent repository. This does not disable
+global user instructions or change project discovery for local project tasks.
+The dispatch-owned `read_history` MCP tool provides the existing bounded text
+window without requiring a sandboxed shell to load Node, CLI code, or local
+authentication files. Its Space, source Wake, and acting Profile are fixed by
+the active dispatch, and it rechecks that context after the authorized read.
+This read does not complete or publish the Wake.
+
+Claude SDK Space-context invocations expose only dispatch-owned Space tools;
+built-in local tools, ambient MCP servers, and hooks are disabled. User settings
+remain available for the existing provider authentication. Codex local contexts
+use a named native permission profile, an explicit runtime workspace root, and
+`never` approval escalation. The Service checks the effective profile, working
+directory, and sandbox returned by native thread start/resume before starting a
+turn. A version string alone is not proof of enforcement. A native command also
+checks actual allowed task-file access and denied outside reads/writes using
+Service-owned sentinels. Failure rejects before a model turn. Platform temporary
+directories remain governed by the native runtime; project and Git isolation
+does not claim complete temporary-directory isolation. Paths covered by a broad
+native temporary grant fail the outside-access probe.
+
+Scoped Codex invocations enumerate the selected installation's effective MCP
+configuration and disable each ambient server using one merged native table.
+An empty table does not clear native configuration. A configured server using
+the reserved dispatch name rejects rather than retaining ambient environment or
+transport settings. Plugins, hooks, apps, and computer/browser controls are
+disabled; the dispatch-owned Space MCP server is supplied separately. Before a
+turn, the full effective MCP inventory must contain only its exact Space tools
+and explicitly disabled empty ambient entries. Partial or unverified inventories
+reject. Unsupported native permission evidence also rejects before execution.
+
+Forks copy only an accepted completed native-history prefix. Claude uses the
+SDK's `upToMessageId`; Codex uses `lastTurnId`. The existing local fork operation
+journal retains the exact source/cutoff and child identity across retries,
+including an unknown outcome. It must not issue a second native fork after an
+ambiguous response. Native-history inheritance copies no leases, approvals, or
+parent action credentials. An explicitly selected project worktree independently
+materializes committed project content as described above; it does not copy the
+parent's dirty working files or implicitly synchronize parent and child. A
+completion without a verified native checkpoint may
+preserve conversation identity but cannot authorize a fork.
+The Service observes completed turns across the initial invocation, reply repair,
+and reconsideration. Each invocation clears the previous completion evidence;
+each submitted proposal carries its own final verified turn. A missing final
+turn event cannot fall back to an earlier turn's checkpoint.
+Scoped Codex repair and reconsideration resume that Context's existing native
+conversation with read-only project permissions. Native file probes and thread
+attestation verify this same effective permission mode. A temporary repair fork
+must not replace or diverge from the scoped conversation's accepted history;
+legacy unscoped repair retains its existing behavior.
+Native history is located by its authorized session ID, independently of the
+task's current file workspace; a fork can retain history under its origin folder.
+
 ## Runtime Reporting Health
 
 Runtime Agent Controller reports and provider conversation proofs are separate
@@ -886,6 +1035,13 @@ carrier is rejected, the running service may request one debounced reconnect so
 the normal handshake can refresh authentication. That recovery must preserve
 the per-channel failure evidence, reject stale-socket recovery requests, and
 remain separate from read-only status and doctor commands.
+
+A local credential-store failure or expiry preflight does not prove a server
+rejected the carrier's credential and must not close that connection. Reporting
+preserves the typed local failure reason and may refresh expired credentials
+through the auth-session owner. Authentication recovery requires an actual
+rejection of the exact credential attached to the current socket; its ephemeral
+correlation fingerprint must never enter logs or uploaded diagnostics.
 
 ## Agent Activity Session Inventory Carrier
 
@@ -1048,11 +1204,18 @@ that decision.
   same OpenMeld user. The CLI must validate Prepare ownership before changing
   the active local session. A failed or cancelled handoff restores the previous
   session and Service account alignment. That pending session transition is
-  durable: after Terminal exits, process failure, or machine restart, the next
-  CLI or Service auth read restores the previous session before proceeding; a
-  first connection clears its incomplete candidate. A committed transition is
-  never recovered backward. A cross-account switch requires explicit
-  interactive confirmation bound to the stable identity of the exact committed
+  durable. A Web setup journal includes its non-secret Prepare continuation;
+  after its exact owner process exits, the OS maintenance worker may adopt that
+  same journal and resume the same Core Prepare session using a freshly minted
+  owner-authenticated token. Ordinary auth reads preserve the committed account
+  and must not roll back this continuation. A failed or cancelled continuation
+  uses the existing previous-account recovery. Older journals without this
+  intent retain their rollback-on-read behavior. Older auth readers can mark a dead Terminal for
+  recovery while preserving its continuation field; the new worker may still
+  resume that intent, subject to the same Core Prepare outcome. Current explicit
+  cancellation and abandonment clear the continuation before account recovery.
+  A committed transition is never recovered backward. A cross-account switch requires explicit
+  confirmation in Terminal or the native Desktop dialog, bound to the stable identity of the exact committed
   session the user reviewed. The transition lock compares that identity before
   accepting the candidate; if it changed, setup requires fresh review. Before
   commit, ordinary CLI processes keep using the previous committed session and
@@ -1060,6 +1223,12 @@ that decision.
   candidate. OpenMeld Service uses the committed Computer session when it starts
   at login. The handoff must not be used to add an
   agent-selection step to Web.
+  Desktop uses `computer connection-review --json` and
+  `setup --connection-intent <json>` for that same boundary. The intent contains
+  the expected new account and a non-secret hash of the reviewed old session;
+  it is accepted only with a Prepare token and Device Authorization grant.
+  Unknown or changed identity fails before a transition. This adds neither a
+  second session writer nor a second lifecycle owner.
   A missing or unreadable old bearer token does not veto a freshly authorized
   handoff when the committed account metadata is intact. Metadata is used only
   for account-switch consent and the locked identity comparison, never to
@@ -1267,6 +1436,14 @@ account's routing preference. The existing current-Computer endpoint remains
 for supported clients. A browser draft discards late picker results after
 either the selected device or environment changes, or the editor unmounts.
 
+Desktop Working folder uses the same Service picker after native account,
+device, and lane admission. Its explicit PeopleComputer Project connection and
+default-folder routes reuse the existing Project control business functions;
+its explicit Profile workspace route reuses the existing workspace mutation
+admission and Service writer. Every request revalidates owner inventory, the
+exact live session, and the requested capability. Changing the account's current
+Computer cannot redirect these operations.
+
 The picker returns only folders the person selected. It does not inspect folder
 contents, discover Projects, validate repositories, update Computer file access,
 connect a Project, or save an Agent Profile working folder. Each product surface
@@ -1343,9 +1520,12 @@ OS service manager job-state evidence (for launchd: `launchctl print` runs,
 state, last exit code, and pended-spawn markers) is startup failure diagnostic
 evidence only. After a startup wait fails it may drive failure cards, the
 lifecycle journal, and Agent View diagnostics — for example distinguishing a
-job macOS never spawned (Login Items blocked) from a crash loop with a nonzero
-exit code. It must never feed service health, Wakeability, readiness, or
-lifecycle decisions. A service-manager `running` state corroborates lifecycle
+job macOS never spawned from a crash loop with a nonzero exit code. Pending
+spawn evidence alone does not prove a denied Login Items permission. It must
+never establish service health, Wakeability, readiness, or permission to replace
+a carrier. After an exhausted startup wait it may suppress an immediate repeated
+start, independently of the user-facing diagnostic wording. A service-manager
+`running` state corroborates lifecycle
 success only when the same full inventory also proves the exact active bundle,
 install state, runtime contract, live managed background runtime lease, and no
 blocking ownership anomaly. Gateway connection and controller catalog loading
@@ -1482,11 +1662,25 @@ Catalog consumption rules:
 - One catalog load resolves its account context once and reuses it for every
   Profile workspace inspection. It must not fan out identical Keychain reads
   per Profile.
-- One OpenMeld Service process reloads the unchanged local auth session from
-  secure storage once and reuses it while the persisted session payload is
-  unchanged. Clearing, replacing, or editing that payload invalidates the
-  in-process copy; a new Service process reloads it from secure storage. Remote
+- One OpenMeld Service process binds its account principal at startup. It
+  reuses the secure-storage cache and adopts changed credentials only for that
+  same account, Auth authority, and client. Clearing or switching the CLI account
+  cannot make accepted work use another account's credentials. Same-account
+  renewal uses the existing credential writer; an in-memory renewal deferred
+  during admission is persisted on a later read if the local principal still
+  matches. A new Service process resolves its own startup principal. Remote
   authorization checks still decide whether the bearer session is valid.
+- One OpenMeld Service process reuses a verified credential for the same
+  committed login, storage reference, lane, auth origin, client and account.
+  Organization selection and display-only profile changes update context
+  without evicting that credential. Security-relevant metadata, including
+  expiry and scope, retains conservative invalidation for supported legacy
+  same-reference writers. New credential rotations use unique references.
+  Full-payload transaction fences remain separate and unchanged. Clearing or
+  replacing the login invalidates its cached identity; a slow read rechecks
+  current metadata before returning. Concurrent reads of the same credential
+  are coalesced. A new Service process reloads from secure storage, and remote
+  authorization remains authoritative.
 - Reading a committed local session does not acquire the account-transition
   mutation lock when no durable transition journal exists. Recovery acquires
   that lock only after observing a journal and rereads it under ownership before
@@ -1506,8 +1700,11 @@ Catalog consumption rules:
   of opening a macOS authorization window. Normal setup and login writes remain
   silent; if macOS requires interaction, setup uses the documented private-file
   fallback. If Security.framework never returns, the parent terminates that
-  child, caches the timeout, and does not query Keychain again during the same
-  CLI or Service process. A command authentication check may re-evaluate the
+  child and observes a 30-second cooldown before another Keychain attempt.
+  The existing carrier recovery scheduler honors this retry eligibility;
+  successful credential recovery wakes a waiting transient retry. Local
+  unavailability remains degraded connection evidence and does not consume
+  the invalid-login backoff ladder. A command authentication check may re-evaluate the
   CLI-owned session once after `session_token_unavailable`; the cached timeout
   makes that re-evaluation fail immediately without another Keychain query,
   while another one-off helper failure may recover through the single bounded
@@ -1869,6 +2066,85 @@ Registration repair, install, start, stop, uninstall, alignment,
 auto-heal, and explicit autostart changes all reuse that one
 lock identity. Nested registration work in the same lifecycle command reuses
 the held lock; competing commands or roots cannot enter until it is released.
+On POSIX systems, native commands invoked inside that owner attach a separate,
+owner-scoped entry to the same lock directory before execution. A fixed shell
+handshake waits for attachment, then uses `exec` with structured argv so the
+recorded PID and process-start identity remain the native command's identity.
+EOF or failed attachment before the grant prevents execution. A surviving native
+command retains the fence after its requesting CLI dies. Recovery removes only
+recognized entries whose exact owners are all proven dead; unknown entries and
+unknown process identity fail closed. There is no live-owner timeout. Older
+single-entry readers cannot remove a nonempty multi-owner directory, including
+after their malformed-lock grace period. Read-only probes outside a lifecycle
+operation do not acquire this lock. Windows retains ordinary lifecycle behavior;
+the account-checked control path below is unavailable there.
+
+### Account-checked Service start and stop
+
+`service start|stop --json --expected-account <account-id>` admits one operation
+against an already connected Service. It is not setup, login, installation,
+account takeover, or permission to change another account's Service. The CLI
+verifies the bearer principal through Auth before taking lifecycle ownership,
+then rechecks the local credential snapshot, lane, Auth authority, device,
+connected-computer ownership, and contract generation under the auth mutation
+mutex. The lock order is lifecycle then auth; no OS command, startup wait, or
+work drain holds the auth mutex.
+
+The auth-owned `auth/service-account-admission.json` file contains the current
+command reservation/outcome and at most one receipt of an accepted Start.
+Updated credential writers and transition recovery reject a live pending
+reservation. Dead requesters produce a durable cancelled command, never deletion
+that could authorize a delayed child. Reserving or cancelling another command
+preserves the accepted-start receipt. Only successful Start admission replaces
+it, atomically with its outcome under the same auth mutex.
+
+The receipt contains the immutable Start ID and a digest binding it to the
+canonical account, Auth authority/client, Gateway, lane, device, and Service
+contract generation. It is evidence of past authorization, not an identity
+store or current Service state. Startup passes its ID in argv. The carrier must
+match the current auth and canonical Service facts, including background desired
+state, before using that receipt. Existing runtime ownership still prevents two
+active Services. Changed canonical facts invalidate the receipt on read, without
+requiring older contract writers to maintain it. A cancelled or unadmitted Start
+ID never receives restart permission. A later refused/cancelled Stop cannot erase
+an earlier accepted Start; a lost startup acknowledgement can recover from its
+durable receipt. Supervisor disabled state and normal stopped desired state
+continue to prevent a stopped Service from restarting.
+
+Stop uses the existing authenticated shutdown payload and releases auth
+protection when the exact carrier accepts the existing controlled stop. Its
+original response still waits for drain. Commit can precede outcome persistence:
+a pending record therefore does not prove refusal. Only the coordinator's
+explicit `service.account_admission.stop_refused` response proves pre-commit
+refusal and permits restoring the previous autostart preference. Once commit
+has been reached, a persistence, drain, or transport failure is uncertain;
+autostart remains disabled and the CLI reports `stop_unconfirmed` with the
+underlying diagnostic. The existing coordinator retains drain completion/error
+handling even if admission acknowledgement fails. No separate Stop machine is
+introduced.
+The CLI keeps lifecycle ownership through completion; it never falls back to
+unverified stop or another PID. Account changes after admission cannot retarget
+accepted work. A cancelled unadmitted ID, mismatched binding, corrupt record,
+or unsupported carrier fails closed. An older carrier rejects the new argv or
+shutdown field; that is not a positive coordinator refusal receipt.
+
+This record owns only local operation admission. It adds no Wakeability,
+RuntimeCoordinator, dispatch, Binding, or final-outcome authority. The persisted
+Service contract remains unchanged. The Desktop pilot exposes only this operation
+after a separate read-only capability query proves its actual local pair.
+
+`service control-capabilities --json` runs before layout repair or managed CLI
+delegation. For the macOS binary pilot, it queries the canonical stable executable
+that guarded Start installs into launchd, without invoking the repairing npm
+launcher. The executable answers `service control-carrier-capability --json`
+before delegation; the caller checks the responding executable path. When running,
+the authenticated `account_control_capabilities` control request must also return
+explicit support from the actual carrier. No status schema, lifecycle mutation,
+startup attempt, shutdown attempt, or compensation is part of the query. Unsupported
+or uncertain pairs return disabled controls. This capability is not Wakeability.
+
+### Registration reconciliation
+
 A successfully confirmed explicit autostart command clears the repair marker
 before releasing the lock. This prevents a later reconcile pass from undoing
 the user's explicit choice. The reconcile pass never boots or starts the job,
@@ -1950,7 +2226,9 @@ global npm `openmeld` copy to the exact
 manifest version when the current terminal still resolves to it, verifies the
 ordinary command, and then runs setup through the managed binary path. The
 Service remains owned by the managed binary; npm reconciliation only closes the
-legacy command-entry gap and must finish before setup can report completion.
+legacy command-entry gap. Failure of that optional npm reconciliation does not
+block setup through the verified managed binary; follow-up commands name that
+binary explicitly.
 
 After reading the manifest, setup first compares the lane-managed executable's
 exact size and sha256 with the published raw executable record. It reuses an
@@ -2009,6 +2287,21 @@ not silently repair, reinstall, stop, start, or mutate runtime state.
 
 Setup and repair exist to restore local infrastructure for the current intended
 account, device, and lane.
+
+On macOS, start inspects the exact lane's launchd job, bootstraps only a missing
+job, and requests a demand start with `kickstart` without `-k`. It does not
+restart an already running job. Bootstrap I/O repair has one owner, waits for
+confirmed removal before reinstalling, and preserves the original and repair
+errors if unsuccessful. Full lifecycle inventory still determines success.
+Outside an active update, maintenance startup also restores its carrier from
+the verified active bundle before trusting a saved OS registration. A plist or
+unit can survive removal of the local executable; registration alone cannot
+prove automatic updates can run. An active update keeps its existing executor.
+
+Interrupted account handoff recovery belongs to the explicit handoff flow.
+Generic command dispatch must leave install, update, and diagnostics usable
+when the previous Service cannot start. Credential transition isolation and
+candidate cleanup remain owned by auth-session storage.
 
 Setup succeeds when the service is aligned for this computer, local
 controllers/capabilities have been detected and reported as far as the local
@@ -2097,6 +2390,25 @@ answer readiness. This does not authorize force-killing a live Service: controll
 drain or verified runtime absence remains required. Setup joins pending updates;
 a newer Setup advances an older waiting job through that same coordinator before
 joining it, so an old worker cannot replace a newly connected Service afterward.
+This also applies to updates scheduled midway through setup. The caller observes
+the same durable operation until it finishes, then rechecks the running Service
+and account alignment before continuing. Missing completion evidence, a replaced
+operation, rollback, or failure must not be presented as successful setup. The
+observer does not acquire update ownership or start another update.
+
+An explicit new setup first joins outstanding updates, then recovers any dead
+handoff left without an executor before requesting a new account transition.
+This keeps an early Terminal exit or an explicit Service stop from permanently
+blocking the next setup.
+
+The update worker also finishes the associated setup if Terminal exits. The
+existing auth transition journal owns that intent and process-identity-fenced
+adoption; Core Prepare still owns setup completion. An updated job remains at
+its existing OS-watched path until setup and account settlement finish, allowing
+the same worker to resume after a crash without reinstalling the Service. The
+setup observer may consume that operation's verified `updated` result while
+other account handoffs continue waiting for settlement. No browser success
+override or second update/setup state machine is involved.
 
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
@@ -2247,6 +2559,29 @@ the current version is left in an explicit stopped-safe state; the system must
 not create a process that appears healthy locally but is known to be rejected
 by Core.
 
+Installed artifact integrity and release freshness are different facts. A
+self-contained Service is verified against its own copied files and recorded
+fingerprint, never against the invoking CLI's current build directory. Binary
+inventory verifies the selected Service executable in the same way as startup
+and rollback. A CLI source change or removal cannot make a valid copied Service
+corrupt; a changed installed artifact still requires repair. Read errors remain
+errors rather than being accepted as a successful integrity check. Existing
+version, lane, owner, and runtime-contract checks remain independent.
+
+Default CLI lifecycle and diagnostic targets preserve a newer installed Service
+version recorded by the service contract. That is target selection only, not
+proof of health: inventory still verifies the selected files, lane, local state,
+and runtime contract. Explicit version requests keep the downgrade guard. A
+binary repair may reuse the retained source executable only when its bytes still
+match the recorded fingerprint and any selected release fingerprint; it does
+not trust the damaged running carrier or relabel the caller's CLI bytes.
+
+Managed CLI cleanup retains the active binary Service's source version in
+addition to the CLI current and rollback versions and pending update/worker
+references. Retention ends when the active Service no longer references that
+version. This does not change the current coupled release target or authorize
+skipping a Service update selected by the release policy.
+
 The binary update worker runs from a stable lane-owned carrier, not from a
 version directory. A self-contained npm update worker uses a stable lane-owned
 launcher that imports one verified bundle. Successful Service verification may
@@ -2257,9 +2592,15 @@ registered carrier nor the replacement target can be removed while the handoff
 is recoverable. Migration may likewise protect a legacy worker's pinned managed
 version in addition to the current and rollback versions.
 
-An installation without independent maintenance must copy and verify its worker
-and establish the OS registration before publishing the initial pending job.
-An existing independent worker stays in place until the target Service is verified.
+A CLI scheduling a new job first copies the verified worker and establishes its
+OS registration, even when an older independent worker was installed. A saved
+definition does not prove that its executor supports the new setup contract.
+Maintenance repair also compares the saved definition with the current verified
+program and environment. Switching between binary and npm installs must refresh
+the OS command, not merely recreate a carrier the old command never invokes.
+An already pending update retains its executor ownership. A maintenance child
+must not unload its own OS-owned parent before publishing its job; that existing
+worker replaces its carrier only after Service verification as described above.
 
 Package version alone does not prove that the installed OS startup policy is
 current. Service inventory observes the owned macOS scheduling policy, and
@@ -2284,6 +2625,13 @@ pending target inside that lock. It then keeps both, plus one verified rollback
 version. Cleanup failures remain observable but do not undo a durable worker
 handoff.
 
+CLI being current does not prove the Service is aligned. A normal upgrade
+request joins an existing update first; otherwise the Tools update coordinator
+also checks the existing Service alignment decision against the installed CLI.
+The same maintenance operation schedules any remaining Service alignment,
+preserving stopped intent and active-work drain. `upgrade --check` remains
+read-only for Service lifecycle.
+
 Controlled update, reinstall, and repair use a quiesce-and-drain stop. The
 Service first rejects new dispatch admission with `service.draining` while
 preserving dedupe for already-owned work. It keeps the current Runtime
@@ -2293,6 +2641,20 @@ result outbox, and waits for Core's durable-acceptance receipts before closing
 the socket. If the socket disappears during that wait, unacknowledged results
 remain in the same durable outbox for the next Service session; lifecycle code
 must not create a second result store.
+
+On a new registered connection generation, the same result outbox immediately
+replays each unacknowledged, non-terminal result once rather than waiting for
+the previous connection's acknowledgement backoff. Subsequent attempts on that
+connection retain the existing backoff. Original execution identity and tokens
+remain unchanged; only Core's receipt settles the result. Dispatch journal
+delivery evidence records time in the outbox separately from connection recovery.
+
+If the first reply proposal cannot refresh Space context, preserve that proposal
+in the same result outbox using the original Wake's source cursor, rather than
+turning a temporary read failure into a failed task. This does not assert that
+context is current: Space's atomic publication guard must validate the cursor
+and require the existing reply-review continuation when context changed. A
+failed explicit review cannot be replaced with a fabricated current observation.
 
 The active-work drain has no fixed wall-clock deadline while execution remains
 live. Once active work has drained, result-receipt and WebSocket-close waits are
@@ -2308,8 +2670,40 @@ window, retaining the first occurrence, count, duration, affected controller,
 and recovery event. Local diagnostics preserve stable reason codes including
 `process_discovery_timeout`, `controller_check_timeout`,
 `result_ack_timeout`, `socket_close_timeout`, and
-`service_reconnect_exhausted`; immediate reconnect exhaustion remains degraded
-evidence while background reconnect attempts continue.
+`service_reconnecting`; repeated connection failures remain degraded evidence
+while background reconnect attempts continue. An acknowledged Service heartbeat
+resets consecutive retries. The first failed connection clears local online
+status immediately. Disconnect, subsequent connection attempts, and the next
+acknowledged connection share a recovery identifier and elapsed time in the
+existing local lifecycle journal, including while offline. These are observations,
+not another recovery controller or a claim about the original cause of an outage.
+
+The carrier also records a strict, account-partitioned connection-evidence
+journal under its existing runtime-state directory. It retains at most 32
+incidents, 100 events per incident and 1 MiB, pruning records older than seven
+days on load/write. Repeated adjacent observations are aggregated; truncation
+is explicit. Pending event writes are capped at 128 so a stalled filesystem
+cannot accumulate unbounded work. Writes and uploads never block registration
+or heartbeat.
+Completed incidents upload after registration, and an interrupted incident from
+a previous Service process uploads on its next connection. Receipt replay is
+idempotent. Upload retries have their own bounded backoff, retry promptly on
+reconnection, and cannot reconnect the carrier; an account change prevents uploading old evidence with new account
+credentials. Safe native network codes and observed phase are retained when
+available. Unknown runtime errors remain unknown. Retry scheduling delay does
+not prove OS sleep, a DNS problem, or a provider outage.
+
+Reply reconsideration retains its existing exact-conversation behavior. Its
+existing dispatch journal additionally records the relevant signal IDs/count,
+typed reason, start and duration, without signal text or prompts. A finished
+reconsideration observation is not evidence that a Space reply was published.
+
+Registration and heartbeat never await optional local-component inspection.
+One Service-lifetime observation coalesces that inspection across reconnects
+and may reuse a result for at most 30 seconds; absent or expired observations are omitted rather than
+renewed as fresh component evidence. A completed observation can schedule a
+heartbeat after registration. Missing component evidence does not grant
+component readiness or bypass the Core-owned update projection.
 
 `agentReplyContextReview: true` is an additive Runtime Transport capability.
 A Service advertises it only when it can keep a `post_message` result as an
@@ -2343,9 +2737,11 @@ Lifecycle evidence carries one bounded stop cause:
 `user_stop`, `controlled_service_update`, `service_crash`,
 `network_disconnect`, or `unknown`. A lifecycle command records its explicit
 intent before sending SIGTERM so the Service does not guess that every SIGTERM
-is a deploy. An unexpected process exit is `service_crash`; a lost cloud socket
-without a matching controlled cause is `network_disconnect`; missing evidence
-stays `unknown`. The lifecycle journal, Runtime Transport heartbeat/trace, and
+is a deploy. An unexpected process exit is `service_crash`. Connection-state
+observations keep an unknown stop cause unless an explicit cause is supplied;
+starting, authentication failure, and successful registration must not be
+classified as network disconnects. They identify the actual Service process,
+not a concurrently running CLI lifecycle command. The lifecycle journal, Runtime Transport heartbeat/trace, and
 user-visible failure projection preserve this cause without treating it as
 execution authority. Before an explicit user stop closes its socket, the
 Service sends one final heartbeat with `acceptingDispatches=false` and

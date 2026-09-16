@@ -19,7 +19,12 @@ import { SpaceEntryGate } from "./space-entry-gate";
 const entryRequest = vi.hoisted(() =>
 	vi.fn<({ signal }: { signal: AbortSignal }) => Promise<unknown>>()
 );
+const joinRequest = vi.hoisted(() => vi.fn());
+vi.mock("#/lib/organizations/organization-spaces", () => ({
+	joinOrganizationSpace: joinRequest,
+}));
 beforeEach(() => {
+	joinRequest.mockReset();
 	entryRequest
 		.mockReset()
 		.mockImplementation(() => new Promise(() => undefined));
@@ -36,6 +41,68 @@ vi.mock("#/lib/spaces/protected-space-access", () => ({
 	rememberProtectedSpaceAccess: vi.fn(),
 }));
 afterEach(cleanup);
+
+it("shows Thread loading while checking access and removes it on rejection without showing messages", async () => {
+	const client = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	render(
+		<QueryClientProvider client={client}>
+			<SpaceEntryGate
+				pendingContent={<aside aria-label="Thread">Loading messages…</aside>}
+				renderFrame={(content) => <div>{content}</div>}
+				signInHref="/login"
+				spaceId="space-123"
+				threadRootSignalId="root"
+			>
+				{() => <p>Protected reply</p>}
+			</SpaceEntryGate>
+		</QueryClientProvider>
+	);
+	expect(screen.getByLabelText("Thread")).toBeTruthy();
+	expect(screen.queryByText("Protected reply")).toBeNull();
+	act(() =>
+		client.setQueryData(["entry"], {
+			target: { spaceId: "space-123" },
+			view: { state: "unavailable" },
+			safeContext: {},
+		})
+	);
+	await waitFor(() => expect(screen.queryByLabelText("Thread")).toBeNull());
+	expect(screen.queryByText("Protected reply")).toBeNull();
+	client.clear();
+});
+
+it("offers a colleague Join without exposing messages and preserves the server's rejection reason", async () => {
+	entryRequest.mockResolvedValue({
+		target: { spaceId: "space-123" },
+		view: { state: "membership_required" },
+		participation: { state: "self_join_available" },
+		safeContext: {
+			organizationId: "org-acme",
+			organizationSlug: "acme",
+			spaceName: "Team feedback",
+		},
+		recovery: null,
+	});
+	joinRequest.mockRejectedValue({
+		code: "space.membership_required",
+		status: 403,
+		message: "This Space is now invite-only. Ask its owner to add you.",
+		requestId: "join-check",
+	});
+	setup(false);
+	fireEvent.click(await screen.findByRole("button", { name: "Join Space" }));
+	expect(screen.queryByText("Saved conversation")).toBeNull();
+	expect(await screen.findByRole("alert")).toHaveProperty(
+		"textContent",
+		"This Space is now invite-only. Ask its owner to add you."
+	);
+	expect(joinRequest).toHaveBeenCalledWith({
+		organizationId: "org-acme",
+		spaceId: "space-123",
+	});
+});
 
 it("lets Send await the current access request without exposing a retry control", async () => {
 	let confirm: (value: unknown) => void = () => undefined;
@@ -55,7 +122,12 @@ it("lets Send await the current access request without exposing a retry control"
 	expect(screen.queryByText("Sent")).toBeNull();
 	await waitFor(() => expect(entryRequest).toHaveBeenCalledTimes(2));
 	expect(entryRequest.mock.calls[0]?.[0].signal.aborted).toBe(true);
-	act(() => confirm({ view: { state: "allowed", experience: "member" } }));
+	act(() =>
+		confirm({
+			view: { state: "allowed", experience: "member" },
+			safeContext: {},
+		})
+	);
 	await waitFor(() => expect(screen.getByText("Sent")).toBeTruthy());
 	expect(screen.getByRole("textbox", { name: "Draft" })).toBe(draft);
 	expect((draft as HTMLInputElement).value).toBe("Unsent work");
@@ -112,6 +184,7 @@ it("shows a saved conversation and keeps Send available before entry resolves", 
 	act(() => {
 		client.setQueryData(["entry"], {
 			view: { state: "allowed", experience: "member" },
+			safeContext: {},
 		});
 	});
 	await waitFor(() =>

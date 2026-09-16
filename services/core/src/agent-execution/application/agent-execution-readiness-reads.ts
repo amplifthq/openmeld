@@ -1,6 +1,7 @@
 import type { AuthRpcResolveProfileByIdResult } from "@openmeld/schemas/types";
 import type { AuthProfileFacts } from "../../auth/application/profile-facts-reader";
 import type { CoreBindings } from "../../lib/bindings";
+import { createD1ReadBatch } from "../../lib/d1-read-batch";
 import { readCurrentRuntimeAgentControllerReports } from "../../runtime-registry/infrastructure/d1/runtime-agent-controller-report-repo";
 import {
   readRuntimeRegistryRecord,
@@ -14,7 +15,9 @@ export function createAgentExecutionReadinessReads(input?: {
   // Validated Auth facts from this request, never client state. Undefined means
   // not read; null means the batch failed and must not fan out into scalar reads.
   profileFacts?: AuthProfileFacts | null;
+  batchProfileReads?: boolean;
 }) {
+  const readBatch = input?.batchProfileReads ? createD1ReadBatch() : undefined;
   const runtimeById = new Map<
     D1Database,
     Map<string, ReturnType<typeof readRuntimeRegistryRecordByRuntimeId>>
@@ -28,6 +31,7 @@ export function createAgentExecutionReadinessReads(input?: {
     Map<string, ReturnType<typeof readCurrentRuntimeAgentControllerReports>>
   >();
   return {
+    readBatch,
     async resolveProfileById(request: {
       authWorker: Required<
         Pick<

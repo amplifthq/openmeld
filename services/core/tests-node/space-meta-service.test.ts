@@ -43,7 +43,7 @@ describe("Space metadata initialization", () => {
     expect(record.accessMode).toBe("members_only");
   });
 
-  it("keeps public access as the default for an explicitly public Space", () => {
+  it("keeps an organization-listed Space internal unless external link access is explicit", () => {
     const record = buildNextSpaceMetaRecord({
       existing: null,
       metaUpdate: initializationPatch({ visibility: "public" }),
@@ -51,7 +51,7 @@ describe("Space metadata initialization", () => {
       spaceId: SPACE_ID,
     });
 
-    expect(record.accessMode).toBe("public");
+    expect(record.accessMode).toBe("members_only");
   });
 
   it("preserves an explicit access mode instead of replacing it with the visibility default", () => {

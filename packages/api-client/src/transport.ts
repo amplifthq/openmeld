@@ -17,18 +17,28 @@ export function createFetchTransport(input: {
   defaultTimeoutMs?: number;
 }): OpenMeldApiClientTransport {
   const defaultTimeoutMs = normalizeOptionalTimeoutMs(input.defaultTimeoutMs);
+  // Fetch is an injected callable, not a method of this options object.
+  // Worker globals reject that accidental receiver; explicitly bound callers
+  // must also retain their own receiver.
+  const fetchImpl = input.fetch;
 
   return async function fetchTransport(request): Promise<Response> {
     const timeoutMs =
       normalizeOptionalTimeoutMs(request.timeoutMs) ?? defaultTimeoutMs;
     const timeoutSignal =
       timeoutMs === undefined ? null : AbortSignal.timeout(timeoutMs);
-    const composed = composeAbortSignals(request.init?.signal, timeoutSignal);
+    const signals = [request.init?.signal, timeoutSignal].filter(
+      (signal): signal is AbortSignal => signal != null
+    );
+    // Keep cancellation alive through response-body consumption, which happens
+    // after fetch resolves. Removing listeners at the headers boundary can
+    // otherwise leave a partially received admission snapshot waiting forever.
+    const signal = signals.length > 1 ? AbortSignal.any(signals) : signals[0];
 
     try {
-      return await input.fetch(request.url, {
+      return await fetchImpl(request.url, {
         ...request.init,
-        signal: composed.signal,
+        signal,
       });
     } catch (error) {
       if (timeoutSignal?.aborted && timeoutMs !== undefined) {
@@ -46,8 +56,6 @@ export function createFetchTransport(input: {
         });
       }
       throw error;
-    } finally {
-      composed.cleanup();
     }
   };
 }
@@ -115,55 +123,4 @@ function shouldWrapNetworkRequestError(error: unknown): boolean {
     message.includes("failed to fetch") ||
     message.includes("network request failed")
   );
-}
-
-function composeAbortSignals(
-  parent: AbortSignal | null | undefined,
-  timeout: AbortSignal | null
-): { signal: AbortSignal | undefined; cleanup: () => void } {
-  if (!(parent || timeout)) {
-    return {
-      signal: undefined,
-      cleanup: () => undefined,
-    };
-  }
-
-  if (!parent) {
-    return {
-      signal: timeout ?? undefined,
-      cleanup: () => undefined,
-    };
-  }
-
-  if (!timeout) {
-    return {
-      signal: parent,
-      cleanup: () => undefined,
-    };
-  }
-
-  if (parent.aborted || timeout.aborted) {
-    const controller = new AbortController();
-    controller.abort();
-    return {
-      signal: controller.signal,
-      cleanup: () => undefined,
-    };
-  }
-
-  const controller = new AbortController();
-  const abort = () => {
-    controller.abort();
-  };
-
-  parent.addEventListener("abort", abort, { once: true });
-  timeout.addEventListener("abort", abort, { once: true });
-
-  return {
-    signal: controller.signal,
-    cleanup: () => {
-      parent.removeEventListener("abort", abort);
-      timeout.removeEventListener("abort", abort);
-    },
-  };
 }

@@ -8,6 +8,7 @@ import { expect, it } from "vitest";
 import {
   createDispatchSpaceActionContext,
   readDispatchSpaceActionRecord,
+  writeDispatchSpaceActionRecord,
 } from "../src/runtime/dispatch-space-action-context";
 
 it("discovers every packaged Wake tool before recording a reply", async () => {
@@ -70,7 +71,97 @@ it("discovers every packaged Wake tool before recording a reply", async () => {
       arguments: { message: "Packaged tools ready." },
     });
     expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      receipt: {
+        status: "proposal_saved_locally",
+        dispatchId: context.dispatchId,
+        publication: "unconfirmed",
+      },
+    });
     expect(readDispatchSpaceActionRecord({ context }).status).toBe("loaded");
+  } finally {
+    await client.close();
+    await transport.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("recovers an expired receipt through a newly started packaged MCP server", async () => {
+  const root = mkdtempSync(join(tmpdir(), "openmeld-action-recovery-"));
+  const { context, contextPath } = createDispatchSpaceActionContext({
+    attemptId: "attempt-1",
+    dispatchId: "dispatch-1",
+    env: { OPENMELD_HOME: root },
+    sourceEventId: "source-1",
+    spaceId: "space-1",
+    targetProfileId: "agt_test",
+    taskId: "task-1",
+    sendTargetReference: {
+      status: "loaded",
+      projection: [],
+      referenceLines: [],
+    },
+    spaceContractSnapshot: {
+      allowedActions: ["stay_silent"],
+      publicationMode: "collaboration",
+    },
+  });
+  const nowMs = Date.now();
+  const original = writeDispatchSpaceActionRecord({
+    context,
+    command: "test",
+    nowMs: nowMs - 2000,
+    action: { type: "stay_silent", reason: "No public reply needed." },
+  });
+  const expired = { ...context, expiresAtMs: nowMs - 1000 };
+  writeFileSync(contextPath, JSON.stringify(expired));
+  const binary = process.env.OPENMELD_TEST_CLI_BINARY;
+  const transport = new StdioClientTransport({
+    command: binary || process.execPath,
+    args: [
+      ...(binary ? [] : [resolve("dist/openmeld.js")]),
+      "space",
+      "action",
+      "tool-server",
+    ],
+    env: {
+      PATH: process.env.PATH ?? "",
+      OPENMELD_HOME: root,
+      OPENMELD_SPACE_ACTION_CONTEXT_PATH: contextPath,
+    },
+    stderr: "pipe",
+  });
+  const client = new Client({ name: "packaged-receipt-test", version: "1" });
+  try {
+    await client.connect(transport);
+    const result = await client.callTool({
+      name: "stay_silent",
+      arguments: { reason: "No public reply needed." },
+    });
+    expect(result.isError).not.toBe(true);
+    expect(result.structuredContent).toMatchObject({
+      receipt: {
+        status: "proposal_saved_locally",
+        contextState: "expired",
+        recordedAtMs: original.createdAtMs,
+        publication: "unconfirmed",
+      },
+    });
+    const changed = await client.callTool({
+      name: "stay_silent",
+      arguments: { reason: "Different decision." },
+    });
+    expect(changed.isError).toBe(true);
+    expect(changed.structuredContent).toMatchObject({
+      receipt: {
+        status: "rejected_closed",
+        reasonCode: "space_action.context_expired",
+      },
+    });
+    expect(readDispatchSpaceActionRecord({ context: expired })).toEqual({
+      status: "loaded",
+      record: original,
+    });
   } finally {
     await client.close();
     await transport.close();

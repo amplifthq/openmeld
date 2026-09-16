@@ -12,6 +12,7 @@ import {
   executeSpaceExecutionRecovery,
   inspectSpaceExecutionRecovery,
 } from "./execution-recovery";
+import { spaceFileUpdateSettings } from "./file-update-settings";
 import {
   createSpaceFolder,
   discardSpaceComposerUpload,
@@ -23,6 +24,7 @@ import {
   restoreSpaceFileEntry,
   restoreSpaceFileRevision,
   stageSpaceComposerUpload,
+  streamSpaceFileContent,
   trashSpaceFileEntry,
   updateSpaceFileContent,
   updateSpaceFileEntry,
@@ -30,6 +32,7 @@ import {
 } from "./files";
 import { getSpaceHistoryNavigation } from "./history-navigation";
 import { leaveSpace } from "./leave";
+import { getSpaceLinkPreviews } from "./link-previews";
 import {
   addCenterAgentToSpace,
   addOrganizationDirectoryProfilesToSpace,
@@ -83,6 +86,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await uploadSpaceAttachment(client, input),
     listFiles: async (input) => await listSpaceFiles(client, input),
     getFile: async (input) => await getSpaceFile(client, input),
+    fileUpdateSettings: async (input) =>
+      await spaceFileUpdateSettings(client, input),
     listFileRevisions: async (input) =>
       await listSpaceFileRevisions(client, input),
     createFolder: async (input) => await createSpaceFolder(client, input),
@@ -103,6 +108,8 @@ export const createSpaceApi: CreateSpaceApi = (
       await updateSpaceFileContent(client, input),
     downloadFileContent: async (input) =>
       await downloadSpaceFileContent(client, input),
+    streamFileContent: async (input) =>
+      await streamSpaceFileContent(client, input),
     removeMembers: async (input) => await removeSpaceMembers(client, input),
     setAccessMode: async (input) => await setSpaceAccessMode(client, input),
     updateMeta: async (input) => await updateSpaceMeta(client, input),
@@ -140,6 +147,7 @@ export const createSpaceApi: CreateSpaceApi = (
     setMessageReaction: (input) => setSpaceMessageReaction(client, input),
     getMessageDetails: async (input) =>
       await getSpaceMessageDetails(client, input),
+    getLinkPreviews: (input) => getSpaceLinkPreviews(client, input),
     createDiagnosticReport: async (input) =>
       await createSpaceDiagnosticReport(client, input),
     mutateMessage: (input) => mutateSpaceMessage(client, input),

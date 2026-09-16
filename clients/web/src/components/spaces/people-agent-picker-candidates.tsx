@@ -21,6 +21,7 @@ export function SpaceAddMembersCandidates(input: {
 	searchActive: boolean;
 	includeAgentOwners?: boolean;
 	selectedProfileIds: ReadonlySet<string>;
+	selectionScope?: "space" | "desk";
 }) {
 	const [collapsedGroupIds, setCollapsedGroupIds] = useState<
 		ReadonlySet<string>
@@ -49,6 +50,7 @@ export function SpaceAddMembersCandidates(input: {
 				label="Organization"
 				onToggle={input.onToggle}
 				selectedProfileIds={input.selectedProfileIds}
+				selectionScope={input.selectionScope}
 			/>
 			{input.candidateGroups.personGroups.length > 0 ? (
 				<section aria-labelledby="space-add-members-people-heading">
@@ -81,6 +83,7 @@ export function SpaceAddMembersCandidates(input: {
 									}}
 									onToggle={input.onToggle}
 									selectedProfileIds={input.selectedProfileIds}
+									selectionScope={input.selectionScope}
 								/>
 							);
 						})}
@@ -98,6 +101,7 @@ function SpaceAddMembersPersonGroupView(input: {
 	onExpandedChange: (expanded: boolean) => void;
 	onToggle: (profileId: string) => void;
 	selectedProfileIds: ReadonlySet<string>;
+	selectionScope?: "space" | "desk";
 }) {
 	const selectedAgentCount = input.group.agentCandidates.filter(
 		(candidate) =>
@@ -105,8 +109,12 @@ function SpaceAddMembersPersonGroupView(input: {
 			input.selectedProfileIds.has(candidate.profileId)
 	).length;
 	let humanDescription = resolvePersonActivityLabel(input.group.lastActiveAt);
-	if (input.group.humanAlreadyMember) {
-		humanDescription = "In this Space";
+	if (
+		input.group.humanAlreadyMember ||
+		input.group.humanCandidate?.alreadyMember
+	) {
+		humanDescription =
+			input.selectionScope === "desk" ? "On your Desk" : "In this Space";
 	} else if (input.includeAgentOwners && selectedAgentCount > 0) {
 		humanDescription = `Joins with ${selectedAgentCount === 1 ? "selected Agent" : `${String(selectedAgentCount)} selected Agents`}`;
 	}
@@ -180,6 +188,7 @@ function SpaceAddMembersPersonGroupView(input: {
 						candidates={input.group.agentCandidates}
 						onToggle={input.onToggle}
 						selectedProfileIds={input.selectedProfileIds}
+						selectionScope={input.selectionScope}
 					/>
 				</div>
 			) : null}
@@ -228,6 +237,7 @@ function SpaceAddMembersCandidateGroup(input: {
 	label?: string;
 	onToggle: (profileId: string) => void;
 	selectedProfileIds: ReadonlySet<string>;
+	selectionScope?: "space" | "desk";
 }) {
 	if (input.candidates.length === 0) {
 		return null;
@@ -276,7 +286,11 @@ function SpaceAddMembersCandidateGroup(input: {
 							candidate.alreadyMember ||
 							input.selectedProfileIds.has(candidate.profileId)
 						}
-						description={resolveAgentCandidateDescription(candidate)}
+						description={
+							candidate.alreadyMember && input.selectionScope === "desk"
+								? "On your Desk"
+								: resolveAgentCandidateDescription(candidate)
+						}
 						disabled={candidate.alreadyMember}
 						index={index}
 						key={candidate.profileId}

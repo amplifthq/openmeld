@@ -130,6 +130,15 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "space-caller-context-receivers-first": [
+    "db",
+    "auth",
+    "remote-agent",
+    "cli",
+    "core",
+    "gateway",
+    "web",
+  ],
   "personal-remote-tools-receivers-first": SCOPE_ORDER,
   "inbox-task-retirement-producer-first": [
     "db",
@@ -464,6 +473,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+      !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
@@ -500,6 +510,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+    !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -601,6 +612,15 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
     input.taskInboxRetired
   );
   if (
+    deployOrderProfile === "space-caller-context-receivers-first" &&
+    (selected.has("core") || selected.has("cli")) &&
+    !["cli", "auth", "remote-agent"].every((scope) => selected.has(scope))
+  ) {
+    throw new Error(
+      "Caller context requires Auth and Remote receivers, then the required CLI/Service publication with its Core projection."
+    );
+  }
+  if (
     deployOrderProfile === "space-invitation-receivers-first" &&
     (selected.has("auth") || selected.has("cli")) &&
     !(selected.has("core") && selected.has("auth"))
@@ -692,6 +712,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "device-wait-receivers-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
+      input.deployOrderProfile === "local-service-runtime-receiver-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
@@ -792,6 +813,33 @@ function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  if (!isSpaceCallerContextDiff(changedPaths)) {
+    return resolveOtherProductionDeployOrderProfile(
+      changedPaths,
+      taskInboxRetired
+    );
+  }
+  const profile = resolveOtherProductionDeployOrderProfile(
+    changedPaths,
+    taskInboxRetired
+  );
+  if (
+    ![
+      "default-auth-receiver-first",
+      "space-invitation-receivers-first",
+    ].includes(profile)
+  ) {
+    throw new Error(
+      `Caller context requires Service before Core and conflicts with ${profile}; split the release.`
+    );
+  }
+  return "space-caller-context-receivers-first";
+}
+
+function resolveOtherProductionDeployOrderProfile(
+  changedPaths,
+  taskInboxRetired
+) {
   if (isPersonalRemoteToolsReceiverFirstDiff(changedPaths)) {
     // This entrypoint change exports the browser facet; it does not expand a
     // Core-to-Remote request. Remote's tool calls require the Core receiver first.
@@ -891,6 +939,14 @@ function assertComposableDeviceWaitReleaseProfile(changedPaths, profile) {
   }
 }
 
+function isSpaceCallerContextDiff(changedPaths) {
+  return [
+    "packages/schemas/src/schemas/protocol/space-caller-context.ts",
+    "services/core/src/space/transport/do/space.ts",
+    "clients/openmeld-cli/src/local-service/dispatch/parse-dispatch-task.ts",
+  ].every((file) => changedPaths.includes(file));
+}
+
 function isDeviceWaitReceiverFirstDiff(changedPaths) {
   return [
     "packages/schemas/src/schemas/protocol/wake-device-wait.ts",
@@ -917,10 +973,19 @@ function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
 
 function isPeopleComputersReceiverFirstDiff(changedPaths) {
   return [
-    "packages/schemas/src/schemas/http/people-computers.ts",
-    "services/core/src/people-computers/projection.ts",
-    "services/gateway/src/routes/rpc-http.people-computers.ts",
-  ].every((file) => changedPaths.includes(file));
+    [
+      "packages/schemas/src/schemas/http/people-computers.ts",
+      "services/core/src/people-computers/projection.ts",
+      "services/gateway/src/routes/rpc-http.people-computers.ts",
+    ],
+    [
+      "packages/schemas/src/schemas/daemon/service-connection-evidence.ts",
+      "services/core/src/computers/service-connection-evidence-rpc.ts",
+      "services/gateway/src/routes/rpc-http.service-connection-evidence.ts",
+    ],
+  ].some((contractPaths) =>
+    contractPaths.every((file) => changedPaths.includes(file))
+  );
 }
 
 function resolveExistingProductionDeployOrderProfile(changedPaths) {
@@ -1070,6 +1135,7 @@ function assertComposableWakeProgressOptInReleaseProfile(input) {
 
 function doesCliReleaseOwnCoreProjection(profile) {
   return (
+    profile === "space-caller-context-receivers-first" ||
     profile === "default-auth-receiver-first" ||
     profile === "connect-computer-cli-receiver-first" ||
     profile === "core-worker-response-and-connect-computer-receivers-first" ||
@@ -1297,6 +1363,26 @@ export function buildProductionReleasePlan(input) {
   const scopes =
     requested ??
     resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
+  // Both files carry requests and responses. Their shared-path footprint alone
+  // cannot prove which strict receiver must go first (for example replyRecovery).
+  // Keep explicit single-side stages available instead of guessing an order.
+  if (
+    scopes.includes("remote-agent") &&
+    (scopes.includes("core") || scopes.includes("cli")) &&
+    changedPaths.includes(
+      "services/core/src/remote-agent/application/native-delivery-service.ts"
+    ) &&
+    changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) &&
+    changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
+    !isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) &&
+    !changedPaths.some((file) =>
+      REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS.has(file)
+    )
+  ) {
+    throw new Error(
+      "Native delivery changes both sides of the Remote Agent contract without an unambiguous request owner. Split Core/CLI and Remote Agent into explicitly ordered releases after reviewing request and response compatibility."
+    );
+  }
   const sourceSha = input.sourceSha ?? readHeadSha();
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     changedPaths,

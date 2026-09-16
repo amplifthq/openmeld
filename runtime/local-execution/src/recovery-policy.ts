@@ -6,7 +6,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   type OpenMeldDaemonInflightTaskState,
-  type OpenMeldDaemonLedgerStateV1,
+  type OpenMeldDaemonLedgerState,
   settleInflightTask,
 } from "./ledger-store.js";
 
@@ -33,8 +33,8 @@ export type CompensationStep = {
 };
 
 const cloneLedgerState = (
-  state: OpenMeldDaemonLedgerStateV1
-): OpenMeldDaemonLedgerStateV1 => ({
+  state: OpenMeldDaemonLedgerState
+): OpenMeldDaemonLedgerState => ({
   dedupeFirstSeenByKey: { ...state.dedupeFirstSeenByKey },
   inflightByTaskId: Object.fromEntries(
     Object.entries(state.inflightByTaskId).map(([taskId, inflight]) => [
@@ -163,7 +163,7 @@ export const resolveCompensationProgress = (input: {
 };
 
 export const planRecoveryReplay = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
 }): {
   replayCandidates: RecoveryReplayCandidate[];
   runtimeState: RecoveryRuntimeState;
@@ -190,9 +190,9 @@ export const planRecoveryReplay = (input: {
 };
 
 export const markRecoveryReplayCommitted = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   taskId: string;
-}): OpenMeldDaemonLedgerStateV1 => {
+}): OpenMeldDaemonLedgerState => {
   if (!(input.taskId in input.state.inflightByTaskId)) {
     return input.state;
   }
@@ -204,9 +204,9 @@ export const markRecoveryReplayCommitted = (input: {
 };
 
 export const settleRecoveredTask = (input: {
-  state: OpenMeldDaemonLedgerStateV1;
+  state: OpenMeldDaemonLedgerState;
   taskId: string;
-}): OpenMeldDaemonLedgerStateV1 =>
+}): OpenMeldDaemonLedgerState =>
   settleInflightTask({
     state: markRecoveryReplayCommitted({
       state: input.state,

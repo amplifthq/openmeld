@@ -51,6 +51,7 @@ import {
 	type SettingsDetailListRow,
 } from "@openmeld/ui/components/settings-detail-list";
 import { Switch } from "@openmeld/ui/components/switch";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -86,6 +87,7 @@ import {
 import { toast } from "sonner";
 import type { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
+import { canConfigureLocalComputer } from "#/desktop/platform";
 import { copyCliEntryCommand } from "#/lib/cli-entry-command";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import {
@@ -246,7 +248,7 @@ function resolveTeamLocalAgentSummaryStatus(
 			return { label: "Unavailable", tone: "warning" };
 		}
 		case "stale":
-			return { label: "Not current", tone: "warning" };
+			return { label: "Status out of date", tone: "warning" };
 		default:
 			return { label: "Not confirmed", tone: "muted" };
 	}
@@ -264,7 +266,7 @@ function resolveTeamLocalAgentDescription(agent: TeamLocalAgent): string {
 				? "OpenMeld will retry automatically"
 				: "Unavailable on this computer";
 		case "stale":
-			return "Needs a fresh check from this computer";
+			return "Availability is unknown until this computer reports a new check";
 		default:
 			return "Status not confirmed";
 	}
@@ -626,7 +628,10 @@ function resolveLocalAgentsCatalogState(input: {
 	replyReadiness: ComputerReplyReadiness | null;
 }): LocalAgentsCatalogState {
 	const target = resolveLocalAgentsCatalogTarget(input);
-	const controls = input.controlCapabilities ?? target?.localAgentControl;
+	const canConfigure = canConfigureLocalComputer();
+	const controls = canConfigure
+		? (input.controlCapabilities ?? target?.localAgentControl)
+		: undefined;
 	const serviceDependency = resolveLocalAgentsServiceDependency(
 		input.replyReadiness
 	);
@@ -688,7 +693,7 @@ function resolveLocalAgentsCatalogState(input: {
 					tone: "checking",
 				}
 			: notice,
-		primaryActionLabel: checking ? null : primaryActionLabel,
+		primaryActionLabel: checking || !canConfigure ? null : primaryActionLabel,
 		rowsMuted:
 			!input.hasSelectedEnvironment ||
 			(serviceDependency !== null &&
@@ -2231,34 +2236,39 @@ function AgentControllerAccountEmail(input: {
 
 	return (
 		<LazyMotion features={domAnimation} strict>
-			<m.span
-				animate={{
-					filter: input.revealed ? "blur(0px)" : "blur(3px)",
-					opacity: input.revealed ? 1 : 0.62,
-				}}
-				aria-label={interactive ? "Reveal signed-in account email" : undefined}
-				className={cn(
-					"rounded-md align-baseline",
-					interactive
-						? "cursor-pointer select-none text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-						: "text-current"
-				)}
-				data-revealed={input.revealed ? "true" : "false"}
-				data-testid={`agent-controller-account-email-${input.agentId}-${input.location}`}
-				initial={false}
-				onClick={interactive ? handleClick : undefined}
-				onKeyDown={interactive ? handleKeyDown : undefined}
-				role={interactive ? "button" : undefined}
-				tabIndex={interactive ? 0 : undefined}
-				title={interactive ? "Reveal signed-in account email" : undefined}
-				transition={
-					prefersReducedMotion
-						? { duration: 0 }
-						: { duration: 0.18, ease: "easeOut" }
-				}
+			<TooltipHint
+				content={interactive ? "Reveal signed-in account email" : undefined}
 			>
-				{input.email}
-			</m.span>
+				<m.span
+					animate={{
+						filter: input.revealed ? "blur(0px)" : "blur(3px)",
+						opacity: input.revealed ? 1 : 0.62,
+					}}
+					aria-label={
+						interactive ? "Reveal signed-in account email" : undefined
+					}
+					className={cn(
+						"rounded-md align-baseline",
+						interactive
+							? "cursor-pointer select-none text-foreground/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+							: "text-current"
+					)}
+					data-revealed={input.revealed ? "true" : "false"}
+					data-testid={`agent-controller-account-email-${input.agentId}-${input.location}`}
+					initial={false}
+					onClick={interactive ? handleClick : undefined}
+					onKeyDown={interactive ? handleKeyDown : undefined}
+					role={interactive ? "button" : undefined}
+					tabIndex={interactive ? 0 : undefined}
+					transition={
+						prefersReducedMotion
+							? { duration: 0 }
+							: { duration: 0.18, ease: "easeOut" }
+					}
+				>
+					{input.email}
+				</m.span>
+			</TooltipHint>
 		</LazyMotion>
 	);
 }

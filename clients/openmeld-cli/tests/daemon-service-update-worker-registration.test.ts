@@ -43,6 +43,16 @@ describe("daemon service update worker registration", () => {
     await expect(
       hasIndependentMaintenanceRegistration(input, "darwin")
     ).resolves.toBe(true);
+    // A valid registration for this home can still point at the old binary
+    // after setup installs an npm Service. It must not skip re-registration.
+    const npmDefinition = `<!-- ${INDEPENDENT_MAINTENANCE_REGISTRATION} --><plist><dict><key>ProgramArguments</key><array><string>/usr/bin/node</string><string>${root}/runtime/daemon/service-update-worker.mjs</string><string>service</string><string>update-worker</string></array><key>EnvironmentVariables</key><dict><key>OPENMELD_HOME</key><string>${root}</string></dict></dict></plist>`;
+    await expect(
+      hasIndependentMaintenanceRegistration(input, "darwin", npmDefinition)
+    ).resolves.toBe(false);
+    await writeFile(plistPath, npmDefinition);
+    await expect(
+      hasIndependentMaintenanceRegistration(input, "darwin", npmDefinition)
+    ).resolves.toBe(true);
     await expect(
       hasIndependentMaintenanceRegistration(
         {

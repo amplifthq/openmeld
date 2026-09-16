@@ -40,6 +40,11 @@ observability database.
 
 ## Groundwork Kept On Purpose
 
+Account message notification defaults and per-conversation overrides are
+Core-owned product preferences in the shared `OPENMELD_DB`. They are not
+time-decaying observability data and remain with product state in any future
+observability-only split.
+
 These remain as harmless no-ops on the single DB and are reusable by a future
 observability-only split. Do not clean them up as dead code:
 
@@ -48,7 +53,12 @@ observability-only split. Do not clean them up as dead code:
 - `dispatchRecoveryDb`, which deliberately resolves only `OPENMELD_DB`.
   Pre-head failure-publication commands, claims, retry schedules, and completion
   gates are operational recovery state and must not follow `wakeEvidenceDb`
-  into a time-decaying observability database.
+into a time-decaying observability database.
+
+The bounded `openmeld_service_connection_incidents` table is Diagnostics-owned
+evidence accessed through `wakeEvidenceDb`, currently on the shared database.
+Its own daily retention only deletes that table; it does not activate the old
+split-gated sweep or change any database binding.
 - The dispatch hot-path cross-domain fix (commit `ca9680d8a`) that routes
   ledger↔binding correctly — the one boundary an observability split still
   needs.

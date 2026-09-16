@@ -1,4 +1,5 @@
 import { resolveTrustedOrigins } from "@openmeld/auth/server";
+import { DESKTOP_APP_ORIGIN } from "@openmeld/schemas";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import type { AppContext } from "../context";
@@ -35,6 +36,7 @@ export function resolveAuthWorkerTrustedOrigins(
   return new Set(
     resolveTrustedOrigins({
       baseAuthUrl: c.env.BETTER_AUTH_URL ?? "",
+      developmentTarget: c.env.AUTH_DESKTOP_DEVELOPMENT_TARGET,
       appUrl: c.env.WEB_APP_URL ?? c.env.BETTER_AUTH_URL ?? "",
       env:
         c.env.AUTH_WORKER_NODE_ENV === "production"
@@ -45,13 +47,22 @@ export function resolveAuthWorkerTrustedOrigins(
 }
 
 function readRequestOrigin(headers: Headers): string | null {
+  // URL.origin is "null" for the custom Desktop scheme. Preserve only the
+  // exact native Origin; the existing environment trust set still decides
+  // whether it is admitted. Callback schemes are not cookie-write origins.
+  if (headers.get("origin") === DESKTOP_APP_ORIGIN) {
+    return DESKTOP_APP_ORIGIN;
+  }
   const source = headers.get("origin") || headers.get("referer");
   if (!source || source === "null") {
     return null;
   }
 
   try {
-    return new URL(source).origin;
+    const url = new URL(source);
+    return url.protocol === "http:" || url.protocol === "https:"
+      ? url.origin
+      : null;
   } catch {
     return null;
   }

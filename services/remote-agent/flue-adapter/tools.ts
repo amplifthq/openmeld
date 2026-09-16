@@ -10,7 +10,6 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
-import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
 import {
   getPersonalRemoteAgentTools,
@@ -24,6 +23,7 @@ import {
   type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import { createRemoteAgentCapabilityDiscoveryDefinitions } from "./capability-discovery";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -35,12 +35,13 @@ import {
 } from "./tool-execution";
 
 export async function getRemoteAgentFlueTools(input: {
+  replyRecovery?: boolean;
   personalAgent?: boolean;
   sharedSpaceContextEnabled?: boolean;
   agentActivityReadEnabled?: boolean;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
@@ -53,6 +54,9 @@ export async function getRemoteAgentFlueTools(input: {
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
+  if (input.replyRecovery) {
+    return [];
+  }
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;

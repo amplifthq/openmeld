@@ -65,7 +65,7 @@ describe("OrganizationScopedErrorState", () => {
 		);
 
 		const homeLink = screen.getByRole("link", { name: "Go to Home" });
-		expect(homeLink.getAttribute("href")).toBe("/o/home");
+		expect(homeLink.getAttribute("href")).toBe("/o/home/spaces");
 		expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
 		expect(screen.queryByRole("link", { name: "Sign out" })).toBeNull();
 	});

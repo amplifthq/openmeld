@@ -83,6 +83,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		kind: "closed",
 	});
 	const [pendingAction, setPendingAction] = useState<string | null>(null);
+	const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 	useEffect(() => {
 		if (!input.fileToOpen) {
@@ -156,6 +157,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 			return false;
 		} finally {
 			setPendingAction(null);
+			setUploadProgress(null);
 		}
 	};
 	const uploadFiles = async (files: readonly File[]) => {
@@ -163,6 +165,9 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 			return;
 		}
 		await runAction("upload", async () => {
+			setUploadProgress(0);
+			const uploaded = new Map<File, number>();
+			const total = files.reduce((sum, file) => sum + file.size, 0);
 			for (const file of files) {
 				if (file.size > SPACE_FILE_MAX_SIZE_BYTES) {
 					throw new Error(formatSpaceFileSizeLimitError(file.name));
@@ -180,6 +185,21 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 							fileName: file.name,
 						}),
 						bytes: file,
+						onProgress: (bytes) => {
+							uploaded.set(file, bytes);
+							setUploadProgress(
+								total === 0
+									? 100
+									: Math.round(
+											([...uploaded.values()].reduce(
+												(sum, value) => sum + value,
+												0
+											) /
+												total) *
+												100
+										)
+							);
+						},
 					})
 				)
 			);
@@ -279,6 +299,7 @@ export function useSpaceFilesPanelController(input: SpaceFilesPanelProps) {
 		moveEntry,
 		parentId,
 		pendingAction,
+		uploadProgress,
 		refreshFiles,
 		restoreEntry,
 		renameEntry,

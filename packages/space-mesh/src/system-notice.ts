@@ -64,8 +64,8 @@ function buildWakeStoppedNoticeText(input: {
 }): string {
   if (input.variant === "agent_profile_deleted") {
     return input.actorName
-      ? `Wake was stopped for ${input.actorName} because its Agent Profile was deleted.`
-      : "Wake was stopped because the Agent Profile was deleted.";
+      ? `Wake cancelled. ${input.actorName} was deleted.`
+      : "Wake cancelled. This agent was deleted.";
   }
   if (input.variant === "stopped_before_execution") {
     return input.actorName

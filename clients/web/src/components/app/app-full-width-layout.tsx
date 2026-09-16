@@ -11,6 +11,7 @@ import { AppMainContent } from "#/components/app/app-main-content";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
+import { TeamSidebarHeader } from "#/components/directory/team-sidebar-header";
 import type {
 	InnerSidebarPreferenceKey,
 	SidebarPersistedState,
@@ -41,14 +42,19 @@ export function AppFullWidthLayout(input: {
 		<AppSurfaceLayout
 			frameSlotName="app-full-width-layout"
 			globalControls={<AppGlobalControls {...input.globalControls} />}
+			initialModuleSidebarState={input.initialOuterSidebarState}
 			mobileSidebarTitle={input.mobileSidebarTitle}
-			outerRail={
-				<AppOuterRail
-					account={account}
-					contextualNavigation={input.mainSidebarContent}
-					initialState={input.initialOuterSidebarState}
-				/>
+			moduleNavigation={
+				input.mainSidebarContent ? (
+					<>
+						<TeamSidebarHeader />
+						{input.mainSidebarContent}
+					</>
+				) : undefined
 			}
+			moduleNavigationKey="people"
+			moduleNavigationLabel="Team"
+			outerRail={<AppOuterRail account={account} />}
 			sidebar={
 				input.sidebar && input.sidebarPreferenceKey ? (
 					<AppInnerSidebar

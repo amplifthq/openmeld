@@ -19,10 +19,13 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
 import {
-	createSpaceLiveStreamUrl,
 	parseSpaceLiveMessage,
 	type SpaceLiveMessage,
 } from "#/lib/spaces/live-stream";
+import {
+	createSpaceLiveTransport,
+	type SpaceLiveTransport,
+} from "#/lib/spaces/live-transport";
 import {
 	isSpaceTimelineCatchUpAnchorSignal,
 	mergeSpaceTimelineEnvelopes,
@@ -31,10 +34,13 @@ import {
 import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	readSpaceHistory,
-	readSpaceUpdates,
 	SPACE_UPDATES_LIMIT,
 	writeSpaceHistoryEnvelopesToCache,
 } from "#/query/spaces/history";
+import {
+	fetchSpaceUpdatesAfterSubscription,
+	spaceUpdatesQueryOptions,
+} from "#/query/spaces/history-sync";
 import { spaceFileQueryKeys } from "#/query/spaces/space-files";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { messageReactionsKey } from "./space-message-reactions";
@@ -84,6 +90,8 @@ type MountHistoryAnchor = {
 };
 
 type ReconcileFreshnessControls = {
+	afterSubscription: boolean;
+	queryClient: ReturnType<typeof useQueryClient>;
 	applyReconciledSignals: ReconcileSignals;
 	openMeldProfileId: string;
 	isCurrentReconcile: () => boolean;
@@ -128,11 +136,14 @@ async function drainSpaceUpdatesFromAnchor(
 		pageCount < MAX_RECONCILE_UPDATE_PAGES;
 		pageCount += 1
 	) {
-		const updates = await readSpaceUpdates({
+		const page = {
 			spaceId: input.spaceId,
 			afterSignalId: cursor,
 			openMeldProfileId: input.openMeldProfileId,
-		});
+		};
+		const updates = input.afterSubscription
+			? await fetchSpaceUpdatesAfterSubscription(input.queryClient, page)
+			: await input.queryClient.fetchQuery(spaceUpdatesQueryOptions(page));
 		if (!input.isCurrentReconcile()) {
 			return;
 		}
@@ -189,9 +200,7 @@ export function useSpaceLandingFeed(input: {
 		agentProfileIds: readonly string[];
 		signalIds: readonly string[];
 	}) => Promise<void> | void;
-	onAgentReadinessInvalidated?: (input: {
-		agentProfileIds: readonly string[];
-	}) => Promise<void> | void;
+	readinessScope?: { organizationId?: string | null; storageScope: string };
 	history: {
 		isPending: boolean;
 		isSuccess: boolean;
@@ -202,6 +211,8 @@ export function useSpaceLandingFeed(input: {
 	};
 }) {
 	const queryClient = useQueryClient();
+	const readinessOrganizationId = input.readinessScope?.organizationId ?? "";
+	const readinessStorageScope = input.readinessScope?.storageScope ?? "";
 	const [timelineEnvelopes, setTimelineEnvelopes] = useState<
 		readonly SignalEnvelope[]
 	>([]);
@@ -252,9 +263,6 @@ export function useSpaceLandingFeed(input: {
 	const onThreadSignalRef = useRef(input.onThreadSignal);
 	const onWakeFinalOutcomeFactsRefreshRef = useRef(
 		input.onWakeFinalOutcomeFactsRefresh
-	);
-	const onAgentReadinessInvalidatedRef = useRef(
-		input.onAgentReadinessInvalidated
 	);
 	const reconnectKeyRef = useRef(0);
 	const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -364,121 +372,126 @@ export function useSpaceLandingFeed(input: {
 	// reconnect → catch-up-fails → reconnect loop. A stale anchor is recovered by
 	// falling back to a recent-window reload rather than re-presenting the dead
 	// anchor.
-	const reconcileConversationOnce = useCallback(async (): Promise<void> => {
-		const startIdentity = feedIdentityRef.current;
-		const startReconnectKey = reconnectKeyRef.current;
-		const isCurrentReconcile = (): boolean =>
-			mountedRef.current &&
-			feedIdentityRef.current === startIdentity &&
-			reconnectKeyRef.current === startReconnectKey;
-		const markReconcileHealthy = (): void => {
-			if (!isCurrentReconcile()) {
-				return;
-			}
-			if (liveStateRef.current === "stale") {
-				setLiveState("connected");
-				setLiveErrorMessage(null);
-			}
-		};
-		const markReconcileStale = (): void => {
-			if (!isCurrentReconcile()) {
-				return;
-			}
-			setLiveState("stale");
-			setLiveErrorMessage(LIVE_RECONCILE_STALE_STATUS);
-		};
-		const applyReconciledSignals = (
-			incoming: readonly SignalEnvelope[]
-		): boolean => {
-			if (!isCurrentReconcile()) {
-				// The feed switched Spaces/profiles while this reconcile was in
-				// flight, was unmounted, or a newer socket attempt superseded this
-				// request. Dropping the result avoids stale refetch timers and
-				// cross-conversation contamination.
-				return false;
-			}
+	const reconcileConversationOnce = useCallback(
+		async (afterSubscription = false): Promise<void> => {
+			const startIdentity = feedIdentityRef.current;
+			const startReconnectKey = reconnectKeyRef.current;
+			const isCurrentReconcile = (): boolean =>
+				mountedRef.current &&
+				feedIdentityRef.current === startIdentity &&
+				reconnectKeyRef.current === startReconnectKey;
+			const markReconcileHealthy = (): void => {
+				if (!isCurrentReconcile()) {
+					return;
+				}
+				if (liveStateRef.current === "stale") {
+					setLiveState("connected");
+					setLiveErrorMessage(null);
+				}
+			};
+			const markReconcileStale = (): void => {
+				if (!isCurrentReconcile()) {
+					return;
+				}
+				setLiveState("stale");
+				setLiveErrorMessage(LIVE_RECONCILE_STALE_STATUS);
+			};
+			const applyReconciledSignals = (
+				incoming: readonly SignalEnvelope[]
+			): boolean => {
+				if (!isCurrentReconcile()) {
+					// The feed switched Spaces/profiles while this reconcile was in
+					// flight, was unmounted, or a newer socket attempt superseded this
+					// request. Dropping the result avoids stale refetch timers and
+					// cross-conversation contamination.
+					return false;
+				}
 
-			const newSignals = listNewSignals({
-				current: timelineEnvelopesRef.current,
-				incoming,
-			});
-			recordPersistedTimelineSignals({
-				currentRef: persistedTimelineEnvelopesRef,
-				incoming,
+				const newSignals = listNewSignals({
+					current: timelineEnvelopesRef.current,
+					incoming,
+				});
+				recordPersistedTimelineSignals({
+					currentRef: persistedTimelineEnvelopesRef,
+					incoming,
+					queryClient,
+					spaceId: input.spaceId,
+					openMeldProfileId: input.openMeldProfileId,
+				});
+				mergeIncomingSignals({
+					currentRef: timelineEnvelopesRef,
+					incoming,
+					setState: setTimelineEnvelopes,
+				});
+				scheduleRefetchesForSignals({
+					wakeFinalOutcomeHandledByCallback: Boolean(
+						onWakeFinalOutcomeFactsRefreshRef.current
+					),
+					membersRefetch: membersRefetchRef.current,
+					membersRefetchTimerRef,
+					signals: newSignals,
+					statusRefetch: statusRefetchRef.current,
+					statusRefetchTimerRef,
+				});
+				scheduleWakeFinalOutcomeFactsRefresh({
+					onRefreshRef: onWakeFinalOutcomeFactsRefreshRef,
+					observedSignalIdsRef: observedWakeFinalOutcomeSignalIdsRef,
+					pendingRef: pendingWakeFinalOutcomeRefreshRef,
+					signals: newSignals,
+					spaceId: input.spaceId,
+					timerRef: wakeFinalOutcomeRefreshTimerRef,
+				});
+				return true;
+			};
+
+			const reconcileControls: ReconcileFreshnessControls = {
+				afterSubscription,
 				queryClient,
-				spaceId: input.spaceId,
+				applyReconciledSignals,
 				openMeldProfileId: input.openMeldProfileId,
-			});
-			mergeIncomingSignals({
-				currentRef: timelineEnvelopesRef,
-				incoming,
-				setState: setTimelineEnvelopes,
-			});
-			scheduleRefetchesForSignals({
-				wakeFinalOutcomeHandledByCallback: Boolean(
-					onWakeFinalOutcomeFactsRefreshRef.current
-				),
-				membersRefetch: membersRefetchRef.current,
-				membersRefetchTimerRef,
-				signals: newSignals,
-				statusRefetch: statusRefetchRef.current,
-				statusRefetchTimerRef,
-			});
-			scheduleWakeFinalOutcomeFactsRefresh({
-				onRefreshRef: onWakeFinalOutcomeFactsRefreshRef,
-				observedSignalIdsRef: observedWakeFinalOutcomeSignalIdsRef,
-				pendingRef: pendingWakeFinalOutcomeRefreshRef,
-				signals: newSignals,
+				isCurrentReconcile,
+				markReconcileHealthy,
+				markReconcileStale,
+				pendingCatchUpCursorRef,
 				spaceId: input.spaceId,
-				timerRef: wakeFinalOutcomeRefreshTimerRef,
-			});
-			return true;
-		};
+			};
 
-		const reconcileControls: ReconcileFreshnessControls = {
-			applyReconciledSignals,
-			openMeldProfileId: input.openMeldProfileId,
-			isCurrentReconcile,
-			markReconcileHealthy,
-			markReconcileStale,
-			pendingCatchUpCursorRef,
-			spaceId: input.spaceId,
-		};
-
-		const latestAnchorSignalId = getLatestSignalEnvelopeId(
-			persistedTimelineEnvelopesRef.current
-		);
-		const anchorSignalId =
-			pendingCatchUpCursorRef.current ?? latestAnchorSignalId;
-		if (!anchorSignalId) {
-			await reconcileFromRecentWindow(reconcileControls);
-			return;
-		}
-
-		try {
-			pendingCatchUpCursorRef.current = anchorSignalId;
-			await drainSpaceUpdatesFromAnchor({
-				...reconcileControls,
-				anchorSignalId,
-			});
-		} catch (error) {
-			if (!isCurrentReconcile()) {
-				return;
-			}
-			const failure = toStructuredApiClientFailure(error);
-			console.warn("[openmeld.web.space.live_tail_catchup_failed]", {
-				anchorReaped: isAnchorNotFoundFailure(failure),
-				error: failure.message,
-				spaceId: input.spaceId,
-			});
-			if (isAnchorNotFoundFailure(failure)) {
-				pendingCatchUpCursorRef.current = null;
+			const latestAnchorSignalId = getLatestSignalEnvelopeId(
+				persistedTimelineEnvelopesRef.current
+			);
+			const anchorSignalId =
+				pendingCatchUpCursorRef.current ?? latestAnchorSignalId;
+			if (!anchorSignalId) {
 				await reconcileFromRecentWindow(reconcileControls);
 				return;
 			}
-			markReconcileStale();
-		}
-	}, [input.openMeldProfileId, input.spaceId, queryClient]);
+
+			try {
+				pendingCatchUpCursorRef.current = anchorSignalId;
+				await drainSpaceUpdatesFromAnchor({
+					...reconcileControls,
+					anchorSignalId,
+				});
+			} catch (error) {
+				if (!isCurrentReconcile()) {
+					return;
+				}
+				const failure = toStructuredApiClientFailure(error);
+				console.warn("[openmeld.web.space.live_tail_catchup_failed]", {
+					anchorReaped: isAnchorNotFoundFailure(failure),
+					error: failure.message,
+					spaceId: input.spaceId,
+				});
+				if (isAnchorNotFoundFailure(failure)) {
+					pendingCatchUpCursorRef.current = null;
+					await reconcileFromRecentWindow(reconcileControls);
+					return;
+				}
+				markReconcileStale();
+			}
+		},
+		[input.openMeldProfileId, input.spaceId, queryClient]
+	);
 
 	// Serialize every reconcile trigger. Repeated triggers for the same socket
 	// attempt share the active request; a newer attempt waits for that request to
@@ -515,7 +528,9 @@ export function useSpaceLandingFeed(input: {
 
 				const flight = {
 					feedIdentity: requestedFeedIdentity,
-					promise: reconcileConversationOnce(),
+					promise: reconcileConversationOnce(
+						options?.afterActiveFlight === true
+					),
 					reconnectKey: requestedReconnectKey,
 				};
 				reconcileFlightRef.current = flight;
@@ -589,9 +604,6 @@ export function useSpaceLandingFeed(input: {
 		onWakeFinalOutcomeFactsRefreshRef.current =
 			input.onWakeFinalOutcomeFactsRefresh;
 	}, [input.onWakeFinalOutcomeFactsRefresh]);
-	useEffect(() => {
-		onAgentReadinessInvalidatedRef.current = input.onAgentReadinessInvalidated;
-	}, [input.onAgentReadinessInvalidated]);
 
 	useEffect(() => {
 		if (input.spaceId.trim().length === 0) {
@@ -810,13 +822,11 @@ export function useSpaceLandingFeed(input: {
 		setLiveState("connecting");
 		setLiveErrorMessage(null);
 
-		const socket = new WebSocket(
-			createSpaceLiveStreamUrl({
-				origin: window.location.origin,
-				spaceId: input.spaceId,
-				profileId: input.openMeldProfileId,
-			})
-		);
+		const socket = createSpaceLiveTransport({
+			origin: window.location.origin,
+			spaceId: input.spaceId,
+			profileId: input.openMeldProfileId,
+		});
 
 		const onOpen = () => {
 			if (isDisposed) {
@@ -919,7 +929,10 @@ export function useSpaceLandingFeed(input: {
 					membersRefetchTimerRef,
 					message,
 					openMeldProfileId: input.openMeldProfileId,
-					onAgentReadinessInvalidatedRef,
+					readinessScope: {
+						organizationId: readinessOrganizationId,
+						storageScope: readinessStorageScope,
+					},
 					queryClient,
 					setLiveErrorMessage,
 					setLiveState,
@@ -954,13 +967,21 @@ export function useSpaceLandingFeed(input: {
 			});
 		};
 
-		const onClose = () => {
+		const onClose = (event: CloseEvent) => {
 			markSocketClosed();
 			stopKeepalive();
 			if (isDisposed) {
 				return;
 			}
 
+			if (event.code === 1008) {
+				input.statusRefetch().catch((error) => {
+					console.error(
+						"Failed to refresh Space access after session closure",
+						error
+					);
+				});
+			}
 			scheduleReconnect();
 		};
 
@@ -997,6 +1018,8 @@ export function useSpaceLandingFeed(input: {
 		input.openMeldProfileId,
 		input.membersRefetch,
 		input.participationEnabled,
+		readinessOrganizationId,
+		readinessStorageScope,
 		input.spaceId,
 		input.statusRefetch,
 		reconnectKey,
@@ -1052,7 +1075,7 @@ function resolveLiveReconnectDelayMs(attemptCount: number): number {
 function startSpaceLiveKeepaliveTimer(input: {
 	onStalled: () => void;
 	readLastInboundFrameTs: () => number | null;
-	socket: WebSocket;
+	socket: SpaceLiveTransport;
 }): () => void {
 	let hasSentKeepalivePing = false;
 	let stopped = false;
@@ -1115,13 +1138,7 @@ type NonTimelineLiveMessageInput = {
 	membersRefetchTimerRef: { current: ReturnType<typeof setTimeout> | null };
 	message: SpaceLiveMessage;
 	openMeldProfileId: string;
-	onAgentReadinessInvalidatedRef: {
-		current:
-			| ((input: {
-					agentProfileIds: readonly string[];
-			  }) => Promise<void> | void)
-			| undefined;
-	};
+	readinessScope?: { organizationId: string; storageScope: string };
 	queryClient: QueryClient;
 	setLiveErrorMessage: (value: string | null) => void;
 	setLiveState: (value: SpaceLiveState) => void;
@@ -1333,27 +1350,12 @@ async function flushWakeProgressRefreshes(
 }
 
 function handleAgentReadinessInvalidation(
-	input: Pick<
-		NonTimelineLiveMessageInput,
-		"onAgentReadinessInvalidatedRef" | "spaceId"
-	>,
+	input: Pick<NonTimelineLiveMessageInput, "readinessScope">,
 	frame: SpaceLiveInvalidationMessage["frame"]
 ): void {
-	publishAgentReadinessInvalidationFrame(frame);
-	const agentProfileIds = frame.agentProfileIds ?? [];
-	Promise.resolve(
-		input.onAgentReadinessInvalidatedRef.current?.({ agentProfileIds })
-	).catch((error) => {
-		console.warn(
-			"[openmeld.web.space.agent_readiness_invalidation_refresh_failed]",
-			{
-				agentProfileIds,
-				error: toStructuredApiClientFailure(error).message,
-				reason: frame.reason,
-				spaceId: input.spaceId,
-			}
-		);
-	});
+	if (input.readinessScope) {
+		publishAgentReadinessInvalidationFrame(frame, input.readinessScope);
+	}
 }
 
 function handleLiveSignalMessage(input: {
@@ -1770,16 +1772,31 @@ function shouldRefetchMembersAfterSignal(input: {
 	);
 }
 
+const refetchesNeedingFollowup = new WeakSet<object>();
+
 function debounceRefetch(
 	timerRef: { current: ReturnType<typeof setTimeout> | null },
 	refetch: () => Promise<unknown>
 ) {
 	if (timerRef.current) {
-		clearTimeout(timerRef.current);
+		refetchesNeedingFollowup.add(timerRef);
+		return;
 	}
-	timerRef.current = setTimeout(() => {
-		refetch().catch(() => undefined);
+	const timer = setTimeout(() => {
+		refetchesNeedingFollowup.delete(timerRef);
+		refetch()
+			.catch(() => undefined)
+			.finally(() => {
+				if (timerRef.current !== timer) {
+					return;
+				}
+				timerRef.current = null;
+				if (refetchesNeedingFollowup.delete(timerRef)) {
+					debounceRefetch(timerRef, refetch);
+				}
+			});
 	}, 300);
+	timerRef.current = timer;
 }
 
 function mergeIncomingSignals(input: {

@@ -1,5 +1,7 @@
 "use client";
 
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
+
 import { cn } from "@openmeld/ui/lib/utils";
 import { formatCodeBlock, isLangSupported } from "@platejs/code-block";
 import { BracesIcon, Check, CheckIcon, CopyIcon } from "lucide-react";
@@ -159,15 +161,17 @@ export function CodeBlockElement({
 					contentEditable={false}
 				>
 					{isLangSupported(element.lang) && (
-						<Button
-							className="size-6 text-xs"
-							onClick={() => formatCodeBlock(editor, { element })}
-							size="icon"
-							title="Format code"
-							variant="ghost"
-						>
-							<BracesIcon className="!size-3.5 text-muted-foreground" />
-						</Button>
+						<TooltipHint content="Format code">
+							<Button
+								aria-label="Format code"
+								className="size-6 text-xs"
+								onClick={() => formatCodeBlock(editor, { element })}
+								size="icon"
+								variant="ghost"
+							>
+								<BracesIcon className="!size-3.5 text-muted-foreground" />
+							</Button>
+						</TooltipHint>
 					)}
 
 					<CodeBlockCombobox showLanguageLabel={showLanguageLabel} />

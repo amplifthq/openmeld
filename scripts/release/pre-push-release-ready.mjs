@@ -114,7 +114,7 @@ export function assertReleaseVerificationWorktreeClean(input = {}) {
   );
 }
 
-function parsePushUpdates(input) {
+export function parsePushUpdates(input) {
   const lines = String(input ?? "")
     .split(LINE_SPLIT_PATTERN)
     .map((line) => line.trim())
@@ -191,7 +191,7 @@ function run() {
   const mode = resolvePrePushReleaseMode(pushUpdates);
   if (mode === "skip") {
     process.stdout.write(
-      "Pre-push validation skipped for an ordinary development update. Use the trusted current-main Final Candidate entrypoint when the PR is ready.\n"
+      "No release artifact check for this development push; focused checks run next.\n"
     );
     return;
   }
@@ -244,6 +244,9 @@ function resolvePushedVersionedReleaseBranchName(input) {
   return branchNames[0] ?? null;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
   run();
 }

@@ -36,6 +36,7 @@ import {
   resolveCenterAgentCompletedCallbackMessage,
   resolveSpaceFileContentResponseSchema,
   routineWorkflowContinuationEventPayloadSchema,
+  SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   spaceMessageAttachmentsSchema,
 } from "@openmeld/schemas";
@@ -68,6 +69,7 @@ import {
   buildDirectMessagePairKey,
   createAuthenticatedSpaceAccessContext,
   createDispatchContinuationSpaceAccessContext,
+  renderDispatchSourceText,
   type SpaceAccessContext,
 } from "@openmeld/space";
 import {
@@ -136,6 +138,7 @@ import { emitRoutineWorkflowRuntimeEvidence } from "../../routines/routine-workf
 import { isRpcReceiverMethodNotImplementedError } from "../../rpc/errors";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import {
+  emitSpaceExecutionRecoveryNoticeSignal,
   emitSpaceSystemNoticeSignal,
   emitSpaceTextSignal,
   emitSpaceTextSignalOnceByClientMessageId,
@@ -198,6 +201,7 @@ import {
   type RemoteAgentFinalPublicationPayload,
   type RemoteAgentNativeDeliveryRecord,
   readRemoteAgentNativeDeliveryByDeliveryId,
+  readRemoteAgentNativeDeliveryByExecution,
   readRemoteAgentNativeDeliveryByIdempotencyKey,
   readRemoteAgentNativeDeliveryBySubmissionId,
   readRemoteAgentWorkLoopAttemptByCallbackIdentity,
@@ -600,6 +604,7 @@ const REMOTE_AGENT_MESSAGE_CHANNEL_PUBLICATION_NOT_READY_REASON_CODE =
 const HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT = [
   "OpenMeld execution recovery.",
   "Continue this exact hosted controller conversation.",
+  "Recover the answer to the original request identified below, even if newer messages exist in this conversation.",
   "Do not redo the task, call tools, edit files, or perform external actions.",
   "Return the best faithful final answer you can recover from this conversation.",
   "Your answer is content only. OpenMeld decides recovery status from the typed provider outcome, never from words in your answer.",
@@ -626,7 +631,15 @@ export class RemoteAgentExecutionRecoverySubmissionOutcomeUnknownError extends E
 function buildRemoteAgentSourceText(
   message: OpenMeldDaemonDispatchQueueMessage
 ): string | null {
-  const text = normalizeOptionalText(message.sourceSignalSnapshot?.text);
+  const rawText = normalizeOptionalText(message.sourceSignalSnapshot?.text);
+  const text = rawText
+    ? renderDispatchSourceText({
+        text: rawText,
+        quotedMessage: message.sourceSignalSnapshot?.quotedMessage,
+        contextMessages: message.sourceSignalSnapshot?.contextMessages,
+        pinnedFiles: message.sourceSignalSnapshot?.pinnedFiles,
+      })
+    : null;
   const files = message.sourceSignalSnapshot?.files ?? [];
   if (files.length === 0) {
     return text;
@@ -1901,7 +1914,14 @@ export async function submitRemoteAgentExecutionRecoveryTurn(input: {
   nowMs: number;
   operationId: string;
   originalDelivery: RemoteAgentNativeDeliveryRecord;
+  resultRef?: string;
 }): Promise<RemoteAgentExecutionRecoverySubmission> {
+  if (
+    input.originalDelivery.conversationKind === "space" &&
+    (input.action !== "resume_controller_conversation" || !input.resultRef)
+  ) {
+    throw new Error("execution_recovery.space_reply_identity_required");
+  }
   const originalRequest = input.originalDelivery.executionRecoverySubmitRequest;
   assertRemoteAgentExecutionRecoverySource({
     action: input.action,
@@ -1921,7 +1941,14 @@ export async function submitRemoteAgentExecutionRecoveryTurn(input: {
     input.action === "resume_controller_conversation"
       ? [
           {
-            content: HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT,
+            content: [
+              HOSTED_EXECUTION_RECOVERY_RESUME_PROMPT,
+              JSON.stringify({
+                originalSubmissionId: input.originalDelivery.submissionId,
+                originalMessageId: input.originalDelivery.triggerMessageId,
+                originalRequestText: input.originalDelivery.triggerText,
+              }),
+            ].join("\n\n"),
             role: "user" as const,
           },
         ]
@@ -1932,6 +1959,15 @@ export async function submitRemoteAgentExecutionRecoveryTurn(input: {
       dispatchId: identity.dispatchId,
       idempotencyKey: identity.idempotencyKey,
       messages,
+      ...(input.action === "resume_controller_conversation"
+        ? {
+            replyRecovery: {
+              originalDispatchId: input.originalDelivery.dispatchId,
+              operationId: input.operationId,
+              ...(input.resultRef ? { resultRef: input.resultRef } : {}),
+            },
+          }
+        : {}),
       sourceClientMessageId: null,
     }
   );
@@ -2117,7 +2153,6 @@ function assertRemoteAgentExecutionRecoverySource(input: {
   const request = input.request;
   if (
     !request ||
-    input.delivery.conversationKind === "space" ||
     request.organizationId !== input.delivery.organizationId ||
     request.spaceId !== input.delivery.spaceId ||
     request.agentProfileId !== input.delivery.profileId ||
@@ -2932,6 +2967,8 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
   failureCode: string;
   failureMessage: string;
 }): Promise<SignalEnvelope> {
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   const targetProfile = await resolveRemoteAgentTargetProfile({
     env: input.env,
     profileId: input.delivery.profileId,
@@ -2989,9 +3026,7 @@ async function publishTaskContinuationSpacePreExecutionFailure(input: {
     }),
     spaceId: input.delivery.spaceId,
     text: input.failureMessage,
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
   });
 }
 
@@ -6475,6 +6510,7 @@ function buildRoutinePublisherActorContext(input: {
 }
 
 async function publishRemoteAgentRoutineText(input: {
+  mentionTargets?: string[];
   personalAgent?: boolean;
   agentStreamId?: string;
   attachments?: SpaceMessageAttachment[];
@@ -6538,6 +6574,9 @@ async function publishRemoteAgentRoutineText(input: {
         : {}),
       referenceTargets: [],
       text: input.text,
+      ...(input.mentionTargets?.length
+        ? { mentionTargets: input.mentionTargets }
+        : {}),
     },
     meta: {
       clientMessageId: input.clientMessageId,
@@ -6838,12 +6877,25 @@ async function readRemoteAgentSubmissionAttachments(input: {
       spaceId: input.message.spaceId,
       targetProfileId: input.message.targetProfileId,
     });
-    const signal = await readRemoteAgentSpaceSourceSignal({
-      env: input.env,
-      sourceSignalId: input.message.sourceEventId,
-      spaceAccess,
-      spaceId: input.message.spaceId,
-    });
+    const sourceIds = [
+      ...new Set([
+        input.message.sourceEventId,
+        ...(input.message.sourceSignalSnapshot?.contextMessages ?? []).map(
+          (message) => message.signalId
+        ),
+      ]),
+    ];
+    const signals = await Promise.all(
+      sourceIds.map((sourceSignalId) =>
+        readRemoteAgentSpaceSourceSignal({
+          env: input.env,
+          sourceSignalId,
+          spaceAccess,
+          spaceId: input.message.spaceId,
+        })
+      )
+    );
+    const signal = signals[0];
     if (signal?.type !== "signal.text") {
       if (!signal) {
         logRemoteAgentAttachmentReferenceDegradation({
@@ -6853,8 +6905,18 @@ async function readRemoteAgentSubmissionAttachments(input: {
       }
       return [];
     }
+    const currentMessages = signals.filter(
+      (item): item is Extract<SignalEnvelope, { type: "signal.text" }> =>
+        item?.type === "signal.text" && !item.data.meta?.recalledAt
+    );
     const legacyAttachments = spaceMessageAttachmentsSchema.safeParse(
-      signal.data.attachments ?? []
+      [
+        ...new Map(
+          currentMessages
+            .flatMap((item) => item.data.attachments ?? [])
+            .map((attachment) => [attachment.id, attachment])
+        ).values(),
+      ].slice(0, SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE)
     );
     if (!legacyAttachments.success) {
       logRemoteAgentAttachmentReferenceDegradation({
@@ -6868,7 +6930,13 @@ async function readRemoteAgentSubmissionAttachments(input: {
       0,
       SPACE_MESSAGE_FILE_MAX_COUNT - legacyAttachments.data.length
     );
-    const canonicalImageFiles = (signal.data.files ?? [])
+    const canonicalImageFiles = [
+      ...new Map(
+        currentMessages
+          .flatMap((item) => item.data.files ?? [])
+          .map((file) => [`${file.fileId}:${file.revision}`, file])
+      ).values(),
+    ]
       .filter(
         (file) =>
           file.mimeType === "image/jpeg" || file.mimeType === "image/png"
@@ -11197,6 +11265,19 @@ async function publishRemoteAgentCallbackFailureText(input: {
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
 }): Promise<{ id?: string | null } | null> {
+  const recovery = input.delivery.executionRecoverySubmitRequest?.replyRecovery;
+  if (recovery?.resultRef && input.delivery.conversationKind === "space") {
+    const original = await requireReplyRecoveryOriginalDelivery({
+      ...input,
+      recovery,
+    });
+    if (!original.publishedSignalId) {
+      throw new Error("execution_recovery.identity_mismatch");
+    }
+    return { id: original.publishedSignalId };
+  }
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   if (input.delivery.conversationKind === "message_channel") {
     throw new Error(
       "Message Channel failure publication requires the provider publication coordinator"
@@ -11260,6 +11341,51 @@ async function publishRemoteAgentCallbackFailureText(input: {
     profile,
     submissionId: input.body.submissionId,
   });
+  if (input.body.failureCode === "remote_agent.empty_assistant_response") {
+    const author = input.delivery.executionRecoverySubmitRequest?.author;
+    return await emitSpaceSystemNoticeSignal({
+      env: input.env,
+      spaceId: input.delivery.spaceId,
+      profile: {
+        kind: "system",
+        profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+        profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+      },
+      finalOutcomeAuthority: "remote_agent_native_delivery",
+      data: {
+        noticeType: "terminal_failure",
+        actorProfileId: input.delivery.profileId,
+        actorName: profileName,
+        dispatchId: input.delivery.dispatchId,
+        generatedBy: "openmeld",
+        reasonCode: input.body.failureCode,
+        failureStage: "execution",
+        text: resolveCenterAgentCallbackFailureMessage(input.body),
+        ...(author?.profileId &&
+        author.displayName &&
+        input.delivery.triggerText
+          ? {
+              replyTo: {
+                signalId: input.delivery.triggerMessageId,
+                profileId: author.profileId,
+                profileKind: author.profileKind,
+                profileName: author.displayName,
+                previewText: input.delivery.triggerText.slice(0, 120),
+              },
+            }
+          : {}),
+      },
+      spaceAccess: createDispatchContinuationSpaceAccessContext({
+        dispatchId: input.delivery.dispatchId,
+        requestContext: context,
+        sourceSignalId: input.delivery.triggerMessageId,
+        spaceId: input.delivery.spaceId,
+        targetProfileId: input.delivery.profileId,
+      }),
+      ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
+      context,
+    });
+  }
   return await emitSpaceTextSignal({
     env: input.env,
     spaceId: input.delivery.spaceId,
@@ -11295,9 +11421,7 @@ async function publishRemoteAgentCallbackFailureText(input: {
       spaceId: input.delivery.spaceId,
       targetProfileId: input.delivery.profileId,
     }),
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     context,
   });
 }
@@ -11348,6 +11472,12 @@ async function publishRemoteAgentCallbackReply(input: {
   delivery: NativeDeliveryPublishRecord;
   env: CoreBindings;
 }) {
+  const recovery = input.delivery.executionRecoverySubmitRequest?.replyRecovery;
+  if (recovery?.resultRef && input.delivery.conversationKind === "space") {
+    return await publishRemoteAgentRecoveredSpaceReply({ ...input, recovery });
+  }
+  const replyThreadContext =
+    await resolveNativeDeliveryReplyThreadContext(input);
   if (input.delivery.conversationKind === "message_channel") {
     throw new Error(
       "Message Channel reply publication requires the provider publication coordinator"
@@ -11376,6 +11506,7 @@ async function publishRemoteAgentCallbackReply(input: {
     });
     return await publishRemoteAgentRoutineText({
       agentStreamId: buildRemoteAgentStreamId(input.body.submissionId),
+      mentionTargets: input.body.mentionTargets,
       personalAgent: isPersonalRoutineDelivery(input.delivery),
       ...(input.body.attachments?.length
         ? { attachments: input.body.attachments }
@@ -11436,6 +11567,7 @@ async function publishRemoteAgentCallbackReply(input: {
       ...(navigationAction ? { navigationAction } : {}),
       replyToSignalId: input.delivery.triggerMessageId,
       text: replyText,
+      mentionTargets: input.body.mentionTargets,
     },
     meta: {
       clientMessageId: input.body.submissionId,
@@ -11460,11 +11592,111 @@ async function publishRemoteAgentCallbackReply(input: {
       spaceId: input.delivery.spaceId,
       targetProfileId: input.delivery.profileId,
     }),
-    ...(input.delivery.threadContext
-      ? { threadContext: input.delivery.threadContext }
-      : {}),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
     context,
   });
+}
+
+async function requireReplyRecoveryOriginalDelivery(input: {
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+  recovery: NonNullable<RemoteAgentWorkerSubmitTurnRequest["replyRecovery"]>;
+}): Promise<RemoteAgentNativeDeliveryRecord> {
+  const db = localStateDb(input.env);
+  if (!db) {
+    throw new Error("execution_recovery.storage_unavailable");
+  }
+  const original = await readRemoteAgentNativeDeliveryByExecution({
+    db,
+    dispatchId: input.recovery.originalDispatchId,
+    profileId: input.delivery.profileId,
+    spaceId: input.delivery.spaceId,
+  });
+  if (
+    !original ||
+    original.organizationId !== input.delivery.organizationId ||
+    original.bindingId !== input.delivery.bindingId
+  ) {
+    throw new Error("execution_recovery.identity_mismatch");
+  }
+  return original;
+}
+
+async function publishRemoteAgentRecoveredSpaceReply(input: {
+  body: RemoteAgentCompletedCallbackBody;
+  delivery: NativeDeliveryPublishRecord;
+  env: CoreBindings;
+  recovery: NonNullable<RemoteAgentWorkerSubmitTurnRequest["replyRecovery"]>;
+}): Promise<{ id: string }> {
+  const original = await requireReplyRecoveryOriginalDelivery(input);
+  const replyThreadContext = await resolveNativeDeliveryReplyThreadContext({
+    env: input.env,
+    delivery: original,
+  });
+  if (!input.recovery.resultRef) {
+    throw new Error("execution_recovery.identity_mismatch");
+  }
+  const targetProfile = await resolveRemoteAgentTargetProfile({
+    env: input.env,
+    profileId: original.profileId,
+  });
+  const profile = buildDispatchReplyTargetProfile({
+    targetProfileId: original.profileId,
+    profileHandle: targetProfile.profileHandle,
+    targetProfileName: targetProfile.profileName,
+    ownerUserId: targetProfile.ownerUserId,
+    agentControllerRef: HOSTED_CENTER_AGENT_CONTROLLER_REF,
+    agentControllerConversationId: original.spaceId,
+  });
+  const context = buildRemoteAgentCallbackContext({
+    delivery: original,
+    profile,
+    submissionId: input.body.submissionId,
+  });
+  const author = original.executionRecoverySubmitRequest?.author;
+  const published = await emitSpaceExecutionRecoveryNoticeSignal({
+    env: input.env,
+    spaceId: original.spaceId,
+    profile: {
+      kind: "system",
+      profileId: DISPATCH_HINT_SYSTEM_PROFILE_ID,
+      profileName: DISPATCH_HINT_SYSTEM_PROFILE_NAME,
+    },
+    context,
+    spaceAccess: createDispatchContinuationSpaceAccessContext({
+      dispatchId: original.dispatchId,
+      requestContext: context,
+      sourceSignalId: original.triggerMessageId,
+      spaceId: original.spaceId,
+      targetProfileId: original.profileId,
+    }),
+    ...(replyThreadContext ? { threadContext: replyThreadContext } : {}),
+    data: {
+      actorProfileId: original.profileId,
+      ...(targetProfile.profileName
+        ? { actorName: targetProfile.profileName }
+        : {}),
+      dispatchId: original.dispatchId,
+      generatedBy: "openmeld",
+      noticeType: "execution_recovery_completed",
+      reasonCode: "execution_recovery.controller_conversation_resumed",
+      recoveryOperationId: input.recovery.operationId,
+      resultRef: input.recovery.resultRef,
+      text: truncateSpaceTextToProtocolLimit(input.body.text),
+      ...(author?.profileId && author.displayName && original.triggerText
+        ? {
+            replyTo: {
+              signalId: original.triggerMessageId,
+              profileId: author.profileId,
+              profileKind: author.profileKind,
+              profileName: author.displayName,
+              previewText: original.triggerText.slice(0, 120),
+            },
+          }
+        : {}),
+    },
+  });
+  return { id: published.publishedSignalId };
 }
 
 async function publishRemoteAgentSlackIdentityGuidanceAfterResult(input: {
@@ -12478,3 +12710,5 @@ function normalizeOptionalText(value: unknown): string | null {
 function toErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+import { resolveNativeDeliveryReplyThreadContext } from "./reply-placement";

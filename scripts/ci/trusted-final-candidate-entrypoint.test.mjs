@@ -119,6 +119,167 @@ test("the guarded local first hop comes from current main, not candidate package
   }
 });
 
+test("the first hop reads a shallow live-main snapshot without changing candidate history", () => {
+  const fixture = createEntrypointFixture();
+  try {
+    const candidateHead = fixture.git(
+      fixture.repositoryPath,
+      "rev-parse",
+      "HEAD"
+    );
+    fixture.git(fixture.repositoryPath, "checkout", "--quiet", "main");
+    writeFileSync(
+      path.join(fixture.repositoryPath, "history-only.txt"),
+      "Historical payload that the current control does not need.\n"
+    );
+    fixture.git(fixture.repositoryPath, "add", "history-only.txt");
+    fixture.git(
+      fixture.repositoryPath,
+      "commit",
+      "--quiet",
+      "-m",
+      "add old payload"
+    );
+    const oldBlob = fixture.git(
+      fixture.repositoryPath,
+      "rev-parse",
+      "HEAD:history-only.txt"
+    );
+    mkdirSync(path.join(fixture.repositoryPath, "clients", "web"), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(fixture.repositoryPath, "clients", "web", "unrelated.ts"),
+      "export const unrelated = true;\n"
+    );
+    const productBlob = fixture.git(
+      fixture.repositoryPath,
+      "hash-object",
+      "clients/web/unrelated.ts"
+    );
+    fixture.git(fixture.repositoryPath, "add", "clients/web/unrelated.ts");
+    fixture.git(fixture.repositoryPath, "rm", "--quiet", "history-only.txt");
+    writeFileSync(
+      path.join(
+        fixture.repositoryPath,
+        "scripts",
+        "ci",
+        "final-candidate-bootstrap.mjs"
+      ),
+      `
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+const cwd = fileURLToPath(new URL("../../", import.meta.url));
+const git = (...args) => execFileSync("git", args, {cwd, encoding: "utf8"}).trim();
+const objects = git("cat-file", "--batch-all-objects", "--batch-check=%(objectname)").split("\\n");
+process.stdout.write("SNAPSHOT " + JSON.stringify({
+  head: git("rev-parse", "HEAD"),
+  shallow: git("rev-parse", "--is-shallow-repository"),
+  commits: git("rev-list", "--count", "HEAD"),
+  oldBlobPresent: objects.includes(${JSON.stringify(oldBlob)}),
+  productBlobPresent: objects.includes(${JSON.stringify(productBlob)}),
+  productFilePresent: existsSync(path.join(cwd, "clients/web/unrelated.ts")),
+}) + "\\n");
+`
+    );
+    fixture.git(
+      fixture.repositoryPath,
+      "add",
+      "scripts/ci/final-candidate-bootstrap.mjs"
+    );
+    fixture.git(
+      fixture.repositoryPath,
+      "commit",
+      "--quiet",
+      "-m",
+      "publish current control snapshot"
+    );
+    const mainHead = fixture.git(fixture.repositoryPath, "rev-parse", "HEAD");
+    fixture.git(fixture.repositoryPath, "push", "--quiet", "origin", "main");
+    fixture.git(
+      fixture.repositoryPath,
+      "checkout",
+      "--quiet",
+      "codex/malicious-candidate"
+    );
+    const originalWorktrees = fixture.git(
+      fixture.repositoryPath,
+      "worktree",
+      "list",
+      "--porcelain"
+    );
+    const result = spawnSync("bash", ["-s", "--", "plan", "--pr", "1"], {
+      cwd: fixture.repositoryPath,
+      encoding: "utf8",
+      env: { ...process.env, ATTACK_LOG: fixture.attackLog },
+      input: readFileSync(path.join(REPO_ROOT, ENTRYPOINT_PATH), "utf8"),
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const snapshotLine = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("SNAPSHOT "));
+    assert.ok(snapshotLine, result.stdout);
+    assert.deepEqual(JSON.parse(snapshotLine.slice("SNAPSHOT ".length)), {
+      head: mainHead,
+      shallow: "true",
+      commits: "1",
+      oldBlobPresent: false,
+      productBlobPresent: false,
+      productFilePresent: false,
+    });
+    assert.equal(
+      fixture.git(fixture.repositoryPath, "rev-parse", "HEAD"),
+      candidateHead
+    );
+    assert.equal(
+      fixture.git(
+        fixture.repositoryPath,
+        "rev-parse",
+        "--is-shallow-repository"
+      ),
+      "false"
+    );
+    assert.equal(
+      fixture.git(fixture.repositoryPath, "rev-list", "--count", "main"),
+      "3"
+    );
+    assert.equal(
+      fixture.git(fixture.repositoryPath, "worktree", "list", "--porcelain"),
+      originalWorktrees
+    );
+    assert.equal(existsSync(fixture.attackLog), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("an unavailable live remote cannot fall back to cached or candidate control", () => {
+  const fixture = createEntrypointFixture();
+  try {
+    fixture.git(
+      fixture.repositoryPath,
+      "remote",
+      "set-url",
+      "origin",
+      path.join(fixture.repositoryPath, "missing-remote.git")
+    );
+    const result = spawnSync("bash", ["-s", "--", "plan", "--pr", "1"], {
+      cwd: fixture.repositoryPath,
+      encoding: "utf8",
+      env: { ...process.env, ATTACK_LOG: fixture.attackLog },
+      input: readFileSync(path.join(REPO_ROOT, ENTRYPOINT_PATH), "utf8"),
+    });
+    assert.notEqual(result.status, 0);
+    assert.doesNotMatch(result.stdout, TRUSTED_MARKER_PATTERN);
+    assert.doesNotMatch(result.stdout, MALICIOUS_MARKER_PATTERN);
+    assert.equal(existsSync(fixture.attackLog), false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test("the guarded first-hop fetch strips Git tracing and names an explicit trusted remote", () => {
   const entrypoint = readFileSync(
     path.join(REPO_ROOT, ENTRYPOINT_PATH),
@@ -149,7 +310,16 @@ test("the guarded first-hop fetch strips Git tracing and names an explicit trust
     );
   }
   assert.ok(entrypoint.includes("GIT_TRACE_REDACT=1"));
-  assert.ok(entrypoint.includes('fetch --no-tags "$trusted_remote_url"'));
+  assert.ok(
+    entrypoint.includes(
+      "clone --bare --no-local --no-tags --depth=1 --filter=blob:none"
+    )
+  );
+  assert.ok(
+    entrypoint.includes(
+      '--single-branch --branch main "$trusted_remote_url" "$network_root"'
+    )
+  );
   assert.ok(!entrypoint.includes("fetch --no-tags origin"));
 });
 
@@ -322,6 +492,7 @@ function createEntrypointFixture() {
     }).trim();
 
   git(root, "init", "--bare", "--quiet", "--initial-branch=main", remotePath);
+  git(remotePath, "config", "uploadpack.allowFilter", "true");
   git(repositoryPath, "init", "--initial-branch=main", "--quiet");
   git(repositoryPath, "config", "user.email", "entrypoint@test.openmeld.ai");
   git(repositoryPath, "config", "user.name", "OpenMeld Entrypoint Test");

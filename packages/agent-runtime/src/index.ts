@@ -342,6 +342,14 @@ export {
   type WakeStopEligibilityControlMode,
 } from "./wake-stop-eligibility";
 export {
+  AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
+  AGENT_PROFILE_WORK_MAX_WAITING,
+  AGENT_PROFILE_WORK_READABLE_RESERVATION_LIMIT,
+  type AgentProfileWorkCapacityPolicy,
+  DEFAULT_AGENT_PROFILE_WORK_CAPACITY_POLICY,
+  isAgentProfileWorkCapacityPolicy,
+} from "./work-policy";
+export {
   buildWorkingLanguagePromptPlan,
   renderWorkingLanguagePrompt,
   type WorkingLanguagePromptPlan,

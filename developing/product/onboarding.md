@@ -116,6 +116,30 @@ Setup flow presentation copy for the shared CLI/Prepare experience remains in
 production Web setup surface for the optional computer step rather than
 forking its command, PrepareSession, or live-status behavior.
 
+## Welcome Space Tutorial
+
+The optional **Welcome Space tutorial** is a presentation layer over an ordinary
+Space, shared by Desk and the full Space page. Its single path is: understand
+Space, add people or agents through the existing member selector and New Agent
+flow, then send an editable greeting to those members. New Welcome Spaces contain
+only their creator. Center Agent is recommended and preselected on the first
+Welcome picker opening, but membership changes only after Add selected. The user
+can deselect it, create another Agent, or add both. Ordinary Spaces never inherit
+that preselection. Existing Welcome members are preserved. Center Agent follows
+the same collaboration path as any other Agent. One dashed
+action card presents the next action; creating a local agent continues to use
+the existing computer setup flow. No tutorial code derives readiness or sends
+messages automatically.
+
+The browser-local marker identifies a tutorial independently of its Space name.
+It remembers completion and draft recipient IDs, but active membership,
+names, permissions, and readiness come from their existing owners. Only a real
+reply from an added Agent completes the collaboration step. Removing recipients
+or clearing a draft leaves a usable next action. Ordinary Space guidance is
+unchanged. No tutorial controls are exposed. Users hide and restore Welcome
+Spaces through the same Desk window controls as other Spaces; hiding never
+changes membership or deletes messages. Legacy paused progress resumes.
+
 ## Product Invariants
 
 1. **Configured value before abstract teaching.** Setup Studio first helps the
@@ -148,7 +172,8 @@ forking its command, PrepareSession, or live-status behavior.
    Versioned, account-scoped local storage may remember the current Setup Studio
    step and completion. Re-entering or restarting the flow must reconcile every
    control against live owning data. It must never create a second connection,
-   policy, or readiness state. This allowance applies only to Setup Studio.
+   policy, or readiness state. This allowance applies to Setup Studio and the
+   explicit Welcome Space tutorial described above.
    Contextual guidance stores no current step or completion token and recomputes
    its presentation from current facts on every render.
 5. **Permissions shape the flow.** An owner/admin may connect shared
@@ -333,7 +358,10 @@ An explicit Space destination is the exception: opening a Space or a message
 link, including continuation after accepting a Space invitation, keeps that
 destination. Space access is still authorized normally; the in-Space setup
 guidance remains available. This does not mark Setup Studio complete or change
-membership. A later ordinary entry may still offer the account-level Studio.
+membership. Navigation within that same signed-in App journey stays in the
+product, including the Spaces directory; it must not reopen Studio immediately
+after accepting an invitation. A later ordinary entry may still offer the
+account-level Studio, and opening Studio explicitly still works.
 Email verification and magic-link sign-in preserve the invitation route before
 Space entry, so first-time recipients are not sent to workspace selection in
 the middle of accepting an invitation.

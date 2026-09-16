@@ -35,6 +35,8 @@ import { useSpaceListIndicators } from "./use-space-list-indicators";
 type Preferences = NonNullable<AccountSidebarPreferences["chats"]>;
 
 export function useChats(input: {
+	currentProfileId?: string;
+	includeSpaceIndicators?: boolean;
 	currentSpaceId?: string;
 	search: string;
 	archived: boolean;
@@ -42,7 +44,8 @@ export function useChats(input: {
 }) {
 	const { currentOrganization: org } = useAppOrganization();
 	const { defaultHumanProfile } = useDefaultHumanProfile();
-	const profileId = defaultHumanProfile?.openMeldProfileId ?? "";
+	const profileId =
+		input.currentProfileId ?? defaultHumanProfile?.openMeldProfileId ?? "";
 	const store = useSidebarPreferences(profileId, org.id);
 	const spaces = useQuery(
 		accountSpaceItemsQueryOptions({
@@ -98,6 +101,7 @@ export function useChats(input: {
 			return [
 				item.spaceId,
 				{
+					messagePreview: item.messagePreview,
 					spaceId: item.spaceId,
 					name: peer?.profileName ?? item.spaceName,
 					createdAt: item.spaceCreatedAt ?? null,
@@ -113,6 +117,9 @@ export function useChats(input: {
 			...chatsById.get(session.spaceId),
 			...session,
 			session: true,
+			centerAgentProfileName: directory.data?.agentProfiles.find(
+				(profile) => profile.profileId === session.centerAgentProfileId
+			)?.profileName,
 		});
 	}
 	const chats = [...chatsById.values()];
@@ -123,15 +130,29 @@ export function useChats(input: {
 		store.preferences,
 		ordinaryAccountItems
 	);
-	const previews = useQueries({
-		queries: chats.map((chat) =>
+	const unprojectedChats = chats.filter(
+		(chat) => chat.messagePreview === undefined
+	);
+	const unprojectedPreviews = useQueries({
+		queries: unprojectedChats.map((chat) =>
 			spaceMessagePreviewQueryOptions({
 				spaceId: chat.spaceId,
 				viewerProfileId: chat.viewerProfileId ?? profileId,
-				enabled: !!profileId,
+				enabled: !!profileId && spaces.isSuccess,
 			})
 		),
 	});
+	const previewById = new Map(
+		unprojectedChats.map((chat, index) => [
+			chat.spaceId,
+			unprojectedPreviews[index],
+		])
+	);
+	const previews = chats.map((chat) =>
+		chat.messagePreview !== undefined
+			? { data: chat.messagePreview, isPending: false, isError: false }
+			: previewById.get(chat.spaceId)
+	);
 	const activity = new Map(
 		chats.map((chat, index) => [
 			chat.spaceId,
@@ -160,6 +181,7 @@ export function useChats(input: {
 		currentSpaceId: selected ?? "",
 		organizationId: org.id,
 		spaceIds: chats.map((chat) => chat.spaceId),
+		...(input.includeSpaceIndicators ? { sections: spaces.data } : {}),
 	});
 	// Publish each page immediately; searching and saved groups include older chats
 	// as subsequent pages arrive, without holding the first page behind them.
@@ -181,7 +203,7 @@ export function useChats(input: {
 	const sections = [
 		{ id: "pinned", name: "Pinned", ...preferences.pinned },
 		...preferences.groups,
-		{ id: "chats", name: "Chats", ...preferences.spaces },
+		{ id: "chats", name: "Direct messages", ...preferences.spaces },
 	];
 	const title = (chat: Chat) =>
 		preferences.titles[chat.spaceId] ?? chat.name ?? "New chat";

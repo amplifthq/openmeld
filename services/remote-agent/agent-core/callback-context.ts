@@ -7,6 +7,7 @@ import {
   conversationCompactionMarkerSchema,
   type OpenMeldNavigationTarget,
   openMeldNavigationTargetSchema,
+  openMeldRuntimeProfileIdSchema,
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
@@ -14,6 +15,7 @@ import {
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
   remoteAgentWorkerConversationIdentitySchema,
+  remoteAgentWorkerSubmitTurnRequestV1Schema,
   remoteAgentWorkLoopCheckpointSchema,
   resolveMappedPublicAgentFailureReason,
   SPACE_ATTACHMENT_MAX_COUNT_PER_MESSAGE,
@@ -204,6 +206,7 @@ export type RemoteAgentCallbackContext = {
     typeof remoteAgentWorkerConversationIdentitySchema
   >;
   runtimeConversationId?: string;
+  replyRecovery?: RemoteAgentWorkerSubmitTurnRequest["replyRecovery"];
   conversationCompaction?: ConversationCompactionMarker;
   outputAttachments?: SpaceMessageAttachment[];
   outputFiles?: SpaceMessageFileReference[];
@@ -215,6 +218,7 @@ export type RemoteAgentCallbackContext = {
   modelRoute?: CenterAgentModelRoute;
   modelId?: string | null;
   navigationTarget?: OpenMeldNavigationTarget;
+  mentionTargets?: string[];
   organizationId: string;
   organizationSkillReleases?: OrganizationSkillRuntimeReleaseSelection[];
   requestId?: string;
@@ -275,6 +279,9 @@ export type RemoteAgentStorage = RemoteAgentReadableStorage &
   RemoteAgentWritableStorage;
 
 export type RemoteAgentCoreWorkerBinding = {
+  centerAgentSetReplyPlacement?(
+    input: CenterAgentSetReplyPlacementInput
+  ): Promise<NativeReplyPlacement>;
   centerAgentSetOrganizationWorkingLanguage?(
     input: CenterAgentSetOrganizationWorkingLanguageToolRpcInput
   ): Promise<CenterAgentSetOrganizationWorkingLanguageToolResponse>;
@@ -632,6 +639,9 @@ export function createRemoteAgentCallbackContext(input: {
   return {
     accepted: input.ack.accepted,
     acceptedAt: new Date(input.nowMs).toISOString(),
+    ...(input.request.replyRecovery
+      ? { replyRecovery: input.request.replyRecovery }
+      : {}),
     agentProfileId: input.request.agentProfileId,
     agentProfileOwnerUserId: input.request.agentProfileOwnerUserId,
     bindingId: input.request.bindingId,
@@ -714,6 +724,25 @@ async function updateRemoteAgentCallbackContext(input: {
   throw new Error(
     `Remote Agent callback context ${input.submissionId} could not be updated after concurrent writes.`
   );
+}
+
+export async function recordRemoteAgentReplyMentions(input: {
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  mentionTargets: string[];
+}): Promise<RemoteAgentCallbackContext> {
+  const mentionTargets = openMeldRuntimeProfileIdSchema
+    .array()
+    .max(25)
+    .parse(input.mentionTargets);
+  return await updateRemoteAgentCallbackContext({
+    storage: input.storage,
+    submissionId: input.submissionId,
+    update: (current) => ({
+      ...current,
+      mentionTargets: [...new Set(mentionTargets)],
+    }),
+  });
 }
 
 export async function recordRemoteAgentNavigationTarget(input: {
@@ -1045,6 +1074,9 @@ export function buildRemoteAgentCoreCallbackBody(input: {
     status: "completed",
     submissionId: input.context.submissionId,
     text: normalizeRemoteAgentCompletedAnswer(input.text),
+    ...(input.context.mentionTargets?.length
+      ? { mentionTargets: input.context.mentionTargets }
+      : {}),
     triggerMessageId: input.context.triggerMessageId,
     ...(input.context.outputAttachments?.length
       ? { attachments: input.context.outputAttachments }
@@ -1865,6 +1897,11 @@ function isRemoteAgentCallbackContext(
     typeof candidate.bindingId === "string" &&
     typeof candidate.triggerMessageId === "string" &&
     typeof candidate.dispatchId === "string" &&
+    (candidate.mentionTargets === undefined ||
+      openMeldRuntimeProfileIdSchema
+        .array()
+        .max(25)
+        .safeParse(candidate.mentionTargets).success) &&
     typeof candidate.submissionCreatedAt === "number" &&
     (candidate.toolExecutionDeadlineAtMs === undefined ||
       (Number.isSafeInteger(candidate.toolExecutionDeadlineAtMs) &&
@@ -1887,6 +1924,10 @@ function isRemoteAgentCallbackContext(
     (candidate.runtimeConversationId === undefined ||
       (typeof candidate.runtimeConversationId === "string" &&
         candidate.runtimeConversationId.trim().length > 0)) &&
+    (candidate.replyRecovery === undefined ||
+      remoteAgentWorkerSubmitTurnRequestV1Schema.shape.replyRecovery.safeParse(
+        candidate.replyRecovery
+      ).success) &&
     (candidate.modelRoute === undefined ||
       centerAgentModelRouteSchema.safeParse(candidate.modelRoute).success) &&
     (candidate.workLoopCheckpoint === undefined ||
@@ -1991,4 +2032,6 @@ import type {
   CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileBody,
   CenterAgentReadChannelFileResponse,
+  CenterAgentSetReplyPlacementInput,
+  NativeReplyPlacement,
 } from "@openmeld/schemas/types";

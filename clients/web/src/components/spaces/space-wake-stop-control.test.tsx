@@ -19,7 +19,7 @@ describe("SpaceWakeStopControl", () => {
 	it("cancels an unstarted device wait through the existing exact Wake selector", async () => {
 		const target = createWakeStopTarget({
 			targetLabel: "Runner",
-			isWaitingForDevice: true,
+			isWaitingToStart: true,
 		});
 		const onStopWake = vi.fn().mockResolvedValue(createWakeStopResponse());
 		render(<SpaceWakeStopControl onStopWake={onStopWake} target={target} />);

@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TestQueryClientProvider } from "#/test-support/query-client";
 import {
 	OpenMeldServiceCard,
 	type OpenMeldServiceCardOwnerProps,
@@ -1791,7 +1792,9 @@ function renderOpenMeldServiceCard(input: {
 	isReconcilingStatus?: boolean;
 	replyReadiness: ComputerReplyReadiness;
 }) {
-	return render(buildOpenMeldServiceCard(input));
+	return render(buildOpenMeldServiceCard(input), {
+		wrapper: TestQueryClientProvider,
+	});
 }
 
 function buildOpenMeldServiceCard(input: {

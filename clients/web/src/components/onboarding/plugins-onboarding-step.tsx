@@ -25,11 +25,11 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useDeferredValue, useMemo, useState } from "react";
 import { CenterAgentGitHubConnectionCard } from "#/components/organizations/center-agent-github-connection-card";
-import { CenterAgentPluginConnectionCard } from "#/components/organizations/center-agent-plugin-connection-card";
 import {
 	findPluginDefinition,
 	PLUGINS,
 } from "#/components/organizations/plugin-catalog";
+import { PluginConnectionCard } from "#/components/organizations/plugin-connection-card";
 import { createCurrentOrganizationConnectorAppRequest } from "#/lib/organizations/connector-connections";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { canManageOrganizationArea } from "#/lib/organizations/organization-permissions";
@@ -356,7 +356,7 @@ function AvailableAppConnectionPanel(input: {
 					presentation="onboarding"
 				/>
 			) : (
-				<CenterAgentPluginConnectionCard
+				<PluginConnectionCard
 					canManage={input.canManageSharedPlugins}
 					isPersonalWorkspace={input.isPersonalWorkspace}
 					mode={mode}
