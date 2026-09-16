@@ -1,7 +1,8 @@
 import { Dialog } from "@openmeld/ui/components/dialog";
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
 import { useLocation, useNavigate, useSearch } from "@tanstack/react-router";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { type AppSettingsSection, useAppSettings } from "./use-app-settings";
 
 const SettingsPage = lazy(() =>
@@ -13,6 +14,16 @@ export default function AppSettingsDialog() {
 	const navigate = useNavigate({ from: "/o/$orgSlug" });
 	const pathname = useLocation({ select: (location) => location.pathname });
 	const openSettings = useAppSettings();
+	useEffect(
+		() =>
+			getDesktopPlatform()?.onWindowDestinationChange((destination) => {
+				// Native menu intents must respect the updater's interaction freeze too.
+				if (destination === "settings" && !document.body.inert) {
+					openSettings().catch(console.error);
+				}
+			}),
+		[openSettings]
+	);
 	return (
 		<Dialog
 			onOpenChange={(open) => {

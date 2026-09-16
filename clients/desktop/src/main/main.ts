@@ -296,6 +296,12 @@ function sendWindowDestination(
   if (window.isDestroyed()) {
     return;
   }
+  if (window.webContents.isLoadingMainFrame()) {
+    window.webContents.once("did-finish-load", () =>
+      sendWindowDestination(window, destination)
+    );
+    return;
+  }
   window.webContents.send(WINDOW_IPC.navigateDestination, destination);
 }
 

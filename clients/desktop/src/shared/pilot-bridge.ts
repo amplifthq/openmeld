@@ -11,6 +11,7 @@ import type {
   DesktopSession,
   DesktopSpaceStreamBridge,
 } from "@openmeld/schemas";
+import type { OpenMeldBridge } from "./ipc-contract";
 
 declare global {
   // biome-ignore lint/style/useConsistentTypeDefinitions: Window requires interface merging.
@@ -39,6 +40,7 @@ export const PILOT_IPC = {
   spaceStreamEvent: "desktop:space-stream-event",
 } as const;
 export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
+  onWindowDestinationChange: OpenMeldBridge["onWindowDestinationChange"];
   setNotificationContext(input: DesktopNotificationContext): Promise<void>;
   showNotification(
     input: DesktopNotificationRequest

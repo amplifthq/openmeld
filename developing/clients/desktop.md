@@ -136,6 +136,26 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
 - Main retains context isolation, sandboxing, and disabled Node integration.
   New windows and renderer-initiated document navigation are denied.
 
+Native tray Open Settings, app-menu Settings, and Command-comma share the existing
+window destination action. Main restores/focuses the window and waits for its
+document to load; preload retains the latest intent until a renderer subscribes.
+The authorized shared App Settings dialog consumes that intent through
+`useAppSettings`, preserving the current route, search parameters, draft and scroll
+context. No separate Settings page or account bypass is introduced: before an
+authorized workspace mounts, the existing sign-in entry remains in control.
+Settings intents respect the updater's document interaction freeze.
+
+The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
+for shared diagnostics. It still strips cookies, credentials and unlisted headers.
+Renderer abort is not claimed to cancel forwarded cloud work: an isolated
+Electron 44.3.0 protocol GET probe, waiting for response headers, observed renderer
+`AbortError` while its protocol Request signal and upstream response stayed open
+for the 250ms observation. This is not a claim about every Electron path or
+server-side execution cancellation. Electron 44.4.1
+source still constructs that Request without a cancellation signal. A trusted
+request/cancellation association needs a separate design; no inert signal plumbing
+or cancellation of mutations is added here.
+
 Better Auth's matching Electron integration owns PKCE/state, system-browser
 return, and encrypted cookie storage. Auth enables its additive Electron plugin
 only in development. `/desktop-sign-in` uses normal Web login and an explicit
