@@ -63,7 +63,9 @@ durable outbox remains the conveyor, and the Service retains disk/ack recovery.
 Closing a window hides it. Quitting Desktop ends only the GUI. Neither action
 stops the independent OS-managed OpenMeld Service or accepted work. Explicit
 Service actions use the existing CLI contracts and remain separate from GUI
-launch-at-login preferences.
+launch-at-login preferences. If unsaved renderer work blocks an ordinary Quit,
+main clears only that ordinary quit intent so the next close hides the window
+again. An accepted updater installation remains a distinct terminal quit intent.
 
 Window chrome, traffic-light insets, drag regions, tray, and native capabilities
 belong outside the shared content shell. Reuse `packages/ui` for primitives;
@@ -151,6 +153,9 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   Electron plugin persists the successful token exchange cookie, and after
   owned sign-out clears local credentials. The renderer rereads its existing
   session query; it does not rely on focus timing or maintain another session.
+  Invalidation removes stale private query and persistence state but retains
+  account-scoped Composer drafts until the authoritative reread confirms no
+  session or a different account. Explicit sign-out still clears those drafts.
   Its Space stream methods open a subscription by ID/Space/Profile, send only
   the existing keepalive ping, close it, and deliver transport events. No URL,
   credentials, or business-write frames are accepted.
@@ -158,7 +163,10 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   Every channel validates the owning WebContents, top frame, and local document
   before invoking a handler. Other windows, frames, and remote documents fail.
 - Main retains context isolation, sandboxing, and disabled Node integration.
-  New windows and renderer-initiated document navigation are denied.
+  New Electron windows and renderer-initiated document navigation are denied.
+  A validated HTTP or HTTPS link without embedded credentials opens in the
+  system browser instead; malformed links, custom schemes, and credentialed
+  links remain denied.
 
 Native tray Open Settings, app-menu Settings, and Command-comma share the existing
 window destination action. Main restores/focuses the window and waits for its
@@ -510,6 +518,10 @@ storage; it never invokes CLI, Service, login, or a real Wake.
 - Space live streams use the same fixed Web `/v1/spaces/:spaceId/stream`
   endpoint through native `ws`, with the main-owned cookie and build header.
   Redirects are refused. The preload sends only validated subscription events.
+  Native close events retain the socket close code and reason through the
+  bundled Main/preload/renderer IPC contract; the Web adapter emits a real
+  `CloseEvent` so the existing shared consumer can refresh authority on code
+  `1008` without a Desktop-only access state.
   Reload, renderer loss, native sign-in/sign-out, and GUI exit close native
   sockets; none of these operations stop the Service or a Wake.
   `clients/web/src/lib/spaces/live-transport.ts` adapts this transport to the

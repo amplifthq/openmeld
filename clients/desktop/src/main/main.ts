@@ -62,7 +62,7 @@ app.setName(APP_NAME);
 
 let handlers: DesktopHandlers;
 let ipcDisposer: (() => void) | null = null;
-let isQuitting = false;
+let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayUnreadTitle = "";
@@ -118,9 +118,17 @@ function createMainWindow(
   const window = new BrowserWindow(options);
   pilot?.observeWindow(window.webContents);
 
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    openExternalBrowserUrl(url);
+    return { action: "deny" };
+  });
   window.webContents.on("will-navigate", (event) => {
     event.preventDefault();
+  });
+  window.webContents.on("will-prevent-unload", () => {
+    if (quitIntent === "ordinary") {
+      quitIntent = "none";
+    }
   });
 
   window.once("ready-to-show", () => {
@@ -128,7 +136,7 @@ function createMainWindow(
   });
 
   window.on("close", (event) => {
-    if (isQuitting) {
+    if (quitIntent !== "none") {
       return;
     }
     event.preventDefault();
@@ -149,6 +157,23 @@ function createMainWindow(
     })
   );
   return window;
+}
+
+function openExternalBrowserUrl(value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return;
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username.length > 0 ||
+    url.password.length > 0
+  ) {
+    return;
+  }
+  runBackgroundTask(shell.openExternal(url.href), { showError: false });
 }
 
 function configureAppIdentity(): void {
@@ -613,7 +638,9 @@ function resolveSetupComputerLabel(): string {
 }
 
 function quitDesktop(): void {
-  isQuitting = true;
+  if (quitIntent !== "updater-install") {
+    quitIntent = "ordinary";
+  }
   app.quit();
 }
 
@@ -632,7 +659,9 @@ if (hasSingleInstanceLock) {
   app.on("second-instance", showStatusWindow);
 
   app.on("before-quit", () => {
-    isQuitting = true;
+    if (quitIntent !== "updater-install") {
+      quitIntent = "ordinary";
+    }
   });
 
   app.on("window-all-closed", () => {
@@ -659,7 +688,7 @@ function bootstrapApp(): void {
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,
         setInstalling: (value) => {
-          isQuitting = value;
+          quitIntent = value ? "updater-install" : "none";
         },
       });
       appUpdater = updater;

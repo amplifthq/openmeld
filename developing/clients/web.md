@@ -3297,10 +3297,13 @@ When a definitive unsent failure returns and no next draft exists, Web restores
 the failed submission to the Composer. When the member has already started the
 next draft, Web preserves that draft and keeps the failed submission visibly
 marked **Message not sent** instead. Outcome-unknown submissions remain pending
-under their original idempotent identity. An authentication boundary clears all
-private Composer drafts before the next account can render. Invalid or corrupt
-records are removed. Unavailable or full `localStorage` remains observable but
-does not block normal authoring or sending. Composer drafts never authorize
+under their original idempotent identity. An explicit sign-out or confirmed
+account replacement clears all private Composer drafts before the next account
+can render. Desktop preserves them during an invalidation-only session recheck
+and clears them only after the authoritative session read confirms no account
+or a different account. Invalid or corrupt records are removed. Unavailable or
+full `localStorage` remains observable but does not block normal authoring or
+sending. Composer drafts never authorize
 access, enable a mutation, become offline send replay, or replace current Space,
 thread, membership, or execution reads.
 

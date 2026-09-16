@@ -19,6 +19,34 @@ vi.mock("../src/main/pilot", () => ({
   },
 }));
 
+const updaterMock = vi.hoisted(() => ({
+  setInstalling: undefined as ((value: boolean) => void) | undefined,
+  controller: {
+    check: vi.fn<() => Promise<void> | undefined>(() => undefined),
+    legacyStatus: vi.fn(async () => ({
+      status: "idle" as const,
+      checked: false,
+      currentVersion: "0.1.1",
+      latestVersion: null,
+      minimumSupportedVersion: null,
+      downloadPageUrl: "https://openmeld.ai/desktop",
+      message: null,
+      macosArm64: null,
+      problem: null,
+    })),
+    showNative: vi.fn(async () => undefined),
+  },
+}));
+
+vi.mock("../src/main/update/register-app-updater", () => ({
+  registerAppUpdater: vi.fn(
+    (input: { setInstalling: (value: boolean) => void }) => {
+      updaterMock.setInstalling = input.setInstalling;
+      return updaterMock.controller;
+    }
+  ),
+}));
+
 const electronMock = vi.hoisted(() => {
   const desktopVersion = "0.1.0-preview.0";
   const trayInstances: Array<{
@@ -34,6 +62,8 @@ const electronMock = vi.hoisted(() => {
     isMinimized: ReturnType<typeof vi.fn>;
     restore: ReturnType<typeof vi.fn>;
     options: Record<string, unknown> | undefined;
+    hide: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
     setSize: ReturnType<typeof vi.fn>;
     webContents: {
       mainFrame: { url: string };
@@ -295,10 +325,16 @@ beforeEach(() => {
   electronMock.app.setAboutPanelOptions.mockClear();
   electronMock.app.setName.mockClear();
   electronMock.app.whenReady.mockClear();
+  updaterMock.setInstalling = undefined;
+  updaterMock.controller.check.mockClear();
+  updaterMock.controller.legacyStatus.mockClear();
+  updaterMock.controller.showNative.mockClear();
   electronMock.ipcMain.handle.mockClear();
   electronMock.dialog.showErrorBox.mockClear();
   electronMock.dialog.showMessageBox.mockClear();
   electronMock.dialog.showMessageBox.mockResolvedValue({ response: 1 });
+  electronMock.shell.openExternal.mockReset();
+  electronMock.shell.openExternal.mockResolvedValue(undefined);
   electronMock.Menu.buildFromTemplate.mockClear();
   electronMock.Menu.setApplicationMenu.mockClear();
   electronMock.appIcon.isEmpty.mockClear();
@@ -473,7 +509,7 @@ describe("main tray behavior", () => {
     );
   });
 
-  it("blocks renderer-created windows and renderer-initiated navigation", async () => {
+  it("opens ordinary external links in the system browser without creating an Electron window", async () => {
     await importMain();
 
     const window = electronMock.windowInstances.at(0);
@@ -482,9 +518,69 @@ describe("main tray behavior", () => {
       expect.any(Function)
     );
     const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
-      .calls[0]?.[0] as (() => { action: "deny" }) | undefined;
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
 
-    expect(windowOpenHandler?.()).toEqual({ action: "deny" });
+    expect(
+      windowOpenHandler?.({ url: "https://example.com/docs?q=1#section" })
+    ).toEqual({ action: "deny" });
+    await Promise.resolve();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledOnce();
+    expect(electronMock.shell.openExternal).toHaveBeenCalledWith(
+      "https://example.com/docs?q=1#section"
+    );
+  });
+
+  it.each([
+    "not a URL",
+    "javascript:alert(1)",
+    "file:///tmp/private",
+    "data:text/html,unsafe",
+    "openmeld-desktop://app/o/team/spaces",
+    "https://user:password@example.com/private",
+  ])("denies unsafe external link %s", async (url) => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
+
+    expect(windowOpenHandler?.({ url })).toEqual({ action: "deny" });
+    expect(electronMock.shell.openExternal).not.toHaveBeenCalled();
+  });
+
+  it("reports a rejected system-browser handoff without allowing a new window", async () => {
+    const failure = new Error("Browser unavailable");
+    electronMock.shell.openExternal.mockRejectedValueOnce(failure);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    const windowOpenHandler = window?.webContents.setWindowOpenHandler.mock
+      .calls[0]?.[0] as
+      | ((details: { url: string }) => { action: "deny" })
+      | undefined;
+
+    expect(windowOpenHandler?.({ url: "http://example.com/support" })).toEqual({
+      action: "deny",
+    });
+    await vi.waitFor(() =>
+      expect(consoleError).toHaveBeenCalledWith(
+        "[openmeld-desktop.background_task_failed]",
+        failure
+      )
+    );
+  });
+
+  it("continues blocking renderer-initiated document navigation", async () => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
     expect(window?.webContents.on).toHaveBeenCalledWith(
       "will-navigate",
       expect.any(Function)
@@ -720,6 +816,7 @@ describe("main tray behavior", () => {
     await importMain();
 
     const tray = electronMock.trayInstances.at(0);
+    const window = electronMock.windowInstances.at(0);
     const menuTemplate = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{ label?: string; click?: () => void }>
       | undefined;
@@ -730,6 +827,63 @@ describe("main tray behavior", () => {
     quitItem?.click?.();
 
     expect(electronMock.app.quit).toHaveBeenCalledTimes(1);
+    const close = window?.on.mock.calls.find(
+      ([event]) => event === "close"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const closeEvent = { preventDefault: vi.fn() };
+    close?.(closeEvent);
+    expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+    expect(window?.hide).not.toHaveBeenCalled();
+  });
+
+  it("restores close-to-hide after a page blocks an ordinary quit", async () => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    trayMenuItem("Quit OpenMeld Desktop")?.click?.();
+    const willPreventUnload = window?.webContents.on.mock.calls.find(
+      ([event]) => event === "will-prevent-unload"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const unloadEvent = { preventDefault: vi.fn() };
+    willPreventUnload?.(unloadEvent);
+
+    expect(unloadEvent.preventDefault).not.toHaveBeenCalled();
+
+    const close = window?.on.mock.calls.find(
+      ([event]) => event === "close"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const closeEvent = { preventDefault: vi.fn() };
+    close?.(closeEvent);
+
+    expect(closeEvent.preventDefault).toHaveBeenCalledTimes(1);
+    expect(window?.hide).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an accepted updater installation in quitting mode when unload is blocked", async () => {
+    await importMain();
+
+    const window = electronMock.windowInstances.at(0);
+    updaterMock.setInstalling?.(true);
+    const beforeQuit = electronMock.app.on.mock.calls.find(
+      ([event]) => event === "before-quit"
+    )?.[1] as (() => void) | undefined;
+    beforeQuit?.();
+    const willPreventUnload = window?.webContents.on.mock.calls.find(
+      ([event]) => event === "will-prevent-unload"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const unloadEvent = { preventDefault: vi.fn() };
+    willPreventUnload?.(unloadEvent);
+
+    expect(unloadEvent.preventDefault).not.toHaveBeenCalled();
+
+    const close = window?.on.mock.calls.find(
+      ([event]) => event === "close"
+    )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
+    const closeEvent = { preventDefault: vi.fn() };
+    close?.(closeEvent);
+
+    expect(closeEvent.preventDefault).not.toHaveBeenCalled();
+    expect(window?.hide).not.toHaveBeenCalled();
   });
 
   it("quits the desktop app through the allowlisted window IPC", async () => {

@@ -102,6 +102,16 @@ select a different endpoint. Native owns SDK credentials and strips response
 cookies from renderer output. Generated server functions and generic Auth APIs
 remain unavailable to installed renderers.
 
+The same schema file owns the bundled Desktop Space-stream IPC events. A close
+event carries its required numeric WebSocket close code and reason from native
+Main through preload to the matching renderer. Preload rejects incomplete or
+extra shapes, and the renderer adapts a validated close into `CloseEvent` for
+the existing shared Space consumer. This is transport evidence, not another
+source of Space access or live-state truth. Because Main, preload, and renderer
+ship as one Desktop bundle, this expanded internal shape requires no installed
+contract-version bump and changes no cloud, CLI, Service, Core, or Gateway
+payload.
+
 `GET /v1/cli/release` projects only `channels.stable.version` from the existing
 public CLI binary manifest. `cliReleaseSchema` and the shared API client own its
 portable representation. It adds no release source, update writer, fallback,
