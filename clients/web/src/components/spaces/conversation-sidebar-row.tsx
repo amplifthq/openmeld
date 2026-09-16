@@ -42,7 +42,10 @@ import {
 	buildSpaceMessageFocusHref,
 } from "#/lib/spaces/thread-navigation";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
-import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
+import {
+	readCurrentSpaceWakeProgressSummaryItems,
+	spaceActiveWakeProgressSummaryQueryOptions,
+} from "#/query/spaces/active-wake-progress";
 import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import { CenterAgentChatAvatar } from "../organizations/center-agent-chat-avatar";
 import type { Chat } from "./chat-sidebar-model";
@@ -383,7 +386,16 @@ function ConversationActivityIndicator({
 			if (attempt !== navigationAttempt.current) {
 				return;
 			}
-			const target = resolveSpaceActiveWakeTarget(progress.items);
+			const readTarget = () =>
+				resolveSpaceActiveWakeTarget(
+					readCurrentSpaceWakeProgressSummaryItems({
+						queryClient,
+						spaceId,
+						openMeldProfileId: profileId,
+						summary: progress,
+					})
+				);
+			let target = readTarget();
 			const bootstrap = target
 				? await queryClient.fetchQuery({
 						...spaceBootstrapQueryOptions({
@@ -397,6 +409,7 @@ function ConversationActivityIndicator({
 			if (attempt !== navigationAttempt.current) {
 				return;
 			}
+			target = readTarget();
 			const destination =
 				target && bootstrap
 					? buildSpaceActivityFocusHref({

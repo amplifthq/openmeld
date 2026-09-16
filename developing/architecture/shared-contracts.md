@@ -6134,6 +6134,14 @@ send targets. Clients, Core, and dispatch prompts may adapt source facts before
 calling this layer, but they must not rebuild separate member-directory,
 mention-label, or send-target rules locally.
 
+Shared Wake progress matching also belongs to `packages/space`. Two known,
+different dispatch IDs cannot match through a common source or client-message
+ID. Matching local pending identity may gain a dispatch ID, and accepted final
+signals clear only that execution. This is projection policy, including Core's
+recent-signal cleanup; it adds no execution writer, wire field, persisted state,
+or new Stop eligibility rule. Web's scoped outcome cache remembers accepted
+evidence for presentation only.
+
 The member directory is a Space read projection and authoring aid. It must not
 become Space membership truth, Agent Profile readiness truth, Binding truth, or
 RuntimeCoordinator execution authority.

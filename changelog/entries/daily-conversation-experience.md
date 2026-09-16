@@ -16,6 +16,9 @@ Removed or sent attachments stay out of the composer when an older draft finishe
 The welcome area and first message stay in place as the new chat finishes loading.
 
 Sidebar activity indicators open the conversation or Thread where the agent is working.
+Completed work stays finished when you close a Thread, add replies, or return
+to a conversation. An older reply no longer hides a newer run by the same agent,
+and activity links continue to open work that is still active.
 Center Agent chat links retain both the selected session and Thread.
 Message previews in the sidebar link directly to the displayed message, including
 Thread replies. Conversation menus have clearer labels and action icons.

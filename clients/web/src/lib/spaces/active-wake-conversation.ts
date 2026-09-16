@@ -45,6 +45,7 @@ export function buildActiveWakeConversationItems(input: {
 		if (
 			source &&
 			outcomes.hasVisibleOutcomeForSourceTarget({
+				dispatchId: progress.dispatchId,
 				sourceItem: source,
 				targetProfileId: progress.targetProfileId,
 			})
@@ -52,12 +53,17 @@ export function buildActiveWakeConversationItems(input: {
 			continue;
 		}
 		const sourceId = source?.id ?? progress.sourceSignalId ?? undefined;
-		if (hasPublishedReply(history, sourceId, progress.targetProfileId)) {
+		if (hasPublishedReply(history, sourceId, progress)) {
 			continue;
 		}
 		const stream = streams.find(
 			(item) =>
-				!claimedStreams.has(item.id) &&
+				!(
+					claimedStreams.has(item.id) ||
+					(item.wakeDispatchId &&
+						progress.dispatchId &&
+						item.wakeDispatchId !== progress.dispatchId)
+				) &&
 				sourceId &&
 				item.replyToSignalId === sourceId &&
 				item.actorProfileId === progress.targetProfileId
@@ -149,7 +155,7 @@ export function isWakeProgressInConversation(input: {
 function hasPublishedReply(
 	history: readonly SpaceTimelineItem[],
 	sourceId: string | undefined,
-	targetProfileId: string
+	progress: WakeProgressItem
 ): boolean {
 	return Boolean(
 		sourceId &&
@@ -157,7 +163,13 @@ function hasPublishedReply(
 				(item) =>
 					item.replyToSignalId === sourceId &&
 					item.actorProfileKind === "agent" &&
-					item.actorProfileId === targetProfileId
+					item.actorProfileId === progress.targetProfileId &&
+					(item.isAgentFinalReply || item.wakeDispatchId) &&
+					!(
+						item.wakeDispatchId &&
+						progress.dispatchId &&
+						item.wakeDispatchId !== progress.dispatchId
+					)
 			)
 	);
 }
@@ -201,6 +213,7 @@ function createActiveWakePlaceholder(input: {
 	const { progress, source, sourceId, agent } = input;
 	const spaceId = input.spaceId ?? source?.spaceId;
 	const identity =
+		progress.dispatchId ??
 		progress.clientMessageId ??
 		progress.sourceSignalId ??
 		progress.runtimeCoordinatorExecutionId ??

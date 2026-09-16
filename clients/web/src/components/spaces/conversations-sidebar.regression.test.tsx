@@ -35,6 +35,7 @@ import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
+	spaceWakeProgressPresentationQueryOptions,
 } from "#/query/spaces/active-wake-progress";
 import { ConversationsSidebar } from "./conversations-sidebar";
 import {
@@ -1449,6 +1450,14 @@ describe("ConversationsSidebar", () => {
 				spaceId: "space-alpha",
 			});
 		queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+			presentationEpoch: (
+				await queryClient.fetchQuery(
+					spaceWakeProgressPresentationQueryOptions({
+						spaceId: "space-alpha",
+						openMeldProfileId: "human-1",
+					})
+				)
+			).epoch,
 			items: [
 				createWakeProgressItem({
 					clientMessageId: "client-message-alpha",
@@ -1521,6 +1530,14 @@ describe("ConversationsSidebar", () => {
 				spaceId: "space-alpha",
 			});
 		queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+			presentationEpoch: (
+				await queryClient.fetchQuery(
+					spaceWakeProgressPresentationQueryOptions({
+						spaceId: "space-alpha",
+						openMeldProfileId: "human-1",
+					})
+				)
+			).epoch,
 			items: [
 				createWakeProgressItem({
 					clientMessageId: "client-message-alpha",
@@ -2368,7 +2385,23 @@ function seedCurrentSpaceWakeRace(queryClient: QueryClient): void {
 			spaceId: "space-alpha",
 		}
 	);
+	setSpaceWakeProgressPresentationItems({
+		queryClient,
+		spaceId: "space-alpha",
+		openMeldProfileId: "human-1",
+		items: [],
+	});
+	const presentation = queryClient.getQueryData(
+		spaceWakeProgressPresentationQueryOptions({
+			spaceId: "space-alpha",
+			openMeldProfileId: "human-1",
+		}).queryKey
+	);
+	if (!presentation) {
+		throw new Error("Expected the Space presentation cache");
+	}
 	queryClient.setQueryData(currentSpaceSummaryOptions.queryKey, {
+		presentationEpoch: presentation.epoch,
 		items: [
 			createWakeProgressItem({
 				clientMessageId: "client-message-alpha",

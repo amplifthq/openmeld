@@ -4612,6 +4612,30 @@ client. If older evidence lacks that fact, omit the timer.
 `updatedAtMs` remains progress freshness and ordering evidence; Web must never
 reinterpret it as the execution start time. A mixed-version response without
 `startedAtMs` omits elapsed time instead of inventing a browser-local timer.
+
+The existing Space/viewer progress cache retains minimal accepted publication
+and terminal-progress evidence independently of message visibility. Closing a
+Thread, cropping its two-message preview, or revisiting a route must not forget
+that evidence. Explicitly different dispatch IDs remain different executions,
+even for the same Agent and source message. Local pending identity may be
+enriched by its matching dispatch, but a later identity-poor update cannot erase
+an already known dispatch ID. Merge, final cleanup, visible work, Stop visibility,
+sidebar status and activity destination selection respect this boundary.
+
+The evidence shares the presentation cache's 30-minute inactive GC lifetime;
+sidebar and Desk readers observe that same cache without adding network reads.
+Summary requests carry the cache lifetime they started in, so a cached summary
+or late response from a retired lifetime cannot re-enter a new one. Reply-stream
+bootstrap seeds must come from a read in the current presentation lifetime;
+older display caches cannot seed working streams after completion evidence has
+been collected. Live Thread progress is never stored in retained Thread history
+or previews. Accepted outcomes also suppress replayed streams for that execution.
+Evidence is not persisted and contains no message body or Stop permission.
+Neither snapshot omission, stream disappearance, ordinary Agent text nor human
+follow-ups establishes completion. Failed, stopped, publication-unknown and
+published outcomes retain their distinct meanings; Core still owns execution
+and viewer-authorized Stop policy.
+
 Web explicitly requests the bounded controller-conversation occupancy wait
 reason with `includeWaitReason=true`. When Core projects it, Web shows `Waiting
 for <Agent name>` and explains `Another app is using this conversation.` The

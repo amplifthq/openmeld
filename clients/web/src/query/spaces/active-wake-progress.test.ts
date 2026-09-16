@@ -1,9 +1,22 @@
-import { createWakeProgressItem } from "@openmeld/space";
+import type { SignalEnvelope } from "@openmeld/protocol";
+import {
+	AGENT_REPLY_FINAL_PURPOSE,
+	AGENT_REPLYING_END_PURPOSE,
+	AGENT_REPLYING_PURPOSE,
+} from "@openmeld/schemas";
+import {
+	applyWakeProgressSignals,
+	createWakeProgressItem,
+} from "@openmeld/space";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
+import { resolveSpaceActiveWakeTarget } from "#/components/spaces/space-active-wake-presentation";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import { ROUTE_REVISIT_GC_TIME_MS } from "#/query/query-config";
 import {
+	hasSpaceWakeProgressOutcome,
+	readSpaceWakeProgressSummaryItems,
+	recordSpaceWakeProgressEvidence,
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
 	spaceWakeProgressPresentationQueryOptions,
@@ -34,7 +47,9 @@ describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
 			...common,
 			sourceProfileId: "profile-123",
 		});
-		await (own.queryFn as () => Promise<unknown>)();
+		const requestClient = new QueryClient();
+		await requestClient.fetchQuery(own);
+		requestClient.clear();
 		expect(getActiveWakeProgressMock).toHaveBeenLastCalledWith(
 			expect.objectContaining({
 				sourceProfileId: "profile-123",
@@ -43,10 +58,12 @@ describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
 		);
 		const client = new QueryClient();
 		client.setQueryData(all.queryKey, {
+			presentationEpoch: "test",
 			items: [],
 			query: { spaceId: "space-123", targetProfileId: null },
 		});
 		client.setQueryData(own.queryKey, {
+			presentationEpoch: "test",
 			items: [],
 			query: {
 				spaceId: "space-123",
@@ -76,7 +93,9 @@ describe("spaceActiveWakeProgressSummaryQueryOptions", () => {
 			spaceId: "space-123",
 			openMeldProfileId: "profile-123",
 		});
-		await (options.queryFn as () => Promise<unknown>)();
+		const requestClient = new QueryClient();
+		await requestClient.fetchQuery(options);
+		requestClient.clear();
 
 		expect(options.queryKey).toEqual([
 			"spaces",
@@ -131,13 +150,276 @@ describe("Space Wake progress presentation cache", () => {
 			spaceId: "space-123",
 			openMeldProfileId: "profile-123",
 		});
-		expect(compactConversation.getCurrentResult().data).toEqual([workingItem]);
+		expect(compactConversation.getCurrentResult().data?.items).toEqual([
+			workingItem,
+		]);
 
 		stopObservingCompactConversation();
 		const fullConversation = new QueryObserver(queryClient, options);
-		expect(fullConversation.getCurrentResult().data).toEqual([workingItem]);
+		expect(fullConversation.getCurrentResult().data?.items).toEqual([
+			workingItem,
+		]);
 
 		fullConversation.destroy();
+		queryClient.clear();
+	});
+});
+
+const scope = { spaceId: "space-123", openMeldProfileId: "viewer" };
+function readPresentation(queryClient: QueryClient) {
+	const presentation = queryClient.getQueryData(
+		spaceWakeProgressPresentationQueryOptions(scope).queryKey
+	);
+	if (!presentation) {
+		throw new Error("Expected the Space presentation cache");
+	}
+	return presentation;
+}
+function running(dispatchId: string | null = "A") {
+	return createWakeProgressItem({
+		clientMessageId: "request",
+		dispatchId,
+		phase: "running",
+		sourceSignalId: "source",
+		targetLabel: "Agent",
+		targetProfileId: "agent",
+		updatedAtMs: Date.now(),
+	});
+}
+function finalSignal(): SignalEnvelope {
+	return {
+		v: 1,
+		id: "final-A",
+		spaceId: scope.spaceId,
+		ts: Date.now(),
+		type: "signal.text",
+		profile: { kind: "agent", profileId: "agent", profileName: "Agent" },
+		data: {
+			text: "Done",
+			meta: {
+				purpose: AGENT_REPLY_FINAL_PURPOSE,
+				dispatchId: "A",
+				targetProfileId: "agent",
+			},
+			replyTo: {
+				signalId: "source",
+				profileId: "viewer",
+				profileKind: "human",
+				profileName: "Viewer",
+				previewText: "Request",
+			},
+		},
+	};
+}
+
+describe("accepted Wake outcomes", () => {
+	it("does not infer completion from ordinary Agent text, an end-of-stream hint or missing messages", () => {
+		const queryClient = new QueryClient();
+		const a = running();
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: [a],
+		});
+		for (const purpose of [undefined, AGENT_REPLYING_END_PURPOSE]) {
+			const signal: SignalEnvelope = {
+				...finalSignal(),
+				type: "signal.text",
+				data: {
+					text: "An update",
+					meta: {
+						purpose,
+						dispatchId: "A",
+						targetProfileId: "agent",
+						transient: true,
+					},
+				},
+			};
+			recordSpaceWakeProgressEvidence({
+				...scope,
+				queryClient,
+				signals: [signal],
+			});
+		}
+		recordSpaceWakeProgressEvidence({ ...scope, queryClient, signals: [] });
+		expect(readPresentation(queryClient).items).toEqual([a]);
+		queryClient.clear();
+	});
+	it("survives Thread preview trimming and remounts, rejects late detail, transient and summary, and still targets a new execution", async () => {
+		const queryClient = new QueryClient();
+		const options = spaceWakeProgressPresentationQueryOptions(scope);
+		const observer = new QueryObserver(queryClient, options);
+		const unsubscribe = observer.subscribe(() => undefined);
+		const a = running();
+		const b = running("B");
+		let finish!: (response: {
+			items: ReturnType<typeof running>[];
+			query: { spaceId: string; targetProfileId: null };
+		}) => void;
+		getActiveWakeProgressMock.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			getActiveWakeProgress: getActiveWakeProgressMock,
+		});
+		const request = queryClient.fetchQuery(
+			spaceActiveWakeProgressSummaryQueryOptions({ ...scope, enabled: true })
+		);
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: [a, b],
+		});
+		recordSpaceWakeProgressEvidence({
+			...scope,
+			queryClient,
+			signals: [finalSignal()],
+		});
+		// The final is no longer part of either two-message preview or open Thread.
+		recordSpaceWakeProgressEvidence({ ...scope, queryClient, signals: [] });
+		unsubscribe();
+		const reopened = new QueryObserver(queryClient, options);
+		expect(
+			reopened.getCurrentResult().data?.items.map((item) => item.dispatchId)
+		).toEqual(["B"]);
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: [a, b],
+		});
+		const transient: SignalEnvelope = {
+			...finalSignal(),
+			id: "late-running-A",
+			type: "signal.text",
+			data: {
+				text: "Working",
+				meta: {
+					purpose: AGENT_REPLYING_PURPOSE,
+					dispatchId: "A",
+					targetProfileId: "agent",
+					sourceEventId: "source",
+					transient: true,
+				},
+			},
+		};
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: (items) =>
+				applyWakeProgressSignals({ currentItems: items, signals: [transient] }),
+		});
+		finish({
+			items: [a, b],
+			query: { spaceId: scope.spaceId, targetProfileId: null },
+		});
+		const summary = await request;
+		const presentation = readPresentation(queryClient);
+		expect(presentation.items.map((item) => item.dispatchId)).toEqual(["B"]);
+		// Reply-stream rendering uses this same accepted-outcome decision.
+		expect(hasSpaceWakeProgressOutcome({ presentation, item: a })).toBe(true);
+		expect(hasSpaceWakeProgressOutcome({ presentation, item: b })).toBe(false);
+		const visible = readSpaceWakeProgressSummaryItems({
+			presentation,
+			summary,
+		});
+		expect(visible.map((item) => item.dispatchId)).toEqual(["B"]);
+		expect(resolveSpaceActiveWakeTarget(visible)?.dispatchId).toBe("B");
+		// Scope isolation: another viewer does not inherit these observations.
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			openMeldProfileId: "other-viewer",
+			queryClient,
+			items: [a],
+		});
+		expect(
+			queryClient.getQueryData(
+				spaceWakeProgressPresentationQueryOptions({
+					...scope,
+					openMeldProfileId: "other-viewer",
+				}).queryKey
+			)?.items
+		).toEqual([a]);
+		reopened.destroy();
+		queryClient.clear();
+	});
+
+	it.each([
+		"replied",
+		"failed",
+		"stopped",
+		"publication_unknown",
+	] as const)("retains %s evidence after its visible detail is removed without inventing success", (phase) => {
+		const queryClient = new QueryClient();
+		const a = running();
+		const terminal = createWakeProgressItem({ ...a, phase, terminal: true });
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: [terminal],
+		});
+		setSpaceWakeProgressPresentationItems({ ...scope, queryClient, items: [] });
+		setSpaceWakeProgressPresentationItems({
+			...scope,
+			queryClient,
+			items: [
+				a,
+				running("B"),
+				{ ...a, dispatchId: "other", targetProfileId: "other-agent" },
+			],
+		});
+		const state = readPresentation(queryClient);
+		expect(state.items.map((item) => item.dispatchId)).toEqual(["B", "other"]);
+		expect(state.terminalItems[0]?.phase).toBe(phase);
+		queryClient.clear();
+	});
+
+	it("rejects a summary request from a retired presentation lifetime and accepts a fresh read", async () => {
+		const queryClient = new QueryClient();
+		let finish!: (value: unknown) => void;
+		getActiveWakeProgressMock.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					finish = resolve;
+				})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			getActiveWakeProgress: getActiveWakeProgressMock,
+		});
+		const summaryOptions = spaceActiveWakeProgressSummaryQueryOptions({
+			...scope,
+			enabled: true,
+		});
+		const pending = queryClient.fetchQuery(summaryOptions);
+		recordSpaceWakeProgressEvidence({
+			...scope,
+			queryClient,
+			signals: [finalSignal()],
+		});
+		// Exercise the same retirement boundary as query GC without wall-clock waits.
+		const options = spaceWakeProgressPresentationQueryOptions(scope);
+		queryClient.removeQueries({ queryKey: options.queryKey, exact: true });
+		finish({
+			items: [running()],
+			query: { spaceId: scope.spaceId, targetProfileId: null },
+		});
+		const oldSummary = await pending;
+		const presentation = readPresentation(queryClient);
+		expect(
+			readSpaceWakeProgressSummaryItems({ presentation, summary: oldSummary })
+		).toEqual([]);
+		getActiveWakeProgressMock.mockResolvedValueOnce({
+			items: [running("B")],
+			query: { spaceId: scope.spaceId, targetProfileId: null },
+		});
+		const fresh = await queryClient.fetchQuery(summaryOptions);
+		expect(
+			readSpaceWakeProgressSummaryItems({ presentation, summary: fresh }).map(
+				(item) => item.dispatchId
+			)
+		).toEqual(["B"]);
 		queryClient.clear();
 	});
 });
