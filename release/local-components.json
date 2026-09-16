@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-15T06:49:12.662Z",
+  "updatedAt": "2026-09-16T02:14:38.541Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.208",
+      "packageVersion": "0.3.209",
       "updatePolicy": "available",
       "reason": "Existing commands, setup, Space actions, and diagnostics remain compatible; new task selection requires the cloud receivers deployed first."
     },
     "service": {
-      "bundleHash": "525d2f7dcb9fefe8f9c0c90d538663637db11ed30f79f979888dcbf896d21a74",
-      "bundleVersion": "0.3.208",
+      "bundleHash": "dd84597a89a7156adc7fc444fca8e7515f365cf036e64e637a4d3ff8e3f8ad06",
+      "bundleVersion": "0.3.209",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Core retains legacy Wake envelopes and gates Execution Context migration on capability v2; bare-mention context is rendered into existing transport fields. Existing Services can continue ordinary work safely."
+      "reason": "Additive Desktop notification and explicit Computer schemas leave existing Service setup, Wake, Space actions and diagnostics compatible with old and new cloud; no Service execution semantics or minimum version changes."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
