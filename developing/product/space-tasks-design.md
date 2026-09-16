@@ -223,7 +223,7 @@ Task automation reacts to accepted events. It does not repeatedly ask a model to
 | Work explicitly started | Admit one execution through existing routing and record its exact reference | Select the capable execution path within the request |
 | Linked execution reaches a terminal outcome | Record evidence and activate only its declared continuation | Decide whether the requested result is ready, partial, or blocked |
 | Result submitted | Record the result/version and create one reviewer attention item or an authorized review execution | Evaluate the result against the brief |
-| Changes requested | Preserve findings; admit authorized rework within the automatic-round limit, or request a human decision | Plan and perform the correction within existing scope |
+| Changes requested | Preserve findings; an Agent-to-Agent handback admits authorized rework within the automatic-round limit, or requests a human decision; a change request from a person returns the Task to In progress directly | Plan and perform the correction within existing scope |
 | Necessary information supplied | Resolve the exact pending request and continue through its supported path | Interpret the information and choose the next step |
 | Task completes | Record one completion event and request the designated delivery | Explain the result and its limits |
 
@@ -232,6 +232,8 @@ Creating or changing a Reviewer does not start an Agent by itself. The original 
 ### Automatic rework boundary
 
 The first release permits at most two automatic rework rounds between an Agent assignee and an Agent Reviewer after initial implementation, before requiring a fresh human decision. Initial implementation and its first review do not count. A round consists of one admitted automatic correction followed by review of the resulting submission. Duplicate events and retries reconciling that same correction do not create or count another round.
+
+This limit applies only to the Agent-to-Agent cycle. When a person reviews the result, their change request is already a human decision and returns the Task to In progress directly; it neither consumes nor trips the automatic-round budget.
 
 If the second corrected submission still fails review, do not start another automatic correction. Keep the Task unfinished and show **Needs decision — two rework rounds did not pass review**. Retain the latest result, review findings, and a concise account of what changed in each attempt. Ask the requester to decide whether to continue, revise the requirements, reassign the work, or cancel. Each option remains subject to the role and execution-permission rules in section 4.
 

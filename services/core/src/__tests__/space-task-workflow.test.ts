@@ -34,17 +34,22 @@ const secondAgent: SpaceTaskActor = {
   profileName: "Fixer",
   ownerUserId: "user-avery",
 };
-const reviewer: SpaceTaskActor = {
+const humanReviewer: SpaceTaskActor = {
   profileId: "44444444-4444-4444-8444-444444444444",
   profileKind: "human",
   profileName: "Riley",
   ownerUserId: "user-riley",
 };
+const agentReviewer: SpaceTaskActor = {
+  profileId: "agt_66666666-6666-4666-8666-666666666666",
+  profileKind: "agent",
+  profileName: "Checker",
+  ownerUserId: "user-riley",
+};
 const members = new Map(
-  [requester, agent, secondAgent, reviewer].map((member) => [
-    member.profileId,
-    member,
-  ])
+  [requester, agent, secondAgent, humanReviewer, agentReviewer].map(
+    (member) => [member.profileId, member]
+  )
 );
 
 const context = (
@@ -147,8 +152,8 @@ describe("Space Task workflow", () => {
     });
   });
 
-  it("routes reviewed work back twice and then requires a human decision", () => {
-    let current = task({ phase: "in_progress", reviewer });
+  it("routes Agent review round trips back twice and then requires a human decision", () => {
+    let current = task({ phase: "in_progress", reviewer: agentReviewer });
 
     for (let resultRevision = 1; resultRevision <= 3; resultRevision += 1) {
       current = apply(
@@ -170,10 +175,17 @@ describe("Space Task workflow", () => {
           feedback: `Fix ${resultRevision}`,
           operationId: `review-${resultRevision}`,
         },
-        reviewer
+        agentReviewer
       );
+      if (resultRevision < 3) {
+        expect(current.phase).toBe("in_progress");
+        expect(current.automaticReworkRounds).toBe(resultRevision);
+        expect(current.needsHumanDecision).toBe(false);
+      }
     }
 
+    expect(current.assignee).toEqual(agent);
+    expect(current.reviewer).toEqual(agentReviewer);
     expect(current.phase).toBe("in_review");
     expect(current.automaticReworkRounds).toBe(2);
     expect(current.needsHumanDecision).toBe(true);
@@ -208,6 +220,38 @@ describe("Space Task workflow", () => {
     }).task;
     expect(continued.phase).toBe("in_progress");
     expect(continued.needsHumanDecision).toBe(false);
+  });
+
+  it("lets a human reviewer request changes repeatedly without tripping the Agent rework cutoff", () => {
+    let current = task({ phase: "in_progress", reviewer: humanReviewer });
+
+    for (let resultRevision = 1; resultRevision <= 4; resultRevision += 1) {
+      current = apply(
+        current,
+        {
+          action: "submit_result",
+          expectedRevision: current.revision,
+          operationId: `human-review-submit-${resultRevision}`,
+          summary: `Result ${resultRevision}`,
+        },
+        agent
+      );
+      current = apply(
+        current,
+        {
+          action: "review",
+          decision: "changes_requested",
+          expectedRevision: current.revision,
+          feedback: `Fix ${resultRevision}`,
+          operationId: `human-review-${resultRevision}`,
+        },
+        humanReviewer
+      );
+      expect(current.phase).toBe("in_progress");
+      expect(current.needsHumanDecision).toBe(false);
+      expect(current.automaticReworkRounds).toBe(0);
+      expect(current.review?.reviewedBy).toEqual(humanReviewer);
+    }
   });
 
   it("rejects stale writes and prevents work from continuing after cancellation", () => {
@@ -260,7 +304,7 @@ describe("Space Task workflow", () => {
   it("requires an attributed reason when a human Space owner overrides review", () => {
     const awaitingReview = task({
       phase: "in_review",
-      reviewer,
+      reviewer: humanReviewer,
       result: {
         resultRevision: 1,
         summary: "Verified result",

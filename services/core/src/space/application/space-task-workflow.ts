@@ -111,6 +111,17 @@ const requireActiveTask = (task: SpaceTask): void => {
   }
 };
 
+/**
+ * The automatic rework boundary bounds Agent-to-Agent cycles: an Agent
+ * reviewer handing work back to an Agent assignee without a person in the
+ * loop. Both sides must be Agents, so a human reviewer requesting changes
+ * (already the human decision) and a human assignee receiving feedback are
+ * both outside the budget and return the Task to In progress directly.
+ */
+const isAutomaticReworkCycle = (task: SpaceTask): boolean =>
+  task.reviewer?.profileKind === "agent" &&
+  task.assignee?.profileKind === "agent";
+
 const resolveMember = (
   context: SpaceTaskMutationContext,
   profileId: string
@@ -356,6 +367,20 @@ function reviewTaskResult({
       current: task,
       next: { ...task, phase: "done", review, needsHumanDecision: false },
       eventType: "review_accepted",
+      detail: command.feedback ?? null,
+      now,
+    });
+  }
+  if (!isAutomaticReworkCycle(task)) {
+    return finishMutation({
+      current: task,
+      next: {
+        ...task,
+        phase: "in_progress",
+        review,
+        needsHumanDecision: false,
+      },
+      eventType: "changes_requested",
       detail: command.feedback ?? null,
       now,
     });
