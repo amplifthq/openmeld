@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { buildDispatchSpaceActionMcpToolIds } from "@openmeld/adapter-core";
 import { OPENMELD_CLAUDE_ALLOWED_TOOLS } from "../dist/transport/claude-permission-policy.js";
 
 const AUTH_RE = /Not logged in/i;
@@ -639,11 +640,9 @@ test("claude adapter dispatch uses the Agent SDK transport by default", async ()
     assert.equal(typeof captured.options.env.PATH, "string");
     assert.deepEqual(captured.options.allowedTools, [
       ...OPENMELD_CLAUDE_ALLOWED_TOOLS,
-      "mcp__openmeld_internal_dispatch_space_action__read_file",
-      "mcp__openmeld_internal_dispatch_space_action__read_history",
-      "mcp__openmeld_internal_dispatch_space_action__reply",
-      "mcp__openmeld_internal_dispatch_space_action__status",
-      "mcp__openmeld_internal_dispatch_space_action__stay_silent",
+      ...buildDispatchSpaceActionMcpToolIds("__").map(
+        (toolId) => `mcp__${toolId}`
+      ),
     ]);
     assert.deepEqual(captured.options.mcpServers, {
       openmeld_internal_dispatch_space_action: {
