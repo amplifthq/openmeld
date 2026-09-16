@@ -18753,7 +18753,7 @@ export async function rpcGetSpaceEntryResolution(
       : false;
   if (
     access.kind === "allowed" &&
-    access.status.accessMode === "members_only" &&
+    access.meta.accessMode === "members_only" &&
     !organizationMember &&
     !guest
   ) {
@@ -18844,9 +18844,12 @@ async function resolveSpaceEntryAccess(input: {
   spaceAccess: SpaceAccessContext;
   spaceId: string;
 }): Promise<SpaceEntryAccessResult> {
-  let status: GetSpaceStatusResponse;
+  let meta: SpaceMeta;
   try {
-    status = await rpcGetSpaceStatus(input.env, {
+    const { stub } = resolveRpcSpaceStubOrThrow(input.env, input.spaceId);
+    // The metadata read uses the same Space access policy as status, without
+    // reading member presentation, runtime routes, or Service health.
+    meta = await stub.rpcGetMeta({
       spaceId: input.spaceId,
       spaceAccess: input.spaceAccess,
     });
@@ -18861,6 +18864,13 @@ async function resolveSpaceEntryAccess(input: {
     }
     throw error;
   }
+  if (!meta.accessMode) {
+    throw createCoreRpcHttpError({
+      status: 503,
+      code: "space.access_unavailable",
+      reason: "The Space access mode could not be resolved.",
+    });
+  }
   const activeMember = input.context
     ? (
         await rpcGetSpaceViewerMembership(input.env, {
@@ -18870,7 +18880,11 @@ async function resolveSpaceEntryAccess(input: {
         })
       ).activeMemberProfiles.length > 0
     : false;
-  return { activeMember, kind: "allowed", status };
+  return {
+    activeMember,
+    kind: "allowed",
+    meta: { name: meta.name, accessMode: meta.accessMode },
+  };
 }
 
 export async function rpcGetSpaceConversationState(

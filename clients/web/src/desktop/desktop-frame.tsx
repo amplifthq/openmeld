@@ -6,6 +6,7 @@ import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary"
 import { createDesktopNavigation } from "./navigation";
 import { getDesktopPlatform } from "./platform";
 import { DesktopTitlebarContext } from "./titlebar-context";
+import { DesktopUpdater } from "./updater";
 import "./desktop.css";
 
 export function DesktopFrame({ children }: { children: ReactNode }) {
@@ -91,6 +92,7 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 	}
 	return (
 		<DesktopTitlebarContext.Provider value={titlebar}>
+			<DesktopUpdater />
 			<div className="desktop-window">
 				<div className="desktop-titlebar" ref={setTarget} />
 				<div className="desktop-content">{children}</div>

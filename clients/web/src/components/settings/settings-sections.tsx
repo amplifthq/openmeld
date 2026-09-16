@@ -2,6 +2,8 @@ import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import type { SettingsSectionDef } from "@openmeld/ui/lib/settings-contract";
 import { lazy, type ReactNode } from "react";
 import { APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME } from "#/components/app/app-contextual-layout-style";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { DesktopUpdatesSection } from "#/desktop/updater";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
 import { SettingsPlaceholderSection } from "./settings-placeholder-section";
@@ -68,6 +70,20 @@ export function buildSettingsSections(
 ): readonly SettingsSectionDef[] {
 	const settingsRoutes = buildSettingsRoutes(orgSlug);
 	return [
+		...(getDesktopPlatform()
+			? [
+					{
+						id: "updates",
+						title: "Updates",
+						to: settingsRoutes.updates,
+						render: () => (
+							<SettingsLeafLayout>
+								<DesktopUpdatesSection />
+							</SettingsLeafLayout>
+						),
+					},
+				]
+			: []),
 		{
 			id: "account",
 			title: "Account",

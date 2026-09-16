@@ -136,7 +136,7 @@ describe("preload bridge", () => {
     ]);
   });
 
-  it("subscribes to fixed window destination events from main", async () => {
+  it("retains early destination intent for the shared renderer and unsubscribes consumers", async () => {
     await import("../src/preload/preload");
     const [, bridge] = exposeInMainWorld.mock.calls[0] ?? [];
     const openmeld = bridge as {
@@ -146,7 +146,6 @@ describe("preload bridge", () => {
     };
     const handler = vi.fn();
 
-    const unsubscribe = openmeld.onWindowDestinationChange(handler);
     const listener = on.mock.calls[0]?.[1] as
       | ((_event: unknown, destination: unknown) => void)
       | undefined;
@@ -157,16 +156,25 @@ describe("preload bridge", () => {
     );
 
     listener?.({}, "settings");
+    listener?.({}, "settings");
     listener?.({}, "unknown");
+
+    const shared = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const unsubscribe = shared.onWindowDestinationChange(handler);
 
     expect(handler).toHaveBeenCalledTimes(1);
     expect(handler).toHaveBeenCalledWith("settings");
 
     unsubscribe();
-
-    expect(removeListener).toHaveBeenCalledWith(
-      WINDOW_IPC.navigateDestination,
-      listener
-    );
+    listener?.({}, "settings");
+    expect(handler).toHaveBeenCalledTimes(1);
+    const next = vi.fn();
+    openmeld.onWindowDestinationChange(next)();
+    expect(next.mock.calls).toEqual([["settings"]]);
+    const stale = vi.fn();
+    shared.onWindowDestinationChange(stale)();
+    expect(stale).not.toHaveBeenCalled();
   });
 });

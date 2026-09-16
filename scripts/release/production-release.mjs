@@ -130,6 +130,7 @@ const CORE_WORKER_RESPONSE_AND_WAKE_PROGRESS_OPT_IN_RECEIVERS_FIRST_SCOPE_ORDER 
 const CORE_WORKER_RESPONSE_AND_CONNECT_COMPUTER_RECEIVERS_FIRST_SCOPE_ORDER =
   CONNECT_COMPUTER_CLI_RECEIVER_FIRST_SCOPE_ORDER;
 const DEPLOY_SCOPE_ORDER_BY_PROFILE = {
+  "space-task-receivers-first": CORE_WORKER_RESPONSE_READER_FIRST_SCOPE_ORDER,
   "space-caller-context-receivers-first": [
     "db",
     "auth",
@@ -209,6 +210,13 @@ const WAKE_PROGRESS_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/space-wake-progress.ts";
 const SPACE_HISTORY_QUERY_SCHEMA_PATH =
   "packages/schemas/src/schemas/http/list-signals-query.ts";
+const SPACE_TASK_SCHEMA_PATH =
+  "packages/schemas/src/schemas/http/space-tasks.ts";
+const SPACE_TASK_CALLER_PATHS = [
+  "clients/openmeld-cli/src/space/dispatch-task.ts",
+  "services/gateway/src/routes/rpc-http.space-tasks.ts",
+  "services/remote-agent/agent-core/tools.ts",
+];
 const WAKE_PROGRESS_CLI_CALLER_PATH =
   "clients/openmeld-cli/src/space/wake-control-command.ts";
 const WAKE_PROGRESS_CORE_PRODUCER_PATHS = new Set([
@@ -433,6 +441,12 @@ export function resolveAutomaticReleaseScopes(input) {
     scopes.add("gateway");
     scopes.add("core");
   }
+  if (isSpaceTaskReceiverFirstDiff(input.changedPaths)) {
+    scopes.add("core");
+    if (scopes.has("cli") || scopes.has("web")) {
+      scopes.add("gateway");
+    }
+  }
 
   return sortScopes(scopes);
 }
@@ -475,6 +489,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
       !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
+      !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
       steps.push(coreCliChannelCompatibilityStep());
@@ -513,6 +528,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
+    !isSpaceTaskReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
   ) {
     steps.push(coreCliChannelCompatibilityStep());
@@ -607,6 +623,7 @@ export function buildProductionDeployStepSpecs(scopes, input = {}) {
   assertLocalServiceRuntimeReleaseScopes(scopes, changedPaths);
   assertWakeProgressOptInContractReleaseScopes(scopes, changedPaths);
   assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths);
+  assertSpaceTaskReleaseScopes(scopes, changedPaths);
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     changedPaths,
     input.taskInboxRetired
@@ -713,6 +730,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
       input.deployOrderProfile === "local-service-runtime-receiver-first" ||
+      input.deployOrderProfile === "space-task-receivers-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
@@ -813,6 +831,25 @@ function resolveProductionDeployOrderProfile(
   changedPaths,
   taskInboxRetired = false
 ) {
+  if (isSpaceTaskReceiverFirstDiff(changedPaths)) {
+    const otherProfile = resolveProductionDeployOrderProfile(
+      changedPaths.filter((file) => file !== SPACE_TASK_SCHEMA_PATH),
+      taskInboxRetired
+    );
+    if (
+      ![
+        "default-auth-receiver-first",
+        "core-worker-response-reader-first",
+        "device-wait-receivers-first",
+        "people-computers-receivers-first",
+      ].includes(otherProfile)
+    ) {
+      throw new Error(
+        `Space Task receivers require Core before Gateway and consumers; conflict with ${otherProfile}. Split the release.`
+      );
+    }
+    return "space-task-receivers-first";
+  }
   if (!isSpaceCallerContextDiff(changedPaths)) {
     return resolveOtherProductionDeployOrderProfile(
       changedPaths,
@@ -1199,6 +1236,39 @@ function isWakeProgressOptInContractDiff(changedPaths) {
 
 function isSpaceHistoryQueryContractDiff(changedPaths) {
   return changedPaths.includes(SPACE_HISTORY_QUERY_SCHEMA_PATH);
+}
+
+function isSpaceTaskReceiverFirstDiff(changedPaths) {
+  return (
+    changedPaths.includes(SPACE_TASK_SCHEMA_PATH) &&
+    changedPaths.includes("services/core/src/rpc/methods.ts") &&
+    changedPaths.includes("services/core/src/space/transport/do/space.ts") &&
+    SPACE_TASK_CALLER_PATHS.some((file) => changedPaths.includes(file))
+  );
+}
+
+function assertSpaceTaskReleaseScopes(scopes, changedPaths) {
+  if (!isSpaceTaskReceiverFirstDiff(changedPaths)) {
+    return;
+  }
+  const selected = new Set(scopes);
+  if (
+    ["gateway", "web", "cli", "remote-agent"].some((scope) =>
+      selected.has(scope)
+    ) &&
+    !selected.has("core")
+  ) {
+    throw new Error("Space Task consumers require the Core receiver scope.");
+  }
+  // Web and CLI use Gateway HTTP; Remote Agent calls the Core binding directly.
+  if (
+    (selected.has("web") || selected.has("cli")) &&
+    !selected.has("gateway")
+  ) {
+    throw new Error(
+      "Space Task Web and CLI consumers require the Gateway receiver scope."
+    );
+  }
 }
 
 function assertSpaceHistoryQueryReleaseScopes(scopes, changedPaths) {

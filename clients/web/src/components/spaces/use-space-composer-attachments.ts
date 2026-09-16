@@ -7,6 +7,7 @@ import {
 import type { SpaceMessageFileReference } from "@openmeld/schemas/types";
 import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import {
@@ -54,6 +55,18 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 	const [, refresh] = useReducer((version: number) => version + 1, 0);
 	const sessions = useRef(
 		new Map<string, ReturnType<typeof createFileSession>>()
+	);
+	useEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(() =>
+				[...sessions.current.values()].some(
+					(entry) =>
+						entry.uploadTasks.size > 0 ||
+						entry.submittingIds.size > 0 ||
+						entry.files.some((file) => file.status !== "ready")
+				)
+			),
+		[]
 	);
 	const scopeKey =
 		input.storageKey ??

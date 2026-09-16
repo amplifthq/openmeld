@@ -8,6 +8,7 @@ import {
 	toSettingsNavItems,
 } from "@openmeld/ui/lib/settings-contract";
 import {
+	ArrowClockwiseIcon,
 	BellIcon,
 	BuildingsIcon,
 	EnvelopeSimpleIcon,
@@ -56,6 +57,7 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 	"account",
 	"appearance",
 	"notifications",
+	"updates",
 	"service",
 	"privacy",
 ] as const;
@@ -320,6 +322,8 @@ function resolveSettingsNavIcon(sectionId: string): Icon {
 			return PaletteIcon;
 		case "notifications":
 			return BellIcon;
+		case "updates":
+			return ArrowClockwiseIcon;
 		case "privacy":
 			return ShieldCheckIcon;
 		case "center-agent":

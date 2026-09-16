@@ -165,11 +165,13 @@ export function resolveCoreProjectionTag(input = {}) {
 }
 
 export async function probeCliReleaseStages(input) {
-  const [binary, npm, core] = await Promise.all([
-    probeCliBinaryStage(input),
+  const [npm, core] = await Promise.all([
     probeNpmPublishStage(input),
     probeCoreProjectionStage(input),
   ]);
+  // Command adapters may block the event loop; do not consume HTTP deadlines
+  // while synchronous npm/Wrangler probes prevent network progress.
+  const binary = await probeCliBinaryStage(input);
   const tag = input.tag ?? probeReleaseTagStage(input);
   return {
     alignment: decideChannelAlignmentStage({ binary, core, npm }),

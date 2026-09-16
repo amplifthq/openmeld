@@ -25,6 +25,13 @@
 
 ## Boundary
 
+The account avatar's top-level **Download Desktop** item appears only on Web and
+opens the public `/desktop` page. That page, the default DMG route, legacy update
+JSON and macOS updater feed read the single promoted Desktop release in R2.
+Explicit candidate selectors remain strict and never fall back to the promoted
+release. Desktop's shared renderer exposes Updates through its native bridge;
+browser Web has no updater controls.
+
 ### Shared Profile and Organization actions
 
 Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
@@ -2897,11 +2904,18 @@ permissions, or message state. Do not add separate full-width block placeholders
 Intent preload warms the same TanStack Query keys consumed by the target page:
 account Profiles plus the Organization Directory for Agent Profiles, account Profiles
 plus the Organization Space Directory for Spaces, and the current Space display
-snapshot, history, status, and bootstrap for a confirmed human profile. Conversation
+snapshot, history, entry resolution, and bootstrap for a confirmed human profile. Conversation
 preload restores the bounded Dexie display snapshot and recent history before
 prefetching the current server reads, so a saved conversation can render immediately
-without racing browser hydration. Status and bootstrap prefetch remain parallel with
-that restore-and-history chain. Links from
+without racing browser hydration. After restoration, entry resolution runs alongside
+bootstrap or contiguous history updates. It uses the gate's exact Space, acting
+Profile, message, and Thread target Query key; a fresh server decision can be reused
+on click even without a persisted display snapshot. Bootstrap does not fabricate
+an access decision or seed a second authorization cache. Entry decisions remain
+memory-only, use the existing 30-second freshness window, and are cleared at the
+account authentication boundary. Membership and metadata live changes invalidate
+entry resolution; runtime readiness changes do not. Every server content read
+and action still rechecks permissions. Links from
 the Space Directory carry
 the already selected human profile so the Space bootstrap can start during
 intent preload instead of waiting for a second profile-resolution navigation.
@@ -2964,10 +2978,17 @@ This includes the bounded Space bootstrap, status, recent history, and members.
 Thread catalogs and opened replies use the same 30-minute in-memory revisit
 window. Returning to a Space must not replace a newer Thread catalog with an
 older cached bootstrap.
-After the entry access gate permits a cold conversation, its bounded bootstrap
-starts alongside route classification. Space and direct-message routes reuse
+After the entry access gate permits a cold conversation, route classification
+uses status already returned by its bounded bootstrap or the mounted conversation.
+It does not issue a separate full status request to distinguish Spaces from
+Direct Messages. Space and direct-message routes reuse
 that same bootstrap query in the conversation; saved-history visits keep their
 existing contiguous-update path instead of requesting a new tail window.
+While cold entry permission is pending, the app uses the existing conversation
+loading layout, including a known account/Organization-scoped title and a linked
+Thread loading panel when applicable. That shell contains no messages, composer,
+or mutation controls. Error, password, membership, and profile recovery keep their
+own entry surfaces. Web and Desktop consume this same Web-owned implementation.
 Web requests `includeAgentReadiness=false` for this bounded bootstrap. Core
 returns member identity for message presentation without waiting for runtime
 readiness enrichment. The mounted conversation loads the authoritative members

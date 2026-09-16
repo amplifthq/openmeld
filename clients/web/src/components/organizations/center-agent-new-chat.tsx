@@ -4,8 +4,9 @@ import {
 } from "@openmeld/api-client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
@@ -222,6 +223,13 @@ export function CenterAgentNewChat({
 			sending.current = false;
 		}
 	};
+	useLayoutEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(
+				() => attachments.files.length > 0 || send.isPending
+			),
+		[attachments.files.length, send.isPending]
+	);
 	return (
 		<div className="flex min-h-0 w-full flex-1 flex-col">
 			{error && (

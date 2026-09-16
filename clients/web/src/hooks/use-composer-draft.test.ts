@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { hasClientRestartBlocker } from "#/client-version-recovery";
 import {
 	buildComposerDraftStorageKey,
 	createComposerDraftRecord,
@@ -10,6 +11,32 @@ import {
 import { useComposerDraft } from "./use-composer-draft";
 
 describe("useComposerDraft", () => {
+	it("flushes the active draft and refuses restart when storage cannot save it", () => {
+		const scope = {
+			kind: "space" as const,
+			ownerAccountId: "account-1",
+			profileId: "profile-1",
+			spaceId: "space-1",
+		};
+		const draft = renderHook(() => useComposerDraft({ scope }));
+		act(() =>
+			draft.result.current.setContent({
+				...EMPTY_COMPOSER_DRAFT_CONTENT,
+				text: "Keep this message",
+			})
+		);
+		expect(hasClientRestartBlocker()).toBe(false);
+		expect(readComposerDraft(scope)?.text).toBe("Keep this message");
+		const failure = vi
+			.spyOn(Storage.prototype, "setItem")
+			.mockImplementation(() => {
+				throw new Error("Storage full");
+			});
+		expect(hasClientRestartBlocker()).toBe(true);
+		failure.mockRestore();
+		expect(hasClientRestartBlocker()).toBe(false);
+		draft.unmount();
+	});
 	beforeEach(() => {
 		window.localStorage.clear();
 	});

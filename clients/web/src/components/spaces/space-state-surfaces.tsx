@@ -18,7 +18,7 @@ import { toSessionExpiredState } from "#/lib/session-expired";
 import { SpaceThreadLoadingPanel } from "./space-thread-loading";
 
 export function SpaceLandingLoadingShell(
-	input: { composer?: ReactNode; threadOpen?: boolean } = {}
+	input: { composer?: ReactNode; threadOpen?: boolean; title?: string } = {}
 ) {
 	return (
 		<div className="flex h-full min-h-0 w-full min-w-0 flex-1">
@@ -26,7 +26,13 @@ export function SpaceLandingLoadingShell(
 				<header className="flex h-[var(--space-conversation-header-height)] shrink-0 items-center border-border border-b px-4">
 					<div className="flex min-w-0 items-center gap-4">
 						<span className="font-medium text-sm">Messages</span>
-						<Skeleton className="h-5 w-40 max-w-full motion-reduce:animate-none" />
+						{input.title ? (
+							<span className="truncate text-muted-foreground text-sm">
+								{input.title}
+							</span>
+						) : (
+							<Skeleton className="h-5 w-40 max-w-full motion-reduce:animate-none" />
+						)}
 					</div>
 				</header>
 				<div aria-busy="true" className="min-h-0 flex-1 overflow-hidden">
