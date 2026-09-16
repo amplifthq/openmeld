@@ -64,7 +64,11 @@ export function SpaceEntryGate(input: {
 		...queryInput,
 		enabled: typeof window !== "undefined",
 	});
-	const resolutionQuery = useQuery(resolutionOptions);
+	const resolutionQuery = useQuery({
+		...resolutionOptions,
+		refetchOnWindowFocus: true,
+		refetchInterval: input.redirectToOrganization ? 15_000 : false,
+	});
 	useEffect(() => {
 		observeSpaceOpen(input.spaceId, {
 			queryStatus: resolutionQuery.status,
@@ -139,8 +143,11 @@ export function SpaceEntryGate(input: {
 					orgSlug: organizationSlug,
 					spaceId: input.spaceId,
 					search: {
-						focusSignalId: input.signalId,
-						focusThreadRootSignalId: input.threadRootSignalId,
+						focusSignalId:
+							resolutionQuery.data?.target.signalId ?? input.signalId,
+						focusThreadRootSignalId:
+							resolutionQuery.data?.target.threadRootSignalId ??
+							input.threadRootSignalId,
 					},
 				})}
 			/>

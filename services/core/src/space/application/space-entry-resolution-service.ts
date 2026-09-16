@@ -10,7 +10,7 @@ export type SpaceEntryAccessResult =
   | {
       kind: "allowed";
       activeMember: boolean;
-      meta: Pick<GetSpaceStatusResponse, "name" | "accessMode">;
+      meta: Pick<GetSpaceStatusResponse, "name" | "accessMode" | "allowGuests">;
     }
   | {
       kind: "denied";
@@ -43,6 +43,16 @@ export function buildSpaceEntryResolution(input: {
     password: "missing",
   }).canJoin;
   if (input.access.kind === "allowed") {
+    let participation = resolveAllowedParticipation(input.access);
+    if (canJoinOrganizationSpace && !input.access.activeMember) {
+      participation = { state: "self_join_available" };
+    }
+    if (
+      !(input.organizationMember || input.access.activeMember) &&
+      input.access.meta.allowGuests !== true
+    ) {
+      participation = { state: "owner_add_required" };
+    }
     const memberExperience =
       input.access.activeMember ||
       input.access.meta.accessMode === "members_only";
@@ -52,10 +62,7 @@ export function buildSpaceEntryResolution(input: {
         state: "allowed",
         experience: memberExperience ? "member" : "public",
       },
-      participation:
-        canJoinOrganizationSpace && !input.access.activeMember
-          ? { state: "self_join_available" }
-          : resolveAllowedParticipation(input.access),
+      participation,
       safeContext: buildSafeContext({
         indexed: input.indexed,
         organizationMember: input.organizationMember,

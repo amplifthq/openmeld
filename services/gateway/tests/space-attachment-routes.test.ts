@@ -5,7 +5,7 @@ import type { GatewayRpcEntrypoint } from "../../core/src/index";
 import { createCoreRpcHttpError } from "../../core/src/rpc/errors";
 import app from "../src/index";
 
-const SPACE_ID = "space-attachment-test";
+const SPACE_ID = "a".repeat(64);
 const OTHER_SPACE_ID = "space-other";
 const ATTACHMENT_ID = "attachment-1";
 const ORGANIZATION_ID = "org-1";
@@ -477,6 +477,63 @@ describe("Space attachment upload route", () => {
 });
 
 describe("Space attachment download route", () => {
+  it("streams anonymous reads and stops before storage when Space access is revoked", async () => {
+    const anonymousAuth = vi.fn(async () => ({
+      ok: true as const,
+      claims: {
+        authenticated: false as const,
+        requestId: REQUEST_ID,
+        ownerIds: [],
+        authMethod: "none" as const,
+      },
+    }));
+    const { bucket, coreRpc, env } = makeEnv({
+      getResult: makeR2ObjectBody(ATTACHMENT_KEY, PNG_BYTES),
+      authOverrides: {
+        resolveRequestAuthWithProfile: anonymousAuth,
+        resolveRequestAuth: vi.fn(async () => ({
+          ok: true,
+          claims: {
+            authenticated: false,
+            requestId: REQUEST_ID,
+            ownerIds: [],
+            authMethod: "none",
+          },
+        })),
+      },
+    });
+    const read = () =>
+      app.fetch(
+        new Request(
+          `http://local/v1/spaces/${SPACE_ID}/attachments/${ATTACHMENT_ID}`
+        ),
+        env,
+        TEST_EXECUTION_CONTEXT
+      );
+    const response = await read();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG_BYTES);
+    expect(coreRpc.resolveSpaceAttachmentForDownload).toHaveBeenCalledWith(
+      expect.objectContaining({
+        spaceAccess: expect.objectContaining({
+          actor: expect.objectContaining({ kind: "anonymous_viewer" }),
+        }),
+      })
+    );
+    bucket.get.mockClear();
+    coreRpc.resolveSpaceAttachmentForDownload.mockRejectedValueOnce(
+      createCoreRpcHttpError({
+        status: 403,
+        code: "space.access_denied",
+        reason: "Space is private",
+      })
+    );
+    const revoked = await read();
+    expect(revoked.status).toBe(403);
+    expect(revoked.headers.get("cache-control")).toBe("private, no-store");
+    expect(bucket.get).not.toHaveBeenCalled();
+  });
   it("streams a member's image with the descriptor MIME type and private cache policy", async () => {
     const { bucket, coreRpc, env } = makeEnv({
       getResult: makeR2ObjectBody(ATTACHMENT_KEY, PNG_BYTES),
@@ -492,7 +549,7 @@ describe("Space attachment download route", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
-    expect(response.headers.get("cache-control")).toBe("private, max-age=3600");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG_BYTES);
     expect(coreRpc.resolveSpaceAttachmentForDownload).toHaveBeenCalledWith({
       attachmentId: ATTACHMENT_ID,
@@ -612,8 +669,12 @@ describe("Space attachment download route", () => {
     expect(bucket.get).not.toHaveBeenCalled();
   });
 
-  it("fails closed when Core returns a descriptor for another Organization", async () => {
+  it("reads the authorized Space attachment independently of the viewer's selected Organization", async () => {
     const { bucket, env } = makeEnv({
+      getResult: makeR2ObjectBody(
+        `org/org-other/space/${SPACE_ID}/${ATTACHMENT_ID}`,
+        PNG_BYTES
+      ),
       coreOverrides: {
         resolveSpaceAttachmentForDownload: vi.fn(async () => ({
           ...ATTACHMENT_DESCRIPTOR,
@@ -630,9 +691,11 @@ describe("Space attachment download route", () => {
       TEST_EXECUTION_CONTEXT
     );
 
-    expect(response.status).toBe(502);
-    expect(await readError(response)).toMatchObject({ code: "upstream_error" });
-    expect(bucket.get).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(PNG_BYTES);
+    expect(bucket.get).toHaveBeenCalledWith(
+      `org/org-other/space/${SPACE_ID}/${ATTACHMENT_ID}`
+    );
   });
 });
 

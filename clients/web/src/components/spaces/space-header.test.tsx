@@ -394,7 +394,7 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		fireEvent.click(screen.getByRole("button", { name: "Manage link access" }));
 		expect(screen.getByRole("heading", { name: "Access" })).toBeTruthy();
-		expect(screen.getByText("Link access is enabled")).toBeTruthy();
+		expect(screen.getByText("Link access")).toBeTruthy();
 		expect(
 			screen.getAllByText(PUBLIC_SPACE_ACCESS_DESCRIPTION).length
 		).toBeGreaterThan(0);
@@ -514,7 +514,7 @@ describe("SpaceHeader", () => {
 		expect(within(dialog).getByText("Share Design Room")).toBeTruthy();
 		expect(
 			within(dialog).getByText(
-				"Anyone with the link can view and join this Space."
+				"Anyone with the link can read this Space. External visitors can join only when guests are allowed."
 			)
 		).toBeTruthy();
 		expect(within(dialog).queryByRole("radio")).toBeNull();
@@ -551,7 +551,7 @@ describe("SpaceHeader", () => {
 		const dialog = screen.getByRole("dialog");
 		expect(
 			within(dialog).getByText(
-				"Anyone with the link can view. People outside the organization need a password to join."
+				"Anyone with the link can read. External visitors need a password and guest access to join."
 			)
 		).toBeTruthy();
 		expect(within(dialog).queryByRole("radio")).toBeNull();
