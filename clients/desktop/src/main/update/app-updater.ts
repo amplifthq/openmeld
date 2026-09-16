@@ -43,14 +43,13 @@ export function createAppUpdater(input: {
     error: unknown
   ) => {
     console.error("[openmeld.desktop.update_failed]", { stage, error });
-    if (state.status === "installing") {
-      input.setInstalling(false);
-    }
+    // MacUpdater has no public cancellation for its pending native install.
+    // Once accepted, keep the saved renderer frozen and normal quit enabled.
     publish({ status: "error", errorStage: stage, percent: null });
   };
   updater.on("error", (error) => {
     let stage: NonNullable<DesktopUpdaterState["errorStage"]> = "check";
-    if (state.status === "installing") {
+    if (state.status === "installing" || state.errorStage === "install") {
       stage = "install";
     }
     if (state.status === "preparing") {
@@ -67,6 +66,9 @@ export function createAppUpdater(input: {
     }
   });
   updater.on("update-downloaded", () => {
+    if (state.status === "installing" || state.errorStage === "install") {
+      return;
+    }
     verifiedDownload = true;
     publish({ status: "downloaded", percent: 100, errorStage: null });
   });

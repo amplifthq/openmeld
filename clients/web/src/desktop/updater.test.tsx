@@ -3,7 +3,7 @@ import type {
 	DesktopUpdaterState,
 } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import {
@@ -14,19 +14,23 @@ import {
 } from "#/lib/organizations/center-agent-pending-message";
 import { DesktopUpdater } from "./updater";
 
+const editingPaused = /Editing is paused/;
+
 const native = vi.hoisted(() => ({
 	prepare: undefined as
 		| undefined
 		| ((request: DesktopUpdaterRestartRequest) => Promise<void>),
 	changed: undefined as undefined | ((state: DesktopUpdaterState) => void),
 	bridge: {
-		updaterState: vi.fn(async () => ({
-			status: "downloaded",
-			currentVersion: "0.1.1",
-			version: "0.1.2",
-			percent: 100,
-			errorStage: null,
-		})),
+		updaterState: vi.fn(
+			async (): Promise<DesktopUpdaterState> => ({
+				status: "downloaded",
+				currentVersion: "0.1.1",
+				version: "0.1.2",
+				percent: 100,
+				errorStage: null,
+			})
+		),
 		updaterPrepared: vi.fn(async () => undefined),
 		session: vi.fn(() => {
 			throw new Error("Cloud admission blocked");
@@ -54,6 +58,47 @@ vi.mock("./platform", () => ({
 afterEach(() => {
 	cleanup();
 	localStorage.clear();
+});
+it.each([
+	"installing",
+	"error",
+] as const)("restores the native %s freeze on remount before accepting input", async (status) => {
+	const state: DesktopUpdaterState = {
+		status,
+		currentVersion: "0.1.1",
+		version: "0.1.2",
+		percent: null,
+		errorStage: status === "error" ? "install" : null,
+	};
+	let resolveSnapshot!: (state: DesktopUpdaterState) => void;
+	native.bridge.updaterState.mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				resolveSnapshot = resolve;
+			})
+	);
+	render(
+		<QueryClientProvider client={new QueryClient()}>
+			<DesktopUpdater />
+		</QueryClientProvider>
+	);
+	expect(document.body.inert).toBe(true);
+	await act(async () => resolveSnapshot(state));
+	expect(document.body.inert).toBe(true);
+	act(() =>
+		native.changed?.({ ...state, status: "error", errorStage: "install" })
+	);
+	expect(document.body.inert).toBe(true);
+	expect(screen.queryByText("Later")).toBeNull();
+	expect(screen.queryByText("Close")).toBeNull();
+	expect(screen.getByText(editingPaused)).toBeTruthy();
+	const input = document.createElement("input");
+	const edited = vi.fn();
+	input.addEventListener("input", edited);
+	document.body.appendChild(input);
+	input.dispatchEvent(new Event("input", { bubbles: true }));
+	expect(edited).not.toHaveBeenCalled();
+	input.remove();
 });
 it("freezes editing for preparation, honors existing blockers, and recovers without cloud admission", async () => {
 	const queryClient = new QueryClient();

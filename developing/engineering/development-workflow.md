@@ -1758,13 +1758,18 @@ After review, protected merge, and selection of the exact release SHA:
 7. Separately authorize promotion. Deploy the Web feed/download readers first,
    then run from the same clean approved checkout:
    `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
-   The single release owner serializes promotions. The command verifies remote
-   candidate metadata, downloads and hashes both public artifacts, and requires
-   a strictly newer stable app version before writing `desktop/promoted.json`
+   The command verifies remote candidate metadata and hashes both public artifacts.
+   It then acquires the existing Git-backed `web` production scope lease across
+   local and hosted runners. While holding that lease, it reads the authoritative
+   R2 pointer and candidate directly through Wrangler, checks the expected current
+   version and strict version increase, and writes `desktop/promoted.json`
    last. This one atomic object replacement selects the public download, legacy
    JSON and generated `latest-mac.yml` together. Never upload builder-generated
    latest metadata or edit a parallel default manifest. Verify all three public
-   projections after promotion. A rollback is a reviewed forward release with
+   projections after promotion. Public page/JSON/feed caches never authorize a
+   promotion. Lease contention fails without writing; release and expired-lease
+   recovery follow the existing production scope rules (never steal a live lease).
+   A rollback is a reviewed forward release with
    a newer app version; do not downgrade the channel under installed clients.
 
 The fixed storage contract in `packages/schemas/src/desktop-release.ts` uses:

@@ -24,6 +24,10 @@ import {
   desktopPromotedReleaseSchema,
 } from "../../packages/schemas/dist/desktop-release.js";
 import { DEFAULT_APPLE_TEAM_ID } from "./macos-cli-signing.mjs";
+import {
+  acquireProductionScopeLease,
+  releaseProductionScopeLease,
+} from "./production-scope-lease.mjs";
 
 const DMG_SUFFIX = /\.dmg$/;
 const STABLE_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
@@ -344,35 +348,94 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
       );
     }
   }
-  const current = await fetch("https://openmeld.ai/desktop/update.json", {
-    cache: "no-store",
-    redirect: "error",
-  });
-  let currentVersion;
-  if (current.status === 404) {
-    currentVersion = null;
-  } else if (current.ok) {
-    currentVersion = (await current.json()).latestVersion;
+  await commitDesktopPromotion({ repoRoot, manifest, expectedVersion });
+  process.stdout.write(`Promoted Desktop ${manifest.version}: ${id}\n`);
+}
+
+// Wrangler talks directly to R2: public CDN/browser projections never authorize
+// a promotion. Only its explicit missing-object response means an empty channel.
+export function readDesktopReleaseObject(repoRoot, key) {
+  const result = spawnSync(
+    "pnpm",
+    [
+      "exec",
+      "wrangler",
+      "r2",
+      "object",
+      "get",
+      `${DEFAULT_R2_BUCKET_NAME}/${key}`,
+      "--remote",
+      "--pipe",
+    ],
+    { cwd: repoRoot, encoding: "utf8", timeout: 60_000 }
+  );
+  if (result.status === 0) {
+    return JSON.parse(result.stdout);
   }
   if (
-    currentVersion === undefined ||
-    (currentVersion ?? "none") !== expectedVersion
+    result.status === 1 &&
+    result.stderr.includes("The specified key does not exist.")
   ) {
-    throw new Error(
-      "Promoted Desktop version changed or could not be verified."
-    );
+    return null;
   }
-  assertDesktopPromotionVersion(manifest.version, currentVersion);
-  const pointer = desktopPromotedReleaseSchema.parse({
-    schemaVersion: 1,
-    candidate: id,
-    promotedAt: new Date().toISOString(),
+  throw new Error(
+    `Could not read authoritative Desktop release object: ${key}: ${result.stderr.trim() || result.error?.message || `exit ${result.status}`}`
+  );
+}
+
+export async function commitDesktopPromotion({
+  repoRoot,
+  manifest,
+  expectedVersion,
+  readObject = (key) => readDesktopReleaseObject(repoRoot, key),
+  writePointer = (pointer) => writeDesktopPromotionPointer(repoRoot, pointer),
+}) {
+  const lease = acquireProductionScopeLease({
+    cwd: repoRoot,
+    scope: "web",
+    sourceSha: manifest.releaseSha,
   });
+  try {
+    const current = await readObject(DESKTOP_PROMOTED_RELEASE_KEY);
+    let currentVersion = null;
+    if (current !== null) {
+      const pointer = desktopPromotedReleaseSchema.parse(current);
+      const candidate = desktopCandidateManifestSchema.parse(
+        await readObject(desktopCandidateManifestKey(pointer.candidate))
+      );
+      if (candidate.sha256 !== pointer.candidate || !candidate.zip) {
+        throw new Error("Invalid promoted Desktop candidate.");
+      }
+      currentVersion = candidate.version;
+    }
+    if ((currentVersion ?? "none") !== expectedVersion) {
+      throw new Error(
+        "Promoted Desktop version changed or could not be verified."
+      );
+    }
+    assertDesktopPromotionVersion(manifest.version, currentVersion);
+    await writePointer(
+      desktopPromotedReleaseSchema.parse({
+        schemaVersion: 1,
+        candidate: manifest.sha256,
+        promotedAt: new Date().toISOString(),
+      })
+    );
+  } finally {
+    releaseProductionScopeLease({
+      cwd: repoRoot,
+      scope: "web",
+      leaseSha: lease.leaseSha,
+    });
+  }
+}
+
+function writeDesktopPromotionPointer(repoRoot, value) {
   const pointerPath = path.join(
     repoRoot,
     "clients/desktop/dist/production-preview/promoted.json"
   );
-  writeFileSync(pointerPath, `${JSON.stringify(pointer)}\n`);
+  writeFileSync(pointerPath, `${JSON.stringify(value)}\n`);
   runStep({
     command: "pnpm",
     cwd: repoRoot,
@@ -385,7 +448,6 @@ export async function promoteDesktopCandidate(id, expectedVersion) {
       cacheControl: "no-store",
     }),
   });
-  process.stdout.write(`Promoted Desktop ${manifest.version}: ${id}\n`);
 }
 export const DEFAULT_DOWNLOAD_PAGE_URL = "https://openmeld.ai/desktop";
 export const DEFAULT_DOWNLOAD_URL = "https://openmeld.ai/desktop/download";

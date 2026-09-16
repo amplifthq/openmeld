@@ -242,10 +242,16 @@ owner and also block restart. Pending
 send acknowledgements remain with existing reconciliation: updating never
 resends a message. The current workspace URL is retained for the normal router
 to authorize after relaunch. Native credentials, account data, and app identity
-are not reset. Failed preparation restores editing; failed installation handoff
-restores the normal close-to-tray flag. An installation error requires quitting
-and reopening before retry; do not register a second native install attempt in
-the same process after Squirrel may have begun staging. Installation affects the GUI only and
+are not reset. Failed preparation restores editing. After explicit restart consent
+and successful preparation, native installation is irreversible within that process:
+MacUpdater has no public cancellation of its pending native install callback.
+Installation errors, repeated errors and late download events keep editing frozen
+and `isQuitting` true. Reloads/remounts freeze before reading the native snapshot
+and retain that freeze for installing or installation-error states. The visible
+failure directs the user to the native app menu's Quit action and then reopening;
+the already-authorized update may complete during quit. Do not restore close-to-tray,
+offer Later/retry, or claim installation succeeded. Native menu and Cmd+Q remain
+available. Installation affects the GUI only and
 does not call, update, stop, or reconfigure CLI or OpenMeld Service.
 
 ### Manual installed A-to-B acceptance
@@ -269,8 +275,10 @@ are reviewed. Do not promote a release merely to run an automated smoke.
    storage failure: it must refuse without resending or losing content.
 7. Once work is durable, choose Restart to update. Confirm B, the same account
    and conversation, preserved text and attachments, and unchanged Service/Wake.
-   Also exercise an installation error and confirm editing and close-to-tray
-   recover. Record actual observations separately from unit/build evidence.
+   Also exercise an installation error: editing must stay frozen (including
+   after reload), retries stay unavailable, and native menu Quit must exit.
+   Record the installed version after reopening, without assuming which version
+   won. Record actual observations separately from unit/build evidence.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using

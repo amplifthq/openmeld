@@ -2,7 +2,7 @@ import type { DesktopUpdaterState } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useLayoutEffect, useState, useSyncExternalStore } from "react";
 import { flushSync } from "react-dom";
 import {
 	hasClientRestartBlocker,
@@ -53,7 +53,7 @@ export function DesktopUpdater() {
 	const queryClient = useQueryClient();
 	const state = useDesktopUpdater();
 	const [dismissed, setDismissed] = useState<string | null>(null);
-	useEffect(() => {
+	useLayoutEffect(() => {
 		const bridge = getDesktopPlatform();
 		if (!bridge) {
 			return;
@@ -64,23 +64,10 @@ export function DesktopUpdater() {
 		let revision = 0;
 		let disposed = false;
 		let restoreEditing: (() => void) | undefined;
-		const unsubscribe = bridge.onUpdaterChanged((next) => {
-			revision++;
-			publish(next);
-			if (next.status !== "preparing" && next.status !== "installing") {
-				restoreEditing?.();
-				restoreEditing = undefined;
+		const freezeEditing = () => {
+			if (restoreEditing) {
+				return;
 			}
-		});
-		bridge
-			.updaterState()
-			.then((next) => {
-				if (!disposed && revision === 0) {
-					publish(next);
-				}
-			})
-			.catch(console.error);
-		const prepare = bridge.onUpdaterPrepare(async ({ requestId }) => {
 			const previousInert = document.body.inert;
 			// Also stop queued input (including an already open file chooser) before
 			// React handlers can change drafts after the final save.
@@ -98,6 +85,37 @@ export function DesktopUpdater() {
 				}
 				document.body.inert = previousInert;
 			};
+		};
+		const acceptSnapshot = (next: DesktopUpdaterState) => {
+			if (
+				next.status === "preparing" ||
+				next.status === "installing" ||
+				next.errorStage === "install"
+			) {
+				freezeEditing();
+			} else {
+				restoreEditing?.();
+				restoreEditing = undefined;
+			}
+			publish(next);
+		};
+		// Freeze a newly mounted renderer until the native authority answers.
+		// A reload must never create an editable window during an accepted install.
+		freezeEditing();
+		const unsubscribe = bridge.onUpdaterChanged((next) => {
+			revision++;
+			acceptSnapshot(next);
+		});
+		bridge
+			.updaterState()
+			.then((next) => {
+				if (!disposed && revision === 0) {
+					acceptSnapshot(next);
+				}
+			})
+			.catch(console.error);
+		const prepare = bridge.onUpdaterPrepare(async ({ requestId }) => {
+			freezeEditing();
 			let saved = false;
 			try {
 				flushSync(() => {
@@ -157,13 +175,15 @@ export function DesktopUpdater() {
 			className="fixed right-4 bottom-4 z-50 max-w-sm rounded-lg border bg-background p-4 shadow-sm"
 		>
 			<DesktopUpdatesSection />
-			{state.status !== "preparing" && state.status !== "installing" ? (
+			{state.status !== "preparing" &&
+			state.status !== "installing" &&
+			state.errorStage !== "install" ? (
 				<Button
 					onClick={() => setDismissed(noticeKey)}
 					size="sm"
 					variant="ghost"
 				>
-					{state.errorStage === "install" ? "Close" : "Later"}
+					Later
 				</Button>
 			) : null}
 		</aside>

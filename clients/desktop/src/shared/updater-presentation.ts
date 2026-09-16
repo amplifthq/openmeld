@@ -39,7 +39,7 @@ export function desktopUpdaterPresentation(state: DesktopUpdaterState): {
       if (state.errorStage === "install") {
         return {
           message:
-            "The update couldn't finish. Quit and reopen Desktop before trying again.",
+            "The update couldn't finish. Editing is paused to protect your saved work. Choose Quit from the app menu, then reopen Desktop. The update may finish when you quit.",
         };
       }
       const action = state.errorStage ?? "check";
