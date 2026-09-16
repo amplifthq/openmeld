@@ -1,3 +1,5 @@
+import type { Executor } from "@cloudflare/codemode";
+import { createCodeTool } from "@cloudflare/codemode/ai";
 import type { SessionEnv } from "@flue/runtime";
 import { CENTER_AGENT_DELEGATION_COMPLETION_MODES } from "@openmeld/schemas";
 import { asSchema, type ToolExecutionOptions, type ToolSet } from "ai";
@@ -53,6 +55,75 @@ async function runCodeModeTool(
 }
 
 describe("Remote Agent Code Mode", () => {
+  it("cancels inner work through the SDK wrapper and prevents queued work from starting", async () => {
+    const storage = await createStorage(createSubmitTurnRequest());
+    const controller = new AbortController();
+    const started = Promise.withResolvers<void>();
+    const following = vi.fn(async () => "unexpected");
+    const executor: Executor = {
+      async execute(_code, providers) {
+        if (!Array.isArray(providers)) {
+          throw new Error("Expected SDK-resolved providers");
+        }
+        const tools = providers[0]?.fns;
+        if (!(tools?.blocking && tools.following)) {
+          throw new Error("Expected both inner operations");
+        }
+        const results = await Promise.allSettled([
+          tools.blocking({}),
+          tools.following({}),
+        ]);
+        expect(results.map((result) => result.status)).toEqual([
+          "rejected",
+          "rejected",
+        ]);
+        return { result: null };
+      },
+    };
+    const tool = await createRemoteAgentCodeModeFlueTool({
+      definitions: [
+        {
+          name: "blocking",
+          description: "Wait for cancellation",
+          input: strictObject({}),
+          execute: async (_input, options) => {
+            expect(options?.signal).toBe(controller.signal);
+            const pending = new Promise<never>((_resolve, reject) => {
+              options?.signal?.addEventListener(
+                "abort",
+                () => reject(options.signal?.reason),
+                { once: true }
+              );
+            });
+            started.resolve();
+            return await pending;
+          },
+        },
+        {
+          name: "following",
+          description: "Must not start",
+          input: strictObject({}),
+          execute: following,
+        },
+      ],
+      env: {},
+      loader: {} as WorkerLoader,
+      runtime: {
+        createExecutor: () => executor,
+        createCodeTool: (input) => createCodeTool({ ...input, executor }),
+      },
+      storage,
+      submissionId: SUBMISSION_ID,
+    });
+    const running = runCodeModeTool(tool, {
+      input: { code: "async () => {}" },
+      signal: controller.signal,
+    });
+    await started.promise;
+    controller.abort(new Error("Stopped by user"));
+    await running;
+    expect(following).not.toHaveBeenCalled();
+  });
   it("checks personal execution authority before direct and Code Mode computer calls", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const execute = vi.fn(async () => ({ result: "computer-result" }));

@@ -143,6 +143,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
     description,
     input: codeModeInputSchema,
     run: async ({ data: toolInput, signal }) => {
+      signal?.throwIfAborted();
       const context = await requireRemoteAgentToolExecutionContext(input);
       await beginRemoteAgentToolExecutionAttempt({
         storage: input.storage,
@@ -165,6 +166,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
             onToolCall: () => {
               innerToolCallCount += 1;
             },
+            signal,
             storage: input.storage,
             streamPublisher:
               input.streamPublisher ?? remoteAgentStreamPublisher,
@@ -226,6 +228,7 @@ export async function createRemoteAgentCodeModeFlueTool(input: {
 }
 
 function buildCodeModeToolSet(input: {
+  signal?: AbortSignal;
   coreWorker?: RemoteAgentCoreWorkerBinding;
   definitions: RemoteAgentToolDefinition[];
   onToolCall(): void;
@@ -251,7 +254,9 @@ function buildCodeModeToolSet(input: {
             `codemode:${definition.name}:${String(fallbackToolCallSequence)}`;
           const result = await executeRemoteAgentToolDefinition({
             definition,
-            signal: options?.abortSignal,
+            // Code Mode 0.5.1 invokes tools without execution options.
+            // Bind cancellation to this invocation, not to SDK forwarding.
+            signal: input.signal ?? options?.abortSignal,
             source: "code_mode",
             storage: input.storage,
             submissionId: input.submissionId,

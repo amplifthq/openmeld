@@ -59,6 +59,7 @@ export async function executeRemoteAgentToolDefinition(input: {
   toolInput: Record<string, unknown>;
 }): Promise<unknown> {
   return await runRemoteAgentToolSerially(input, async () => {
+    input.signal?.throwIfAborted();
     await requireRemoteAgentToolExecutionContext(input);
     const attempt = await beginRemoteAgentToolExecutionAttempt({
       progressTracking: input.definition.progressTracking,
@@ -70,6 +71,7 @@ export async function executeRemoteAgentToolDefinition(input: {
     });
     let result: unknown;
     try {
+      input.signal?.throwIfAborted();
       result = input.signal
         ? await input.definition.execute(input.toolInput, {
             signal: input.signal,
