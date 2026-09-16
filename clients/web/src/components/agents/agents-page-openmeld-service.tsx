@@ -871,9 +871,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 			(updateOperation?.phase === "updated" && !updateTargetObserved));
 	const serviceUpdate = localComponents?.service ?? null;
 	const cliUpdate = resolveOpenMeldToolsCliUpdate(localComponents);
-	const updateFailureCode = findOpenMeldToolsUpdateFailureCode(
-		cliUpdate?.reasonCodes ?? []
-	);
+	const updateFailureCode = resolveOpenMeldToolsUpdateFailureCode(cliUpdate);
 	const skillsUpdate = resolveOpenMeldToolsSkillsUpdate(localComponents);
 	const requiredServiceUpdate =
 		isOpenMeldToolsComponentUpdateRequired(serviceUpdate);
@@ -1713,6 +1711,12 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 				targetObserved: input.targetObserved,
 			})
 		: null;
+}
+
+function resolveOpenMeldToolsUpdateFailureCode(
+	cliUpdate: LocalComponentUpdateStatus | null
+): OpenMeldToolsUpdateFailureCode | null {
+	return findOpenMeldToolsUpdateFailureCode(cliUpdate?.reasonCodes ?? []);
 }
 
 function formatOpenMeldToolsUpdatePhase(input: {
