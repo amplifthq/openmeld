@@ -1723,8 +1723,9 @@ feature/docs branch that will not publish.
 
 Authorized production previews use a shareable public page at
 `/desktop?candidate=<dmg-sha256>` and an immutable candidate download URL without
-adding marketing navigation or changing the default update channel. The plain
-`/desktop` page shows an unavailable state when there is no default release.
+changing the default update channel. The plain `/desktop` page is the stable
+account-free entry linked from the Web avatar menu. It shows an unavailable
+state until a reviewed release is explicitly promoted.
 Local private and disposable acceptance packages
 retain their existing commands and must never be uploaded as production candidates.
 
@@ -1741,22 +1742,44 @@ After review, protected merge, and selection of the exact release SHA:
    `openmeld-notary` Keychain profile. It requires the exact clean merged source.
    The signed App includes `desktop-production-source.json` with its source SHA,
    renderer fingerprint, and production target.
-4. Verify the signed App and a DMG copy: strict signature, stapled ticket,
+4. Verify the signed App, DMG copy and update ZIP: strict signature, stapled ticket,
    macOS trust, identity, resource equality, final hash and size. Review the
    artifact before the authorized publisher runs
    `pnpm release:desktop-preview:upload-candidate` from the same release checkout.
-5. The existing uploader verifies the actual DMG's production identity, ticket,
-   version and signed source record, then uploads the artifact before its
-   candidate manifest. It never writes `desktop/update.json`.
+5. Deploy the additive Web candidate/feed readers before uploading a candidate
+   with ZIP metadata; older strict metadata readers cannot read the new field.
+   The uploader verifies the actual DMG's production identity, ticket, version
+   and signed source record, and checks that the ZIP seals the same signed App.
+   It uploads both artifacts before their immutable candidate manifest. Existing
+   public candidates cannot be overwritten. It never promotes a release.
 6. Verify public GET and HEAD, full download hash/size, and normal macOS install
    and production smoke through user-facing entrypoints. An upload alone does
    not prove availability or application behavior.
+7. Separately authorize promotion. Deploy the Web feed/download readers first,
+   then run from the same clean approved checkout:
+   `OPENMELD_DESKTOP_RELEASE_SHA=<sha> node scripts/release/desktop-preview.mjs promote <candidate-hash> <current-version-or-none>`.
+   The command verifies remote candidate metadata and hashes both public artifacts.
+   It then acquires the existing Git-backed `web` production scope lease across
+   local and hosted runners. While holding that lease, it reads the authoritative
+   R2 pointer and candidate directly through Wrangler, checks the expected current
+   version and strict version increase, and writes `desktop/promoted.json`
+   last. This one atomic object replacement selects the public download, legacy
+   JSON and generated `latest-mac.yml` together. Never upload builder-generated
+   latest metadata or edit a parallel default manifest. Verify all three public
+   projections after promotion. Public page/JSON/feed caches never authorize a
+   promotion. Lease contention fails without writing; release and expired-lease
+   recovery follow the existing production scope rules (never steal a live lease).
+   A rollback is a reviewed forward release with
+   a newer app version; do not downgrade the channel under installed clients.
 
 The fixed storage contract in `packages/schemas/src/desktop-release.ts` uses:
 
 - URL: `https://openmeld.ai/desktop/download?candidate=<dmg-sha256>`
 - Metadata: `desktop/candidates/<dmg-sha256>/manifest.json`
 - Artifact: `desktop/candidates/<dmg-sha256>/OpenMeld-Desktop-<version>-macos-arm64.dmg`
+- Update artifact: the same candidate directory with a `.zip` extension
+- Sole promoted pointer: `desktop/promoted.json`
+- Generated updater feed: `/desktop/updates/latest-mac.yml`
 
 Only a lowercase 64-character SHA-256 selects a candidate. Metadata must match
 that hash and declares the production target, platform, version, merged release
@@ -1767,8 +1790,10 @@ The Worker streams through its existing private `OPENMELD_DESKTOP_DOWNLOADS`
 binding; no public bucket or additional access gate is introduced.
 
 The legacy unsigned build can still be used locally, but its upload command is
-disabled. Neither candidate publication nor the public preview page changes
-the existing default `/desktop/download` and `/desktop/update.json` selection.
+disabled. Candidate publication does not change the promoted selection. The
+old editable `desktop/update.json` storage object is no longer read; its public
+URL is a compatibility projection of the promoted candidate. Existing DMG-only
+candidate URLs remain valid but cannot be promoted into the updater channel.
 Production deployment and ordering still follow
 [Production Release](production-release.md); this workflow grants no independent
 permission to deploy or publish.

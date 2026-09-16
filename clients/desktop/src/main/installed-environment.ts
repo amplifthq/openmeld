@@ -56,10 +56,6 @@ export function installedCommandEnvironment(
         : {}),
       OPENMELD_DESKTOP_DOWNLOAD_PAGE_URL: new URL("/desktop", target.webOrigin)
         .href,
-      OPENMELD_DESKTOP_UPDATE_MANIFEST_URL: new URL(
-        "/desktop/update.json",
-        target.webOrigin
-      ).href,
     },
   };
 }

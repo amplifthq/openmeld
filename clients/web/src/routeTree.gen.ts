@@ -57,6 +57,7 @@ import { Route as V1ProfilesRouteImport } from './routes/v1/profiles'
 import { Route as V1SpaceInvitationsRouteImport } from './routes/v1/space-invitations'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as CliDownloadArtifactRouteImport } from './routes/cli/download/$artifact'
+import { Route as DesktopUpdatesLatestMacDotymlRouteImport } from './routes/desktop/updates/latest-mac[.yml]'
 import { Route as GuidesLocalAgentsAgentIdRouteImport } from './routes/guides/local-agents.$agentId'
 import { Route as OOrgSlugCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent'
 import { Route as OOrgSlugAgentActivityRouteImport } from './routes/o/$orgSlug/agent-activity'
@@ -105,6 +106,7 @@ import { Route as V1ProfilesProfileIdRouteImport } from './routes/v1/profiles/$p
 import { Route as V1ProfilesAgentsRouteImport } from './routes/v1/profiles/agents'
 import { Route as V1ProfilesCapabilitiesRouteImport } from './routes/v1/profiles/capabilities'
 import { Route as V1ProfilesHumansRouteImport } from './routes/v1/profiles/humans'
+import { Route as DesktopUpdatesCandidateDesktopDotzipRouteImport } from './routes/desktop/updates/$candidate/desktop[.zip]'
 import { Route as OOrgSlugCenterAgentIndexRouteImport } from './routes/o/$orgSlug/_center-agent/index'
 import { Route as OOrgSlugCenterAgentCenterAgentRouteImport } from './routes/o/$orgSlug/_center-agent/center-agent'
 import { Route as OOrgSlugCenterAgentDeskRouteImport } from './routes/o/$orgSlug/_center-agent/desk'
@@ -144,6 +146,7 @@ import { Route as OOrgSlugSettingsNotificationsRouteImport } from './routes/o/$o
 import { Route as OOrgSlugSettingsPrivacyRouteImport } from './routes/o/$orgSlug/settings/privacy'
 import { Route as OOrgSlugSettingsSecurityRouteImport } from './routes/o/$orgSlug/settings/security'
 import { Route as OOrgSlugSettingsServiceRouteImport } from './routes/o/$orgSlug/settings/service'
+import { Route as OOrgSlugSettingsUpdatesRouteImport } from './routes/o/$orgSlug/settings/updates'
 import { Route as OOrgSlugSpacesIndexRouteImport } from './routes/o/$orgSlug/spaces/index'
 import { Route as OOrgSlugSpacesSpaceIdRouteImport } from './routes/o/$orgSlug/spaces/$spaceId'
 import { Route as V1ProfilesAgentsProfileIdRouteImport } from './routes/v1/profiles/agents/$profileId'
@@ -409,6 +412,12 @@ const CliDownloadArtifactRoute = CliDownloadArtifactRouteImport.update({
   path: '/cli/download/$artifact',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DesktopUpdatesLatestMacDotymlRoute =
+  DesktopUpdatesLatestMacDotymlRouteImport.update({
+    id: '/updates/latest-mac.yml',
+    path: '/updates/latest-mac.yml',
+    getParentRoute: () => DesktopRoute,
+  } as any)
 const GuidesLocalAgentsAgentIdRoute =
   GuidesLocalAgentsAgentIdRouteImport.update({
     id: '/$agentId',
@@ -665,6 +674,12 @@ const V1ProfilesHumansRoute = V1ProfilesHumansRouteImport.update({
   path: '/humans',
   getParentRoute: () => V1ProfilesRoute,
 } as any)
+const DesktopUpdatesCandidateDesktopDotzipRoute =
+  DesktopUpdatesCandidateDesktopDotzipRouteImport.update({
+    id: '/updates/$candidate/desktop.zip',
+    path: '/updates/$candidate/desktop.zip',
+    getParentRoute: () => DesktopRoute,
+  } as any)
 const OOrgSlugCenterAgentIndexRoute =
   OOrgSlugCenterAgentIndexRouteImport.update({
     id: '/',
@@ -879,6 +894,11 @@ const OOrgSlugSettingsServiceRoute = OOrgSlugSettingsServiceRouteImport.update({
   path: '/service',
   getParentRoute: () => OOrgSlugSettingsRoute,
 } as any)
+const OOrgSlugSettingsUpdatesRoute = OOrgSlugSettingsUpdatesRouteImport.update({
+  id: '/updates',
+  path: '/updates',
+  getParentRoute: () => OOrgSlugSettingsRoute,
+} as any)
 const OOrgSlugSpacesIndexRoute = OOrgSlugSpacesIndexRouteImport.update({
   id: '/spaces/',
   path: '/spaces/',
@@ -1058,6 +1078,7 @@ export interface FileRoutesByFullPath {
   '/v1/space-invitations': typeof V1SpaceInvitationsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
+  '/desktop/updates/latest-mac.yml': typeof DesktopUpdatesLatestMacDotymlRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
   '/o/$orgSlug/agent-activity': typeof OOrgSlugAgentActivityRouteWithChildren
   '/o/$orgSlug/agents': typeof OOrgSlugAgentsRoute
@@ -1105,6 +1126,7 @@ export interface FileRoutesByFullPath {
   '/v1/profiles/agents': typeof V1ProfilesAgentsRouteWithChildren
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
+  '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
   '/o/$orgSlug/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -1134,6 +1156,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
+  '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -1216,6 +1239,7 @@ export interface FileRoutesByTo {
   '/v1/space-invitations': typeof V1SpaceInvitationsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
+  '/desktop/updates/latest-mac.yml': typeof DesktopUpdatesLatestMacDotymlRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
   '/o/$orgSlug/agents': typeof OOrgSlugAgentsRoute
   '/o/$orgSlug/computers': typeof OOrgSlugComputersRouteWithChildren
@@ -1256,6 +1280,7 @@ export interface FileRoutesByTo {
   '/v1/profiles/agents': typeof V1ProfilesAgentsRouteWithChildren
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
+  '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
   '/o/$orgSlug/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
   '/o/$orgSlug/agent-activity/sessions': typeof OOrgSlugAgentActivitySessionsRoute
@@ -1284,6 +1309,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
+  '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -1365,6 +1391,7 @@ export interface FileRoutesById {
   '/v1/space-invitations': typeof V1SpaceInvitationsRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/cli/download/$artifact': typeof CliDownloadArtifactRoute
+  '/desktop/updates/latest-mac.yml': typeof DesktopUpdatesLatestMacDotymlRoute
   '/guides/local-agents/$agentId': typeof GuidesLocalAgentsAgentIdRoute
   '/o/$orgSlug/_center-agent': typeof OOrgSlugCenterAgentRouteWithChildren
   '/o/$orgSlug/agent-activity': typeof OOrgSlugAgentActivityRouteWithChildren
@@ -1413,6 +1440,7 @@ export interface FileRoutesById {
   '/v1/profiles/agents': typeof V1ProfilesAgentsRouteWithChildren
   '/v1/profiles/capabilities': typeof V1ProfilesCapabilitiesRoute
   '/v1/profiles/humans': typeof V1ProfilesHumansRoute
+  '/desktop/updates/$candidate/desktop.zip': typeof DesktopUpdatesCandidateDesktopDotzipRoute
   '/o/$orgSlug/_center-agent/center-agent': typeof OOrgSlugCenterAgentCenterAgentRouteWithChildren
   '/o/$orgSlug/_center-agent/desk': typeof OOrgSlugCenterAgentDeskRoute
   '/o/$orgSlug/agent-activity/changes': typeof OOrgSlugAgentActivityChangesRoute
@@ -1442,6 +1470,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/settings/privacy': typeof OOrgSlugSettingsPrivacyRoute
   '/o/$orgSlug/settings/security': typeof OOrgSlugSettingsSecurityRoute
   '/o/$orgSlug/settings/service': typeof OOrgSlugSettingsServiceRoute
+  '/o/$orgSlug/settings/updates': typeof OOrgSlugSettingsUpdatesRoute
   '/o/$orgSlug/spaces/$spaceId': typeof OOrgSlugSpacesSpaceIdRoute
   '/v1/profiles/agents/$profileId': typeof V1ProfilesAgentsProfileIdRoute
   '/v1/spaces/$spaceId/stream': typeof V1SpacesSpaceIdStreamRoute
@@ -1526,6 +1555,7 @@ export interface FileRouteTypes {
     | '/v1/space-invitations'
     | '/api/auth/$'
     | '/cli/download/$artifact'
+    | '/desktop/updates/latest-mac.yml'
     | '/guides/local-agents/$agentId'
     | '/o/$orgSlug/agent-activity'
     | '/o/$orgSlug/agents'
@@ -1573,6 +1603,7 @@ export interface FileRouteTypes {
     | '/v1/profiles/agents'
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
+    | '/desktop/updates/$candidate/desktop.zip'
     | '/o/$orgSlug/center-agent'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1602,6 +1633,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/privacy'
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
+    | '/o/$orgSlug/settings/updates'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
@@ -1684,6 +1716,7 @@ export interface FileRouteTypes {
     | '/v1/space-invitations'
     | '/api/auth/$'
     | '/cli/download/$artifact'
+    | '/desktop/updates/latest-mac.yml'
     | '/guides/local-agents/$agentId'
     | '/o/$orgSlug/agents'
     | '/o/$orgSlug/computers'
@@ -1724,6 +1757,7 @@ export interface FileRouteTypes {
     | '/v1/profiles/agents'
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
+    | '/desktop/updates/$candidate/desktop.zip'
     | '/o/$orgSlug/desk'
     | '/o/$orgSlug/agent-activity/changes'
     | '/o/$orgSlug/agent-activity/sessions'
@@ -1752,6 +1786,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/privacy'
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
+    | '/o/$orgSlug/settings/updates'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
@@ -1832,6 +1867,7 @@ export interface FileRouteTypes {
     | '/v1/space-invitations'
     | '/api/auth/$'
     | '/cli/download/$artifact'
+    | '/desktop/updates/latest-mac.yml'
     | '/guides/local-agents/$agentId'
     | '/o/$orgSlug/_center-agent'
     | '/o/$orgSlug/agent-activity'
@@ -1880,6 +1916,7 @@ export interface FileRouteTypes {
     | '/v1/profiles/agents'
     | '/v1/profiles/capabilities'
     | '/v1/profiles/humans'
+    | '/desktop/updates/$candidate/desktop.zip'
     | '/o/$orgSlug/_center-agent/center-agent'
     | '/o/$orgSlug/_center-agent/desk'
     | '/o/$orgSlug/agent-activity/changes'
@@ -1909,6 +1946,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/settings/privacy'
     | '/o/$orgSlug/settings/security'
     | '/o/$orgSlug/settings/service'
+    | '/o/$orgSlug/settings/updates'
     | '/o/$orgSlug/spaces/$spaceId'
     | '/v1/profiles/agents/$profileId'
     | '/v1/spaces/$spaceId/stream'
@@ -2342,6 +2380,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CliDownloadArtifactRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/desktop/updates/latest-mac.yml': {
+      id: '/desktop/updates/latest-mac.yml'
+      path: '/updates/latest-mac.yml'
+      fullPath: '/desktop/updates/latest-mac.yml'
+      preLoaderRoute: typeof DesktopUpdatesLatestMacDotymlRouteImport
+      parentRoute: typeof DesktopRoute
+    }
     '/guides/local-agents/$agentId': {
       id: '/guides/local-agents/$agentId'
       path: '/$agentId'
@@ -2678,6 +2723,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof V1ProfilesHumansRouteImport
       parentRoute: typeof V1ProfilesRoute
     }
+    '/desktop/updates/$candidate/desktop.zip': {
+      id: '/desktop/updates/$candidate/desktop.zip'
+      path: '/updates/$candidate/desktop.zip'
+      fullPath: '/desktop/updates/$candidate/desktop.zip'
+      preLoaderRoute: typeof DesktopUpdatesCandidateDesktopDotzipRouteImport
+      parentRoute: typeof DesktopRoute
+    }
     '/o/$orgSlug/_center-agent/': {
       id: '/o/$orgSlug/_center-agent/'
       path: '/'
@@ -2951,6 +3003,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsServiceRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
+    '/o/$orgSlug/settings/updates': {
+      id: '/o/$orgSlug/settings/updates'
+      path: '/updates'
+      fullPath: '/o/$orgSlug/settings/updates'
+      preLoaderRoute: typeof OOrgSlugSettingsUpdatesRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
     '/o/$orgSlug/spaces/': {
       id: '/o/$orgSlug/spaces/'
       path: '/spaces'
@@ -3123,11 +3182,16 @@ const AgentInterfaceRouteWithChildren = AgentInterfaceRoute._addFileChildren(
 interface DesktopRouteChildren {
   DesktopDownloadRoute: typeof DesktopDownloadRoute
   DesktopUpdateDotjsonRoute: typeof DesktopUpdateDotjsonRoute
+  DesktopUpdatesLatestMacDotymlRoute: typeof DesktopUpdatesLatestMacDotymlRoute
+  DesktopUpdatesCandidateDesktopDotzipRoute: typeof DesktopUpdatesCandidateDesktopDotzipRoute
 }
 
 const DesktopRouteChildren: DesktopRouteChildren = {
   DesktopDownloadRoute: DesktopDownloadRoute,
   DesktopUpdateDotjsonRoute: DesktopUpdateDotjsonRoute,
+  DesktopUpdatesLatestMacDotymlRoute: DesktopUpdatesLatestMacDotymlRoute,
+  DesktopUpdatesCandidateDesktopDotzipRoute:
+    DesktopUpdatesCandidateDesktopDotzipRoute,
 }
 
 const DesktopRouteWithChildren =
@@ -3388,6 +3452,7 @@ interface OOrgSlugSettingsRouteChildren {
   OOrgSlugSettingsPrivacyRoute: typeof OOrgSlugSettingsPrivacyRoute
   OOrgSlugSettingsSecurityRoute: typeof OOrgSlugSettingsSecurityRoute
   OOrgSlugSettingsServiceRoute: typeof OOrgSlugSettingsServiceRoute
+  OOrgSlugSettingsUpdatesRoute: typeof OOrgSlugSettingsUpdatesRoute
   OOrgSlugSettingsIndexRoute: typeof OOrgSlugSettingsIndexRoute
 }
 
@@ -3404,6 +3469,7 @@ const OOrgSlugSettingsRouteChildren: OOrgSlugSettingsRouteChildren = {
   OOrgSlugSettingsPrivacyRoute: OOrgSlugSettingsPrivacyRoute,
   OOrgSlugSettingsSecurityRoute: OOrgSlugSettingsSecurityRoute,
   OOrgSlugSettingsServiceRoute: OOrgSlugSettingsServiceRoute,
+  OOrgSlugSettingsUpdatesRoute: OOrgSlugSettingsUpdatesRoute,
   OOrgSlugSettingsIndexRoute: OOrgSlugSettingsIndexRoute,
 }
 

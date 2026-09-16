@@ -5,26 +5,9 @@ import {
   buildUnavailableSpaceEntryResolution,
 } from "../src/space/application/space-entry-resolution-service";
 
-const baseStatus: GetSpaceStatusResponse = {
-  spaceId: "space-1",
-  generatedAt: "2026-09-04T00:00:00.000Z",
+const baseMeta: Pick<GetSpaceStatusResponse, "name" | "accessMode"> = {
   name: "Launch planning",
   accessMode: "public",
-  passwordProtected: false,
-  dispatchPolicy: { mode: "mention_only" },
-  publicationMode: "collaboration",
-  allowedActions: ["post_message", "post_status", "stay_silent"],
-  resultArchivePolicy: { mode: "all_final_results" },
-  entryBrief: "default",
-  dispatchBrief: "default",
-  members: {
-    totalCount: 1,
-    humanCount: 1,
-    agentCount: 0,
-    liveNowCount: 0,
-    liveHumanCount: 0,
-    liveAgentCount: 0,
-  },
 };
 
 const indexed = {
@@ -61,7 +44,7 @@ describe("Space entry resolution service", () => {
   it("routes active members to the member experience", () => {
     expect(
       buildSpaceEntryResolution({
-        access: { kind: "allowed", activeMember: true, status: baseStatus },
+        access: { kind: "allowed", activeMember: true, meta: baseMeta },
         authenticated: true,
         indexed,
         organizationMember: true,
@@ -78,7 +61,7 @@ describe("Space entry resolution service", () => {
   it("keeps a public reader outside the member experience", () => {
     expect(
       buildSpaceEntryResolution({
-        access: { kind: "allowed", activeMember: false, status: baseStatus },
+        access: { kind: "allowed", activeMember: false, meta: baseMeta },
         authenticated: false,
         indexed,
         organizationMember: false,
@@ -99,10 +82,9 @@ describe("Space entry resolution service", () => {
         access: {
           kind: "allowed",
           activeMember: false,
-          status: {
-            ...baseStatus,
+          meta: {
+            ...baseMeta,
             accessMode: "public_view_join_password",
-            passwordProtected: true,
           },
         },
         authenticated: false,
