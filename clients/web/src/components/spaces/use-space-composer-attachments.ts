@@ -25,6 +25,7 @@ type ComposerFileScope = {
 	profileId: string;
 	spaceId: string;
 	draftScope?: string;
+	deferUpload?: boolean;
 };
 
 function createFileSession(input: ComposerFileScope) {
@@ -37,6 +38,7 @@ function createFileSession(input: ComposerFileScope) {
 		activeFileIds: new Set<string>(),
 		previewUrlsByLocalId: new Map<string, string>(),
 		scope: input,
+		restorationTask: Promise.resolve() as Promise<unknown>,
 	};
 }
 
@@ -175,19 +177,24 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 						(file) => !session.submittingIds.has(file.localId)
 					).length
 			);
-			const acceptedFiles = selectedFiles.slice(0, availableSlots);
+			const selected = selectedFiles
+				.map((file, index) => ({ file, draft: restored?.[index] }))
+				.filter(({ draft }) => !(draft && session.activeFileIds.has(draft.id)))
+				.slice(0, availableSlots);
+			const acceptedFiles = selected.map(({ file }) => file);
 			if (acceptedFiles.length === 0) {
 				return;
 			}
 
 			const pending = acceptedFiles.map((file, index) => {
-				const savedUpload = restored?.[index]?.upload;
+				const restoredDraft = selected[index]?.draft;
+				const savedUpload = restoredDraft?.upload;
 				const upload =
 					savedUpload && Date.parse(savedUpload.expiresAt) > Date.now()
 						? savedUpload
 						: null;
 				const localId =
-					restored?.[index]?.id ?? `composer-file:${crypto.randomUUID()}`;
+					restoredDraft?.id ?? `composer-file:${crypto.randomUUID()}`;
 				const mimeType = resolveSpaceFileMimeType({
 					declaredMimeType: file.type,
 					fileName: file.name,
@@ -211,7 +218,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 						previewUrl,
 						progress: upload ? 100 : 0,
 						publishMutationId:
-							restored?.[index]?.publishMutationId ?? crypto.randomUUID(),
+							restoredDraft?.publishMutationId ?? crypto.randomUUID(),
 						status: upload ? "ready" : "uploading",
 						upload,
 					} satisfies SpaceComposerFile,
@@ -237,6 +244,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 						setFiles: updateFiles,
 						spaceId: input.spaceId,
 						draftScopeKey: scopeKey,
+						deferUpload: input.deferUpload,
 					});
 					session.uploadTasks.set(item.localId, task);
 					return task;
@@ -247,6 +255,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			input.organizationSlug,
 			input.profileId,
 			input.spaceId,
+			input.deferUpload,
 			scopeKey,
 			updateFiles,
 			session,
@@ -255,7 +264,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 
 	useEffect(() => {
 		let disposed = false;
-		readComposerFileDrafts(scopeKey)
+		session.restorationTask = readComposerFileDrafts(scopeKey)
 			.then((drafts) => {
 				const pending = drafts.filter((d) => !session.activeFileIds.has(d.id));
 				if (!disposed && pending.length) {
@@ -374,6 +383,28 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 
 	return {
 		addFiles,
+		getSourceFiles: () =>
+			session.files.flatMap((file) => {
+				const source = session.sourceFiles.get(file.localId);
+				return source ? [source] : [];
+			}),
+		readFileDrafts: async () => {
+			await session.restorationTask;
+			if (session.files.length === 0) {
+				return [];
+			}
+			await Promise.all(session.uploadTasks.values());
+			const drafts = await readComposerFileDrafts(scopeKey);
+			const selected = drafts.filter((draft) =>
+				session.activeFileIds.has(draft.id)
+			);
+			if (selected.length !== session.files.length) {
+				throw new Error(
+					"Couldn't save your attachments. Remove them and add them again."
+				);
+			}
+			return selected;
+		},
 		beginSubmission,
 		finishSubmission,
 		clearFiles,
@@ -390,6 +421,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 }
 
 async function uploadPendingFile(input: {
+	deferUpload?: boolean;
 	draftScopeKey: string;
 	controllers: Map<string, AbortController>;
 	activeFileIds: Set<string>;
@@ -412,6 +444,14 @@ async function uploadPendingFile(input: {
 			file: input.file,
 			publishMutationId: input.item.publishMutationId,
 		});
+		if (input.deferUpload) {
+			updateFile(input.setFiles, input.item.localId, (current) => ({
+				...current,
+				status: "ready",
+				progress: 100,
+			}));
+			return;
+		}
 		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.profileId,
 		});

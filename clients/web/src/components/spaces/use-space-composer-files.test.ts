@@ -70,6 +70,51 @@ function setup() {
 	);
 }
 
+it("hands local new-chat drafts to the Space upload owner once with their original identities", async () => {
+	setup();
+	const local = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "new-chat",
+			deferUpload: true,
+		})
+	);
+	await act(async () => {
+		await local.result.current.addFiles([
+			new File(["brief"], "brief.txt", { type: "text/plain" }),
+		]);
+	});
+	expect(api.stageComposerUpload).not.toHaveBeenCalled();
+	const saved = await local.result.current.readFileDrafts();
+	local.unmount();
+	const destination = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "created-space",
+		})
+	);
+	await act(async () => {
+		await destination.result.current.addFiles(
+			saved.map((draft) => draft.file),
+			saved
+		);
+	});
+	await act(async () => {
+		await destination.result.current.addFiles(
+			saved.map((draft) => draft.file),
+			saved
+		);
+	});
+	expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+	expect(destination.result.current.files).toHaveLength(1);
+	expect(destination.result.current.files[0].localId).toBe(saved[0].id);
+	expect(destination.result.current.files[0].publishMutationId).toBe(
+		saved[0].publishMutationId
+	);
+});
+
 it("keeps each conversation's attachments and pending upload when navigating away", async () => {
 	const hook = setup();
 	await act(async () =>

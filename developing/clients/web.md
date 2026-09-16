@@ -138,6 +138,23 @@ new chat in that group if it still exists. Explicit draft and session selectors
 cannot be combined. Existing-session loading and pending sends share one
 conversation skeleton inside the inset app frame.
 
+New-chat attachments use the shared Space file picker, paste/drop handling,
+preview tray, and account-scoped browser draft storage. They remain local until
+the first send creates a session; their original attachment and publication
+identities then pass to the Space upload/retry pipeline. Session creation shows
+the pending message immediately. Personal sidebar title/group persistence does
+not block message handoff. Leaving during creation preserves the draft without
+navigating back, and successful navigation only clears the draft version sent.
+
+Sidebar activity indicators resolve their destination from an authorized
+active-Wake progress read on click, without adding per-row subscriptions.
+Multiple runs use the displayed status priority and oldest start time. The
+source signal goes through existing message/Thread focus routing; a Thread ID
+is never treated as a root message ID. Repeated selection scrolls again. If the
+work has finished, the conversation opens with an explanatory notice; failed
+reads retain an explicit retry path. Navigation does not change execution or
+Stop authority.
+
 Drafts and saved chats use the same header navigation and welcome template.
 Management tabs retain the session or draft selector when navigating back.
 Messages, Graph and Files remain scoped to that conversation; management tabs
@@ -1051,6 +1068,11 @@ states. `SettingsDialogContent` supplies the shared Space/App dialog shell;
 App settings uses its larger 1024px by 42rem variant, constrained to the viewport.
 Navigation and content scroll independently. Section components and their
 mutations do not fork by presentation.
+
+The dialog shell and section navigation mount once, including on a cold first
+open. Heavy section panels load lazily inside the content area; loading must
+not replace the dialog or its navigation. Unavailable dialog sections recover
+to Account through the same capability-filtered registry.
 
 The Settings secondary sidebar always shows these two groups:
 

@@ -19,8 +19,8 @@ import {
 	UsersIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { redirect, useLocation } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { redirect } from "@tanstack/react-router";
+import { type ReactNode, Suspense, useEffect, useState } from "react";
 import {
 	AppContextualContentFrame,
 	type AppContextualNavGroup,
@@ -96,7 +96,6 @@ export function SettingsPage(input: {
 	presentation?: "page" | "dialog";
 	onNavigate?: (section: string) => void;
 }) {
-	const pathname = useLocation({ select: (location) => location.pathname });
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const sections = resolveSettingsSections(
@@ -105,9 +104,19 @@ export function SettingsPage(input: {
 	);
 	const navItems = toSettingsNavItems(sections);
 
-	const activeSection = sections.find(
+	const requestedSection = sections.find(
 		(section) => section.id === input.activeSectionId
 	);
+	const activeSection =
+		requestedSection ??
+		(input.presentation === "dialog"
+			? sections.find((section) => section.id === "account")
+			: undefined);
+	useEffect(() => {
+		if (!requestedSection && input.presentation === "dialog") {
+			input.onNavigate?.("account");
+		}
+	}, [requestedSection, input.presentation, input.onNavigate]);
 
 	// Gated-route guard: if the active leaf's section was filtered out by host
 	// capability (e.g. /o/:orgSlug/settings/service on a plain Web host, which lacks
@@ -115,13 +124,6 @@ export function SettingsPage(input: {
 	// the requested URL. Redirect to the always-present Account leaf instead.
 	// This also protects any future gated leaf added to the registry.
 	if (!activeSection) {
-		if (input.presentation === "dialog") {
-			throw redirect({
-				to: pathname,
-				replace: true,
-				search: (previous) => ({ ...previous, appSettings: "account" }),
-			});
-		}
 		throw redirect({
 			replace: true,
 			to: buildOrganizationAccountSettingsPath(orgSlug),
@@ -131,7 +133,7 @@ export function SettingsPage(input: {
 	return (
 		<SettingsPageShell
 			activeSection={activeSection}
-			activeSectionId={input.activeSectionId}
+			activeSectionId={activeSection.id}
 			currentUserId={currentUserId}
 			initialSidebarStates={input.initialSidebarStates}
 			navItems={navItems}
@@ -177,9 +179,14 @@ function SettingsPageShell(input: {
 			presentation={input.presentation}
 		/>
 	);
-	const content = input.activeSection.render({
-		capabilities: WEB_HOST_CAPABILITIES,
-	});
+	const content = (
+		<Suspense
+			fallback={<output>Loading settings…</output>}
+			key={input.activeSectionId}
+		>
+			{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
+		</Suspense>
+	);
 	if (input.presentation === "dialog") {
 		return (
 			<>

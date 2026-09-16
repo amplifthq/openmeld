@@ -8,13 +8,23 @@ import {
 	PromptInputActions,
 	PromptInputTextarea,
 } from "#/components/ibelick/prompt-input";
+import {
+	SpaceComposerAddMenu,
+	SpaceComposerFileTray,
+	useSpaceComposerFileInput,
+} from "#/components/spaces/space-composer-attachments";
 import { SpaceConversationSkeleton } from "#/components/spaces/space-conversation-skeleton";
 import { SpaceMessageDeliveryStatus } from "#/components/spaces/space-message-delivery-status";
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
+import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 
 export function CenterAgentOptimisticConversation(input: {
-	composerAccessory?: ReactNode;
-	hasAttachments?: boolean;
+	attachments?: {
+		files: readonly SpaceComposerFile[];
+		isAtLimit: boolean;
+		addFiles: (files: readonly File[]) => Promise<void>;
+		removeFile: (localId: string) => void;
+	};
 	empty?: boolean;
 	emptyContent?: ReactNode;
 	header?: ReactNode;
@@ -25,6 +35,12 @@ export function CenterAgentOptimisticConversation(input: {
 	presentation?: "compact" | "full";
 }) {
 	const isSending = input.pendingMessage !== null;
+	const fileInput = useSpaceComposerFileInput({
+		disabled: isSending || !input.attachments,
+		onAddFiles: async (files) => {
+			await input.attachments?.addFiles(files);
+		},
+	});
 
 	return (
 		<section
@@ -83,6 +99,14 @@ export function CenterAgentOptimisticConversation(input: {
 										<div className="max-w-[min(80%,42rem)]">
 											<div className="rounded-lg border border-border bg-muted px-3 py-2 text-foreground text-sm">
 												{input.pendingMessage.text}
+												{input.pendingMessage.files?.map((file, index) => (
+													<div
+														className="text-muted-foreground text-xs"
+														key={`${file.name}:${index}`}
+													>
+														{file.name}
+													</div>
+												))}
 											</div>
 										</div>
 									</div>
@@ -97,12 +121,24 @@ export function CenterAgentOptimisticConversation(input: {
 				<footer className="shrink-0 bg-background">
 					<div className="w-full py-4" data-space-conversation-content-width="">
 						<PromptInput
-							className="w-full"
+							className="relative w-full"
 							disabled={isSending}
 							maxHeight={240}
 							onSubmit={input.onSend}
 							value={input.composerText}
 						>
+							{input.attachments && (
+								<SpaceComposerFileTray
+									disabled={isSending}
+									files={input.attachments.files}
+									onRemove={input.attachments.removeFile}
+								/>
+							)}
+							{fileInput.isDraggingFiles && (
+								<div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border border-primary border-dashed bg-background/90 text-sm">
+									Drop files to attach
+								</div>
+							)}
 							<PromptInputTextarea
 								aria-label="Message Center Agent"
 								autoComplete="off"
@@ -112,10 +148,22 @@ export function CenterAgentOptimisticConversation(input: {
 								onChange={(event) => {
 									input.onComposerChange(event.target.value);
 								}}
+								onDragLeave={fileInput.handleDragLeave}
+								onDragOver={fileInput.handleDragOver}
+								onDrop={fileInput.handleDrop}
+								onPaste={fileInput.handlePaste}
 								placeholder="Tell Center Agent what you need…"
 							/>
 							<PromptInputActions className="min-w-0 justify-between pt-2">
-								<div>{input.composerAccessory}</div>
+								<div>
+									{input.attachments && (
+										<SpaceComposerAddMenu
+											addFiles={fileInput.addFiles}
+											disabled={isSending}
+											limitReached={input.attachments.isAtLimit}
+										/>
+									)}
+								</div>
 								<PromptInputAction
 									tooltip={isSending ? "Sending…" : "Send message"}
 								>
@@ -123,7 +171,10 @@ export function CenterAgentOptimisticConversation(input: {
 										aria-label={isSending ? "Sending…" : "Send message"}
 										disabled={
 											isSending ||
-											!(input.composerText.trim() || input.hasAttachments)
+											!(
+												input.composerText.trim() ||
+												input.attachments?.files.length
+											)
 										}
 										onClick={input.onSend}
 										size="icon-sm"

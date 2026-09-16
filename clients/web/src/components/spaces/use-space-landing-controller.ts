@@ -1673,7 +1673,7 @@ export function useSpaceLandingController(input: {
 		}
 		stagedInitialFileMessageIdRef.current = pending.clientMessageId;
 		composerFilesController
-			.addFiles(pending.files)
+			.addFiles(pending.files, pending.fileDrafts)
 			.then(() => setPreparedInitialFileMessageId(pending.clientMessageId))
 			.catch((error: unknown) => {
 				console.error("Could not prepare the first chat attachments.", error);

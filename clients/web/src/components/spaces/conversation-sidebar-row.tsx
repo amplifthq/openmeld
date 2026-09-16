@@ -22,7 +22,10 @@ import {
 	DotsThreeIcon,
 	PushPinIcon,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useSortableSidebarItem } from "#/components/app/sidebar-drag";
 import { SidebarRowAction } from "#/components/app/sidebar-row-action";
 import {
@@ -30,6 +33,7 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
+import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
 import { CenterAgentChatAvatar } from "../organizations/center-agent-chat-avatar";
 import type { Chat } from "./chat-sidebar-model";
 import type {
@@ -42,7 +46,9 @@ import {
 } from "./sidebar-conversation-time";
 import { SpaceActiveWakeIndicator } from "./space-active-wake-indicator";
 import {
+	buildSpaceActivityHref,
 	resolveSpaceActiveWakePresentation,
+	resolveSpaceActiveWakeTarget,
 	type SpaceActiveWakePresentation,
 	type SpaceSidebarActiveWakeSummary,
 } from "./space-active-wake-presentation";
@@ -237,7 +243,10 @@ function ConversationSidebarRowContent(
 			{presentation ? (
 				<SidebarMenuBadge className="p-0">
 					<ConversationActivityIndicator
+						focusSignalId={input.activeWakeSummary?.focusSignalId}
 						presentation={presentation}
+						profileId={input.profileId}
+						spaceId={input.conversation.spaceId}
 						title={input.title}
 						url={input.url}
 					/>
@@ -263,20 +272,88 @@ function ConversationActivityIndicator({
 	presentation,
 	title,
 	url,
+	profileId,
+	spaceId,
+	focusSignalId,
 }: {
+	profileId: string;
+	spaceId: string;
+	focusSignalId?: string;
 	presentation: SpaceActiveWakePresentation;
 	title: string;
 	url: string;
 }) {
+	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const currentHref = useLocation({ select: (location) => location.href });
+	const [opening, setOpening] = useState(false);
+	const navigationAttempt = useRef(0);
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Navigation elsewhere invalidates a pending click, even when the sidebar remains mounted.
+	useEffect(
+		() => () => {
+			navigationAttempt.current += 1;
+		},
+		[currentHref]
+	);
+	const href = buildSpaceActivityHref(url, focusSignalId);
+	const openActivity = async () => {
+		const attempt = ++navigationAttempt.current;
+		setOpening(true);
+		try {
+			const progress = await queryClient.fetchQuery(
+				spaceActiveWakeProgressSummaryQueryOptions({
+					enabled: true,
+					openMeldProfileId: profileId,
+					spaceId,
+				})
+			);
+			if (attempt !== navigationAttempt.current) {
+				return;
+			}
+			const target = resolveSpaceActiveWakeTarget(progress.items);
+			const destination = buildSpaceActivityHref(url, target?.sourceSignalId);
+			if (!target) {
+				toast.info("This work has finished. Opening the conversation.");
+			}
+			// Reset a previously consumed focus request so repeating this action scrolls again.
+			if (currentHref === destination && destination !== url) {
+				await navigate({ to: url, replace: true, resetScroll: false });
+			}
+			await navigate({ to: destination, resetScroll: false });
+		} catch (error) {
+			console.error("Could not open active work", error);
+			toast.error(
+				"Couldn't find the active work. Open the conversation or try again."
+			);
+		} finally {
+			setOpening(false);
+		}
+	};
 	return (
 		<Tooltip>
 			<TooltipTrigger
 				render={
 					<Link
-						aria-label={`${presentation.label}. Open ${title}`}
+						aria-busy={opening}
+						aria-label={`${presentation.label}. Find active work in ${title}`}
 						className="pointer-events-auto inline-flex shrink-0 rounded-full outline-none focus-visible:ring-1 focus-visible:ring-ring"
+						onClick={(event) => {
+							if (
+								event.button !== 0 ||
+								event.metaKey ||
+								event.ctrlKey ||
+								event.shiftKey ||
+								event.altKey
+							) {
+								return;
+							}
+							event.preventDefault();
+							if (!opening) {
+								openActivity();
+							}
+						}}
 						resetScroll={false}
-						to={url}
+						to={href}
 					/>
 				}
 			>
