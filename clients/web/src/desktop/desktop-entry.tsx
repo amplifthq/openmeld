@@ -1,11 +1,16 @@
+import type { DesktopSession } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { OPENMELD_LOGO_THEME_COLORS } from "@openmeld/ui/lib/openmeld-logo-theme";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useRouter, useSearch } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { resolveOptionalActiveOrganizationEntryPath } from "#/lib/organizations/organization-scope";
-import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
+import {
+	clearPrivateAccountStateAfterSessionRead,
+	readKnownAccountIdBeforeSessionRevalidation,
+	resetAccountScopedQueriesAfterAuthChange,
+} from "#/query/auth-boundary";
 import { formatDesktopError } from "./desktop-error";
 import { getDesktopPlatform } from "./platform";
 
@@ -29,21 +34,35 @@ export function DesktopEntry() {
 		let disposed = false;
 		let revision = 0;
 		let prepared = Promise.resolve();
+		let confirmedAccountId: string | null | undefined =
+			readKnownAccountIdBeforeSessionRevalidation(queryClient);
 		const refresh = (sessionChanged = false) => {
 			if (sessionChanged) {
 				setPendingOperation("session");
 				setError(null);
-				revision++;
-				prepared = resetAccountScopedQueriesAfterAuthChange(queryClient);
 			}
-			const current = revision;
+			const previousAccountId = confirmedAccountId;
+			const current = ++revision;
 			const active = () =>
 				!disposed &&
 				current === revision &&
 				router.state.location.pathname === "/desktop-shell";
-			prepared
-				.then(() => (active() ? resolveDesktopEntry(bridge, returnPath) : null))
-				.then(async (path) => {
+			prepared = prepared
+				.then(() =>
+					revalidateDesktopEntry({
+						active,
+						bridge,
+						previousAccountId,
+						queryClient,
+						sessionChanged,
+					})
+				)
+				.then(async (result) => {
+					if (!(result && active())) {
+						return;
+					}
+					confirmedAccountId = result.accountId;
+					const path = await resolveDesktopEntry(result.session, returnPath);
 					if (path && active()) {
 						await router.navigate({ to: path, replace: true });
 					}
@@ -130,6 +149,39 @@ export function DesktopEntry() {
 	);
 }
 
+async function revalidateDesktopEntry(input: {
+	active: () => boolean;
+	bridge: NonNullable<ReturnType<typeof getDesktopPlatform>>;
+	previousAccountId: string | null | undefined;
+	queryClient: QueryClient;
+	sessionChanged: boolean;
+}): Promise<{ accountId: string | null; session: DesktopSession } | null> {
+	if (!input.active()) {
+		return null;
+	}
+	if (input.sessionChanged) {
+		await resetAccountScopedQueriesAfterAuthChange(input.queryClient, {
+			preserveComposerDrafts: true,
+		});
+	}
+	if (!input.active()) {
+		return null;
+	}
+	const session = await input.bridge.session();
+	if (!input.active()) {
+		return null;
+	}
+	const accountId = session.user?.id ?? null;
+	await clearPrivateAccountStateAfterSessionRead(input.queryClient, {
+		previousAccountId: input.previousAccountId,
+		nextAccountId: accountId,
+	});
+	if (!input.active()) {
+		return null;
+	}
+	return { accountId, session };
+}
+
 function desktopEntryCopy(
 	available: boolean,
 	pending: "session" | "browser" | null,
@@ -174,10 +226,9 @@ function desktopEntryCopy(
 }
 
 async function resolveDesktopEntry(
-	bridge: NonNullable<ReturnType<typeof getDesktopPlatform>>,
+	session: DesktopSession,
 	returnPath?: string
 ) {
-	const session = await bridge.session();
 	if (!session.user) {
 		return null;
 	}
