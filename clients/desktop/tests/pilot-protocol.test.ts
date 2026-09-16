@@ -138,6 +138,10 @@ it("admits installed API requests before credentials and preserves SDK errors wi
           headers: {
             "set-cookie": "session=native-renewal",
             "cache-control": "private, no-store",
+            "x-openmeld-request-id": "desktop-read-42",
+            "server-timing": "core;dur=17.5",
+            authorization: "must-not-reach-renderer",
+            "x-private-debug": "must-not-reach-renderer",
           },
         }
       )
@@ -189,6 +193,10 @@ it("admits installed API requests before credentials and preserves SDK errors wi
   expect(await response.json()).toEqual({ code: "business.denied" });
   expect(response.headers.get("cache-control")).toBe("private, no-store");
   expect(response.headers.has("set-cookie")).toBe(false);
+  expect(response.headers.get("x-openmeld-request-id")).toBe("desktop-read-42");
+  expect(response.headers.get("server-timing")).toBe("core;dur=17.5");
+  expect(response.headers.has("authorization")).toBe(false);
+  expect(response.headers.has("x-private-debug")).toBe(false);
   const call = cloudRequest.mock.calls[0];
   if (!call) {
     throw new Error("Expected SDK request");

@@ -19,6 +19,15 @@ const native = vi.hoisted(() => ({
 	pathname: "/desktop-shell",
 }));
 const bridge = vi.hoisted(() => ({
+	updaterState: vi.fn(async () => ({
+		status: "unavailable",
+		currentVersion: "0.1.1",
+		version: null,
+		percent: null,
+		errorStage: null,
+	})),
+	onUpdaterChanged: vi.fn(() => () => undefined),
+	onUpdaterPrepare: vi.fn(() => () => undefined),
 	onSessionChanged: vi.fn<(callback: () => void) => () => void>(
 		() => () => undefined
 	),
