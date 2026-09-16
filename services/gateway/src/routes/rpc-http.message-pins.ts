@@ -4,6 +4,7 @@ import {
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
+import { buildGatewaySpaceAccessContext } from "../lib/space-access-context";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -30,6 +31,7 @@ export function registerMessagePinRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       execute: async () =>
         c.var.coreRpc.spaceFilePins({
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
           spaceId,
           password: readSpacePasswordHeader(c.req.raw.headers),
           context: buildCoreRpcContext(c),
@@ -57,6 +59,7 @@ export function registerMessagePinRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       execute: async () =>
         c.var.coreRpc.spaceMessagePins({
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
           spaceId,
           password,
           context: buildCoreRpcContext(c),

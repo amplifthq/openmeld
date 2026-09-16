@@ -18790,6 +18790,13 @@ export async function rpcGetSpaceEntryResolution(
   if (guest && response.view.state === "allowed") {
     response.view.experience = "guest";
   }
+  if (response.view.state === "allowed" && target.signalId) {
+    const { stub } = resolveRpcSpaceStubOrThrow(env, target.spaceId);
+    response.target = await stub.rpcResolveReadTarget({
+      ...target,
+      spaceAccess,
+    });
+  }
   return getSpaceEntryResolutionResponseSchema.parse(response);
 }
 
@@ -18883,7 +18890,11 @@ async function resolveSpaceEntryAccess(input: {
   return {
     activeMember,
     kind: "allowed",
-    meta: { name: meta.name, accessMode: meta.accessMode },
+    meta: {
+      name: meta.name,
+      accessMode: meta.accessMode,
+      allowGuests: meta.allowGuests === true,
+    },
   };
 }
 
@@ -24925,18 +24936,32 @@ export async function rpcSpaceFilePins(
   env: CoreBindings,
   input: SpaceFilePinsInput
 ): Promise<SpaceFilePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcFilePins({ ...input, spaceId, context });
+  return await stub.rpcFilePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
 }
 
 export async function rpcSpaceMessagePins(
   env: CoreBindings,
   input: SpaceMessagePinsInput
 ): Promise<SpaceMessagePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcMessagePins({ ...input, spaceId, context });
+  return await stub.rpcMessagePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
 }
 
 export async function rpcListSpaceTasks(
@@ -24944,12 +24969,15 @@ export async function rpcListSpaceTasks(
   input: ListSpaceTasksInput
 ): Promise<ListSpaceTasksResponse> {
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  const context = await authorizeSpaceTaskRpcContext(
-    env,
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcListTasks({
+    ...input,
     spaceId,
-    requireRpcContext(input.context)
-  );
-  return await stub.rpcListTasks({ ...input, spaceId, context });
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
 }
 
 export async function rpcGetSpaceTask(
@@ -24957,12 +24985,15 @@ export async function rpcGetSpaceTask(
   input: GetSpaceTaskInput
 ): Promise<SpaceTaskResponse> {
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  const context = await authorizeSpaceTaskRpcContext(
-    env,
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcGetTask({
+    ...input,
     spaceId,
-    requireRpcContext(input.context)
-  );
-  return await stub.rpcGetTask({ ...input, spaceId, context });
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
 }
 
 export async function rpcCreateSpaceTask(

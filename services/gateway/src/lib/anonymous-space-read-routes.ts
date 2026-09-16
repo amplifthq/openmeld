@@ -2,6 +2,19 @@ const HEX_SPACE_ID_PATTERN = "[0-9a-fA-F]{64}";
 const THREAD_ID_PATTERN = "[^/]+";
 
 const ANONYMOUS_SPACE_READ_ROUTE_PATTERNS: readonly RegExp[] = [
+  new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/context$`, "u"),
+  new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/history-navigation$`, "u"),
+  new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/board$`, "u"),
+  new RegExp(
+    `^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/(?:message-pins|file-pins|tasks)$`,
+    "u"
+  ),
+  new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/tasks/[^/]+$`, "u"),
+  new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/files$`, "u"),
+  new RegExp(
+    `^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/files/[^/]+(?:/content|/revisions)?$`,
+    "u"
+  ),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/link-previews$`, "u"),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/conversation-state$`, "u"),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/entry-resolution$`, "u"),
