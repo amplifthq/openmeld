@@ -1,6 +1,7 @@
 import {
+  type DesktopNotificationActivation,
   desktopComputerConnectionProgressSchema,
-  desktopNotificationReferenceSchema,
+  desktopNotificationActivationSchema,
   desktopSpaceStreamEventSchema,
   desktopUpdaterRestartRequestSchema,
   desktopUpdaterStateSchema,
@@ -17,6 +18,26 @@ import { type DesktopPilotBridge, PILOT_IPC } from "../shared/pilot-bridge";
 // Attach before renderer code loads. Keep only the latest navigation intent
 // until the active renderer subscribes; this is not Settings dialog state.
 let pendingDestination: DesktopWindowDestination | undefined;
+let pendingNotification: DesktopNotificationActivation | undefined;
+const notificationHandlers = new Set<
+  (activation: DesktopNotificationActivation) => void
+>();
+ipcRenderer.on(PILOT_IPC.notificationClick, (_event, value: unknown) => {
+  const parsed = desktopNotificationActivationSchema.safeParse(value);
+  if (!parsed.success) {
+    return;
+  }
+  if (notificationHandlers.size === 0) {
+    pendingNotification = parsed.data;
+    return;
+  }
+  for (const handler of notificationHandlers) {
+    handler(parsed.data);
+  }
+});
+ipcRenderer.on(PILOT_IPC.sessionChanged, () => {
+  pendingNotification = undefined;
+});
 const destinationHandlers = new Set<
   (destination: DesktopWindowDestination) => void
 >();
@@ -125,15 +146,15 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
       ipcRenderer.removeListener(PILOT_IPC.notificationPoll, listener);
   },
   onNotificationClick: (handler) => {
-    const listener = (_event: IpcRendererEvent, value: unknown) => {
-      const parsed = desktopNotificationReferenceSchema.safeParse(value);
-      if (parsed.success) {
-        handler(parsed.data);
-      }
+    notificationHandlers.add(handler);
+    if (pendingNotification) {
+      const activation = pendingNotification;
+      pendingNotification = undefined;
+      handler(activation);
+    }
+    return () => {
+      notificationHandlers.delete(handler);
     };
-    ipcRenderer.on(PILOT_IPC.notificationClick, listener);
-    return () =>
-      ipcRenderer.removeListener(PILOT_IPC.notificationClick, listener);
   },
   platform: () => ipcRenderer.invoke(PILOT_IPC.platform),
   session: () => ipcRenderer.invoke(PILOT_IPC.session),

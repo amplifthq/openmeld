@@ -22,6 +22,38 @@ afterEach(() => {
 });
 
 describe("preload bridge", () => {
+  it("retains only the latest notification until subscription and clears it on session change", async () => {
+    await import("../src/preload/preload");
+    const bridge = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const click = on.mock.calls.find(
+      ([channel]) => channel === PILOT_IPC.notificationClick
+    )?.[1];
+    const sessionChanged = on.mock.calls.find(
+      ([channel]) => channel === PILOT_IPC.sessionChanged
+    )?.[1];
+    const activation = {
+      userId: "user-a",
+      organizationId: "org-a",
+      organizationSlug: "workspace",
+      itemId: "item-a",
+      sourceTarget: { kind: "space", spaceId: "space-a", signalId: "signal-a" },
+    };
+    click({}, activation);
+    click({}, { ...activation, itemId: "item-b" });
+    const handler = vi.fn();
+    const unsubscribe = bridge.onNotificationClick(handler);
+    expect(handler).toHaveBeenCalledExactlyOnceWith({
+      ...activation,
+      itemId: "item-b",
+    });
+    unsubscribe();
+    click({}, activation);
+    sessionChanged({});
+    bridge.onNotificationClick(handler);
+    expect(handler).toHaveBeenCalledTimes(1);
+  });
   it("exposes a payload-free session invalidation and removes its exact listener", async () => {
     await import("../src/preload/preload");
     const bridge = exposeInMainWorld.mock.calls.find(
@@ -29,7 +61,7 @@ describe("preload bridge", () => {
     )?.[1] as DesktopPilotBridge;
     const changed = vi.fn();
     const unsubscribe = bridge.onSessionChanged(changed);
-    const listener = on.mock.calls.find(
+    const listener = on.mock.calls.findLast(
       ([channel]) => channel === PILOT_IPC.sessionChanged
     )?.[1];
     listener({}, { token: "must-not-cross-the-bridge" });
@@ -146,9 +178,9 @@ describe("preload bridge", () => {
     };
     const handler = vi.fn();
 
-    const listener = on.mock.calls[0]?.[1] as
-      | ((_event: unknown, destination: unknown) => void)
-      | undefined;
+    const listener = on.mock.calls.find(
+      ([channel]) => channel === WINDOW_IPC.navigateDestination
+    )?.[1] as ((_event: unknown, destination: unknown) => void) | undefined;
 
     expect(on).toHaveBeenCalledWith(
       WINDOW_IPC.navigateDestination,

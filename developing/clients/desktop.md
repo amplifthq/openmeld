@@ -95,6 +95,17 @@ clicks recheck access and identity again. No renderer-supplied notification text
 or external URL crosses this boundary. Session invalidation closes retained
 notifications. Only native `show` settles a delivery; failures remain retryable.
 
+Notification activation brings the existing window forward before the source
+read completes. Main owns the single activation-time Inbox read and current
+account check, then hands the validated structured source target to the bundled
+renderer. The renderer uses the shared source-route mapper without fetching the
+same Inbox item again; source endpoints still enforce their own permissions.
+Later clicks and intervening renderer navigation supersede outstanding reads.
+Preload retains only the latest unconsumed click while no listener is mounted,
+clears it on session invalidation, and waits through updater navigation freezes.
+This is an in-memory navigation handoff, not a notification store or a guarantee
+of delivery while the native process is stopped.
+
 Personal Notifications and Space Info expose the same installation-local,
 account-scoped Desktop switch. Sound uses the native notification only. The
 macOS permission state is unknown, not inferred from `isSupported()`. A test

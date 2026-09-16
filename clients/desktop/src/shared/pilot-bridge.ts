@@ -4,8 +4,8 @@ import type {
   DesktopComputerConnectionResult,
   DesktopComputerDisconnectRequest,
   DesktopLocalComputer,
+  DesktopNotificationActivation,
   DesktopNotificationContext,
-  DesktopNotificationReference,
   DesktopNotificationRequest,
   DesktopNotificationResult,
   DesktopNotificationTest,
@@ -71,7 +71,7 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
   notificationFocused(): Promise<boolean>;
   onNotificationPoll(handler: () => void): () => void;
   onNotificationClick(
-    handler: (input: DesktopNotificationReference) => void
+    handler: (input: DesktopNotificationActivation) => void
   ): () => void;
   platform(): Promise<DesktopPlatform>;
   session(): Promise<DesktopSession>;

@@ -11,6 +11,9 @@ const desktopPlatformMock = vi.hoisted(() => vi.fn());
 vi.mock("#/desktop/platform", () => ({
 	getDesktopPlatform: desktopPlatformMock,
 }));
+vi.mock("#/desktop/updater", () => ({
+	useDesktopUpdater: () => ({ status: "idle" }),
+}));
 const usePathnameMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const showInboxNotificationMock = vi.hoisted(() => vi.fn());
@@ -136,6 +139,7 @@ describe("InboxNotificationListener", () => {
 		| undefined;
 
 	beforeEach(() => {
+		navigateMock.mockReset().mockResolvedValue(undefined);
 		desktopPlatformMock.mockReset().mockReturnValue(null);
 		summaryRefetch.mockClear();
 		summaryQueryMock.mockReset().mockReturnValue({
@@ -182,6 +186,42 @@ describe("InboxNotificationListener", () => {
 		cleanup();
 		vi.useRealTimers();
 		vi.restoreAllMocks();
+	});
+
+	it("navigates the native authorized target without reading the Inbox item again", () => {
+		let click:
+			| ((
+					input: import("@openmeld/schemas").DesktopNotificationActivation
+			  ) => void)
+			| undefined;
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext: vi.fn(async () => undefined),
+			onNotificationPoll: () => () => undefined,
+			onNotificationClick: (handler: typeof click) => {
+				click = handler;
+				return () => undefined;
+			},
+		});
+		renderListener();
+		const activation = {
+			userId: "user-123",
+			organizationId: "organization-123",
+			organizationSlug: "amplift",
+			itemId: "item-123",
+			sourceTarget: {
+				kind: "space" as const,
+				spaceId: "space-123",
+				signalId: "reply",
+				threadRootSignalId: "root",
+			},
+		};
+		click?.(activation);
+		expect(navigateMock).toHaveBeenCalledExactlyOnceWith({
+			to: "/o/amplift/spaces/space-123?focusSignalId=reply&focusThreadRootSignalId=root",
+		});
+		expect(getCurrentInboxItemMock).not.toHaveBeenCalled();
+		click?.({ ...activation, userId: "another-user" });
+		expect(navigateMock).toHaveBeenCalledTimes(1);
 	});
 
 	it.each([
@@ -262,10 +302,13 @@ describe("InboxNotificationListener", () => {
 		expect(showInboxNotificationMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				item: newItem,
-				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
 				userId: "user-123",
 			})
 		);
+		showInboxNotificationMock.mock.calls[0]?.[0].onActivate(newItem);
+		expect(navigateMock).toHaveBeenCalledExactlyOnceWith({
+			to: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
+		});
 	});
 
 	it("retries a new item after current-conversation suppression no longer applies", async () => {

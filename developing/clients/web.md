@@ -3445,6 +3445,22 @@ Auth, or hide the unfinished choice behind a completed badge.
 
 Web presents a Space as a collaboration room and visible outcome surface.
 
+Explicit message destinations prioritize the existing canonical status read
+after entry confirmation, alongside the full bootstrap. Authorized Thread
+catalog and content reads can proceed without waiting for main-history and
+member enrichment; the existing conversation surface renders as soon as its
+status and target content are available. Sending, Wake, membership, drafts,
+and viewed-through watermarks retain their existing owners and admission rules.
+Route prefetch resolves a missing viewer through the existing remembered/default
+Human Profile policy instead of waiting for the profile-correcting navigation.
+It does not invent a viewer when that policy has no valid selection.
+
+Browser notification activation uses the application router for internal
+destinations and retains external provider links as external navigation. The
+click callback checks the current account and uses the delivery-time validated
+source target. It does not use notification preview text as message content or
+mark an item read merely by prefetching its destination.
+
 Entering a conversation renders the latest 60 cached timeline signals by default,
 without discarding older cached history. An older saved reading anchor opens a
 bounded cached neighborhood; missing anchors use the existing server history

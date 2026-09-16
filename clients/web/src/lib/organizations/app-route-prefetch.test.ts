@@ -226,12 +226,15 @@ describe("organization app route prefetch", () => {
 		).toBeLessThan(listOrganizationSpacesMock.mock.invocationCallOrder[0] ?? 0);
 	});
 
-	it("restores the Space display cache and warms one complete bootstrap", async () => {
+	it.each([
+		"human-1",
+		undefined,
+	])("warms the conversation with an explicit or resolved default viewer: %s", async (profileId) => {
 		const queryClient = createQueryClient();
 
 		await prefetchSpaceConversationRouteData({
 			organizationSlug: "acme",
-			profileId: "human-1",
+			profileId,
 			queryClient,
 			queryPersistence,
 			routeFamily: "/o/acme/spaces/space-1?profileId=human-1",

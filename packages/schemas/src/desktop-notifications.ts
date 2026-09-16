@@ -1,4 +1,5 @@
 import * as z from "zod/v4";
+import { inboxSourceTargetSchema } from "./schemas/http/inbox";
 
 export const inboxVisibleConversationSchema = z.strictObject({
   kind: z.literal("space"),
@@ -19,6 +20,13 @@ export const desktopNotificationRequestSchema =
   desktopNotificationReferenceSchema.extend({
     soundEnabled: z.boolean(),
   });
+export const desktopNotificationActivationSchema =
+  desktopNotificationReferenceSchema.extend({
+    sourceTarget: inboxSourceTargetSchema,
+  });
+export type DesktopNotificationActivation = z.infer<
+  typeof desktopNotificationActivationSchema
+>;
 export const desktopNotificationTestSchema = z.strictObject({
   userId: z.string().min(1),
   soundEnabled: z.boolean(),
@@ -28,6 +36,7 @@ export const desktopNotificationContextSchema = z
     userId: z.string().min(1),
     organizationId: z.string().min(1),
     enabled: z.boolean(),
+    navigationKey: z.string().max(200).optional(),
     unreadCount: z.number().int().nonnegative().safe().nullable().optional(),
     visibleConversation: inboxVisibleConversationSchema.nullable(),
   })

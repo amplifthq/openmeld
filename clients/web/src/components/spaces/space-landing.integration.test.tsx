@@ -15809,7 +15809,10 @@ describe("SpaceLanding", () => {
 		).toBeTruthy();
 	});
 
-	it("opens the linked thread shell before its catalog and replies load, then focuses the exact Inbox reply", async () => {
+	it.each([
+		false,
+		true,
+	])("opens the exact Inbox reply while unrelated bootstrap is pending: %s", async (bootstrapPending) => {
 		const rootSignal = createTextSignal({
 			id: "sig-linked-thread-root",
 			text: "Thread root",
@@ -15822,8 +15825,14 @@ describe("SpaceLanding", () => {
 		});
 		const threadSignals = createQueryResult({ isPending: true });
 		const threads = createQueryResult({ isPending: true, isFetching: true });
+		const status = bootstrapPending
+			? createQueryResult({ isPending: true })
+			: createQueryResult({ isSuccess: true, data: createSpaceStatus() });
 		mockSpaceQueries({
-			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			...(bootstrapPending
+				? { bootstrap: createQueryResult({ isPending: true }) }
+				: {}),
+			status,
 			members: createQueryResult({
 				isSuccess: true,
 				data: createMembersSnapshot(),
@@ -15840,6 +15849,27 @@ describe("SpaceLanding", () => {
 			initialFocusSignalId: replySignal.id,
 			initialFocusThreadRootSignalId: rootSignal.id,
 		});
+		if (bootstrapPending) {
+			expect(
+				useQueryMock.mock.calls.some(
+					([options]) =>
+						options.queryKey[1] === "status" && options.enabled === true
+				)
+			).toBe(true);
+			Object.assign(
+				status,
+				createQueryResult({ isSuccess: true, data: createSpaceStatus() })
+			);
+			view.rerender(
+				<SpaceLanding
+					initialFocusSignalId={replySignal.id}
+					initialFocusThreadRootSignalId={rootSignal.id}
+					orgSlug="acme"
+					profileId={DEFAULT_SPACE_PROFILE_ID}
+					spaceId="space-123"
+				/>
+			);
+		}
 
 		const threadPanel = await screen.findByRole("complementary", {
 			name: "Thread",

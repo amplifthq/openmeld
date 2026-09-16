@@ -849,7 +849,31 @@ function resolveSpaceLandingHistorySnapshot(input: {
 	});
 }
 
+function hasInitialMessageTarget(input: {
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+}): boolean {
+	return Boolean(
+		input.initialFocusSignalId || input.initialFocusThreadRootSignalId
+	);
+}
+
+function useSpaceTargetStatus(
+	input: { spaceId: string; profileId: string; hasMessageTarget: boolean },
+	entryConfirmed: boolean
+) {
+	return useQuery(
+		spaceStatusQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+			// Only explicit destinations need status independently of the full bootstrap.
+			enabled: entryConfirmed && input.hasMessageTarget,
+		})
+	);
+}
+
 function useSpaceLandingBootstrapState(input: {
+	hasMessageTarget: boolean;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
@@ -870,13 +894,7 @@ function useSpaceLandingBootstrapState(input: {
 		queryClient: input.queryClient,
 		spaceId: input.spaceId,
 	});
-	const statusQuery = useQuery(
-		spaceStatusQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-			enabled: false,
-		})
-	);
+	const statusQuery = useSpaceTargetStatus(input, entryConfirmed);
 	const displaySnapshotQuery = useQuery(
 		spaceConversationDisplaySnapshotQueryOptions({
 			spaceId: input.spaceId,
@@ -894,10 +912,10 @@ function useSpaceLandingBootstrapState(input: {
 	const currentAccessRejection =
 		[statusError, bootstrapError].find(isCurrentSpaceAccessRejection) ?? null;
 	const landingError = currentAccessRejection ?? bootstrapError ?? statusError;
-	const currentStatusSnapshot =
-		entryConfirmed && currentAccessRejection === null
-			? (statusQuery.data ?? null)
-			: null;
+	const contentReadAllowed = entryConfirmed && currentAccessRejection === null;
+	const currentStatusSnapshot = contentReadAllowed
+		? (statusQuery.data ?? null)
+		: null;
 	useEffect(() => {
 		if (currentStatusSnapshot === null) {
 			return;
@@ -981,6 +999,7 @@ function useSpaceLandingBootstrapState(input: {
 		historyReady: historySnapshot !== null || historyQuery.isSuccess,
 		historySnapshot,
 		ensureEntryConfirmed: entryConfirmation.ensureConfirmed,
+		entryConfirmed: contentReadAllowed,
 		landingError,
 		membersError: membersLoadError,
 		membersErrorMessage: resolveSpaceMembersLoadErrorMessage(membersLoadError),
@@ -1506,6 +1525,7 @@ export function useSpaceLandingController(input: {
 		currentAccessRejection,
 		currentStatusConfirmationPending,
 		ensureEntryConfirmed,
+		entryConfirmed,
 		historyError,
 		historyPending,
 		historyQuery,
@@ -1523,6 +1543,7 @@ export function useSpaceLandingController(input: {
 		statusReady,
 		statusSnapshot,
 	} = useSpaceLandingBootstrapState({
+		hasMessageTarget: hasInitialMessageTarget(input),
 		profileId: input.profileId,
 		queryClient,
 		spaceId: input.spaceId,
@@ -1794,6 +1815,7 @@ export function useSpaceLandingController(input: {
 		[setWakeProgressItems]
 	);
 	const threadController = useSpaceThreadController({
+		entryConfirmed,
 		isMembersLoading: membersLoading,
 		membersErrorMessage,
 		membersRefetch: membersQuery.refetch,
@@ -3425,6 +3447,7 @@ export function useSpaceLandingController(input: {
 }
 
 function useSpaceThreadController(input: {
+	entryConfirmed: boolean;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	displayHistory: SpaceHistorySnapshot | null;
@@ -3456,7 +3479,9 @@ function useSpaceThreadController(input: {
 		spaceThreadsQueryOptions({
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
-			enabled: input.statusReady && input.threadsEnabled,
+			enabled:
+				input.entryConfirmed &&
+				(input.threadsEnabled || hasInitialMessageTarget(input)),
 		})
 	);
 	const currentThreads = threadsQuery.data ?? input.initialThreads;
@@ -3521,7 +3546,7 @@ function useSpaceThreadController(input: {
 			spaceId: input.spaceId,
 			threadId: activeThreadId,
 			openMeldProfileId: input.profileId,
-			enabled: input.statusReady && activeThreadId !== null,
+			enabled: input.entryConfirmed && activeThreadId !== null,
 		})
 	);
 	const composerSession = useSpaceComposerSession({

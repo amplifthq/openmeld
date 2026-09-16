@@ -20,6 +20,7 @@ import {
 } from "react";
 import { useInboxVisibleConversation } from "#/components/inbox/inbox-visible-conversation";
 import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopUpdater } from "#/desktop/updater";
 import {
 	clearInboxNotificationItemPending,
 	type InboxNotificationDeliveryReadiness,
@@ -58,39 +59,42 @@ export function InboxNotificationListener(input: {
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const updater = useDesktopUpdater();
+	const notificationNavigationPaused =
+		Boolean(getDesktopPlatform()) &&
+		(!updater ||
+			updater.status === "preparing" ||
+			updater.status === "installing" ||
+			updater.errorStage === "install");
 	useEffect(() => {
-		let active = true;
+		if (notificationNavigationPaused) {
+			return;
+		}
 		const unsubscribe = getDesktopPlatform()?.onNotificationClick(
 			(reference) => {
 				if (reference.userId !== input.userId) {
 					return;
 				}
-				getCurrentInboxItem(reference)
-					.then(({ item }) => {
-						if (!active || item.recipientUserId !== input.userId) {
-							return;
-						}
-						const navigation = buildInboxItemSourceNavigation({
-							item,
-							orgSlug: reference.organizationSlug,
-						});
-						if (!navigation.openInNewTab) {
-							return navigate({ to: navigation.href });
-						}
+				const navigation = buildInboxItemSourceNavigation({
+					item: reference,
+					orgSlug: reference.organizationSlug,
+				});
+				if (navigation.openInNewTab) {
+					return;
+				}
+				navigate({ to: navigation.href }).catch((error: unknown) =>
+					console.warn("[openmeld.desktop.notification_navigation_failed]", {
+						error,
 					})
-					.catch((error: unknown) =>
-						console.warn("[openmeld.desktop.notification_navigation_failed]", {
-							error,
-						})
-					);
+				);
 			}
 		);
 		return () => {
-			active = false;
 			unsubscribe?.();
 		};
-	}, [input.userId, navigate]);
-	const { pathname } = useLocation();
+	}, [input.userId, navigate, notificationNavigationPaused]);
+	const { pathname, state: locationState } = useLocation();
+	const navigationKey = locationState?.__TSR_key;
 	const visibleConversation = useInboxVisibleConversation();
 	const [settingsState, setSettingsState] = useState(() => ({
 		enabled: readInboxNotificationSettings({ userId: input.userId }).enabled,
@@ -122,6 +126,7 @@ export function InboxNotificationListener(input: {
 				userId: input.userId,
 				organizationId: input.organizationId,
 				enabled: notificationsEnabled,
+				navigationKey,
 				unreadCount,
 				visibleConversation,
 			})
@@ -132,6 +137,7 @@ export function InboxNotificationListener(input: {
 		notificationsEnabled,
 		unreadCount,
 		visibleConversation,
+		navigationKey,
 	]);
 	useLayoutEffect(
 		() => () => {
@@ -422,6 +428,7 @@ export function InboxNotificationListener(input: {
 			primedRef.current = true;
 		}
 		const sawNewItem = processInboxNotificationItems({
+			navigate,
 			deliveryAttempt: deliveryRetryRevision,
 			deliveryContextRef,
 			feedIdentity,
@@ -463,6 +470,7 @@ export function InboxNotificationListener(input: {
 		scheduleDeliveryRetry,
 		settledItemIds,
 		visibleConversation,
+		navigate,
 	]);
 
 	return null;
@@ -565,6 +573,7 @@ function primeInboxNotificationFeed(input: {
 }
 
 function processInboxNotificationItems(input: {
+	navigate: ReturnType<typeof useNavigate>;
 	deliveryAttempt: number;
 	deliveryContextRef: {
 		current: NotificationDeliveryContext;
@@ -612,6 +621,24 @@ function processInboxNotificationItems(input: {
 			input.deliveryContextRef.current.feedIdentity === input.feedIdentity;
 		showInboxNotification({
 			item,
+			onActivate: (currentItem) => {
+				if (input.deliveryContextRef.current.userId !== input.userId) {
+					return;
+				}
+				const navigation = buildInboxItemSourceNavigation({
+					item: currentItem,
+					orgSlug: input.organizationSlug,
+				});
+				if (navigation.openInNewTab) {
+					window.open(navigation.href, "_blank", "noopener,noreferrer");
+				} else {
+					input.navigate({ to: navigation.href }).catch((error: unknown) =>
+						console.warn("[openmeld.web.notification_navigation_failed]", {
+							error,
+						})
+					);
+				}
+			},
 			organizationSlug: input.organizationSlug,
 			resolveCurrentReadiness: async () =>
 				await resolveCurrentInboxNotificationReadiness({
@@ -622,10 +649,6 @@ function processInboxNotificationItems(input: {
 					retryAttempt: input.deliveryAttempt,
 					userId: input.userId,
 				}),
-			sourcePath: buildInboxItemSourceNavigation({
-				item,
-				orgSlug: input.organizationSlug,
-			}).href,
 			userId: input.userId,
 			viewingSourceSession: isInboxItemSourceLocation({
 				item,

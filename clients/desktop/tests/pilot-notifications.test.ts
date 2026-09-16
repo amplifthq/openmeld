@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { desktopNotificationReferenceSchema } from "@openmeld/schemas";
+import { desktopNotificationActivationSchema } from "@openmeld/schemas";
 import type { InboxItem } from "@openmeld/schemas/types";
 import type { BrowserWindow, NotificationConstructorOptions } from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -202,7 +202,7 @@ it.each([
 it.each([
   true,
   false,
-])("rechecks access before restoring the window on click: %s", async (authorized) => {
+])("shows the window promptly but rechecks access before sending a target: %s", async (authorized) => {
   const send = vi.fn();
   const window = {
     isDestroyed: () => false,
@@ -232,19 +232,67 @@ it.each([
     );
   }
   notification.emit("click");
+  expect(window.show).toHaveBeenCalledOnce();
+  expect(send).not.toHaveBeenCalled();
   await vi.waitFor(() => expect(cloudRequest).toHaveBeenCalledTimes(3));
   if (authorized) {
-    await vi.waitFor(() => expect(window.focus).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
     expect(window.restore).toHaveBeenCalledOnce();
-    const reference = desktopNotificationReferenceSchema.parse(
+    const reference = desktopNotificationActivationSchema.parse(
       send.mock.calls[0]?.[1]
     );
     expect(reference.itemId).toBe(item.id);
+    expect(reference.sourceTarget).toEqual(item.sourceTarget);
   } else {
     await vi.runAllTimersAsync();
-    expect(window.show).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   }
+  notifications.clear();
+});
+it.each([
+  "new click",
+  "user navigation",
+] as const)("drops an outdated notification activation after %s", async (supersededBy) => {
+  const send = vi.fn();
+  const window = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    show: vi.fn(),
+    focus: vi.fn(),
+    webContents: { send },
+  };
+  const { notifications, cloudRequest } = setup(
+    window as unknown as BrowserWindow
+  );
+  const delivery = notifications.show(request);
+  await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
+  const notification = native.created.mock.calls[0]?.[0] as EventEmitter;
+  notification.emit("show");
+  await delivery;
+  let completeFirst!: (response: Response) => void;
+  cloudRequest.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        completeFirst = resolve;
+      })
+  );
+  notification.emit("click");
+  await vi.waitFor(() => expect(completeFirst).toBeDefined());
+  if (supersededBy === "new click") {
+    notification.emit("click");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+  } else {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: null,
+      navigationKey: "user-opened-another-page",
+    });
+  }
+  completeFirst(Response.json({ item }));
+  await vi.runAllTimersAsync();
+  expect(send).toHaveBeenCalledTimes(supersededBy === "new click" ? 1 : 0);
   notifications.clear();
 });
 afterEach(() => {

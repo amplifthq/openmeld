@@ -33,6 +33,7 @@ export function createPilotNotifications(input: {
   setUnreadCount?: (count: number | null) => void;
 }) {
   let generation = 0;
+  let activationRevision = 0;
   let context: DesktopNotificationContext = null;
   let contextRevision = 0;
   const active = new Set<Notification>();
@@ -116,16 +117,8 @@ export function createPilotNotifications(input: {
     if (epoch !== generation) {
       return;
     }
-    if (reference) {
-      const item = await readItem(reference);
-      if (!(await currentAccount(reference.userId, epoch))) {
-        return;
-      }
-      if (item.sourceTarget.kind === "message_channel") {
-        await shell.openExternal(item.sourceTarget.permalink);
-        return;
-      }
-    }
+    const revision = ++activationRevision;
+    const navigationContext = context;
     const window = input.getWindow();
     if (!window || window.isDestroyed()) {
       return;
@@ -136,7 +129,23 @@ export function createPilotNotifications(input: {
     window.show();
     window.focus();
     if (reference) {
-      window.webContents.send(PILOT_IPC.notificationClick, reference);
+      const item = await readItem(reference);
+      if (
+        !(await currentAccount(reference.userId, epoch)) ||
+        revision !== activationRevision ||
+        !sameNotificationNavigation(navigationContext, context) ||
+        window.isDestroyed()
+      ) {
+        return;
+      }
+      if (item.sourceTarget.kind === "message_channel") {
+        await shell.openExternal(item.sourceTarget.permalink);
+        return;
+      }
+      window.webContents.send(PILOT_IPC.notificationClick, {
+        ...reference,
+        sourceTarget: item.sourceTarget,
+      });
     }
   };
   const deliver = (
@@ -310,4 +319,19 @@ export function createPilotNotifications(input: {
       );
     },
   };
+}
+
+function sameNotificationNavigation(
+  current: DesktopNotificationContext,
+  next: DesktopNotificationContext
+): boolean {
+  return (
+    current?.navigationKey === next?.navigationKey &&
+    current?.userId === next?.userId &&
+    current?.organizationId === next?.organizationId &&
+    current?.visibleConversation?.spaceId ===
+      next?.visibleConversation?.spaceId &&
+    current?.visibleConversation?.threadRootSignalId ===
+      next?.visibleConversation?.threadRootSignalId
+  );
 }
