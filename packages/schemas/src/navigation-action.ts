@@ -79,7 +79,7 @@ export function buildOrganizationRootPath(orgSlug: string): string {
 }
 
 export function buildOrganizationPluginsPath(orgSlug: string): string {
-  return `${buildOrganizationRootPath(orgSlug)}/center-agent/plugins`;
+  return `${buildOrganizationRootPath(orgSlug)}/plugins`;
 }
 
 export function buildOrganizationPluginPath(input: {

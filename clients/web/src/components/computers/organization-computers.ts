@@ -41,6 +41,33 @@ export type CurrentOrganizationComputerServiceState = {
 	state: NonNullable<OrganizationComputer["serviceState"]>;
 };
 
+export function buildTeamComputerRouteId(
+	ownerUserId: string,
+	deviceId: string
+): string {
+	return `computer:${encodeURIComponent(ownerUserId)}:${encodeURIComponent(deviceId)}`;
+}
+
+export function matchOrganizationComputerRoute(
+	groups: readonly OrganizationComputerGroup[],
+	routeId: string | null
+): OrganizationComputer[] {
+	if (routeId === null) {
+		return [];
+	}
+	return groups
+		.flatMap((group) => group.computers)
+		.filter(
+			(computer) =>
+				computer.routeId === routeId ||
+				((computer.isOwnedByCurrentUser ||
+					computer.routeId.startsWith("computer:")) &&
+					(buildTeamComputerRouteId(computer.ownerUserId, computer.deviceId) ===
+						routeId ||
+						`computer:${computer.deviceId}` === routeId))
+		);
+}
+
 type FullDirectoryAgentProfile =
 	OrganizationDirectoryResponse["agentProfiles"][number];
 type DirectoryAgentProfile =
@@ -316,7 +343,7 @@ function resolveReportedMemberComputers(input: {
 		ownerLabel: input.ownerLabel,
 		ownerUserId: input.ownerUserId,
 		platformFamily: computer.platformFamily,
-		routeId: `computer:${computer.computerId}`,
+		routeId: buildTeamComputerRouteId(input.ownerUserId, computer.computerId),
 		serviceState: computer.serviceState,
 	}));
 }

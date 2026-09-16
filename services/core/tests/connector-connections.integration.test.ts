@@ -1,6 +1,13 @@
 import { env } from "cloudflare:test";
 import { HOSTED_CENTER_AGENT_CONTROLLER_REF } from "@openmeld/schemas";
+import type {
+  AuthRpcResolveProfileByIdResult,
+  PluginActionRpcInput,
+  PluginRuntimeRequest,
+  PluginRuntimeResponse,
+} from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
+import capturedActions from "../../remote-agent/tests/fixtures/openconnector-runtime-actions.json";
 import { prepareCenterAgentRepresentedMemberRequest } from "../src/center-agent/application/represented-member-request";
 import { recordCenterAgentConnectorActionOperation } from "../src/center-agent/connector-action-operation-repository";
 import {
@@ -8,6 +15,15 @@ import {
   createSharedConnectorConnectionName,
   selectActiveConnectorConnection,
 } from "../src/connectors/connector-connection-repository";
+import {
+  requirePluginPermission,
+  requireRemotePluginConnection,
+} from "../src/connectors/plugin-access";
+import {
+  rpcListPluginAccess,
+  rpcUpdatePluginAccess,
+} from "../src/connectors/plugin-access-rpc";
+import { rpcPluginAction } from "../src/connectors/plugin-actions";
 import type { CoreBindings } from "../src/lib/bindings";
 import {
   markRemoteAgentNativeDeliveryAck,
@@ -20,6 +36,7 @@ import {
   rpcBeginCurrentOrganizationSharedConnectorAuthorization,
   rpcBeginGitHubAppInstallationVerification,
   rpcCenterAgentReadConnectorActionOperation,
+  rpcCenterAgentRecordConnectorActionAudit,
   rpcCenterAgentRecordConnectorActionOperation,
   rpcCenterAgentResolveConnectorConnection,
   rpcCompleteConnectorDisconnect,
@@ -31,12 +48,566 @@ import {
 
 const CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__user_[A-Za-z0-9_-]{18}__github$/u;
+
+describe("Local Agent plugin admission", () => {
+  it("keeps the Agent owner's private account out of another member's Wake", async () => {
+    const fixture = await seedLocalPluginFixture("read", "read");
+    const privateConnection = await createConnectorConnectionName({
+      organizationId: fixture.organizationA,
+      service: "posthog",
+      userId: fixture.ownerA,
+    });
+    await env.OPENMELD_DB.prepare(
+      "INSERT INTO connector_connections (connection_name, organization_id, user_id, scope, service, status, access_policy, created_at_ms, updated_at_ms) VALUES (?, ?, ?, 'member', 'posthog', 'active', ?, 1, 1)"
+    )
+      .bind(
+        privateConnection,
+        fixture.organizationA,
+        fixture.ownerA,
+        JSON.stringify({
+          center_agent: "none",
+          local_agent: "read",
+          remote_agent: "none",
+        })
+      )
+      .run();
+    const spaceId = crypto.randomUUID();
+    const dispatchId = crypto.randomUUID();
+    await env.OPENMELD_DB.prepare(
+      "INSERT INTO space_index_spaces (space_id, organization_id, organization_visibility, status, source_updated_at_ms, projected_at_ms, projection_event_id) VALUES (?, ?, 'private', 'active', 1, 1, ?)"
+    )
+      .bind(spaceId, fixture.organizationA, crypto.randomUUID())
+      .run();
+    await env.OPENMELD_DB.prepare(
+      "INSERT INTO openMeldDaemon_dispatch_ledger (idempotency_key, dispatch_id, space_id, source_event_id, source_profile_id, target_profile_id, status, first_seen_at_ms, last_attempt_at_ms, attempt_count) VALUES (?, ?, ?, ?, ?, ?, 'accepted', 1, 1, 1)"
+    )
+      .bind(
+        dispatchId,
+        dispatchId,
+        spaceId,
+        crypto.randomUUID(),
+        fixture.requesterProfileId,
+        fixture.actor
+      )
+      .run();
+    const request = {
+      ...fixture.input,
+      request: {
+        dispatchId,
+        action: { ...fixture.action, account: "personal" as const },
+      },
+    };
+    await expect(rpcPluginAction(fixture.core, request)).rejects.toThrow(
+      "someone else’s Wake"
+    );
+    expect(
+      await rpcPluginAction(fixture.core, {
+        ...request,
+        request: { dispatchId, action: fixture.action },
+      })
+    ).toMatchObject({ status: "completed" });
+    const audit = await env.OPENMELD_DB.prepare(
+      "SELECT represented_user_id FROM center_agent_connector_action_operations WHERE actor_profile_id = ?"
+    )
+      .bind(fixture.actor)
+      .first();
+    expect(audit).toEqual({ represented_user_id: fixture.otherMemberA });
+    expect(
+      await rpcPluginAction(fixture.core, {
+        ...fixture.input,
+        request: {
+          action: {
+            ...fixture.action,
+            account: "personal",
+            operationId: "owner-personal",
+          },
+        },
+      })
+    ).toMatchObject({
+      status: "completed",
+      connection: { scope: "member", ownerUserId: fixture.ownerA },
+    });
+  });
+  it("filters discovery and rejects writes on read-only connections before provider execution", async () => {
+    const fixture = await seedLocalPluginFixture("write", "read");
+    const listed = await rpcPluginAction(fixture.core, {
+      ...fixture.input,
+      request: {
+        action: { operation: "actions", service: "posthog", account: "shared" },
+      },
+    });
+    expect(listed).toMatchObject({ kind: "actions", actions: [] });
+    await expect(rpcPluginAction(fixture.core, fixture.input)).rejects.toThrow(
+      "read-only"
+    );
+    expect(
+      fixture.runtime.mock.calls.filter(
+        ([request]) => request.operation === "execute"
+      )
+    ).toHaveLength(0);
+  });
+
+  it("records one execution and replays its frozen outcome after access is revoked", async () => {
+    const fixture = await seedLocalPluginFixture("read", "read");
+    const first = await rpcPluginAction(fixture.core, fixture.input);
+    expect(first).toMatchObject({
+      kind: "execution",
+      status: "completed",
+      replayed: false,
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = ?, access_revision = access_revision + 1 WHERE connection_name = ?"
+    )
+      .bind(
+        JSON.stringify({
+          center_agent: "none",
+          local_agent: "none",
+          remote_agent: "none",
+        }),
+        fixture.connection
+      )
+      .run();
+    expect(await rpcPluginAction(fixture.core, fixture.input)).toMatchObject({
+      kind: "execution",
+      status: "completed",
+      replayed: true,
+    });
+    expect(
+      fixture.runtime.mock.calls.filter(
+        ([request]) => request.operation === "execute"
+      )
+    ).toHaveLength(1);
+    await expect(
+      rpcPluginAction(fixture.core, {
+        ...fixture.input,
+        request: {
+          action: { ...fixture.action, operationId: "another-operation" },
+        },
+      })
+    ).rejects.toThrow("No connection grants");
+    await expect(
+      rpcPluginAction(fixture.core, {
+        ...fixture.input,
+        request: { action: { ...fixture.action, input: { changed: true } } },
+      })
+    ).rejects.toThrow("different");
+  });
+
+  it("binds destructive confirmation to the exact action and current access revision", async () => {
+    const fixture = await seedLocalPluginFixture("destructive", "write");
+    const preview = await rpcPluginAction(fixture.core, fixture.input);
+    expect(preview.kind).toBe("confirmation_required");
+    if (preview.kind !== "confirmation_required") {
+      throw new Error("Expected confirmation");
+    }
+    expect(
+      fixture.runtime.mock.calls.filter(
+        ([request]) => request.operation === "execute"
+      )
+    ).toHaveLength(0);
+    const confirmed = {
+      ...fixture.input,
+      request: {
+        action: {
+          ...fixture.action,
+          confirmationToken: preview.confirmationToken,
+        },
+      },
+    };
+    await expect(
+      rpcPluginAction(fixture.core, {
+        ...confirmed,
+        request: {
+          action: { ...confirmed.request.action, input: { changed: true } },
+        },
+      })
+    ).rejects.toThrow("confirmation expired");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_revision = access_revision + 1 WHERE connection_name = ?"
+    )
+      .bind(fixture.connection)
+      .run();
+    await expect(rpcPluginAction(fixture.core, confirmed)).rejects.toThrow(
+      "confirmation expired"
+    );
+    const next = await rpcPluginAction(fixture.core, fixture.input);
+    if (next.kind !== "confirmation_required") {
+      throw new Error("Expected confirmation");
+    }
+    expect(
+      await rpcPluginAction(fixture.core, {
+        ...fixture.input,
+        request: {
+          action: {
+            ...fixture.action,
+            confirmationToken: next.confirmationToken,
+          },
+        },
+      })
+    ).toMatchObject({ status: "completed" });
+  });
+
+  it("denies mismatched organization, account ownership, and missing Wake provenance", async () => {
+    const fixture = await seedLocalPluginFixture("read", "read");
+    await expect(
+      rpcPluginAction(fixture.core, {
+        ...fixture.input,
+        expectedOrganizationId: fixture.organizationB,
+      })
+    ).rejects.toThrow();
+    await expect(
+      rpcPluginAction(fixture.core, {
+        ...fixture.input,
+        context: {
+          ...fixture.input.context,
+          actorContext: {
+            ...fixture.input.context.actorContext,
+            callerPrincipalId: fixture.otherMemberA,
+          },
+        },
+      })
+    ).rejects.toThrow("owned by your signed-in");
+    await expect(
+      rpcPluginAction(fixture.core, {
+        ...fixture.input,
+        request: { ...fixture.input.request, dispatchId: "missing-dispatch" },
+      })
+    ).rejects.toThrow("Wake requester");
+    expect(fixture.runtime).not.toHaveBeenCalled();
+  });
+
+  it("does not turn an unknown provider result into an automatic second execution", async () => {
+    const fixture = await seedLocalPluginFixture("read", "read");
+    fixture.runtime.mockImplementation((request) => {
+      if (request.operation === "list") {
+        return Promise.resolve({
+          status: "catalog",
+          actions: [fixture.metadata],
+        });
+      }
+      return Promise.reject(new Error("Provider response lost"));
+    });
+    expect(await rpcPluginAction(fixture.core, fixture.input)).toMatchObject({
+      status: "outcome_unknown",
+      replayed: false,
+    });
+    expect(await rpcPluginAction(fixture.core, fixture.input)).toMatchObject({
+      status: "outcome_unknown",
+      replayed: true,
+    });
+    expect(
+      fixture.runtime.mock.calls.filter(
+        ([request]) => request.operation === "execute"
+      )
+    ).toHaveLength(1);
+  });
+});
+
+async function seedLocalPluginFixture(
+  effect: "read" | "write" | "destructive",
+  permission: "read" | "write"
+) {
+  const fixture = await seedConnectorFixture();
+  const actor = `agt_${crypto.randomUUID()}`;
+  const requesterProfileId = crypto.randomUUID();
+  await env.OPENMELD_DB.prepare(
+    "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Other requester', ?, 'human', 1, 'active', ?, ?, 'auth_bootstrap', 1, 1)"
+  )
+    .bind(
+      requesterProfileId,
+      requesterProfileId,
+      fixture.otherMemberA,
+      fixture.otherMemberA
+    )
+    .run();
+  await env.OPENMELD_DB.prepare(
+    "INSERT INTO openmeld_profiles (profile_id, profile_name, profile_handle, profile_kind, is_default, status, organization_id, owner_user_id, created_by_user_id, source, created_at, updated_at) VALUES (?, 'Local test Agent', ?, 'agent', 0, 'active', ?, ?, ?, 'auth_bootstrap', 1, 1)"
+  )
+    .bind(actor, actor, fixture.organizationA, fixture.ownerA, fixture.ownerA)
+    .run();
+  const connection = await seedSharedConnectorConnection(fixture, "posthog");
+  await env.OPENMELD_DB.prepare(
+    "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+  )
+    .bind(
+      JSON.stringify({
+        center_agent: "none",
+        local_agent: permission,
+        remote_agent: "none",
+      }),
+      connection
+    )
+    .run();
+  await env.OPENMELD_DB.prepare(
+    "INSERT INTO openMeldDaemon_agent_profile_bindings (binding_id, owner_kind, owner_id, agent_profile_id, openmeld_service_runtime_id, runtime_kind, agent_controller_ref, binding_state, created_at_ms, updated_at_ms) VALUES (?, 'owner_account', ?, ?, 'test-local-runtime', 'openmeld_service', 'codex', 'enabled_primary', 1, 1)"
+  )
+    .bind(crypto.randomUUID(), fixture.ownerA, actor)
+    .run();
+  const captured = capturedActions.data[0];
+  if (!captured) {
+    throw new Error("Missing captured provider action");
+  }
+  const metadata = {
+    ...captured,
+    effect,
+  } as import("@openmeld/schemas/types").OpenConnectorRuntimeAction;
+  const runtime = vi.fn<
+    (request: PluginRuntimeRequest) => Promise<PluginRuntimeResponse>
+  >(async (request) =>
+    request.operation === "list"
+      ? { status: "catalog", actions: [metadata] }
+      : {
+          status: "completed",
+          data: { result: "provider-result" },
+          outputSchema: {},
+          providerExecutionId: "provider-execution-1",
+        }
+  );
+  const core = {
+    OPENMELD_DB: env.OPENMELD_DB,
+    OPENMELD_REMOTE_AGENT_WORKER: { pluginRuntime: runtime },
+    OPENMELD_AUTH_WORKER: {
+      resolveProfileById: (input: {
+        openMeldProfileId: string;
+      }): Promise<AuthRpcResolveProfileByIdResult> => {
+        if (
+          input.openMeldProfileId !== actor &&
+          input.openMeldProfileId !== fixture.ownerProfileId &&
+          input.openMeldProfileId !== requesterProfileId
+        ) {
+          return Promise.reject(new Error("Unknown profile"));
+        }
+        return Promise.resolve({
+          ok: true,
+          profile: {
+            profileId: input.openMeldProfileId,
+            profileName: "Local Agent owner",
+            profileHandle: "local-owner",
+            profileKind: input.openMeldProfileId === actor ? "agent" : "human",
+            status: "active",
+            ownerUserId:
+              input.openMeldProfileId === requesterProfileId
+                ? fixture.otherMemberA
+                : fixture.ownerA,
+            organizationId:
+              input.openMeldProfileId === actor ? fixture.organizationA : null,
+          },
+        });
+      },
+      resolveOrganizationAccountIdentity: async (input: {
+        account?: { kind: string; userId?: string };
+      }) => ({
+        ok: true,
+        organization: {
+          id: fixture.organizationA,
+          name: "Connector A",
+          slug: "connector-a",
+          personal: false,
+          memberCount: 3,
+        },
+        account: {
+          userId: input.account?.userId ?? fixture.ownerA,
+          displayName: "Local owner",
+          email: "local-owner@example.com",
+          defaultHumanProfile: {
+            profileId:
+              input.account?.userId === fixture.otherMemberA
+                ? requesterProfileId
+                : fixture.ownerProfileId,
+            profileName: "Local owner",
+          },
+          membership: { memberId: "test-owner", role: "owner" },
+        },
+      }),
+    },
+  } as unknown as CoreBindings;
+  const action = {
+    operation: "execute" as const,
+    service: "posthog" as const,
+    account: "shared" as const,
+    actionId: metadata.id,
+    input: {},
+    operationId: "local-test-operation",
+  };
+  const input: PluginActionRpcInput = {
+    expectedOrganizationId: fixture.organizationA,
+    context: {
+      activeOrganizationId: fixture.organizationA,
+      actorContext: {
+        callerPrincipalId: fixture.ownerA,
+        ownerUserId: fixture.ownerA,
+        openMeldProfileId: actor,
+        profileKind: "agent",
+        requestId: crypto.randomUUID(),
+      },
+    },
+    request: { action },
+  };
+  return {
+    ...fixture,
+    actor,
+    requesterProfileId,
+    connection,
+    core,
+    runtime,
+    input,
+    action,
+    metadata,
+  };
+}
 const SHARED_CONNECTOR_CONNECTION_NAME_PATTERN =
   /^org_[A-Za-z0-9_-]{18}__shared__github$/u;
 const OPENCONNECTOR_CONNECTION_NAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/u;
 
 describe("Core connector connection ownership", () => {
+  it("requires both the personal Remote Agent owner and the represented requester for private access", async () => {
+    const fixture = await seedConnectorFixture();
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+    )
+      .bind(
+        JSON.stringify({
+          center_agent: "none",
+          local_agent: "none",
+          remote_agent: "read",
+        }),
+        fixture.connectionA
+      )
+      .run();
+    const input = {
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationA,
+      connectionName: fixture.connectionA,
+      service: "github" as const,
+      requesterUserId: fixture.memberA,
+      remoteOwnerUserId: fixture.memberA,
+      effect: "read" as const,
+    };
+    await expect(requireRemotePluginConnection(input)).resolves.toMatchObject({
+      connectionName: fixture.connectionA,
+    });
+    await expect(
+      requireRemotePluginConnection({
+        ...input,
+        requesterUserId: fixture.ownerA,
+      })
+    ).rejects.toThrow("not available");
+    await expect(
+      requireRemotePluginConnection({
+        ...input,
+        remoteOwnerUserId: fixture.ownerA,
+      })
+    ).rejects.toThrow("not available");
+    await expect(
+      requireRemotePluginConnection({ ...input, remoteOwnerUserId: null })
+    ).rejects.toThrow("not available");
+    await expect(
+      requireRemotePluginConnection({ ...input, effect: "write" })
+    ).rejects.toThrow("permission");
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET status = 'disconnected', disconnected_at_ms = updated_at_ms WHERE connection_name = ?"
+    )
+      .bind(fixture.connectionA)
+      .run();
+    await expect(
+      requirePluginPermission({ ...input, consumer: "remote_agent" })
+    ).rejects.toThrow("no longer available");
+  });
+
+  it("persists owner-managed Agent access with an atomic revision and audit history", async () => {
+    const fixture = await seedConnectorFixture();
+    const request = {
+      context: connectorRequestContext({
+        organizationId: fixture.organizationA,
+        userId: fixture.memberA,
+      }),
+      expectedOrganizationId: fixture.organizationA,
+      service: "github" as const,
+    };
+    const initial = await rpcListPluginAccess(connectorCoreEnv(), request);
+    expect(initial.connections).toContainEqual({
+      connectionName: fixture.connectionA,
+      scope: "member",
+      canManage: true,
+      revision: 0,
+      policy: {
+        center_agent: "write",
+        local_agent: "none",
+        remote_agent: "none",
+      },
+    });
+    const update = {
+      ...request,
+      connectionName: fixture.connectionA,
+      expectedRevision: 0,
+      policy: {
+        center_agent: "read",
+        local_agent: "read",
+        remote_agent: "none",
+      } as const,
+    };
+    expect(
+      await rpcUpdatePluginAccess(connectorCoreEnv(), update)
+    ).toMatchObject({ revision: 1, policy: update.policy });
+    await expect(
+      rpcUpdatePluginAccess(connectorCoreEnv(), update)
+    ).rejects.toThrow("Plugin access changed");
+    const access = {
+      db: env.OPENMELD_DB,
+      organizationId: fixture.organizationA,
+      connectionName: fixture.connectionA,
+      consumer: "local_agent" as const,
+    };
+    await expect(
+      requirePluginPermission({ ...access, effect: "read" })
+    ).resolves.toBe("read");
+    await expect(
+      requirePluginPermission({ ...access, effect: "write" })
+    ).rejects.toThrow("permission");
+    const events = await env.OPENMELD_DB.prepare(
+      "SELECT actor_user_id, revision, previous_policy, policy FROM connector_access_events WHERE connection_name = ?"
+    )
+      .bind(fixture.connectionA)
+      .all();
+    expect(events.results).toEqual([
+      {
+        actor_user_id: fixture.memberA,
+        revision: 1,
+        previous_policy: JSON.stringify(initial.connections[0]?.policy),
+        policy: JSON.stringify(update.policy),
+      },
+    ]);
+  });
+
+  it("denies personal access grants to other members and admins and shared grants to members", async () => {
+    const fixture = await seedConnectorFixture();
+    const shared = await seedSharedConnectorConnection(fixture);
+    for (const [userId, connectionName] of [
+      [fixture.otherMemberA, fixture.connectionA],
+      [fixture.ownerA, fixture.connectionA],
+      [fixture.memberA, shared],
+    ] as const) {
+      await expect(
+        rpcUpdatePluginAccess(connectorCoreEnv(), {
+          context: connectorRequestContext({
+            organizationId: fixture.organizationA,
+            userId,
+          }),
+          expectedOrganizationId: fixture.organizationA,
+          service: "github",
+          connectionName,
+          expectedRevision: 0,
+          policy: {
+            center_agent: "write",
+            local_agent: "write",
+            remote_agent: "write",
+          },
+        })
+      ).rejects.toThrow("Only the account owner");
+    }
+  });
+
   it("owns connector action retries and terminal outcomes in one durable operation", async () => {
     const fixture = await seedConnectorFixture();
     const baseInput = {
@@ -666,6 +1237,37 @@ describe("Core connector connection ownership", () => {
     };
 
     await expect(
+      rpcCenterAgentRecordConnectorActionAudit(connectorCoreEnv(), {
+        ...input,
+        connectionName: undefined,
+      })
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: "plugin.connection_required" }),
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = ? WHERE connection_name = ?"
+    )
+      .bind(
+        JSON.stringify({
+          center_agent: "read",
+          local_agent: "none",
+          remote_agent: "none",
+        }),
+        gmailConnection
+      )
+      .run();
+    await expect(
+      rpcCenterAgentRecordConnectorActionAudit(connectorCoreEnv(), input)
+    ).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: "plugin.action_forbidden" }),
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE connector_connections SET access_policy = NULL WHERE connection_name = ?"
+    )
+      .bind(gmailConnection)
+      .run();
+
+    await expect(
       rpcCenterAgentRecordConnectorActionOperation(connectorCoreEnv(), input)
     ).resolves.toMatchObject({
       attribution: {
@@ -932,6 +1534,17 @@ describe("Core connector connection ownership", () => {
     expect(resolveUserDisplayName).toHaveBeenCalledWith({
       userId: fixture.memberA,
     });
+    const legacy = await rpcCenterAgentResolveConnectorConnection(
+      coreEnv,
+      input
+    );
+    expect(legacy).not.toHaveProperty("permission");
+    await expect(
+      rpcCenterAgentResolveConnectorConnection(coreEnv, {
+        ...input,
+        includeAccessPolicy: true,
+      })
+    ).resolves.toMatchObject({ permission: "write" });
 
     await env.OPENMELD_DB.prepare(
       "DELETE FROM members WHERE organization_id = ? AND user_id = ?"

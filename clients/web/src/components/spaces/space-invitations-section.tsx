@@ -234,7 +234,7 @@ export function SpaceInvitationForm({
 						className="underline"
 						params={{ orgSlug: organization.slug }}
 						search={{ requestId: proposal.data[0].id }}
-						to="/o/$orgSlug/settings/invitations"
+						to="/o/$orgSlug/inbox"
 					>
 						View request
 					</Link>

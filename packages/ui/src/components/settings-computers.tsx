@@ -25,7 +25,12 @@ import {
 } from "#components/dialog";
 import { LocalAgentLogo } from "#components/local-agent-logo";
 import { hasLocalAgentLogo } from "#components/local-agent-logo-utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#components/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipHint,
+  TooltipTrigger,
+} from "#components/tooltip";
 import {
   Accordion,
   AccordionContent,
@@ -590,7 +595,6 @@ export function SettingsLocalAgentUsageDockItem({
 function UsageTooltipContent({ children }: { children: ReactNode }) {
   return (
     <TooltipContent
-      arrowClassName="bg-popover fill-popover"
       className="block w-96 max-w-[calc(100vw-2rem)] bg-popover p-0 text-popover-foreground shadow-md ring-1 ring-border"
       side="top"
       sideOffset={6}
@@ -681,6 +685,7 @@ export function SettingsLocalAgentUsageLimits({
   limits,
   nowMs = Date.now(),
   fillColumns = false,
+  compact = false,
 }: {
   agentName: string;
   limits?: AgentControllerUsageLimits;
@@ -690,11 +695,15 @@ export function SettingsLocalAgentUsageLimits({
    * use a responsive grid that wraps before the labels become cramped.
    */
   fillColumns?: boolean;
+  compact?: boolean;
 }) {
   if (limits === undefined) {
     return null;
   }
   const orderedLimits = orderUsageLimitsForDisplay({ agentName, limits });
+  if (compact && orderedLimits?.length) {
+    return <UsageLimitPreviewGrid limits={orderedLimits} nowMs={nowMs} />;
+  }
   const providerGroups = groupProviderUsageLimits(orderedLimits);
   let usageContent: ReactNode;
   if (providerGroups) {
@@ -1055,9 +1064,9 @@ function UsageLimitTime({
   label: string;
 }) {
   return dateTime ? (
-    <time dateTime={dateTime} title={formatExactUsageLimitTime(dateTime)}>
-      {label}
-    </time>
+    <TooltipHint content={formatExactUsageLimitTime(dateTime)}>
+      <time dateTime={dateTime}>{label}</time>
+    </TooltipHint>
   ) : (
     <span>{label}</span>
   );

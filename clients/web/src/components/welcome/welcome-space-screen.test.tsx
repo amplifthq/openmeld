@@ -64,6 +64,16 @@ function renderScreen(overrides: Partial<WelcomeSpaceScreenProps> = {}) {
 }
 
 describe("WelcomeSpaceScreen", () => {
+	it.each([
+		"loading",
+		"error",
+		"ready",
+	] as const)("opens Discover while account Spaces are %s", (joinableStatus) => {
+		const onDiscover = vi.fn();
+		renderScreen({ onDiscover, joinableStatus, joinableSpaces: [] });
+		fireEvent.click(screen.getByRole("button", { name: JOIN_CHOICE }));
+		expect(onDiscover).toHaveBeenCalledOnce();
+	});
 	it("offers create and join as the two choices, form hidden until chosen", () => {
 		renderScreen({
 			joinableSpaces: [{ spaceId: "space-1", name: "Existing room" }],

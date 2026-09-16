@@ -2,8 +2,8 @@ import { ensureSpaceExecutionInputOutbox } from "./space-execution-input-repo";
 import { SpaceFileUpdateRepository } from "./space-file-update-repo";
 import { ensureSpaceReactionTables } from "./space-reaction-repo";
 
-export const SPACE_SQL_SCHEMA_VERSION = 39;
-export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v39";
+export const SPACE_SQL_SCHEMA_VERSION = 40;
+export const SPACE_SQL_SCHEMA_CHECKSUM = "space-sql-schema-v40";
 const DIRECT_MESSAGE_SPACE_PURPOSE = "openmeld_dm_space";
 const OPENMELD_DAEMON_OUTBOX_POISON_FAILURE_COUNT_COLUMN =
   "poison_failure_count";
@@ -426,8 +426,11 @@ export const ensureSpaceSqlSchema = (sql: SqlStorage): void => {
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_inbox_projection_outbox_status_retry ON space_inbox_projection_outbox (status, next_retry_at_ms, created_at_ms)"
   );
+  // Publication and subsequent reactions have distinct projection identities.
+  // Keep projection_id as the idempotency boundary; one message has many events.
+  sql.exec("DROP INDEX IF EXISTS idx_space_inbox_projection_outbox_signal_id");
   sql.exec(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_space_inbox_projection_outbox_signal_id ON space_inbox_projection_outbox (signal_id)"
+    "CREATE INDEX IF NOT EXISTS idx_space_inbox_projection_outbox_source_signal ON space_inbox_projection_outbox (signal_id)"
   );
   sql.exec(
     "CREATE INDEX IF NOT EXISTS idx_space_dispatch_rules_updated_at ON space_dispatch_rules (updated_at_ms)"

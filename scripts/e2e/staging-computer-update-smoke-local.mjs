@@ -207,6 +207,18 @@ export function restartCanaryService(input) {
     sensitiveValues: input.sensitiveValues,
     timeoutMs: 2 * 60 * 1000,
   });
+  // Advance the existing hourly OS maintenance schedule after startup settles.
+  // The worker still discovers the release itself and owns the automatic job;
+  // this avoids depending on a RunAtLoad check racing the startup lock.
+  runCommand({
+    args: [
+      "kickstart",
+      `gui/${String(process.getuid())}/${CANARY_UPDATE_LABEL}`,
+    ],
+    command: "launchctl",
+    label: "run the scheduled Canary maintenance tick",
+    sensitiveValues: input.sensitiveValues,
+  });
 }
 
 export function assertCliVersion(input) {

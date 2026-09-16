@@ -2,6 +2,7 @@
 
 import type { AgentProfileOperationalContextInput } from "@openmeld/agent-profile";
 import type {
+	AgentProfileCreationRequest,
 	AuthProfileView,
 	GetAgentExecutionReadinessResponse,
 	ModelCatalog,
@@ -13,11 +14,13 @@ import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { AppFullWidthLayout } from "#/components/app/app-full-width-layout";
 import { TeamHeader } from "#/components/directory/team-header";
+import { TeamPeopleSidebar } from "#/components/directory/team-people-sidebar";
+import type { OptimisticAgentProfileCreation } from "#/lib/profiles/agent-profile-creation-requests";
 import type { AppSidebarPersistedStates } from "#/lib/sidebar-width-cookie";
 import { AgentDirectoryLists } from "./agent-directory-lists";
 
 const AGENT_REQUESTS_DESCRIPTION =
-	"Track Agent creation and finish any remaining setup.";
+	"Review Agents you created and finish any setup that needs attention.";
 
 export type AgentProfilesWorkspaceProps = {
 	directoryProfiles?: OrganizationProfileDirectoryResponse["agentProfiles"];
@@ -25,6 +28,10 @@ export type AgentProfilesWorkspaceProps = {
 	members?: OrganizationProfileDirectoryResponse["members"];
 	lastTaskActivityByProfileId?: ReadonlyMap<string, string | null>;
 	canCreateAgent?: boolean;
+	creationRequests?: readonly (
+		| AgentProfileCreationRequest
+		| OptimisticAgentProfileCreation
+	)[];
 	person?: { id: string; name: string; path: string; agentsPath: string };
 	activeView: "agents" | "requests";
 	agentControllerRefByProfileId?: ReadonlyMap<string, string | null>;
@@ -33,6 +40,8 @@ export type AgentProfilesWorkspaceProps = {
 	hasAnyProfiles?: boolean;
 	initialSidebarStates?: AppSidebarPersistedStates;
 	onCreateAgent: () => void;
+	onOpenCreationRequest?: (requestId: string) => void;
+	onDismissCreation?: (requestId: string) => void;
 	onSelectProfile: (profileId: string) => void;
 	onViewChange: (view: "agents" | "requests") => void;
 	pendingRequestCount: number;
@@ -79,6 +88,7 @@ export function AgentProfilesWorkspace(input: AgentProfilesWorkspaceProps) {
 					/>
 				) : undefined
 			}
+			mainSidebarContent={<TeamPeopleSidebar />}
 			showMainHeader={!input.person && input.activeView === "agents"}
 		>
 			<AgentWorkspaceHeader {...input} />
@@ -154,7 +164,7 @@ function AgentProfilesWorkspaceContent(input: {
 						size="sm"
 						variant="ghost"
 					>
-						Setup history
+						Creation history
 					</Button>
 				)}
 		</div>
@@ -164,14 +174,8 @@ function AgentProfilesWorkspaceContent(input: {
 function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 	return (
 		<div className="mx-auto w-full max-w-5xl space-y-5 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-			<header className="space-y-1">
-				<div className="flex flex-wrap items-center justify-between gap-3">
-					<div className="min-w-0">
-						<h1 className="font-semibold text-xl">Agent setup</h1>
-						<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
-							{AGENT_REQUESTS_DESCRIPTION}
-						</p>
-					</div>
+			<header className="space-y-4">
+				<div>
 					<Button
 						onClick={() => input.input.onViewChange("agents")}
 						size="sm"
@@ -181,6 +185,12 @@ function AgentRequestsWorkspace(input: { input: AgentProfilesWorkspaceProps }) {
 						<ArrowLeftIcon aria-hidden="true" data-icon="inline-start" />
 						Back to Team
 					</Button>
+				</div>
+				<div className="min-w-0">
+					<h1 className="font-semibold text-xl">Agent creation history</h1>
+					<p className="mt-1 max-w-2xl text-muted-foreground text-sm leading-6">
+						{AGENT_REQUESTS_DESCRIPTION}
+					</p>
 				</div>
 			</header>
 			{input.input.requestPanel}

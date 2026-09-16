@@ -1,5 +1,8 @@
 import { spawn } from "node:child_process";
+import { compareSemver } from "../../config/version-state";
+import { readManagedCliInstallation } from "../../local-components/managed-install";
 import { isBinaryDistribution } from "../../runtime/distribution";
+import { OPENMELD_VERSION } from "../../runtime/version";
 import {
   buildOpenMeldToolsUpdateContextEnv,
   type OpenMeldToolsUpdateContext,
@@ -7,16 +10,32 @@ import {
 
 export type OpenMeldToolsUpgradeProcessResult = { exitCode: number };
 
+export async function resolveMaintenanceCliInstallation(): Promise<{
+  version: string;
+  binaryPath: string;
+}> {
+  const installed = isBinaryDistribution()
+    ? await readManagedCliInstallation()
+    : null;
+  return installed && compareSemver(installed.version, OPENMELD_VERSION) >= 0
+    ? installed
+    : { version: OPENMELD_VERSION, binaryPath: process.execPath };
+}
+
 export async function runOpenMeldToolsUpgradeProcess(
   context: OpenMeldToolsUpdateContext
 ): Promise<OpenMeldToolsUpgradeProcessResult> {
   const binaryDistribution = isBinaryDistribution();
-  // Execute the protected maintenance carrier. The npm launch recipe retains
-  // its original installation target separately from the business bundle state.
+  const cli = await resolveMaintenanceCliInstallation();
+  // A retained Service/maintenance carrier may be older than the installed CLI.
+  // Run the installed CLI for updates; the protected carrier can still repair a
+  // missing managed install. npm retains its original installation recipe.
   const { command, argsPrefix } = resolveOpenMeldToolsUpgradeProgram({
     binaryDistribution,
     processEntryScriptPath: process.argv[1],
-    processExecutablePath: process.execPath,
+    processExecutablePath: binaryDistribution
+      ? cli.binaryPath
+      : process.execPath,
   });
   return await new Promise((resolve, reject) => {
     const child = spawn(command, [...argsPrefix, "maintenance-upgrade"], {

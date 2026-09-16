@@ -7,12 +7,26 @@ import {
   resolveIsolatedDevLaunchOptions,
   resolveIsolatedDevPresentation,
   resolveIsolatedWebDopplerCommand,
+  resolveIsolatedWebScript,
 } from "./dev-isolated.mjs";
 import { buildInjectedEnvironment } from "./doppler-environment.mjs";
 
 const DOPPLER_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./doppler-environment.mjs", import.meta.url)
 );
+
+test("uses compiled Web preview only for the explicit Desktop pilot", () => {
+  assert.equal(resolveIsolatedWebScript({}), "dev:isolated");
+  assert.equal(
+    resolveIsolatedWebScript({ OPENMELD_DESKTOP_PILOT: "1" }),
+    "desktop:pilot"
+  );
+  const command = resolveIsolatedWebDopplerCommand(
+    { OPENMELD_DEV_ENVIRONMENT_SOURCE: "doppler", OPENMELD_DESKTOP_PILOT: "1" },
+    "pnpm-test"
+  );
+  assert.equal(command.args.at(-1), "desktop:pilot");
+});
 
 test("presents the shared Doppler workflow with newcomer-facing commands", () => {
   assert.deepEqual(

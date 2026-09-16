@@ -11,8 +11,9 @@ import type {
 } from "@openmeld/schemas/types";
 import { Badge } from "@openmeld/ui/components/badge";
 import { Button } from "@openmeld/ui/components/button";
-import { Card, CardContent, CardFooter } from "@openmeld/ui/components/card";
+import { CardFooter } from "@openmeld/ui/components/card";
 import { Input } from "@openmeld/ui/components/input";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
 import {
 	resolveStatusToneBadgeClassName,
@@ -26,7 +27,6 @@ import {
 	CheckCircleIcon,
 	ClockCountdownIcon,
 	DesktopTowerIcon,
-	HashIcon,
 	PencilSimpleIcon,
 	ProhibitIcon,
 	WarningCircleIcon,
@@ -41,6 +41,10 @@ import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator
 import { AgentProfileConversationsSection } from "#/components/directory/agent-conversations-section";
 import { AgentProfileUsage } from "#/components/profiles/agent-profile-usage";
 import { ProfileDetailsRecoveryActionButton } from "#/components/profiles/profile-details-recovery-action-button";
+import {
+	AgentTaskActivityTime,
+	useAgentTaskActivity,
+} from "./agent-task-activity";
 import { formatAgentWakeAvailabilityCheckedAt } from "./agents-page-agent-profile-helpers";
 
 export function AgentProfileWorkspaceDetail(input: {
@@ -49,12 +53,6 @@ export function AgentProfileWorkspaceDetail(input: {
 	canEdit: boolean;
 	controllerModelSummary: string;
 	configurationContent?: ReactNode;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
 	details: ProfileDetailsSnapshot;
 	isDirectMessagePending: boolean;
 	isRecoveryActionPending: boolean;
@@ -74,6 +72,7 @@ export function AgentProfileWorkspaceDetail(input: {
 	wakeAvailabilityNowMs: number;
 	headerRecoveryActions?: ReactNode;
 }) {
+	const taskActivity = useAgentTaskActivity(input.profile.openMeldProfileId);
 	const displayedWakeAvailability = input.wakeAvailability;
 	const showOwnerOperationalContext =
 		input.details.viewerScope === "owner_self";
@@ -87,7 +86,7 @@ export function AgentProfileWorkspaceDetail(input: {
 		availabilityCategory === "offline" ||
 		availabilityCategory === "unavailable";
 	const visibleActivityNavigation = showOwnerOperationalContext
-		? input.activityNavigation
+		? (input.activityNavigation ?? taskActivity.navigation)
 		: null;
 	let operationalRecoveryAction: ReactNode = null;
 	if (
@@ -168,10 +167,13 @@ export function AgentProfileWorkspaceDetail(input: {
 					</div>
 				</div>
 			</div>
-			<AgentProfileUsage profileId={input.profile.openMeldProfileId} />
+			<AgentProfileUsage
+				profileId={input.profile.openMeldProfileId}
+				variant="details"
+			/>
 			<AgentProfileCurrentActivity
 				activityNavigation={visibleActivityNavigation}
-				currentSession={input.currentSession}
+				lastTaskActivityAt={taskActivity.activity?.lastTaskActivityAt}
 				operationalContext={input.operationalContext}
 				recoveryAction={operationalRecoveryAction}
 				recoveryActionKind={projectedRecoveryAction?.kind ?? null}
@@ -247,45 +249,49 @@ function AgentProfilePresence(input: {
 		</span>
 	);
 	return (
-		<div
-			aria-live="polite"
-			className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
-			data-agent-presence-status={presentation.status}
-			data-testid="agent-profile-presence"
-			title={presentation.tooltip}
-		>
-			{presenceIcon}
-			{presenceLabel}
-			{checkedAt ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					· {checkedAt}
-				</span>
-			) : null}
-			{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					Refreshing…
-				</span>
-			) : null}
-			{presentation.reason ? (
-				<span className="text-muted-foreground text-xs leading-5">
-					{presentation.reason}
-				</span>
-			) : null}
-			{input.headerRecoveryActions ? (
-				<div
-					className="flex max-w-full flex-wrap items-center gap-2"
-					data-testid="agent-profile-header-recovery-actions"
-				>
-					{input.headerRecoveryActions}
-				</div>
-			) : null}
-			{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
-				<span className="text-muted-foreground text-xs" role="alert">
-					Couldn’t refresh availability.
-					<span className="sr-only"> {input.wakeAvailabilityErrorMessage}</span>
-				</span>
-			) : null}
-		</div>
+		<TooltipHint content={presentation.tooltip}>
+			<div
+				aria-live="polite"
+				className="@[42rem]/agent-detail:mt-auto mt-3 flex min-h-5 min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
+				data-agent-presence-status={presentation.status}
+				data-testid="agent-profile-presence"
+			>
+				{presenceIcon}
+				{presenceLabel}
+				{checkedAt ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						· {checkedAt}
+					</span>
+				) : null}
+				{input.wakeAvailability && input.wakeAvailabilityIsRefreshing ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						Refreshing…
+					</span>
+				) : null}
+				{presentation.reason ? (
+					<span className="text-muted-foreground text-xs leading-5">
+						{presentation.reason}
+					</span>
+				) : null}
+				{input.headerRecoveryActions ? (
+					<div
+						className="flex max-w-full flex-wrap items-center gap-2"
+						data-testid="agent-profile-header-recovery-actions"
+					>
+						{input.headerRecoveryActions}
+					</div>
+				) : null}
+				{input.wakeAvailabilityErrorMessage && input.wakeAvailability ? (
+					<span className="text-muted-foreground text-xs" role="alert">
+						Couldn’t refresh availability.
+						<span className="sr-only">
+							{" "}
+							{input.wakeAvailabilityErrorMessage}
+						</span>
+					</span>
+				) : null}
+			</div>
+		</TooltipHint>
 	);
 }
 
@@ -382,17 +388,12 @@ function AgentProfilePresenceIcon(input: {
 
 function AgentProfileCurrentActivity(input: {
 	activityNavigation: AgentProfileActivityNavigation | null;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
+	lastTaskActivityAt?: string | null;
 	operationalContext: AgentProfileOperationalContextInput | null;
 	recoveryAction: ReactNode;
 	recoveryActionKind: ProfileDetailsRecoveryAction["kind"] | null;
 }) {
-	const currentDestination = resolveCurrentActivityDestination(input);
+	const currentDestination = input.activityNavigation?.current ?? null;
 	const queuedDestinations = input.activityNavigation?.queued ?? [];
 	const { footerRecoveryAction, interruptedRecoveryAction } =
 		resolveActivityRecoveryActions(input);
@@ -407,7 +408,8 @@ function AgentProfileCurrentActivity(input: {
 			hasActivityDestinations ||
 			interruptedRecoveryAction ||
 			footerRecoveryAction ||
-			neutralActivitySummary
+			neutralActivitySummary ||
+			input.lastTaskActivityAt
 		)
 	) {
 		return null;
@@ -415,7 +417,7 @@ function AgentProfileCurrentActivity(input: {
 	let activityContent: ReactNode = null;
 	if (hasActivityDestinations || interruptedRecoveryAction) {
 		activityContent = (
-			<CardContent className="min-w-0 py-4">
+			<div className="min-w-0">
 				<ActivityDestinationsPanel
 					currentDestination={currentDestination}
 					currentWorkLocation={
@@ -425,30 +427,10 @@ function AgentProfileCurrentActivity(input: {
 					isWorking={input.operationalContext?.status === "working"}
 					queuedDestinations={queuedDestinations}
 				/>
-			</CardContent>
+			</div>
 		);
 	} else if (neutralActivitySummary) {
-		activityContent = (
-			<CardContent className="min-w-0 py-4">
-				<FluidCardGroup aria-label="Current activity" role="list">
-					<FluidCardItem
-						className="border border-border/70"
-						itemId="activity-summary"
-						role="listitem"
-					>
-						<div className="flex min-w-0 items-center gap-3 px-4 py-3">
-							<DesktopTowerIcon
-								aria-hidden="true"
-								className="size-5 shrink-0 text-muted-foreground"
-							/>
-							<span className="truncate font-medium text-sm">
-								{neutralActivitySummary}
-							</span>
-						</div>
-					</FluidCardItem>
-				</FluidCardGroup>
-			</CardContent>
-		);
+		activityContent = <p className="text-sm">{neutralActivitySummary}</p>;
 	}
 	return (
 		<section
@@ -460,17 +442,15 @@ function AgentProfileCurrentActivity(input: {
 					Current activity
 				</h2>
 			</div>
-			<Card
-				className="gap-0 overflow-hidden py-0"
-				data-testid="agent-current-activity"
-			>
+			<div className="grid gap-2" data-testid="agent-current-activity">
 				{activityContent}
+				<AgentTaskActivityTime timestamp={input.lastTaskActivityAt} />
 				{footerRecoveryAction ? (
 					<CardFooter className="flex-col items-start gap-3 border-border/70">
 						{footerRecoveryAction}
 					</CardFooter>
 				) : null}
-			</Card>
+			</div>
 		</section>
 	);
 }
@@ -511,32 +491,8 @@ function resolveNeutralActivitySummary(
 			? ` · ${operationalContext.waitingCount} queued`
 			: "";
 	return operationalContext.status === "working"
-		? `Working${waitingSuffix}`
+		? `Active task${waitingSuffix}`
 		: `Waiting to continue${waitingSuffix}`;
-}
-
-function resolveCurrentActivityDestination(input: {
-	activityNavigation: AgentProfileActivityNavigation | null;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
-	operationalContext: AgentProfileOperationalContextInput | null;
-}): AgentProfileActivityDestination | null {
-	if (input.activityNavigation?.current) {
-		return input.activityNavigation.current;
-	}
-	return input.operationalContext?.status === "working" && input.currentSession
-		? {
-				computerName: input.currentSession.computerName,
-				conversationId: input.currentSession.nativeSessionId,
-				href: input.currentSession.href,
-				source: "computer",
-				title: input.currentSession.title,
-			}
-		: null;
 }
 
 function ActivityDestinationsPanel(input: {
@@ -657,9 +613,10 @@ function ActivityDestinationLink(input: {
 		resolveActivitySourceLabel(input.destination.source);
 	const isInterrupted = input.state === "interrupted";
 	let icon = <DesktopTowerIcon aria-hidden="true" className="size-4" />;
-	if (input.destination.source === "space") {
-		icon = <HashIcon aria-hidden="true" className="size-4" />;
-	} else if (input.destination.source === "direct_message") {
+	if (
+		input.destination.source === "space" ||
+		input.destination.source === "direct_message"
+	) {
 		icon = <ChatCircleTextIcon aria-hidden="true" className="size-4" />;
 	}
 	return (
@@ -706,7 +663,7 @@ function resolveActivityDestinationStateLabel(
 	state: ActivityDestinationState
 ): string {
 	if (state === "working") {
-		return "Working";
+		return "Active task";
 	}
 	if (state === "up_next") {
 		return "Up next";

@@ -3,6 +3,7 @@ export type * from "./continuity";
 export type * from "./dispatch-brief";
 export type * from "./dispatch-policy";
 export type * from "./dispatch-result";
+export type * from "./dispatch-space-action-receipt";
 export type * from "./entry-brief";
 export type * from "./openmeld-space-action";
 export type * from "./publication-policy";

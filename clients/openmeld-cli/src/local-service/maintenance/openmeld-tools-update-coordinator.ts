@@ -13,6 +13,12 @@ import {
 import { resolveServiceUpdateUrgency } from "../../command-entry-checks/service-update-urgency";
 import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import { resolveOpenMeldEnvironmentTarget } from "../../config/openmeld-environment-target";
+import { resolveCurrentDaemonExpectedVersion } from "../lifecycle/current-daemon-version";
+import {
+  buildDaemonServiceTargetSpec,
+  resolveDaemonServiceAlignmentDecision,
+} from "../lifecycle/daemon-service-alignment-target";
+import { inspectDaemonServiceInventory } from "../lifecycle/daemon-service-inventory";
 import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
 import { startDaemonServiceUpdateWorker } from "../lifecycle/daemon-service-update-worker-manager";
 import {
@@ -28,6 +34,7 @@ import {
 import type { OpenMeldToolsUpdateContext } from "./openmeld-tools-update-context";
 import {
   type OpenMeldToolsUpgradeProcessResult,
+  resolveMaintenanceCliInstallation,
   runOpenMeldToolsUpgradeProcess,
 } from "./openmeld-tools-upgrade-process";
 
@@ -37,6 +44,7 @@ type OpenMeldToolsUpdateCoordinatorDependencies = {
   assessUpdate: (input: {
     forceRefresh: boolean;
   }) => Promise<CliUpdateAssessment>;
+  serviceNeedsAlignment: (version: string) => Promise<boolean>;
   completeAttempt: (attempt: OpenMeldToolsUpdateAttempt) => Promise<void>;
   createOperationId: () => string;
   discardPendingAttempt: () => Promise<void>;
@@ -152,7 +160,14 @@ export function createOpenMeldToolsUpdateCoordinator(
     if (!(assessment.checked && assessment.latestVersion)) {
       return { status: "unavailable" };
     }
-    if (!assessment.updateAvailable) {
+    const serviceVersion =
+      assessment.serviceVersion ?? assessment.currentVersion;
+    if (
+      !(
+        assessment.updateAvailable ||
+        (await deps.serviceNeedsAlignment(serviceVersion))
+      )
+    ) {
       return {
         currentVersion: assessment.currentVersion,
         status: "current",
@@ -169,7 +184,9 @@ export function createOpenMeldToolsUpdateCoordinator(
         phase: "updating",
         requestSource,
         requestedAt: now,
-        targetVersion: assessment.latestVersion,
+        targetVersion: assessment.updateAvailable
+          ? assessment.latestVersion
+          : serviceVersion,
         updatedAt: now,
         urgency: assessment.floorBreached
           ? "required"
@@ -264,9 +281,29 @@ function resolveDependencies(
         await assessCliUpdate({
           environmentTarget: await resolveOpenMeldEnvironmentTarget(),
           forceRefresh: true,
+          currentVersion: (await resolveMaintenanceCliInstallation()).version,
         })),
     completeAttempt:
       overrides.completeAttempt ?? completeOpenMeldToolsUpdateAttempt,
+    serviceNeedsAlignment:
+      overrides.serviceNeedsAlignment ??
+      (async (selectedVersion) => {
+        const daemonVersion =
+          await resolveCurrentDaemonExpectedVersion(selectedVersion);
+        const inventory = await inspectDaemonServiceInventory({
+          expectedVersion: daemonVersion,
+          intendedMode: "background",
+          intent: "upgrade_reconcile",
+        });
+        const decision = resolveDaemonServiceAlignmentDecision({
+          inventory,
+          target: buildDaemonServiceTargetSpec({ daemonVersion }),
+        });
+        return (
+          decision.status !== "already_aligned" &&
+          decision.status !== "not_installed"
+        );
+      }),
     createOperationId: overrides.createOperationId ?? randomUUID,
     discardPendingAttempt:
       overrides.discardPendingAttempt ??

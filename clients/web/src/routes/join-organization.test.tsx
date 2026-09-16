@@ -120,7 +120,7 @@ describe("approval-required link entry", () => {
 			(
 				await screen.findByRole("link", { name: "Open organization" })
 			).getAttribute("href")
-		).toBe("/o/harbor");
+		).toBe("/o/harbor/spaces");
 		expect(request).not.toHaveBeenCalled();
 	});
 	it("does not offer an action for a revoked link", async () => {

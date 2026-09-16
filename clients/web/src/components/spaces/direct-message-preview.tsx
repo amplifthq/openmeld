@@ -1,5 +1,5 @@
 import { sanitizeSignalTextPreview } from "@openmeld/schemas";
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 
 export function formatDirectMessageTime(
@@ -18,14 +18,6 @@ export function formatDirectMessageTime(
 		});
 	}
 	return days === 1 ? "Yesterday" : `${days} days ago`;
-}
-
-export function useSpaceMessagePreview(input: {
-	spaceId: string;
-	viewerProfileId: string;
-	enabled: boolean;
-}) {
-	return useQuery(spaceMessagePreviewQueryOptions(input));
 }
 
 export function spaceMessagePreviewQueryOptions(input: {

@@ -65,9 +65,11 @@ import {
 } from "./center-agent-tasks.schema.ts";
 import { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 import {
+  connectorAccessEvents,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
+  pluginActionConfirmations,
 } from "./connector-connection.schema.ts";
 import { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 import { evalReports } from "./eval-report.schema.ts";
@@ -131,6 +133,7 @@ import { openMeldDaemonProviderConversationProofs } from "./provider-conversatio
 import { routineRuns, routines } from "./routine.schema.ts";
 import { openMeldDaemonRuntimeAgentControllerReports } from "./runtime-agent-controller-report.schema.ts";
 import { openMeldDaemonRuntimeRegistryRecords } from "./runtime-registry.schema.ts";
+import { serviceConnectionIncidents } from "./service-connection-evidence.schema.ts";
 import { spaceAttachments } from "./space-attachment.schema.ts";
 import {
   spaceIndexMemberships,
@@ -1679,6 +1682,8 @@ export const coreSchema = {
   projects,
   routines,
   routineRuns,
+  connectorAccessEvents,
+  pluginActionConfirmations,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
@@ -1759,6 +1764,7 @@ export const coreSchema = {
   openMeldRemoteAgentOrgGuardrails,
   openMeldDaemonRuntimeCoordinatorExecutions,
   openMeldDaemonRuntimeCoordinatorExecutionEvents,
+  serviceConnectionIncidents,
   openMeldDaemonRuntimeCoordinatorCreationDiagnostics,
   openMeldDaemonAgentExecutionReadinessImpacts,
   openMeldDaemonProviderAccessEvidence,

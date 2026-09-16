@@ -21,6 +21,7 @@ const OPENMELD_HEADER_PROFILE_ID = "x-openmeld-profile-id";
 const OPENMELD_HEADER_SPACE_PASSWORD = "x-openmeld-space-password";
 const OPENMELD_STREAM_ROUTE_PATTERN = /^\/v1\/spaces\/([^/]+)\/stream$/u;
 const SPACE_STREAM_HELLO_CAPABILITIES = {
+	agentReplyPlacement: true,
 	liveSignalHistory: true,
 	spaceMessageAddressing: true,
 } as const;

@@ -1,479 +1,214 @@
 "use client";
 
-// Source-adapted from motion-primitives.com's morphing-dialog registry item
-// (https://motion-primitives.com/docs/morphing-dialog), with focus restoration,
-// Escape containment, and accessible dialog labels maintained here. Imports use
-// framer-motion and Phosphor to match this package's dependencies; no visual
-// opinions (rounding, color, etc.) are baked in here — callers style each
-// instance via className/props, same as the upstream usage pattern.
+// Adapted from Motion Primitives' MIT-licensed Morphing Dialog, installed with
+// `npx motion-primitives@latest add morphing-dialog`.
+// https://github.com/ibelick/motion-primitives/blob/main/components/core/morphing-dialog.tsx
+// Preserve its shared-layout trigger/content and presence transition; Base UI
+// owns modal focus, dismissal, accessibility, and scroll locking.
+import { Dialog } from "@base-ui/react/dialog";
 import { XIcon } from "@phosphor-icons/react";
 import {
   AnimatePresence,
+  type HTMLMotionProps,
   MotionConfig,
+  MotionConfigContext,
   motion,
   type Transition,
-  type Variant,
 } from "framer-motion";
-import type * as React from "react";
 import {
   createContext,
-  useCallback,
+  type ReactNode,
+  type RefObject,
   useContext,
-  useEffect,
   useId,
   useMemo,
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
-import { useClickOutside } from "#hooks/use-click-outside";
+import { useMediaQuery } from "#hooks/use-media-query";
+import { springs } from "#lib/springs";
 import { cn } from "#lib/utils";
 
-export type MorphingDialogContextType = {
-  isOpen: boolean;
-  setIsOpen: React.Dispatch<React.SetStateAction<boolean>>;
-  uniqueId: string;
-  triggerRef: React.RefObject<HTMLButtonElement | null>;
-};
-
-const MorphingDialogContext = createContext<MorphingDialogContextType | null>(
-  null
-);
+const MorphingDialogContext = createContext<{
+  open: boolean;
+  layoutId?: string;
+  actionsRef: RefObject<Dialog.Root.Actions | null>;
+} | null>(null);
 
 function useMorphingDialog() {
   const context = useContext(MorphingDialogContext);
   if (!context) {
     throw new Error(
-      "useMorphingDialog must be used within a MorphingDialogProvider"
+      "Morphing Dialog components must be inside MorphingDialog."
     );
   }
   return context;
 }
 
-export type MorphingDialogProviderProps = {
-  children: React.ReactNode;
-  transition?: Transition;
-};
-
-function MorphingDialogProvider({
+export function MorphingDialog({
   children,
-  transition,
-}: MorphingDialogProviderProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  open: controlledOpen,
+  onOpenChange,
+  transition = springs.slow,
+}: {
+  children: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  transition?: Transition;
+}) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const uniqueId = useId();
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-
-  const contextValue = useMemo(
-    () => ({
-      isOpen,
-      setIsOpen,
-      uniqueId,
-      triggerRef,
-    }),
-    [isOpen, uniqueId]
+  const actionsRef = useRef<Dialog.Root.Actions | null>(null);
+  const prefersReducedMotion = useMediaQuery(
+    "(prefers-reduced-motion: reduce)"
   );
-
+  const motionConfig = useContext(MotionConfigContext);
+  const reducedMotion =
+    prefersReducedMotion || motionConfig.reducedMotion === "always";
+  const open = controlledOpen ?? internalOpen;
+  const layoutId = reducedMotion ? undefined : `dialog-${uniqueId}`;
+  const context = useMemo(
+    () => ({ open, layoutId, actionsRef }),
+    [open, layoutId]
+  );
   return (
-    <MorphingDialogContext.Provider value={contextValue}>
-      <MotionConfig transition={transition}>{children}</MotionConfig>
+    <MorphingDialogContext.Provider value={context}>
+      <MotionConfig transition={reducedMotion ? { duration: 0.1 } : transition}>
+        <Dialog.Root
+          actionsRef={actionsRef}
+          onOpenChange={(nextOpen, details) => {
+            if (!nextOpen) {
+              details.preventUnmountOnClose();
+            }
+            setInternalOpen(nextOpen);
+            onOpenChange?.(nextOpen);
+          }}
+          open={open}
+        >
+          {children}
+        </Dialog.Root>
+      </MotionConfig>
     </MorphingDialogContext.Provider>
   );
 }
 
-export type MorphingDialogProps = {
-  children: React.ReactNode;
-  transition?: Transition;
-};
-
-function MorphingDialog({ children, transition }: MorphingDialogProps) {
-  return (
-    <MorphingDialogProvider>
-      <MotionConfig transition={transition}>{children}</MotionConfig>
-    </MorphingDialogProvider>
-  );
-}
-
-export type MorphingDialogTriggerProps = {
-  "aria-label"?: string;
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-  triggerRef?: React.RefObject<HTMLButtonElement | null>;
-};
-
-function MorphingDialogTrigger({
-  "aria-label": ariaLabel,
+export function MorphingDialogTrigger({
   children,
-  className,
-  style,
-  triggerRef: providedTriggerRef,
-}: MorphingDialogTriggerProps) {
-  const { setIsOpen, isOpen, uniqueId, triggerRef } = useMorphingDialog();
-
-  const handleClick = useCallback(() => {
-    setIsOpen(!isOpen);
-  }, [isOpen, setIsOpen]);
-
-  const handleKeyDown = useCallback(
-    (event: React.KeyboardEvent) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        setIsOpen(!isOpen);
-      }
-    },
-    [isOpen, setIsOpen]
-  );
-
+  ...props
+}: Dialog.Trigger.Props) {
+  const { layoutId } = useMorphingDialog();
   return (
-    <motion.button
-      aria-controls={`motion-ui-morphing-dialog-content-${uniqueId}`}
-      aria-expanded={isOpen}
-      aria-haspopup="dialog"
-      aria-label={ariaLabel ?? `Open dialog ${uniqueId}`}
-      className={cn("relative cursor-pointer", className)}
-      layoutId={`dialog-${uniqueId}`}
-      onClick={handleClick}
-      onKeyDown={handleKeyDown}
-      ref={(element) => {
-        triggerRef.current = element;
-        if (providedTriggerRef) {
-          providedTriggerRef.current = element;
-        }
-      }}
-      style={style}
-      type="button"
-    >
+    <Dialog.Trigger {...props} render={<motion.button layoutId={layoutId} />}>
       {children}
-    </motion.button>
+    </Dialog.Trigger>
   );
 }
 
-function handleFocusTrapKeyDown(
-  event: KeyboardEvent,
-  first: HTMLElement,
-  last: HTMLElement
-): void {
-  if (event.shiftKey) {
-    if (document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    }
-    return;
-  }
-  if (document.activeElement === last) {
-    event.preventDefault();
-    first.focus();
-  }
-}
-
-export type MorphingDialogContentProps = {
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-};
-
-function MorphingDialogContent({
-  children,
-  className,
-  style,
-}: MorphingDialogContentProps) {
-  const { setIsOpen, isOpen, uniqueId, triggerRef } = useMorphingDialog();
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const [firstFocusableElement, setFirstFocusableElement] =
-    useState<HTMLElement | null>(null);
-  const [lastFocusableElement, setLastFocusableElement] =
-    useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        setIsOpen(false);
-        return;
-      }
-      if (
-        event.key === "Tab" &&
-        firstFocusableElement &&
-        lastFocusableElement
-      ) {
-        handleFocusTrapKeyDown(
-          event,
-          firstFocusableElement,
-          lastFocusableElement
-        );
-      }
-    };
-
-    document.addEventListener("keydown", handleKeyDown, true);
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [setIsOpen, firstFocusableElement, lastFocusableElement]);
-
-  useEffect(() => {
-    if (isOpen) {
-      document.body.classList.add("overflow-hidden");
-      const focusableElements = Array.from(
-        containerRef.current?.querySelectorAll<HTMLElement>(
-          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-        ) ?? []
-      );
-      const [first] = focusableElements;
-      const last = focusableElements.at(-1);
-      if (first && last) {
-        setFirstFocusableElement(first);
-        setLastFocusableElement(last);
-        first.focus();
-      }
-    }
-    return () => {
-      document.body.classList.remove("overflow-hidden");
-      triggerRef.current?.focus();
-    };
-  }, [isOpen, triggerRef]);
-
-  useClickOutside(containerRef, () => {
-    if (isOpen) {
-      setIsOpen(false);
-    }
-  });
-
+export function MorphingDialogContainer({ children }: { children: ReactNode }) {
+  const { open, actionsRef } = useMorphingDialog();
   return (
-    <motion.div
-      aria-describedby={`dialog-description-${uniqueId}`}
-      aria-labelledby={`motion-ui-morphing-dialog-title-${uniqueId}`}
-      aria-modal="true"
-      className={cn("overflow-hidden", className)}
-      id={`motion-ui-morphing-dialog-content-${uniqueId}`}
-      layoutId={`dialog-${uniqueId}`}
-      ref={containerRef}
-      role="dialog"
-      style={style}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-export type MorphingDialogContainerProps = {
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-};
-
-function MorphingDialogContainer({ children }: MorphingDialogContainerProps) {
-  const { isOpen, uniqueId } = useMorphingDialog();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    return () => setMounted(false);
-  }, []);
-
-  if (!mounted) {
-    return null;
-  }
-
-  return createPortal(
-    <AnimatePresence initial={false} mode="sync">
-      {isOpen && (
-        <>
+    <Dialog.Portal keepMounted>
+      <AnimatePresence
+        initial={false}
+        onExitComplete={() => actionsRef.current?.unmount()}
+      >
+        {open && (
           <motion.div
-            animate={{ opacity: 1 }}
-            className="fixed inset-0 z-50 h-full w-full bg-white/40 backdrop-blur-xs dark:bg-black/40"
+            className="fixed inset-0 z-50"
             exit={{ opacity: 0 }}
-            initial={{ opacity: 0 }}
-            key={`backdrop-${uniqueId}`}
-          />
-          <div className="fixed inset-0 z-50 flex items-center justify-center">
-            {children}
-          </div>
-        </>
-      )}
-    </AnimatePresence>,
-    document.body
+            key="dialog-container"
+          >
+            <Dialog.Backdrop
+              className="absolute inset-0 bg-black/20 backdrop-blur-xs"
+              render={
+                <motion.div
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  initial={{ opacity: 0 }}
+                />
+              }
+            />
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </Dialog.Portal>
   );
 }
 
-export type MorphingDialogTitleProps = {
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-};
-
-function MorphingDialogTitle({
-  children,
+export function MorphingDialogContent({
   className,
-  style,
-}: MorphingDialogTitleProps) {
-  const { uniqueId } = useMorphingDialog();
-
+  ...props
+}: Dialog.Popup.Props) {
+  const { layoutId } = useMorphingDialog();
   return (
-    <motion.div
-      className={className}
-      id={`motion-ui-morphing-dialog-title-${uniqueId}`}
-      layout
-      layoutId={`dialog-title-container-${uniqueId}`}
-      style={style}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-export type MorphingDialogSubtitleProps = {
-  children: React.ReactNode;
-  className?: string;
-  style?: React.CSSProperties;
-};
-
-function MorphingDialogSubtitle({
-  children,
-  className,
-  style,
-}: MorphingDialogSubtitleProps) {
-  const { uniqueId } = useMorphingDialog();
-
-  return (
-    <motion.div
-      className={className}
-      layoutId={`dialog-subtitle-container-${uniqueId}`}
-      style={style}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-export type MorphingDialogDescriptionProps = {
-  children: React.ReactNode;
-  className?: string;
-  disableLayoutAnimation?: boolean;
-  variants?: {
-    initial: Variant;
-    animate: Variant;
-    exit: Variant;
-  };
-};
-
-function MorphingDialogDescription({
-  children,
-  className,
-  variants,
-  disableLayoutAnimation,
-}: MorphingDialogDescriptionProps) {
-  const { uniqueId } = useMorphingDialog();
-
-  return (
-    <motion.div
-      animate="animate"
-      className={className}
-      exit="exit"
-      id={`dialog-description-${uniqueId}`}
-      initial="initial"
-      key={`dialog-description-${uniqueId}`}
-      layoutId={
-        disableLayoutAnimation
-          ? undefined
-          : `dialog-description-content-${uniqueId}`
-      }
-      variants={variants}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-export type MorphingDialogImageProps = {
-  src: string;
-  alt: string;
-  className?: string;
-  style?: React.CSSProperties;
-  decoding?: "async" | "auto" | "sync";
-  height?: number;
-  loading?: "eager" | "lazy";
-  width?: number;
-  onError?: React.ReactEventHandler<HTMLImageElement>;
-};
-
-function MorphingDialogImage({
-  src,
-  alt,
-  className,
-  style,
-  decoding,
-  height,
-  loading,
-  width,
-  onError,
-}: MorphingDialogImageProps) {
-  const { uniqueId } = useMorphingDialog();
-
-  return (
-    // biome-ignore lint/performance/noImgElement: no next/image in this Vite app; clients/web's biome.json disables the same rule for the same reason.
-    <motion.img
-      alt={alt}
-      className={cn(className)}
-      decoding={decoding}
-      height={height}
-      layoutId={`dialog-img-${uniqueId}`}
-      loading={loading}
-      onError={onError}
-      src={src}
-      style={style}
-      width={width}
+    <Dialog.Popup
+      {...props}
+      className={cn("pointer-events-auto relative outline-none", className)}
+      render={<motion.div layoutId={layoutId} />}
     />
   );
 }
 
-export type MorphingDialogCloseProps = {
-  children?: React.ReactNode;
-  className?: string;
-  variants?: {
-    initial: Variant;
-    animate: Variant;
-    exit: Variant;
-  };
-};
+export function MorphingDialogTitle(props: Dialog.Title.Props) {
+  return <Dialog.Title {...props} />;
+}
 
-function MorphingDialogClose({
-  children,
-  className,
-  variants,
-}: MorphingDialogCloseProps) {
-  const { setIsOpen, uniqueId } = useMorphingDialog();
+export function MorphingDialogSubtitle(props: Dialog.Description.Props) {
+  return <Dialog.Description {...props} />;
+}
 
-  const handleClose = useCallback(() => {
-    setIsOpen(false);
-  }, [setIsOpen]);
-
+export function MorphingDialogImage(props: HTMLMotionProps<"img">) {
+  const { layoutId } = useMorphingDialog();
   return (
-    <motion.button
-      animate="animate"
-      aria-label="Close dialog"
-      className={cn("absolute top-6 right-6", className)}
-      exit="exit"
-      initial="initial"
-      key={`dialog-close-${uniqueId}`}
-      onClick={handleClose}
-      type="button"
-      variants={variants}
-    >
-      {children || <XIcon size={24} />}
-    </motion.button>
+    // biome-ignore lint/performance/noImgElement: shared Vite component; no Next Image dependency.
+    <motion.img
+      {...props}
+      height={props.height}
+      layoutId={layoutId ? `${layoutId}-image` : undefined}
+      width={props.width}
+    />
   );
 }
 
-export {
-  MorphingDialog,
-  MorphingDialogClose,
-  MorphingDialogContainer,
-  MorphingDialogContent,
-  MorphingDialogDescription,
-  MorphingDialogImage,
-  MorphingDialogSubtitle,
-  MorphingDialogTitle,
-  MorphingDialogTrigger,
-};
+export function MorphingDialogDescription({
+  disableLayoutAnimation,
+  ...props
+}: HTMLMotionProps<"div"> & { disableLayoutAnimation?: boolean }) {
+  const { layoutId } = useMorphingDialog();
+  return (
+    <motion.div
+      {...props}
+      animate="animate"
+      exit="exit"
+      initial="initial"
+      layoutId={
+        !disableLayoutAnimation && layoutId
+          ? `${layoutId}-description`
+          : undefined
+      }
+    />
+  );
+}
+
+export function MorphingDialogClose({
+  children,
+  className,
+  ...props
+}: Dialog.Close.Props) {
+  return (
+    <Dialog.Close
+      {...props}
+      aria-label="Close dialog"
+      className={cn(
+        "absolute top-3 right-3 grid size-7 place-items-center rounded-md text-muted-foreground hover:bg-interaction-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        className
+      )}
+      type="button"
+    >
+      {children ?? <XIcon aria-hidden="true" className="size-4" />}
+    </Dialog.Close>
+  );
+}

@@ -51,6 +51,7 @@ import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import {
@@ -116,6 +117,10 @@ import {
 	AgentConfigurationEditorCard,
 	AgentConfigurationGrid,
 } from "#/components/profiles/agent-configuration-card";
+import {
+	AgentControllerPermissionModeOutcome,
+	getAgentControllerPermissionModeOutcomeDescriptionId,
+} from "#/components/profiles/agent-controller-permission-mode-outcome";
 import { shouldShowAgentProfileProjectSettings } from "#/components/profiles/agent-profile-project-settings";
 import { AgentProfileProjectSettingsDialog } from "#/components/profiles/agent-profile-project-settings-dialog";
 import {
@@ -2765,30 +2770,33 @@ function AgentProfileFooterAvailabilityBadge(input: {
 		input.nowMs
 	);
 	const statusText = (
-		<span
-			className={cn(
-				"block min-w-0 truncate font-medium text-xs",
-				input.className
-			)}
-			data-availability-action={input.availabilityAction ?? undefined}
-			data-availability-phase={input.availabilityPhase ?? undefined}
-			data-availability-reason-code={input.availabilityReasonCode ?? undefined}
-			data-testid="agent-profile-row-availability-badge"
-			title={input.tooltip}
-		>
-			{input.label}
-			{checkedAt ? ` · ${checkedAt}` : ""}
-			{input.isRefreshing ? (
-				<span className="text-muted-foreground"> · Refreshing…</span>
-			) : null}
-			{input.errorMessage ? (
-				<span className="text-muted-foreground" role="alert">
-					{" · "}
-					Couldn’t refresh availability.
-					<span className="sr-only"> {input.errorMessage}</span>
-				</span>
-			) : null}
-		</span>
+		<TooltipHint content={input.tooltip}>
+			<span
+				className={cn(
+					"block min-w-0 truncate font-medium text-xs",
+					input.className
+				)}
+				data-availability-action={input.availabilityAction ?? undefined}
+				data-availability-phase={input.availabilityPhase ?? undefined}
+				data-availability-reason-code={
+					input.availabilityReasonCode ?? undefined
+				}
+				data-testid="agent-profile-row-availability-badge"
+			>
+				{input.label}
+				{checkedAt ? ` · ${checkedAt}` : ""}
+				{input.isRefreshing ? (
+					<span className="text-muted-foreground"> · Refreshing…</span>
+				) : null}
+				{input.errorMessage ? (
+					<span className="text-muted-foreground" role="alert">
+						{" · "}
+						Couldn’t refresh availability.
+						<span className="sr-only"> {input.errorMessage}</span>
+					</span>
+				) : null}
+			</span>
+		</TooltipHint>
 	);
 
 	return (
@@ -3251,14 +3259,13 @@ function useAgentProfileCurrentSession(input: {
 	detailsOpen: boolean;
 	organizationId: string;
 	organizationSlug: string;
-	presentation: "cards" | "detail" | undefined;
 	primaryNativeSessionId: string | null;
 }) {
 	const currentSessionQuery = useQuery(
 		agentActivitySessionsQueryOptions({
 			enabled:
 				input.canManage &&
-				(input.presentation === "detail" || input.detailsOpen) &&
+				input.detailsOpen &&
 				Boolean(input.primaryNativeSessionId),
 			limit: 1,
 			nativeSessionId: input.primaryNativeSessionId ?? undefined,
@@ -3329,7 +3336,6 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 		detailsOpen: dialogs.state.detailsOpen,
 		organizationId: input.organizationId,
 		organizationSlug: currentOrganization.slug,
-		presentation: input.presentation,
 		primaryNativeSessionId: input.primaryNativeSessionId,
 	});
 	const { runtime, runtimeControllerLabel } = resolveAgentProfileRowRuntime({
@@ -3347,7 +3353,6 @@ function AgentProfileRowMoreMenu(input: AgentProfileRowMoreMenuProps) {
 					eligibility.controllerChangeEligibilityStatus
 				}
 				controllerChangeStatusLabel={eligibility.controllerChangeStatusLabel}
-				currentSession={currentSessionLink}
 				input={input}
 				onOpenChange={{
 					details: dialogs.setDetailsOpen,
@@ -3600,12 +3605,6 @@ function AgentProfileCardEditAction(input: {
 function AgentProfileWorkspacePresentation(input: {
 	controllerChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
 	controllerChangeStatusLabel: string | null;
-	currentSession?: {
-		computerName: string;
-		href: string;
-		nativeSessionId: string;
-		title: string;
-	};
 	input: Parameters<typeof AgentProfileRowMoreMenu>[0];
 	onOpenChange: {
 		details: (open: boolean) => void;
@@ -3757,7 +3756,6 @@ function AgentProfileWorkspacePresentation(input: {
 				}
 				controllerModelSummary={controllerModelSummary}
 				conversationViewerProfileId={input.input.actorProfileId}
-				currentSession={input.currentSession}
 				details={input.input.details}
 				headerRecoveryActions={wakeAvailabilityRecoveryActions}
 				isDirectMessagePending={input.input.pendingState.directMessage}
@@ -5617,6 +5615,7 @@ function AgentProfilePermissionModeEditSection(input: {
 	selectedPolicy: AgentControllerPermissionMode | null;
 }) {
 	const selectId = useId();
+	const outcomeId = useId();
 	if (!input.controllerPermissionMode) {
 		return null;
 	}
@@ -5675,31 +5674,33 @@ function AgentProfilePermissionModeEditSection(input: {
 				value={selectedOption?.value}
 			>
 				<SelectTrigger
+					aria-describedby={getAgentControllerPermissionModeOutcomeDescriptionId(
+						outcomeId
+					)}
 					aria-label={selectedMetadata.fieldLabel}
 					className="h-10 w-full px-3 text-sm"
-					displayValue={selectedOption?.label}
+					displayValue={selectedMetadata.label}
 					id={selectId}
 					placeholder={selectedMetadata.fieldLabel}
 					ref={input.focusRef}
 				/>
 				<SelectContent className="max-h-64">
 					{options.map((option, index) => (
-						<SelectItem index={index} key={option.value} value={option.value}>
+						<SelectItem
+							className="items-start"
+							index={index}
+							key={option.value}
+							value={option.value}
+						>
 							{option.label}
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
-			<p
-				className={cn(
-					"text-xs leading-5",
-					selectedMetadata.tone === "warning"
-						? "text-destructive"
-						: "text-muted-foreground"
-				)}
-			>
-				{selectedMetadata.description}
-			</p>
+			<AgentControllerPermissionModeOutcome
+				id={outcomeId}
+				metadata={selectedMetadata}
+			/>
 			{input.isAgentWorking ? (
 				<p className="text-muted-foreground text-xs leading-5">
 					{applicationTiming === "applies_now"
@@ -5726,8 +5727,7 @@ function AgentProfilePermissionModeEditSection(input: {
 						type="checkbox"
 					/>
 					<span>
-						I understand this permissions mode can run with dangerous full
-						access.
+						I understand this mode may run dangerous actions without asking.
 					</span>
 				</label>
 			) : null}

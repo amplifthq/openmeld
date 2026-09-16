@@ -15,6 +15,7 @@ import type {
   AccountSpaceActiveWakeSummaryResponse,
   AccountSpaceIndexResponse,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileExecutionModeResponse,
   ApproveOrganizationDocumentDraftResponse,
   ApproveOrganizationDocumentDraftRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
@@ -229,6 +230,7 @@ import type {
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
+  LocalAgentReasoningPreferencesRpc,
   LocalRuntimeEnrollmentResponse,
   LocalRuntimesResponse,
   MarkAllInboxItemsReadResponse,
@@ -261,6 +263,8 @@ import type {
   PauseCenterAgentRoutineResponse,
   PendingGitHubAppInstallation,
   PeopleComputersResponse,
+  PluginAccessListRpcInput,
+  PluginAccessUpdateRpcInput,
   PostSpaceMembersResponse,
   PostSpaceWakeStopResponse,
   PrepareDiagnosticResponse,
@@ -290,6 +294,8 @@ import type {
   RestoreSpaceFileEntryResponse,
   ResumeCenterAgentRoutineResponse,
   SelectCurrentLocalAgentInstallationResponse,
+  ServiceConnectionIncidentReportRpcInput,
+  ServiceConnectionIncidentsReadRpcInput,
   SetAgentProfileCreationApprovalPreferenceResponse,
   SetAgentProfileCreationDefaultsResponse,
   SetCurrentAgentProfileWorkspaceResponse,
@@ -386,6 +392,10 @@ import {
   createCoreCenterAgentMemoryService,
 } from "./center-agent-memory/core-memory-service";
 import { readModelCatalog } from "./config/model-catalog";
+import {
+  rpcListPluginAccess,
+  rpcUpdatePluginAccess,
+} from "./connectors/plugin-access-rpc";
 import {
   inspectCoreDbState,
   inspectCoreDispatchStorageReadiness,
@@ -511,6 +521,7 @@ import {
   type AddCenterAgentToSpaceInput,
   type AddOrganizationDirectoryProfilesToSpaceInput,
   type AddSpaceMembersInput,
+  type AgentProfileExecutionModeInput,
   type ArchiveProjectInput,
   type AssertCurrentDesignatedCenterAgentInput,
   type AuthorizeConnectorDisconnectInput,
@@ -723,6 +734,7 @@ import {
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
+  rpcAgentProfileExecutionMode,
   rpcArchiveProject,
   rpcAssertCurrentDesignatedCenterAgent,
   rpcAuthorizeConnectorDisconnect,
@@ -929,6 +941,7 @@ import {
   rpcReadOrganizationUsageOverview,
   rpcReadPendingGitHubAppInstallation,
   rpcReadPeopleComputerFileAccessPolicy,
+  rpcReadServiceConnectionIncidents,
   rpcReadSpaceFileContent,
   rpcReconcileCurrentOrganizationConnectorConnections,
   rpcRecordCenterAgentAudit,
@@ -940,6 +953,7 @@ import {
   rpcRemoveConnection,
   rpcRemoveMissingConnections,
   rpcRemoveSpaceMembers,
+  rpcReportServiceConnectionIncident,
   rpcRequestCurrentOpenMeldToolsUpdate,
   rpcRequestMessageChannelSetup,
   rpcRequestPeopleComputerOpenMeldToolsUpdate,
@@ -1044,6 +1058,7 @@ import {
   type WriteCurrentDeviceObservedMetadataInput,
   type WriteSpaceFileContentRpcInput,
 } from "./rpc/methods";
+import { reasoningPreferences } from "./runtime-transport/application/reasoning-preferences";
 import { RuntimeTransportHub } from "./runtime-transport/transport/do/runtime-transport-hub";
 import {
   ROUTINE_TICK_CRON,
@@ -1469,6 +1484,10 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetInboxNotificationPreferencesRpcInput
   ): Promise<InboxNotificationPreferencesResponse> {
     return rpcGetInboxNotificationPreferences(this.env, input);
+  }
+
+  localAgentReasoningPreferences(input: LocalAgentReasoningPreferencesRpc) {
+    return reasoningPreferences(this.env, input);
   }
 
   updateInboxNotificationPreferences(
@@ -2305,6 +2324,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     return rpcExecuteAgentProfileWorkRecovery(this.env, input);
   }
 
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return rpcAgentProfileExecutionMode(this.env, input);
+  }
+
   getAgentProfileControllerChangeEligibility(
     input: GetAgentProfileControllerChangeEligibilityInput
   ): Promise<GetAgentProfileControllerChangeEligibilityResponse> {
@@ -2591,6 +2616,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ListCurrentOrganizationConnectorConnectionsInput
   ): Promise<ConnectorConnectionListResponse> {
     return rpcListCurrentOrganizationConnectorConnections(this.env, input);
+  }
+
+  listPluginAccess(input: PluginAccessListRpcInput) {
+    return rpcListPluginAccess(this.env, input);
+  }
+
+  pluginAction(input: import("@openmeld/schemas/types").PluginActionRpcInput) {
+    return rpcPluginAction(this.env, input);
+  }
+
+  updatePluginAccess(input: PluginAccessUpdateRpcInput) {
+    return rpcUpdatePluginAccess(this.env, input);
   }
 
   listCurrentOrganizationConnectorAppRequests(
@@ -3367,6 +3404,18 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: GetLocalRuntimesInput
   ): Promise<PeopleComputersResponse> {
     return rpcListPeopleComputers(this.env, input);
+  }
+
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return rpcReadServiceConnectionIncidents(this.env, input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return rpcReportServiceConnectionIncident(this.env, input);
   }
 
   setPeopleComputerLocalAgentEnabled(
@@ -4284,6 +4333,18 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.listPeopleComputers(input);
   }
 
+  readServiceConnectionIncidents(
+    input: ServiceConnectionIncidentsReadRpcInput
+  ) {
+    return super.readServiceConnectionIncidents(input);
+  }
+
+  reportServiceConnectionIncident(
+    input: ServiceConnectionIncidentReportRpcInput
+  ) {
+    return super.reportServiceConnectionIncident(input);
+  }
+
   setPeopleComputerLocalAgentEnabled(
     input: Parameters<typeof rpcSetPeopleComputerLocalAgentEnabled>[1]
   ) {
@@ -4453,6 +4514,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return super.executeAgentProfileWorkRecovery(input);
+  }
+
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return super.agentProfileExecutionMode(input);
   }
 
   getAgentProfileControllerChangeEligibility(
@@ -5316,6 +5383,10 @@ export class CenterAgentRpcEntrypoint extends CoreRpcEntrypoint {
     return rpcCenterAgentReadTurnDiagnostics(this.env, input);
   }
 
+  centerAgentSetReplyPlacement(input: CenterAgentSetReplyPlacementInput) {
+    return rpcCenterAgentSetReplyPlacement(this.env, input);
+  }
+
   centerAgentListOpportunities(input: CenterAgentListOpportunitiesInput) {
     return rpcCenterAgentListOpportunities(this.env, input);
   }
@@ -5435,7 +5506,9 @@ export default CoreEntrypoint;
 import type {
   CenterAgentPostChannelFileResponse,
   CenterAgentReadChannelFileResponse,
+  CenterAgentSetReplyPlacementInput,
 } from "@openmeld/schemas/types";
+import { rpcPluginAction } from "./connectors/plugin-actions";
 import {
   type CenterAgentPostChannelFileInput,
   rpcCenterAgentPostChannelFile,
@@ -5444,3 +5517,4 @@ import {
   type CenterAgentReadChannelFileInput,
   rpcCenterAgentReadChannelFile,
 } from "./remote-agent/application/message-channel-file-service";
+import { rpcCenterAgentSetReplyPlacement } from "./rpc/methods";

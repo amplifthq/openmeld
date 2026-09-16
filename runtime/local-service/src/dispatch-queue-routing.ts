@@ -4,6 +4,7 @@ import {
 } from "@openmeld/schemas";
 
 export type LocalServiceDispatchQueueTask = {
+  executionContext?: { id: string };
   agentControllerConversationId: string | null;
   agentControllerRef: string | null;
   spaceId: string | null;
@@ -50,6 +51,7 @@ export function resolveDispatchQueueLogMeta(input: {
     adapterId: input.runtimeAdapterId,
     controllerKey,
     localExecutionLaneKey: buildDispatchLocalExecutionLaneKey({
+      executionContextId: input.parsedTask.executionContext?.id,
       agentControllerConversationId:
         input.parsedTask.agentControllerConversationId,
       controllerKey,
@@ -79,10 +81,14 @@ export function buildDispatchControllerKey(input: {
 }
 
 export function buildDispatchLocalExecutionLaneKey(input: {
+  executionContextId?: string;
   agentControllerConversationId: string | null;
   controllerKey: string;
   profileId: string;
 }): string {
+  if (input.executionContextId) {
+    return `execution-context:${input.profileId}:${input.executionContextId}`;
+  }
   const agentControllerConversationId = normalizeOptionalText(
     input.agentControllerConversationId
   );

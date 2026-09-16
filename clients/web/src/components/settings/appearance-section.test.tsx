@@ -51,12 +51,45 @@ describe("AppearanceSection", () => {
 
 	afterEach(() => {
 		cleanup();
+		localStorage.clear();
+		document.documentElement.removeAttribute("data-hidden-toolbar-shortcuts");
 		themeState.setTheme.mockReset();
 		themeState.theme = "system";
 		conversationLayoutState.read.mockReset().mockReturnValue("centered");
 		conversationLayoutState.write.mockReset();
 		selfMessageAlignmentState.read.mockReset().mockReturnValue("right");
 		selfMessageAlignmentState.write.mockReset();
+	});
+
+	it("restores individually hidden toolbar shortcuts from Appearance after a reload", () => {
+		renderAppearance();
+		for (const label of ["Computer", "Center Agent", "Inbox"]) {
+			fireEvent.click(
+				screen.getByRole("switch", { name: `Show ${label} in toolbar` })
+			);
+		}
+		cleanup();
+		renderAppearance();
+		for (const label of ["Computer", "Center Agent", "Inbox"]) {
+			expect(
+				screen
+					.getByRole("switch", { name: `Show ${label} in toolbar` })
+					.getAttribute("aria-checked")
+			).toBe("false");
+		}
+		fireEvent.click(
+			screen.getByRole("switch", { name: "Show Computer in toolbar" })
+		);
+		expect(
+			screen
+				.getByRole("switch", { name: "Show Computer in toolbar" })
+				.getAttribute("aria-checked")
+		).toBe("true");
+		expect(
+			screen
+				.getByRole("switch", { name: "Show Inbox in toolbar" })
+				.getAttribute("aria-checked")
+		).toBe("false");
 	});
 
 	it("shows the mounted theme and changes it from the radio group", () => {

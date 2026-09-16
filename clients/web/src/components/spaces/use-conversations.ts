@@ -49,7 +49,9 @@ export function useConversations(input: {
 			spaceId: item.spaceId,
 			title: item.spaceName,
 			profileId,
-			activity: item.messagePreview?.timestamp ?? 0,
+			activity:
+				item.messagePreview?.timestamp ??
+				(Date.parse(item.spaceCreatedAt ?? "") || 0),
 			url: buildOrganizationSpacePath({
 				orgSlug: org.slug,
 				spaceId: item.spaceId,
@@ -58,15 +60,16 @@ export function useConversations(input: {
 		});
 	}
 	for (const chat of directMessages.chats) {
+		const preview = directMessages.previews[directMessages.chats.indexOf(chat)];
 		conversations.set(chat.spaceId, {
 			kind: "direct-message",
 			chat,
+			preview,
 			spaceId: chat.spaceId,
 			title: directMessages.title(chat),
 			profileId: chat.viewerProfileId ?? profileId,
 			activity:
-				directMessages.previews[directMessages.chats.indexOf(chat)]?.data
-					?.timestamp ?? 0,
+				preview?.data?.timestamp ?? (Date.parse(chat.createdAt ?? "") || 0),
 			url: directMessages.chatPath(chat),
 		});
 	}

@@ -54,7 +54,8 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 			<legend
 				className={cn(
 					"w-full text-left font-medium text-base",
-					choices.length > 0 ? "mb-1" : "mb-4"
+					choices.length > 0 ? "mb-1" : "mb-4",
+					heading === "Choose a local agent" && "sr-only"
 				)}
 				id={headingId}
 			>
@@ -83,7 +84,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 					aria-labelledby={headingId}
 					className="-mx-3 min-h-24 justify-start gap-2 overflow-x-auto overflow-y-hidden px-3 pt-5 pb-1"
 				>
-					{choices.map((choice) => {
+					{choices.map((choice, index) => {
 						const selected = choice.value === input.value;
 						return (
 							<MagnifyingDockItem
@@ -93,6 +94,7 @@ export function LocalAgentSelector(input: LocalAgentSelectorProps) {
 									selected && "font-medium text-foreground"
 								)}
 								key={choice.value}
+								style={{ zIndex: choices.length - index }}
 							>
 								<label
 									className={cn(
@@ -198,11 +200,16 @@ function LocalAgentSelectorEmptyState(input: {
 	if (emptyState?.kind === "connect_computer") {
 		return (
 			<ComputerSetupChoiceCard
-				actionHref={emptyState.primaryActionHref ?? undefined}
+				actionHref={
+					emptyState.onConnectComputer
+						? undefined
+						: (emptyState.primaryActionHref ?? undefined)
+				}
 				actionLabel="Connect Computer"
 				centerAgentHref={emptyState.centerAgentHref}
 				className={className}
-				descriptionLead="Connect a computer so OpenMeld can check its local agents. Then return to finish creating your Agent."
+				descriptionLead="Connect a computer to choose a local agent."
+				onAction={emptyState.onConnectComputer}
 			/>
 		);
 	}

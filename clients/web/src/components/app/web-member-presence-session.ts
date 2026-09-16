@@ -17,9 +17,13 @@ export function startWebMemberPresenceSession(
 	const isForeground = () =>
 		document.visibilityState === "visible" && document.hasFocus();
 	const send = () => {
+		// Losing focus is not a departure. Stop renewing and let Core's existing
+		// lease cover a brief tab/window switch; hidden pages never extend it.
+		if (!isForeground()) {
+			return;
+		}
 		const now = Date.now();
-		const foreground =
-			isForeground() && now - lastInteractionAt < HUMAN_PRESENCE_IDLE_MS;
+		const foreground = now - lastInteractionAt < HUMAN_PRESENCE_IDLE_MS;
 		if (!(foreground || foregroundReported)) {
 			return;
 		}
@@ -54,8 +58,6 @@ export function startWebMemberPresenceSession(
 	const visibility = () => {
 		if (isForeground()) {
 			interact();
-		} else {
-			send();
 		}
 	};
 	const leave = () => {
@@ -71,12 +73,17 @@ export function startWebMemberPresenceSession(
 			interaction: false,
 		});
 	};
-	const events = ["pointerdown", "keydown", "wheel", "touchmove"] as const;
+	const events = [
+		"pointerdown",
+		"pointermove",
+		"keydown",
+		"wheel",
+		"touchmove",
+	] as const;
 	for (const event of events) {
 		window.addEventListener(event, input, { passive: true });
 	}
 	window.addEventListener("focus", visibility);
-	window.addEventListener("blur", visibility);
 	document.addEventListener("visibilitychange", visibility);
 	window.addEventListener("pagehide", leave);
 	const timer = window.setInterval(send, HUMAN_PRESENCE_HEARTBEAT_MS);
@@ -87,7 +94,6 @@ export function startWebMemberPresenceSession(
 			window.removeEventListener(event, input);
 		}
 		window.removeEventListener("focus", visibility);
-		window.removeEventListener("blur", visibility);
 		document.removeEventListener("visibilitychange", visibility);
 		window.removeEventListener("pagehide", leave);
 		leave();

@@ -1,3 +1,4 @@
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { FluidCardItem } from "@openmeld/ui/fluid/card";
 import { Link } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -18,20 +19,18 @@ export function AgentCard(input: {
 			{input.renderAvatar(56)}
 			<span className="min-w-0 flex-1">
 				<span className="flex min-w-0 items-center gap-1.5">
-					<span
-						className="min-w-0 truncate font-medium text-foreground text-sm"
-						title={input.name}
-					>
-						{input.name}
-					</span>
+					<TooltipHint content={input.name}>
+						<span className="min-w-0 truncate font-medium text-foreground text-sm">
+							{input.name}
+						</span>
+					</TooltipHint>
 					{input.indicators}
 				</span>
-				<span
-					className="mt-0.5 block truncate text-muted-foreground text-xs"
-					title={input.description}
-				>
-					{input.description}
-				</span>
+				<TooltipHint content={input.description}>
+					<span className="mt-0.5 block truncate text-muted-foreground text-xs">
+						{input.description}
+					</span>
+				</TooltipHint>
 			</span>
 			{input.badge}
 		</>

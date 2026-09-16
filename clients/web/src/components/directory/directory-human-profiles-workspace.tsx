@@ -50,6 +50,7 @@ export type DirectoryHumanProfilesViewState = {
 const DIRECTORY_ACTIVITY_REFRESH_INTERVAL_MS = 30_000;
 
 export function DirectoryHumanProfilesWorkspace(input: {
+	presentation?: "page" | "sidebar";
 	activeBatch: CenterAgentMemberResearchBatch | null;
 	canCreateProfile: boolean;
 	computerGroups: readonly OrganizationComputerGroup[];
@@ -142,6 +143,9 @@ export function DirectoryHumanProfilesWorkspace(input: {
 		!input.selectedProfileId &&
 		input.state.profiles === "ready" &&
 		!input.errorMessage;
+	if (input.presentation === "sidebar") {
+		return sidebar;
+	}
 
 	return (
 		<AppFullWidthLayout

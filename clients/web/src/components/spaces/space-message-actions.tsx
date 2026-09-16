@@ -1,17 +1,61 @@
 import { Button } from "@openmeld/ui/components/button";
 import {
+	createTooltipHandle,
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 import { InfoIcon, WarningCircleIcon } from "@phosphor-icons/react";
-import type { ReactElement } from "react";
+import {
+	createContext,
+	type ReactElement,
+	type ReactNode,
+	useContext,
+	useId,
+	useMemo,
+	useState,
+} from "react";
+
+const MessageActionTooltipContext = createContext<{
+	handle: ReturnType<typeof createTooltipHandle<string>>;
+	id: string;
+} | null>(null);
+
+export function MessageActionTooltipProvider({
+	children,
+}: {
+	children: ReactNode;
+}) {
+	const [handle] = useState(() => createTooltipHandle<string>());
+	const id = useId();
+	const value = useMemo(() => ({ handle, id }), [handle, id]);
+	return (
+		<MessageActionTooltipContext value={value}>
+			{children}
+			<Tooltip handle={handle}>
+				{({ payload }) => <TooltipContent id={id}>{payload}</TooltipContent>}
+			</Tooltip>
+		</MessageActionTooltipContext>
+	);
+}
 
 export function MessageActionTooltip(input: {
 	children: ReactElement;
 	label: string;
 }) {
+	const shared = useContext(MessageActionTooltipContext);
+	if (shared) {
+		return (
+			<TooltipTrigger
+				aria-describedby={shared.id}
+				delay={500}
+				handle={shared.handle}
+				payload={input.label}
+				render={input.children}
+			/>
+		);
+	}
 	return (
 		<Tooltip>
 			<TooltipTrigger render={input.children} />

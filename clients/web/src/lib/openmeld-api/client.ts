@@ -1,6 +1,7 @@
 import {
 	createFetchTransport,
 	createOpenMeldApiClient,
+	type OpenMeldApiClientConfig,
 	type OpenMeldApiClientFoundation,
 } from "@openmeld/api-client";
 import {
@@ -12,6 +13,7 @@ import {
 } from "@openmeld/gateway-contract";
 import { openMeldRequestedOrganizationSelectorSchema } from "@openmeld/schemas";
 import type { OpenMeldRequestedOrganizationSelector } from "@openmeld/schemas/types";
+import { observeSpaceRequest } from "#/lib/observability/space-open";
 
 type CreateWebOpenMeldApiFoundationInput = {
 	openMeldProfileId?: string;
@@ -122,7 +124,7 @@ function createWebOpenMeldApiFoundation(
 	input: CreateWebOpenMeldApiFoundationInput,
 	organization?: OpenMeldRequestedOrganizationSelector
 ): OpenMeldApiClientFoundation {
-	return createOpenMeldApiClient({
+	const config: OpenMeldApiClientConfig = {
 		baseUrl: input.baseUrl ?? resolveWebOpenMeldApiBaseUrl(),
 		transport: createFetchTransport({
 			fetch: createCredentialedOpenMeldFetch(input.fetchImpl, {
@@ -138,7 +140,42 @@ function createWebOpenMeldApiFoundation(
 				requestContext,
 				...(spacePassword === undefined ? {} : { spacePassword }),
 			}),
-	});
+	};
+	const foundation = createOpenMeldApiClient(config);
+	return {
+		...foundation,
+		requestJson: async (request) => {
+			const observe = observeSpaceRequest(request.url);
+			if (!observe) {
+				return await foundation.requestJson(request);
+			}
+			const observed = createOpenMeldApiClient({
+				...config,
+				transport: async (transportRequest) => {
+					observe("sent");
+					const response = await config.transport(transportRequest);
+					observe("headers", response);
+					return response;
+				},
+			});
+			try {
+				const result = await observed.requestJson({
+					...request,
+					schema: {
+						safeParse: (value) => {
+							observe("validating");
+							return request.schema.safeParse(value);
+						},
+					},
+				});
+				observe("complete");
+				return result;
+			} catch (error) {
+				observe("failed");
+				throw error;
+			}
+		},
+	};
 }
 
 function normalizeOptionalText(value: unknown): string | null {

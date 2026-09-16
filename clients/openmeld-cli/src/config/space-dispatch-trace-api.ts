@@ -21,9 +21,11 @@ export async function fetchSpaceDispatchTrace(input: {
     input.baseUrl,
     input.space,
     input.dispatchId,
-    input.includeRemoteAgentRuntimeDiagnostics === true
-      ? { includeRemoteAgentRuntimeDiagnostics: true }
-      : {}
+    {
+      includeRemoteAgentRuntimeDiagnostics:
+        input.includeRemoteAgentRuntimeDiagnostics,
+      includeServiceConnectionDiagnostics: true,
+    }
   );
   const response = await fetchSpaceRequestWithTimeout({
     url: endpoint,

@@ -23,6 +23,7 @@ const {
 	appDirectMessageShellMock,
 	appSpaceShellMock,
 	getSpaceStatusMock,
+	getBootstrapMock,
 	listAccountSpaceItemsMock,
 	listStartProfilesMock,
 	navigateMock,
@@ -62,6 +63,7 @@ const {
 		)
 	),
 	getSpaceStatusMock: vi.fn(),
+	getBootstrapMock: vi.fn(),
 	listAccountSpaceItemsMock: vi.fn(),
 	spaceWindowShellMock: vi.fn((input: { children: ReactNode }) => (
 		<section data-testid="space-window-shell">{input.children}</section>
@@ -155,6 +157,7 @@ vi.mock("#/lib/spaces/api", () => ({
 		removeMembers: vi.fn(),
 	}),
 	createUnscopedWebSpaceApi: () => ({
+		getBootstrap: (...args: unknown[]) => getBootstrapMock(...args),
 		getStatus: (...args: unknown[]) => getSpaceStatusMock(...args),
 		resolveEntry: (...args: unknown[]) => resolveSpaceEntryMock(...args),
 	}),
@@ -183,6 +186,9 @@ describe("app space entry route", () => {
 			})
 		);
 		spaceWindowShellMock.mockClear();
+		getBootstrapMock
+			.mockReset()
+			.mockImplementation(() => new Promise(() => undefined));
 		listStartProfilesMock.mockReset().mockResolvedValue([
 			createProfile({
 				openMeldProfileId: "profile-123",
@@ -374,6 +380,27 @@ describe("app space entry route", () => {
 		expect(spaceWindowShellMock).toHaveBeenCalled();
 	});
 
+	it("mounts the conversation shell while cold route classification is still pending", async () => {
+		getSpaceStatusMock.mockImplementation(() => new Promise(() => undefined));
+		renderAppSpaceEntry({
+			profileId: "profile-123",
+			selectedHumanProfileId: "profile-123",
+			spaceId: "space-123",
+		});
+		await waitFor(() => expect(getBootstrapMock).toHaveBeenCalledOnce());
+		expect(getBootstrapMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spaceId: "space-123",
+				historyQuery: {
+					recent: true,
+					limit: 30,
+					kinds: ["text", "status", "system_notice"],
+				},
+			})
+		);
+		expect(await screen.findByTestId("space-landing")).toBeTruthy();
+	});
+
 	it("enters the conversation while current status confirms in the background", async () => {
 		getSpaceStatusMock.mockImplementation(
 			() =>
@@ -401,6 +428,7 @@ describe("app space entry route", () => {
 
 		expect(await screen.findByTestId("app-space-shell")).toBeTruthy();
 		expect(await screen.findByTestId("space-landing")).toBeTruthy();
+		expect(getBootstrapMock).not.toHaveBeenCalled();
 		expect(
 			screen.queryByRole("heading", { name: "Checking your profile" })
 		).toBeNull();
@@ -468,7 +496,7 @@ describe("app space entry route", () => {
 				to: "/o/acme/chats/space-dm?focusInteractionId=interaction-123&focusSignalId=signal-123&focusThreadRootSignalId=thread-123&profileId=profile-123",
 			});
 		});
-		expect(spaceLandingMock).not.toHaveBeenCalled();
+		expect(screen.queryByTestId("space-landing")).toBeNull();
 	});
 
 	it("opens a newly created Direct Message without flashing or redirecting through Spaces when the account index is still stale", async () => {

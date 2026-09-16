@@ -166,6 +166,7 @@ function createInboxHarness() {
     sql: "CREATE TABLE members (id TEXT PRIMARY KEY NOT NULL, organization_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)",
   });
   applyDrizzleMigrationsForTables(harness, [
+    "organization_join_requests",
     "openmeld_profiles",
     "center_agent_designations",
     "center_agent_tasks",

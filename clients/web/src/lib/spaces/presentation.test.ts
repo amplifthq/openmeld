@@ -16,6 +16,37 @@ import {
 import type { SpaceTimelineItem } from "./timeline";
 
 describe("space conversation presentation", () => {
+	it("shows a recovered agent reply in the conversation while keeping its recovery linkage", () => {
+		const source = createTimelineItem({ id: "source" });
+		const recovered = createTimelineItem({
+			id: "recovered",
+			actorProfileKind: "agent",
+			signalType: "signal.system_notice",
+			systemNoticeType: "execution_recovery_completed",
+			replyToSignalId: source.id,
+			text: "Here is the saved answer.",
+		});
+		expect(
+			buildSpaceConversationEntries({
+				selfProfileId: "human",
+				timelineItems: [source, recovered],
+			})
+		).toMatchObject([
+			{ kind: "bubble_run" },
+			{
+				kind: "bubble_run",
+				run: {
+					items: [{ id: "recovered", text: "Here is the saved answer." }],
+				},
+			},
+		]);
+		expect(
+			buildAnchoredSpaceOutcomeNoticesBySourceSignalId([source, recovered]).get(
+				source.id
+			)
+		).toEqual([recovered]);
+	});
+
 	it("starts a new message run at each local calendar day", () => {
 		const entries = buildSpaceConversationEntries({
 			selfProfileId: "human-profile-1",

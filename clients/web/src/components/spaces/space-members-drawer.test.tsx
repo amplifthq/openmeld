@@ -202,12 +202,65 @@ function renderWithQueryClient(ui: ReactElement) {
 	);
 }
 
+import { SpaceAddMembersLauncher } from "./space-members-drawer";
 import {
 	SPACE_MEMBERS_LOAD_ERROR_MESSAGE,
 	SPACE_MEMBERS_REFRESH_ERROR_MESSAGE,
 } from "./space-members-error-copy";
 
 describe("SpaceMembersSidePanel", () => {
+	it.each([
+		true,
+		false,
+	])("opens one add dialog with Members closed (desktop=%s)", async (desktop) => {
+		const onOpenChange = vi.fn();
+		const common = {
+			activeWakeWaitingTargetProfileIds: new Set<string>(),
+			agentRecoveryPlansByProfileId: new Map(),
+			autoRefreshExhaustedProfileIds: new Set<string>(),
+			currentOwnerUserId: "user_felix",
+			currentProfileId: "11111111-1111-4111-8111-111111111111",
+			isAgentRecoveryPending: () => false,
+			isLoading: false,
+			membersError: null,
+			onAgentRecoveryAction: async () => undefined,
+			onAddProfiles: vi.fn(),
+			onOpenChange,
+			onRefresh: async () => undefined,
+			open: false,
+			orgSlug: "acme",
+			snapshot: createSpaceMembersSnapshot({
+				humans: [
+					createSpaceMemberHumanSnapshot({
+						profileName: "Felix",
+						profileId: "11111111-1111-4111-8111-111111111111",
+					}),
+				],
+			}),
+		};
+		const surfaces = (nonce: number) => (
+			<>
+				{desktop ? (
+					<SpaceMembersSidePanel {...common} />
+				) : (
+					<SpaceMembersDrawer {...common} />
+				)}
+				<SpaceAddMembersLauncher {...common} openAddMembersNonce={nonce} />
+			</>
+		);
+		const view = renderWithQueryClient(surfaces(0));
+		view.rerender(
+			<TestQueryClientProvider>{surfaces(1)}</TestQueryClientProvider>
+		);
+		await screen.findByRole("dialog", { name: "Add People or Agents" });
+		expect(screen.getAllByRole("dialog")).toHaveLength(1);
+		expect(screen.queryByRole("heading", { name: "Members" })).toBeNull();
+		expect(onOpenChange).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByRole("button", { name: "Close" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(onOpenChange).not.toHaveBeenCalled();
+	});
+
 	afterEach(() => {
 		cleanup();
 		vi.restoreAllMocks();
@@ -896,7 +949,9 @@ describe("SpaceMembersSidePanel", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Available");
-		expect(indicator.getAttribute("title")).toBe("Available for Wake");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(indicator.getAttribute("data-refreshing")).toBeNull();
 		expect(screen.queryByText("Checking")).toBeNull();
 		expect(
@@ -1095,7 +1150,9 @@ describe("SpaceMembersSidePanel", () => {
 			"space-agent-availability-indicator"
 		);
 		expect(agentStatus.getAttribute("aria-label")).toBe("Available");
-		expect(agentStatus.getAttribute("title")).toBe("Available for Wake");
+		expect(agentStatus.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(screen.queryByText(CONNECTED_TO_PATTERN)).toBeNull();
 		expect(screen.queryByText(OWNED_BY_MIRA_PATTERN)).toBeNull();
 
@@ -1274,7 +1331,19 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("adds Organization Directory members and agents in one atomic request", async () => {
+	it.each([
+		false,
+		true,
+		"welcome",
+	])("adds workspace directory members and Center Agent atomically (scenario=%s)", async (scenario) => {
+		const isPersonal = scenario === true;
+		const isWelcome = scenario === "welcome";
+		if (isWelcome) {
+			localStorage.setItem(
+				"openmeld.welcome-space:user-felix:welcome-selection-test",
+				`add:${Date.now()}`
+			);
+		}
 		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
 		const onAddOrganizationDirectoryProfiles = vi
@@ -1313,13 +1382,34 @@ describe("SpaceMembersSidePanel", () => {
 						}),
 					],
 				})}
+				spaceId={isWelcome ? "welcome-selection-test" : undefined}
 			/>,
-			buildOrganizationDirectory({ centerAgentProfileId, humanProfileId })
+			buildOrganizationDirectory({ centerAgentProfileId, humanProfileId }),
+			isPersonal
 		);
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "Add People or Agents" })
 		);
+		const centerChoice = screen.getByRole("checkbox", { name: "Center Agent" });
+		await waitFor(() =>
+			expect(centerChoice.getAttribute("aria-checked")).toBe(
+				isWelcome ? "true" : "false"
+			)
+		);
+		expect(onAddOrganizationDirectoryProfiles).not.toHaveBeenCalled();
+		if (isWelcome) {
+			fireEvent.click(centerChoice);
+			fireEvent.click(screen.getByRole("button", { name: "Close" }));
+			fireEvent.click(
+				screen.getByRole("button", { name: "Add People or Agents" })
+			);
+			expect(
+				screen
+					.getByRole("checkbox", { name: "Center Agent" })
+					.getAttribute("aria-checked")
+			).toBe("false");
+		}
 		expect(
 			screen.getByText("Choose people and their agents from Acme.")
 		).toBeTruthy();
@@ -1418,7 +1508,7 @@ describe("SpaceMembersSidePanel", () => {
 		});
 	});
 
-	it("pins joined Organization Agents under their person as checked context", () => {
+	it("keeps joined people and agents visible with creation scoped to yourself", () => {
 		const centerAgentProfileId = "agt_44444444-4444-4444-8444-444444444444";
 		const humanProfileId = "22222222-2222-4222-8222-222222222222";
 		const joinedAgentProfileId = "agt_88888888-8888-4888-8888-888888888888";
@@ -1480,6 +1570,7 @@ describe("SpaceMembersSidePanel", () => {
 						}),
 					],
 				})}
+				spaceId="space-1"
 			/>,
 			directory
 		);
@@ -1491,6 +1582,12 @@ describe("SpaceMembersSidePanel", () => {
 		const joinedCheckbox = within(dialog).getByRole("checkbox", {
 			name: "Research Agent",
 		});
+		expect(
+			within(dialog).getAllByRole("button", { name: "New Agent" })
+		).toHaveLength(1);
+		expect(
+			within(dialog).queryByRole("checkbox", { name: "Felix" })
+		).toBeNull();
 		expect(joinedCheckbox.getAttribute("aria-checked")).toBe("true");
 		expect(joinedCheckbox.getAttribute("aria-disabled")).toBe("true");
 		expect(within(joinedCheckbox).getByText("In this Space")).toBeTruthy();
@@ -2307,7 +2404,8 @@ function createAccountProfile(
 
 function renderWithOrganizationQueryClient(
 	ui: ReactElement,
-	directory: OrganizationDirectoryResponse
+	directory: OrganizationDirectoryResponse,
+	isPersonal = false
 ) {
 	const queryClient = createTestQueryClient();
 	queryClient.setQueryData(
@@ -2316,17 +2414,19 @@ function renderWithOrganizationQueryClient(
 	);
 	return render(
 		<TestQueryClientProvider queryClient={queryClient}>
-			<AppOrganizationProvider scope={createOrganizationScope()}>
+			<AppOrganizationProvider scope={createOrganizationScope(isPersonal)}>
 				{ui}
 			</AppOrganizationProvider>
 		</TestQueryClientProvider>
 	);
 }
 
-function createOrganizationScope(): OrganizationScopeAuthorized {
+function createOrganizationScope(
+	isPersonal = false
+): OrganizationScopeAuthorized {
 	const currentOrganization = {
 		id: "org-acme",
-		isPersonal: false,
+		isPersonal,
 		name: "Acme",
 		slug: "acme",
 	};
@@ -2539,7 +2639,9 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Available");
-		expect(indicator.getAttribute("title")).toBe("Available for Wake");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(indicator.getAttribute("data-refreshing")).toBeNull();
 		expect(
 			screen.queryByText("OpenMeld is checking this agent's local connection.")
@@ -2552,7 +2654,9 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Checking");
-		expect(indicator.getAttribute("title")).toBe("Checking Wake availability");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Checking Wake availability"
+		);
 	});
 
 	it("shows active Wake progress over a hard unavailable availability row", () => {
@@ -2588,7 +2692,7 @@ describe("SpaceMembersSidePanel Wake display-debounce override", () => {
 		const indicator = screen.getByTestId("space-agent-availability-indicator");
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Working");
-		expect(indicator.getAttribute("title")).toBe("Wake in progress");
+		expect(indicator.getAttribute("aria-description")).toBe("Wake in progress");
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(

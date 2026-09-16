@@ -401,14 +401,18 @@ const SelectContent = forwardRef<HTMLDivElement, SelectContentProps>(
           return;
         }
 
+        // The open listbox owns Escape, including when it is portaled from a
+        // modal. Do not dismiss the dialog underneath it with the same key.
+        event.preventDefault();
+        event.stopImmediatePropagation();
         setOpen(false);
         restoreFocus();
       };
 
-      document.addEventListener("keydown", handleKeyDown);
+      document.addEventListener("keydown", handleKeyDown, true);
 
       return () => {
-        document.removeEventListener("keydown", handleKeyDown);
+        document.removeEventListener("keydown", handleKeyDown, true);
       };
     }, [open, setOpen, restoreFocus]);
 

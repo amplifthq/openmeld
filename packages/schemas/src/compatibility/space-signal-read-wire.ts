@@ -19,18 +19,25 @@ export function toSpaceSignalReadWireValue<T>(value: T): T {
     typeof record.data === "object" &&
     record.data !== null
   ) {
-    const { deviceWait, ...data } = record.data as Record<string, unknown>;
-    if (!deviceWait) {
+    const { deviceWait, contextSelection, ...data } = record.data as Record<
+      string,
+      unknown
+    >;
+    if (!(deviceWait || contextSelection)) {
       return value;
     }
     return {
       ...record,
       data: {
         ...data,
-        meta: {
-          ...(data.meta as Record<string, unknown> | undefined),
-          deviceWait,
-        },
+        ...(deviceWait
+          ? {
+              meta: {
+                ...(data.meta as Record<string, unknown> | undefined),
+                deviceWait,
+              },
+            }
+          : {}),
       },
     } as T;
   }

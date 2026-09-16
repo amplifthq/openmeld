@@ -282,7 +282,7 @@ export function buildSpaceThreadSignalsPath(
   query?: {
     afterSignalId?: string;
     limit?: number;
-    includeWakeContinuation?: true;
+    includeWakeContinuation?: true | "conversation";
   }
 ): string {
   const path = `${buildSpaceThreadPath(spaceId, threadId)}/signals`;
@@ -295,7 +295,10 @@ export function buildSpaceThreadSignalsPath(
     searchParams.set("limit", String(query.limit));
   }
   if (query.includeWakeContinuation) {
-    searchParams.set("includeWakeContinuation", "true");
+    searchParams.set(
+      "includeWakeContinuation",
+      String(query.includeWakeContinuation)
+    );
   }
   return `${path}?${searchParams.toString()}`;
 }

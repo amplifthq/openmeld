@@ -3,6 +3,19 @@ import { describe, expect, it } from "vitest";
 import { resolveWakeProgressStatus } from "./wake-progress-status";
 
 describe("resolveWakeProgressStatus", () => {
+	it.each([
+		["earlier_work", "runner is queued · Waiting for earlier tasks"],
+		["device_offline", "Waiting for runner’s computer to come online"],
+	] as const)("preserves the authoritative waiting reason %s", (reason, label) => {
+		expect(
+			resolveWakeProgressStatus(
+				createWakeProgressItem({
+					phase: "queued",
+					deviceWait: { reason, deadlineAtMs: 2000 },
+				})
+			)?.label
+		).toBe(label);
+	});
 	it("does not expose a legacy Profile ID as a working name", () => {
 		expect(
 			resolveWakeProgressStatus(
@@ -13,7 +26,7 @@ describe("resolveWakeProgressStatus", () => {
 	it.each([
 		["sending", "Starting Wake for runner…", "starting"],
 		["request_sent", "Wake sent to runner", "sent"],
-		["queued", "runner is queued", "queued"],
+		["queued", "runner is queued · Waiting for earlier tasks", "queued"],
 		["connecting", "Preparing runner…", "connecting"],
 		["retrying", "Trying to reach runner…", "retrying"],
 		["running", "runner is working", "working"],
@@ -82,7 +95,8 @@ describe("resolveWakeProgressStatus", () => {
 		).toEqual(
 			expect.objectContaining({
 				kind: "waiting_for_controller",
-				label: "Waiting for runner’s current task",
+				label: "Waiting for runner",
+				description: "Another app is using this conversation.",
 			})
 		);
 	});

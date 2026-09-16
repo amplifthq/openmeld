@@ -285,12 +285,26 @@ describe("mergeSpaceMembersSnapshot", () => {
 		} as SignalEnvelope;
 
 		try {
+			const threadsKey = spaceQueryKeys.threads("space-123", "viewer-profile");
+			const liveThreads = {
+				threads: [],
+				previews: [
+					{
+						threadId: "live-thread",
+						replyCount: 5,
+						signals: [],
+						placements: [],
+					},
+				],
+			};
+			queryClient.setQueryData(threadsKey, liveThreads, { updatedAt: 2000 });
 			queryClient.setQueryData(
 				spaceQueryKeys.members("space-123", "viewer-profile"),
 				currentMembers
 			);
 
 			applySpaceBootstrapSnapshotToCache({
+				bootstrapUpdatedAt: 1000,
 				bootstrap: createBootstrapSnapshot({
 					history: { envelopes: [staleSignal], nextCursor: null },
 					members: createSpaceMembersSnapshot({
@@ -312,6 +326,7 @@ describe("mergeSpaceMembersSnapshot", () => {
 			const cachedMembers = queryClient.getQueryData<SpaceMembersSnapshot>(
 				spaceQueryKeys.members("space-123", "viewer-profile")
 			);
+			expect(queryClient.getQueryData(threadsKey)).toEqual(liveThreads);
 			const cachedHistory = queryClient.getQueryData<{
 				envelopes: readonly SignalEnvelope[];
 			}>(spaceQueryKeys.history("space-123", "viewer-profile"));

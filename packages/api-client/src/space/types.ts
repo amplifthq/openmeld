@@ -366,6 +366,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];
       deviceWait?: PostNormalMessageBody["deviceWait"];
+      contextSelection?: PostNormalMessageBody["contextSelection"];
       attachments?: PostNormalMessageBody["attachments"];
       files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -385,7 +386,7 @@ export type SpaceApi = {
   ) => Promise<ListSpaceThreadEventsResponse>;
   listThreadSignals: (
     input: SpaceRequestInput & {
-      includeWakeContinuation?: true;
+      includeWakeContinuation?: true | "conversation";
       afterSignalId?: string;
       limit?: number;
       threadId: string;

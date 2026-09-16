@@ -5,7 +5,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@openmeld/ui/components/card";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
 	Link,
@@ -53,11 +53,6 @@ function InvitationRequestsPage() {
 				requestId: requestId ?? "",
 			}),
 	});
-	const mutation = useMutation({
-		mutationFn: (action: "approve" | "reject") =>
-			requestOrganizationJoinRequests({ action, requestId: requestId ?? "" }),
-		onSettled: () => query.refetch(),
-	});
 	const request = query.data?.[0];
 	const navigate = useNavigate();
 	const memberships = useQuery({
@@ -89,7 +84,7 @@ function InvitationRequestsPage() {
 				return;
 			}
 			navigate({
-				to: "/o/$orgSlug/settings/invitations",
+				to: "/o/$orgSlug/inbox",
 				params: { orgSlug: organization.slug },
 				search: { requestId },
 				replace: true,
@@ -136,13 +131,7 @@ function InvitationRequestsPage() {
 		if (!request) {
 			return null;
 		}
-		return (
-			<RequestDetails
-				onReview={(action) => mutation.mutate(action)}
-				pending={mutation.isPending}
-				request={request}
-			/>
-		);
+		return <RequestDetails pending={false} request={request} />;
 	};
 	return (
 		<AuthPageShell>
@@ -150,21 +139,7 @@ function InvitationRequestsPage() {
 				<CardHeader>
 					<CardTitle>Invitation request</CardTitle>
 				</CardHeader>
-				<CardContent className="space-y-4">
-					{content()}
-					{mutation.error ? (
-						<p className="text-destructive text-sm" role="alert">
-							{mutation.error.message}
-						</p>
-					) : null}
-					{mutation.isSuccess ? (
-						<output className="block">
-							{mutation.variables === "approve"
-								? "Request approved."
-								: "Request declined."}
-						</output>
-					) : null}
-				</CardContent>
+				<CardContent className="space-y-4">{content()}</CardContent>
 			</Card>
 		</AuthPageShell>
 	);

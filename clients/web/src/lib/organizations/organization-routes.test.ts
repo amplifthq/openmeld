@@ -23,6 +23,7 @@ import {
 	buildOrganizationDirectoryRootPath,
 	buildOrganizationInboxItemPath,
 	buildOrganizationInboxPath,
+	buildOrganizationLegacyCenterAgentSettingsPath,
 	buildOrganizationMemoryPath,
 	buildOrganizationNotificationsSettingsPath,
 	buildOrganizationOrganizationsPath,
@@ -41,7 +42,7 @@ import {
 
 describe("organization default route", () => {
 	it("keeps Home separate from the Center Agent chat destination", () => {
-		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme");
+		expect(buildOrganizationDefaultPath("acme")).toBe("/o/acme/spaces");
 		expect(buildOrganizationCenterAgentChatPath("acme")).toBe(
 			"/o/acme/chats/center-agent"
 		);
@@ -68,16 +69,17 @@ describe("integration management routes", () => {
 		expect(buildOrganizationChannelsPath("acme")).toBe(
 			"/o/acme/center-agent/channels"
 		);
-		expect(buildOrganizationPluginsPath("acme")).toBe(
-			"/o/acme/center-agent/plugins"
-		);
+		expect(buildOrganizationPluginsPath("acme")).toBe("/o/acme/plugins");
 		expect(
 			buildOrganizationPluginPath({ orgSlug: "acme", service: "google-drive" })
-		).toBe("/o/acme/center-agent/plugins/google-drive");
+		).toBe("/o/acme/plugins/google-drive");
 		expect(buildOrganizationMemoryPath("acme")).toBe(
 			"/o/acme/center-agent/memory"
 		);
 		expect(buildOrganizationCenterAgentSettingsPath("acme")).toBe(
+			"/o/acme/settings/center-agent"
+		);
+		expect(buildOrganizationLegacyCenterAgentSettingsPath("acme")).toBe(
 			"/o/acme/center-agent/settings"
 		);
 	});
@@ -96,7 +98,7 @@ describe("integration management routes", () => {
 			"/o/acme/settings/notifications"
 		);
 		expect(buildOrganizationConnectedPluginsSettingsPath("acme")).toBe(
-			"/o/acme/center-agent/plugins"
+			"/o/acme/plugins"
 		);
 	});
 });
@@ -237,15 +239,11 @@ describe("resolveOrganizationSwitchPath", () => {
 			"/o/acme/center-agent/channels",
 			"/o/beta/center-agent/channels",
 		],
-		[
-			"Center Agent Plugins",
-			"/o/acme/center-agent/plugins",
-			"/o/beta/center-agent/plugins",
-		],
+		["Center Agent Plugins", "/o/acme/center-agent/plugins", "/o/beta/plugins"],
 		[
 			"Center Agent Plugin detail",
 			"/o/acme/center-agent/plugins/github",
-			"/o/beta/center-agent/plugins",
+			"/o/beta/plugins",
 		],
 		[
 			"Center Agent Memory",
@@ -254,8 +252,8 @@ describe("resolveOrganizationSwitchPath", () => {
 		],
 		[
 			"Center Agent settings",
-			"/o/acme/center-agent/settings",
-			"/o/beta/center-agent/settings",
+			"/o/acme/settings/center-agent",
+			"/o/beta/settings/center-agent",
 		],
 		["Projects", "/o/acme/projects", "/o/beta/projects"],
 		["Project detail", "/o/acme/projects/project-acme", "/o/beta/projects"],
@@ -293,11 +291,7 @@ describe("resolveOrganizationSwitchPath", () => {
 			"/o/acme/settings/notifications",
 			"/o/beta/settings/notifications",
 		],
-		[
-			"Connected Plugins",
-			"/o/acme/settings/connected-apps",
-			"/o/beta/center-agent/plugins",
-		],
+		["Connected Plugins", "/o/acme/settings/connected-apps", "/o/beta/plugins"],
 		["Privacy", "/o/acme/settings/privacy", "/o/beta/settings/privacy"],
 		["General", "/o/acme/settings/general", "/o/beta/settings/general"],
 	])("keeps %s on its canonical destination", (_label, currentPathname, expectedPath) => {

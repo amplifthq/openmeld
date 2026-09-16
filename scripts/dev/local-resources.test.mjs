@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,7 +11,14 @@ import {
   withRegistryLock,
 } from "./dev-isolated-lane.mjs";
 import { collectTargetProcesses } from "./dev-stop.mjs";
-import { admissionReason, resourcePolicy } from "./local-resources.mjs";
+import {
+  acquireLocalResources,
+  admissionReason,
+  markLocalStackReady,
+  RESOURCE_TOKEN,
+  reservedGrowthBytes,
+  resourcePolicy,
+} from "./local-resources.mjs";
 import { parseMacMemory } from "./machine-memory.mjs";
 import { buildProcessMatcherContext } from "./process-matchers.mjs";
 import { readProcessRows } from "./process-rows.mjs";
@@ -173,6 +180,77 @@ test("reserves pending startup memory and distinguishes unknown memory", () => {
     () => resourcePolicy({ OPENMELD_LOCAL_HEAVY_SLOTS: "1.5" }),
     INTEGER_PATTERN
   );
+  const entry = { pid: 10, bytes: 6 * 1024 ** 3, kind: "stack" };
+  const rows = [{ pid: 10, parentPid: 1, rssBytes: 2 * 1024 ** 3 }];
+  assert.match(
+    admissionReason({ ...input, entries: [entry], rows }),
+    BUDGET_PATTERN
+  );
+  assert.equal(
+    admissionReason({ ...input, entries: [{ ...entry, ready: true }], rows }),
+    null
+  );
+  assert.equal(
+    reservedGrowthBytes([{ ...entry, ready: true }], rows),
+    1024 ** 3
+  );
+  assert.equal(
+    reservedGrowthBytes(
+      [{ ...entry, ready: true }],
+      [{ ...rows[0], rssBytes: 8 * 1024 ** 3 }]
+    ),
+    2 * 1024 ** 3
+  );
+  assert.equal(
+    reservedGrowthBytes([{ ...entry, ready: true }], []),
+    entry.bytes
+  );
+  assert.equal(
+    reservedGrowthBytes([{ ...entry, ready: true, kind: "web" }], rows),
+    4 * 1024 ** 3
+  );
+  assert.notEqual(
+    admissionReason({
+      ...input,
+      entries: [{ ...entry, ready: true }],
+      rows,
+      pressure: "constrained",
+    }),
+    null
+  );
+});
+
+test("only a live reservation owner can release startup headroom after readiness", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "openmeld-ready-resources-"));
+  const reservation = await acquireLocalResources({
+    kind: "stack",
+    gitCommonDir: directory,
+    readMemory: () => ({
+      totalBytes: 16 * 1024 ** 3,
+      availableBytes: 12 * 1024 ** 3,
+      pressure: "normal",
+    }),
+  });
+  try {
+    await assert.rejects(
+      markLocalStackReady({
+        gitCommonDir: directory,
+        env: { [RESOURCE_TOKEN]: "unrelated" },
+      })
+    );
+    await markLocalStackReady({
+      gitCommonDir: directory,
+      env: { [RESOURCE_TOKEN]: reservation.token },
+    });
+    const entries = JSON.parse(
+      readFileSync(join(directory, "openmeld-dev/resources.json"), "utf8")
+    );
+    assert.equal(entries[0].ready, true);
+    assert.equal(entries[0].bytes, 6 * 1024 ** 3);
+  } finally {
+    await reservation.release();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("macOS includes inactive pages without confusing free pages with pressure", () => {

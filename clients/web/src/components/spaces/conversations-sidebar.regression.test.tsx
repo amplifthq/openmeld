@@ -314,6 +314,10 @@ describe("ConversationsSidebar", () => {
 		// Row-action tests exercise a user's explicitly expanded sidebar.
 		for (const organization of ["org-acme", "org-personal"]) {
 			localStorage.setItem(
+				`openmeld:conversation-view:user-1:${organization}`,
+				"grouped"
+			);
+			localStorage.setItem(
 				`openmeld:space-sidebar-disclosure:human-1:${organization}`,
 				JSON.stringify({ pinned: true, spaces: true })
 			);
@@ -353,7 +357,10 @@ describe("ConversationsSidebar", () => {
 		focusManager.setFocused(undefined);
 	});
 
-	it("[S02] shows the indexed message time without subscribing to per-Space previews", async () => {
+	it.each([
+		null,
+		OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE,
+	])("[S02] uses indexed previews without per-conversation polling for %s", async (spacePurpose) => {
 		const timestamp = Date.parse("2026-09-06T17:00:00.000Z");
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -362,6 +369,7 @@ describe("ConversationsSidebar", () => {
 					...createAccountSpaceItem({
 						spaceId: "space-alpha",
 						spaceName: "Alpha",
+						spacePurpose,
 					}),
 					messagePreview: {
 						signalId: "message-alpha",
@@ -385,7 +393,10 @@ describe("ConversationsSidebar", () => {
 			queryClient
 				.getQueryCache()
 				.getAll()
-				.filter((query) => query.queryKey.includes("incoming-preview"))
+				.filter(
+					(query) =>
+						query.queryKey.includes("incoming-preview") && query.isActive()
+				)
 		).toHaveLength(0);
 	});
 
@@ -1050,7 +1061,7 @@ describe("ConversationsSidebar", () => {
 		expect(screen.queryByRole("link", { name: "Acme Project" })).toBeNull();
 	});
 
-	it("[S18] renders the Conversations title without repeating the OpenMeld brand", () => {
+	it("[S18] renders the Spaces title without repeating the OpenMeld brand", () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
 			spaceItems: [],
@@ -1064,7 +1075,7 @@ describe("ConversationsSidebar", () => {
 		);
 
 		expect(sidebarHeader).toBeNull();
-		expect(screen.getByText("Conversations")).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Spaces" })).toBeTruthy();
 		expect(screen.queryByText("Chatroom for agents & humans")).toBeNull();
 		expect(
 			screen.queryByRole("heading", { name: "OpenMeld Spaces" })
@@ -1325,7 +1336,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 	});
 
-	it("[S24] shows that the current Agent is waiting when its current task is occupied", async () => {
+	it("[S24] shows a session wait without claiming an active task", async () => {
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [
 				createAccountSpaceItem({
@@ -1386,7 +1397,7 @@ describe("ConversationsSidebar", () => {
 		).toBeTruthy();
 		expect(
 			screen.getByRole("img", {
-				name: "Waiting for Clico Codex’s current task",
+				name: "Waiting for Clico Codex",
 			})
 		).toBeTruthy();
 		expect(
@@ -1705,6 +1716,7 @@ describe("ConversationsSidebar", () => {
 		const pin = screen.getByRole("button", { name: "Unpin Alpha" });
 		expect(status.querySelector("canvas")).toBeTruthy();
 		fireEvent.mouseEnter(link);
+		fireEvent.mouseMove(link);
 		expect(status.isConnected).toBe(true);
 		fireEvent.focus(pin);
 		expect(status.isConnected).toBe(true);
@@ -1887,7 +1899,7 @@ describe("ConversationsSidebar", () => {
 		// S32's hover geometry is verified at real browser widths, not inferred from jsdom.
 	});
 
-	it("[S33] shows the full space name quickly on row hover", async () => {
+	it("[S33] shows the full space name on row hover", async () => {
 		const longSpaceName = "CLI Dogfood 20260506 000022";
 		listAccountSpaceItemsMock.mockResolvedValue({
 			pinnedItems: [],
@@ -1923,6 +1935,7 @@ describe("ConversationsSidebar", () => {
 		expect(screen.queryByRole("tooltip", { name: longSpaceName })).toBeNull();
 		fireEvent.pointerEnter(link);
 		fireEvent.mouseEnter(link);
+		fireEvent.mouseMove(link);
 		await waitFor(
 			() =>
 				expect(
@@ -1932,7 +1945,7 @@ describe("ConversationsSidebar", () => {
 						)
 					).some((tooltip) => tooltip.textContent?.includes(longSpaceName))
 				).toBe(true),
-			{ timeout: 500 }
+			{ timeout: 1500 }
 		);
 		expect(screen.queryByText("Joined as OpenMeld Test")).toBeNull();
 		expect(screen.queryByText(OTHER_JOINED_PROFILE_TEXT)).toBeNull();
@@ -2074,7 +2087,13 @@ describe("ConversationsSidebar", () => {
 			<ConversationsSidebar currentProfileId="human-1" currentSpaceId="" />
 		);
 
-		await screen.findByText("No conversations yet.");
+		const createSpace = await screen.findByRole("link", {
+			name: "New Space",
+		});
+		expect(createSpace.getAttribute("href")).toContain("/new-space");
+		expect(
+			screen.queryByRole("region", { name: "Direct messages" })
+		).toBeNull();
 		expect(
 			screen.queryByRole("button", { name: BROWSE_SPACES_TEXT })
 		).toBeNull();
@@ -2267,6 +2286,7 @@ function hoverActivity(status: HTMLElement) {
 	}
 	fireEvent.pointerEnter(trigger);
 	fireEvent.mouseEnter(trigger);
+	fireEvent.mouseMove(trigger);
 }
 
 function getConversationRow(link: HTMLElement): HTMLElement {

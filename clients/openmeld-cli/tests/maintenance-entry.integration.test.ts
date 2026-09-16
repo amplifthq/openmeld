@@ -8,9 +8,16 @@ vi.mock("../src/openmeld", () => {
 });
 
 describe("independent maintenance entry", () => {
-  afterEach(() => vi.resetModules());
+  afterEach(() => {
+    vi.resetModules();
+    vi.unstubAllEnvs();
+  });
 
   it("can start without loading business commands or rewriting a newer layout", async () => {
+    vi.stubEnv("OPENMELD_DAEMON_RUNTIME_DETACHED", "1");
+    vi.stubEnv("OPENMELD_DAEMON_RUNTIME_SYSTEM_SERVICE", "1");
+    vi.stubEnv("OPENMELD_DAEMON_RUNTIME_MODE", "foreground");
+    vi.stubEnv("OPENMELD_INTERNAL_MAINTENANCE_WORKER", "");
     await withTempHome(async (home) => {
       const path = join(home, ".openmeld", "system", "layout.json");
       await mkdir(join(home, ".openmeld", "system"), { recursive: true });
@@ -28,6 +35,12 @@ describe("independent maintenance entry", () => {
         process.exitCode = undefined;
         await import("../src/openmeld-entry");
         expect(process.exitCode).toBeUndefined();
+        expect(process.env.OPENMELD_DAEMON_RUNTIME_DETACHED).toBeUndefined();
+        expect(
+          process.env.OPENMELD_DAEMON_RUNTIME_SYSTEM_SERVICE
+        ).toBeUndefined();
+        expect(process.env.OPENMELD_DAEMON_RUNTIME_MODE).toBeUndefined();
+        expect(process.env.OPENMELD_INTERNAL_MAINTENANCE_WORKER).toBe("1");
         expect(await readFile(path, "utf8")).toBe(saved);
       } finally {
         process.argv = previousArgv;

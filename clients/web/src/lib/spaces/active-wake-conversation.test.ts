@@ -4,6 +4,51 @@ import { buildActiveWakeConversationItems } from "./active-wake-conversation";
 import type { SpaceTimelineItem } from "./timeline";
 
 describe("active Wake conversation placement", () => {
+	it.each([
+		"request",
+		null,
+	] as const)("follows the selected reply destination (%s), not the source", (replyThreadRootSignalId) => {
+		const source = message("request", 100);
+		const progress = wake(source);
+		const agentStreams = [
+			{
+				dispatchId: "dispatch:request",
+				profileId: "agent",
+				triggerMessageId: source.id,
+				replyThreadRootSignalId,
+				createdAtMs: 100,
+				updatedAtMs: 200,
+				observedRevision: 1,
+				sequence: 1,
+				spaceId: "space",
+				streamId: "stream",
+				status: "streaming" as const,
+				reasonCode: null,
+				text: "",
+				textSequence: 0,
+			},
+		];
+		for (const threadId of [null, "thread"]) {
+			const items = buildActiveWakeConversationItems({
+				timelineItems: [source],
+				activityItems: [progress],
+				agentStreams,
+				threadId,
+				threadRootSignalId: "request",
+				profileEntriesById: new Map(),
+				spaceId: "space",
+			});
+			expect(items.filter((item) => item.activeWakeProgress)).toHaveLength(
+				(
+					replyThreadRootSignalId === null
+						? threadId === null
+						: threadId === "thread"
+				)
+					? 1
+					: 0
+			);
+		}
+	});
 	it("keeps concurrent Wakes after new messages and releases replies in publication order", () => {
 		const first = message("request-1", 100);
 		const second = message("request-2", 200);

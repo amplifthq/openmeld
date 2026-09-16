@@ -101,6 +101,7 @@ import {
 	applyWakeAvailabilityDisplayOverride,
 	type WakeDisplayOverrideByProfileId,
 } from "./use-wake-display-debounce";
+import { readWelcomeSpace } from "./welcome-space-state";
 
 export const SPACE_MEMBERS_SIDE_PANEL_QUERY = "(min-width: 1280px)";
 
@@ -888,9 +889,7 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 	const organizationContext = useOptionalAppOrganization();
 	const organization = organizationContext?.currentOrganization ?? null;
 	const usesOrganizationDirectory = Boolean(
-		organization &&
-			!organization.isPersonal &&
-			input.onAddOrganizationDirectoryProfiles
+		organization && input.onAddOrganizationDirectoryProfiles
 	);
 	const directoryQuery = useQuery(
 		organizationSpaceProfileCandidatesQueryOptions({
@@ -956,6 +955,32 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 		[candidateGroups]
 	);
 	const normalizedAddQuery = addQuery.trim().toLocaleLowerCase();
+	useEffect(() => {
+		const scope = organizationContext?.storageScope;
+		if (!(input.open && scope && activeSpaceId && input.snapshot)) {
+			return;
+		}
+		const center = allCandidates.find((candidate) => candidate.isCenterAgent);
+		if (!center || readWelcomeSpace(scope, activeSpaceId) !== "add") {
+			return;
+		}
+		const key = `openmeld.welcome-space:${scope}:${activeSpaceId}:recommendation-seen`;
+		if (localStorage.getItem(key)) {
+			return;
+		}
+		localStorage.setItem(key, "true");
+		if (!center.alreadyMember) {
+			setSelectedProfileIds(
+				(current) => new Set([...current, center.profileId])
+			);
+		}
+	}, [
+		input.open,
+		input.snapshot,
+		organizationContext?.storageScope,
+		activeSpaceId,
+		allCandidates,
+	]);
 	const visibleCandidateGroups = useMemo(
 		() => filterAddMemberGroups(candidateGroups, normalizedAddQuery),
 		[candidateGroups, normalizedAddQuery]

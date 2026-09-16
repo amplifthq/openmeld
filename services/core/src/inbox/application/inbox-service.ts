@@ -127,12 +127,12 @@ export class InboxServiceError extends Error {
 export function createInboxService(input: {
   db: D1Database;
   nowMs?: () => number;
-  canManageAuthorizationUpdates?: boolean;
+  canManageOrganization?: boolean;
 }) {
   const nowMs = input.nowMs ?? Date.now;
   const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
     "inbox_items",
-    input.canManageAuthorizationUpdates === true
+    input.canManageOrganization === true
   );
 
   return {
@@ -436,7 +436,7 @@ export function createInboxService(input: {
       }
       if (changedRows(itemResult) === 0) {
         const existing = await hasAccessibleInboxItem({
-          canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
+          canManageOrganization: input.canManageOrganization,
           db: input.db,
           itemId: dismissInput.itemId,
           organizationId: dismissInput.organizationId,
@@ -462,7 +462,7 @@ export function createInboxService(input: {
       requireIdentifier(getInput.organizationId, "organizationId");
       requireIdentifier(getInput.recipientUserId, "recipientUserId");
       const item = await readInboxItem({
-        canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
+        canManageOrganization: input.canManageOrganization,
         db: input.db,
         itemId: getInput.itemId,
         organizationId: getInput.organizationId,
@@ -681,7 +681,7 @@ export function createInboxService(input: {
         .run();
       if (changedRows(result) === 0) {
         const existing = await readInboxItem({
-          canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
+          canManageOrganization: input.canManageOrganization,
           db: input.db,
           itemId: markInput.itemId,
           organizationId: markInput.organizationId,
@@ -697,7 +697,7 @@ export function createInboxService(input: {
         return { item: existing };
       }
       const item = await readInboxItem({
-        canManageAuthorizationUpdates: input.canManageAuthorizationUpdates,
+        canManageOrganization: input.canManageOrganization,
         db: input.db,
         itemId: markInput.itemId,
         organizationId: markInput.organizationId,
@@ -999,7 +999,7 @@ async function markSpaceInboxReadThrough(input: {
 }
 
 async function hasAccessibleInboxItem(input: {
-  canManageAuthorizationUpdates?: boolean;
+  canManageOrganization?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
@@ -1007,7 +1007,7 @@ async function hasAccessibleInboxItem(input: {
 }): Promise<boolean> {
   const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
     "inbox_items",
-    input.canManageAuthorizationUpdates === true
+    input.canManageOrganization === true
   );
   const row = await input.db
     .prepare(
@@ -1027,7 +1027,7 @@ async function hasAccessibleInboxItem(input: {
 }
 
 async function readInboxItem(input: {
-  canManageAuthorizationUpdates?: boolean;
+  canManageOrganization?: boolean;
   db: D1Database;
   itemId: string;
   organizationId: string;
@@ -1035,7 +1035,7 @@ async function readInboxItem(input: {
 }): Promise<InboxItem | null> {
   const CURRENT_SOURCE_ACCESS_FILTER = buildCurrentInboxSourceAccessSql(
     "inbox_items",
-    input.canManageAuthorizationUpdates === true
+    input.canManageOrganization === true
   );
   const row = await input.db
     .prepare(
@@ -1115,7 +1115,17 @@ function appendViewFilter(filters: string[], view: InboxView): void {
   if (view === "unread") {
     filters.push("read_at_ms IS NULL");
   } else if (view === "needs_action") {
-    filters.push("attention = 'action_required'", "resolution_status = 'open'");
+    filters.push(
+      "attention = 'action_required'",
+      "resolution_status = 'open'",
+      "kind NOT IN ('document_review', 'organization_request')"
+    );
+  } else if (view === "needs_review") {
+    filters.push(
+      "attention = 'action_required'",
+      "resolution_status = 'open'",
+      "kind IN ('document_review', 'organization_request')"
+    );
   } else if (view === "urgent_updates") {
     filters.push(UNREAD_URGENT_UPDATE_FILTER);
   } else if (view === "recent_updates") {

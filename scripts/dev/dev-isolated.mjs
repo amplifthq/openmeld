@@ -14,7 +14,7 @@ import {
   DOPPLER_DEVELOPMENT_COMPONENT_VARIABLE,
   DOPPLER_DEVELOPMENT_ENVIRONMENT_SOURCE,
 } from "./doppler-environment.mjs";
-import { acquireLocalResources } from "./local-resources.mjs";
+import { acquireLocalResources, RESOURCE_TOKEN } from "./local-resources.mjs";
 import { runOwnedCommand } from "./owned-command.mjs";
 
 const scriptPath = fileURLToPath(import.meta.url);
@@ -106,9 +106,19 @@ export function resolveIsolatedWebDopplerCommand(
   }
   return buildDopplerComponentCommand(
     "web",
-    [pnpmCommand, "--filter", "openmeld-web", "run", "dev:isolated"],
+    [
+      pnpmCommand,
+      "--filter",
+      "openmeld-web",
+      "run",
+      resolveIsolatedWebScript(env),
+    ],
     env
   );
+}
+
+export function resolveIsolatedWebScript(env = process.env) {
+  return env.OPENMELD_DESKTOP_PILOT === "1" ? "desktop:pilot" : "dev:isolated";
 }
 
 export async function runIsolatedDev(args = process.argv.slice(2)) {
@@ -132,6 +142,7 @@ export async function runIsolatedDev(args = process.argv.slice(2)) {
       repoRoot,
     });
     const isolatedEnvironment = {
+      [RESOURCE_TOKEN]: reservation.token,
       ...buildIsolatedDevEnvironment(lane),
       OPENMELD_DEV_REMOTE_AGENT_SANDBOX_ENABLED: String(
         options.remoteAgentSandboxEnabled

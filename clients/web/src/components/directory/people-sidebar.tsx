@@ -37,6 +37,7 @@ import { HumanProfileItem } from "./human-profile-item";
 import {
 	EMPTY_PEOPLE_SIDEBAR,
 	moveSidebarPerson,
+	PEOPLE_COMPUTER_FILTER_LABELS,
 	type PeopleFilter,
 	peopleConnectionFilter,
 	removeSidebarPeopleGroup,
@@ -45,10 +46,10 @@ import {
 
 const FILTERS = [
 	["all", "All people"],
-	["connected", "Computer connected"],
-	["offline", "Computer disconnected"],
-	["unconnected", "No computer connected"],
-	["unknown", "Status needs checking"],
+	...(Object.entries(PEOPLE_COMPUTER_FILTER_LABELS) as [
+		Exclude<PeopleFilter, "all">,
+		string,
+	][]),
 ] as const;
 const SORTS = [
 	["priority", "Recently active"],

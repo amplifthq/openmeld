@@ -20,6 +20,7 @@ export const organizationJoinRequestSchema = z.strictObject({
   canReview: z.boolean().optional(),
   organizationName: z.string().optional(),
   requestedByName: z.string().optional(),
+  reviewedByName: z.string().nullable().optional(),
   spaceName: z.string().nullable().optional(),
 });
 
@@ -32,10 +33,21 @@ export const organizationJoinRequestInputSchema = z.discriminatedUnion(
       spaceId: id.optional(),
       email: z.string().trim().toLowerCase().pipe(z.email()),
     }),
-    z.strictObject({ action: z.literal("list"), organizationId: id }),
+    z.strictObject({
+      action: z.literal("list"),
+      organizationId: id,
+      before: z
+        .strictObject({
+          createdAt: z.number().int().nonnegative(),
+          id,
+          pending: z.boolean(),
+        })
+        .optional(),
+    }),
     z.strictObject({ action: z.literal("summary"), organizationId: id }),
     z.strictObject({ action: z.literal("get"), requestId: id }),
     z.strictObject({ action: z.literal("approve"), requestId: id }),
+    z.strictObject({ action: z.literal("retry"), requestId: id }),
     z.strictObject({ action: z.literal("reject"), requestId: id }),
     z.strictObject({ action: z.literal("cancel"), requestId: id }),
   ]
@@ -49,7 +61,7 @@ export type OrganizationJoinRequestInput = z.infer<
 >;
 
 export const organizationJoinRequestRpcInputSchema = z.strictObject({
-  responseVersion: z.literal("2").optional(),
+  responseVersion: z.enum(["2", "3"]).optional(),
   userId: id,
   email: z.email(),
   emailVerified: z.boolean(),
@@ -95,14 +107,14 @@ export function organizationJoinRequestResponseForVersion(
   result: OrganizationJoinRequestResponse,
   version?: string
 ): OrganizationJoinRequestResponse {
-  if (!result.ok || version === "2") {
+  if (!result.ok || version === "3") {
     return result;
   }
   return {
     ...result,
     requests: result.requests.map(
-      ({ applicantUserId: _applicant, joinedAt: _joined, ...request }) =>
-        request
+      ({ reviewedByName: _reviewer, applicantUserId, joinedAt, ...request }) =>
+        version === "2" ? { ...request, applicantUserId, joinedAt } : request
     ),
   };
 }

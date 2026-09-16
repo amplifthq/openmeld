@@ -32,7 +32,11 @@ reports cannot renew a lease or overwrite a newer departure.
 
 Active foreground pages renew every 30 seconds. A lease expires after 90 seconds,
 and five minutes without a Human interaction independently ends online presence.
-Heartbeat-only sessions cannot establish presence. Page departure ends its lease;
+Heartbeat-only sessions cannot establish presence. A temporary loss of focus or
+hidden tab stops renewals without sending a departure; the existing 90-second
+server lease bounds this grace period. Returning to the foreground resumes the
+same session. Space navigation within one Organization does not recreate it.
+Page departure or account/Organization exit ends its lease;
 missing departure delivery relies on expiry. Expired records retain ordering and
 are pruned on the member's next write after 24 hours; they are not an activity log.
 Reads re-check current Organization membership and current active profile identity.
@@ -64,6 +68,13 @@ ownership is checked synchronously before deletion in the owning Space.
 
 ## Space message previews and slow Web experiences
 
+Space member snapshots use the existing request-local D1 read batch for Agent
+readiness profile reads. The batch changes transport round trips only: owning
+repositories retain SQL, validation, identity checks, and failure semantics.
+No readiness result survives into the next request, and separate physical
+databases never share a batch. Bootstrap keeps its current response and
+authorization contract.
+
 Space owns message preview truth. Message publication and retention capture a
 bounded text preview and a monotonically increasing Space-local revision into
 the existing durable Space index outbox. Core projects this into
@@ -94,6 +105,53 @@ The receiver validates payload size/shape and applies the current threshold
 and a best-effort per-isolate volume cap. These diagnostics are sampled failure
 evidence, not a complete traffic or latency distribution. Worker log retention
 governs how far back an investigation can look.
+
+The same receiver also accepts `kind=space_open`, logged as
+`web.openmeld.space_open`. An ephemeral attempt starts at browser initialization
+for a direct Space URL or at router navigation to a different Space path. Public
+to organization-route canonicalization preserves that attempt. Same-path focus
+changes are not new openings. The observation survives router resolution and
+ends only after confirmed access, rendered messages or a valid empty state,
+and an editable composer or a read-only presentation. Render milestones run
+after a paint opportunity; they are not exact browser paint timestamps, proof
+of Send admission, or evidence that Agents are online. Failures, access barriers,
+and navigation away remain distinct outcomes. Hidden time is disclosed, not
+subtracted or presented as foreground latency.
+
+After five seconds, a still-pending snapshot records the current stage, the
+entry query's status/fetch status/failure count, visibility, and the browser's
+online hint. That hint never controls readiness. Up to eight target-Space JSON
+requests begun during the attempt record preparation, send, response headers,
+validation, completion or failure, phase timings, HTTP status, and existing
+`x-openmeld-request-id` values. Requests already running before the attempt,
+server functions, and requests outside this allowlist are not covered by this
+detail; an empty list does not mean no network work occurred. No body is cloned
+or logged. Application-error reports share the ephemeral page and attempt IDs.
+The prolonged access-check surface can copy the attempt ID and attempt a
+best-effort snapshot submission; copying is not a delivery receipt.
+
+Ten percent of attempts are selected at start independently of latency. Completed
+normal-cohort reports (`sampling=normal`) support comparison of fast and slow
+opens. Additional slow and failure samples are separate cohorts; do not pool
+them into unweighted percentiles. Normal, slow, failure, and user-requested
+reports each have a separate twenty-per-hour browser quota. Receiver caps,
+visibility, missing terminal events, and best-effort delivery still limit the
+distribution; this is not complete traffic accounting. Legacy interaction
+reports remain accepted; new interactions use null for uncollected request and
+long-task metrics rather than claiming zero.
+
+Cache observations read the existing identity-scoped display/history queries
+at browser-cache activation and actual restore (`memory`, `restored`, or `cold`). Intent
+prefetch provenance is bounded to twenty ephemeral route/profile keys and five
+minutes; `complete` means observed prefetch completion, not guaranteed cache
+freshness or a cache hit. Unknown is retained when no provenance was observed.
+Neither these labels nor telemetry IDs authorize access or write product state.
+The shared schemas accept existing version-1 reports with additive optional
+diagnostics; new report kinds and nullable metrics require the updated Web
+receiver. Old Web assets remain accepted by new Web. A new asset talking to an
+older receiver may lose only diagnostics, with no effect on API results, access,
+setup, Wake, or publication. No CLI, Service, Core, or Gateway protocol changes
+or deployment are required by this Web-only telemetry extension.
 
 ## Boundary
 
@@ -157,20 +215,34 @@ Deleting the Space removes its input outbox with the rest of Space data.
 OpenMeld separates durable truth from query projections.
 
 Agent Profile Work Coordinator state lives in the existing owner-sharded
-RuntimeTransportHub Durable Object. Each Profile has one current record with
-the running lifecycle id, at most 50 ordered waiting lifecycle ids, and only the
-minimum pending-promotion or recovery-hold metadata. It is current scheduling
+RuntimeTransportHub Durable Object. Each Profile has one current admission
+record with up to five reservations, at most 50 ordered waiting lifecycle ids,
+and bounded pending-promotion or recovery-hold metadata. The decoder retains
+previously accepted five-reservation records during a policy reduction. For
+Context-enabled Profiles this supersedes the former one-slot FIFO projection;
+the first reserved item is a compatibility view, not the only running Wake.
+The durable migration boundary and serial/parallel policy share this owner and
+survive idle queue cleanup. It is current scheduling
 state, not an append-only history. Complete prompts, attachments, and Space
 context remain in the Space durable outbox; durable execution and final-outcome
 evidence remain in the existing RuntimeCoordinator and Dispatch Ledger domains.
+
+Context, exact-Wake association, completed-history checkpoint, and native-ID
+reverse index records live in the same owner shard, outside the hot queue.
+They preserve continuity after Head retirement; they do not confer execution
+authority. A native conversation cannot belong to two Contexts in the same
+Runtime and Controller namespace. A frozen legacy association preserves its
+original unclassified visibility rather than adopting the last Space's scope.
 
 D1 may project `profile_queue_waiting`, queue counts, and correlation ids for
 queries and diagnostics. Those rows never promote work, reconstruct a Wake
 payload, or decide execution. Durable evidence useful for one collaboration's
 audit or trace follows the existing retention policy. Current coordinator
-snapshots, inactive admission rows, and execution head references are removed
-when they no longer own active work, recovery, promotion, or pending
-publication. Final publication records may keep their exact lifecycle record
+snapshots, inactive admission rows without durable mode/migration state, and
+execution head references are removed when they no longer own active work,
+recovery, promotion, or pending publication. Retained per-Profile policy does
+not count as active execution or keep a Profile in the active-work index.
+Final publication records may keep their exact lifecycle record
 for idempotent replay, but they are removed from the historical lifecycle
 index. A completed execution head may be deleted only after its deterministic
 terminal execution-token authority can reject the same head and dispatch on
@@ -437,6 +509,32 @@ preparation failure or exact completed replay does not create a misleading
 audit row.
 
 ## Connector Connection Data Boundary
+
+Connection access policy and revision live on `connector_connections`.
+`connector_access_events` records the actor, prior and next policies, and the
+new revision in the same D1 transaction as a conditional policy update. These
+records contain no provider credentials. Core owns this policy for Center,
+Local, and personal Remote Agent consumers.
+
+Local plugin calls reuse `center_agent_connector_action_operations` and the
+existing audit journal; its historical physical name does not restrict its
+consumer. A claim freezes the authenticated Agent, represented member, selected
+connection, input signature, and operation ID. An exact replay returns that
+record, including after revocation, and never starts a second provider call.
+New operations recheck access immediately before claiming. A revocation blocks
+new admission; it does not cancel a provider action already admitted.
+Unknown provider outcomes remain unknown and require investigation rather than
+automatic resubmission. Provider response data is returned to the caller but
+is not copied into the operation ledger.
+
+`plugin_action_confirmations` stores short-lived, exact-request confirmations
+bound to the organization, Agent, signature (including operation ID), and access
+revision. The operation ledger fences duplicate execution. Expired confirmation
+rows are removed when issuing new confirmations. The existing Remote Agent
+worker hosts the credential-bearing executor through an internal service
+binding, independently of any conversation or LLM. It rechecks provider action
+metadata against the admitted effect before execution. No broad runtime token
+or provider credential is returned to a CLI.
 
 The `connector_app_requests` D1 table is Core's internal demand ledger for Apps
 that a member asks OpenMeld to support. A request is scoped by Organization,
@@ -1186,6 +1284,20 @@ lookup errors. Audit action set `v12` includes this row; older strict readers
 exclude it.
 
 ## Runtime Transport Session Disconnect Diagnostics
+
+RuntimeCoordinator event writes preserve all existing valid event IDs. If the
+length-prefixed identity exceeds the shared 512-character bound, the writer uses
+a deterministic SHA-256 identity instead; the complete execution ID and
+idempotency key remain separate columns. Oversized legacy IDs never passed the
+schema, so this correction preserves replay identity for previously stored rows.
+Token redaction and payload validation still apply.
+
+Service-runtime restoration and awaited persistence propagate storage failures.
+A failed storage read is not an empty successful restore, and an awaited failed
+write cannot be reported as durable success. Diagnostic logs preserve bounded
+platform error text, any supplied platform reference, and explicit retryable or
+overloaded flags; missing flags remain unknown. These flags do not authorize
+unbounded retries inside a broken Durable Object.
 
 The owner-scoped Runtime Transport Durable Object owns the bounded session
 disconnect diagnostic projection. The socket close and socket error handlers
@@ -3023,6 +3135,14 @@ The existing Analytics Engine execution-stage event also records the content
 kind and stop reason, for example `provider.completed_empty_stop`. A completed
 provider stream is not proof of a successful Wake or published reply.
 
+An empty or thinking-only completion is recorded as a failed provider stage,
+even when transport completed normally. Attempt two records `recovered_*` or
+`recovery_exhausted_*`; non-deliverable completions use warning-level structured
+logs. Group these existing events by model and call ID to measure recovery rate,
+repeated failures, added latency, and token cost. Provider rerouting remains the
+existing OpenRouter same-model policy. These measurements do not automatically
+change a selected model or create user-submitted Diagnostic Reports.
+
 Completion observation adds no retry, per-token logging, execution timeout, or
 cross-service payload field. Reporter failure cannot interrupt stream delivery.
 These completion logs follow Workers log retention/access and Analytics Engine
@@ -3042,6 +3162,42 @@ Diagnostic surfaces such as CLI trace may show `EvidenceSyncHealth` to owners
 and operators so they can understand which evidence channel needs attention.
 
 ## Diagnostic Reports
+
+### Automatic Service connection evidence
+
+Service connection incidents are bounded operational evidence, separate from
+user-submitted Diagnostic Reports. The Service derives them from its existing
+carrier recovery identifier and lifecycle events. They do not own connection,
+readiness, retry policy, or Wake outcomes.
+
+`openmeld_service_connection_incidents` belongs to Diagnostics and uses
+`wakeEvidenceDb` (currently the shared production database). Reports contain
+only schema-whitelisted phases, times, safe native error codes, optional request
+IDs, opaque connection IDs, device/lane identity and Service version. No token,
+credential fingerprint, raw error, path, prompt, transcript or tool input is
+accepted. Gateway bounds a report to 128 KiB before JSON parsing.
+
+The uploader must authenticate as the owner and match the current registered
+device/lane Service session. Historical incidents can come from an earlier
+Service process on that same account and device. An immutable owner/incident
+key makes replay idempotent; conflicting evidence is rejected. Store at most
+100 incidents per owner/device/lane and expose at most 20 per read. The existing
+daily Core retention schedule deletes receipts older than 30 days in bounded
+batches, independently of the disabled physical-database-split retention gate.
+Expired records are excluded from reads immediately.
+
+Only the computer owner can read these details through Computer Connection
+history. Team membership alone does not grant access. The existing Wake Trace
+can opt into `serviceConnectionDiagnostics`; Core first authorizes the Space
+trace, verifies the runtime's account owner, and returns incident IDs whose
+intervals overlap that execution. Overlap is correlation, not proof of cause.
+No opt-in means no new response field, preserving strict older trace clients.
+An unavailable evidence read must not hide the underlying execution trace.
+
+Explicit owner-authorized sharing remains necessary for another teammate or
+support to receive the private incident contents.
+
+### User-submitted reports
 
 A Diagnostic Report is a user-submitted event.
 

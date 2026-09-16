@@ -1,3 +1,5 @@
+import { listCenterAgentModelChoices } from "@openmeld/agent-runtime";
+import { modelCatalogSchema } from "@openmeld/schemas/schemas";
 import type { OrganizationDirectoryResponse } from "@openmeld/schemas/types";
 import {
 	cleanup,
@@ -14,6 +16,8 @@ import {
 	createTestQueryClient,
 	TestQueryClientProvider,
 } from "#/test-support/query-client";
+import vendorModelCatalog from "../../../../../release/vendor-models.json";
+import { CenterAgentModelSection } from "./center-agent-model-section";
 import { CenterAgentSettingsContent } from "./center-agent-settings-page";
 
 const designateCurrentCenterAgentMock = vi.hoisted(() => vi.fn());
@@ -197,6 +201,7 @@ describe("CenterAgentSettingsContent", () => {
 		expect(
 			screen.queryByRole("combobox", { name: "Primary model" })
 		).toBeNull();
+		expect(screen.queryByRole("combobox", { name: "Provider" })).toBeNull();
 		expect(screen.getByText("12 / 200")).toBeTruthy();
 		expect(screen.getByRole("heading", { name: "Audit Log" })).toBeTruthy();
 		expect(
@@ -394,6 +399,106 @@ describe("CenterAgentSettingsContent", () => {
 		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 	});
 
+	it("selects a provider before a model and saves only an explicit model choice", async () => {
+		readCurrentCenterAgentModelMock.mockResolvedValue({
+			...buildModelConfiguration(),
+			choices: listCenterAgentModelChoices(
+				modelCatalogSchema.parse(vendorModelCatalog)
+			),
+		});
+		renderSettings({ canManage: true });
+		fireEvent.click(await screen.findByRole("combobox", { name: "Provider" }));
+		for (const name of [
+			"OpenAI",
+			"Anthropic",
+			"Google",
+			"DeepSeek",
+			"xAI",
+			"Z.ai",
+		]) {
+			expect(await screen.findByRole("option", { name })).toBeTruthy();
+		}
+		fireEvent.click(screen.getByRole("option", { name: "Google" }));
+		const modelTrigger = screen.getByRole("combobox", {
+			name: "Primary model",
+		});
+		expect(modelTrigger.textContent).toContain("Choose a model");
+		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
+			"disabled",
+			true
+		);
+		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
+		fireEvent.click(modelTrigger);
+		const gemini = await screen.findByRole("option", {
+			name: "Gemini 3.8 Flash",
+		});
+		expect(screen.getAllByRole("option")).toHaveLength(3);
+		expect(
+			screen.getByRole("option", { name: "Gemini 3.5 Flash Lite" })
+		).toBeTruthy();
+		expect(screen.getByText("Current: GLM 5.3 Flash")).toBeTruthy();
+		fireEvent.click(gemini);
+		fireEvent.click(screen.getByRole("button", { name: "Save model" }));
+		await waitFor(() =>
+			expect(updateCurrentCenterAgentModelMock).toHaveBeenCalledWith({
+				expectedConfigurationRevision: 7,
+				organizationId: ORGANIZATION_ID,
+				preference: {
+					kind: "selected_model",
+					modelId: "google/gemini-3.8-flash",
+				},
+			})
+		);
+	});
+
+	it("searches all providers by vendor name and switches back to the system default", async () => {
+		readCurrentCenterAgentModelMock.mockResolvedValue({
+			...buildModelConfiguration(),
+			choices: listCenterAgentModelChoices(
+				modelCatalogSchema.parse(vendorModelCatalog)
+			),
+		});
+		renderSettings({ canManage: true });
+		fireEvent.click(
+			await screen.findByRole("combobox", { name: "Primary model" })
+		);
+		const search = await screen.findByRole("combobox", {
+			name: "Search models",
+		});
+		fireEvent.change(search, { target: { value: " Anthropic " } });
+		expect(
+			await screen.findByRole("option", { name: "Claude Opus 5" })
+		).toBeTruthy();
+		expect(screen.getAllByRole("option")).toHaveLength(2);
+		fireEvent.change(search, {
+			target: { value: "deepseek/deepseek-v4.1-flash" },
+		});
+		fireEvent.click(
+			await screen.findByRole("option", { name: "DeepSeek V4.1 Flash" })
+		);
+		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
+		fireEvent.click(await screen.findByRole("option", { name: "OpenAI" }));
+		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
+			"disabled",
+			true
+		);
+		fireEvent.click(screen.getByRole("combobox", { name: "Provider" }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "All providers" })
+		);
+		fireEvent.click(screen.getByRole("combobox", { name: "Primary model" }));
+		fireEvent.click(
+			await screen.findByRole("option", {
+				name: "OpenMeld default (GLM 5.3 Flash) New",
+			})
+		);
+		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
+			"disabled",
+			true
+		);
+		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
+	});
+
 	it("refreshes the model after a concurrent settings change", async () => {
 		readCurrentCenterAgentModelMock
 			.mockReset()
@@ -437,6 +542,50 @@ describe("CenterAgentSettingsContent", () => {
 		await waitFor(() => {
 			expect(readCurrentCenterAgentModelMock).toHaveBeenCalledTimes(2);
 		});
+	});
+
+	it("resets provider browsing and unsaved model intent when the Organization changes", async () => {
+		const queryClient = createTestQueryClient();
+		readCurrentCenterAgentModelMock.mockImplementation(
+			async ({ organizationId }) => ({
+				...buildModelConfiguration(),
+				organizationId,
+			})
+		);
+		const section = (organizationId: string) => (
+			<TestQueryClientProvider queryClient={queryClient}>
+				<CenterAgentModelSection
+					canManage
+					enabled
+					organizationId={organizationId}
+				/>
+			</TestQueryClientProvider>
+		);
+		const view = render(section(ORGANIZATION_ID));
+		fireEvent.click(await screen.findByRole("combobox", { name: "Provider" }));
+		fireEvent.click(await screen.findByRole("option", { name: "DeepSeek" }));
+		fireEvent.click(screen.getByRole("combobox", { name: "Primary model" }));
+		fireEvent.click(
+			await screen.findByRole("option", { name: "DeepSeek V4 Flash" })
+		);
+		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
+			"disabled",
+			false
+		);
+		view.rerender(section("another-organization"));
+		await waitFor(() =>
+			expect(
+				screen.getByRole("combobox", { name: "Primary model" }).textContent
+			).toContain("OpenMeld default")
+		);
+		expect(screen.getByRole("combobox", { name: "Provider" }).textContent).toBe(
+			"All providers"
+		);
+		expect(screen.getByRole("button", { name: "Save model" })).toHaveProperty(
+			"disabled",
+			true
+		);
+		expect(updateCurrentCenterAgentModelMock).not.toHaveBeenCalled();
 	});
 
 	it("explains personal Center Agent settings and usage without Organization copy", async () => {

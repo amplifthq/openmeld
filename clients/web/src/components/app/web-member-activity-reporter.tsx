@@ -21,6 +21,7 @@ export function WebMemberActivityReporter(input: {
 }) {
 	const queryClient = useQueryClient();
 	const lastSuccessfulReportAtRef = useRef<number | null>(null);
+	const requestActivityRef = useRef<() => void>(() => undefined);
 
 	useEffect(() => {
 		let disposed = false;
@@ -101,9 +102,21 @@ export function WebMemberActivityReporter(input: {
 			});
 		};
 
+		requestActivityRef.current = requestReport;
+		// A Space visit has its own history, but navigation keeps the same
+		// Organization presence session alive.
+		requestReport();
+		return () => {
+			disposed = true;
+			requestActivityRef.current = () => undefined;
+		};
+	}, [input.currentUserId, input.organizationId, input.spaceId, queryClient]);
+
+	useEffect(() => {
+		let disposed = false;
 		const stopPresence = startWebMemberPresenceSession((body) => {
 			if (body.interaction) {
-				requestReport();
+				requestActivityRef.current();
 			}
 			recordCurrentOrganizationMemberPresence(input.organizationId, body)
 				.then((result) => {
@@ -129,7 +142,7 @@ export function WebMemberActivityReporter(input: {
 			disposed = true;
 			stopPresence();
 		};
-	}, [input.currentUserId, input.organizationId, input.spaceId, queryClient]);
+	}, [input.currentUserId, input.organizationId, queryClient]);
 
 	return null;
 }

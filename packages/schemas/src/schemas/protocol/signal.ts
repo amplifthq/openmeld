@@ -10,6 +10,7 @@ import { clientMessageIdSchema } from "./client-message-id";
 import { MAX_PROFILE_NAME_LENGTH, MAX_TEXT_LENGTH } from "./constants";
 import { conversationCompactionMarkerSchema } from "./conversation-compaction";
 import { coreReadinessFactsChangedSchema } from "./core-readiness-facts-changed";
+import { executionContextSelectionSchema } from "./execution-context";
 import { messageEnvelopeSchema } from "./message-envelope";
 import { openMeldRuntimeProfileIdSchema } from "./profile";
 import { trimmedStringFromUnknown } from "./shared";
@@ -332,6 +333,7 @@ const buildSignalTextDataSchema = <TMetaSchema extends z.ZodTypeAny>(
       // Canonical authoring/storage field. Public reads omit it and generate
       // meta.deviceWait only as a read-only compatibility mirror.
       deviceWait: wakeDeviceWaitSchema.optional(),
+      contextSelection: executionContextSelectionSchema.optional(),
       attachments: spaceMessageAttachmentsSchema.optional(),
       files: spaceMessageFileReferencesSchema.optional(),
       messageEnvelope: messageEnvelopeSchema.optional(),

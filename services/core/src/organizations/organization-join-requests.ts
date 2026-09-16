@@ -10,7 +10,9 @@ import {
   ensureInboxItem,
   resolveInboxItemsBySource,
 } from "../inbox/application/inbox-item-service";
+import { readInboxItemBySource } from "../inbox/infrastructure/d1/inbox-item-repo";
 import { type CoreBindings, identityDb } from "../lib/bindings";
+import { reconcileInvitationInbox } from "./invitation-inbox-projection";
 import {
   readOrganizationAccountIdentityProjection,
   readOrganizationPersonalClassification,
@@ -135,15 +137,55 @@ async function createOrListRequests(
     const reviewer = canReview(member.role);
     const rows = await db
       .prepare(
-        `${SELECT} WHERE organization_id = ? ${reviewer ? "" : "AND requested_by_user_id = ?"} ORDER BY created_at DESC LIMIT 100`
+        `${SELECT} WHERE organization_id = ? ${reviewer ? "" : "AND requested_by_user_id = ?"} ${request.before ? "AND ((status = 'pending') < ? OR ((status = 'pending') = ? AND (created_at < ? OR (created_at = ? AND id < ?))))" : ""} ORDER BY (status = 'pending') DESC, created_at DESC, id DESC LIMIT 100`
       )
-      .bind(request.organizationId, ...(reviewer ? [] : [input.userId]))
+      .bind(
+        request.organizationId,
+        ...(reviewer ? [] : [input.userId]),
+        ...(request.before
+          ? [
+              Number(request.before.pending),
+              Number(request.before.pending),
+              request.before.createdAt,
+              request.before.createdAt,
+              request.before.id,
+            ]
+          : [])
+      )
       .all<OrganizationJoinRequest>();
+    const members = rows.results.length
+      ? await resolveOrganizationDirectoryMembers({
+          authWorker: env.OPENMELD_AUTH_WORKER,
+          organizationId: request.organizationId,
+        })
+      : [];
+    const names = new Map(
+      members.map((entry) => [entry.userId, entry.user.name])
+    );
+    const spaceIds = rows.results.flatMap((row) =>
+      row.spaceId ? [row.spaceId] : []
+    );
+    const spaces = spaceIds.length
+      ? await db
+          .prepare(
+            "SELECT space_id AS id, space_name AS name FROM space_index_spaces WHERE organization_id = ? AND space_id IN (SELECT value FROM json_each(?))"
+          )
+          .bind(request.organizationId, JSON.stringify(spaceIds))
+          .all<{ id: string; name: string }>()
+      : null;
+    const spaceNames = new Map(
+      spaces?.results.map((space) => [space.id, space.name])
+    );
     return {
       ok: true,
       requests: rows.results.map((row) => ({
         ...row,
         canReview: reviewer,
+        requestedByName: names.get(row.requestedByUserId),
+        spaceName: row.spaceId ? (spaceNames.get(row.spaceId) ?? null) : null,
+        reviewedByName: row.reviewedByUserId
+          ? (names.get(row.reviewedByUserId) ?? null)
+          : null,
       })),
     };
   }
@@ -198,12 +240,16 @@ async function createRequest(
       sponsorUserId,
       email,
       Date.now(),
-      request.action === "create_from_link" && input.responseVersion === "2"
+      request.action === "create_from_link" &&
+        input.responseVersion !== undefined
         ? input.userId
         : null
     )
     .run();
-  if (request.action === "create_from_link" && input.responseVersion === "2") {
+  if (
+    request.action === "create_from_link" &&
+    input.responseVersion !== undefined
+  ) {
     // The verified recipient has now explicitly asked to join, even if a
     // teammate had already submitted an email invitation for them.
     await db
@@ -302,7 +348,14 @@ async function manageRequest(
       "Only an organization owner or admin can review this request. The sender can cancel it."
     );
   }
-  return await decideRequest(env, db, input.userId, row, request.action);
+  return await decideRequest(
+    env,
+    db,
+    input.userId,
+    row,
+    request.action,
+    input.responseVersion === "3"
+  );
 }
 
 async function requireApplicantMembership(
@@ -327,17 +380,18 @@ async function decideRequest(
   db: D1Database,
   userId: string,
   row: OrganizationJoinRequest,
-  action: "approve" | "reject" | "cancel"
+  action: "approve" | "reject" | "cancel" | "retry",
+  requireNewDecision = false
 ): Promise<OrganizationJoinRequestResponse> {
   const status = (
-    { approve: "approved", reject: "rejected", cancel: "cancelled" } as const
+    {
+      approve: "approved",
+      retry: "approved",
+      reject: "rejected",
+      cancel: "cancelled",
+    } as const
   )[action];
-  if (row.status !== "pending" && row.status !== status) {
-    throw new JoinRequestError(
-      "organization.join_request.already_reviewed",
-      "This request has already been handled. Refresh to see the result."
-    );
-  }
+  assertDecisionAllowed(row.status, status, action, requireNewDecision);
   if (status === "approved") {
     await requireMember(env, row.organizationId, row.requestedByUserId);
     if (row.spaceId) {
@@ -349,12 +403,18 @@ async function decideRequest(
       );
     }
   }
-  await db
+  const decision = await db
     .prepare(
       `UPDATE organization_join_requests SET status = ?, reviewed_by_user_id = ?, reviewed_at = ? WHERE id = ? AND status = 'pending'`
     )
     .bind(status, userId, Date.now(), row.id)
     .run();
+  if (requireNewDecision && action !== "retry" && decision.meta.changes === 0) {
+    throw new JoinRequestError(
+      "organization.join_request.already_reviewed",
+      "Another person handled this request. Refresh to see the result."
+    );
+  }
   const current = await db
     .prepare(`${SELECT} WHERE id = ?`)
     .bind(row.id)
@@ -402,7 +462,26 @@ async function decideRequest(
       sourceKind: "organization_member_request",
     });
   }
+  await reconcileInvitationInbox(db, row.organizationId);
   return { ok: true, requests: [current] };
+}
+
+function assertDecisionAllowed(
+  current: OrganizationJoinRequest["status"],
+  next: OrganizationJoinRequest["status"],
+  action: "approve" | "reject" | "cancel" | "retry",
+  requireNewDecision: boolean
+) {
+  if (
+    (action === "retry" && current !== "approved") ||
+    (requireNewDecision && action !== "retry" && current !== "pending") ||
+    (current !== "pending" && current !== next)
+  ) {
+    throw new JoinRequestError(
+      "organization.join_request.already_reviewed",
+      "This request has already been handled. Refresh to see the result."
+    );
+  }
 }
 
 async function requireMember(
@@ -445,6 +524,16 @@ async function projectReview(
     throw new Error("No invitation reviewer is available");
   }
   for (const member of reviewers) {
+    const existing = await readInboxItemBySource({
+      db,
+      organizationId: request.organizationId,
+      recipientUserId: member.userId,
+      sourceKind: "organization_member_request",
+      sourceKey: `invitation:${request.id}`,
+    });
+    if (existing) {
+      continue;
+    }
     await ensureInboxItem({
       db,
       nowMs: Date.now(),
@@ -458,15 +547,16 @@ async function projectReview(
           requestId: request.id,
         },
         attention: "action_required",
-        importance: "urgent",
+        importance: "normal",
         kind: "organization_request",
-        title: `Review invitation: ${request.email}`,
-        preview: `${request.email} is waiting to join your organization. Any owner or admin can approve this request.`,
+        title: `Invite ${request.email}`,
+        preview: "Review this request to invite a member.",
         contextLabel: null,
         occurredAtMs: request.createdAt,
       },
     });
   }
+  await reconcileInvitationInbox(db, request.organizationId);
 }
 
 async function viewRequest(
@@ -491,6 +581,14 @@ async function viewRequest(
         .bind(row.spaceId, row.organizationId)
         .first<{ space_name: string }>()
     : null;
+  const reviewerIdentity =
+    reviewer && row.reviewedByUserId
+      ? await readOrganizationAccountIdentityProjection({
+          authWorker: env.OPENMELD_AUTH_WORKER,
+          organizationId: row.organizationId,
+          account: { kind: "user_id", userId: row.reviewedByUserId },
+        })
+      : null;
   return {
     ok: true,
     requests: [
@@ -499,6 +597,9 @@ async function viewRequest(
         canReview: reviewer,
         organizationName: identity.organization.name,
         requestedByName: identity.account?.displayName,
+        reviewedByName: reviewerIdentity?.ok
+          ? (reviewerIdentity.account?.displayName ?? null)
+          : null,
         spaceName: space?.space_name ?? null,
       },
     ],

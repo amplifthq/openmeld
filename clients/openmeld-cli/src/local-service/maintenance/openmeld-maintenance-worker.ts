@@ -1,4 +1,6 @@
 import { readDaemonServiceContract } from "../../config/daemon-service-contract";
+import { configureDaemonMaintenanceEnvironment } from "../../config/daemon-service-update-worker-registration";
+import { withDaemonServiceReconcileLock } from "../../config/daemon-state";
 import {
   acquireLock,
   isOpenMeldLockError,
@@ -16,7 +18,10 @@ import {
   runPendingDaemonServiceUpdate,
   scheduleDaemonServiceUpdate,
 } from "../lifecycle/daemon-service-update-coordinator";
-import { readPendingDaemonServiceUpdate } from "../lifecycle/daemon-service-update-state";
+import {
+  completePendingDaemonServiceUpdate,
+  readPendingDaemonServiceUpdate,
+} from "../lifecycle/daemon-service-update-state";
 import { prepareDaemonServiceUpdateWorkerCarrier } from "../lifecycle/daemon-service-update-worker-manager";
 import { readOpenMeldToolsMaintenancePolicy } from "./openmeld-tools-maintenance-policy";
 import { readPendingOpenMeldToolsUpdateAttempt } from "./openmeld-tools-update-attempt-state";
@@ -25,6 +30,7 @@ import { createOpenMeldToolsUpdateCoordinator } from "./openmeld-tools-update-co
 // The OS owns this process. It is also the sole executor of persisted download
 // attempts; Service requests only publish an attempt and wake this worker.
 export async function runOpenMeldMaintenanceWorker(): Promise<void> {
+  configureDaemonMaintenanceEnvironment(process.env);
   await runMaintenanceWithLock();
 }
 
@@ -82,8 +88,24 @@ async function runMaintenancePass(): Promise<boolean> {
   }
   const result = await runPendingDaemonServiceUpdate();
   if (result?.phase === "updated") {
+    const {
+      finishComputerSetupAfterBackgroundUpdate,
+      recoverComputerSetupAfterBackgroundUpdate,
+    } = await import("../../commands/computer-setup-continuation");
     // Only a verified replacement may replace the working recovery carrier.
     await prepareDaemonServiceUpdateWorkerCarrier(result);
+    await finishComputerSetupAfterBackgroundUpdate();
+    await withDaemonServiceReconcileLock(async () => {
+      const current = await readPendingDaemonServiceUpdate();
+      if (
+        current?.jobId === result.jobId &&
+        current.phase === "updated" &&
+        current.targetVersion === result.targetVersion
+      ) {
+        await completePendingDaemonServiceUpdate(current);
+      }
+    });
+    await recoverComputerSetupAfterBackgroundUpdate();
     return true;
   }
   if (result?.phase === "restored" || result?.phase === "needs_help") {

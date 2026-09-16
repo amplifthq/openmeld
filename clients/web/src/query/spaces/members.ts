@@ -20,6 +20,7 @@ export async function readSpaceMembers(input: {
 				: { openMeldProfileId: input.openMeldProfileId }),
 		}).getMembersSnapshot({
 			spaceId: input.spaceId,
+			timeoutMs: 15_000,
 			...(input.spacePassword === undefined
 				? {}
 				: { spacePassword: input.spacePassword }),

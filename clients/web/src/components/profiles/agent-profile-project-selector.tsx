@@ -5,6 +5,7 @@ import type {
 	LocalProjectControlConnection,
 	LocalProjectControlConnectResponse,
 	LocalProjectControlPathConflictResponse,
+	PeopleComputerTarget,
 	Project,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
@@ -48,6 +49,7 @@ type PendingFolderMove =
 	  };
 
 export function AgentProfileProjectSelector(input: {
+	target?: PeopleComputerTarget;
 	disabled: boolean;
 	manualPath: string;
 	onConnectionReady: (connection: LocalProjectControlConnection | null) => void;
@@ -63,6 +65,7 @@ export function AgentProfileProjectSelector(input: {
 	workspaceFallbackMode?: "advanced" | "managed" | "project" | null;
 }) {
 	const controller = useProjectDiscovery({
+		target: input.target,
 		includeCandidates: false,
 		organizationId: input.organizationId,
 		projects: input.projects,
@@ -71,6 +74,7 @@ export function AgentProfileProjectSelector(input: {
 		? controller.projectView(input.projectId)
 		: null;
 	const search = useProjectDiscovery({
+		target: input.target,
 		organizationId: input.organizationId,
 		projects: input.projects.filter(
 			(project) => project.id === input.projectId
@@ -104,7 +108,9 @@ export function AgentProfileProjectSelector(input: {
 	const selectedProjectName =
 		input.projects.find((project) => project.id === input.projectId)?.name ??
 		"this Project";
-	const pickerDeviceId = resolveLocalFolderPickerDeviceId(controller.computer);
+	const pickerDeviceId = input.target
+		? (controller.folderPickerTarget?.deviceId ?? null)
+		: resolveLocalFolderPickerDeviceId(controller.computer);
 
 	useEffect(() => {
 		const connection =
@@ -431,6 +437,7 @@ export function AgentProfileProjectSelector(input: {
 				manualPath={input.manualPath}
 				onManualPathChange={input.onManualPathChange}
 				pickerDeviceId={pickerDeviceId}
+				runtimeLane={input.target?.runtimeLane}
 				visible={source === "custom"}
 				wasProjectSelected={Boolean(input.projectId)}
 				workspaceFallbackMode={input.workspaceFallbackMode}
@@ -521,6 +528,7 @@ function ProjectSourceControls(input: {
 }
 
 function WorkspaceFallbackControls(input: {
+	runtimeLane?: PeopleComputerTarget["runtimeLane"];
 	disabled: boolean;
 	manualPath: string;
 	onManualPathChange: (path: string) => void;
@@ -557,6 +565,7 @@ function WorkspaceFallbackControls(input: {
 								}
 							}}
 							purpose="agent_profile_working_folder"
+							runtimeLane={input.runtimeLane}
 							variant="default"
 						/>
 					) : null}
@@ -565,12 +574,12 @@ function WorkspaceFallbackControls(input: {
 					) : null}
 					{input.pickerDeviceId && !manualPathOpen ? (
 						<Button
-							className="justify-self-start"
+							className="justify-self-end"
 							disabled={input.disabled}
 							onClick={() => setManualPathOpen(true)}
 							size="sm"
 							type="button"
-							variant="ghost"
+							variant="secondary"
 						>
 							Enter path manually
 						</Button>
@@ -753,12 +762,12 @@ function ProjectConnectionDraft(input: {
 			) : null}
 			{input.pickerDeviceId && !manualPathOpen ? (
 				<Button
-					className="justify-self-start"
+					className="justify-self-end"
 					disabled={input.disabled}
 					onClick={() => setManualPathOpen(true)}
 					size="sm"
 					type="button"
-					variant="ghost"
+					variant="secondary"
 				>
 					Enter path manually
 				</Button>

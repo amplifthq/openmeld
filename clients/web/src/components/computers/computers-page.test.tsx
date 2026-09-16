@@ -567,7 +567,10 @@ describe("ComputersPage", () => {
 		expect(screen.getByTestId("computer-detail-loading")).toBeTruthy();
 	});
 
-	it("shows a read-only detail for another member's computer", () => {
+	it.each([
+		"computer:device-ashley",
+		"computer:user-ashley:device-ashley",
+	])("shows a read-only detail for another member's computer through %s", (routeId) => {
 		organizationDirectoryQueryData = buildOrganizationDirectory({
 			includeOtherMemberComputers: true,
 		});
@@ -577,7 +580,7 @@ describe("ComputersPage", () => {
 
 		render(
 			<TestComputersRouteStateProvider
-				value={{ computersSelectedDeviceId: "computer:device-ashley" }}
+				value={{ computersSelectedDeviceId: routeId }}
 			>
 				<TestComputersPage />
 			</TestComputersRouteStateProvider>
@@ -654,6 +657,74 @@ describe("ComputersPage", () => {
 		expect(
 			screen.getByTestId("computer-owner-profile-link").getAttribute("href")
 		).toBe("/o/acme/people/member%3Amember-ashley");
+	});
+
+	it.each([
+		["computer:device-ashley", null],
+		["computer:user-ashley:device-ashley", "Ashley's Mac Studio"],
+		["computer:user-other:device-ashley", "Old computer record"],
+		["computer:missing-owner:device-ashley", null],
+	])("never substitutes another owner's computer for %s", (routeId, expectedName) => {
+		organizationDirectoryQueryData = buildOrganizationDirectory({
+			includeOtherMemberComputers: true,
+		});
+		const otherMember = organizationDirectoryQueryData.members[1];
+		if (!otherMember) {
+			throw new Error("Expected teammate fixture");
+		}
+		organizationDirectoryQueryData.members.push({
+			...otherMember,
+			userId: "user-other",
+			memberId: "member-other",
+			user: { ...otherMember.user, id: "user-other", name: "Other account" },
+		});
+		organizationComputersQueryData = buildOrganizationComputers({
+			includeOtherMemberComputer: true,
+		});
+		const original = organizationComputersQueryData.computers.find(
+			(computer) => computer.computerId === "device-ashley"
+		);
+		if (!original) {
+			throw new Error("Expected teammate computer fixture");
+		}
+		organizationComputersQueryData.computers.unshift({
+			...original,
+			ownerUserId: "user-other",
+			deviceDisplayName: "Old computer record",
+			serviceState: "not_connected",
+			localAgents: original.localAgents.map((agent) => ({
+				...agent,
+				status: "stale",
+			})),
+		});
+		render(
+			<TestComputersRouteStateProvider
+				value={{ computersSelectedDeviceId: routeId }}
+			>
+				<TestComputersPage />
+			</TestComputersRouteStateProvider>
+		);
+		if (expectedName) {
+			expect(
+				screen.getByRole("heading", { level: 1, name: expectedName })
+			).toBeTruthy();
+			if (expectedName === "Old computer record") {
+				expect(
+					screen.getAllByText("Status out of date").length
+				).toBeGreaterThan(0);
+			}
+		} else {
+			expect(screen.getByTestId("computer-not-found-state")).toBeTruthy();
+			expect(screen.queryByText("Computer Connection")).toBeNull();
+			if (routeId === "computer:device-ashley") {
+				expect(
+					screen.getByText(
+						"This older link matches computers under more than one account. Open the owner's profile in People and select the computer again."
+					)
+				).toBeTruthy();
+			}
+		}
+		expect(screen.queryByTestId("selected-computer-panel")).toBeNull();
 	});
 
 	it("waits for a fresh Organization projection before declaring a legacy Computer missing", () => {

@@ -31,7 +31,9 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 		});
 
 		expect(state.thinkingEntries).toEqual([
-			expect.objectContaining({ text: "runner is queued" }),
+			expect.objectContaining({
+				text: "runner is queued · Waiting for earlier tasks",
+			}),
 		]);
 	});
 

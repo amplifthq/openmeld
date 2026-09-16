@@ -35,7 +35,7 @@ export type DaemonRunResult =
       reason: Exclude<DaemonRunFailureReason, DaemonRunAlreadyRunningReason>;
       // Presentation-only startup-failure verdict captured before a silent
       // reinstall start discards the underlying SystemServiceStartupTimeoutError.
-      // Lets callers (participation gate) rebuild the detailed BTM/crash card.
+      // Lets callers preserve startup evidence and rebuild the failure card.
       startFailureVerdict?: SystemServiceStartupFailureVerdict | null;
     };
 

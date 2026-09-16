@@ -67,17 +67,89 @@ export function admissionReason({
   if (!Number.isFinite(availableBytes) || availableBytes <= 0) {
     return "available memory could not be measured";
   }
-  const pendingBytes = entries.reduce((sum, entry) => {
-    const rss = collectDescendants(rows, [entry.pid]).reduce(
-      (bytes, row) => bytes + (row.rssBytes ?? 0),
-      0
-    );
-    return sum + Math.max(0, entry.bytes - rss);
-  }, 0);
+  const pendingBytes = reservedGrowthBytes(entries, rows);
   return availableBytes <
     policy.headroomBytes + policy.costs[kind] + pendingBytes
     ? "available memory is below the startup budget plus machine headroom"
     : null;
+}
+
+export function reservedGrowthBytes(entries, rows) {
+  return entries.reduce((sum, entry) => {
+    const tree = collectDescendants(rows, [entry.pid]);
+    if (
+      tree.length === 0 ||
+      tree.some((row) => !Number.isFinite(row.rssBytes))
+    ) {
+      return sum + entry.bytes;
+    }
+    const rss = tree.reduce((bytes, row) => bytes + row.rssBytes, 0);
+    // Only an explicit successful Worker readiness probe ends startup.
+    // Web retains its startup budget because compilation is request-driven.
+    const growth =
+      entry.kind === "stack" && entry.ready === true
+        ? Math.max(GIB, rss * 0.25)
+        : Math.max(0, entry.bytes - rss);
+    return sum + growth;
+  }, 0);
+}
+
+export async function markLocalStackReady({
+  repoRoot = process.cwd(),
+  env = process.env,
+  gitCommonDir,
+} = {}) {
+  const token = env[RESOURCE_TOKEN];
+  if (!token) {
+    return;
+  }
+  const commonDir = resolveGitCommonDirectory({ repoRoot, gitCommonDir });
+  const registryPath = join(commonDir, "openmeld-dev", "resources.json");
+  await withRegistryLock(
+    {
+      lockPath: join(commonDir, "openmeld-dev", "resources.lock"),
+      lockPid: process.pid,
+      timeoutMs: 30_000,
+      isPidAlive: (pid) => {
+        try {
+          process.kill(pid, 0);
+          return true;
+        } catch (error) {
+          if (error.code === "ESRCH") {
+            return false;
+          }
+          throw error;
+        }
+      },
+    },
+    () => {
+      const entries = JSON.parse(readFileSync(registryPath, "utf8"));
+      const rows = readProcessRows({ repoRoot, includeMetrics: true });
+      const owner = entries.find(
+        (entry) => entry.token === token && entry.kind === "stack"
+      );
+      if (
+        !(
+          owner &&
+          sameProcess(
+            owner,
+            rows.find((row) => row.pid === owner.pid)
+          ) &&
+          collectDescendants(rows, [owner.pid]).some(
+            (row) => row.pid === process.pid
+          )
+        )
+      ) {
+        throw new Error(
+          "Cannot attribute Worker readiness to a live resource owner."
+        );
+      }
+      owner.ready = true;
+      const temporary = `${registryPath}.${process.pid}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify(entries)}\n`, { mode: 0o600 });
+      renameSync(temporary, registryPath);
+    }
+  );
 }
 
 // One ledger per Git common directory. It coordinates OpenMeld worktrees, not
@@ -180,6 +252,7 @@ export async function acquireLocalResources({
       if (reason) {
         return {
           reason,
+          budget: `Memory GiB: available=${(memory.availableBytes / GIB).toFixed(1)}, headroom=${(policy.headroomBytes / GIB).toFixed(1)}, new=${(policy.costs[kind] / GIB).toFixed(1)}, reserved growth=${(reservedGrowthBytes(entries, rows) / GIB).toFixed(1)}.`,
           owners: entries
             .map((entry) => `${entry.kind}: ${entry.repoRoot}`)
             .join("; "),
@@ -218,7 +291,7 @@ export async function acquireLocalResources({
     }
     const message = `[local-resources] Waiting: ${result.reason}. ${result.owners || "Other applications also use machine memory."} Cancel with Ctrl+C; inspect pnpm dev:status.`;
     if (message !== lastReason) {
-      onWait(message);
+      onWait(`${message} ${result.budget}`);
       lastReason = message;
     }
     await delay(1000, undefined, { signal });

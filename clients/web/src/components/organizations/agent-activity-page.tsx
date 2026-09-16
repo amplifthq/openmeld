@@ -102,12 +102,7 @@ export function AgentActivityPage(input: {
 		<AppSurfaceLayout
 			globalControls={<AppGlobalControls />}
 			mobileSidebarTitle="Agent Activity"
-			outerRail={
-				<AppOuterRail
-					account={account}
-					initialState={input.initialSidebarStates?.outer}
-				/>
-			}
+			outerRail={<AppOuterRail account={account} />}
 			sidebar={
 				<AppInnerSidebar
 					initialState={input.initialSidebarStates?.inner}

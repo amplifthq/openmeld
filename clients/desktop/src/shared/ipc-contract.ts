@@ -27,8 +27,8 @@ export type OpenMeldBridge = {
   setupComputer(): Promise<ServiceView>;
   installService(): Promise<ServiceView>;
   updateService(): Promise<ServiceView>;
-  startService(): Promise<ServiceView>;
-  stopService(): Promise<ServiceView>;
+  startService(expectedAccount?: string): Promise<ServiceView>;
+  stopService(expectedAccount?: string): Promise<ServiceView>;
   updateCli(): Promise<ServiceView>;
   setServiceAutoStart(enabled: boolean): Promise<ServiceAutoStartUpdateView>;
   getAgents(): Promise<AgentsView>;

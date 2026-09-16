@@ -1,4 +1,4 @@
-import { Button } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -9,19 +9,50 @@ import {
 	DropdownMenu,
 	DropdownMenuCheckboxItem,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
 	DropdownMenuSeparator,
+	DropdownMenuSub,
+	DropdownMenuSubContent,
+	DropdownMenuSubTrigger,
 	DropdownMenuTrigger,
 } from "@openmeld/ui/components/dropdown-menu";
 import { Input } from "@openmeld/ui/components/input";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@openmeld/ui/components/tooltip";
 import { FluidNavMenu } from "@openmeld/ui/fluid/nav-menu";
-import { FunnelSimpleIcon, ListIcon, PlusIcon } from "@phosphor-icons/react";
-import { useNavigate } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import {
+	ArchiveIcon,
+	ChatCircleTextIcon,
+	ClockIcon,
+	CompassIcon,
+	DotsThreeIcon,
+	FolderIcon,
+	FunnelSimpleIcon,
+	ListIcon,
+	PlusIcon,
+	RobotIcon,
+	UsersIcon,
+} from "@phosphor-icons/react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import {
+	type MouseEvent,
+	useLayoutEffect,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
+import { useAppNavigationPresentation } from "#/components/app/app-navigation-presentation";
 import { resolveInboxAttentionTone } from "#/lib/inbox/attention";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { buildOrganizationNewSpacePath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationNewSpacePath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
 import { AppContextualSidebarNav } from "../app/app-contextual-layout";
 import { ControlledSidebarGroupStateProvider } from "../app/app-sidebar-group";
 import { SidebarDrag, SidebarDropSection } from "../app/sidebar-drag";
@@ -42,30 +73,90 @@ import { useConversationDisclosure } from "./use-conversation-disclosure";
 import { useConversationView } from "./use-conversation-view";
 import { useConversations } from "./use-conversations";
 import { useSpaceDirectoryFilters } from "./use-space-directory-filters";
+import { useUnreadHistoryPrefetch } from "./use-unread-history-prefetch";
+
+function isSpaceEmptyStateVisible(
+	view: string,
+	unavailable: boolean,
+	conversations: Conversation[]
+) {
+	return (
+		view === "grouped" &&
+		!unavailable &&
+		!conversations.some((item) => item.kind === "space")
+	);
+}
+
+function SpaceSidebarEmptyState({
+	visible,
+	sectionId,
+	orgSlug,
+	onNavigate,
+}: {
+	visible: boolean;
+	sectionId: string;
+	orgSlug: string;
+	onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
+}) {
+	if (!visible || sectionId !== "spaces") {
+		return null;
+	}
+	return (
+		<div className="mx-1 flex min-h-24 items-center justify-center rounded-md border border-border/70 border-dashed bg-card/25 px-3 py-5">
+			<Link
+				className={buttonVariants({
+					size: "sm",
+					variant: "outline",
+				})}
+				onClick={onNavigate}
+				to={buildOrganizationNewSpacePath(orgSlug)}
+			>
+				<PlusIcon aria-hidden="true" />
+				New Space
+			</Link>
+		</div>
+	);
+}
 
 export function ConversationsSidebar(
 	input: { currentProfileId?: string; currentSpaceId?: string } = {}
 ) {
 	const model = useConversations(input);
+	const { dismiss } = useAppNavigationPresentation();
+	const onNavigate = (event: MouseEvent<HTMLAnchorElement>) => {
+		if (!(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) {
+			dismiss();
+		}
+	};
 	const { directMessages: dm } = model;
 	const memberAppearances = useMemo(
 		() => resolveSpaceMemberAppearances(dm.directory.data),
 		[dm.directory.data]
 	);
 	const { currentUserId } = useAppOrganization();
+	useUnreadHistoryPrefetch({
+		accountId: currentUserId,
+		organizationId: dm.org.id,
+		activeSpaceId: model.selected,
+		conversations: model.conversations,
+		unread: dm.indicators.unreadBySpaceId,
+	});
 	const { view, setView } = useConversationView(currentUserId, dm.org.id);
 	const [search, setSearch] = useState("");
+	const { headerRef, titleRef, actionsRef, compactActions } =
+		useHeaderActionOverflow();
 	const [archived, setArchived] = useState(false);
 	const [creating, setCreating] = useState(false);
+	const [newMessageQuery, setNewMessageQuery] = useState("");
 	const [creatingGroup, setCreatingGroup] = useState<string>();
 	const [renaming, setRenaming] = useState<Conversation | null>(null);
 	const [name, setName] = useState("");
 	const navigate = useNavigate();
 	const kinds = useSidebarFilter(
 		[
-			{ id: "space", label: "Spaces" },
-			{ id: "human", label: "People" },
-			{ id: "agent", label: "Agents" },
+			{ id: "space", label: "Spaces", icon: ChatCircleTextIcon },
+			{ id: "human", label: "People", icon: UsersIcon },
+			{ id: "agent", label: "Agents", icon: RobotIcon },
 		],
 		"All conversations"
 	);
@@ -140,14 +231,16 @@ export function ConversationsSidebar(
 				(dm.indicators.unreadBySpaceId.get(item.spaceId)?.unreadCount ?? 0),
 			0
 		);
+	const hasFilters = Boolean(
+		search.trim() || filter.active || kinds.selected.length > 0 || archived
+	);
 	const visible = sections.filter(
 		(section) =>
 			rows(section).length > 0 ||
 			(view === "grouped" &&
 				section.id !== "pinned" &&
-				!search.trim() &&
-				!filter.active &&
-				!archived)
+				section.id !== "chats" &&
+				!hasFilters)
 	);
 	const pending =
 		dm.store.isPending ||
@@ -160,6 +253,11 @@ export function ConversationsSidebar(
 		dm.spaces.isError ||
 		dm.sessions.isError ||
 		dm.directory.isError;
+	const showSpaceEmptyState = isSpaceEmptyStateVisible(
+		view,
+		pending || failed || hasFilters,
+		model.conversations
+	);
 	const move = (sectionId: string, id: string, beforeId?: string) => {
 		const target = model.sections.find((section) => section.id === sectionId);
 		if (!target) {
@@ -172,7 +270,8 @@ export function ConversationsSidebar(
 			beforeId
 		);
 	};
-	const newMessage = (groupId?: string) => {
+	const newMessage = (groupId?: string, query = "") => {
+		setNewMessageQuery(query);
 		setCreatingGroup(groupId);
 		setCreating(true);
 	};
@@ -185,78 +284,203 @@ export function ConversationsSidebar(
 			newMessage(section.groupId ? section.id : undefined);
 		}
 	};
+	const creationMenu = (
+		<>
+			<DropdownMenuItem onClick={() => newMessage()}>
+				<ChatCircleTextIcon />
+				New message
+			</DropdownMenuItem>
+			<DropdownMenuItem
+				render={
+					<Link
+						onClick={onNavigate}
+						to={buildOrganizationNewSpacePath(dm.org.slug)}
+					/>
+				}
+			>
+				<PlusIcon /> New Space
+			</DropdownMenuItem>
+		</>
+	);
+	const viewMenu = (
+		<>
+			<DropdownMenuRadioGroup
+				onValueChange={(value) => {
+					if (value === "grouped" || value === "recent") {
+						setView(value);
+					}
+				}}
+				value={view}
+			>
+				<DropdownMenuRadioItem closeOnClick value="grouped">
+					<FolderIcon /> Grouped
+				</DropdownMenuRadioItem>
+				<DropdownMenuRadioItem closeOnClick value="recent">
+					<ClockIcon /> Recent
+				</DropdownMenuRadioItem>
+			</DropdownMenuRadioGroup>
+		</>
+	);
+	const filterMenu = (
+		<>
+			{kinds.menu}
+			<DropdownMenuSeparator />
+			{filter.menu}
+			<DropdownMenuSeparator />
+			<DropdownMenuCheckboxItem
+				checked={archived}
+				onCheckedChange={setArchived}
+			>
+				<ArchiveIcon /> Archived direct messages
+			</DropdownMenuCheckboxItem>
+		</>
+	);
 	return (
 		<>
-			<div className="mb-2 flex min-w-0 items-center gap-1 px-1">
-				<span className="min-w-0 flex-1 truncate font-medium text-sm">
-					Conversations
-				</span>
-				<Button
-					aria-label="New conversation"
-					onClick={() => newMessage()}
-					size="icon-sm"
-					variant="ghost"
+			<div className="mb-2 px-1">
+				<div
+					className="relative flex min-w-0 items-center gap-1"
+					ref={headerRef}
 				>
-					<PlusIcon />
-				</Button>
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<Button
-								aria-label="Conversation view"
-								size="icon-sm"
-								variant="ghost"
-							/>
+					<div className="shrink-0" ref={titleRef}>
+						<SpacesDirectoryLink
+							onNavigate={onNavigate}
+							orgSlug={dm.org.slug}
+						/>
+					</div>
+					<div
+						className={
+							compactActions
+								? "pointer-events-none invisible absolute right-0 flex w-max items-center gap-1"
+								: "ml-auto flex shrink-0 items-center gap-1"
 						}
+						inert={compactActions}
+						ref={actionsRef}
 					>
-						<ListIcon />
-					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
-						<DropdownMenuRadioGroup
-							onValueChange={(value) => {
-								if (value === "grouped" || value === "recent") {
-									setView(value);
+						<Tooltip>
+							<TooltipTrigger
+								render={
+									<Link
+										aria-label="Browse spaces"
+										className={buttonVariants({
+											size: "icon-sm",
+											variant: "ghost",
+										})}
+										onClick={onNavigate}
+										to={buildOrganizationSpacesPath(dm.org.slug)}
+									/>
 								}
-							}}
-							value={view}
+							>
+								<CompassIcon aria-hidden="true" />
+							</TooltipTrigger>
+							<TooltipContent>Browse spaces</TooltipContent>
+						</Tooltip>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="New conversation"
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<PlusIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								{creationMenu}
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="Conversation view"
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<ListIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">{viewMenu}</DropdownMenuContent>
+						</DropdownMenu>
+						<DropdownMenu>
+							<DropdownMenuTrigger
+								render={
+									<Button
+										aria-label="Filter conversations"
+										size="icon-sm"
+										variant="ghost"
+									/>
+								}
+							>
+								<FunnelSimpleIcon />
+							</DropdownMenuTrigger>
+							<DropdownMenuContent
+								align="end"
+								className="w-60 max-w-[calc(100vw-2rem)]"
+							>
+								{filterMenu}
+							</DropdownMenuContent>
+						</DropdownMenu>
+					</div>
+					<DropdownMenu>
+						<DropdownMenuTrigger
+							render={
+								<Button
+									aria-label="Spaces actions"
+									className="ml-auto hidden shrink-0 data-[compact=true]:inline-flex"
+									data-compact={compactActions}
+									size="icon-sm"
+									variant="ghost"
+								/>
+							}
 						>
-							<DropdownMenuRadioItem closeOnClick value="grouped">
-								Grouped
-							</DropdownMenuRadioItem>
-							<DropdownMenuRadioItem closeOnClick value="recent">
-								Recent
-							</DropdownMenuRadioItem>
-						</DropdownMenuRadioGroup>
-					</DropdownMenuContent>
-				</DropdownMenu>
-				<DropdownMenu>
-					<DropdownMenuTrigger
-						render={
-							<Button
-								aria-label="Filter conversations"
-								size="icon-sm"
-								variant="ghost"
-							/>
-						}
-					>
-						<FunnelSimpleIcon />
-					</DropdownMenuTrigger>
-					<DropdownMenuContent
-						align="end"
-						className="w-60 max-w-[calc(100vw-2rem)]"
-					>
-						{kinds.menu}
-						<DropdownMenuSeparator />
-						{filter.menu}
-						<DropdownMenuSeparator />
-						<DropdownMenuCheckboxItem
-							checked={archived}
-							onCheckedChange={setArchived}
-						>
-							Archived direct messages
-						</DropdownMenuCheckboxItem>
-					</DropdownMenuContent>
-				</DropdownMenu>
+							<DotsThreeIcon />
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="start" className="w-56">
+							<DropdownMenuItem
+								render={
+									<Link
+										onClick={onNavigate}
+										to={buildOrganizationSpacesPath(dm.org.slug)}
+									/>
+								}
+							>
+								<CompassIcon aria-hidden="true" />
+								Browse spaces
+							</DropdownMenuItem>
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									<PlusIcon aria-hidden="true" />
+									New conversation
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent className="w-60">
+									{creationMenu}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									<ListIcon aria-hidden="true" />
+									Conversation view
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent className="w-60">
+									{viewMenu}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+							<DropdownMenuSub>
+								<DropdownMenuSubTrigger>
+									<FunnelSimpleIcon aria-hidden="true" />
+									Filter conversations
+								</DropdownMenuSubTrigger>
+								<DropdownMenuSubContent className="w-60">
+									{filterMenu}
+								</DropdownMenuSubContent>
+							</DropdownMenuSub>
+						</DropdownMenuContent>
+					</DropdownMenu>
+				</div>
 			</div>
 			<div className="mb-2 px-1">
 				<SidebarSearchInput
@@ -292,12 +516,24 @@ export function ConversationsSidebar(
 					showPreview
 				/>
 			)}
-			{!(pending || failed) && filtered.length === 0 && (
-				<p className="p-2 text-muted-foreground text-xs">
-					{search.trim() || filter.active || archived
-						? "No conversations match your search or filters."
-						: "No conversations yet."}
-				</p>
+			{[pending, failed, showSpaceEmptyState, filtered.length > 0].every(
+				(value) => !value
+			) && (
+				<div className="p-2 text-muted-foreground text-xs">
+					<p>
+						{hasFilters
+							? "No conversations match your search or filters."
+							: "No conversations yet."}
+					</p>
+					<Button
+						className="mt-2"
+						onClick={() => newMessage(undefined, search.trim())}
+						size="sm"
+						variant="outline"
+					>
+						Find someone
+					</Button>
+				</div>
 			)}
 			{dm.sessions.hasNextPage && (
 				<p aria-live="polite" className="px-2 text-muted-foreground text-xs">
@@ -405,6 +641,12 @@ export function ConversationsSidebar(
 									ids={rows(section).map((item) => item.spaceId)}
 									section={section.id}
 								>
+									<SpaceSidebarEmptyState
+										onNavigate={onNavigate}
+										orgSlug={dm.org.slug}
+										sectionId={section.id}
+										visible={showSpaceEmptyState}
+									/>
 									<FluidNavMenu
 										activeLayoutId="conversation-selection"
 										activeValue={model.selected}
@@ -480,37 +722,42 @@ export function ConversationsSidebar(
 					/>
 				</ControlledSidebarGroupStateProvider>
 			</SidebarDrag>
-			<NewChatDialog
-				groupId={creatingGroup?.slice(5)}
-				onCreated={
-					creatingGroup
-						? (id) => {
-								if (!dm.store.preferences) {
-									return;
+			{creating && (
+				<NewChatDialog
+					groupId={creatingGroup?.slice(5)}
+					initialQuery={newMessageQuery}
+					onCreated={
+						creatingGroup
+							? (id) => {
+									if (!dm.store.preferences) {
+										return;
+									}
+									return dm.store.saveAsync({
+										...dm.store.preferences,
+										messages: undefined,
+										chats: {
+											...dm.preferences,
+											groups: dm.preferences.groups.map((group) => ({
+												...group,
+												spaceIds:
+													group.id === creatingGroup.slice(5)
+														? [
+																...group.spaceIds.filter(
+																	(value) => value !== id
+																),
+																id,
+															]
+														: group.spaceIds.filter((value) => value !== id),
+											})),
+										},
+									});
 								}
-								return dm.store.saveAsync({
-									...dm.store.preferences,
-									messages: undefined,
-									chats: {
-										...dm.preferences,
-										groups: dm.preferences.groups.map((group) => ({
-											...group,
-											spaceIds:
-												group.id === creatingGroup.slice(5)
-													? [
-															...group.spaceIds.filter((value) => value !== id),
-															id,
-														]
-													: group.spaceIds.filter((value) => value !== id),
-										})),
-									},
-								});
-							}
-						: undefined
-				}
-				onOpenChange={setCreating}
-				open={creating}
-			/>
+							: undefined
+					}
+					onOpenChange={setCreating}
+					open={creating}
+				/>
+			)}
 			<Dialog
 				onOpenChange={(open) => {
 					if (!open) {
@@ -555,4 +802,58 @@ export function ConversationsSidebar(
 			</Dialog>
 		</>
 	);
+}
+
+function SpacesDirectoryLink({
+	onNavigate,
+	orgSlug,
+}: {
+	onNavigate: (event: MouseEvent<HTMLAnchorElement>) => void;
+	orgSlug: string;
+}) {
+	return (
+		<Link
+			aria-label="Spaces"
+			className="flex min-w-20 flex-1 items-center gap-2 rounded-sm font-medium text-sm focus-visible:outline-2"
+			onClick={onNavigate}
+			to={buildOrganizationSpacesPath(orgSlug)}
+		>
+			<ChatCircleTextIcon
+				aria-hidden="true"
+				className="size-4 shrink-0 text-muted-foreground"
+			/>
+			<span className="truncate">Spaces</span>
+		</Link>
+	);
+}
+
+function useHeaderActionOverflow() {
+	const headerRef = useRef<HTMLDivElement>(null);
+	const titleRef = useRef<HTMLDivElement>(null);
+	const actionsRef = useRef<HTMLDivElement>(null);
+	const [compactActions, setCompactActions] = useState(false);
+	useLayoutEffect(() => {
+		const header = headerRef.current;
+		const title = titleRef.current;
+		const actions = actionsRef.current;
+		if (!(header && title && actions)) {
+			return;
+		}
+		const measure = () => {
+			const gap = Number.parseFloat(getComputedStyle(header).columnGap) || 0;
+			setCompactActions(
+				title.getBoundingClientRect().width +
+					actions.getBoundingClientRect().width +
+					gap >
+					header.getBoundingClientRect().width
+			);
+		};
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(header);
+		observer.observe(title);
+		observer.observe(actions);
+		return () => observer.disconnect();
+	}, []);
+	return { headerRef, titleRef, actionsRef, compactActions };
 }

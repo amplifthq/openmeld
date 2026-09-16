@@ -81,7 +81,10 @@ describe("openmeld agents repair", () => {
     repairBuiltinControllerInstallMock.mockReset();
   });
 
-  it("repairs a registered builtin controller and persists its launch contract", async () => {
+  it.each([
+    undefined,
+    "install_selected",
+  ])("repairs a registered builtin controller and persists its selected install (%s)", async (install) => {
     await withTempHome(async () => {
       await setConfiguredDeviceRuntimeState({
         controllers: [
@@ -89,6 +92,14 @@ describe("openmeld agents repair", () => {
             agentId: "codex",
             displayName: "Codex",
             enabled: true,
+            ...(install
+              ? {
+                  launchContract: {
+                    kind: "executable" as const,
+                    commandPath: process.execPath,
+                  },
+                }
+              : {}),
             registeredAt: "2026-02-23T00:00:00.000Z",
             updatedAt: "2026-02-23T00:00:00.000Z",
           },
@@ -98,6 +109,7 @@ describe("openmeld agents repair", () => {
       const { stdout } = await withCapturedStdio(async () => {
         await runAgentsRepair({
           agent: ["codex"],
+          install,
           view: "human",
         });
       });
@@ -117,7 +129,7 @@ describe("openmeld agents repair", () => {
         agentId: "codex",
         detected: true,
         displayName: "Codex",
-        installId: null,
+        installId: install ?? null,
         runtimeSupported: true,
       });
     });

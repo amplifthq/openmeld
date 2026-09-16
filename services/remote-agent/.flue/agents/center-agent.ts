@@ -140,7 +140,9 @@ async function prepareCenterAgentRender() {
     executionContext?.organizationSkillReleases ?? [];
   const materialization = await materializeCenterAgentRuntime({
     createSandbox: async () =>
-      executionContext && isRemoteAgentComputerEnabled(env)
+      executionContext &&
+      !executionContext.replyRecovery &&
+      isRemoteAgentComputerEnabled(env)
         ? await createRemoteAgentComputerCapability({
             context: executionContext,
             coreWorker,
@@ -158,6 +160,7 @@ async function prepareCenterAgentRender() {
     createTools: async (sandboxCapability) =>
       executionContext
         ? await getRemoteAgentFlueTools({
+            replyRecovery: Boolean(executionContext.replyRecovery),
             personalAgent,
             sharedSpaceContextEnabled:
               executionContext.sharedSpaceContextEnabled,
@@ -197,6 +200,7 @@ async function prepareCenterAgentRender() {
     },
     materializeSkills: async () =>
       executionContext &&
+      !executionContext.replyRecovery &&
       runtimeContextPlan.materializeOrganizationSkills &&
       organizationSkillSelections.length > 0
         ? await materializeOrganizationSkillFlueSkills({

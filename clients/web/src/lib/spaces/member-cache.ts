@@ -135,6 +135,7 @@ export function applyConfirmedHumanSpaceMemberToCache(input: {
 
 export function applySpaceBootstrapSnapshotToCache(input: {
 	bootstrap: SpaceBootstrapSnapshot;
+	bootstrapUpdatedAt?: number;
 	queryClient: QueryClient;
 	spaceId: string;
 	viewerProfileId: string;
@@ -181,10 +182,24 @@ export function applySpaceBootstrapSnapshotToCache(input: {
 				}),
 			})
 	);
-	input.queryClient.setQueryData(
-		spaceQueryKeys.threads(input.spaceId, input.viewerProfileId),
-		input.bootstrap.threads
+	const threadsKey = spaceQueryKeys.threads(
+		input.spaceId,
+		input.viewerProfileId
 	);
+	const threadsUpdatedAt =
+		input.queryClient.getQueryState(threadsKey)?.dataUpdatedAt ?? 0;
+	if (
+		input.bootstrapUpdatedAt === undefined ||
+		threadsUpdatedAt <= input.bootstrapUpdatedAt
+	) {
+		input.queryClient.setQueryData(
+			threadsKey,
+			input.bootstrap.threads,
+			input.bootstrapUpdatedAt === undefined
+				? undefined
+				: { updatedAt: input.bootstrapUpdatedAt }
+		);
+	}
 }
 
 export function resolveSpaceMembersPresentationSnapshot(input: {

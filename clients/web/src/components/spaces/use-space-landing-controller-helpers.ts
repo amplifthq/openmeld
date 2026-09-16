@@ -28,6 +28,7 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { SPACE_WAKE_PROGRESS_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import { spaceQueryKeys } from "#/query/spaces/status";
+import { spaceThreadsQueryOptions } from "#/query/spaces/threads";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import {
 	buildSpaceComposerAddressingTargets,
@@ -145,6 +146,14 @@ export function resolveComposerWakeProgressTargetProfileIds(input: {
 			(member) => member.status === "active"
 		) ?? [];
 	return activeAgents.length === 1 ? [activeAgents[0].profileId] : [];
+}
+
+export function readPublishedWakeTargetProfileIds(
+	signal: SignalEnvelope
+): string[] {
+	return signal.type === "signal.text"
+		? (signal.data.messageEnvelope?.activationTargets ?? [])
+		: [];
 }
 
 export function resolveComposerAddressingTargets(input: {
@@ -511,7 +520,7 @@ export function listRecoverableWakeProgressClientMessageIds(input: {
 	alreadyRequestedClientMessageIds: ReadonlySet<string>;
 	signals: readonly SignalEnvelope[];
 }): string[] {
-	const ids = new Set<string>();
+	let unresolved: WakeProgressItem[] = [];
 	for (const signal of input.signals) {
 		const clientMessageId = readWakeSourceClientMessageId(signal);
 		if (!clientMessageId) {
@@ -527,9 +536,36 @@ export function listRecoverableWakeProgressClientMessageIds(input: {
 		if (input.alreadyRequestedClientMessageIds.has(clientMessageId)) {
 			continue;
 		}
-		ids.add(clientMessageId);
+		if (signal.type !== "signal.text") {
+			continue;
+		}
+		for (const targetProfileId of signal.data.messageEnvelope
+			?.activationTargets ?? []) {
+			unresolved.push(
+				createWakeProgressItem({
+					clientMessageId,
+					dispatchId: null,
+					sourceSignalId: signal.id,
+					targetProfileId,
+					targetLabel: targetProfileId,
+					phase: "request_sent",
+					updatedAtMs: signal.ts,
+				})
+			);
+		}
 	}
-	return [...ids];
+	// Use the same exact source/target terminal matching as live presentation.
+	// An unresolved sibling or an outcome outside the loaded history still needs a read.
+	for (const signal of input.signals) {
+		unresolved = clearWakeProgressItemsForSignal({ items: unresolved, signal });
+	}
+	return [
+		...new Set(
+			unresolved.flatMap((item) =>
+				item.clientMessageId ? [item.clientMessageId] : []
+			)
+		),
+	];
 }
 
 export function readWakeSourceClientMessageId(
@@ -560,6 +596,7 @@ export function resolveWakeProgressPollDelayMs(input: {
 }
 
 export async function pollWakeProgress(input: {
+	signal?: AbortSignal;
 	openMeldProfileId: string;
 	clientMessageIds: readonly string[];
 	onItems: (
@@ -573,41 +610,54 @@ export async function pollWakeProgress(input: {
 		const api = createUnscopedWebSpaceApi({
 			openMeldProfileId: input.openMeldProfileId,
 		});
-		const results = await Promise.allSettled(
-			input.clientMessageIds.map((clientMessageId) =>
-				api.getWakeProgress({
-					clientMessageId,
-					includePreviewText: true,
-					includeSourceContext: true,
-					includeTiming: true,
-					includeWaitReason: true,
-					includeDeviceWait: true,
-					includeWakeStopEligibility: true,
-					spaceId: input.spaceId,
-					timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
-				})
-			)
-		);
-		const items: WakeProgressItem[] = [];
-		const fulfilledClientMessageIds: string[] = [];
-		for (const [index, result] of results.entries()) {
-			if (result.status === "fulfilled") {
-				items.push(...result.value.items);
-				const clientMessageId = input.clientMessageIds[index];
-				if (clientMessageId) {
-					fulfilledClientMessageIds.push(clientMessageId);
-				}
-				continue;
+		const clientMessageIds = [...new Set(input.clientMessageIds)];
+		// Bound recovery transport without expiring or inventing execution outcomes.
+		for (
+			let offset = 0;
+			offset < clientMessageIds.length && !input.signal?.aborted;
+			offset += 4
+		) {
+			const batch = clientMessageIds.slice(offset, offset + 4);
+			const results = await Promise.allSettled(
+				batch.map((clientMessageId) =>
+					api.getWakeProgress({
+						...(input.signal ? { signal: input.signal } : {}),
+						clientMessageId,
+						includePreviewText: true,
+						includeSourceContext: true,
+						includeTiming: true,
+						includeWaitReason: true,
+						includeDeviceWait: true,
+						includeWakeStopEligibility: true,
+						spaceId: input.spaceId,
+						timeoutMs: SPACE_WAKE_PROGRESS_TIMEOUT_MS,
+					})
+				)
+			);
+			if (input.signal?.aborted) {
+				break;
 			}
-			console.warn("[openmeld.web.space.wake_progress_poll_failed]", {
-				error:
-					result.reason instanceof Error
-						? result.reason.message
-						: String(result.reason),
-				spaceId: input.spaceId,
-			});
+			const items: WakeProgressItem[] = [];
+			const fulfilledClientMessageIds: string[] = [];
+			for (const [index, result] of results.entries()) {
+				if (result.status === "fulfilled") {
+					items.push(...result.value.items);
+					const clientMessageId = batch[index];
+					if (clientMessageId) {
+						fulfilledClientMessageIds.push(clientMessageId);
+					}
+					continue;
+				}
+				console.warn("[openmeld.web.space.wake_progress_poll_failed]", {
+					error:
+						result.reason instanceof Error
+							? result.reason.message
+							: String(result.reason),
+					spaceId: input.spaceId,
+				});
+			}
+			input.onItems(items, fulfilledClientMessageIds);
 		}
-		input.onItems(items, fulfilledClientMessageIds);
 	} finally {
 		input.onSettled();
 	}
@@ -720,19 +770,65 @@ export function mergeLiveThreadSignalIntoCache(input: {
 		input.threadContext.threadId,
 		input.openMeldProfileId
 	);
+	const previous =
+		input.queryClient.getQueryData<ListSpaceThreadSignalsResponse>(
+			threadSignalsKey
+		);
+	const introducesAuthor =
+		input.signal.type === "signal.text" &&
+		!input.signal.data.meta?.transient &&
+		!previous?.signals.some(
+			(signal) => signal.profile.profileId === input.signal.profile.profileId
+		);
+	// Live events can populate an unopened Thread with only its newest messages.
+	// Keep that partial snapshot stale until a full server read completes.
+	const needsFullSnapshot =
+		!previous ||
+		input.queryClient.getQueryState(threadSignalsKey)?.isInvalidated;
+	const changesWakeSelection =
+		input.signal.type === "signal.text" &&
+		input.signal.profile.kind === "human" &&
+		!input.signal.data.meta?.threadWakeContinuation &&
+		(input.signal.data.messageEnvelope?.activationTargets.length ?? 0) > 0;
 	input.queryClient.setQueryData<ListSpaceThreadSignalsResponse>(
 		threadSignalsKey,
 		(current) => mergeThreadSignalsCache(current, input)
 	);
+	if (introducesAuthor || needsFullSnapshot || changesWakeSelection) {
+		input.queryClient
+			.invalidateQueries({ queryKey: threadSignalsKey })
+			.catch((error) => {
+				console.error("Could not refresh Thread participants.", error);
+			});
+	}
 
 	const threadsKey = spaceQueryKeys.threads(
 		input.spaceId,
 		input.openMeldProfileId
 	);
+	const knownThread = input.queryClient
+		.getQueryData<ListSpaceThreadsResponse>(threadsKey)
+		?.threads.some(
+			(thread) => thread.threadId === input.threadContext.threadId
+		);
 	input.queryClient.setQueryData<ListSpaceThreadsResponse>(
 		threadsKey,
 		(current) => mergeThreadPreviewCache(current, input)
 	);
+	if (!knownThread) {
+		input.queryClient
+			.fetchQuery({
+				...spaceThreadsQueryOptions({
+					spaceId: input.spaceId,
+					openMeldProfileId: input.openMeldProfileId,
+					enabled: true,
+				}),
+				staleTime: 0,
+			})
+			.catch((error) => {
+				console.error("Could not refresh the new Thread.", error);
+			});
+	}
 }
 
 export function mergeThreadSignalsCache(
@@ -752,7 +848,7 @@ export function mergeThreadSignalsCache(
 	)
 		? currentPlacements
 		: [...currentPlacements, input.placement].sort(comparePlacementOrder);
-	return { signals, placements };
+	return { ...current, signals, placements };
 }
 
 export function mergeThreadPreviewCache(
@@ -802,13 +898,16 @@ export function upsertThreadPreview(
 		];
 	}
 
-	const signalAlreadyKnown = existingPreview.signals.some(
-		(signal) => signal.id === input.signal.id
+	const signalAlreadyKnown = existingPreview.placements.some(
+		(placement) => placement.signalId === input.signal.id
 	);
-	const nextSignals =
-		signalAlreadyKnown || existingPreview.signals.length >= 2
-			? existingPreview.signals
-			: [...existingPreview.signals, input.signal].sort(compareSignalOrder);
+	const nextSignals = existingPreview.signals.some(
+		(signal) => signal.id === input.signal.id
+	)
+		? existingPreview.signals
+		: [...existingPreview.signals, input.signal]
+				.sort(compareSignalOrder)
+				.slice(-2);
 	const nextPlacements = existingPreview.placements.some(
 		(placement) => placement.signalId === input.placement.signalId
 	)

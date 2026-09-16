@@ -49,6 +49,7 @@ type SpaceConversationPanelOverrides = Partial<
 };
 
 const FAILED_TEXT_PATTERN = /failed/i;
+const UNREAD_JUMP_PATTERN = /Jump to first unread/;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
 const SHOW_ME_AROUND_BUTTON_NAME_PATTERN = /Show me around/;
@@ -147,7 +148,7 @@ describe("SpaceConversationPanel", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("returns from the retained Graph view to Messages with the draft intact", () => {
+	it("returns from the retained Graph view to Messages with the draft intact", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
 			activeSpaceView: "graph",
@@ -170,7 +171,9 @@ describe("SpaceConversationPanel", () => {
 				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
 			})
 		).toBeNull();
-		expect(screen.getByRole("region", { name: "Space Graph" })).toBeTruthy();
+		expect(
+			await screen.findByRole("region", { name: "Space Graph" })
+		).toBeTruthy();
 		expect(screen.getByText("Review the release plan.")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
@@ -224,7 +227,7 @@ describe("SpaceConversationPanel", () => {
 		expect(graphMessage.closest(".group")?.className).toContain("ring-2");
 	});
 
-	it("renders the earlier-history loading indicator outside the conversation log", () => {
+	it("keeps earlier-history loading out of the conversation while marking it busy", () => {
 		renderSpaceConversationPanel({
 			isLoadingEarlierHistory: true,
 			timelineItems: [createTimelineItem()],
@@ -233,9 +236,8 @@ describe("SpaceConversationPanel", () => {
 		const conversationLog = screen.getByRole("log", {
 			name: "Conversation history",
 		});
-		const loadingText = screen.getByText("Loading earlier messages...");
-
-		expect(conversationLog.contains(loadingText)).toBe(false);
+		expect(screen.queryByText("Loading earlier messages...")).toBeNull();
+		expect(conversationLog.getAttribute("aria-busy")).toBe("true");
 	});
 
 	it("places setup guidance over the Messages scroller instead of above it", () => {
@@ -707,26 +709,6 @@ describe("SpaceConversationPanel", () => {
 		).toBe(true);
 	});
 
-	it("anchors the earlier-history loading header to the conversation content rail", () => {
-		renderSpaceConversationPanel({
-			isLoadingEarlierHistory: true,
-			timelineItems: [createTimelineItem()],
-		});
-
-		const loadingText = screen.getByText("Loading earlier messages...");
-		const messageScroller = loadingText.closest(
-			"[data-slot='message-scroller']"
-		);
-		const conversationContentRail = loadingText.closest(
-			"[data-space-conversation-content-width]"
-		);
-
-		expect(messageScroller).not.toBeNull();
-		expect(messageScroller?.contains(loadingText)).toBe(true);
-		expect(conversationContentRail).not.toBeNull();
-		expect(messageScroller?.contains(conversationContentRail)).toBe(true);
-	});
-
 	it("gives each Space conversation a stable scroll restoration identity", () => {
 		renderSpaceConversationPanel({
 			spaceId: "space-1",
@@ -976,7 +958,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("shows and temporarily hides the lower new-message control", async () => {
+	it("offers one chronological unread jump for updates above and below, then hides the navigation batch", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -986,9 +968,10 @@ describe("SpaceConversationPanel", () => {
 				if (this.hasAttribute("data-signal-id")) {
 					const conversation = this.closest<HTMLElement>("[role='log']");
 					const scrollTop = conversation?.scrollTop ?? 0;
+					const top = this.dataset.signalId === "signal-3" ? 700 : -500;
 					return domRect({
-						bottom: 760 - scrollTop,
-						top: 700 - scrollTop,
+						bottom: top + 60 - scrollTop,
+						top: top - scrollTop,
 					});
 				}
 				return domRect({ bottom: 0, top: 0 });
@@ -1010,25 +993,30 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "3 new messages. Jump to the nearest new message",
+			name: "3 unread updates. Jump to first unread",
 		});
-		expect(jumpButton.textContent).toContain("3 new messages");
-		fireEvent.click(
-			screen.getByRole("button", { name: "Hide 3 new messages" })
+		expect(
+			screen.getAllByRole("button", { name: UNREAD_JUMP_PATTERN })
+		).toHaveLength(1);
+		fireEvent.click(jumpButton);
+		await waitFor(() => expect(document.body.contains(jumpButton)).toBe(false));
+		expect(document.activeElement).toBe(
+			screen.getByText("First new message").closest("[data-signal-id]")
 		);
-		expect(document.body.contains(jumpButton)).toBe(false);
 		rectSpy.mockRestore();
 	});
 
-	it("keeps a lower unread target inside the conversation viewport", async () => {
+	it.each([
+		0.5, 0.8, 1,
+	])("keeps a lower unread target inside the conversation viewport at %s scale", async (scale) => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
 				if (this.getAttribute("role") === "log") {
-					return domRect({ bottom: 500, top: 0 });
+					return domRect({ bottom: 500 * scale, top: 0 });
 				}
 				if (this.hasAttribute("data-signal-id")) {
-					return domRect({ bottom: 760, top: 700 });
+					return domRect({ bottom: 760 * scale, top: 700 * scale });
 				}
 				return domRect({ bottom: 0, top: 0 });
 			});
@@ -1047,9 +1035,13 @@ describe("SpaceConversationPanel", () => {
 			name: "Conversation history",
 		});
 		conversation.scrollTop = 0;
+		Object.defineProperty(conversation, "offsetHeight", {
+			configurable: true,
+			value: 500,
+		});
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 new message. Jump to the nearest new message",
+				name: "1 unread update. Jump to first unread",
 			})
 		);
 
@@ -1062,7 +1054,7 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
-	it("shows and temporarily hides the upper new-message control", async () => {
+	it("can hide unread navigation without reading its messages", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -1084,20 +1076,20 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "1 new message above. Jump to the nearest new message",
+			name: "1 unread update. Jump to first unread",
 		});
 		const unreadPill = jumpButton.closest<HTMLElement>(
-			"[data-unread-direction='above']"
+			"[data-unread-navigation]"
 		);
 		expect(unreadPill?.className).toContain("self-center");
 		fireEvent.click(
-			screen.getByRole("button", { name: "Hide 1 new message above" })
+			screen.getByRole("button", { name: "Hide 1 unread update" })
 		);
 		expect(document.body.contains(jumpButton)).toBe(false);
 		rectSpy.mockRestore();
 	});
 
-	it("delegates an unread thread target even when the local thread catalog is stale", async () => {
+	it("highlights the main thread root and opens its first unread reply only on explicit request", async () => {
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 			configurable: true,
 			value: vi.fn(),
@@ -1114,10 +1106,11 @@ describe("SpaceConversationPanel", () => {
 				return domRect({ bottom: 0, top: 0 });
 			});
 		const onOpenUnreadThread = vi.fn(async () => true);
+		const thread = { ...createThread(), rootSignalId: "thread-root" };
 		renderSpaceConversationPanel({
 			onOpenUnreadThread,
 			timelineItems: [createTimelineItem({ id: "thread-root" })],
-			threads: [],
+			threads: [thread],
 			unreadTargets: [
 				{
 					occurredAtMs: 1,
@@ -1131,14 +1124,27 @@ describe("SpaceConversationPanel", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "1 new message above. Jump to the nearest new message",
+				name: "1 unread update. Jump to first unread",
 			})
 		);
 
+		await waitFor(() =>
+			expect(
+				screen.queryByRole("button", { name: UNREAD_JUMP_PATTERN })
+			).toBeNull()
+		);
+		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+			"thread-root"
+		);
+		expect(onOpenUnreadThread).not.toHaveBeenCalled();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open thread (1 unread)" })
+		);
 		await waitFor(() => {
 			expect(onOpenUnreadThread).toHaveBeenCalledWith({
 				rootSignalId: "thread-root",
 				signalId: "thread-reply",
+				threadId: thread.threadId,
 			});
 		});
 		rectSpy.mockRestore();
@@ -1292,7 +1298,9 @@ describe("SpaceConversationPanel", () => {
 
 	it("uses the shared Space reference renderer in a thread preview", () => {
 		const thread = createThread();
+		const onOpenThread = vi.fn();
 		renderSpaceConversationPanel({
+			onOpenThread,
 			spaceReferencesById: createSpaceReferences(),
 			threadPreviews: [createThreadPreview(thread.threadId)],
 			threads: [thread],
@@ -1304,6 +1312,22 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("link", { name: "Open Space Launch Planning" })
 		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("link", { name: "Open Space Launch Planning" })
+		);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		const preview = screen.getByRole("link", { name: "Thread preview" });
+		fireEvent.click(preview);
+		fireEvent.keyDown(preview, { key: "Enter" });
+		fireEvent.keyDown(preview, { key: " " });
+		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		expect(onOpenThread).toHaveBeenLastCalledWith(thread.threadId);
+		const selection = vi
+			.spyOn(window, "getSelection")
+			.mockReturnValue({ toString: () => "selected reply" } as Selection);
+		fireEvent.click(preview);
+		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		selection.mockRestore();
 	});
 
 	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
@@ -1432,14 +1456,14 @@ describe("SpaceConversationPanel", () => {
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const onViewingLatestChange = vi.fn();
+		const onViewedThroughTs = vi.fn();
 		renderSpaceConversationPanelWithViewTabs({
 			activeSpaceView: "graph",
-			onViewingLatestChange,
+			onViewedThroughTs,
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(onViewingLatestChange).toHaveBeenLastCalledWith(false);
+		expect(onViewedThroughTs).not.toHaveBeenCalled();
 	});
 
 	it("loads earlier Space activity directly from the Graph", () => {
@@ -1487,6 +1511,39 @@ describe("SpaceConversationPanel", () => {
 		});
 
 		expect(screen.getByText("Status update")).toBeTruthy();
+	});
+
+	it("focuses the retained source of a folded historical failure link", async () => {
+		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+			configurable: true,
+			value: vi.fn(),
+		});
+		renderSpaceConversationPanel({
+			initialFocusSignalId: "old-failure",
+			timelineItems: [
+				createTimelineItem({
+					id: "source-request",
+					text: "Review the proposal",
+				}),
+				createTimelineItem({
+					id: "old-failure",
+					text: "No reply was returned",
+					signalType: "signal.system_notice",
+					systemNoticeType: "terminal_failure",
+					replyToSignalId: "source-request",
+				}),
+			],
+		});
+		await waitFor(() =>
+			expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
+				"source-request"
+			)
+		);
+		expect(
+			screen.queryByText("This linked message isn’t available", {
+				exact: false,
+			})
+		).toBeNull();
 	});
 
 	it("returns to Messages before resolving a same-Space message link", async () => {
@@ -1663,6 +1720,80 @@ describe("SpaceConversationPanel", () => {
 		expect(firstMessageItem.getBoundingClientRect().top).toBe(
 			visibleTopBeforePrepend
 		);
+	});
+
+	it("keeps an explicit message jump after the bottom-following content resizes", async () => {
+		const view = renderSpaceConversationPanel({
+			spaceId: "space-explicit-jump-resize",
+			hasEarlierHistory: false,
+			timelineItems: [
+				createTimelineItem({ id: "signal-target", text: "Linked message" }),
+				createTimelineItem({ id: "signal-last", text: "Latest message" }),
+			],
+			unreadTargets: [
+				{
+					occurredAtMs: 1,
+					signalId: "signal-target",
+					threadRootSignalId: null,
+				},
+			],
+			unreadCount: 1,
+			unreadStateReady: true,
+		});
+		const viewport = screen.getByRole("log", { name: "Conversation history" });
+		setElementScrollMetrics(viewport, {
+			clientHeight: 500,
+			scrollHeight: 2500,
+			scrollTop: 2000,
+		});
+		Object.defineProperty(viewport, "offsetHeight", {
+			configurable: true,
+			value: 500,
+		});
+		Object.defineProperty(viewport, "scrollTo", {
+			configurable: true,
+			value: (options: ScrollToOptions) => {
+				viewport.scrollTop = Number(options.top);
+			},
+		});
+		const geometry = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				if (this === viewport) {
+					return domRect({ top: 0, bottom: 500 });
+				}
+				const id = this.dataset.signalId ?? this.dataset.messageId;
+				if (id) {
+					const top = id === "signal-target" ? 700 : 2400;
+					return domRect({
+						top: top - viewport.scrollTop,
+						bottom: top + 60 - viewport.scrollTop,
+					});
+				}
+				return domRect({ top: 0, bottom: 0 });
+			});
+		fireEvent.scroll(viewport);
+		fireEvent.click(
+			await screen.findByRole("button", {
+				name: "1 unread update. Jump to first unread",
+			})
+		);
+		await waitFor(() => expect(viewport.scrollTop).toBe(480));
+		const content = viewport.querySelector<HTMLElement>(
+			"[data-slot='message-scroller-content']"
+		);
+		if (!content) {
+			throw new Error("Expected conversation content");
+		}
+		await act(async () => {
+			notifyResizeObservers(content);
+			await new Promise<void>((resolve) =>
+				requestAnimationFrame(() => resolve())
+			);
+		});
+		expect(viewport.scrollTop).toBe(480);
+		view.unmount();
+		geometry.mockRestore();
 	});
 
 	it("keeps following a streaming message when the existing item grows", async () => {
@@ -2015,12 +2146,12 @@ describe("SpaceConversationPanel", () => {
 		const recovery = screen.queryByRole("link", { name: "Reconnect Computer" });
 		if (relation === "wake") {
 			expect(recovery?.getAttribute("href")).toBe("/o/acme/connect");
-			expect(screen.getByText("Computer not connected")).toBeTruthy();
+			expect(screen.queryByText("Computer not connected")).toBeNull();
 			expect(
 				screen
 					.getByRole("button", { name: "Send message" })
 					.hasAttribute("disabled")
-			).toBe(true);
+			).toBe(false);
 		} else {
 			expect(recovery).toBeNull();
 			expect(screen.queryByText("Computer not connected")).toBeNull();

@@ -1,4 +1,5 @@
 import type {
+	LocalAgentReasoningState,
 	SpaceAgentStreamDeltaFrame,
 	SpaceAgentStreamPartFrame,
 	SpaceAgentStreamSnapshot,
@@ -15,6 +16,36 @@ import {
 } from "./conversation-stream";
 
 describe("space conversation stream state", () => {
+	it("clears the live tail on privacy disable without replacing the execution", () => {
+		const frame = createThinkingDeltaFrame({
+			sequence: 1,
+			thinkingSnapshot: "Live reasoning",
+		});
+		const streaming = applySpaceConversationStreamFrame({
+			current: [],
+			frame,
+			observedRevision: 1,
+		});
+		const disabled = applySpaceConversationStreamFrame({
+			current: streaming,
+			frame: {
+				...frame,
+				kind: "thinking",
+				sequence: 2,
+				thinkingSnapshot: "",
+				reasoningState: { status: "disabled" },
+			},
+			observedRevision: 2,
+		});
+		expect(disabled[0]).toMatchObject({
+			status: "streaming",
+			reasoningState: { status: "disabled" },
+		});
+		expect(disabled[0]).not.toHaveProperty("thinking");
+		expect(
+			clearSpaceConversationTransientStreams(disabled)[0]
+		).not.toHaveProperty("reasoningState");
+	});
 	it("keeps live thinking separate from reply text and drops it at terminal", () => {
 		let state = applySpaceConversationStreamFrame({
 			current: [],
@@ -35,6 +66,7 @@ describe("space conversation stream state", () => {
 				sequence: 2,
 				text: "Done.",
 				thinking: "Checking the current Space state",
+				thinkingActive: false,
 			}),
 		]);
 
@@ -245,10 +277,13 @@ describe("space conversation stream state", () => {
 	])("replaces partial text with the $kind terminal notice and rejects a late delta", (terminal) => {
 		let state = applySpaceConversationStreamFrame({
 			current: [],
-			frame: createDeltaFrame({
-				sequence: 4,
-				textSnapshot: "Unfinished partial text",
-			}),
+			frame: {
+				...createDeltaFrame({
+					sequence: 4,
+					textSnapshot: "Unfinished partial text",
+				}),
+				replyThreadRootSignalId: "source-thread-root",
+			},
 			observedRevision: 1,
 		});
 		state = applySpaceConversationStreamFrame({
@@ -268,6 +303,7 @@ describe("space conversation stream state", () => {
 		expect(listVisibleSpaceConversationStreams(state)).toEqual([
 			expect.objectContaining({
 				reasonCode: terminal.reasonCode,
+				replyThreadRootSignalId: "source-thread-root",
 				status: terminal.kind,
 				text: terminal.noticeText,
 			}),
@@ -329,6 +365,7 @@ describe("space conversation stream state", () => {
 			frame: createThinkingDeltaFrame({
 				sequence: 3,
 				thinkingSnapshot: "Checking the current Space state",
+				reasoningState: { status: "streaming", firstOutputMs: 1200 },
 			}),
 			observedRevision: 1,
 		});
@@ -345,6 +382,8 @@ describe("space conversation stream state", () => {
 				sequence: 3,
 				text: "Restored reply text",
 				thinking: "Checking the current Space state",
+				thinkingActive: true,
+				reasoningState: { status: "streaming", firstOutputMs: 1200 },
 			}),
 		]);
 	});
@@ -380,6 +419,38 @@ describe("space conversation stream state", () => {
 		expect(listVisibleSpaceConversationStreams(cleared)[0]).not.toHaveProperty(
 			"toolParts"
 		);
+		const replayed = applySpaceConversationStreamFrame({
+			current: cleared,
+			frame: createThinkingDeltaFrame({
+				sequence: 2,
+				thinkingSnapshot: "Private transient thought",
+			}),
+			observedRevision: 4,
+		});
+		expect(replayed[0]).toMatchObject({
+			sequence: 3,
+			text: "Working",
+			thinking: "Private transient thought",
+			thinkingActive: false,
+		});
+		const disabled = applySpaceConversationStreamFrame({
+			current: replayed,
+			frame: {
+				...createThinkingDeltaFrame({ sequence: 4, thinkingSnapshot: "" }),
+				reasoningState: { status: "disabled" },
+			},
+			observedRevision: 5,
+		});
+		expect(
+			applySpaceConversationStreamFrame({
+				current: disabled,
+				frame: createThinkingDeltaFrame({
+					sequence: 2,
+					thinkingSnapshot: "Private transient thought",
+				}),
+				observedRevision: 6,
+			})
+		).toEqual(disabled);
 	});
 });
 
@@ -408,7 +479,8 @@ function createDeltaFrame(input: {
 function createThinkingDeltaFrame(input: {
 	sequence: number;
 	thinkingSnapshot: string;
-}): SpaceAgentStreamDeltaFrame {
+	reasoningState?: LocalAgentReasoningState;
+}): Extract<SpaceAgentStreamDeltaFrame, { kind: "thinking" }> {
 	return {
 		type: "space.agent_stream_delta",
 		v: 1,
@@ -420,6 +492,7 @@ function createThinkingDeltaFrame(input: {
 		dispatchId: "dispatch-1",
 		kind: "thinking",
 		thinkingSnapshot: input.thinkingSnapshot,
+		...(input.reasoningState ? { reasoningState: input.reasoningState } : {}),
 		state: "streaming",
 		updatedAtMs: 1000 + input.sequence,
 	};

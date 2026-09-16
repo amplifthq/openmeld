@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { isBinaryDistribution } from "../runtime/distribution";
 import {
   deleteMacOsNativeKeychainToken,
+  getMacOsKeychainRetryAfterMs,
   readMacOsNativeKeychainToken,
   storeMacOsNativeKeychainToken,
 } from "./macos-native-keychain";
@@ -58,6 +59,7 @@ export type AccessTokenReadResult =
     }
   | {
       errorMessage: string;
+      retryAfterMs?: number;
       status: "unavailable";
     };
 
@@ -191,6 +193,9 @@ export async function readAccessToken(
   } catch (error) {
     return {
       errorMessage: toErrorMessage(error),
+      ...(ref.provider === "macos-keychain"
+        ? { retryAfterMs: getMacOsKeychainRetryAfterMs() }
+        : {}),
       status: "unavailable",
     };
   }

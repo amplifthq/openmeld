@@ -1,5 +1,7 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes a single public entrypoint.
 
+export { readAccountOrganizationContext } from "./account-organization-context";
+export { readAccountSession } from "./account-session";
 export { createAccountSpaceIndexApi } from "./account-space-index/api";
 export {
   buildAccountSpaceActiveWakeSummaryPath,
@@ -40,6 +42,7 @@ export type {
   UpdateAgentProfilePrimaryBindingModelSelectionInput,
   UpdateAgentProfilePrimaryBindingOpenCodePermissionInput,
 } from "./agent-profile-binding/types";
+export { createAgentProfileExecutionModeApi } from "./agent-profile-execution-mode";
 export { createAgentProfileWorkRecoveryApi } from "./agent-profile-work-recovery/api";
 export { buildAgentProfileWorkRecoveryRoute } from "./agent-profile-work-recovery/routes";
 export type {
@@ -66,12 +69,14 @@ export type {
   CreateCenterAgentApi,
   ListCenterAgentAuditJournalInput,
 } from "./center-agent/types";
+export { readCliRelease } from "./cli-release";
 export type {
   OpenMeldApiClientConfig,
   OpenMeldApiClientFoundation,
   OpenMeldApiClientRequestOptions,
 } from "./client";
 export { createOpenMeldApiClient } from "./client";
+export { createComputerAuthorizationGrant } from "./computer-authorization";
 export { createComputerFileAccessApi } from "./computer-file-access/api";
 export {
   buildComputerFileAccessReadPath,
@@ -255,6 +260,7 @@ export type {
   OrganizationUsageApi,
   OrganizationUsageRequestInput,
 } from "./organization-usage/types";
+export { createPluginsApi } from "./plugins/api";
 export { createPrepareReadinessApi } from "./prepare-readiness/api";
 export type {
   CreatePrepareReadinessApi,
@@ -294,6 +300,7 @@ export type {
   UpdateProjectInput,
 } from "./projects/types";
 export { publicSpaceUrls } from "./public-space-urls";
+export { createReasoningStreamApi } from "./reasoning-stream";
 export { createRoutinesApi } from "./routines/api";
 export {
   buildRoutinePath,
@@ -324,6 +331,7 @@ export type {
   SubmitRuntimeProviderConversationProofsInput,
   SubmitRuntimeRegistrationInput,
 } from "./runtime-reporting/types";
+export { createServiceConnectionEvidenceApi } from "./service-connection-evidence/api";
 export type {
   AddSpaceMembersInput,
   CreateSpaceDiagnosticReportBody,

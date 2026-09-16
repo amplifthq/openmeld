@@ -20,6 +20,7 @@ type InspectExecutionRecoveryInput = {
     serviceSupportsResume: boolean;
   };
   terminalFailureCode?: string | null;
+  replyRecoverySupported?: boolean;
   updatedAtMs: number;
 };
 
@@ -163,7 +164,7 @@ export function inspectExecutionRecovery(
     input.identity.agentControllerConversationId &&
     input.resumeCapability.exactAssociationVerified &&
     input.resumeCapability.serviceSupportsResume &&
-    !input.terminalFailureCode
+    canRecoverReplyAfterFailure(input)
   ) {
     return {
       actions: {
@@ -171,10 +172,13 @@ export function inspectExecutionRecovery(
         resumeControllerConversation: {
           action: "resume_controller_conversation",
           enabled: true,
-          label: "Recover reply",
+          label: input.terminalFailureCode
+            ? "Continue conversation"
+            : "Recover reply",
           reasonCode: "execution_recovery.exact_conversation_available",
-          warning:
-            "OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.",
+          warning: input.terminalFailureCode
+            ? "Continue from the saved conversation. This only prepares a reply; it cannot repeat tools or other actions."
+            : "OpenMeld will ask the same Agent conversation to post the reply it already finished. It will not run the task again.",
         },
       },
       destination: input.destination,
@@ -197,6 +201,16 @@ export function inspectExecutionRecovery(
     tier: "none",
     updatedAtMs: input.updatedAtMs,
   };
+}
+
+function canRecoverReplyAfterFailure(
+  input: InspectExecutionRecoveryInput
+): boolean {
+  return (
+    !input.terminalFailureCode ||
+    (input.replyRecoverySupported === true &&
+      input.terminalFailureCode === "remote_agent.empty_assistant_response")
+  );
 }
 
 export async function executeExecutionRecovery(input: {

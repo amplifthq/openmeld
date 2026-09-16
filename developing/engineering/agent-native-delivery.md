@@ -32,6 +32,25 @@ Do not bypass hooks to ship a failed check. Diagnose with the smallest failing
 command, fix the cause, and push again. Hooks are local feedback, not remotely
 attested evidence; FC does not claim they ran or that every business test passed.
 
+## Link Completed Fixes To Their Issues
+
+Before handing off a PR, agents should explicitly map each fully resolved issue
+to the implemented behavior and its validation. Put one `Fixes #123` or
+`Closes #123` line per resolved issue in the **PR description**, and verify that
+GitHub lists those issues as linked for automatic closure. GitHub processes
+these closing keywords when the PR merges into the repository's default branch;
+a PR comment alone does not establish automatic closure. Comments may explain
+the issue-to-fix mapping, but must not replace the description's closing links.
+
+Only use closing keywords when the PR covers the issue's complete acceptance
+scope. For partial fixes, deferred work, or related issues, use a plain reference
+such as `Related to #123` and state what remains. Recheck this mapping whenever
+the PR scope changes so implemented fixes do not leave forgotten open issues,
+and unrelated or unfinished work is not closed accidentally. Keep merge-based
+closure separate from any claim that the change has reached production.
+
+See [GitHub's issue-linking contract](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue).
+
 ## Focused Checks Before Push
 
 Inspect or run the shared local/draft entrypoint:
@@ -166,6 +185,13 @@ This lane fetches live `main`, reads the live PR, executes trusted current-main
 control against the candidate, rechecks identity after validation, posts the
 evidence comment, and publishes the same status. It requires an authenticated
 `gh` session and fails closed when GitHub or network evidence is unavailable.
+Before local checks and again before final publication, it cancels active hosted
+FC runs owned by this PR and exact head, then waits for the entire workflow,
+including its publisher, to complete. Cancellation acceptance is not completion.
+An unverifiable owner, API failure, or three-minute handoff timeout blocks local
+publication. This prevents an older hosted failure from overwriting local
+certification without hiding failures or trusting a previous green status.
+Later explicit hosted requests are new validations, not permanently suppressed.
 The first hop fetches depth-one main metadata into an isolated temporary Git
 repository, using blob filtering and a sparse checkout of `scripts/` to load
 control code on demand. It does not import shallow boundaries or sparse settings

@@ -22,6 +22,69 @@ import type { SignalPublishContext } from "./types";
 const DEFAULT_SPACE_LABEL = "Space";
 const DEFAULT_UPDATE_PREVIEW = "There is a new update in this Space.";
 
+export function buildSpaceReactionInboxProjectionOutboxRecord(input: {
+  actor: SpaceMemberRecord;
+  author: SpaceMemberRecord | null;
+  emoji: string;
+  nowMs: number;
+  organizationId: string;
+  signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+  spaceName: string | null;
+  threadRootSignalId?: string;
+  version: number;
+}): SpaceInboxProjectionOutboxRecord | null {
+  const recipientUserId = input.author?.ownerUserIdSnapshot;
+  if (
+    !recipientUserId ||
+    input.author?.status !== "active" ||
+    input.author.profileKindSnapshot !== "human" ||
+    recipientUserId === input.actor.ownerUserIdSnapshot
+  ) {
+    return null;
+  }
+  const sourceKey = `reaction:${input.signal.id}:${input.version}`;
+  const candidate = inboxSourceCandidateSchema.parse({
+    attention: "update",
+    importance: "normal",
+    kind: "space_message",
+    occurredAtMs: input.nowMs,
+    organizationId: input.organizationId,
+    recipientUserId,
+    contextLabel: truncateInboxText(
+      input.spaceName || DEFAULT_SPACE_LABEL,
+      INBOX_CONTEXT_LABEL_MAX_CHARS
+    ),
+    title: truncateInboxText(
+      `${input.actor.profileNameSnapshot} reacted ${input.emoji} to your message`,
+      INBOX_TITLE_MAX_CHARS
+    ),
+    preview: buildPreview(input.signal),
+    sourceKind: "space_signal",
+    sourceKey,
+    sourceTarget: {
+      kind: "space",
+      spaceId: input.signal.spaceId,
+      signalId: input.signal.id,
+      ...(input.threadRootSignalId
+        ? { threadRootSignalId: input.threadRootSignalId }
+        : {}),
+    },
+  });
+  return {
+    attemptCount: 0,
+    candidates: [candidate],
+    completedAtMs: null,
+    createdAtMs: input.nowMs,
+    lastErrorCode: null,
+    nextRetryAtMs: null,
+    projectionId: sourceKey,
+    signalId: input.signal.id,
+    spaceId: input.signal.spaceId,
+    status: "pending",
+    updatedAtMs: input.nowMs,
+  };
+}
+
 export function buildSpaceInboxProjectionOutboxRecord(input: {
   activeMemberRecords: readonly SpaceMemberRecord[];
   directMessage?: boolean;
@@ -31,6 +94,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   signalContext?: SignalPublishContext;
   spaceName: string | null;
   threadRootAuthorUserId?: string | null;
+  threadParticipantProfileIds?: readonly string[];
   wakeRequesterUserId?: string | null;
 }): SpaceInboxProjectionOutboxRecord | null {
   if (!isFormalSpaceUpdateSignal(input.signal)) {
@@ -70,13 +134,19 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   if (!audience) {
     return null;
   }
+  // A Space membership is not a subscription to every conversation in it.
+  const threadParticipantUserIds = resolveThreadParticipantUserIds(input);
   const isTerminalWakeFailure =
     signal.type === "signal.system_notice" &&
     signal.data.noticeType === "terminal_failure";
   const focusSignalId = resolveSpaceInboxFocusSignalId(signal);
   const memberRecordsByUserId = groupRecipientMemberRecords({
     activeMemberRecords: input.activeMemberRecords,
-    allowedRecipientUserIds: audience.allowedRecipientUserIds,
+    allowedRecipientUserIds: restrictThreadAudience(
+      signal.type,
+      threadParticipantUserIds,
+      audience.allowedRecipientUserIds
+    ),
     authorUserId,
     authorHasRead:
       signal.type === "signal.text" && signal.data.meta?.authorHasRead === true,
@@ -131,14 +201,17 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   }
 
   candidates.push(
-    ...buildAgentOwnerCandidates(input, {
-      signal,
-      authorUserId,
-      actorName,
-      spaceLabel,
-      preview,
-      focusSignalId,
-    })
+    ...filterThreadRecipients(
+      buildAgentOwnerCandidates(input, {
+        signal,
+        authorUserId,
+        actorName,
+        spaceLabel,
+        preview,
+        focusSignalId,
+      }),
+      threadParticipantUserIds
+    )
   );
   if (candidates.length === 0) {
     return null;
@@ -165,6 +238,48 @@ function activeAgentOwnerIds(members: readonly SpaceMemberRecord[]): string[] {
     member.ownerUserIdSnapshot
       ? [member.ownerUserIdSnapshot]
       : []
+  );
+}
+
+function filterThreadRecipients(
+  candidates: InboxSourceCandidate[],
+  participants: ReadonlySet<string> | null
+): InboxSourceCandidate[] {
+  return participants
+    ? candidates.filter((candidate) =>
+        participants.has(candidate.recipientUserId)
+      )
+    : candidates;
+}
+
+function resolveThreadParticipantUserIds(
+  input: Parameters<typeof buildSpaceInboxProjectionOutboxRecord>[0]
+): Set<string> | null {
+  if (input.signalContext?.threadPlacement !== "thread") {
+    return null;
+  }
+  return new Set(
+    input.activeMemberRecords.flatMap((member) =>
+      member.ownerUserIdSnapshot &&
+      input.threadParticipantProfileIds?.includes(member.profileId)
+        ? [member.ownerUserIdSnapshot]
+        : []
+    )
+  );
+}
+
+function restrictThreadAudience(
+  signalType: string,
+  participants: ReadonlySet<string> | null,
+  audience: ReadonlySet<string> | null
+): ReadonlySet<string> | null {
+  if (!participants) {
+    return audience;
+  }
+  return new Set(
+    [...participants].filter(
+      (id) => signalType === "signal.text" || !audience || audience.has(id)
+    )
   );
 }
 

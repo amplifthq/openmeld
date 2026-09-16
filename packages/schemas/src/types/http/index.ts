@@ -1,4 +1,8 @@
 export type {
+  AgentProfileExecutionModeResponse,
+  RuntimeTransportAgentProfileExecutionModeRequest,
+} from "../../schemas/http/agent-profile-execution-mode";
+export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,
@@ -460,6 +464,7 @@ export type {
 } from "./cli-binary-manifest";
 export type {
   CenterAgentConnectorConnectionSelection,
+  CenterAgentResolveConnectorConnectionBody,
   ConnectorAppCatalogProvider,
   ConnectorAppCatalogResponse,
   ConnectorAppRequest,
@@ -789,6 +794,16 @@ export type {
   PeopleComputersResponse,
   PeopleComputerTarget,
 } from "./people-computers";
+export type * from "./plugin-access";
+export type {
+  PluginActionRequest,
+  PluginActionResponse,
+  PluginActionRpcInput,
+} from "./plugin-actions";
+export type {
+  PluginRuntimeRequest,
+  PluginRuntimeResponse,
+} from "./plugin-runtime";
 export type {
   GetPrepareReadinessQuery,
   GetPrepareReadinessResponse,

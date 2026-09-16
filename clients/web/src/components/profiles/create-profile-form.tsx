@@ -56,6 +56,10 @@ import {
 	AgentConfigurationGrid,
 } from "./agent-configuration-card";
 import {
+	AgentControllerPermissionModeOutcome,
+	getAgentControllerPermissionModeOutcomeDescriptionId,
+} from "./agent-controller-permission-mode-outcome";
+import {
 	type AgentProfileConfigurationSection,
 	buildBuiltinAgentControllerRef,
 	formatModelOptionLabel,
@@ -106,6 +110,7 @@ export type AgentProfileLocalAgentEmptyState = {
 		| "checking"
 		| "teammate_local_agents_unavailable";
 	primaryActionHref: string | null;
+	onConnectComputer?: () => void;
 	onRetry?: () => void;
 };
 
@@ -114,8 +119,9 @@ export type AgentProfileLocalAgentEmptyState = {
 // name input, the agent binding radio, and the recoverable error block. It
 // performs no navigation, no StartFlow reads/writes, and no mutation.
 export type CreateProfileFormProps = {
+	remoteProfileName?: string;
+	onChangeRemoteProfileName?: (name: string) => void;
 	computerRecovery?: import("./agent-creation-computer-recovery").AgentCreationComputerRecovery;
-	connectAnotherComputer?: ReactNode;
 	remoteAgentCreation?: {
 		onSubmit: (input: {
 			idempotencyKey: string;
@@ -372,7 +378,7 @@ export function AgentProfileConfigurationCards(input: {
 	});
 
 	return (
-		<AgentConfigurationGrid>
+		<AgentConfigurationGrid className="@min-[64rem]/agent-creation:grid-cols-3">
 			{form.agentOwnershipSlot ? (
 				<AgentConfigurationCard
 					description="Who owns and maintains this Agent."
@@ -476,6 +482,11 @@ export function AgentProfileConfigurationCards(input: {
 								value={form.projectFolderPath}
 							/>
 						)}
+						{form.projectSelectionBlockReason ? (
+							<output className="mt-2 block text-muted-foreground text-xs">
+								{form.projectSelectionBlockReason}
+							</output>
+						) : null}
 					</AgentConfigurationCard>
 					{summaries.collaboration ? (
 						<AgentConfigurationCard
@@ -610,11 +621,11 @@ function ProjectFolderField(input: {
 			) : null}
 			{input.pickerDeviceId && !manualPathOpen ? (
 				<Button
-					className="justify-self-start"
+					className="justify-self-end"
 					onClick={() => setManualPathOpen(true)}
 					size="sm"
 					type="button"
-					variant="ghost"
+					variant="secondary"
 				>
 					Enter path manually
 				</Button>
@@ -672,6 +683,7 @@ export function AgentControllerPermissionModeFields(input: {
 }) {
 	const selectId = useId();
 	const confirmationId = useId();
+	const outcomeId = useId();
 	const agentControllerRef = buildBuiltinAgentControllerRef(input.agentId);
 	const options = listAgentControllerPermissionModeOptions({
 		agentControllerRef,
@@ -703,23 +715,32 @@ export function AgentControllerPermissionModeFields(input: {
 				value={selectedOption?.value}
 			>
 				<SelectTrigger
+					aria-describedby={getAgentControllerPermissionModeOutcomeDescriptionId(
+						outcomeId
+					)}
 					aria-label={selectedMetadata.fieldLabel}
 					className="h-10 w-full px-3 text-sm"
-					displayValue={selectedOption?.label}
+					displayValue={selectedMetadata.label}
 					id={selectId}
 					placeholder={selectedMetadata.fieldLabel}
 				/>
 				<SelectContent className="max-h-64">
 					{options.map((option, index) => (
-						<SelectItem index={index} key={option.value} value={option.value}>
+						<SelectItem
+							className="items-start"
+							index={index}
+							key={option.value}
+							value={option.value}
+						>
 							{option.label}
 						</SelectItem>
 					))}
 				</SelectContent>
 			</Select>
-			<p className="text-muted-foreground text-xs leading-5">
-				{selectedMetadata.description}
-			</p>
+			<AgentControllerPermissionModeOutcome
+				id={outcomeId}
+				metadata={selectedMetadata}
+			/>
 			{requiresConfirmation ? (
 				<label
 					className="flex items-start gap-2 text-destructive text-xs leading-5"
@@ -737,8 +758,7 @@ export function AgentControllerPermissionModeFields(input: {
 						type="checkbox"
 					/>
 					<span>
-						I understand this permissions mode can run with dangerous full
-						access.
+						I understand this mode may run dangerous actions without asking.
 					</span>
 				</label>
 			) : null}

@@ -1,13 +1,9 @@
-import { createServerFn } from "@tanstack/react-start";
-import { getRequiredServerEnv } from "#/env";
-
-export const getProfileCapabilities = createServerFn({ method: "GET" }).handler(
-	async () => {
-		const { fetchProfileCapabilitiesFromRequest } = await import(
-			"./profile-capabilities.server"
-		);
-		return await fetchProfileCapabilitiesFromRequest({
-			authBaseUrl: getRequiredServerEnv("BETTER_AUTH_URL"),
-		});
-	}
-);
+import { profileCapabilitiesResponseSchema } from "@openmeld/schemas";
+import { requestAuthBusiness } from "#/lib/auth-business";
+export const getProfileCapabilities = () =>
+	requestAuthBusiness({
+		path: "/v1/profiles/capabilities",
+		method: "GET",
+		schema: profileCapabilitiesResponseSchema,
+		profileSessionError: true,
+	});

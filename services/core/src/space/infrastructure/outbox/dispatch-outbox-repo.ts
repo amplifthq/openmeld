@@ -88,6 +88,7 @@ class DispatchSnapshotOversizeError extends Error {
 }
 
 export const createDispatchOutboxRecord = (input: {
+  contextSelection?: OpenMeldDaemonDispatchQueueMessage["contextSelection"];
   bindingState: "bound" | "missing";
   bindingEnabled: boolean;
   agentControllerRef?: string | null;
@@ -162,6 +163,7 @@ export const createDispatchOutboxRecord = (input: {
   const sourceSignalSnapshot = buildSourceSignalSnapshot({
     callerContext: input.sourceSignalSnapshot.callerContext,
     quotedMessage: input.sourceSignalSnapshot.quotedMessage,
+    contextMessages: input.sourceSignalSnapshot.contextMessages,
     pinnedFiles: input.sourceSignalSnapshot.pinnedFiles,
     attachments: input.sourceSignalSnapshot.attachments,
     files: input.sourceSignalSnapshot.files,
@@ -175,6 +177,9 @@ export const createDispatchOutboxRecord = (input: {
   const replyToSnapshot = buildReplyToSnapshot(input.replyToSnapshot);
 
   const message: OpenMeldDaemonDispatchQueueMessage = {
+    ...(input.contextSelection
+      ? { contextSelection: input.contextSelection }
+      : {}),
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
     v: OPENMELD_DAEMON_DISPATCH_QUEUE_SCHEMA_VERSION,
     dispatchId,
@@ -284,6 +289,7 @@ const resolveDispatchChainContextForOutbox = (input: {
 };
 
 const buildSourceSignalSnapshot = (input: {
+  contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
   callerContext?: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
   >["callerContext"];
@@ -308,6 +314,9 @@ const buildSourceSignalSnapshot = (input: {
   );
   return {
     ...(input.callerContext ? { callerContext: input.callerContext } : {}),
+    ...(input.contextMessages?.length
+      ? { contextMessages: input.contextMessages }
+      : {}),
     ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
     ...(input.pinnedFiles?.length ? { pinnedFiles: input.pinnedFiles } : {}),
     ...(input.attachments && input.attachments.length > 0

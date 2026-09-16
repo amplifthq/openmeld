@@ -129,7 +129,7 @@ describe("SpaceHeader", () => {
 		);
 	});
 
-	it("aligns the Space view control with the leading icon below the title", () => {
+	it("aligns the Space view control with the title without reserving an icon column", () => {
 		render(
 			createSpaceHeader({
 				viewControl: <div data-testid="space-view-control">Views</div>,
@@ -161,11 +161,47 @@ describe("SpaceHeader", () => {
 		);
 		expect(secondaryRow?.className).toContain("col-start-1");
 		expect(titleRow).not.toBeNull();
-		expect(titleRow?.className).toContain("col-start-2");
+		expect(titleRow?.className).toContain("col-start-1");
 		expect(within(titleRow as HTMLElement).getByText("Public")).toBeTruthy();
 		expect(
-			within(titleRow as HTMLElement).getByTestId("space-live-status")
-		).toBeTruthy();
+			within(titleRow as HTMLElement).queryByTestId("space-live-status")
+		).toBeNull();
+	});
+
+	it("shows loading in the header, gives connection recovery priority, and clears when idle", () => {
+		const onReconnectLiveUpdates = vi.fn();
+		const view = render(
+			createSpaceHeader({ liveState: "connecting", onReconnectLiveUpdates })
+		);
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
+		view.rerender(
+			createSpaceHeader({ liveState: "connected", isLoadingMessages: true })
+		);
+		expect(screen.getByText("Loading")).toBeTruthy();
+		view.rerender(
+			createSpaceHeader({
+				liveState: "degraded",
+				isLoadingMessages: true,
+				onReconnectLiveUpdates,
+			})
+		);
+		expect(screen.getByText("Reconnecting…")).toBeTruthy();
+		expect(screen.queryByText("Loading")).toBeNull();
+		fireEvent.click(
+			screen.getByRole("button", { name: "Reconnect live updates now" })
+		);
+		expect(onReconnectLiveUpdates).toHaveBeenCalledOnce();
+		view.rerender(
+			createSpaceHeader({ liveState: "stale", onReconnectLiveUpdates })
+		);
+		expect(screen.getByText("Syncing…")).toBeTruthy();
+		expect(
+			screen.queryByRole("button", { name: "Reconnect live updates now" })
+		).toBeNull();
+		view.rerender(
+			createSpaceHeader({ liveState: "connected", onReconnectLiveUpdates })
+		);
+		expect(screen.queryByTestId("space-live-status")).toBeNull();
 	});
 
 	it("renders space actions without the old app navigation tabs", () => {
@@ -303,6 +339,7 @@ describe("SpaceHeader", () => {
 		);
 
 		fireEvent.mouseEnter(publicAccessWarning);
+		fireEvent.mouseMove(publicAccessWarning);
 
 		await waitFor(() => {
 			expect(
@@ -319,13 +356,13 @@ describe("SpaceHeader", () => {
 		expect(screen.queryByText("1 other profile also joined")).toBeNull();
 	});
 
-	it("uses a decorative Space icon instead of a redundant back control", () => {
+	it("keeps the Space title free of a redundant icon or back control", () => {
 		const { container } = render(createSpaceHeader());
 
 		expect(screen.queryByRole("button", { name: "Go back" })).toBeNull();
 		expect(
 			container.querySelector('[data-space-header-icon="channel"]')
-		).toBeTruthy();
+		).toBeNull();
 	});
 
 	it("opens space information with the space id and CLI join command", () => {
@@ -1011,6 +1048,9 @@ describe("SpaceHeader", () => {
 function createSpaceHeader(
 	input: {
 		accessMode?: SpaceAccessMode;
+		liveState?: ComponentProps<typeof SpaceHeader>["liveState"];
+		isLoadingMessages?: boolean;
+		onReconnectLiveUpdates?: () => void;
 		currentProfileName?: string | null;
 		directMessageOwnerVisibilityLabel?: string | null;
 		onSetAccessMode?: (input: {
@@ -1051,8 +1091,10 @@ function createSpaceHeader(
 					isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 					isDeleteSpacePending={false}
 					isLeaveSpacePending={false}
+					isLoadingMessages={input.isLoadingMessages}
 					isSpaceNamePending={false}
 					leaveSpaceErrorMessage={null}
+					liveState={input.liveState}
 					membersControl={
 						input.membersControl === undefined ? (
 							<button type="button">Members</button>
@@ -1065,6 +1107,7 @@ function createSpaceHeader(
 					notificationControl={<button type="button">Notifications</button>}
 					onDeleteSpace={input.onDeleteSpace ?? vi.fn()}
 					onLeaveSpace={input.onLeaveSpace ?? vi.fn()}
+					onReconnectLiveUpdates={input.onReconnectLiveUpdates}
 					onSetAccessMode={
 						input.onSetAccessMode ?? vi.fn(async () => undefined)
 					}

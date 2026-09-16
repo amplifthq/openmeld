@@ -6,6 +6,11 @@
   "main": "./dist/index.js",
   "types": "./src/index.ts",
   "exports": {
+    "./cli-binary-update-artifact": {
+      "types": "./src/cli-binary-update-artifact.ts",
+      "import": "./src/cli-binary-update-artifact.ts",
+      "default": "./dist/cli-binary-update-artifact.js"
+    },
     ".": {
       "types": "./src/index.ts",
       "import": "./src/index.ts",

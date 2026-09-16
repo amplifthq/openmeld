@@ -524,7 +524,10 @@ describe("runtime config writes", () => {
     });
   });
 
-  it("throws on legacy agents.registrations key in config.json", async () => {
+  it.each([
+    false,
+    true,
+  ])("refreshes original agent registrations while preserving current settings (current layout: %s)", async (hasCurrentLayout) => {
     await withTempHome(async (home) => {
       await mkdir(join(home, ".openmeld"), { recursive: true });
       await writeFile(
@@ -550,6 +553,9 @@ describe("runtime config writes", () => {
                 },
               ],
             },
+            ...(hasCurrentLayout
+              ? { deviceRuntimeState: { controllers: [] } }
+              : {}),
             updatedAt: new Date().toISOString(),
           },
           null,
@@ -558,9 +564,22 @@ describe("runtime config writes", () => {
         "utf8"
       );
 
-      await expect(getConfiguredDeviceRuntimeState()).rejects.toThrow(
-        "runtime.config.legacy_agents_unsupported"
-      );
+      const before = await getConfiguredDeviceRuntimeState();
+      if (hasCurrentLayout) {
+        expect(before?.controllers).toBeUndefined();
+      } else {
+        expect(before?.controllers).toEqual([
+          expect.objectContaining({
+            agentId: "codex",
+            displayName: "Codex",
+            enabled: true,
+          }),
+        ]);
+      }
+      await alignRuntimeConfigStorage();
+      expect(await getConfiguredDeviceRuntimeState()).toEqual(before);
+      await alignRuntimeConfigStorage();
+      expect(await getConfiguredDeviceRuntimeState()).toEqual(before);
     });
   });
 

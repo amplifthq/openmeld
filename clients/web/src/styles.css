@@ -131,6 +131,9 @@ html[data-space-conversation-layout="centered"]
 }
 
 html[data-space-conversation-layout="centered"]
+  [data-space-conversation-presentation="canvas"]
+  [data-space-conversation-content-width],
+html[data-space-conversation-layout="centered"]
   [data-space-conversation-presentation="compact"]
   [data-space-conversation-content-width] {
   max-width: min(var(--space-conversation-centered-max-width), 100%);
@@ -270,6 +273,62 @@ html[data-space-self-message-alignment="left"]
     [data-space-thread-panel-open="true"]
     [data-space-conversation-content-width] {
     max-width: min(var(--space-conversation-centered-max-width), 100%);
+  }
+}
+
+[data-desk-entrance="pending"] .react-flow__node,
+[data-desk-entrance="greeting"] .react-flow__node:has([data-desk-space-window]),
+[data-desk-entrance="arrow"] .react-flow__node:has([data-desk-space-window]) {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+[data-desk-entrance="greeting"] [data-desk-greeting] {
+  animation: desk-greeting-in 450ms ease-out both;
+}
+[data-desk-entrance="pending"] [data-desk-arrow],
+[data-desk-entrance="greeting"] [data-desk-arrow] { opacity: 0; }
+[data-desk-entrance="arrow"] [data-desk-arrow] {
+  animation: desk-fade-in 250ms ease-out both;
+}
+[data-desk-entrance="space"] [data-desk-space-window] {
+  transform-origin: center center;
+  animation: desk-space-in 1600ms ease-out both;
+}
+@keyframes desk-space-in {
+  from { opacity: 0; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes desk-greeting-in {
+  from { opacity: 0; transform: scale(0.65); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes desk-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  [data-desk-entrance] [data-desk-greeting],
+  [data-desk-entrance] [data-desk-arrow],
+  [data-desk-entrance] [data-desk-space-window],
+  [data-desk-entrance] .react-flow__node { animation: none; }
+}
+
+/* Canvas windows own their content rail, independently of page preferences. */
+[data-desk-space-window] [data-space-conversation-presentation] {
+  container-type: inline-size;
+  container-name: desk-conversation;
+}
+
+html[data-space-conversation-layout] [data-desk-space-window]
+  [data-space-conversation-content-width] {
+  width: 100%;
+  max-width: var(--space-conversation-centered-max-width);
+  margin-inline: auto;
+  padding-inline: 24px;
+}
+
+@container desk-conversation (max-width: 800px) {
+  html[data-space-conversation-layout] [data-desk-space-window]
+    [data-space-conversation-content-width] {
+    padding-inline: 16px;
   }
 }
 
@@ -558,61 +617,6 @@ html[data-space-self-message-alignment="left"]
     }
   }
 }
-@media (hover: hover) and (pointer: fine) {
-  .app-sidebar-footer[data-footer-expanded="true"] {
-    gap: 0;
-  }
-
-  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
-    width: 0;
-    justify-content: flex-end;
-    transition: width 150ms ease-out, transform 150ms ease-out, opacity 100ms ease-out;
-  }
-
-  .app-sidebar-footer[data-footer-expanded="true"]:hover .app-sidebar-footer-actions,
-  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
-    width: 64px;
-  }
-
-  .app-sidebar-footer-actions {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateX(12px);
-    transition: transform 150ms ease-out, opacity 100ms ease-out;
-  }
-
-  /* Let the pointer cross small gaps without collapsing the account row. */
-  .app-sidebar-footer:not(:hover):not(:focus-within) .app-sidebar-footer-actions {
-    transition-delay: 180ms;
-  }
-
-  .app-sidebar-footer:hover .app-sidebar-footer-actions,
-  .app-sidebar-footer:focus-within .app-sidebar-footer-actions,
-  .app-sidebar-footer[data-footer-expanded="true"]:focus-within .app-sidebar-footer-actions {
-    opacity: 1;
-    pointer-events: auto;
-    transform: translateX(0);
-  }
-
-  .app-sidebar-footer:focus-within .app-sidebar-footer-actions {
-    transition: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-sidebar-footer .app-sidebar-footer-actions {
-    transform: none;
-    transition: none;
-  }
-  .app-sidebar-footer[data-footer-expanded="true"] .app-sidebar-footer-actions {
-    transition: none;
-  }
-}
-
-.app-sidebar-footer:not([data-footer-motion-ready]) .app-sidebar-footer-actions {
-  transition: none;
-}
-
 /* Reserve navigation space in the shared message/composer frame, including
    Full Width. Centered keeps its existing center while sufficient margin exists. */
 html [data-space-history-rail="true"] [data-space-conversation-content-width] {
@@ -660,3 +664,29 @@ html[data-space-conversation-layout="centered"] [data-space-history-rail="true"]
 }
 
 @media (pointer: fine) { .space-history-preview-stepper { display: none; } }
+
+/* Toolbar visibility changes release the main surface's reserved bottom row. */
+[data-toolbar-shortcut][hidden],
+[data-toolbar-shortcut]:has(> .toolbar-shortcut-dismiss:only-child) {
+  display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"] [data-toolbar-shortcut="computer"],
+html[data-hidden-toolbar-shortcuts~="center_agent"] [data-toolbar-shortcut="center_agent"],
+html[data-hidden-toolbar-shortcuts~="inbox"] [data-toolbar-shortcut="inbox"] {
+ display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"][data-hidden-toolbar-shortcuts~="center_agent"][data-hidden-toolbar-shortcuts~="inbox"] [data-slot="app-global-controls"] {
+ display: none;
+}
+html[data-hidden-toolbar-shortcuts~="computer"][data-hidden-toolbar-shortcuts~="center_agent"][data-hidden-toolbar-shortcuts~="inbox"] [data-slot="app-surface"] {
+ margin-bottom: max(0.5rem, env(safe-area-inset-bottom));
+ transition: none;
+}
+/* Keep the compact close control independent of the mobile toolbar target size. */
+[data-slot="app-global-controls"] button.toolbar-shortcut-dismiss {
+ min-height: 1.25rem;
+ min-width: 1.25rem;
+}
+@media (hover: none) {
+ .toolbar-shortcut-dismiss { display: none; }
+}

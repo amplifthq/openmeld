@@ -11,6 +11,8 @@ const NOW = "2026-08-25T08:00:00.000Z";
 function createDependencies(input?: {
   automaticUpdatesEnabled?: boolean;
   updateAvailable?: boolean;
+  serviceNeedsAlignment?: boolean;
+  serviceVersion?: string;
   upgradeExitCode?: number;
   serviceJobAfterUpgrade?: DaemonServiceUpdateJob | null;
 }) {
@@ -28,12 +30,16 @@ function createDependencies(input?: {
     requiredFloor: null,
     updateAvailable: input?.updateAvailable !== false,
     floorBreached: false,
+    ...(input?.serviceVersion ? { serviceVersion: input.serviceVersion } : {}),
   }));
 
   return {
     withCoordinationLock: async <T>(run: () => Promise<T>) => await run(),
     wakeWorker: vi.fn(async () => undefined),
     assessUpdate,
+    serviceNeedsAlignment: vi.fn(
+      async () => input?.serviceNeedsAlignment ?? false
+    ),
     completeAttempt: vi.fn((attempt: OpenMeldToolsUpdateAttempt) => {
       lastAttempt = attempt;
       pendingAttempt = null;
@@ -219,6 +225,38 @@ describe("OpenMeld Tools update coordinator", () => {
       phase: "needs_help",
       targetVersion: "0.3.105",
     });
+  });
+
+  it.each([
+    undefined,
+    "0.3.100",
+  ])("aligns the selected Service through the same operation when the CLI is current (target=%s)", async (serviceVersion) => {
+    const dependencies = createDependencies({
+      updateAvailable: false,
+      serviceNeedsAlignment: true,
+      serviceVersion,
+    });
+    const coordinator = createOpenMeldToolsUpdateCoordinator(dependencies, {
+      executeUpdates: false,
+    });
+    const first = await coordinator.requestUpdate({ requestSource: "cli" });
+    const second = await coordinator.requestUpdate({ requestSource: "web" });
+    expect(first).toMatchObject({
+      status: "started",
+      operation: {
+        operationId: "update-1",
+        targetVersion: serviceVersion ?? "0.3.104",
+      },
+    });
+    expect(second).toMatchObject({
+      status: "already_running",
+      operation: { operationId: "update-1" },
+    });
+    expect(dependencies.persistAttempt).toHaveBeenCalledOnce();
+    expect(dependencies.serviceNeedsAlignment).toHaveBeenCalledWith(
+      serviceVersion ?? "0.3.104"
+    );
+    expect(dependencies.runUpgrade).not.toHaveBeenCalled();
   });
 
   it("stays quiet when this computer already has the latest version", async () => {

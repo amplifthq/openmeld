@@ -46,7 +46,7 @@ export function SpaceInlineSidePanel(input: {
 			>
 				{input.open ? (
 					<>
-						<div className="motion-safe:fade-in-0 motion-safe:slide-in-from-right-4 flex h-full min-w-0 flex-col motion-safe:animate-in motion-safe:duration-200 motion-safe:ease-out motion-reduce:animate-none">
+						<div className="flex h-full min-h-0 min-w-0 flex-col">
 							{input.children}
 						</div>
 						<SidebarRail

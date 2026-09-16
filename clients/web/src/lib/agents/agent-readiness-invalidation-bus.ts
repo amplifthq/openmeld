@@ -6,6 +6,8 @@ const AGENT_READINESS_INVALIDATION_WINDOW_EVENT =
 	"openmeld:agent-readiness-invalidated";
 
 export type AgentReadinessInvalidationMessage = {
+	storageScope: string;
+	organizationId: string;
 	agentProfileIds: readonly string[];
 	reason: string | null;
 	spaceId: string;
@@ -13,12 +15,14 @@ export type AgentReadinessInvalidationMessage = {
 };
 
 export function publishAgentReadinessInvalidationFrame(
-	frame: SpaceLiveInvalidationFrame
+	frame: SpaceLiveInvalidationFrame,
+	scope: { storageScope: string; organizationId: string }
 ): void {
 	if (frame.type !== "agent.readiness.invalidated") {
 		return;
 	}
 	const message = normalizeAgentReadinessInvalidationMessage({
+		...scope,
 		agentProfileIds: frame.agentProfileIds ?? [],
 		reason: frame.reason ?? null,
 		spaceId: frame.spaceId,
@@ -41,15 +45,29 @@ export function publishAgentReadinessInvalidationFrame(
 }
 
 export function subscribeAgentReadinessInvalidations(
-	onMessage: (message: AgentReadinessInvalidationMessage) => void
+	onMessage: (message: AgentReadinessInvalidationMessage) => void,
+	scope: { storageScope: string; organizationId: string }
 ): () => void {
+	const versions = new Map<string, number>();
+	const deliver = (message: AgentReadinessInvalidationMessage | null) => {
+		if (
+			!message ||
+			message.storageScope !== scope.storageScope ||
+			message.organizationId !== scope.organizationId
+		) {
+			return;
+		}
+		if (message.version <= (versions.get(message.spaceId) ?? -1)) {
+			return;
+		}
+		versions.set(message.spaceId, message.version);
+		onMessage(message);
+	};
 	const channel = createAgentReadinessInvalidationChannel();
 	if (channel) {
 		const handleMessage = (event: MessageEvent<unknown>) => {
 			const message = normalizeAgentReadinessInvalidationMessage(event.data);
-			if (message) {
-				onMessage(message);
-			}
+			deliver(message);
 		};
 		channel.addEventListener("message", handleMessage);
 		return () => {
@@ -62,9 +80,7 @@ export function subscribeAgentReadinessInvalidations(
 		const message = normalizeAgentReadinessInvalidationMessage(
 			(event as CustomEvent<unknown>).detail
 		);
-		if (message) {
-			onMessage(message);
-		}
+		deliver(message);
 	};
 	window.addEventListener(
 		AGENT_READINESS_INVALIDATION_WINDOW_EVENT,
@@ -93,7 +109,9 @@ function normalizeAgentReadinessInvalidationMessage(
 	}
 	const candidate = value as Partial<AgentReadinessInvalidationMessage>;
 	const spaceId = normalizeText(candidate.spaceId);
-	if (!spaceId) {
+	const storageScope = normalizeText(candidate.storageScope);
+	const organizationId = normalizeText(candidate.organizationId);
+	if (!(spaceId && storageScope && organizationId)) {
 		return null;
 	}
 	const agentProfileIds = normalizeAgentProfileIds(candidate.agentProfileIds);
@@ -101,6 +119,8 @@ function normalizeAgentReadinessInvalidationMessage(
 		return null;
 	}
 	return {
+		storageScope,
+		organizationId,
 		agentProfileIds,
 		reason: normalizeText(candidate.reason) ?? null,
 		spaceId,

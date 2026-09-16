@@ -45,6 +45,7 @@ export type GetAgentExecutionReadinessInput =
 export type GetAgentExecutionReadinessBatchInput =
   GetAgentExecutionReadinessBatchBody & {
     requestContext?: OpenMeldRequestContext;
+    signal?: AbortSignal;
   };
 
 export type EnsureAgentProfilePrimaryBindingInput =

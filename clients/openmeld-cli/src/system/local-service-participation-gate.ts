@@ -6,6 +6,7 @@ import {
   runDaemonReinstall,
 } from "../commands/service";
 import {
+  buildDaemonBackgroundStartFailure,
   buildSystemServiceStartupFailureReportFromVerdict,
   type SystemServiceStartupFailureVerdict,
 } from "../commands/service-start-failure";
@@ -15,6 +16,7 @@ import { toErrorMessage } from "../local-service/core/logger";
 import { DAEMON_SERVICE_WAKEABILITY_ADVISORY_ANOMALIES } from "../local-service/lifecycle/daemon-service-anomaly-groups";
 import type { DaemonServiceAnomalyCode } from "../local-service/lifecycle/daemon-service-inventory";
 import type { LocalServiceDemand } from "../local-service/lifecycle/local-service-demand";
+import { waitForOpenMeldToolsUpdateCompletion } from "../local-service/maintenance/openmeld-tools-update-join";
 import type { Presenter } from "../runtime/presenter/types";
 import {
   formatDaemonInstallFailedMessage,
@@ -604,11 +606,11 @@ async function runDaemonServiceParticipationRefresh(input: {
       }
       return startMapped;
     }
-    const scheduledResult =
-      resolveScheduledServiceRefreshResult(refreshOutcome);
-    if (scheduledResult) {
-      return scheduledResult;
-    }
+    const scheduled = await completeScheduledServiceRefresh({
+      outcome: refreshOutcome,
+      presenter: input.input.presenter,
+      codePrefix: input.codePrefix,
+    });
     // The reinstall started the service in silent output mode, so its detailed
     // startup-failure card was discarded. If the failure carried a launchd
     // job-state verdict (never-spawned / crash-loop), surface that detailed card
@@ -629,10 +631,11 @@ async function runDaemonServiceParticipationRefresh(input: {
     }
     if (
       !(
-        refreshOutcome.ok &&
-        (refreshOutcome.result === "already_healthy" ||
-          refreshOutcome.result === "completed") &&
-        refreshOutcome.serviceState === "running"
+        scheduled ||
+        (refreshOutcome.ok &&
+          (refreshOutcome.result === "already_healthy" ||
+            refreshOutcome.result === "completed") &&
+          refreshOutcome.serviceState === "running")
       )
     ) {
       throw new Error(
@@ -697,16 +700,29 @@ function emitServiceAccountRefreshNotice(input: {
   });
 }
 
-function resolveScheduledServiceRefreshResult(
-  outcome: Awaited<ReturnType<typeof runDaemonReinstall>>
-): DaemonServiceParticipationGateResult | null {
-  return outcome.ok && outcome.result === "scheduled"
-    ? {
-        errorMessage:
-          "OpenMeld Service update started in the background. Run `openmeld setup` again after it finishes.",
-        status: "needs_attention",
-      }
-    : null;
+async function completeScheduledServiceRefresh(input: {
+  outcome: Awaited<ReturnType<typeof runDaemonReinstall>>;
+  presenter: Presenter;
+  codePrefix: string;
+}): Promise<boolean> {
+  if (!(input.outcome.ok && input.outcome.result === "scheduled")) {
+    return false;
+  }
+  await waitForOpenMeldToolsUpdateCompletion({
+    operationId: input.outcome.jobId,
+    onWaiting: (operation) => {
+      input.presenter.line({
+        code: `${input.codePrefix}.update.waiting`,
+        text: "OpenMeld is finishing its background update. This command will continue automatically when it finishes.",
+        data: {
+          operationId: operation.operationId,
+          phase: operation.phase,
+          targetVersion: operation.targetVersion,
+        },
+      });
+    },
+  });
+  return true;
 }
 
 function renderRefreshFailureIfVisible(input: {
@@ -748,15 +764,11 @@ function renderRefreshStartFailure(input: {
     codePrefix: `${input.codePrefix}.failed`,
     rows: report.rows,
   });
-  if (input.verdict.localMachineIssue) {
-    return {
-      errorMessage: report.summary,
-      localMachineIssue: input.verdict.localMachineIssue,
-      status: "needs_attention",
-    };
-  }
+  const { outcome: _outcome, ...failure } = buildDaemonBackgroundStartFailure(
+    input.verdict
+  );
   return {
-    errorMessage: report.summary,
+    ...failure,
     status: "needs_attention",
   };
 }
@@ -891,19 +903,22 @@ function shouldSuppressHumanInstallOutput(
 }
 
 async function mapDaemonBackgroundStartResult(
-  result:
-    | "started"
-    | "not_now"
-    | "cancelled"
-    | "failed"
-    | "failed_with_card"
-    | "deferred_with_card",
+  result: Awaited<ReturnType<typeof runDaemonStartDecisionPrompt>>,
   input: {
     expectedVersion: string;
     presenter: Presenter;
     codePrefix: string;
   }
 ): Promise<DaemonServiceParticipationGateResult> {
+  if (typeof result === "object") {
+    return {
+      status: "needs_attention",
+      errorMessage: result.errorMessage,
+      ...(result.localMachineIssue
+        ? { localMachineIssue: result.localMachineIssue }
+        : {}),
+    };
+  }
   if (result === "started") {
     const refreshedStatus = await resolveDaemonServiceParticipationStatus({
       expectedVersion: input.expectedVersion,

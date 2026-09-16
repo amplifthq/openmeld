@@ -31,6 +31,15 @@ function CenterAgentRouteLayout() {
 	const pathname = useRouterState({
 		select: (state) => state.location.pathname,
 	});
+	const { orgSlug } = Route.useParams();
+	if (
+		pathname === `/o/${orgSlug}` ||
+		pathname === `/o/${orgSlug}/` ||
+		pathname === `/o/${orgSlug}/desk` ||
+		pathname === `/o/${orgSlug}/desk/`
+	) {
+		return <Outlet />;
+	}
 
 	return (
 		<CenterAgentLayout

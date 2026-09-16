@@ -14,6 +14,7 @@ export function createCliApiClientFoundation(
   options: {
     onAuthHeadersResolved?: (headers: Record<string, string>) => void;
     organizationId?: string;
+    expectedOwnerUserId?: string;
   } = {}
 ): OpenMeldApiClientFoundation {
   return createOpenMeldApiClient({
@@ -28,6 +29,7 @@ export function createCliApiClientFoundation(
     getAuthHeaders: async ({ requestUrl }) => {
       const headers = await buildRequestAuthHeaders({
         requestUrl,
+        expectedOwnerUserId: options.expectedOwnerUserId,
       });
       if (options.organizationId) {
         headers[OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID] =

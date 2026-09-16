@@ -473,6 +473,7 @@ export function buildProductionVerifyStepSpecs(input) {
       !input.scopes.includes("cli") &&
       !input.taskInboxRetired &&
       !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+      !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
       !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
       !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
     ) {
@@ -509,6 +510,7 @@ export function buildProductionPreflightStepSpecs(input) {
     !input.scopes.includes("cli") &&
     !input.taskInboxRetired &&
     !isDeviceWaitReceiverFirstDiff(input.changedPaths) &&
+    !isLocalServiceRuntimeReceiverFirstDiff(input.changedPaths) &&
     !isPersonalRemoteToolsReceiverFirstDiff(input.changedPaths) &&
     !isPeopleComputersReceiverFirstDiff(input.changedPaths) &&
     !isSpaceInvitationReceiverFirstDiff(input.changedPaths)
@@ -710,6 +712,7 @@ function appendProductionDeployScopeSteps(input) {
       input.deployOrderProfile === "device-wait-receivers-first" ||
       input.deployOrderProfile === "people-computers-receivers-first" ||
       input.deployOrderProfile === "personal-remote-tools-receivers-first" ||
+      input.deployOrderProfile === "local-service-runtime-receiver-first" ||
       input.deployOrderProfile === "space-invitation-receivers-first"
     ) {
       if (!doesCliReleaseOwnCoreProjection(input.deployOrderProfile)) {
@@ -970,10 +973,19 @@ function isPersonalRemoteToolsReceiverFirstDiff(changedPaths) {
 
 function isPeopleComputersReceiverFirstDiff(changedPaths) {
   return [
-    "packages/schemas/src/schemas/http/people-computers.ts",
-    "services/core/src/people-computers/projection.ts",
-    "services/gateway/src/routes/rpc-http.people-computers.ts",
-  ].every((file) => changedPaths.includes(file));
+    [
+      "packages/schemas/src/schemas/http/people-computers.ts",
+      "services/core/src/people-computers/projection.ts",
+      "services/gateway/src/routes/rpc-http.people-computers.ts",
+    ],
+    [
+      "packages/schemas/src/schemas/daemon/service-connection-evidence.ts",
+      "services/core/src/computers/service-connection-evidence-rpc.ts",
+      "services/gateway/src/routes/rpc-http.service-connection-evidence.ts",
+    ],
+  ].some((contractPaths) =>
+    contractPaths.every((file) => changedPaths.includes(file))
+  );
 }
 
 function resolveExistingProductionDeployOrderProfile(changedPaths) {
@@ -1351,6 +1363,26 @@ export function buildProductionReleasePlan(input) {
   const scopes =
     requested ??
     resolveAutomaticReleaseScopes({ affectedPackages, changedPaths });
+  // Both files carry requests and responses. Their shared-path footprint alone
+  // cannot prove which strict receiver must go first (for example replyRecovery).
+  // Keep explicit single-side stages available instead of guessing an order.
+  if (
+    scopes.includes("remote-agent") &&
+    (scopes.includes("core") || scopes.includes("cli")) &&
+    changedPaths.includes(
+      "services/core/src/remote-agent/application/native-delivery-service.ts"
+    ) &&
+    changedPaths.includes(REMOTE_AGENT_WORKER_RESPONSE_SCHEMA_PATH) &&
+    changedPaths.includes(REMOTE_AGENT_WORKER_REQUEST_RECEIVER_PATH) &&
+    !isRemoteAgentWorkerRequestReceiverFirstDiff(changedPaths) &&
+    !changedPaths.some((file) =>
+      REMOTE_AGENT_RECEIVER_FIRST_CONTRACT_PATHS.has(file)
+    )
+  ) {
+    throw new Error(
+      "Native delivery changes both sides of the Remote Agent contract without an unambiguous request owner. Split Core/CLI and Remote Agent into explicitly ordered releases after reviewing request and response compatibility."
+    );
+  }
   const sourceSha = input.sourceSha ?? readHeadSha();
   const deployOrderProfile = resolveProductionDeployOrderProfile(
     changedPaths,

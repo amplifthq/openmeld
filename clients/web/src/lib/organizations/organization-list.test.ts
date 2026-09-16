@@ -1,5 +1,5 @@
+import { normalizeOrganizationList } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
-import { normalizeOrganizationList } from "./organization-list";
 
 describe("normalizeOrganizationList", () => {
 	it("detects a solo context from Better Auth string metadata", () => {

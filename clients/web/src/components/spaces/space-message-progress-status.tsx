@@ -10,6 +10,7 @@ import {
 	resolveWakeProgressThinkingEntry,
 	type SpaceMessageWakeThinkingEntry,
 } from "#/lib/spaces/wake-progress-presentation";
+import { SpaceAgentReasoning } from "./space-agent-reasoning";
 import { SpaceAgentToolActivity } from "./space-agent-tool-activity";
 import { hasLiveSpaceAgentToolActivity } from "./space-agent-tool-activity-state";
 import { SpaceMessageDeliveryStatus } from "./space-message-delivery-status";
@@ -53,12 +54,15 @@ export function SpaceMessageProgressStatus(input: {
 	}
 	if (content.kind === "tool") {
 		return wrapProgressStatus(
-			<SpaceAgentToolActivity
-				align={input.align}
-				control={input.control}
-				item={input.item}
-				onOpenMessageDetails={input.onOpenMessageDetails}
-			/>,
+			<div className="flex min-w-0 flex-col gap-1">
+				<SpaceAgentToolActivity
+					align={input.align}
+					control={input.control}
+					item={input.item}
+					onOpenMessageDetails={input.onOpenMessageDetails}
+				/>
+				<SpaceAgentReasoning item={input.item} />
+			</div>,
 			input.containerClassName,
 			input.item.activeWakeProgress
 		);
@@ -81,6 +85,7 @@ export function SpaceMessageProgressStatus(input: {
 					showAgentWorkingState={content.showAgentWorkingState}
 				/>
 			) : null}
+			<SpaceAgentReasoning item={input.item} />
 		</>,
 		input.containerClassName,
 		input.item.activeWakeProgress

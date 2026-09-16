@@ -12,6 +12,51 @@ const RELEASE = {
 };
 
 describe("CLI binary manifest schema", () => {
+  it("preserves a separately selected Service artifact and rejects incomplete targets", () => {
+    const legacy = buildManifest(RELEASE);
+    const service = {
+      version: "0.3.18",
+      platforms: {
+        "darwin-arm64": {
+          ...RELEASE,
+          sha256: "c".repeat(64),
+          url: "https://openmeld.ai/cli/download/openmeld-cli-darwin-arm64-0.3.18",
+        },
+      },
+    };
+    const manifest = {
+      ...legacy,
+      channels: { stable: { ...legacy.channels.stable, service } },
+    };
+    const parsed = cliBinaryManifestSchema.parse(manifest);
+    expect(parsed.channels.stable.version).toBe("0.3.19");
+    expect(parsed.channels.stable.service).toEqual(service);
+    expect(
+      cliBinaryManifestSchema.safeParse({
+        ...manifest,
+        channels: {
+          stable: {
+            ...manifest.channels.stable,
+            service: { version: "0.3.18" },
+          },
+        },
+      }).success
+    ).toBe(false);
+    expect(
+      cliBinaryManifestSchema.safeParse({
+        ...manifest,
+        channels: {
+          stable: {
+            ...manifest.channels.stable,
+            service: {
+              ...service,
+              platforms: { "linux-x64": RELEASE },
+            },
+          },
+        },
+      }).success
+    ).toBe(false);
+  });
   it("accepts both legacy raw releases and the additive gzip transport", () => {
     const legacy = buildManifest(RELEASE);
     const compressed = buildManifest({

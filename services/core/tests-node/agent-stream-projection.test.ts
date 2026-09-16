@@ -157,7 +157,10 @@ describe("Space Agent stream projection", () => {
     const storage = new MemoryProjectionStorage();
     await applyAgentStreamDelta({
       storage,
-      delta: createDelta({ sequence: 2, textSnapshot: "Restored text" }),
+      delta: {
+        ...createDelta({ sequence: 2, textSnapshot: "Restored text" }),
+        replyThreadRootSignalId: "source-root",
+      },
       nowMs: 2000,
     });
 
@@ -173,6 +176,7 @@ describe("Space Agent stream projection", () => {
         streamId: "stream:sub_1",
         sequence: 2,
         textSnapshot: "Restored text",
+        replyThreadRootSignalId: "source-root",
       }),
     ]);
   });
@@ -243,7 +247,10 @@ describe("Space Agent stream projection", () => {
     const storage = new MemoryProjectionStorage();
     await applyAgentStreamDelta({
       storage,
-      delta: createDelta({ sequence: 1, textSnapshot: "Partial reply" }),
+      delta: {
+        ...createDelta({ sequence: 1, textSnapshot: "Partial reply" }),
+        replyThreadRootSignalId: "source-root",
+      },
       nowMs: 3000,
     });
 
@@ -257,6 +264,9 @@ describe("Space Agent stream projection", () => {
     ).resolves.toMatchObject({
       status: "closed",
       snapshot: expect.objectContaining({ sequence: 1 }),
+      stream: expect.objectContaining({
+        replyThreadRootSignalId: "source-root",
+      }),
     });
     await expect(
       listActiveAgentStreamSnapshots({ storage, nowMs: 3100 })

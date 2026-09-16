@@ -25,6 +25,7 @@ export const inboxViewSchema = z.enum([
   "all",
   "unread",
   "needs_action",
+  "needs_review",
   "updates",
   "urgent_updates",
   "recent_updates",

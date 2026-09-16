@@ -13,6 +13,7 @@ import {
 	useComboboxContext,
 	useComboboxStore,
 } from "@ariakit/react";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import {
 	SharedLayoutGroup,
 	SharedLayoutItem,
@@ -292,16 +293,17 @@ function InlineComboboxCancel({ label }: { label: string }) {
 	const { cancelInput } = React.useContext(InlineComboboxContext);
 	return (
 		<div className="sticky top-0 z-10 h-0">
-			<button
-				aria-label={label}
-				className="absolute top-0 right-0 flex size-6 items-center justify-center rounded bg-popover text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-				onClick={() => cancelInput("manual", true)}
-				onMouseDown={(event) => event.preventDefault()}
-				title={`${label} (Esc)`}
-				type="button"
-			>
-				<XIcon aria-hidden="true" className="size-3.5" />
-			</button>
+			<TooltipHint content={`${label} (Esc)`}>
+				<button
+					aria-label={label}
+					className="absolute top-0 right-0 flex size-6 items-center justify-center rounded bg-popover text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+					onClick={() => cancelInput("manual", true)}
+					onMouseDown={(event) => event.preventDefault()}
+					type="button"
+				>
+					<XIcon aria-hidden="true" className="size-3.5" />
+				</button>
+			</TooltipHint>
 		</div>
 	);
 }

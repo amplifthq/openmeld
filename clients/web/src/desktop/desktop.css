@@ -1,0 +1,23 @@
+.desktop-window {
+	height: 100svh;
+	overflow: hidden;
+}
+
+.desktop-titlebar {
+	height: 38px;
+	background: var(--app-canvas);
+	-webkit-app-region: drag;
+}
+
+.desktop-content {
+	height: calc(100svh - 38px);
+	overflow: auto;
+}
+
+.desktop-content :is(.h-dvh, .h-svh, .h-screen) {
+	height: calc(100svh - 38px);
+}
+
+.desktop-content :is(.min-h-screen, .min-h-svh) {
+	min-height: calc(100svh - 38px);
+}

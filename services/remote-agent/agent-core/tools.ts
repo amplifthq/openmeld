@@ -5,6 +5,7 @@ import {
   agentActivitySnapshotResponseSchema,
   agentControllerCollaborationModeSchema,
   agentProfileCreationRequestMutationResponseSchema,
+  agentReplyPlacementSchema,
   agentTaskHandleSchema,
   buildOpenMeldNavigationAction,
   CENTER_AGENT_ANONYMOUS_MEMBER_TOOL_NAMES,
@@ -121,6 +122,7 @@ import {
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
   MAX_TEXT_LENGTH,
+  nativeReplyPlacementSchema,
   OPPORTUNITY_DECISIONS,
   OPPORTUNITY_EVIDENCE_MAX_CHARS,
   OPPORTUNITY_EVIDENCE_MAX_ITEMS,
@@ -203,6 +205,7 @@ import {
   union,
   unknown as unknownSchema,
 } from "valibot";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentReadableStorage,
@@ -213,6 +216,7 @@ import {
   readRemoteAgentCallbackContext,
   recordRemoteAgentAnonymousIdentityBoundary,
   recordRemoteAgentNavigationTarget,
+  recordRemoteAgentReplyMentions,
 } from "./callback-context";
 import {
   getRemoteAgentConnectorToolDefinitions,
@@ -242,7 +246,6 @@ import {
   getRemoteAgentGitHubToolDefinitions,
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
   REMOTE_AGENT_GITHUB_TOOL_NAMES,
-  type RemoteAgentConnectorExecutionConfig,
 } from "./github-tools";
 import {
   type RemoteAgentImagePreparer,
@@ -481,6 +484,9 @@ const postSpaceMessageToolInputSchema = object({
   referenceProfileIds: referenceProfileIdsInputSchema,
   spaceId: nonEmptyStringSchema,
   text: pipe(string(), minLength(1), maxLength(MAX_TEXT_LENGTH)),
+});
+const finalReplyMentionsToolInputSchema = strictObject({
+  mentionProfileIds: mentionProfileIdsInputSchema,
 });
 const listSpaceFilesToolInputSchema = strictObject({
   parentId: optional(nullable(spaceFileIdToolInputSchema)),
@@ -1308,6 +1314,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_recommend_opportunity",
   "openmeld_respond_to_opportunity",
   "openmeld_read_center_agent_activity",
+  "openmeld_set_reply_placement",
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
   "openmeld_list_space_files",
@@ -1330,6 +1337,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_post_slack_channel_message",
   "openmeld_send_slack_file",
   "openmeld_post_space_message",
+  "openmeld_set_final_reply_mentions",
   "openmeld_wake_agent_profiles_in_space",
   "openmeld_list_agent_tasks",
   "openmeld_watch_agent_task",
@@ -1424,6 +1432,7 @@ const REMOTE_AGENT_OBSERVATION_TOOL_NAME_SET =
   new Set<RemoteAgentOpenMeldToolName>(REMOTE_AGENT_OBSERVATION_TOOL_NAMES);
 
 export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
+  "openmeld_set_reply_placement",
   "openmeld_install_organization_skill",
   "openmeld_list_opportunities",
   "openmeld_read_center_agent_turn_diagnostics",
@@ -1577,7 +1586,7 @@ const setOrganizationWorkingLanguageToolInputSchema = strictObject({
 type RemoteAgentOpenMeldToolDefinitionsInput = {
   agentActivityReadEnabled?: boolean;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
@@ -3087,6 +3096,33 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_set_reply_placement",
+      description:
+        "Choose where this turn's reply will appear before writing the answer. In a shared Space, the default is the thread under the triggering message; existing thread conversations continue there. Direct messages default to a direct reply. When the user explicitly asks for the main conversation, choose conversation. The choice applies to this turn's streamed answer and final outcome. Once the answer starts, its placement is fixed.",
+      input: object({
+        placement: picklist(["conversation", "thread"] as const),
+      }),
+      execute: async (payload) => {
+        const context = await buildOpenMeldToolRequestContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_set_reply_placement",
+        });
+        const rpc = input.coreWorker.centerAgentSetReplyPlacement;
+        if (!rpc) {
+          throw new Error(
+            "Reply placement is unavailable on this Core version."
+          );
+        }
+        return nativeReplyPlacementSchema.parse(
+          await rpc({
+            context,
+            placement: agentReplyPlacementSchema.parse(payload.placement),
+          })
+        );
+      },
+    }),
+    toolDefinition({
       name: "openmeld_read_center_agent_turn_diagnostics",
       description:
         "Read structured execution, model-timeline, tool-decision, budget, and publication facts for this Center Agent turn and recent turns from the same requester on the same conversation surface. Slack direct-message history may include separate top-level threads in the same channel so a person can ask about earlier work from a new thread. Use each turn's conversationSource to state where the evidence came from, and never describe a turn with isCurrentConversation=false as part of the current thread. Use this when the requester asks why a recent Center Agent request succeeded, failed, stopped, ran slowly, exhausted tools, or produced no reply, or asks for exact delivery, dispatch, submission, trigger-message, or published-result IDs. Report the recorded status, runtimeEvidenceStatus, failure code/detail, tool evidence, and publication state separately; never infer one from another or from reply wording. runtimeEvidenceStatus=unavailable means the runtime diagnostic read failed; not_recorded means the read succeeded but that turn has no retained runtime evidence. If conversationSource is unavailable during a mixed-version rollout, do not assign that record to a specific thread. This does not return prompt or reply content and cannot inspect other members or other channels or Spaces.",
@@ -4058,6 +4094,32 @@ export function getRemoteAgentOpenMeldToolDefinitions(
       },
     }),
     toolDefinition({
+      name: "openmeld_set_final_reply_mentions",
+      description:
+        "Set the exact Human Profile IDs to notify when your final reply is published in the current Space, including Routine reports. This replaces any earlier selection; [] clears it. Use IDs from current Space membership, never infer identities from names. This prepares the final reply and does not publish a message yet. Plain @Name text alone does not notify anyone. It never wakes Agents.",
+      input: finalReplyMentionsToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(
+          finalReplyMentionsToolInputSchema,
+          payload
+        );
+        await buildRepresentedMemberAttributionToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_set_final_reply_mentions",
+        });
+        await recordRemoteAgentReplyMentions({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          mentionTargets: request.mentionProfileIds,
+        });
+        return {
+          status: "prepared",
+          mentionProfileIds: request.mentionProfileIds,
+        };
+      },
+    }),
+    toolDefinition({
       name: "openmeld_wake_agent_profiles_in_space",
       description:
         "Wake one or more OpenMeld Agent Profiles in a Space by posting a Center Agent-authored Space message with activation targets. This starts real work and is an ordinary external write. The text must be a self-contained delegation brief for nontrivial work: goal; verified facts and source references; current product and execution environment; authority and safety constraints; unresolved questions; exact completion criteria; and every available evidence selector such as a trace ID, URL, path, version, or timestamp. Clearly separate facts from hypotheses, omit secrets and unrelated private transcript, and never assume the child can see this conversation. First decide that another Agent adds meaningful evidence or capability; never wake one merely to demonstrate delegation. Always pass mentionProfileIds with every exact Human Profile ID that should receive Inbox and browser attention, or []; always pass referenceProfileIds with every exact Agent Profile ID that is context only, or []. Human Mention never creates Agent work, and Agent Reference never creates child work. A profile cannot appear in more than one addressing relation. Always choose completionMode explicitly from the user's requested result ownership and continuation barrier. Use child_reports_directly when children publish their own final result and the Center Agent should not continue. Use resume_parent_when_all_terminal to synthesize every result, resume_parent_when_first_success to continue after the first success, resume_parent_on_failure to continue after the first authoritative failure, or resume_parent_on_each_terminal for one continuation per child completion. During a Routine, resume_parent_when_all_terminal is the only supported resume mode and may resume the Center Agent only once. Set fallbackAgentProfileId only when exactly one primary Agent should be tried first; the fallback is not woken unless that primary authoritatively fails. When Computer files are necessary, pass computerFilePaths to copy up to three bounded text files into this Wake as an explicit one-time snapshot; the Local Agent never receives filesystem access or live sync. A pending publicationStatus means Core durably queued the same Wake for event-driven retry; do not call this tool again or report failure.",
@@ -4966,6 +5028,10 @@ export function getRemoteAgentOpenMeldToolDefinitions(
     ) && hasFrozenOrganizationSharedInteractionEnvironment(input.turnEnvelope);
   const exposedDefinitions = definitions.filter(
     (definition) =>
+      (definition.name !== "openmeld_set_final_reply_mentions" ||
+        input.turnEnvelope?.trigger.source === "space_wake" ||
+        (input.turnEnvelope?.trigger.source === "routine" &&
+          input.turnEnvelope.trigger.destination?.kind === "space")) &&
       // Launch hold, not retired tools. Keep approval implementations for the
       // isolated Request an Agent follow-up; Core remains the mutation guard.
       (TEAMMATE_AGENT_REQUESTS_ENABLED ||

@@ -6,10 +6,71 @@ import {
 	buildDesktopUpdateManifest,
 	DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY,
 	parseDesktopPreviewReleaseManifest,
+	readAvailableDesktopRelease,
 	readDesktopPreviewReleaseManifest,
 } from "./desktop-release";
 
 describe("desktop release metadata", () => {
+	it.each([
+		null,
+		151_512_850,
+		151_512_849,
+	])("checks the selected candidate artifact and never reads the default channel: %s", async (size) => {
+		const id =
+			"620faf604490b33d9f32ce3c4e5c6857e4a64dd4b5529e06d23a36e2b44255fa";
+		const manifest = {
+			schemaVersion: 1,
+			target: "production",
+			platform: "macos-arm64",
+			version: "0.1.0-preview.0",
+			releaseSha: "c1c13deed77ad26b20c86fa2978de14b05b919d6",
+			sha256: id,
+			sizeBytes: 151_512_850,
+		};
+		const store = {
+			get: vi.fn(
+				async () =>
+					({ json: () => Response.json(manifest).json() }) satisfies Pick<
+						R2ObjectBody,
+						"json"
+					>
+			),
+			head: vi.fn(async () =>
+				size === null ? null : ({ size } satisfies Pick<R2Object, "size">)
+			),
+		};
+		const result = readAvailableDesktopRelease(store, id);
+		if (size === 151_512_849) {
+			await expect(result).rejects.toThrow("size mismatch");
+		} else {
+			await expect(result).resolves.toEqual(
+				size === null
+					? null
+					: {
+							version: manifest.version,
+							sizeBytes: size,
+							downloadPath: `/desktop/download?candidate=${id}`,
+							message: null,
+						}
+			);
+		}
+		expect(store.get).toHaveBeenCalledExactlyOnceWith(
+			`desktop/candidates/${id}/manifest.json`
+		);
+		expect(store.head).toHaveBeenCalledExactlyOnceWith(
+			`desktop/candidates/${id}/OpenMeld-Desktop-0.1.0-preview.0-macos-arm64.dmg`
+		);
+	});
+	it("does not fall back when a selected candidate is missing", async () => {
+		const store = { get: vi.fn(async () => null), head: vi.fn() };
+		await expect(
+			readAvailableDesktopRelease(store, "a".repeat(64))
+		).resolves.toBeNull();
+		expect(store.get).toHaveBeenCalledExactlyOnceWith(
+			`desktop/candidates/${"a".repeat(64)}/manifest.json`
+		);
+		expect(store.head).not.toHaveBeenCalled();
+	});
 	it("builds production-safe absolute URLs from the request origin", () => {
 		expect(
 			buildAbsoluteDesktopUrl({
@@ -91,6 +152,54 @@ describe("desktop release metadata", () => {
 		expect(store.get).toHaveBeenCalledWith(
 			DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY
 		);
+	});
+
+	it.each([
+		null,
+		{ size: 0 },
+		{ size: 123 },
+	])("offers a download only when its artifact exists and is nonempty: %j", async (artifact) => {
+		const release = {
+			latestVersion: "1.0.0",
+			macosArm64: {
+				version: "1.0.0",
+				artifactName: "OpenMeld.dmg",
+				objectKey: "desktop/OpenMeld.dmg",
+			},
+		};
+		// R2 head's documented contract is object metadata or null.
+		const store = {
+			get: async () => ({ json: async () => release }),
+			head: async (key: string) =>
+				key === "desktop/OpenMeld.dmg" ? artifact : null,
+		};
+		const result = await readAvailableDesktopRelease(store);
+		expect(result).toEqual(
+			artifact?.size
+				? {
+						version: "1.0.0",
+						sizeBytes: null,
+						message: null,
+						downloadPath: "/desktop/download",
+					}
+				: null
+		);
+	});
+
+	it("keeps absent releases unavailable and rejects corrupt release metadata", async () => {
+		await expect(readAvailableDesktopRelease(undefined)).resolves.toBeNull();
+		await expect(
+			readAvailableDesktopRelease({
+				get: async () => null,
+				head: async () => null,
+			})
+		).resolves.toBeNull();
+		await expect(
+			readAvailableDesktopRelease({
+				get: async () => ({ json: async () => ({}) }),
+				head: async () => ({ size: 123 }),
+			})
+		).rejects.toThrow("Invalid OpenMeld Desktop preview release manifest");
 	});
 
 	it("sets download headers for the DMG stream", () => {

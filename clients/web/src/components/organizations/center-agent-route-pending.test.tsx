@@ -190,7 +190,7 @@ describe("CenterAgentRoutePendingPage", () => {
 		expect(screen.queryByTestId("center-agent-pending-outer-rail")).toBeNull();
 	});
 
-	it("renders the expanded pending rail at the persisted outer-sidebar width", () => {
+	it("keeps the pending application rail fixed while restoring the middle-column width", () => {
 		const queryClient = new QueryClient();
 
 		render(
@@ -204,17 +204,14 @@ describe("CenterAgentRoutePendingPage", () => {
 		);
 
 		const rail = screen.getByTestId("center-agent-pending-outer-rail");
-		expect(rail.getAttribute("data-state")).toBe("expanded");
-		expect(rail.style.width).toBe("168px");
+		expect(rail.className).toContain("w-[4.75rem]");
+		expect(screen.getByTestId("app-module-sidebar").style.width).toBe("168px");
 		expect(
-			screen.getByTestId("center-agent-pending-outer-rail-expanded")
-		).toBeTruthy();
-		expect(
-			screen.queryByTestId("center-agent-pending-outer-rail-collapsed")
-		).toBeNull();
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe("expanded");
 	});
 
-	it("renders the collapsed pending rail with the shared collapsed width", () => {
+	it("keeps the pending application rail visible with a collapsed middle list", () => {
 		const queryClient = new QueryClient();
 
 		render(
@@ -228,13 +225,9 @@ describe("CenterAgentRoutePendingPage", () => {
 		);
 
 		const rail = screen.getByTestId("center-agent-pending-outer-rail");
-		expect(rail.getAttribute("data-state")).toBe("icon");
-		expect(rail.style.width).toBe("52px");
+		expect(rail.className).toContain("w-[4.75rem]");
 		expect(
-			screen.getByTestId("center-agent-pending-outer-rail-collapsed")
-		).toBeTruthy();
-		expect(
-			screen.queryByTestId("center-agent-pending-outer-rail-expanded")
-		).toBeNull();
+			screen.getByTestId("app-module-sidebar").getAttribute("data-state")
+		).toBe("hidden");
 	});
 });

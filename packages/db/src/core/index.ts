@@ -46,9 +46,11 @@ export {
 } from "./center-agent-tasks.schema.ts";
 export { openMeldDaemonConnectedComputers } from "./connected-computer.schema.ts";
 export {
+  connectorAccessEvents,
   connectorAppRequests,
   connectorConnections,
   githubAppInstallationStates,
+  pluginActionConfirmations,
 } from "./connector-connection.schema.ts";
 export { openMeldDaemonCurrentDeviceTargets } from "./current-device-target.schema.ts";
 export {

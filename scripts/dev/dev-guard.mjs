@@ -18,6 +18,7 @@ import {
   DEVELOPMENT_ENVIRONMENT_SOURCE_VARIABLE,
   DOPPLER_DEVELOPMENT_ENVIRONMENT_SOURCE,
 } from "./doppler-environment.mjs";
+import { markLocalStackReady } from "./local-resources.mjs";
 import {
   buildProcessMatcherContext,
   isWranglerDevCommand,
@@ -713,6 +714,9 @@ async function verifyLocalDevStackOrExit(child, runSupervisor, options = {}) {
       logger: console,
       restartCommand: resolveDevStackRestartCommand(options.isolatedDev),
     });
+    if (options.isolatedDev) {
+      await markLocalStackReady({ repoRoot });
+    }
     console.log(
       `[dev-guard] local OpenMeld dev stack ready: ${readiness.summary}`
     );

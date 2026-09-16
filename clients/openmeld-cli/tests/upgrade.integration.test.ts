@@ -215,6 +215,28 @@ describe("openmeld upgrade", () => {
     });
   });
 
+  it("aligns an outdated Service even when the CLI is already latest", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      vi.mocked(fetch).mockResolvedValue(
+        new Response(JSON.stringify({ version: packageJson.version }), {
+          status: 200,
+        })
+      );
+      resolveDaemonServiceAlignmentDecisionMock.mockReturnValue({
+        status: "needs_full_alignment",
+        reasonCodes: ["version_outdated"],
+      });
+      await withCapturedStdio(async () => {
+        await runUpgrade({ view: "agent", yes: true });
+      });
+      expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({ targetVersion: packageJson.version })
+      );
+      expect(vi.mocked(spawn)).not.toHaveBeenCalled();
+    });
+  });
+
   it("renders the check result as product copy in human view", async () => {
     await withTempHome(async (home) => {
       await seedVersionState(home);

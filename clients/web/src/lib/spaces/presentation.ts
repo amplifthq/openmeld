@@ -92,7 +92,13 @@ export function buildSpaceConversationEntries(input: {
 	);
 
 	for (const item of timelineItems) {
-		if (item.signalType !== "signal.text") {
+		if (
+			item.signalType !== "signal.text" &&
+			!(
+				item.actorProfileKind === "agent" &&
+				item.systemNoticeType === "execution_recovery_completed"
+			)
+		) {
 			entries.push({
 				item,
 				kind: "system_event",
@@ -191,7 +197,10 @@ export function orderSpaceTimelineItemsForConversation(
 			item,
 			loadedSignalIds,
 		});
-		if (!sourceSignalId) {
+		if (
+			!sourceSignalId ||
+			item.systemNoticeType === "execution_recovery_completed"
+		) {
 			rootItems.push(item);
 			continue;
 		}

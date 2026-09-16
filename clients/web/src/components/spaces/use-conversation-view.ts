@@ -15,13 +15,13 @@ export function useConversationView(userId: string, organizationId: string) {
 	const key = `openmeld:conversation-view:${encodeURIComponent(userId)}:${encodeURIComponent(organizationId)}`;
 	const read = useCallback(
 		(): ConversationView =>
-			window.localStorage.getItem(key) === "recent" ? "recent" : "grouped",
+			window.localStorage.getItem(key) === "grouped" ? "grouped" : "recent",
 		[key]
 	);
 	const view = useSyncExternalStore(
 		subscribe,
 		read,
-		(): ConversationView => "grouped"
+		(): ConversationView => "recent"
 	);
 	return {
 		view,

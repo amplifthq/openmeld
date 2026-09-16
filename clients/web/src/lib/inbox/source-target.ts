@@ -6,7 +6,7 @@ import {
 	buildOrganizationComputersPath,
 	buildOrganizationDirectMessagePath,
 	buildOrganizationDocumentPath,
-	buildOrganizationNotificationsSettingsPath,
+	buildOrganizationInboxPath,
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
@@ -25,7 +25,7 @@ export function buildInboxItemSourceNavigation(input: {
 	switch (target.kind) {
 		case "organization_join_request":
 			return {
-				href: `/o/${encodeURIComponent(input.orgSlug)}/settings/invitations?requestId=${encodeURIComponent(target.requestId)}`,
+				href: `/o/${encodeURIComponent(input.orgSlug)}/inbox?requestId=${encodeURIComponent(target.requestId)}`,
 				openInNewTab: false,
 			};
 		case "agent_profile":
@@ -123,7 +123,7 @@ function resolveSettingsTargetPath(input: {
 		case "computers":
 			return buildOrganizationComputersPath(input.orgSlug);
 		case "notifications":
-			return buildOrganizationNotificationsSettingsPath(input.orgSlug);
+			return `${buildOrganizationInboxPath(input.orgSlug)}?appSettings=notifications`;
 		default:
 			return assertNever(input.section);
 	}

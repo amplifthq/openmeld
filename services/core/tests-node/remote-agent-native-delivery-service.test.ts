@@ -16,6 +16,7 @@ import {
   remoteAgentNativeDeliveryDeadlineProbeQueueMessageSchema,
   remoteAgentWorkerSubmitTurnRequestSchema,
   resolveListSignalsReadQuerySemantics,
+  signalSystemNoticeDataSchema,
   spaceMemberDirectorySchema,
 } from "@openmeld/schemas";
 import type {
@@ -25,6 +26,7 @@ import type {
   RemoteAgentNativeDeliveryDeadlineProbeQueueMessage,
   RemoteAgentTurnEnvelope,
   RemoteAgentWorkerSubmitTurnRequest,
+  ResolveNativeReplyPlacementInput,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -3880,7 +3882,10 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("forwards shared Space wake attachment references from the triggering signal", async () => {
+  it.each([
+    false,
+    true,
+  ])("forwards shared Space Wake images, including preceding context for a bare mention (%s)", async (bareMention) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     harness.run({
@@ -3908,22 +3913,54 @@ describe("Remote Agent native delivery callback service", () => {
         fileName: "whiteboard.jpg",
       },
     ];
+    const text = bareMention ? "@Codex" : "What is on this whiteboard?";
+    const env = buildEnv(harness.db, {
+      remoteAgentWorker: { submitConversationTurn: workerSubmit },
+    });
+    env.__spaceStub.rpcListSignalsResult.mockImplementation(
+      async ({ aroundSignalId }: { aroundSignalId: string }) => ({
+        ok: true,
+        value: {
+          signals: [
+            {
+              ...createSignalEnvelope(aroundSignalId),
+              data: {
+                text:
+                  aroundSignalId === "previous"
+                    ? "What is on this whiteboard?"
+                    : text,
+                attachments:
+                  !bareMention || aroundSignalId === "previous"
+                    ? attachments
+                    : [],
+              },
+            },
+          ],
+        },
+      })
+    );
     try {
       await submitRemoteAgentNativeDelivery({
         db: harness.db,
-        env: buildEnv(harness.db, {
-          remoteAgentWorker: { submitConversationTurn: workerSubmit },
-          sourceSignal: {
-            ...createSignalEnvelope("signal_1"),
-            data: { text: "What is on this whiteboard?", attachments },
-          } as SignalEnvelope,
-        }),
+        env,
         executionAttemptId: "attempt_1",
         message: createDispatchMessage({
           sourceSignalSnapshot: {
             profileId: HUMAN_PROFILE_ID,
             profileKind: "human",
-            text: "What is on this whiteboard?",
+            text,
+            ...(bareMention
+              ? {
+                  contextMessages: [
+                    {
+                      signalId: "previous",
+                      author: "Felix",
+                      text: "What is on this whiteboard?",
+                      attachments,
+                    },
+                  ],
+                }
+              : {}),
           },
         }),
         nowMs: 1000,
@@ -3935,7 +3972,9 @@ describe("Remote Agent native delivery callback service", () => {
           messages: [
             {
               role: "user",
-              content: "What is on this whiteboard?",
+              content: bareMention
+                ? expect.stringContaining("What is on this whiteboard?")
+                : text,
               attachments,
             },
           ],
@@ -5181,6 +5220,7 @@ describe("Remote Agent native delivery callback service", () => {
               fileName: "browser-screenshot.png",
             },
           ],
+          mentionTargets: ["11111111-1111-4111-8111-111111111111"],
           files: [
             {
               fileId: "space-file-1",
@@ -5220,6 +5260,7 @@ describe("Remote Agent native delivery callback service", () => {
           ],
           finalOutcomeAuthority: "remote_agent_native_delivery",
           messageEnvelope: expect.objectContaining({
+            mentionTargets: ["11111111-1111-4111-8111-111111111111"],
             navigationAction: {
               label: "Open this Project",
               target: {
@@ -6676,7 +6717,10 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("marks a hosted recovery effect only after its row, request, and watchdog are durable", async () => {
+  it.each([
+    "slack",
+    "space",
+  ] as const)("keeps %s reply recovery durable and publishes to its original request", async (conversationKind) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     const workerSubmit = vi.fn(async () => ({
@@ -6693,7 +6737,7 @@ describe("Remote Agent native delivery callback service", () => {
     });
     try {
       const originalDelivery = await createAcceptedContinuationObserver({
-        conversationKind: "slack",
+        conversationKind,
         db: harness.db,
         idempotencyKey: "slack-original-effect-boundary",
         slackChannelId: "C123",
@@ -6701,7 +6745,10 @@ describe("Remote Agent native delivery callback service", () => {
         slackThreadTs: "1700000000.000001",
         submissionId: "submission-slack-original-effect-boundary",
         triggerMessageId: "1700000000.000001",
-        turnEnvelope: createSlackTurnEnvelope(),
+        turnEnvelope:
+          conversationKind === "space"
+            ? createCenterAgentDmTurnEnvelope()
+            : createSlackTurnEnvelope(),
       });
 
       const result = await submitRemoteAgentExecutionRecoveryTurn({
@@ -6728,10 +6775,59 @@ describe("Remote Agent native delivery callback service", () => {
         nowMs: 2000,
         operationId: "hosted-effect-boundary-operation",
         originalDelivery,
+        ...(conversationKind === "space"
+          ? { resultRef: "controller-resume:original" }
+          : {}),
       });
 
       expect(result.status).toBe("requested");
       expect(workerSubmit).toHaveBeenCalledOnce();
+      expect(workerSubmit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          replyRecovery: expect.objectContaining({
+            originalDispatchId: originalDelivery.dispatchId,
+          }),
+          messages: [
+            expect.objectContaining({
+              role: "user",
+              content: expect.stringContaining(
+                originalDelivery.triggerMessageId
+              ),
+            }),
+          ],
+        })
+      );
+      if (conversationKind === "space") {
+        await expect(
+          completeRemoteAgentNativeDelivery(env, {
+            submissionId: "submission-hosted-effect-boundary",
+            idempotencyKey: result.idempotencyKey,
+            organizationId: originalDelivery.organizationId,
+            spaceId: originalDelivery.spaceId,
+            agentProfileId: originalDelivery.profileId,
+            bindingId: originalDelivery.bindingId,
+            dispatchId: result.dispatchId,
+            triggerMessageId: originalDelivery.triggerMessageId,
+            status: "completed",
+            text: "Recovered from the saved tool results.",
+          })
+        ).resolves.toMatchObject({
+          status: "accepted",
+          publishedSignalId: "recovered-signal",
+        });
+        expect(
+          env.__spaceStub.rpcPostExecutionRecoveryNoticeSignal
+        ).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({
+              dispatchId: originalDelivery.dispatchId,
+              noticeType: "execution_recovery_completed",
+              resultRef: "controller-resume:original",
+            }),
+          })
+        );
+        expect(env.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+      }
     } finally {
       harness.close();
     }
@@ -8255,7 +8351,10 @@ describe("Remote Agent native delivery callback service", () => {
     }
   });
 
-  it("returns retryable when callback failure text publishing fails, then completes on retry", async () => {
+  it.each([
+    "remote_agent.turn_not_completed",
+    "remote_agent.empty_assistant_response",
+  ])("retries failed publication and records the %s outcome", async (failureCode) => {
     const harness = createSqliteD1Harness();
     applyRemoteAgentSubmitMigrations(harness);
     try {
@@ -8273,6 +8372,7 @@ describe("Remote Agent native delivery callback service", () => {
         }),
         failureDetail:
           "The provider stopped after the model exceeded its context window.",
+        failureCode,
       };
 
       await expect(
@@ -8295,29 +8395,47 @@ describe("Remote Agent native delivery callback service", () => {
         status: "accepted",
       });
 
+      const recoveredEnv = buildEnv(harness.db, {
+        postSignalId: "signal_failure_retry",
+      });
       await expect(
-        completeRemoteAgentNativeDelivery(
-          buildEnv(harness.db, { postSignalId: "signal_failure_retry" }),
-          { ...body, callbackAttempt: 2 }
-        )
+        completeRemoteAgentNativeDelivery(recoveredEnv, {
+          ...body,
+          callbackAttempt: 2,
+        })
       ).resolves.toEqual({
         status: "accepted",
         publishedSignalId: "signal_failure_retry",
       });
+      if (failureCode === "remote_agent.empty_assistant_response") {
+        expect(recoveredEnv.__spaceStub.rpcPostSignal).not.toHaveBeenCalled();
+        expect(
+          recoveredEnv.__spaceStub.rpcPostSystemNoticeSignal
+        ).toHaveBeenCalledWith(
+          expect.objectContaining({
+            finalOutcomeAuthority: "remote_agent_native_delivery",
+            data: expect.objectContaining({
+              noticeType: "terminal_failure",
+              reasonCode: failureCode,
+              failureStage: "execution",
+            }),
+          })
+        );
+      }
       await expect(
         readRemoteAgentNativeDeliveryBySubmissionId({
           db: harness.db,
           submissionId: "sub_failed_retry",
         })
       ).resolves.toMatchObject({
-        failureCode: "remote_agent.turn_not_completed",
+        failureCode,
         publishedSignalId: "signal_failure_retry",
         status: "failed",
       });
       await expect(
         readDispatchProjection(harness.db, "idem_1")
       ).resolves.toEqual({
-        attemptErrorCode: "remote_agent.turn_not_completed",
+        attemptErrorCode: failureCode,
         attemptErrorMessage:
           "The provider stopped after the model exceeded its context window.",
         attemptStatus: "failed_terminal",
@@ -9528,6 +9646,8 @@ type BuildEnvOptions = {
 };
 
 type TestSpaceStub = {
+  rpcResolveNativeReplyPlacement: ReturnType<typeof vi.fn>;
+  rpcPostExecutionRecoveryNoticeSignal: ReturnType<typeof vi.fn>;
   rpcCloseAgentStream: ReturnType<typeof vi.fn>;
   rpcGetMeta: ReturnType<typeof vi.fn>;
   rpcGetViewerMembership: ReturnType<typeof vi.fn>;
@@ -9584,6 +9704,15 @@ function buildEnv(
     };
   };
   const spaceStub: TestSpaceStub = {
+    rpcResolveNativeReplyPlacement: vi.fn(
+      async (input: ResolveNativeReplyPlacementInput) => ({
+        dispatchId: input.dispatchId,
+        sourceSignalId: input.sourceSignalId,
+        profileId: input.profileId,
+        threadContext: THREAD_CONTEXT,
+        locked: input.lock,
+      })
+    ),
     rpcCloseAgentStream: vi.fn(async () => null),
     rpcGetMeta: vi.fn(() => {
       const guide =
@@ -9640,11 +9769,25 @@ function buildEnv(
     rpcPostSignalOnceByClientMessageId: vi.fn(() =>
       createSignalEnvelope(options.postSignalId ?? "signal_reply_1")
     ),
-    rpcPostSystemNoticeSignal: vi.fn((input) => ({
-      ...createSignalEnvelope(options.postSignalId ?? "signal_reply_1"),
-      type: "signal.system_notice" as const,
-      data: input.data,
-    })),
+    rpcPostExecutionRecoveryNoticeSignal: vi.fn((input) => {
+      signalSystemNoticeDataSchema.parse(input.data);
+      return {
+        publishedSignalId: "recovered-signal",
+        status: "published" as const,
+      };
+    }),
+    rpcPostSystemNoticeSignal: vi.fn((input) => {
+      if (options.postSignalError) {
+        throw typeof options.postSignalError === "string"
+          ? new Error(options.postSignalError)
+          : options.postSignalError;
+      }
+      return {
+        ...createSignalEnvelope(options.postSignalId ?? "signal_reply_1"),
+        type: "signal.system_notice" as const,
+        data: input.data,
+      };
+    }),
     rpcReadFinalReplyClaimSignalId: vi.fn(async () => ({
       signalId: options.finalReplyClaimSignalId ?? null,
     })),
@@ -10224,7 +10367,7 @@ function createExecutionRecoveryStorage() {
 }
 
 async function createAcceptedContinuationObserver(input: {
-  conversationKind: "message_channel" | "slack";
+  conversationKind: "message_channel" | "slack" | "space";
   db: D1Database;
   idempotencyKey: string;
   messageChannelLocator?: MessageChannelConversationLocator;

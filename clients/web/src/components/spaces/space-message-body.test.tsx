@@ -123,16 +123,17 @@ describe("SpaceMessageBody", () => {
 	});
 
 	it.each([
-		false,
-		true,
-	])("preserves a Human mention token without Agent actions (Markdown: %s)", (isAgentFinalReply) => {
+		[false, "@MingYoo hello"],
+		[true, "@MingYoo hello"],
+		[true, "The issue is resolved."],
+	] as const)("preserves a Human mention token without Agent actions (Markdown: %s, text: %s)", (isAgentFinalReply, text) => {
 		const profileId = "11111111-1111-4111-8111-111111111111";
 		const onOpenProfile = vi.fn();
 		render(
 			<SpaceMessageBody
 				item={{
 					isAgentFinalReply,
-					text: "@MingYoo hello",
+					text,
 					mentionTargetProfileIds: [profileId],
 				}}
 				onOpenProfile={onOpenProfile}
@@ -155,10 +156,29 @@ describe("SpaceMessageBody", () => {
 		);
 		const token = screen.getByRole("button", { name: "Open MingYoo profile" });
 		expect(within(token).getByText("MingYoo")).toBeTruthy();
-		expect(within(token).queryByText("Reference")).toBeNull();
+		expect(within(token).queryByText("Mention only")).toBeNull();
 		expect(within(token).queryByText("Wake")).toBeNull();
 		fireEvent.click(token);
 		expect(onOpenProfile).toHaveBeenCalledWith(profileId);
+	});
+	it("shows the explicit Wake recipient when Agent prose omits its name", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					actorProfileKind: "agent",
+					text: "Please review this change.",
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				onOpenProfile={vi.fn()}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+		expect(
+			screen.getAllByRole("button", {
+				name: `Open ${WAKE_TARGET_PROFILE_NAME} profile (Wake)`,
+			})
+		).toHaveLength(1);
+		expect(screen.getByText("Please review this change.")).toBeTruthy();
 	});
 
 	it("renders a structured Wake target as a compact clickable Agent token", () => {
@@ -251,9 +271,9 @@ describe("SpaceMessageBody", () => {
 		);
 
 		const referenceButton = screen.getByRole("button", {
-			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Reference)`,
+			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Mention only)`,
 		});
-		expect(within(referenceButton).getByText("Reference")).toBeTruthy();
+		expect(within(referenceButton).getByText("Mention only")).toBeTruthy();
 		fireEvent.click(referenceButton);
 		expect(onOpenProfile).toHaveBeenCalledWith(REFERENCE_TARGET_PROFILE_ID);
 	});
@@ -281,7 +301,7 @@ describe("SpaceMessageBody", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByText("Reference", {
+			screen.getByText("Mention only", {
 				selector: '[data-slot="space-message-profile-mention"] span',
 			})
 		).toBeTruthy();
@@ -1072,10 +1092,11 @@ describe("SpaceMessageBody", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Open photo.jpg" }));
 
-		expect(screen.getByRole("dialog")).toBeTruthy();
 		expect(
-			screen.getAllByRole("img", { name: "photo.jpg" }).length
-		).toBeGreaterThan(1);
+			within(screen.getByRole("dialog", { name: "photo.jpg" }))
+				.getByRole("img", { name: "photo.jpg" })
+				.getAttribute("src")
+		).toBe("blob:photo-preview");
 		const originalLink = screen.getByRole("link", { name: "Open original" });
 		expect(originalLink.getAttribute("href")).toBe(
 			"/v1/spaces/space-123/attachments/attachment-photo?__openmeld_organization_slug=acme"

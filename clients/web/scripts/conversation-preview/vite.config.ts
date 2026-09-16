@@ -20,7 +20,7 @@ const mocks: Record<string, string> = {
 	"use-conversations":
 		'export { useConversationSidebarFixture as useConversations } from "#/test-support/conversation-sidebar-fixture";',
 	"organization-context":
-		'export const useAppOrganization = () => ({currentUserId:"preview",currentOrganization:{id:"org",slug:"test"}});',
+		'export const useAppOrganization = () => ({currentUserId:"preview",currentOrganization:{id:"org",slug:"test"}}); export const useOptionalAppOrganization = useAppOrganization;',
 	"new-chat-dialog": "export const NewChatDialog = () => null;",
 	"center-agent-chat-avatar":
 		'import React from "react"; export const CenterAgentChatAvatar = () => React.createElement("span", {className:"flex size-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs", "aria-label":"Agent"}, "A");',
@@ -32,6 +32,9 @@ export default defineConfig({
 	optimizeDeps: {
 		noDiscovery: true,
 		include: [
+			"@openmeld/protocol > mdast-util-from-markdown",
+			"@openmeld/protocol > mdast-util-gfm",
+			"@openmeld/protocol > micromark-extension-gfm",
 			"react",
 			"react-dom",
 			"react-dom/client",
@@ -44,6 +47,8 @@ export default defineConfig({
 			"use-sync-external-store/shim",
 			"use-sync-external-store/shim/with-selector",
 			"sonner",
+			"vaul",
+			"framer-motion",
 		],
 	},
 	plugins: [

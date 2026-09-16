@@ -115,10 +115,20 @@ describe("remote agent callback context", () => {
     const context = createRemoteAgentCallbackContext({
       ack: ACK,
       nowMs: TEST_NOW_MS,
-      request: createSubmitTurnRequest({ conversationId }),
+      request: {
+        ...createSubmitTurnRequest({ conversationId }),
+        replyRecovery: {
+          originalDispatchId: "original",
+          operationId: "recovery",
+        },
+      },
     });
 
     expect(context.conversationId).toBe(conversationId);
+    expect(context.replyRecovery).toEqual({
+      originalDispatchId: "original",
+      operationId: "recovery",
+    });
   });
 
   it("retains personal Agent identity through durable callback storage", async () => {
@@ -159,6 +169,7 @@ describe("remote agent callback context", () => {
       kind: "project",
       projectId: "project_123",
     };
+    context.mentionTargets = ["11111111-1111-4111-8111-111111111111"];
 
     expect(
       buildRemoteAgentCoreCallbackBody({
@@ -177,6 +188,7 @@ describe("remote agent callback context", () => {
       submissionId: ACK.submissionId,
       text: "The blocker is the missing binding.",
       triggerMessageId: request.triggerMessageId,
+      mentionTargets: ["11111111-1111-4111-8111-111111111111"],
       navigationTarget: {
         kind: "project",
         projectId: "project_123",
@@ -265,7 +277,7 @@ describe("remote agent callback context", () => {
 
     expect(callback).toMatchObject({
       failureMessage:
-        "Center Agent didn't return a reply. Try again. If it keeps happening, open diagnostics in OpenMeld.",
+        "Center Agent couldn't generate a reply. Your message is saved.",
       status: "failed",
     });
     expect(JSON.stringify(callback)).not.toContain("Remote Agent");

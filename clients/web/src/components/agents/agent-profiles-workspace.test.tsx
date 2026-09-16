@@ -17,6 +17,10 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentProfilesWorkspace } from "./agent-profiles-workspace";
 
+vi.mock("#/components/directory/team-people-sidebar", () => ({
+	TeamPeopleSidebar: () => <nav aria-label="People" />,
+}));
+
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => ({
 		account: { name: "Current member" },

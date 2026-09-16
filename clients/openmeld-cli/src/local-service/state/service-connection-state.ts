@@ -98,12 +98,6 @@ export function classifyConnectionFailureReason(
     return upgradeRejectionStatus === 401 ? "auth_rejected" : "internal";
   }
   if (
-    lowered.includes("authentication required") ||
-    lowered.includes("unauthorized")
-  ) {
-    return "auth_rejected";
-  }
-  if (
     lowered.includes("fetch failed") ||
     lowered.includes("timed out") ||
     lowered.includes("timeout") ||
