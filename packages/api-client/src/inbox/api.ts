@@ -11,6 +11,8 @@ import {
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
   inboxItemRouteParamsSchema,
+  inboxMessageNotificationPreferencesQuerySchema,
+  inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
   listInboxItemsQuerySchema,
@@ -25,6 +27,7 @@ import {
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
+  updateInboxMessageNotificationPreferencesBodySchema,
   updateInboxNotificationPreferencesBodySchema,
 } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
@@ -35,6 +38,7 @@ import {
   buildInboxItemPath,
   buildInboxItemReadPath,
   buildInboxMarkAllReadPath,
+  buildInboxMessageNotificationPreferencesPath,
   buildInboxPath,
   buildInboxPreferencesPath,
   buildInboxSummaryPath,
@@ -47,6 +51,38 @@ import type { CreateInboxApi, InboxRequestInput } from "./types";
 export const createInboxApi: CreateInboxApi = (
   client: OpenMeldApiClientFoundation
 ) => ({
+  getMessageNotificationPreferences: async (input = {}) => {
+    const query = requireValidInput(
+      inboxMessageNotificationPreferencesQuerySchema,
+      { spaceId: input.spaceId },
+      "Message notification preferences query is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "GET",
+      operation: "inbox.message_preferences.read",
+      invalidMessage: "Invalid message notification preferences response",
+      schema: inboxMessageNotificationPreferencesResponseSchema,
+      url: buildInboxMessageNotificationPreferencesPath(query.spaceId),
+    });
+  },
+  updateMessageNotificationPreferences: async (input) => {
+    const body = requireValidInput(
+      updateInboxMessageNotificationPreferencesBodySchema,
+      input.preference,
+      "Message notification preferences request is invalid."
+    );
+    return await client.requestJson({
+      ...requestOptions(input),
+      method: "PATCH",
+      operation: "inbox.message_preferences.update",
+      body: JSON.stringify(body),
+      headers: { "content-type": "application/json" },
+      invalidMessage: "Invalid message notification preferences response",
+      schema: inboxMessageNotificationPreferencesResponseSchema,
+      url: buildInboxMessageNotificationPreferencesPath(),
+    });
+  },
   centerAgentSummary: async (input = {}) =>
     await client.requestJson({
       ...requestOptions(input),

@@ -3,6 +3,7 @@ import type { SettingsSectionDef } from "@openmeld/ui/lib/settings-contract";
 import type { ReactNode } from "react";
 import { APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME } from "#/components/app/app-contextual-layout-style";
 import { CenterAgentPrivacyPage } from "#/components/organizations/center-agent-privacy-page";
+import { CenterAgentSettingsPage } from "#/components/organizations/center-agent-settings-page";
 import { OrganizationSettingsPage } from "#/components/organizations/organization-settings-page";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
@@ -25,8 +26,9 @@ import { SettingsPlaceholderSection } from "./settings-placeholder-section";
  *   is gated out on Web today; a CLI-driven or Desktop host would surface it.
  *
  * Service still renders a placeholder panel until a later phase fills it.
- * Center Agent-owned configuration lives in the Center Agent product home,
- * outside this global Settings registry.
+ * Center Agent configuration is a real Settings leaf here: it is grouped under
+ * the current Organization, or under Personal in a Personal Workspace. The
+ * Center Agent product home no longer owns a second entry for it.
  */
 export function buildSettingsSections(
 	orgSlug: string
@@ -89,6 +91,17 @@ export function buildSettingsSections(
 					<CenterAgentPrivacyPage />
 					<ReasoningStreamSetting />
 					<PersonalAgentPermissions />
+				</SettingsLeafLayout>
+			),
+		},
+		{
+			id: "center-agent",
+			title: "Center Agent",
+			to: settingsRoutes["center-agent"],
+			requires: ["CLOUD_ACCOUNT"],
+			render: () => (
+				<SettingsLeafLayout>
+					<CenterAgentSettingsPage />
 				</SettingsLeafLayout>
 			),
 		},

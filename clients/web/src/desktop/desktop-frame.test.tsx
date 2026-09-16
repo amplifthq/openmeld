@@ -1,17 +1,33 @@
+import type { DesktopSession } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "@testing-library/react";
+import {
+	createMemoryHistory,
+	type RouterHistory,
+} from "@tanstack/react-router";
+import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import "fake-indexeddb/auto";
 import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "../lib/spaces/conversation-layout-preference";
 import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "../lib/spaces/self-message-alignment-preference";
 import { DesktopFrame } from "./desktop-frame";
+import { useDesktopTitlebar } from "./titlebar-context";
 
-const native = vi.hoisted(() => ({ available: false }));
-const bridge = vi.hoisted(() => ({
-	onSessionChanged: () => () => undefined,
+const native = vi.hoisted(() => ({
+	available: false,
+	pathname: "/desktop-shell",
 }));
-const router = vi.hoisted(() => ({}));
+const bridge = vi.hoisted(() => ({
+	onSessionChanged: vi.fn<(callback: () => void) => () => void>(
+		() => () => undefined
+	),
+	session: vi.fn<() => Promise<DesktopSession>>(),
+}));
+const router = vi.hoisted(() => ({
+	history: null as RouterHistory | null,
+	invalidate: vi.fn(() => Promise.resolve()),
+}));
 
 vi.mock("./platform", () => ({
 	getDesktopPlatform: () => (native.available ? bridge : null),
@@ -19,15 +35,75 @@ vi.mock("./platform", () => ({
 vi.mock("@tanstack/react-router", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@tanstack/react-router")>()),
 	useRouter: () => router,
-	useLocation: () => "/desktop-shell",
+	useLocation: () => native.pathname,
 }));
 
+beforeEach(() => {
+	router.history = createMemoryHistory({ initialEntries: ["/desktop-shell"] });
+});
 afterEach(() => {
 	native.available = false;
+	native.pathname = "/desktop-shell";
+	cleanup();
 	window.localStorage.clear();
 });
 
 describe("Desktop document hydration", () => {
+	it("closes both history directions on native session invalidation before the new account read completes", async () => {
+		const history = createMemoryHistory({ initialEntries: ["/o/team/spaces"] });
+		router.history = history;
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		let resolveSession!: (session: DesktopSession) => void;
+		bridge.session.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSession = resolve;
+			})
+		);
+		const controls: { current: ReturnType<typeof useDesktopTitlebar> } = {
+			current: null,
+		};
+		function Probe() {
+			controls.current = useDesktopTitlebar();
+			return null;
+		}
+		const client = new QueryClient();
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<Probe />
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		await waitFor(() => expect(controls.current).not.toBeNull());
+		if (!controls.current) {
+			throw new Error("Missing native titlebar context");
+		}
+		const navigation = controls.current.navigation;
+		act(() => {
+			navigation.identify("account-a");
+			history.push("/o/team/people");
+			history.push("/o/team/inbox");
+			navigation.back();
+		});
+		expect(navigation.getSnapshot()).toEqual({ back: true, forward: true });
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		expect(navigation.getSnapshot()).toEqual({ back: false, forward: false });
+		await waitFor(() => expect(bridge.session).toHaveBeenCalled());
+		await act(() =>
+			resolveSession({
+				user: { id: "account-b", email: "b@example.com", name: "B" },
+			})
+		);
+		navigation.back();
+		navigation.forward();
+		expect(history.location.href).toBe("/o/team/people");
+		client.clear();
+	});
 	it.each([
 		[null, null, "centered", "right"],
 		["centered", "right", "centered", "right"],

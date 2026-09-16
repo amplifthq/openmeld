@@ -345,6 +345,20 @@ Deleting a personal group removes its presentation association only.
 | Ephemeral                          | Short-lived handoff/session state.                                                                                                                                                                  | Temporary state, not a permanent domain.                                                                                                                                                                                                                                                                                                                               |
 | Space Truth                        | Space collaboration truth.                                                                                                                                                                          | Space Durable Object source of truth.                                                                                                                                                                                                                                                                                                                                  |
 
+Inbox message notification preferences have two Core-owned D1 records:
+`inbox_message_notification_defaults` stores one mode per account, and
+`inbox_conversation_notification_preferences` stores explicit overrides per
+account, Organization, and Space. Absence of an override means live inheritance.
+These records never write Inbox read state, urgency, email deliveries, or Space
+membership. Core verifies active Organization membership and current conversation
+access before reading or changing a conversation preference. Browser delivery
+re-reads the authorized preference after its delivery lock; browser-local
+permission and sound settings remain local.
+Conversation preferences currently cascade on account or Organization deletion,
+but a deleted Space's override row remains inaccessible until that cascade.
+The active-Space access check excludes it from preference reads and writes;
+the row does not retain message content or grant Inbox visibility.
+
 Agent Profile Creation Requests keep the approval/update time, execution attempt
 number, and optional start time on the Core-owned request row. Recovery covers
 both an approval abandoned before claim and a claimed execution abandoned

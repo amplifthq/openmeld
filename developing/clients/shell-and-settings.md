@@ -44,7 +44,9 @@ edge, and
 the **Personal / current Organization name** Settings groups defined in
 `developing/clients/web.md`. Center Agent uses the shared Spaces list; **Messages /
 Graph / Files / Routines / Skills / Channels** live in its header, while
-**Memory / Center Agent settings** live in its compact header menu.
+**Memory** lives in its compact header menu. Center Agent settings live in
+the global App Settings destination, grouped under the current Organization
+(or Personal in a Personal Workspace).
 
 The Web application rail places the Organization selector above compact history,
 search, and Inbox controls. The work-area header toggles the middle column. Its

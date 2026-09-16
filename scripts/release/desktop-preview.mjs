@@ -15,11 +15,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
 import { pathToFileURL } from "node:url";
-import { desktopProductionSourceSchema } from "../../packages/schemas/src/desktop-client.ts";
+import { desktopProductionSourceSchema } from "../../packages/schemas/dist/desktop-client.js";
 import {
   desktopCandidateLocation,
   desktopCandidateManifestSchema,
-} from "../../packages/schemas/src/desktop-release.ts";
+} from "../../packages/schemas/dist/desktop-release.js";
 import { DEFAULT_APPLE_TEAM_ID } from "./macos-cli-signing.mjs";
 
 export function buildDesktopCandidateMetadata(input) {

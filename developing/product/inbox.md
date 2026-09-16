@@ -546,8 +546,62 @@ action is idempotent and allows the oldest later Wake to continue.
 
 ## Delivery channels and preferences
 
+### Message notification preferences
+
+Human replies in an existing thread carry a recipient-specific
+`replyToRecipient: true` Space source-target marker for the current Human owner
+of the thread's root message. The Space resolves that owner from its retained
+root Signal and active membership; the marker never comes from a title, quoted
+text, or a client-selected recipient. Self replies (including another Profile
+owned by the same account), ordinary thread participants, and nonparticipants
+do not acquire this marker. Existing thread-recipient restrictions remain
+unchanged. Explicit mentions retain Human Mention semantics.
+
+Mentions and replies admits these marked updates without making them urgent or
+creating email deliveries. Conversation mute, read state, source access, and
+visible-conversation suppression still apply. Older unmarked Inbox rows are not
+backfilled or inferred from their title.
+
+**Default message notifications** is an account preference: **All new messages**
+or **Mentions and replies**. Existing accounts default to Mentions and replies,
+preserving direct-message, mention, addressed reply, and urgent-update delivery.
+The preference applies to both Web and Desktop. Desktop's native process
+independently revalidates it before delivery using the shared notification policy.
+Every authorized Space and Direct Message header exposes a bell with **Use
+default**, **All new messages**, **Mentions and replies**, and **Mute message
+notifications**. Use default displays the current account value and follows
+future changes. An explicit override belongs only to that recipient and
+conversation, survives account-default changes, and can be removed by choosing
+Use default. Settings never change another member's preferences.
+
+All new messages admits newly observed unread conversation updates already
+projected into that recipient's Inbox. It does not subscribe the member to
+every thread, broaden source access, backfill old messages, change message
+importance, or create email deliveries. Muting suppresses conversation message
+updates, including urgent message updates; independent action-required items
+retain their existing delivery rules. Inbox content, read state, and source
+resolution remain unchanged. **Urgent email alerts** stays an independent
+account setting, including for urgent items from a muted conversation.
+This includes Human Mentions and urgent terminal Wake outcome updates: neither
+bypasses a conversation's message mute. An open action-required item retains
+its own delivery eligibility.
+
+Browser delivery must also pass the browser-local switch, permission, and
+visible-conversation gates. The header links to global notification settings
+and explains when browser notifications are off. Before native delivery, Web
+reads the recipient-authorized current message preference again after obtaining
+the delivery lock. A failed preference read stays retryable; inaccessible
+conversations are ineligible. Preferences never create a second unread store.
+
+**Show an example** in global Settings creates one browser-local sample when
+browser notifications are enabled. It creates no Inbox item or delivered-item
+receipt and respects the sound preference. The UI reports that an example was
+requested and explains browser/system and Focus checks if nothing appears;
+creating a Notification object does not prove that the operating system showed
+a banner.
+
 The in-product Inbox is always available and cannot be disabled. Phase 1 has
-two optional delivery channels:
+optional delivery channels:
 
 - **Browser notifications** are browser-local and become enabled when the
   browser grants permission unless the member has explicitly turned them off
@@ -569,7 +623,8 @@ two optional delivery channels:
   messages in a current Direct Message. Formal Agent DM replies address the
   active human participant even without a Wake correlation; ordinary Space
   replies retain explicit-recipient rules. Ordinary
-  Space message updates stay in Inbox without a system notification. A visible
+  Space message updates stay in Inbox without a system notification under the
+  default Mentions and replies policy; All new messages includes them. A visible
   tab suppresses delivery only for the conversation it is currently showing;
   a hidden tab can deliver any eligible item. Current-conversation suppression
   is temporary: leaving that conversation or hiding the tab re-evaluates the
@@ -605,6 +660,24 @@ two optional delivery channels:
   there is no separate volume slider. Browser autoplay policy, missing audio
   support, or playback failure stays silent, never changes notification
   delivery truth, and never makes the Inbox item retry.
+- **Desktop notifications** independently deliver the same eligible Core Inbox
+  items while the authenticated GUI is running, including unfocused, minimized,
+  and hidden windows. Quit ends GUI delivery and does not stop the Service.
+  The shared client listener owns bounded observation, retry and deduplication;
+  the native process supplies the background cadence and OS delivery adapter,
+  never another Inbox or execution authority. A native `show` acknowledgement
+  settles delivery; failure or no acknowledgement remains retryable. Desktop
+  reads its own account-local enabled and sound preferences, defaulting on;
+  browser permission, browser preferences and Web presence do not control it.
+  Settings > Personal > Notifications and Space Info show Desktop wording.
+  macOS permission is unknown unless an API establishes it; platform support
+  is not authorization. Focus and OS notification settings remain authoritative
+  for presentation. The test button checks OS delivery only. Native sound
+  replaces the Web sound cue, and bounded Core previews retain their existing
+  privacy scope. Only a focused, visible Desktop reading the exact conversation
+  may suppress its notification or advance its read position. Notification
+  clicks revalidate current account and source access before restoring the
+  window and opening the canonical item target.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe
@@ -617,8 +690,9 @@ two optional delivery channels:
 
 Browser permission and the OpenMeld sound preference are device/browser state.
 The email preference is durable account state. Phase 1 does not provide
-per-source rules, schedules, digests, quiet hours, snooze, Slack delivery, CLI
-delivery, Web Push for a closed browser, Desktop delivery, or Mobile delivery.
+schedules, digests, quiet hours, snooze, Slack delivery, CLI
+delivery, Web Push for a closed browser, or Mobile delivery.
+
 
 ## Delivery reliability
 

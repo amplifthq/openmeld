@@ -139,6 +139,11 @@ export type {
 } from "./feedback/types";
 export { createInboxApi } from "./inbox/api";
 export {
+  inboxMessageNotificationSpaceId,
+  isInboxItemVisibleConversation,
+  isInboxNotificationEligible,
+} from "./inbox/notification-policy";
+export {
   buildCenterAgentInboxReadThroughPath,
   buildCenterAgentInboxSummaryPath,
   buildInboxItemDismissPath,
