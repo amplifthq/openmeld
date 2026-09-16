@@ -6,6 +6,7 @@ import {
 } from "@openmeld/schemas";
 import type { Hono } from "hono";
 import type { HonoBindings } from "../lib/bindings";
+import { buildGatewaySpaceAccessContext } from "../lib/space-access-context";
 import {
   buildCoreRpcContext,
   executeRpcRoute,
@@ -29,6 +30,7 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       execute: async () =>
         c.var.coreRpc.listSpaceTasks({
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
           spaceId,
           password: readSpacePasswordHeader(c.req.raw.headers),
           context: buildCoreRpcContext(c),
@@ -73,6 +75,7 @@ export function registerSpaceTaskRoutes(app: Hono<HonoBindings>): void {
       spaceId,
       execute: async () =>
         c.var.coreRpc.getSpaceTask({
+          spaceAccess: buildGatewaySpaceAccessContext(c, spaceId),
           spaceId,
           taskId: taskId.data,
           password: readSpacePasswordHeader(c.req.raw.headers),

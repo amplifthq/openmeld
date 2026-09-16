@@ -3597,6 +3597,14 @@ from status, the Account Space Index, or a failed conversation request. A
 transient resolver failure keeps the target and offers retry; it is not treated
 as denied access.
 
+The public reader reuses the member history navigator for anchored windows and
+both directions of retained history, and reuses read-only Files, Tasks, and pin
+surfaces. It preserves the resolved message/Thread target across sign-in and
+explicit join. Joining reloads the shared entry so Core chooses the guest or
+Organization experience. Public entry revalidates on focus and every 15 seconds
+while visible; rejection removes the mounted reader. Its HTML advertises the
+shared JSON context directory and is not cacheable or indexable.
+
 Organization-scoped routes retain the App shell for permitted public reads and
 membership gates. Tenant-neutral links resolve to the Organization App route
 before mounting a public viewer when Core supplies the caller's Organization
