@@ -4,6 +4,9 @@ title: Choose more OpenCode and Cursor models
 kind: new
 areas: ["agent-profiles", "model-selection"]
 audiences: ["users"]
+publishedAt: 2026-09-16
+release: v0.3.212
+evidence: ["pr:1130", "pr:1133", "commit:b8dcd2b62dab99a9f852783550a913afe718abd4", "workflow:35133498793", "workflow:35136910148"]
 ---
 
 OpenCode Agent Profiles can now select DeepSeek V4.1 Flash and Hy4 Preview

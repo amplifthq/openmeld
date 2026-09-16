@@ -4,7 +4,9 @@ title: Smoother new chats, activity navigation, and Settings
 kind: fixed
 areas: ["center-agent", "spaces", "settings"]
 audiences: ["members"]
-evidence: ["pr:1105"]
+publishedAt: 2026-09-16
+release: v0.3.212
+evidence: ["pr:1105", "pr:1133", "commit:b8dcd2b62dab99a9f852783550a913afe718abd4", "workflow:35133498793"]
 ---
 
 New Center Agent chats support attachment previews, paste and drop, and saved
