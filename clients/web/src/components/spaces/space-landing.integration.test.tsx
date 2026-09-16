@@ -7,6 +7,7 @@ import {
 } from "@openmeld/api-client";
 import { SPACE_STREAM_KEEPALIVE_PING } from "@openmeld/protocol";
 import {
+	type AccountSidebarSnapshot,
 	AGENT_REPLY_FINAL_PURPOSE,
 	AGENT_REPLYING_PURPOSE,
 	CORE_READINESS_FACTS_CHANGED_MARKER_KIND,
@@ -22,6 +23,7 @@ import type {
 	CreateAgentProfileCreationRequestResponse,
 	CreateSpaceThreadResponse,
 	GetSpaceStatusResponse,
+	OrganizationAgentRuntimeOverviewResponse,
 	OrganizationDirectoryResponse,
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
@@ -18971,6 +18973,32 @@ function mockSpaceQueries(input: {
 					);
 				}
 				return createQueryResult({ isPending: true });
+			}
+			if (
+				options.queryKey[0] === "organizations" &&
+				options.queryKey[2] === "agent-runtime-overview"
+			) {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						organizationId: "org-acme",
+						generatedAt: "2026-07-16T00:00:00.000Z",
+						agentProfiles: [],
+					} satisfies OrganizationAgentRuntimeOverviewResponse,
+				});
+			}
+			if (options.queryKey[0] === "account-sidebar") {
+				return createQueryResult({
+					isSuccess: true,
+					data: {
+						revision: 0,
+						preferences: {
+							pinned: { sort: "manual", spaceIds: [] },
+							spaces: { sort: "recent", spaceIds: [] },
+							groups: [],
+						},
+					} satisfies AccountSidebarSnapshot,
+				});
 			}
 			throw new Error(`Unexpected query key: ${queryKey}`);
 		}
