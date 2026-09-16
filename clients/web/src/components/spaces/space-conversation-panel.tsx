@@ -284,6 +284,7 @@ type SpaceConversationPanelResolvedProps = {
 	historyIsPending: boolean;
 	actionableAgentInteractionPlacement?: SpaceAgentInteractionPlacement;
 	initialFocusInteractionId?: string;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	agentDirectConversationKind?: SpaceAgentDirectConversationComposerHintKind | null;
@@ -662,6 +663,7 @@ function SpaceConversationPanelContent(
 		historyActionErrorMessage: input.historyActionErrorMessage,
 		historyIsPending: input.historyIsPending,
 		initialFocusInteractionId: input.initialFocusInteractionId,
+		initialFocusRequestId: input.initialFocusRequestId,
 		initialFocusSignalId: input.initialFocusSignalId,
 		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 		isLoadingEarlierHistory: input.isLoadingEarlierHistory,
@@ -1353,6 +1355,7 @@ function useSpaceConversationNavigationController(input: {
 	historyActionErrorMessage: string | null;
 	historyIsPending: boolean;
 	initialFocusInteractionId?: string;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	isLoadingEarlierHistory: boolean;
@@ -1633,8 +1636,11 @@ function useSpaceConversationNavigationController(input: {
 		}
 	);
 	const requestedMainFocusSignalId = resolveInitialMainFocusSignalId(input);
-	const targetKey =
+	const targetId =
 		input.initialFocusInteractionId ?? input.initialFocusSignalId ?? null;
+	const targetKey = targetId
+		? `${targetId}:${input.initialFocusRequestId ?? "initial"}`
+		: null;
 	const loadFocusHistory = useLatestCallback(
 		(signalId: string, signal: AbortSignal) =>
 			input.onLoadHistoryAround?.(signalId, signal)

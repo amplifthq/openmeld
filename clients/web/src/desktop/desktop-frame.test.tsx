@@ -9,8 +9,16 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "fake-indexeddb/auto";
+import {
+	createComposerDraftRecord,
+	EMPTY_COMPOSER_DRAFT_CONTENT,
+	readComposerDraft,
+	writeComposerDraft,
+} from "../lib/composer-draft-storage";
 import { SPACE_CONVERSATION_LAYOUT_BOOTSTRAP_SCRIPT } from "../lib/spaces/conversation-layout-preference";
 import { SPACE_SELF_MESSAGE_ALIGNMENT_BOOTSTRAP_SCRIPT } from "../lib/spaces/self-message-alignment-preference";
+import { completeAccountAuthChange } from "../query/auth-boundary";
+import { userQueryKeys } from "../query/query-keys";
 import { DesktopFrame } from "./desktop-frame";
 import { useDesktopTitlebar } from "./titlebar-context";
 
@@ -49,6 +57,9 @@ vi.mock("@tanstack/react-router", async (importOriginal) => ({
 
 beforeEach(() => {
 	router.history = createMemoryHistory({ initialEntries: ["/desktop-shell"] });
+	router.invalidate.mockClear();
+	bridge.onSessionChanged.mockClear();
+	bridge.session.mockReset();
 });
 afterEach(() => {
 	native.available = false;
@@ -58,6 +69,257 @@ afterEach(() => {
 });
 
 describe("Desktop document hydration", () => {
+	it("preserves an unmounted Composer draft while native identity revalidation is pending and confirms the same account", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		const revalidation = createDeferred<DesktopSession>();
+		bridge.session.mockReturnValueOnce(revalidation.promise);
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		expect(readComposerDraft(scope)?.text).toBe("Private draft");
+		await act(() =>
+			revalidation.resolve({
+				user: { id: "account-a", email: "a@example.com", name: "A" },
+			})
+		);
+		expect(readComposerDraft(scope)?.text).toBe("Private draft");
+		client.clear();
+	});
+
+	it("preserves an unmounted Composer draft when native identity revalidation fails", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		bridge.session.mockRejectedValueOnce(new Error("Auth unavailable"));
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		await waitFor(() => expect(consoleError).toHaveBeenCalled());
+		expect(readComposerDraft(scope)?.text).toBe("Private draft");
+		client.clear();
+	});
+
+	it("clears private drafts before exposing a confirmed replacement account", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		bridge.session.mockResolvedValueOnce({
+			user: { id: "account-b", email: "b@example.com", name: "B" },
+		});
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		await waitFor(() => expect(router.invalidate).toHaveBeenCalledTimes(1));
+		expect(readComposerDraft(scope)).toBeNull();
+		client.clear();
+	});
+
+	it("ignores an older replacement-account read after a newer invalidation", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		const staleRead = createDeferred<DesktopSession>();
+		bridge.session
+			.mockReturnValueOnce(staleRead.promise)
+			.mockResolvedValueOnce({
+				user: { id: "account-a", email: "a@example.com", name: "A" },
+			});
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		act(onSessionChanged);
+		await act(() =>
+			staleRead.resolve({
+				user: { id: "account-b", email: "b@example.com", name: "B" },
+			})
+		);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(router.invalidate).toHaveBeenCalledTimes(1));
+		expect(readComposerDraft(scope)?.text).toBe("Private draft");
+		client.clear();
+	});
+
+	it("keeps native invalidation authoritative when focus supersedes its pending session read", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		const staleRead = createDeferred<DesktopSession>();
+		const replacementSession = {
+			user: { id: "account-b", email: "b@example.com", name: "B" },
+		};
+		bridge.session
+			.mockReturnValueOnce(staleRead.promise)
+			.mockResolvedValueOnce(replacementSession);
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+
+		act(onSessionChanged);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		act(() => window.dispatchEvent(new Event("focus")));
+		await act(() => staleRead.resolve(replacementSession));
+
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(router.invalidate).toHaveBeenCalledTimes(1));
+		expect(readComposerDraft(scope)).toBeNull();
+		client.clear();
+	});
+
+	it("preserves new-account drafts after Desktop Entry completes the account handoff", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		const staleSignOutRead = createDeferred<DesktopSession>();
+		const accountA = {
+			user: { id: "account-a", email: "a@example.com", name: "A" },
+		};
+		const accountB = {
+			user: { id: "account-b", email: "b@example.com", name: "B" },
+		};
+		bridge.session
+			.mockResolvedValueOnce(accountA)
+			.mockReturnValueOnce(staleSignOutRead.promise)
+			.mockResolvedValueOnce(accountB);
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		const page = () => (
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const view = render(page());
+
+		act(() => window.dispatchEvent(new Event("focus")));
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
+
+		await completeAccountAuthChange(client, "signed-out");
+		native.pathname = "/desktop-shell";
+		view.rerender(page());
+		await act(() => staleSignOutRead.resolve({ user: null }));
+
+		seedAccountSession(client, "account-b");
+		native.pathname = "/o/team/spaces";
+		view.rerender(page());
+		const accountBDraft = {
+			kind: "space" as const,
+			ownerAccountId: "account-b",
+			profileId: "human-b",
+			spaceId: "account-b-space",
+		};
+		writeComposerDraft(accountBDraft, privateDraft());
+		act(() => window.dispatchEvent(new Event("focus")));
+
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(3));
+		expect(readComposerDraft(accountBDraft)?.text).toBe("Private draft");
+		client.clear();
+	});
+
+	it("does not apply a replacement-account read after the Desktop frame is disposed", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		const revalidation = createDeferred<DesktopSession>();
+		bridge.session.mockReturnValueOnce(revalidation.promise);
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		const view = render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+		act(onSessionChanged);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		view.unmount();
+		await act(() =>
+			revalidation.resolve({
+				user: { id: "account-b", email: "b@example.com", name: "B" },
+			})
+		);
+		expect(readComposerDraft(scope)?.text).toBe("Private draft");
+		expect(router.invalidate).not.toHaveBeenCalled();
+		client.clear();
+	});
+
 	it("closes both history directions on native session invalidation before the new account read completes", async () => {
 		const history = createMemoryHistory({ initialEntries: ["/o/team/spaces"] });
 		router.history = history;
@@ -182,5 +444,43 @@ describe("Desktop document hydration", () => {
 		queryClient.clear();
 	});
 });
+
+function draftScope() {
+	return {
+		kind: "space" as const,
+		ownerAccountId: "account-a",
+		profileId: "human-a",
+		spaceId: "unmounted-space",
+	};
+}
+
+function privateDraft() {
+	return createComposerDraftRecord({
+		...EMPTY_COMPOSER_DRAFT_CONTENT,
+		text: "Private draft",
+	});
+}
+
+function createDeferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((promiseResolve) => {
+		resolve = promiseResolve;
+	});
+	return { promise, resolve };
+}
+
+function seedAccountSession(client: QueryClient, accountId: string) {
+	client.setQueryData(userQueryKeys.session, {
+		session: { id: "session-a" },
+		user: {
+			id: accountId,
+			email: "a@example.com",
+			name: "A",
+			image: null,
+			emailVerified: true,
+			createdAt: "2026-09-16T00:00:00.000Z",
+		},
+	});
+}
 
 import { runInNewContext } from "node:vm";

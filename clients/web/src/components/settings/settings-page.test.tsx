@@ -1,3 +1,4 @@
+import { Dialog } from "@openmeld/ui/components/dialog";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -30,6 +31,7 @@ const testSettingsSections = buildSettingsSections(TEST_ORG_SLUG);
 const getActiveOrganizationMemberRoleMock = vi.hoisted(() =>
 	vi.fn().mockResolvedValue("owner")
 );
+const getDesktopPlatformMock = vi.hoisted(() => vi.fn());
 let currentOrganization: OrganizationSummary = {
 	id: "org-acme",
 	name: "Acme",
@@ -52,6 +54,10 @@ vi.mock("@tanstack/react-router", async () => {
 		),
 	};
 });
+
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: getDesktopPlatformMock,
+}));
 
 vi.mock("#/query/organizations/invitation-requests", () => ({
 	useInvitationReviewCount: () => ({ data: 0 }),
@@ -125,6 +131,7 @@ vi.mock("./account-section", () => ({
 
 afterEach(() => {
 	cleanup();
+	getDesktopPlatformMock.mockReset();
 	currentOrganization = {
 		id: "org-acme",
 		name: "Acme",
@@ -133,6 +140,26 @@ afterEach(() => {
 });
 
 describe("Web Settings capability gating", () => {
+	it("keeps one dialog and real navigation through the cold panel load", async () => {
+		render(
+			<TestQueryClientProvider>
+				<Dialog open>
+					<SettingsPage
+						activeSectionId="account"
+						onNavigate={vi.fn()}
+						presentation="dialog"
+					/>
+				</Dialog>
+			</TestQueryClientProvider>
+		);
+		const dialog = screen.getByRole("dialog", { name: "App settings" });
+		expect(screen.getByRole("button", { name: "Appearance" })).toBeTruthy();
+		expect(
+			screen.getByRole("status", { name: "Loading settings" })
+		).toBeTruthy();
+		await screen.findByText("Account settings content");
+		expect(screen.getByRole("dialog", { name: "App settings" })).toBe(dialog);
+	});
 	it("drops the local-service Service section on a plain Web (cloud) host", () => {
 		const sections = resolveSettingsSections(
 			testSettingsSections,
@@ -204,6 +231,43 @@ describe("Web Settings capability gating", () => {
 });
 
 describe("Settings grouped navigation", () => {
+	it("places Desktop Updates after Privacy and before Send feedback", () => {
+		getDesktopPlatformMock.mockReturnValue({});
+		const navItems = toSettingsNavItems(
+			resolveSettingsSections(
+				buildSettingsSections(TEST_ORG_SLUG),
+				CLOUD_CAPABILITIES
+			)
+		);
+
+		render(
+			<SettingsInnerSidebar
+				activeSectionId="updates"
+				isPersonalWorkspace={false}
+				items={navItems}
+				onSendFeedback={vi.fn()}
+				organizationName="Acme"
+				organizationRole="owner"
+			/>
+		);
+
+		const personalNavigation = screen.getByRole("navigation", {
+			name: "Personal settings",
+		});
+		expect(
+			Array.from(personalNavigation.querySelectorAll("a, button")).map(
+				(item) => item.textContent
+			)
+		).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Updates",
+			"Send feedback",
+		]);
+	});
+
 	it("uses section actions instead of full-page links inside the dialog", () => {
 		const onNavigate = vi.fn();
 		render(

@@ -16,6 +16,7 @@ import {
   isPersonalRemoteAgentProductTool,
 } from "../agent-core/personal-remote-agent-tools";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import { resolveRemoteAgentToolCallLimit } from "../agent-core/tool-progress";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
   type RemoteAgentComputerFileHandoff,
@@ -35,6 +36,7 @@ import {
 } from "./tool-execution";
 
 export async function getRemoteAgentFlueTools(input: {
+  callLimit?: number;
   replyRecovery?: boolean;
   personalAgent?: boolean;
   sharedSpaceContextEnabled?: boolean;
@@ -57,6 +59,9 @@ export async function getRemoteAgentFlueTools(input: {
   if (input.replyRecovery) {
     return [];
   }
+  const callLimit =
+    input.callLimit ??
+    resolveRemoteAgentToolCallLimit(input.env?.REMOTE_AGENT_TOOL_CALL_LIMIT);
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
@@ -114,6 +119,7 @@ export async function getRemoteAgentFlueTools(input: {
   const directTools = [...definitions, ...capabilityDiscoveryDefinitions].map(
     (definition) =>
       toFlueTool({
+        callLimit,
         definition,
         storage: input.storage,
         submissionId: input.submissionId,
@@ -123,6 +129,7 @@ export async function getRemoteAgentFlueTools(input: {
     throw new Error("Remote Agent Code Mode Worker Loader is unavailable.");
   }
   const codeModeTool = await createRemoteAgentCodeModeFlueTool({
+    callLimit,
     coreWorker: input.coreWorker,
     definitions,
     env: input.env,
@@ -135,6 +142,7 @@ export async function getRemoteAgentFlueTools(input: {
 }
 
 function toFlueTool(input: {
+  callLimit?: number;
   definition: RemoteAgentToolDefinition;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -149,6 +157,7 @@ function toFlueTool(input: {
         output: toBoundedRemoteAgentToolResult({
           toolName: definition.name,
           value: await executeRemoteAgentToolDefinition({
+            callLimit: input.callLimit,
             definition,
             signal,
             source: "direct",

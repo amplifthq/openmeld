@@ -9,4 +9,6 @@ audiences: ["users"]
 Download Desktop from the Web account menu. Installed Desktop can check for a
 new version, show download progress, and restart to update when you choose.
 Choosing Later keeps the current version installed. Restart waits until drafts
-can be saved and pending messages and uploads are finished.
+can be saved and pending messages and uploads are finished. Updates in Settings
+keeps the installed version visible while showing the available version and its
+current download or restart state separately.

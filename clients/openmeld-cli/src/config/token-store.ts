@@ -20,6 +20,7 @@ const MAC_OS_KEYCHAIN_NONINTERACTIVE_UNAVAILABLE_MESSAGE =
 const COMMAND_MAX_BUFFER_BYTES = 1024 * 1024;
 const COMMAND_TIMEOUT_MS = 30_000;
 const TOKEN_FILE_KEY_PATTERN = /^[a-f0-9]{64}$/u;
+const COMMAND_ERROR_CODE_PATTERN = /^E[A-Z0-9_]{1,63}$/u;
 const EXEC_FILE_BASE_OPTIONS = {
   windowsHide: true,
   maxBuffer: COMMAND_MAX_BUFFER_BYTES,
@@ -150,7 +151,8 @@ export async function storeAccessToken(
         };
       }
       throw new Error(
-        `failed to store access token via Windows DPAPI: ${toErrorMessage(error)}`
+        `failed to store access token via Windows DPAPI: ${toErrorMessage(error)}`,
+        { cause: error }
       );
     }
   }
@@ -458,7 +460,7 @@ async function runCommand(
         });
 
         child.on("error", (error) => {
-          reject(toCommandError(error, command));
+          reject(error);
         });
 
         child.on("close", (code) => {
@@ -466,14 +468,7 @@ async function runCommand(
             resolve({ stdout, stderr });
             return;
           }
-          reject(
-            toCommandError(
-              {
-                message: `command failed (${command}) with exit code ${code}`,
-              },
-              command
-            )
-          );
+          reject({ code, stderr });
         });
 
         child.stdin?.write(stdinPayload);
@@ -489,31 +484,38 @@ async function runCommand(
 function toCommandError(
   error: unknown,
   command: string
-): Error & { code?: number | null; stdout?: string; stderr?: string } {
-  if (!(error && typeof error === "object")) {
-    return new Error(`command failed (${command}): ${String(error)}`);
+): Error & { code: number | string | null } {
+  const details =
+    error && typeof error === "object"
+      ? (error as { code?: unknown; stderr?: unknown })
+      : {};
+  let code: number | string | null = null;
+  if (typeof details.code === "number" && Number.isInteger(details.code)) {
+    code = details.code;
+  } else if (
+    typeof details.code === "string" &&
+    COMMAND_ERROR_CODE_PATTERN.test(details.code)
+  ) {
+    code = details.code;
   }
-  const e = error as NodeJS.ErrnoException & {
-    stdout?: string;
-    stderr?: string;
-    code?: number | null | string;
-  };
-  const code = typeof e.code === "number" ? e.code : null;
-  const messageParts = [`command failed (${command})`];
-  if (typeof e.stderr === "string" && e.stderr.trim()) {
-    messageParts.push(`stderr: ${e.stderr.trim()}`);
-  } else if (e.message) {
-    messageParts.push(e.message);
+  // Only fixed script markers may become diagnostics. stdout is a decrypted
+  // token, and PowerShell/Node error messages can include input or command text.
+  const marker =
+    typeof details.stderr === "string" ? details.stderr.trim() : "";
+  let reason = "PowerShell did not complete the credential operation";
+  if (typeof code === "string") {
+    reason = "PowerShell could not be started or executed";
+  } else if (marker === "OPENMELD_DPAPI_ASSEMBLY_LOAD_FAILED") {
+    reason = "Windows credential encryption could not be initialized";
+  } else if (marker === "OPENMELD_DPAPI_OPERATION_FAILED") {
+    reason = "Windows could not encrypt or decrypt the stored credential";
   }
-  const wrapped = new Error(messageParts.join("; ")) as Error & {
-    code?: number | null;
-    stdout?: string;
-    stderr?: string;
-  };
-  wrapped.code = code;
-  wrapped.stdout = e.stdout;
-  wrapped.stderr = e.stderr;
-  return wrapped;
+  return Object.assign(
+    new Error(
+      `command failed (${command}); ${reason}; ${code === null ? "no exit code" : `code: ${code}`}`
+    ),
+    { code }
+  );
 }
 
 function normalizeString(value: unknown): string {
@@ -573,20 +575,26 @@ function isFileNotFoundError(error: unknown): boolean {
 
 const WINDOWS_DPAPI_ENCRYPT_SCRIPT = [
   "$ErrorActionPreference='Stop'",
+  "try { Add-Type -AssemblyName System.Security -ErrorAction Stop } catch { [Console]::Error.WriteLine('OPENMELD_DPAPI_ASSEMBLY_LOAD_FAILED'); exit 1 }",
+  "try {",
   "$rawInput = [Console]::In.ReadToEnd()",
   "$payload = $rawInput | ConvertFrom-Json",
   "$plain=[System.Text.Encoding]::UTF8.GetBytes($payload.token)",
   "$entropy=[System.Text.Encoding]::UTF8.GetBytes($payload.entropy)",
   "$cipher=[System.Security.Cryptography.ProtectedData]::Protect($plain,$entropy,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)",
   "[System.Convert]::ToBase64String($cipher)",
+  "} catch { [Console]::Error.WriteLine('OPENMELD_DPAPI_OPERATION_FAILED'); exit 1 }",
 ].join(";");
 
 const WINDOWS_DPAPI_DECRYPT_SCRIPT = [
   "$ErrorActionPreference='Stop'",
+  "try { Add-Type -AssemblyName System.Security -ErrorAction Stop } catch { [Console]::Error.WriteLine('OPENMELD_DPAPI_ASSEMBLY_LOAD_FAILED'); exit 1 }",
+  "try {",
   "$rawInput = [Console]::In.ReadToEnd()",
   "$payload = $rawInput | ConvertFrom-Json",
   "$cipher=[System.Convert]::FromBase64String($payload.token)",
   "$entropy=[System.Text.Encoding]::UTF8.GetBytes($payload.entropy)",
   "$plain=[System.Security.Cryptography.ProtectedData]::Unprotect($cipher,$entropy,[System.Security.Cryptography.DataProtectionScope]::CurrentUser)",
   "[System.Text.Encoding]::UTF8.GetString($plain)",
+  "} catch { [Console]::Error.WriteLine('OPENMELD_DPAPI_OPERATION_FAILED'); exit 1 }",
 ].join(";");

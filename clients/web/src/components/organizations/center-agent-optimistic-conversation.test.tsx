@@ -44,10 +44,26 @@ describe("CenterAgentOptimisticConversation", () => {
 		).toBeTruthy();
 	});
 
-	it("shows the Center Agent thinking while a route-level message is queued", () => {
-		render(
+	it("keeps the intro mounted above the queued message and sending status", () => {
+		const intro = <h2>What should we work on?</h2>;
+		const view = render(
+			<CenterAgentOptimisticConversation
+				composerText="Prepare my weekly update."
+				empty
+				emptyContent={intro}
+				onComposerChange={vi.fn()}
+				onSend={vi.fn()}
+				pendingMessage={null}
+			/>
+		);
+		const originalIntro = screen.getByRole("heading", {
+			name: "What should we work on?",
+		});
+		view.rerender(
 			<CenterAgentOptimisticConversation
 				composerText=""
+				empty
+				emptyContent={intro}
 				onComposerChange={vi.fn()}
 				onSend={vi.fn()}
 				pendingMessage={{
@@ -59,6 +75,14 @@ describe("CenterAgentOptimisticConversation", () => {
 		);
 
 		const optimisticReply = screen.getByTestId("center-agent-optimistic-reply");
+		expect(
+			screen.getByRole("heading", { name: "What should we work on?" })
+		).toBe(originalIntro);
+		expect(
+			originalIntro.compareDocumentPosition(
+				screen.getByText("Prepare my weekly update.")
+			)
+		).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 		const status = within(optimisticReply).getByRole("status", {
 			name: "Sending to Agent…",
 		});

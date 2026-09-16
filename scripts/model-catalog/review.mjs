@@ -11,11 +11,19 @@ const cell = (value) =>
     .replaceAll(">", "&gt;");
 
 export function discoveryCandidates(evidence, current, discoverySince) {
-  const existing = new Set(
-    current.agentControllers[evidence.controller].models.map(
-      (model) => model.id
-    )
+  const existingIds = current.agentControllers[evidence.controller].models.map(
+    (model) => model.id
   );
+  const existing = new Set(existingIds);
+  const existingCursorIdsByBase = new Map();
+  if (evidence.controller === "cursor") {
+    for (const id of existingIds) {
+      const baseId = id.split("[", 1)[0];
+      const matchingIds = existingCursorIdsByBase.get(baseId) ?? [];
+      matchingIds.push(id);
+      existingCursorIdsByBase.set(baseId, matchingIds);
+    }
+  }
   return evidence.sources
     .filter((source) => source.kind === "discovery-only")
     .flatMap((source) =>
@@ -26,16 +34,27 @@ export function discoveryCandidates(evidence, current, discoverySince) {
               !(discoverySince && model.release_date) ||
               model.release_date >= discoverySince
           )
+          .map((model) => {
+            const candidateId =
+              ["opencode", "opencode-go"].includes(provider) ||
+              evidence.controller === "opencode"
+                ? `${provider}/${model.id}`
+                : model.id;
+            return {
+              matchingExistingIds:
+                evidence.controller === "cursor"
+                  ? (existingCursorIdsByBase.get(model.id) ?? [])
+                  : [],
+              candidateId,
+              model,
+              provider,
+              url: source.url,
+            };
+          })
           .filter(
-            (model) =>
-              !existing.has(
-                ["opencode", "opencode-go"].includes(provider) ||
-                  evidence.controller === "opencode"
-                  ? `${provider}/${model.id}`
-                  : model.id
-              )
+            ({ candidateId, matchingExistingIds }) =>
+              matchingExistingIds.length > 0 || !existing.has(candidateId)
           )
-          .map((model) => ({ provider, model, url: source.url }))
       )
     );
 }
@@ -64,6 +83,19 @@ function sourceComparison(evidence) {
     }
   }
   return rows;
+}
+
+function discoveryCandidateStatus(candidate, changes) {
+  if (candidate.matchingExistingIds.length > 0) {
+    const exactIds = candidate.matchingExistingIds
+      .map((id) => `\`${cell(id)}\``)
+      .join(", ");
+    return `Already cataloged; additional ACP variants require review. Existing exact IDs: ${exactIds}`;
+  }
+  if (changes.some((change) => change.modelId === candidate.model.id)) {
+    return "Added from official harness evidence";
+  }
+  return "Discovery only; exact harness ID, variants and account access unverified";
 }
 
 function excerpts(evidence, candidates) {
@@ -119,13 +151,13 @@ export function renderBatchReview(evidences, config, current) {
     const table = candidates.length
       ? `| Discovery provider / model | Release date | Discovery reasoning | Status |\n| --- | --- | --- | --- |\n${candidates
           .map(
-            ({ provider, model }) =>
-              `| ${cell(provider)}/${cell(model.id)} | ${cell(model.release_date)} | ${cell(
-                model.reasoning_options
+            (candidate) =>
+              `| ${cell(candidate.provider)}/${cell(candidate.model.id)} | ${cell(candidate.model.release_date)} | ${cell(
+                candidate.model.reasoning_options
                   ?.filter((option) => option.type === "effort")
                   .flatMap((option) => option.values ?? [])
                   .join(", ") || "not declared"
-              )} | ${changes.some((change) => change.modelId === model.id) ? "Added from official harness evidence" : "Discovery only; exact harness ID, variants and account access unverified"} |`
+              )} | ${discoveryCandidateStatus(candidate, changes)} |`
           )
           .join("\n")}`
       : "No uncataloged candidates in this run's configured discovery scope. This is not proof that no other models exist.";

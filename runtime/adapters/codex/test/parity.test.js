@@ -1622,9 +1622,6 @@ test(
           OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
         },
         prompt: "launch the official packaged native runtime",
-        // This is a real child-process startup under the full parallel suite.
-        // Keep the assertion bounded without making scheduler contention the test.
-        startupTimeoutMs: 3000,
         taskId: "task-native-runtime",
         threadId: null,
       });

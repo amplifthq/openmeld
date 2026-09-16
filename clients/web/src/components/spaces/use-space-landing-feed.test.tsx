@@ -3,6 +3,10 @@ import {
 	SPACE_STREAM_KEEPALIVE_PONG,
 } from "@openmeld/protocol";
 import type {
+	DesktopSpaceStreamBridge,
+	DesktopSpaceStreamEvent,
+} from "@openmeld/schemas";
+import type {
 	SignalEnvelope,
 	SpaceAgentStreamSnapshot,
 } from "@openmeld/schemas/types";
@@ -328,6 +332,55 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		await openLatestSocket();
 		await act(async () => FakeWebSocket.latest.emitAccessRevoked());
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
+	});
+
+	it("refreshes authority from the Desktop native close metadata", () => {
+		let deliver: ((event: DesktopSpaceStreamEvent) => void) | undefined;
+		const open = vi.fn().mockResolvedValue(undefined);
+		const bridge: DesktopSpaceStreamBridge = {
+			spaceStreamOpen: open,
+			spaceStreamPing: vi.fn().mockResolvedValue(undefined),
+			spaceStreamClose: vi.fn().mockResolvedValue(undefined),
+			onSpaceStream: (listener) => {
+				deliver = listener;
+				return vi.fn();
+			},
+		};
+		Object.defineProperty(window, "openmeldDesktop", {
+			configurable: true,
+			value: bridge,
+		});
+		try {
+			const { statusRefetch } = renderFeed();
+			const subscription = open.mock.calls[0]?.[0];
+			if (!(subscription && deliver)) {
+				throw new Error("Expected a native subscription");
+			}
+			act(() => {
+				deliver?.({ id: subscription.id, type: "open" });
+				deliver?.({
+					id: subscription.id,
+					type: "message",
+					data: JSON.stringify({
+						type: "system.hello.ack",
+						profile: {
+							kind: "human",
+							profileId: "11111111-1111-1111-1111-111111111111",
+						},
+					}),
+				});
+				deliver?.({
+					id: subscription.id,
+					type: "close",
+					code: 1008,
+					reason: "space_access_changed",
+				});
+			});
+
+			expect(statusRefetch).toHaveBeenCalledTimes(1);
+		} finally {
+			Reflect.deleteProperty(window, "openmeldDesktop");
+		}
 	});
 
 	it("does not report the Space live before Core accepts the subscription", async () => {

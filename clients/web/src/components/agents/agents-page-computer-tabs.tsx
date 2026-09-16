@@ -250,8 +250,9 @@ export function ComputerActionsDialog(input: {
 				<DialogHeader>
 					<DialogTitle>Computer details</DialogTitle>
 					<DialogDescription>
-						Review this computer, rename it, or remove it from this OpenMeld
-						account.
+						{canConfigureLocalComputer()
+							? "Review this computer, rename it, or remove it from this OpenMeld account."
+							: "Review this computer or remove it from this OpenMeld account."}
 					</DialogDescription>
 				</DialogHeader>
 
@@ -386,44 +387,42 @@ export function ComputerActionsDialog(input: {
 						</div>
 					) : null}
 
-					{canConfigureLocalComputer() ? (
-						<div className="space-y-3 rounded-md border border-destructive/30 p-3">
-							<div>
-								<h3 className="font-medium text-destructive text-sm">
-									Remove computer
-								</h3>
-								<p className="text-muted-foreground text-xs">
-									{input.recordState.kind === "older_same_name_record"
-										? "Remove this older record if you no longer use it."
-										: "Remove this computer record from your OpenMeld account."}
-								</p>
-							</div>
-							<ForgetThisComputerAction
-								compact
-								computerName={input.computer.deviceDisplayName}
-								helperText={null}
-								onForget={async () => {
-									setMessage(null);
-									await input.recovery.forgetComputer({
-										deviceId: input.computer.deviceId,
-									});
-								}}
-								onForgotten={() => {
-									setMessage(
-										input.computer.isCurrent
-											? "This computer was forgotten. Set it up again when you want local agents here."
-											: "This computer was forgotten."
-									);
-									input.recovery.refreshAll().catch((error: unknown) => {
-										console.error(
-											"Failed to refresh computers after forgetting one.",
-											error
-										);
-									});
-								}}
-							/>
+					<div className="space-y-3 rounded-md border border-destructive/30 p-3">
+						<div>
+							<h3 className="font-medium text-destructive text-sm">
+								Remove computer
+							</h3>
+							<p className="text-muted-foreground text-xs">
+								{input.recordState.kind === "older_same_name_record"
+									? "Remove this older record if you no longer use it."
+									: "Remove this computer record from your OpenMeld account."}
+							</p>
 						</div>
-					) : null}
+						<ForgetThisComputerAction
+							compact
+							computerName={input.computer.deviceDisplayName}
+							helperText={null}
+							onForget={async () => {
+								setMessage(null);
+								await input.recovery.forgetComputer({
+									deviceId: input.computer.deviceId,
+								});
+							}}
+							onForgotten={() => {
+								setMessage(
+									input.computer.isCurrent
+										? "This computer was forgotten. Set it up again when you want local agents here."
+										: "This computer was forgotten."
+								);
+								input.recovery.refreshAll().catch((error: unknown) => {
+									console.error(
+										"Failed to refresh computers after forgetting one.",
+										error
+									);
+								});
+							}}
+						/>
+					</div>
 
 					{message ? (
 						<p

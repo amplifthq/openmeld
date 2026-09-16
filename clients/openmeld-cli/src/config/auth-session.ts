@@ -1441,7 +1441,9 @@ export async function updateAuthSessionActiveOrganization(
   });
 }
 
-export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
+export async function clearAuthSession(
+  expectedSession?: AuthSessionMetadata
+): Promise<ClearAuthSessionResult> {
   return await withAuthSessionTransitionMutationLock(async () => {
     await assertAuthSessionMutationAvailableWithOwnership();
     cachedAuthSession = null;
@@ -1451,6 +1453,9 @@ export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
     try {
       payload = await readSessionPayloadFile();
     } catch (error) {
+      if (expectedSession) {
+        throw error;
+      }
       if (
         !(
           error instanceof AuthSessionStorageError && error.reason === "corrupt"
@@ -1468,6 +1473,10 @@ export async function clearAuthSession(): Promise<ClearAuthSessionResult> {
       await rename(authSessionPath(), preservedSessionPath);
       return { hadLocalSession, preservedSessionPath };
     }
+    assertExpectedPreviousSession({
+      current: buildAuthSessionMetadata(payload),
+      expected: expectedSession,
+    });
     if (payload?.v === 1 && isStoredTokenRef(payload.tokenRef)) {
       await deleteAccessTokenOrRetainForCleanup(payload.tokenRef);
     }

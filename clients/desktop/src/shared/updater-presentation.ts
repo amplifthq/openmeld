@@ -17,7 +17,9 @@ export function desktopUpdaterPresentation(state: DesktopUpdaterState): {
       };
     case "downloaded":
       return {
-        message: "Your update is ready.",
+        message: state.version
+          ? `Version ${state.version} is ready to install.`
+          : "The update is ready to install.",
         action: "restart",
         label: "Restart to update",
       };
@@ -25,12 +27,27 @@ export function desktopUpdaterPresentation(state: DesktopUpdaterState): {
       return { message: "Checking for updates…" };
     case "downloading":
       return {
-        message: `Downloading update… ${Math.round(state.percent ?? 0)}%`,
+        message: [
+          state.version
+            ? `Downloading version ${state.version}…`
+            : "Downloading update…",
+          state.percent === null ? null : `${Math.round(state.percent)}%`,
+        ]
+          .filter(Boolean)
+          .join(" "),
       };
     case "preparing":
-      return { message: "Saving before restart…" };
+      return {
+        message: state.version
+          ? `Saving before installing version ${state.version}…`
+          : "Saving before restart…",
+      };
     case "installing":
-      return { message: "Restarting to update…" };
+      return {
+        message: state.version
+          ? `Restarting to install version ${state.version}…`
+          : "Restarting to update…",
+      };
     case "unavailable":
       return {
         message: "Updates are available in the installed production app.",
@@ -70,7 +87,7 @@ export function desktopUpdaterPresentation(state: DesktopUpdaterState): {
       };
     default:
       return {
-        message: `OpenMeld Desktop ${state.currentVersion}`,
+        message: "Check for a newer version of OpenMeld Desktop.",
         action: "check",
         label: "Check for updates",
       };

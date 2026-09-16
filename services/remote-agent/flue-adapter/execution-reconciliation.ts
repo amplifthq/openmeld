@@ -8,11 +8,13 @@ import {
   type RemoteAgentCallbackContext,
   type RemoteAgentCoreWorkerBinding,
   type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
   completeRemoteAgentExecutionState,
   RemoteAgentTerminalExecutionOwnerMissingError,
   readRemoteAgentExecutionState,
+  readRemoteAgentRequestedExecutionFailure,
   resolveRemoteAgentTerminalExecutionOutcome,
 } from "../agent-core/execution-state";
 import {
@@ -20,10 +22,12 @@ import {
   projectRemoteAgentTerminalOutcomeToCallback,
 } from "../agent-core/terminal-callback-projection";
 import { createRemoteAgentTerminalFailureFact } from "../agent-core/terminal-failure";
+import { finishRemoteAgentComputerCommands } from "./execution-cleanup";
 
 export type FlueSubmissionLifecycle = Pick<AgentSubmission, "error" | "status">;
 
 export async function reconcileSettledRemoteAgentExecutionFailures(input: {
+  env?: { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   readSubmission: (
@@ -52,6 +56,7 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
   for (const context of candidates.values()) {
     try {
       const result = await reconcileRemoteAgentExecution({
+        env: input.env,
         coreWorker: input.coreWorker,
         identity: {
           idempotencyKey: context.idempotencyKey,
@@ -82,6 +87,7 @@ export async function reconcileSettledRemoteAgentExecutionFailures(input: {
 }
 
 export async function reconcileRemoteAgentExecution(input: {
+  env?: { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   identity: RemoteAgentWorkerExecutionQuery;
   nowMs?: () => number;
@@ -121,27 +127,40 @@ export async function reconcileRemoteAgentExecution(input: {
   }
 
   const cancelled = current.execution.status === "cancellation_requested";
+  const requestedFailure =
+    await readRemoteAgentRequestedExecutionFailure(input);
   // Successful settlement can precede the observer callback. A durable Flue
-  // error or an already-requested cancellation is the only terminal fact this
-  // reconciler is allowed to project.
-  if (!(cancelled || submission.error)) {
+  // error, requested safety failure, or cancellation is required before this
+  // reconciler can settle a failure. Cleanup still has to complete first.
+  if (!(cancelled || submission.error || requestedFailure)) {
     return current;
   }
 
   const nowMs = input.nowMs?.() ?? Date.now();
+
+  await finishRemoteAgentComputerCommands({
+    context: await readRemoteAgentCallbackContext(
+      input.storage,
+      input.identity.submissionId
+    ),
+    env: input.env,
+    storage: input.storage,
+  });
 
   const settledExecution = await completeRemoteAgentExecutionState({
     identity: input.identity,
     nowMs,
     status: cancelled ? "aborted" : "failed",
     storage: input.storage,
-    terminalFailure: createRemoteAgentTerminalFailureFact({
-      error: cancelled
-        ? (current.execution.cancellationReason ??
-          "Remote Agent execution was cancelled.")
-        : submission.error,
-      status: cancelled ? "aborted" : "failed",
-    }),
+    terminalFailure:
+      requestedFailure ??
+      createRemoteAgentTerminalFailureFact({
+        error: cancelled
+          ? (current.execution.cancellationReason ??
+            "Remote Agent execution was cancelled.")
+          : submission.error,
+        status: cancelled ? "aborted" : "failed",
+      }),
   });
   await projectRemoteAgentTerminalExecution({
     coreWorker: input.coreWorker,

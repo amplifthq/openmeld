@@ -1,4 +1,5 @@
 import { SettingsDialogContent } from "@openmeld/ui/components/settings-dialog-content";
+import { Skeleton } from "@openmeld/ui/components/skeleton";
 import {
 	resolveHostCapabilities,
 	resolveSettingsSections,
@@ -20,8 +21,8 @@ import {
 	UsersIcon,
 } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { redirect, useLocation } from "@tanstack/react-router";
-import { type ReactNode, useState } from "react";
+import { redirect } from "@tanstack/react-router";
+import { type ReactNode, Suspense, useEffect, useState } from "react";
 import {
 	AppContextualContentFrame,
 	type AppContextualNavGroup,
@@ -56,9 +57,9 @@ const PERSONAL_SETTINGS_SECTION_IDS = [
 	"account",
 	"appearance",
 	"notifications",
-	"updates",
 	"service",
 	"privacy",
+	"updates",
 ] as const;
 const ORGANIZATION_SETTINGS_SECTION_IDS = [
 	"general",
@@ -98,7 +99,6 @@ export function SettingsPage(input: {
 	presentation?: "page" | "dialog";
 	onNavigate?: (section: string) => void;
 }) {
-	const pathname = useLocation({ select: (location) => location.pathname });
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const orgSlug = currentOrganization.slug;
 	const sections = resolveSettingsSections(
@@ -107,9 +107,19 @@ export function SettingsPage(input: {
 	);
 	const navItems = toSettingsNavItems(sections);
 
-	const activeSection = sections.find(
+	const requestedSection = sections.find(
 		(section) => section.id === input.activeSectionId
 	);
+	const activeSection =
+		requestedSection ??
+		(input.presentation === "dialog"
+			? sections.find((section) => section.id === "account")
+			: undefined);
+	useEffect(() => {
+		if (!requestedSection && input.presentation === "dialog") {
+			input.onNavigate?.("account");
+		}
+	}, [requestedSection, input.presentation, input.onNavigate]);
 
 	// Gated-route guard: if the active leaf's section was filtered out by host
 	// capability (e.g. /o/:orgSlug/settings/service on a plain Web host, which lacks
@@ -117,13 +127,6 @@ export function SettingsPage(input: {
 	// the requested URL. Redirect to the always-present Account leaf instead.
 	// This also protects any future gated leaf added to the registry.
 	if (!activeSection) {
-		if (input.presentation === "dialog") {
-			throw redirect({
-				to: pathname,
-				replace: true,
-				search: (previous) => ({ ...previous, appSettings: "account" }),
-			});
-		}
 		throw redirect({
 			replace: true,
 			to: buildOrganizationAccountSettingsPath(orgSlug),
@@ -133,7 +136,7 @@ export function SettingsPage(input: {
 	return (
 		<SettingsPageShell
 			activeSection={activeSection}
-			activeSectionId={input.activeSectionId}
+			activeSectionId={activeSection.id}
 			currentUserId={currentUserId}
 			initialSidebarStates={input.initialSidebarStates}
 			navItems={navItems}
@@ -179,9 +182,14 @@ function SettingsPageShell(input: {
 			presentation={input.presentation}
 		/>
 	);
-	const content = input.activeSection.render({
-		capabilities: WEB_HOST_CAPABILITIES,
-	});
+	const content = (
+		<Suspense
+			fallback={<SettingsContentSkeleton />}
+			key={input.activeSectionId}
+		>
+			{input.activeSection.render({ capabilities: WEB_HOST_CAPABILITIES })}
+		</Suspense>
+	);
 	if (input.presentation === "dialog") {
 		return (
 			<>
@@ -225,6 +233,26 @@ function SettingsPageShell(input: {
 			</AppSurfaceLayout>
 			<SendFeedbackDialog onOpenChange={setFeedbackOpen} open={feedbackOpen} />
 		</>
+	);
+}
+
+function SettingsContentSkeleton() {
+	return (
+		<output aria-label="Loading settings" className="block w-full space-y-8">
+			<div aria-hidden="true" className="space-y-3">
+				<Skeleton className="h-3 w-16 animate-none" />
+				<Skeleton className="h-7 w-40 animate-none" />
+				<Skeleton className="h-4 w-3/4 max-w-md animate-none" />
+			</div>
+			<div aria-hidden="true" className="space-y-6">
+				{[0, 1, 2].map((row) => (
+					<div className="space-y-3 border-border border-t pt-6" key={row}>
+						<Skeleton className="h-4 w-28 animate-none" />
+						<Skeleton className="h-9 w-full max-w-sm animate-none" />
+					</div>
+				))}
+			</div>
+		</output>
 	);
 }
 

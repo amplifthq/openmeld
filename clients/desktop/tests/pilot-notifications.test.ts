@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { desktopNotificationReferenceSchema } from "@openmeld/schemas";
+import { desktopNotificationActivationSchema } from "@openmeld/schemas";
 import type { InboxItem } from "@openmeld/schemas/types";
 import type { BrowserWindow, NotificationConstructorOptions } from "electron";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -56,6 +56,7 @@ const request = {
 };
 
 function setup(window: BrowserWindow | null = null) {
+  const setUnreadCount = vi.fn();
   const session = vi.fn(async () => ({
     user: { id: "user-a", name: "A", email: "a@example.com" },
   }));
@@ -73,6 +74,7 @@ function setup(window: BrowserWindow | null = null) {
       : Response.json({ item })
   );
   const notifications = createPilotNotifications({
+    setUnreadCount,
     auth: { session, cloudRequest },
     webOrigin: "https://openmeld.ai",
     webBuild: "a".repeat(64),
@@ -86,8 +88,69 @@ function setup(window: BrowserWindow | null = null) {
     enabled: true,
     visibleConversation: null,
   });
-  return { notifications, session, cloudRequest };
+  return { notifications, session, cloudRequest, setUnreadCount };
 }
+
+it("keeps the Inbox count independent of notification permission and clears it on logout", async () => {
+  const { notifications, setUnreadCount } = setup();
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: false,
+    visibleConversation: null,
+    unreadCount: 7,
+  });
+  expect(setUnreadCount).toHaveBeenLastCalledWith(7);
+  notifications.clear();
+  expect(setUnreadCount).toHaveBeenLastCalledWith(null);
+});
+
+it.each([
+  "logout",
+  "organization switch",
+])("rejects a count that completes after %s", async (change) => {
+  const { notifications, session, setUnreadCount } = setup();
+  const held = Promise.withResolvers<Awaited<ReturnType<typeof session>>>();
+  session.mockReturnValueOnce(held.promise);
+  const pending = notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: false,
+    visibleConversation: null,
+    unreadCount: 7,
+  });
+  if (change === "logout") {
+    notifications.clear();
+  } else {
+    await notifications.setContext({
+      userId: "user-a",
+      organizationId: "org-b",
+      enabled: false,
+      visibleConversation: null,
+      unreadCount: null,
+    });
+  }
+  held.resolve({ user: { id: "user-a", name: "A", email: "a@example.com" } });
+  await pending;
+  expect(setUnreadCount).toHaveBeenLastCalledWith(null);
+  expect(setUnreadCount).not.toHaveBeenCalledWith(7);
+});
+
+it("rejects a late old-account count after the native account changes", async () => {
+  const { notifications, session, setUnreadCount } = setup();
+  session.mockResolvedValue({
+    user: { id: "user-b", name: "B", email: "b@example.com" },
+  });
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    enabled: false,
+    visibleConversation: null,
+    unreadCount: 7,
+  });
+  expect(setUnreadCount).toHaveBeenLastCalledWith(null);
+  expect(setUnreadCount).not.toHaveBeenCalledWith(7);
+});
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -139,7 +202,7 @@ it.each([
 it.each([
   true,
   false,
-])("rechecks access before restoring the window on click: %s", async (authorized) => {
+])("shows the window promptly but rechecks access before sending a target: %s", async (authorized) => {
   const send = vi.fn();
   const window = {
     isDestroyed: () => false,
@@ -169,19 +232,90 @@ it.each([
     );
   }
   notification.emit("click");
+  expect(window.show).toHaveBeenCalledOnce();
+  expect(send).not.toHaveBeenCalled();
   await vi.waitFor(() => expect(cloudRequest).toHaveBeenCalledTimes(3));
   if (authorized) {
-    await vi.waitFor(() => expect(window.focus).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
     expect(window.restore).toHaveBeenCalledOnce();
-    const reference = desktopNotificationReferenceSchema.parse(
+    const reference = desktopNotificationActivationSchema.parse(
       send.mock.calls[0]?.[1]
     );
     expect(reference.itemId).toBe(item.id);
+    expect(reference.sourceTarget).toEqual(item.sourceTarget);
   } else {
     await vi.runAllTimersAsync();
-    expect(window.show).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   }
+  notifications.clear();
+});
+it.each([
+  ["new click", 1],
+  ["user navigation", 0],
+  ["the visible conversation finishes loading", 1],
+  ["the first navigation context arrives", 1],
+] as const)("handles a pending notification activation after %s", async (change, expectedSends) => {
+  const send = vi.fn();
+  const window = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    show: vi.fn(),
+    focus: vi.fn(),
+    webContents: { send },
+  };
+  const { notifications, cloudRequest } = setup(
+    window as unknown as BrowserWindow
+  );
+  if (change !== "the first navigation context arrives") {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: null,
+      navigationKey: "route-a",
+    });
+  }
+  const delivery = notifications.show(request);
+  await vi.waitFor(() => expect(native.created).toHaveBeenCalledOnce());
+  const notification = native.created.mock.calls[0]?.[0] as EventEmitter;
+  notification.emit("show");
+  await delivery;
+  let completeFirst!: (response: Response) => void;
+  cloudRequest.mockImplementationOnce(
+    () =>
+      new Promise<Response>((resolve) => {
+        completeFirst = resolve;
+      })
+  );
+  notification.emit("click");
+  await vi.waitFor(() => expect(completeFirst).toBeDefined());
+  if (change === "new click") {
+    notification.emit("click");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+  } else if (change === "user navigation") {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: null,
+      navigationKey: "user-opened-another-page",
+    });
+  } else {
+    await notifications.setContext({
+      userId: request.userId,
+      organizationId: request.organizationId,
+      enabled: true,
+      visibleConversation: {
+        kind: "space",
+        spaceId: "space-that-finished-loading",
+        threadRootSignalId: null,
+      },
+      navigationKey: "route-a",
+    });
+  }
+  completeFirst(Response.json({ item }));
+  await vi.runAllTimersAsync();
+  expect(send).toHaveBeenCalledTimes(expectedSends);
   notifications.clear();
 });
 afterEach(() => {

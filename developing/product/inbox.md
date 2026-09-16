@@ -644,9 +644,10 @@ optional delivery channels:
   then rechecks the committed member, Organization, item eligibility, and
   visible conversation immediately before creating the notification. Clicking
   the notification opens that refreshed item's canonical source target -- the
-  exact Space message or thread, Agent interaction, Center Agent conversation
-  Organization document, setting, or connected-channel message --
-  instead of routing through Inbox. A failed
+  exact Space message or thread, Agent interaction, Center Agent conversation,
+  Organization document, setting, or connected-channel message -- instead of
+  routing through Inbox. Repeating the same explicit click requests source focus
+  again even when its URL is unchanged. A failed
   revalidation remains pending and retryable. Unmounting the authenticated
   listener invalidates that context, so a delivery waiting on a browser lock
   cannot publish content from the previous account. Browser delivery never

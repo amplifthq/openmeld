@@ -1,20 +1,53 @@
 import { TEAMMATE_AGENT_REQUESTS_ENABLED } from "@openmeld/schemas";
 import type { SettingsSectionDef } from "@openmeld/ui/lib/settings-contract";
-import type { ReactNode } from "react";
+import { lazy, type ReactNode } from "react";
 import { APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME } from "#/components/app/app-contextual-layout-style";
-import { CenterAgentPrivacyPage } from "#/components/organizations/center-agent-privacy-page";
-import { CenterAgentSettingsPage } from "#/components/organizations/center-agent-settings-page";
-import { OrganizationSettingsPage } from "#/components/organizations/organization-settings-page";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { DesktopUpdatesSection } from "#/desktop/updater";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
-import { AccountSection } from "./account-section";
-import { AgentProfileCreationApprovalSettings } from "./agent-profile-creation-approval-settings";
-import { AppearanceSection } from "./appearance-section";
-import { NotificationsSection } from "./notifications-section";
-import { ReasoningStreamSetting } from "./reasoning-stream-setting";
 import { SettingsPlaceholderSection } from "./settings-placeholder-section";
+
+const AccountSection = lazy(() =>
+	import("./account-section").then((module) => ({
+		default: module.AccountSection,
+	}))
+);
+const AppearanceSection = lazy(() =>
+	import("./appearance-section").then((module) => ({
+		default: module.AppearanceSection,
+	}))
+);
+const NotificationsSection = lazy(() =>
+	import("./notifications-section").then((module) => ({
+		default: module.NotificationsSection,
+	}))
+);
+const ReasoningStreamSetting = lazy(() =>
+	import("./reasoning-stream-setting").then((module) => ({
+		default: module.ReasoningStreamSetting,
+	}))
+);
+const AgentProfileCreationApprovalSettings = lazy(() =>
+	import("./agent-profile-creation-approval-settings").then((module) => ({
+		default: module.AgentProfileCreationApprovalSettings,
+	}))
+);
+const CenterAgentPrivacyPage = lazy(() =>
+	import("#/components/organizations/center-agent-privacy-page").then(
+		(module) => ({ default: module.CenterAgentPrivacyPage })
+	)
+);
+const CenterAgentSettingsPage = lazy(() =>
+	import("#/components/organizations/center-agent-settings-page").then(
+		(module) => ({ default: module.CenterAgentSettingsPage })
+	)
+);
+const OrganizationSettingsPage = lazy(() =>
+	import("#/components/organizations/organization-settings-page").then(
+		(module) => ({ default: module.OrganizationSettingsPage })
+	)
+);
 
 /**
  * The Web Settings section registry. Account-scoped pages live under Personal;
@@ -37,20 +70,6 @@ export function buildSettingsSections(
 ): readonly SettingsSectionDef[] {
 	const settingsRoutes = buildSettingsRoutes(orgSlug);
 	return [
-		...(getDesktopPlatform()
-			? [
-					{
-						id: "updates",
-						title: "Updates",
-						to: settingsRoutes.updates,
-						render: () => (
-							<SettingsLeafLayout>
-								<DesktopUpdatesSection />
-							</SettingsLeafLayout>
-						),
-					},
-				]
-			: []),
 		{
 			id: "account",
 			title: "Account",
@@ -110,6 +129,20 @@ export function buildSettingsSections(
 				</SettingsLeafLayout>
 			),
 		},
+		...(getDesktopPlatform()
+			? [
+					{
+						id: "updates",
+						title: "Updates",
+						to: settingsRoutes.updates,
+						render: () => (
+							<SettingsLeafLayout>
+								<DesktopUpdatesSection presentation="settings" />
+							</SettingsLeafLayout>
+						),
+					},
+				]
+			: []),
 		{
 			id: "center-agent",
 			title: "Center Agent",

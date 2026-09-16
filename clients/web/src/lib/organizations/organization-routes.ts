@@ -259,12 +259,19 @@ export function buildOrganizationCenterAgentChatPath(
 		group?: string;
 		session?: string;
 		focusSignalId?: string;
+		focusThreadRootSignalId?: string;
 		view?: "files" | "graph" | "messages";
 	}
 ): string {
 	const path = `${buildOrganizationRootPath(orgSlug)}/chats/center-agent`;
 	if (
-		!(search?.focusSignalId || search?.view || search?.session || search?.draft)
+		!(
+			search?.focusSignalId ||
+			search?.focusThreadRootSignalId ||
+			search?.view ||
+			search?.session ||
+			search?.draft
+		)
 	) {
 		return path;
 	}
@@ -280,6 +287,9 @@ export function buildOrganizationCenterAgentChatPath(
 	}
 	if (search.focusSignalId) {
 		params.set("focusSignalId", search.focusSignalId);
+	}
+	if (search.focusThreadRootSignalId) {
+		params.set("focusThreadRootSignalId", search.focusThreadRootSignalId);
 	}
 	if (search.view) {
 		params.set("view", search.view);

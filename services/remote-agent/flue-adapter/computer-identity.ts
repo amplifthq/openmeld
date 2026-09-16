@@ -1,3 +1,20 @@
+import type { RemoteAgentCallbackContext } from "../agent-core/callback-context";
+
+/** Resolve execution and cleanup against the same admitted isolation scope. */
+export function resolveRemoteAgentComputerName(
+  context: Pick<
+    RemoteAgentCallbackContext,
+    "agentProfileId" | "spaceId" | "conversationIdentity"
+  >
+): string {
+  return buildAgentComputerName(
+    context.agentProfileId,
+    context.conversationIdentity?.kind === "personal_agent"
+      ? (context.spaceId ?? "")
+      : undefined
+  );
+}
+
 /**
  * Center retains its existing profile-owned Computer. Personal Agents have a
  * durable Computer per conversation: unrestricted shell access must not expose
