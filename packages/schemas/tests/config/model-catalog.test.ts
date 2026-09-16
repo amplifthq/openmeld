@@ -4,6 +4,7 @@ import {
   MODEL_CATALOG_SCHEMA_VERSION,
   modelCatalogSchema,
 } from "../../src/index";
+import cursorModelCatalogCapture from "../fixtures/cursor-model-catalog-2026.09.10.json";
 import openCodeGoQwen38Flash from "../fixtures/opencode-go-qwen3.8-flash-1.18.25.json";
 import openCodeModelCatalogCapture from "../fixtures/opencode-model-catalog-1.18.31.json";
 
@@ -184,21 +185,33 @@ describe("model catalog schema", () => {
       expect(result.data.agentControllers.cursor?.defaultModelId).toBe(
         "default[]"
       );
-      for (const [id, displayName] of [
-        [
-          "claude-opus-5[thinking=true,context=300k,effort=high,fast=false]",
-          "Claude Opus 5",
-        ],
-        ["grok-4.6[effort=high,fast=true]", "Grok 4.6 — High Fast"],
-        ["muse-spark-1.3[context=300k,effort=high]", "Muse Spark 1.3"],
-      ] as const) {
+      const cursorConfigOptions =
+        cursorModelCatalogCapture.sources.configOption.options;
+      const cursorLegacyModels =
+        cursorModelCatalogCapture.sources.legacyModels.availableModels;
+      expect(cursorConfigOptions.map((option) => option.value)).toEqual(
+        cursorLegacyModels.map((model) => model.modelId)
+      );
+      const cursorDisplayNamesByUpstreamName: Record<string, string> = {
+        "claude-opus-5": "Claude Opus 5",
+        "grok-4.6": "Grok 4.6 — High Fast",
+        "muse-spark-1.3": "Muse Spark 1.3",
+      };
+      for (const observedOption of cursorConfigOptions) {
+        const id = observedOption.value;
+        expect(
+          cursorLegacyModels.find((model) => model.modelId === id)
+        ).toEqual({
+          modelId: id,
+          name: observedOption.name,
+        });
         expect(
           result.data.agentControllers.cursor?.models.find(
             (model) => model.id === id
           )
         ).toEqual({
           id,
-          displayName,
+          displayName: cursorDisplayNamesByUpstreamName[observedOption.name],
           badgeLabel: "New",
           unavailable: false,
           supportedReasoningLevels: [],
