@@ -75,6 +75,14 @@ late native events cannot turn cancellation into delivery. Delivered alerts
 retain click-back across Organization switches; account invalidation clears all.
 This is a delivery permit, not account or Inbox authority; native
 session and recipient-authorized Core reads remain mandatory.
+The optional nullable `unreadCount` in the same context projects the existing
+Core Inbox summary's `totalUnreadCount` for the macOS menu bar. It includes
+ordinary unread items, not read unresolved actions, and is independent of delivery
+preferences. Main accepts only a bounded numeric value, checks native account
+identity, and rejects results after context or session invalidation; it never
+accepts arbitrary tray text. Zero and unknown counts hide the number. The
+existing native refresh signal refreshes the shared summary without introducing
+another polling owner or unread store.
 These additions ship with the matching local renderer and require no cloud,
 CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
 their existing behavior; cloud rollout does not require a new Desktop floor.

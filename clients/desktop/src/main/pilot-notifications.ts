@@ -30,6 +30,7 @@ export function createPilotNotifications(input: {
   installed: boolean;
   ensureCompatible: () => Promise<void>;
   getWindow: () => BrowserWindow | null;
+  setUnreadCount?: (count: number | null) => void;
 }) {
   let generation = 0;
   let context: DesktopNotificationContext = null;
@@ -61,6 +62,8 @@ export function createPilotNotifications(input: {
   const clear = () => {
     generation += 1;
     contextRevision += 1;
+    context = null;
+    input.setUnreadCount?.(null);
     for (const attempt of pending.values()) {
       attempt.cancel();
     }
@@ -211,17 +214,37 @@ export function createPilotNotifications(input: {
   return {
     clear,
     refreshVisibility,
-    setContext(raw: unknown) {
+    async setContext(raw: unknown) {
       const next = desktopNotificationContextSchema.parse(raw);
-      if (
+      const scopeChanged =
         context?.userId !== next?.userId ||
-        context?.organizationId !== next?.organizationId ||
-        context?.enabled !== next?.enabled
-      ) {
+        context?.organizationId !== next?.organizationId;
+      if (scopeChanged || context?.enabled !== next?.enabled) {
         contextRevision += 1;
+      }
+      if (scopeChanged) {
+        input.setUnreadCount?.(null);
       }
       context = next;
       refreshVisibility();
+      const epoch = generation;
+      if (next?.unreadCount == null) {
+        input.setUnreadCount?.(null);
+        return;
+      }
+      let accountMatches: boolean;
+      try {
+        accountMatches = await currentAccount(next.userId, epoch);
+      } catch (error) {
+        if (context === next && generation === epoch) {
+          input.setUnreadCount?.(null);
+        }
+        throw error;
+      }
+      if (context !== next || generation !== epoch) {
+        return;
+      }
+      input.setUnreadCount?.(accountMatches ? next.unreadCount : null);
     },
     async show(raw: unknown): Promise<DesktopNotificationResult> {
       const request = desktopNotificationRequestSchema.parse(raw);

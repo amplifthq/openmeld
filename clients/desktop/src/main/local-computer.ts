@@ -44,14 +44,13 @@ export function createLocalComputerReader(
         return {
           status: "unavailable",
           message:
-            "Desktop and this computer are signed in to different accounts. Connect this computer to your Desktop account, then try again.",
+            "This Mac is connected to a different account. Connect it to your Desktop account.",
         };
       }
       if (!review.existingConnection) {
         return {
           status: "unavailable",
-          message:
-            "This Mac has no confirmed connection to this account. Connect it to continue.",
+          message: "Use local agents in OpenMeld, even after you quit Desktop.",
         };
       }
       return {

@@ -105,7 +105,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				return;
 			}
 			if (result.status === "cancelled") {
-				setMessage("The current computer connection was kept.");
+				setMessage("Connection unchanged.");
 				return;
 			}
 			if (result.status === "failed") {
@@ -124,9 +124,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				result.status === "completed" ? result.snapshot : result.connection
 			);
 			setMessage(
-				result.status === "completed"
-					? "This computer is connected."
-					: "Using this computer's existing connection."
+				result.status === "completed" ? null : "Using the existing connection."
 			);
 			input.onContinue?.();
 		} catch (error) {
@@ -161,9 +159,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 				if (!active.current) {
 					return;
 				}
-				setMessage(
-					"This Mac is disconnected. Its computer record is still in your account."
-				);
+				setMessage("Disconnected. This Mac remains in your Computers list.");
 			}
 		} catch (error) {
 			setFailed(true);
@@ -227,8 +223,9 @@ function DesktopWebConnection(
 	return (
 		<div className="space-y-3">
 			<p className="text-sm">
-				Continue in your browser to finish this computer’s recovery. Your
-				selected computer and agents will stay the same.
+				{input.sourceNavigationAction
+					? "Continue the original request in your browser."
+					: "Finish recovery in your browser. Your selections will be kept."}
 			</p>
 			<Button
 				onClick={() =>
@@ -241,11 +238,6 @@ function DesktopWebConnection(
 					? "Open request in Web"
 					: "Continue in Web"}
 			</Button>
-			{input.sourceNavigationAction ? (
-				<p className="text-muted-foreground text-sm">
-					Reopen the original request in its Space to continue that action.
-				</p>
-			) : null}
 			{message ? (
 				<p className="text-sm" role="alert">
 					{message}
@@ -280,14 +272,14 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 	if (operation === "disconnect") {
 		actionLabel = "Disconnecting…";
 	}
+	let description = "Local agents can keep working after you quit Desktop.";
+	if (connection.data?.status === "unavailable" && !pending) {
+		description = connection.data.message;
+	}
 	return (
 		<div className="mx-auto flex w-full max-w-lg flex-col items-center gap-4 rounded-md border border-border border-dashed px-6 py-8 text-center">
 			<SettingsAddComputerCardContent
-				description={
-					connected
-						? "This Mac runs local agents for your account. Disconnecting stops its Service and signs this Mac out. Desktop stays signed in."
-						: "Connect this Mac to use local agents in OpenMeld. Your agents can keep working after you quit Desktop."
-				}
+				description={description}
 				descriptionClassName="max-w-sm"
 				icon={
 					connected ? (
@@ -313,11 +305,6 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 						Check connection
 					</Button>
 				</div>
-			) : null}
-			{connection.data?.status === "unavailable" ? (
-				<p className="text-muted-foreground text-sm">
-					{connection.data.message}
-				</p>
 			) : null}
 			<Button
 				disabled={disabled}

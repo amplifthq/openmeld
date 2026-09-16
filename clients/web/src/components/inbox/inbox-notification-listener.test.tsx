@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
 const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
+const summaryRefetch = vi.hoisted(() => vi.fn(async () => undefined));
+const summaryQueryMock = vi.hoisted(() => vi.fn());
+const desktopPlatformMock = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
 const usePathnameMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const showInboxNotificationMock = vi.hoisted(() => vi.fn());
@@ -38,6 +44,7 @@ vi.mock("@tanstack/react-router", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
 	useInfiniteQuery: useInfiniteQueryMock,
+	useQuery: summaryQueryMock,
 	useQueryClient: () => queryClientMock,
 }));
 
@@ -110,6 +117,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 		staleTime: 0,
 	}),
 	inboxItemsInfiniteQueryOptions: (input: unknown) => input,
+	inboxSummaryQueryOptions: (input: unknown) => input,
 	invalidateInboxFacts: invalidateInboxFactsMock,
 }));
 
@@ -128,6 +136,14 @@ describe("InboxNotificationListener", () => {
 		| undefined;
 
 	beforeEach(() => {
+		desktopPlatformMock.mockReset().mockReturnValue(null);
+		summaryRefetch.mockClear();
+		summaryQueryMock.mockReset().mockReturnValue({
+			data: undefined,
+			isError: false,
+			isPending: true,
+			refetch: summaryRefetch,
+		});
 		getMessagePreferencesMock
 			.mockReset()
 			.mockResolvedValue({ effectiveMode: "mentions_and_replies" });
@@ -166,6 +182,56 @@ describe("InboxNotificationListener", () => {
 		cleanup();
 		vi.useRealTimers();
 		vi.restoreAllMocks();
+	});
+
+	it.each([
+		{ total: 7, error: false, expected: 7 },
+		{ total: 0, error: false, expected: 0 },
+		{ total: 7, error: true, expected: null },
+		{ total: undefined, error: false, expected: null },
+	])("projects unread $total (error=$error) and refreshes with notifications off", ({
+		total,
+		error,
+		expected,
+	}) => {
+		const setNotificationContext = vi.fn(async () => undefined);
+		let poll: (() => void) | undefined;
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext,
+			onNotificationClick: () => () => undefined,
+			onNotificationPoll: (listener: () => void) => {
+				poll = listener;
+				return () => undefined;
+			},
+		});
+		notificationSettingsByUserId.set("user-123", false);
+		summaryQueryMock.mockReturnValue({
+			data:
+				total === undefined
+					? undefined
+					: {
+							totalUnreadCount: total,
+							unreadUrgentUpdateCount: 0,
+							unresolvedActionCount: 2,
+						},
+			isError: error,
+			isPending: total === undefined,
+			refetch: summaryRefetch,
+		});
+		const view = renderListener();
+		expect(setNotificationContext).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				userId: "user-123",
+				organizationId: "organization-123",
+				enabled: false,
+				unreadCount: expected,
+			})
+		);
+		act(() => poll?.());
+		expect(summaryRefetch).toHaveBeenCalledOnce();
+		expect(showInboxNotificationMock).not.toHaveBeenCalled();
+		view.unmount();
+		expect(setNotificationContext).toHaveBeenLastCalledWith(null);
 	});
 
 	it("primes existing items without notifying, then delivers a newly arrived urgent item", () => {

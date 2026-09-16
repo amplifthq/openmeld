@@ -7,6 +7,7 @@ import {
 import {
 	type QueryClient,
 	useInfiniteQuery,
+	useQuery,
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -41,6 +42,7 @@ import {
 import {
 	inboxBrowserNotificationRecoveryItemQueryOptions,
 	inboxItemsInfiniteQueryOptions,
+	inboxSummaryQueryOptions,
 	invalidateInboxFacts,
 } from "#/query/organizations/inbox";
 
@@ -96,6 +98,17 @@ export function InboxNotificationListener(input: {
 	}));
 	const notificationsEnabled =
 		settingsState.userId === input.userId && settingsState.enabled;
+	// Observe the shared Inbox summary; the existing native cadence refreshes it.
+	const summaryQuery = useQuery({
+		...inboxSummaryQueryOptions({
+			organizationId: input.organizationId,
+			enabled: Boolean(getDesktopPlatform()),
+		}),
+		refetchInterval: false,
+	});
+	const unreadCount = summaryQuery.isError
+		? null
+		: (summaryQuery.data?.totalUnreadCount ?? null);
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
 	useLayoutEffect(() => {
 		const desktop = getDesktopPlatform();
@@ -109,6 +122,7 @@ export function InboxNotificationListener(input: {
 				userId: input.userId,
 				organizationId: input.organizationId,
 				enabled: notificationsEnabled,
+				unreadCount,
 				visibleConversation,
 			})
 			.catch(reportFailure);
@@ -116,6 +130,7 @@ export function InboxNotificationListener(input: {
 		input.userId,
 		input.organizationId,
 		notificationsEnabled,
+		unreadCount,
 		visibleConversation,
 	]);
 	useLayoutEffect(
@@ -175,6 +190,11 @@ export function InboxNotificationListener(input: {
 	useEffect(
 		() =>
 			getDesktopPlatform()?.onNotificationPoll(() => {
+				summaryQuery.refetch({ cancelRefetch: false }).catch((error: unknown) =>
+					console.warn("[openmeld.desktop.inbox_summary_refresh_failed]", {
+						error,
+					})
+				);
 				if (!notificationsEnabled) {
 					return;
 				}
@@ -185,7 +205,7 @@ export function InboxNotificationListener(input: {
 				);
 				setDeliveryRetryRevision((current) => current + 1);
 			}),
-		[notificationsEnabled, itemsQuery.refetch]
+		[notificationsEnabled, itemsQuery.refetch, summaryQuery.refetch]
 	);
 	const cancelDeliveryRetry = useCallback((ownedFeedIdentity?: string) => {
 		if (

@@ -28,6 +28,7 @@ export const desktopNotificationContextSchema = z
     userId: z.string().min(1),
     organizationId: z.string().min(1),
     enabled: z.boolean(),
+    unreadCount: z.number().int().nonnegative().safe().nullable().optional(),
     visibleConversation: inboxVisibleConversationSchema.nullable(),
   })
   .nullable();

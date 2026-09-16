@@ -44,7 +44,10 @@ declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
 declare const __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: boolean;
 declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | null;
 
-export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
+export function initializeDesktopPilot(
+  getWindow: () => BrowserWindow | null,
+  setUnreadCount: (count: number | null) => void
+) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
     : undefined;
@@ -141,6 +144,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
   });
   const notifications = createPilotNotifications({
     auth,
+    setUnreadCount,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,
@@ -292,7 +296,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       const observedOwners = new WeakSet<WebContents>();
       ipcMain.handle(PILOT_IPC.notificationContext, (event, raw: unknown) => {
         authorize(event);
-        notifications.setContext(raw);
+        return notifications.setContext(raw);
       });
       ipcMain.handle(PILOT_IPC.notificationShow, (event, raw: unknown) => {
         authorize(event);

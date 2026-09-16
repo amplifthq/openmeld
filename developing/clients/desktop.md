@@ -102,6 +102,17 @@ notification confirms only native acknowledgement, not that a person saw it.
 Notifications continue when the window is hidden and end when the GUI quits;
 the independent Service has no notification responsibility.
 
+On macOS, the menu bar icon also shows the current Organization's canonical
+Inbox unread count from `totalUnreadCount`, capped visually at `99+`. Ordinary
+unread items contribute; read but unresolved actions do not. Zero or unknown
+counts show no number. This uses the shared summary query and existing native
+refresh cadence, independently of notification delivery permission. The trusted
+renderer supplies only a schema-validated count and account scope; Main verifies
+the native account before displaying it. Logout, account or Organization changes,
+and stale asynchronous results clear or reject the previous count. No separate
+Inbox store, Service polling, Dock badge, or Windows behavior is introduced.
+Tray creation applies the latest observed title even if the count arrived first.
+
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
 endpoints are rejected. The ordinary status/control renderer remains available
