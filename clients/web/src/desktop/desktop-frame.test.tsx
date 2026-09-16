@@ -193,6 +193,43 @@ describe("Desktop document hydration", () => {
 		client.clear();
 	});
 
+	it("keeps native invalidation authoritative when focus supersedes its pending session read", async () => {
+		native.available = true;
+		native.pathname = "/o/team/spaces";
+		const staleRead = createDeferred<DesktopSession>();
+		const replacementSession = {
+			user: { id: "account-b", email: "b@example.com", name: "B" },
+		};
+		bridge.session
+			.mockReturnValueOnce(staleRead.promise)
+			.mockResolvedValueOnce(replacementSession);
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		seedAccountSession(client, "account-a");
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopFrame>
+					<main>Workspace</main>
+				</DesktopFrame>
+			</QueryClientProvider>
+		);
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+
+		act(onSessionChanged);
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(1));
+		act(() => window.dispatchEvent(new Event("focus")));
+		await act(() => staleRead.resolve(replacementSession));
+
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(router.invalidate).toHaveBeenCalledTimes(1));
+		expect(readComposerDraft(scope)).toBeNull();
+		client.clear();
+	});
+
 	it("does not apply a replacement-account read after the Desktop frame is disposed", async () => {
 		native.available = true;
 		native.pathname = "/o/team/spaces";

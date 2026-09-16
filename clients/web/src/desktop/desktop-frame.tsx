@@ -34,16 +34,20 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 		if (!bridge) {
 			return;
 		}
+		const desktopBridge = bridge;
 		let disposed = false;
 		let revision = 0;
 		let prepared = Promise.resolve();
+		let sessionInvalidationRevision = 0;
+		let handledSessionInvalidationRevision = 0;
+		let pendingInvalidationPreviousAccountId: string | null | undefined;
 		async function applySession(
-			session: DesktopSession | null,
+			session: DesktopSession,
 			active: () => boolean,
 			sessionChanged: boolean,
 			previousAccountId: string | null | undefined
 		) {
-			if (!(session && active())) {
+			if (!active()) {
 				return;
 			}
 			const nextAccountId = session.user?.id ?? null;
@@ -66,39 +70,65 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 				await router.navigate({ to: "/desktop-shell", replace: true });
 			}
 		}
+		async function revalidateSession(
+			active: () => boolean,
+			refreshPreviousAccountId: string | null | undefined
+		) {
+			if (!active()) {
+				return;
+			}
+			const invalidationRevision = sessionInvalidationRevision;
+			const hasPendingSessionInvalidation =
+				invalidationRevision > handledSessionInvalidationRevision;
+			const previousAccountId = hasPendingSessionInvalidation
+				? pendingInvalidationPreviousAccountId
+				: refreshPreviousAccountId;
+			if (hasPendingSessionInvalidation) {
+				await resetAccountScopedQueriesAfterAuthChange(queryClient, {
+					preserveComposerDrafts: true,
+				});
+			}
+			if (!active()) {
+				return;
+			}
+			await applySession(
+				await desktopBridge.session(),
+				active,
+				hasPendingSessionInvalidation,
+				previousAccountId
+			);
+			if (!(active() && hasPendingSessionInvalidation)) {
+				return;
+			}
+			handledSessionInvalidationRevision = invalidationRevision;
+			if (handledSessionInvalidationRevision === sessionInvalidationRevision) {
+				pendingInvalidationPreviousAccountId = undefined;
+			}
+		}
 		const refresh = (sessionChanged = false) => {
 			if (sessionChanged) {
+				if (
+					sessionInvalidationRevision === handledSessionInvalidationRevision
+				) {
+					pendingInvalidationPreviousAccountId =
+						confirmedAccountIdRef.current === undefined
+							? readKnownAccountIdBeforeSessionRevalidation(queryClient)
+							: confirmedAccountIdRef.current;
+				}
+				sessionInvalidationRevision += 1;
 				navigation?.reset();
 			}
 			if (pathname === "/desktop-shell") {
 				return;
 			}
-			const previousAccountId =
+			const refreshPreviousAccountId =
 				confirmedAccountIdRef.current === undefined
 					? readKnownAccountIdBeforeSessionRevalidation(queryClient)
 					: confirmedAccountIdRef.current;
 			const current = ++revision;
 			const active = () => !disposed && current === revision;
 			prepared = prepared
-				.then(async () => {
-					if (!active()) {
-						return;
-					}
-					if (sessionChanged) {
-						await resetAccountScopedQueriesAfterAuthChange(queryClient, {
-							preserveComposerDrafts: true,
-						});
-					}
-					if (!active()) {
-						return;
-					}
-					await applySession(
-						await bridge.session(),
-						active,
-						sessionChanged,
-						previousAccountId
-					);
-				})
+				.then(() => revalidateSession(active, refreshPreviousAccountId))
 				.catch((error: unknown) => {
 					if (active()) {
 						console.error("Could not refresh Desktop sign-in.", error);
@@ -106,7 +136,7 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 				});
 		};
 		const onFocus = () => refresh();
-		const unsubscribe = bridge.onSessionChanged(() => refresh(true));
+		const unsubscribe = desktopBridge.onSessionChanged(() => refresh(true));
 		window.addEventListener("focus", onFocus);
 		return () => {
 			disposed = true;

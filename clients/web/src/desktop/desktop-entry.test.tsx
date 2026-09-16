@@ -1,7 +1,8 @@
 import type { DesktopSession } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import "fake-indexeddb/auto";
 import {
 	createComposerDraftRecord,
 	EMPTY_COMPOSER_DRAFT_CONTENT,
@@ -106,6 +107,43 @@ describe("Desktop entry session revalidation", () => {
 		act(onSessionChanged);
 		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
 		await waitFor(() => expect(readComposerDraft(scope)).toBeNull());
+		client.clear();
+	});
+
+	it("keeps same-tick native invalidation when focus requests the latest session read", async () => {
+		bridge.session
+			.mockResolvedValueOnce({
+				user: { id: "account-a", email: "a@example.com", name: "A" },
+			})
+			.mockResolvedValueOnce({
+				user: { id: "account-a", email: "a@example.com", name: "A" },
+			});
+		const scope = draftScope();
+		writeComposerDraft(scope, privateDraft());
+		const client = new QueryClient();
+		const privateQueryKey = ["private-account-state"] as const;
+		client.setQueryData(privateQueryKey, "stale");
+		render(
+			<QueryClientProvider client={client}>
+				<DesktopEntry />
+			</QueryClientProvider>
+		);
+		await waitFor(() => expect(screen.getByRole("alert")).toBeDefined());
+		const onSessionChanged = bridge.onSessionChanged.mock.calls.at(-1)?.[0];
+		if (!onSessionChanged) {
+			throw new Error("Missing native session listener");
+		}
+
+		act(() => {
+			onSessionChanged();
+			window.dispatchEvent(new Event("focus"));
+		});
+
+		await waitFor(() => expect(bridge.session).toHaveBeenCalledTimes(2));
+		await waitFor(() =>
+			expect(client.getQueryData(privateQueryKey)).toBeUndefined()
+		);
+		expect(readComposerDraft(scope)?.text).toBe("Private draft");
 		client.clear();
 	});
 });

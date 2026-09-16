@@ -34,29 +34,53 @@ export function DesktopEntry() {
 		let disposed = false;
 		let revision = 0;
 		let prepared = Promise.resolve();
+		let sessionInvalidationRevision = 0;
+		let handledSessionInvalidationRevision = 0;
 		let confirmedAccountId: string | null | undefined =
 			readKnownAccountIdBeforeSessionRevalidation(queryClient);
+		let pendingInvalidationPreviousAccountId: string | null | undefined;
 		const refresh = (sessionChanged = false) => {
 			if (sessionChanged) {
+				if (
+					sessionInvalidationRevision === handledSessionInvalidationRevision
+				) {
+					pendingInvalidationPreviousAccountId = confirmedAccountId;
+				}
+				sessionInvalidationRevision += 1;
 				setPendingOperation("session");
 				setError(null);
 			}
-			const previousAccountId = confirmedAccountId;
+			const refreshPreviousAccountId = confirmedAccountId;
 			const current = ++revision;
 			const active = () =>
 				!disposed &&
 				current === revision &&
 				router.state.location.pathname === "/desktop-shell";
 			prepared = prepared
-				.then(() =>
-					revalidateDesktopEntry({
+				.then(async () => {
+					if (!active()) {
+						return null;
+					}
+					const invalidationRevision = sessionInvalidationRevision;
+					const hasPendingSessionInvalidation =
+						invalidationRevision > handledSessionInvalidationRevision;
+					const result = await revalidateDesktopEntry({
 						active,
 						bridge,
-						previousAccountId,
+						previousAccountId: hasPendingSessionInvalidation
+							? pendingInvalidationPreviousAccountId
+							: refreshPreviousAccountId,
 						queryClient,
-						sessionChanged,
-					})
-				)
+						sessionChanged: hasPendingSessionInvalidation,
+					});
+					return result
+						? {
+								...result,
+								hasPendingSessionInvalidation,
+								invalidationRevision,
+							}
+						: null;
+				})
 				.then(async (result) => {
 					if (!(result && active())) {
 						return;
@@ -65,6 +89,14 @@ export function DesktopEntry() {
 					const path = await resolveDesktopEntry(result.session, returnPath);
 					if (path && active()) {
 						await router.navigate({ to: path, replace: true });
+					}
+					if (active() && result.hasPendingSessionInvalidation) {
+						handledSessionInvalidationRevision = result.invalidationRevision;
+						if (
+							handledSessionInvalidationRevision === sessionInvalidationRevision
+						) {
+							pendingInvalidationPreviousAccountId = undefined;
+						}
 					}
 				})
 				.catch((failure: unknown) => {
