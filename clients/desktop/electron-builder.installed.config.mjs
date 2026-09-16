@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { desktopProductionSourceSchema } from "../../packages/schemas/src/desktop-client.ts";
+import { desktopProductionSourceSchema } from "../../packages/schemas/dist/desktop-client.js";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target.ts";
 import {
   desktopProductionSource,

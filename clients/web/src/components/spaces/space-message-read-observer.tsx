@@ -1,5 +1,6 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useLayoutEffect, useRef } from "react";
+import { getDesktopPlatform } from "#/desktop/platform";
 
 // Both conversation surfaces use the same visibility and dwell policy. The
 // server's scoped read-through watermark remains the only durable read owner.
@@ -28,6 +29,7 @@ export function SpaceMessageReadObserver(input: {
 		function visibleThrough() {
 			if (
 				document.visibilityState !== "visible" ||
+				(getDesktopPlatform() !== null && !document.hasFocus()) ||
 				viewport?.closest('[inert], [aria-hidden="true"]') ||
 				!current.current.onViewedThroughTs ||
 				!viewport
@@ -84,6 +86,8 @@ export function SpaceMessageReadObserver(input: {
 		viewport.addEventListener("scroll", measure, { passive: true });
 		document.addEventListener("visibilitychange", measure);
 		window.addEventListener("resize", measure);
+		window.addEventListener("focus", measure);
+		window.addEventListener("blur", measure);
 		const resize = new ResizeObserver(measure);
 		resize.observe(viewport);
 		for (const child of viewport.children) {
@@ -97,6 +101,8 @@ export function SpaceMessageReadObserver(input: {
 			viewport.removeEventListener("scroll", measure);
 			document.removeEventListener("visibilitychange", measure);
 			window.removeEventListener("resize", measure);
+			window.removeEventListener("focus", measure);
+			window.removeEventListener("blur", measure);
 			measureRef.current = () => undefined;
 		};
 	}, []);

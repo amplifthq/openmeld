@@ -37,6 +37,64 @@ const ITEM = {
 };
 
 describe("api-client Inbox API", () => {
+  it("requests and preserves recipient-specific Human reply facts", async () => {
+    const reply = {
+      ...ITEM,
+      sourceTarget: {
+        ...ITEM.sourceTarget,
+        threadRootSignalId: "root",
+        replyToRecipient: true,
+      },
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(async () =>
+      jsonResponse({ item: reply })
+    );
+    const api = createInboxApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect((await api.get({ itemId: ITEM.id })).item.sourceTarget).toEqual(
+      reply.sourceTarget
+    );
+    const headers = new Headers(transport.mock.calls[0]?.[0].init?.headers);
+    expect(headers.get("x-openmeld-inbox-source-target-version")).toBe("7");
+  });
+  it("reads and writes message preferences with a separate strict contract", async () => {
+    const response = {
+      organizationId: "org-1",
+      spaceId: "space/1",
+      defaultMode: "mentions_and_replies",
+      overrideMode: "all_messages",
+      effectiveMode: "all_messages",
+    };
+    const transport = vi.fn<OpenMeldApiClientTransport>(async () =>
+      jsonResponse(response)
+    );
+    const api = createInboxApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    expect(
+      await api.getMessageNotificationPreferences({ spaceId: "space/1" })
+    ).toEqual(response);
+    expect(transport.mock.calls[0]?.[0].url).toContain(
+      "message-notification-preferences?spaceId=space%2F1"
+    );
+    await api.updateMessageNotificationPreferences({
+      preference: { scope: "conversation", spaceId: "space/1", mode: null },
+    });
+    expect(JSON.parse(String(transport.mock.calls[1]?.[0].init?.body))).toEqual(
+      { scope: "conversation", spaceId: "space/1", mode: null }
+    );
+    transport.mockResolvedValueOnce(
+      jsonResponse({ ...response, effectiveMode: "unknown" })
+    );
+    await expect(api.getMessageNotificationPreferences()).rejects.toThrow();
+  });
   it("builds encoded list and item routes", () => {
     expect(
       buildInboxPath({ cursor: "cursor value", limit: 25, view: "unread" })

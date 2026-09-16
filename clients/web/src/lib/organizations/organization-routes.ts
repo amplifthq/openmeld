@@ -300,7 +300,20 @@ export function buildOrganizationSkillPath(input: {
 	)}`;
 }
 
+/**
+ * Center Agent settings live in the global App Settings destination, grouped
+ * under the current Organization (or Personal in a Personal Workspace). This
+ * builder is the single canonical destination for that section; the former
+ * `/center-agent/settings` route is kept only as a redirect.
+ */
 export function buildOrganizationCenterAgentSettingsPath(
+	orgSlug: string
+): string {
+	return `${buildOrganizationSettingsRootPath(orgSlug)}/center-agent`;
+}
+
+/** The redirect-only historical Center Agent settings location. */
+export function buildOrganizationLegacyCenterAgentSettingsPath(
 	orgSlug: string
 ): string {
 	return `${buildOrganizationCenterAgentRootPath(orgSlug)}/settings`;
@@ -535,6 +548,8 @@ function resolveSettingsSwitchPath(input: {
 			return buildOrganizationNotificationsSettingsPath(input.nextOrgSlug);
 		case "connected-apps":
 			return buildOrganizationConnectedPluginsSettingsPath(input.nextOrgSlug);
+		case "center-agent":
+			return buildOrganizationCenterAgentSettingsPath(input.nextOrgSlug);
 		case "general":
 			return buildOrganizationOrgSettingsPath(input.nextOrgSlug);
 		case "privacy":

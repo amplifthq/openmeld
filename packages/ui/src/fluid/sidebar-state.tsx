@@ -67,6 +67,7 @@ export function SidebarProvider({
   onGeometryChange,
   static: staticPresentation = false,
   peekOnHover = true,
+  keyboardShortcuts = true,
   ...props
 }: Omit<ComponentProps<"div">, "onChange"> & {
   children: ReactNode;
@@ -74,6 +75,7 @@ export function SidebarProvider({
   onGeometryChange: (geometry: SidebarGeometry) => void;
   static?: boolean;
   peekOnHover?: boolean;
+  keyboardShortcuts?: boolean;
 }) {
   const [dragGeometry, setDragGeometry] = useState<SidebarGeometry | null>(
     null
@@ -148,7 +150,7 @@ export function SidebarProvider({
   );
 
   useEffect(() => {
-    if (staticPresentation || props.inert) {
+    if (staticPresentation || props.inert || !keyboardShortcuts) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -175,7 +177,7 @@ export function SidebarProvider({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [staticPresentation, props.inert, toggleSidebar]);
+  }, [staticPresentation, props.inert, toggleSidebar, keyboardShortcuts]);
 
   const value = useMemo<SidebarContextValue>(
     () => ({

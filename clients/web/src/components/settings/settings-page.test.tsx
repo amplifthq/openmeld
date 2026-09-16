@@ -145,6 +145,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -163,6 +164,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -173,6 +175,7 @@ describe("Web Settings capability gating", () => {
 			testSettingsRoutes.appearance,
 			testSettingsRoutes.notifications,
 			testSettingsRoutes.privacy,
+			testSettingsRoutes["center-agent"],
 			testSettingsRoutes.general,
 			testSettingsRoutes.members,
 			testSettingsRoutes.invitations,
@@ -191,6 +194,7 @@ describe("Web Settings capability gating", () => {
 			"appearance",
 			"notifications",
 			"privacy",
+			"center-agent",
 			"general",
 			"members",
 			"invitations",
@@ -292,7 +296,13 @@ describe("Settings grouped navigation", () => {
 					.getByRole("navigation", { name: "Acme settings" })
 					.querySelectorAll("a")
 			).map((link) => link.textContent)
-		).toEqual(["General", "Members", "Invitations", "Security"]);
+		).toEqual([
+			"General",
+			"Center Agent",
+			"Members",
+			"Invitations",
+			"Security",
+		]);
 	});
 
 	it("uses the shared compact app-nav scale for labels and items", () => {
@@ -400,11 +410,24 @@ describe("Settings grouped navigation", () => {
 			slug: "felix",
 		});
 
-		expect(personalItems.personal).toEqual(organizationItems.personal);
+		expect(personalItems.personal).toEqual([
+			"Account",
+			"Appearance",
+			"Notifications",
+			"Privacy & Safety",
+			"Center Agent",
+			"Send feedback",
+		]);
 		expect(personalItems.organization).toEqual(["General"]);
 		expect(organizationItems).toEqual({
 			badges: [],
-			organization: ["General", "Members", "Invitations", "Security"],
+			organization: [
+				"General",
+				"Center Agent",
+				"Members",
+				"Invitations",
+				"Security",
+			],
 			organizationLabel: "Acme",
 			personal: [
 				"Account",
@@ -424,6 +447,7 @@ describe("Settings grouped navigation", () => {
 				"Appearance",
 				"Notifications",
 				"Privacy & Safety",
+				"Center Agent",
 				"Send feedback",
 			],
 			storedOrganizationNameVisible: true,

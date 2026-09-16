@@ -27,6 +27,25 @@
 
 ## Desktop platform contract
 
+`desktop-notifications.ts` owns additive renderer/native Inbox reference,
+test-request and delivery-result contracts. Only the current trusted window
+can request delivery. Native credentials reread the recipient-authorized Core
+item; callers cannot supply notification text or navigation URLs. Shared
+API-client notification policy derives eligibility from those Inbox facts.
+Refresh IPC is a signal to the existing reader, never a separate snapshot.
+The renderer projects its current delivery context (account, Organization,
+enabled preference, and existing rendered-conversation locator). Shared
+API-client matching and current native focus/visibility suppress the exact
+conversation immediately before submission, after asynchronous reads. Context
+invalidation cancels and settles submitted but unacknowledged native attempts;
+late native events cannot turn cancellation into delivery. Delivered alerts
+retain click-back across Organization switches; account invalidation clears all.
+This is a delivery permit, not account or Inbox authority; native
+session and recipient-authorized Core reads remain mandatory.
+These additions ship with the matching local renderer and require no cloud,
+CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
+their existing behavior; cloud rollout does not require a new Desktop floor.
+
 Installed Desktop contract version 1 uses the strict compatibility response at
 `GET /v1/desktop/compatibility` and `x-openmeld-desktop-contract: 1` on fixed-origin
 business requests and streams. The Web admission layer accepts this version
@@ -53,6 +72,33 @@ private clients still require their corresponding Web build. Browser clients kee
 their normal authorization paths. CLI, Service, Skills, Core, Gateway, Prepare,
 Wake, and Space action payloads and minimum versions are unchanged. Installing
 this entry does not establish Service readiness or authorize local setup.
+
+### Desktop Working folder
+
+`desktopLocalComputerSchema` owns the bounded native IPC projection of the CLI's
+account-aligned device and lane. It exposes no credentials or previous-session
+identity. Desktop admits only that target for the existing picker/discovery and
+the additive PeopleComputer Project connect-candidate, connect-declared-path,
+set-default, and Profile workspace routes. Gateway reuses strict shared request
+and response schemas; Core reuses the existing business writers and validates the
+exact owned Service session and capability. Account-current routes remain blocked
+in Desktop. An authentication change while admitting a request refuses it before
+forwarding; the shared auth boundary clears account-scoped queries on session
+changes.
+
+Contract Impact Audit: the IPC projection and Gateway/Core routes are additive.
+Deploy Core and Gateway support before distributing the new Desktop caller (or
+Web callers using the explicit mutations). During mixed versions, unsupported
+routes fail without falling back to another Computer. Existing CLI/Service
+picker, Project and workspace requests, Prepare, Wake, Space actions, Skills,
+status, diagnostics and recovery commands are unchanged. Capabilities continue
+to reject old Services that cannot perform an operation; no semantic CLI/Service
+epoch, minimum-version, or Desktop contract-version bump is required. Shared
+schema paths still trigger the repository's Service release classification;
+the integrated release must complete local-component stamping and release-ready
+verification. Leaf development does not establish that artifact evidence.
+Old Desktop builds keep their existing restrictions. Rollback removes the new
+caller before removing these additive cloud receivers.
 
 ### Desktop candidate distribution
 
@@ -233,7 +279,7 @@ Generic transport/persistence errors, including unsupported-carrier errors,
 remain uncertain and keep autostart disabled. The CLI reports that partial
 outcome. A later Desktop caller must require the capable CLI and carrier before
 exposing controls. No cloud deployment or global local-file-reader floor is
-introduced for this opt-in capability. The pilot enables only guarded Start/Stop
+introduced for this opt-in capability. The pilot enables guarded Start/Stop
 after its read-only pair capability query. `serviceControlCapabilitiesSchema`
 owns the separate CLI response; `account_control_capabilities` is an additive
 authenticated control request with explicit carrier support. Older readers keep
@@ -881,6 +927,49 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
+targets without adding an Inbox kind or changing urgency. Space emits true only
+for a different Human account replying to the recipient's retained thread root,
+after existing recipient filtering. Browser notification policy reads this fact
+instead of parsing the title or equating thread membership with addressing.
+
+Source-target version `7` exposes this field. Gateway strips it for version
+`6` and older clients while preserving each version's existing target fields.
+List, direct-item, and mark-read RPCs also accept optional
+`includeReplyToRecipient`: Core omits the field unless the Gateway explicitly
+opts in. This protects an older strict Gateway even after Core persists new
+rows. New Gateway opts in and owns the separate browser-version projection.
+Unlike earlier ungated source-target additions, this field can roll out
+**Core, Gateway, Web**, matching the message-preference API below. Deploy Core
+before a Gateway that sends the new RPC option. No new migration or local
+component contract bump is required for the reply marker. Retain compatible
+Core readers on rollback while stored rows or projection intents contain it.
+
+Message notification preferences use the new strict
+`GET/PATCH /v1/inbox/message-notification-preferences` and matching Core RPCs.
+GET optionally accepts a Space id and returns the account default, nullable
+conversation override, and Core-resolved effective mode. PATCH writes either
+the account default or one conversation override; null removes the override.
+Core derives the user and Organization from verified active membership and
+rechecks indexed conversation membership/current personal Agent ownership for
+conversation reads and writes. Client-supplied recipient ids are rejected.
+The existing urgent-email preference and Inbox payloads remain unchanged.
+
+Contract impact: apply additive migration `0174_pretty_meggan` first, then
+deploy the Core receiver, Gateway routes, and Web caller in that order. New Web
+must not be exposed before both receivers; missing support is a visible error,
+not a fabricated default. Roll back Web first, then Gateway/Core, retaining
+the additive tables. Already-open old Web tabs keep the old message policy
+until reloaded; they cannot honor newly saved overrides. Desktop now uses the
+same shared API-client policy and re-reads message preferences in its native
+process. Publish the matching Desktop/Web build after the Core and Gateway
+receivers are available; existing Desktop installations need an app update to
+honor the new preferences. Native IPC request shapes remain unchanged. Setup, CLI, Service,
+Skills, Wake execution, Space publication, and diagnostics payloads do not
+change and require no local-component contract bump. Message preferences only
+filter browser delivery of authorized Inbox facts; they cannot alter source
+recipients, unread state, action resolution, urgency, or email eligibility.
 
 Organization invitation requests use `organizationJoinRequestInputSchema` for
 Web and CLI and a separate trusted RPC envelope for Auth-proven account identity,

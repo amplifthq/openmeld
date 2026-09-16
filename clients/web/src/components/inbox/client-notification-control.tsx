@@ -2,13 +2,17 @@
 
 import { Button } from "@openmeld/ui/components/button";
 import { Switch } from "@openmeld/ui/components/switch";
-import type { InboxBrowserNotificationSettings } from "#/lib/inbox/browser-notifications";
+import type { InboxNotificationSettings } from "#/lib/inbox/client-notifications";
 
-export function BrowserNotificationControl(input: {
+export function ClientNotificationControl(input: {
 	disabled: boolean;
 	onChange: (enabled: boolean) => Promise<void> | void;
-	settings: InboxBrowserNotificationSettings;
+	settings: InboxNotificationSettings;
 }) {
+	const label =
+		input.settings.permission === "unknown"
+			? "Desktop notifications"
+			: "Browser notifications";
 	if (
 		input.settings.permission === "unsupported" ||
 		input.settings.permission === "denied"
@@ -31,7 +35,7 @@ export function BrowserNotificationControl(input: {
 	}
 	return (
 		<Switch
-			aria-label="Browser notifications"
+			aria-label={label}
 			checked={input.settings.enabled}
 			disabled={input.disabled}
 			onCheckedChange={input.onChange}
