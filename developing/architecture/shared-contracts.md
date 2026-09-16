@@ -2205,6 +2205,12 @@ surface for messages authored before canonical chat files. New Web and CLI
 Composer uploads must use the Space File contract below. No migration or
 dual-write projects old attachment objects into Files.
 
+Attachment downloads use the owning Space's current read authorization, including
+anonymous public reading and Space-only Guests. Core derives the Organization
+from the authorized Space, never the reader's selected Organization. Download
+responses use `private, no-store`; upload and deletion retain their existing
+authenticated membership requirements.
+
 `packages/schemas` owns the shared Space attachment descriptor, upload query and
 response schemas, Core RPC metadata payloads, MIME and size limits, and
 attachment error codes. The initial contract accepts only JPEG and PNG images
@@ -7108,6 +7114,15 @@ being silently truncated — the visited list is the chain's loop telemetry
 entries is never a valid degradation.
 
 ## Space Entry Resolution Contract
+
+Public HTML advertises `GET /v1/spaces/:spaceId/context` as an alternate JSON
+representation. `spaceReadContextSchema` is a discovery directory, not a second
+content store: it links existing authorized Space reads and explains bounded
+pagination and Thread/file relationships. Message pages expose `Link: rel=next`.
+All anonymous-readable resources return `private, no-store` and `noindex,
+nofollow`; these headers are not a guarantee against copying or model training.
+An authorized reply-only entry target resolves its canonical Thread root in the
+Space owner before clients perform navigation.
 
 `packages/schemas/src/schemas/http/space-entry.ts` owns the shared Space entry
 target and resolution read model. The target preserves the Space plus optional

@@ -57,6 +57,7 @@ import {
   executeRpcRoute,
   formatAuditValue,
   resolveGatewayStructuredRpcErrorResponse,
+  resolvePublicRouteRequestId,
 } from "./rpc-http.helpers";
 import { parseSpaceRouteParams } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
@@ -650,7 +651,7 @@ async function uploadSpaceFile(c: Context<HonoBindings>): Promise<Response> {
     Response.json(uploadSpaceFileResponseSchema.parse({ file: result.file }), {
       status: 201,
     }),
-    c.var.openMeldRequestContext.actorContext.requestId
+    resolvePublicRouteRequestId(c)
   );
 }
 
@@ -712,7 +713,7 @@ async function updateSpaceFileContent(
   }
   return withRequestIdHeader(
     Response.json(uploadSpaceFileResponseSchema.parse({ file: result.file })),
-    c.var.openMeldRequestContext.actorContext.requestId
+    resolvePublicRouteRequestId(c)
   );
 }
 
@@ -785,7 +786,7 @@ async function downloadSpaceFileContent(
         "x-openmeld-file-revision": String(resolved.revision.revision),
       },
     }),
-    c.var.openMeldRequestContext.actorContext.requestId
+    resolvePublicRouteRequestId(c)
   );
 }
 
@@ -1032,7 +1033,7 @@ function respondCoreFileError(input: {
   route: string;
   spaceId: string;
 }): Response {
-  const requestId = input.c.var.openMeldRequestContext.actorContext.requestId;
+  const requestId = resolvePublicRouteRequestId(input.c);
   const structured = resolveGatewayStructuredRpcErrorResponse({
     err: input.error,
     requestId,
@@ -1079,13 +1080,15 @@ function respondFileError(input: {
     errorCode: input.code,
     ...(input.spaceId ? { spaceId: input.spaceId } : {}),
     ...(input.reason ? { reason: formatAuditValue(input.reason, 320) } : {}),
-    ...contextAuditFields(input.c.var.openMeldRequestContext),
+    ...(input.c.var.openMeldRequestContext
+      ? contextAuditFields(input.c.var.openMeldRequestContext)
+      : { requestId: resolvePublicRouteRequestId(input.c) }),
   });
   return jsonErrorResponse({
     status: input.status,
     code: input.code,
     message: input.message,
-    requestId: input.c.var.openMeldRequestContext.actorContext.requestId,
+    requestId: resolvePublicRouteRequestId(input.c),
   });
 }
 
@@ -1103,7 +1106,9 @@ function logFileSuccess(
     status,
     latencyMs: Date.now() - c.var.startedAt,
     spaceId,
-    ...contextAuditFields(c.var.openMeldRequestContext),
+    ...(c.var.openMeldRequestContext
+      ? contextAuditFields(c.var.openMeldRequestContext)
+      : { requestId: resolvePublicRouteRequestId(c) }),
   });
 }
 
