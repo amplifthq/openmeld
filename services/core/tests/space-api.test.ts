@@ -44,6 +44,7 @@ import {
   rpcCreateCenterAgentContextManifest,
   rpcCreateSpace,
   rpcGetSpaceBoard,
+  rpcGetSpaceEntryResolution,
   rpcGetSpaceStatus,
   rpcListCenterAgentSessions,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -1134,6 +1135,31 @@ describe("OpenMeld Core", () => {
       expect(nativeStop).not.toHaveBeenCalled();
       expect(preAgentStop).not.toHaveBeenCalled();
     });
+  });
+
+  it.each([
+    ["public", "allowed"],
+    ["protected", "password_required"],
+    ["members_only", "unavailable"],
+  ] as const)("resolves anonymous %s entry through the authorized metadata read", async (accessMode, state) => {
+    const spaceId = await createSpace({
+      accessMode,
+      ...(accessMode === "protected" ? { password: "entry-secret" } : {}),
+    });
+    const result = await rpcGetSpaceEntryResolution(
+      env as unknown as CoreBindings,
+      {
+        spaceId,
+        spaceAccess: createAnonymousViewerSpaceAccessContext({
+          spaceId,
+          requestId: "entry-resolution-test",
+        }),
+      }
+    );
+    expect(result.view.state).toBe(state);
+    if (state !== "allowed") {
+      expect(result.safeContext).toEqual({});
+    }
   });
 
   it("routes Wake Stop POST requests to a typed response instead of 404", async () => {
