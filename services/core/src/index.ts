@@ -228,6 +228,7 @@ import type {
   ListOrganizationSkillsRpcInput,
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
@@ -329,6 +330,8 @@ import type {
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMessagePinsResponse,
+  SpaceTaskMutationReceipt,
+  SpaceTaskResponse,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
   StartCenterAgentMemberResearchRpcInput,
@@ -607,6 +610,7 @@ import {
   type CreateSpaceDiagnosticReportInput,
   type CreateSpaceFolderInput,
   type CreateSpaceInput,
+  type CreateSpaceTaskInput,
   type DeleteRoutineInput,
   type DeleteSpaceAttachmentRecordInput,
   type DeleteSpaceAttachmentRecordResult,
@@ -663,6 +667,7 @@ import {
   type GetSpaceMessageReactionsInput,
   type GetSpaceMetaInput,
   type GetSpaceStatusInput,
+  type GetSpaceTaskInput,
   type GetSpaceThreadInput,
   type GetSpaceUpdatesInput,
   type GetSpaceViewerMembershipInput,
@@ -688,9 +693,11 @@ import {
   type ListSignalsInput,
   type ListSignalsResult,
   type ListSpaceFilesInput,
+  type ListSpaceTasksInput,
   type ListSpaceThreadEventsInput,
   type ListSpaceThreadSignalsInput,
   type ListSpaceThreadsInput,
+  type MutateSpaceTaskInput,
   type NotifyAgentProfileRouteCatalogChangedInput,
   type NotifyAgentProfilesRouteCatalogChangedInput,
   type OpenCenterAgentDirectMessageSpaceInput,
@@ -827,6 +834,7 @@ import {
   rpcCreateSpace,
   rpcCreateSpaceDiagnosticReport,
   rpcCreateSpaceFolder,
+  rpcCreateSpaceTask,
   rpcDeleteRoutine,
   rpcDeleteSpace,
   rpcDeleteSpaceAttachmentRecord,
@@ -890,6 +898,7 @@ import {
   rpcGetSpaceMessageReactions,
   rpcGetSpaceMeta,
   rpcGetSpaceStatus,
+  rpcGetSpaceTask,
   rpcGetSpaceThread,
   rpcGetSpaceUpdates,
   rpcGetSpaceViewerMembership,
@@ -917,10 +926,12 @@ import {
   rpcListSignals,
   rpcListSpaceFileRevisions,
   rpcListSpaceFiles,
+  rpcListSpaceTasks,
   rpcListSpaceThreadEvents,
   rpcListSpaceThreadSignals,
   rpcListSpaceThreads,
   rpcMutateSpaceMessage,
+  rpcMutateSpaceTask,
   rpcNotifyAgentProfileRouteCatalogChanged,
   rpcNotifyAgentProfilesRouteCatalogChanged,
   rpcOpenCenterAgentDirectMessageSpace,
@@ -2174,6 +2185,26 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return rpcSpaceMessagePins(this.env, input);
+  }
+
+  listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
+    return rpcListSpaceTasks(this.env, input);
+  }
+
+  getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    return rpcGetSpaceTask(this.env, input);
+  }
+
+  createSpaceTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return rpcCreateSpaceTask(this.env, input);
+  }
+
+  mutateSpaceTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return rpcMutateSpaceTask(this.env, input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {
@@ -4294,6 +4325,26 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse> {
     return super.spaceMessagePins(input);
+  }
+
+  listSpaceTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse> {
+    return super.listSpaceTasks(input);
+  }
+
+  getSpaceTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse> {
+    return super.getSpaceTask(input);
+  }
+
+  createSpaceTask(
+    input: CreateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return super.createSpaceTask(input);
+  }
+
+  mutateSpaceTask(
+    input: MutateSpaceTaskInput
+  ): Promise<SpaceTaskMutationReceipt> {
+    return super.mutateSpaceTask(input);
   }
 
   getSpaceContract(input: GetSpaceContractInput): Promise<SpaceContract> {

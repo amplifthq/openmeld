@@ -276,14 +276,11 @@ ordinary message presentation. A Local Agent that needs more Organization
 context asks through this same command and receives only what the represented
 member and current environment authorize.
 
-When the Center Agent creates one or more canonical Tasks during that turn, the
-visible reply already carries typed Task references. Agent View preserves those
-references and adds Organization-scoped Web URLs instead of reducing the reply
-to text. The CLI still does not create a parallel Task API or decide that every
-request is a Task: quick answers and immediate safe actions stay in Chat, while
-the Center Agent may create durable, asynchronous, parallel, or recoverable
-work through the existing Task tool. A returned Task reference means the work
-already exists and must not be resubmitted.
+The private Center Agent Direct Message does not create Space Tasks or return a
+parallel Task reference. When the same Agent Profile participates in an
+ordinary shared Space, it may use the Space-owned Task contract described
+below. Quick answers and immediate safe actions stay in Messages on both
+surfaces.
 
 If the Center Agent needs human input, Human View points the member to the same
 Center Agent Chat. Agent View returns the structured pending interaction and
@@ -1008,6 +1005,21 @@ password without printing or embedding that password in output. Thread replies
 use the same message file contract.
 
 ### OpenMeld Space Action Commands
+
+The dispatch Space Action MCP also exposes non-final `list_tasks`,
+`create_task`, `start_task`, `submit_task_result`, `review_task`, and
+`cancel_task` tools in an eligible shared Space. Their Space, source Signal,
+and Agent actor are fixed by the active dispatch context. They call the shared
+Space Task API through normal CLI authentication and recheck that the context
+did not change before accepting the result. A Task tool does not consume or
+replace the Wake's one required final Space action.
+
+Agents create a Task only for a clear delivery obligation that needs durable
+ownership, progress, review, or later closure. Questions and tiny same-turn
+actions stay in Messages. Creating assigns the current Agent by default and
+leaves the Task in To do; starting, result submission, review, and cancellation
+are explicit revision-bound writes. Task cancellation may request the existing
+Wake Stop path, but the Task receipt never claims that a process stopped.
 
 An Agent chooses exactly one dispatch-scoped OpenMeld Space Action as a Wake's
 final outcome. A supported controller receives first-party `reply`, `status`,

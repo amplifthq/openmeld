@@ -2,6 +2,7 @@ import type {
 	AgentProfileReplyRecoveryPlan,
 	ProfileDetailsSpaceMemberInput,
 } from "@openmeld/agent-profile";
+import { SPACE_TASK_TITLE_MAX_CHARS } from "@openmeld/schemas";
 import type {
 	ModelCatalog,
 	SpaceInboxUnreadTarget,
@@ -28,6 +29,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { toast } from "sonner";
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
@@ -39,7 +41,10 @@ import {
 	resolveActiveWakeSourceItem,
 } from "#/lib/spaces/active-wake-conversation";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
-import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
+import {
+	createOrganizationScopedWebSpaceApi,
+	createUnscopedWebSpaceApi,
+} from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
@@ -71,6 +76,7 @@ import {
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
 import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
+import { spaceTaskQueryKeys } from "#/query/spaces/space-tasks";
 import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import {
 	type CenterAgentComputerSetupContext,
@@ -271,6 +277,7 @@ type SpaceConversationPanelResolvedProps = {
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	firstUnreadSignalId: string | null;
 	files?: ReactNode;
+	tasks?: ReactNode;
 	hasEarlierHistory: boolean;
 	historyActionErrorMessage: string | null;
 	historyErrorMessage: string | null;
@@ -312,6 +319,11 @@ type SpaceConversationPanelResolvedProps = {
 	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onRemoveComposerFile: (localId: string) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
+	onAddMessageToTasks?: (
+		item: SpaceTimelineItem,
+		threadId: string | null
+	) => void;
+	taskCreationSourceSignalId?: string | null;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onWakeStopRequest?: SpaceWakeStopRequestHandler;
 	onMentionButtonClick: () => void;
@@ -503,15 +515,104 @@ export function SpaceConversationPanel(
 	return content;
 }
 
+function useSpaceMessageTaskAction(input: {
+	disabled: boolean;
+	onSpaceViewChange: (view: SpaceView) => void;
+	openMeldProfileId: string;
+	organizationSlug?: string;
+	spaceId?: string;
+}) {
+	const {
+		disabled,
+		onSpaceViewChange,
+		openMeldProfileId,
+		organizationSlug,
+		spaceId,
+	} = input;
+	const queryClient = useQueryClient();
+	const [pendingSourceSignalId, setPendingSourceSignalId] = useState<
+		string | null
+	>(null);
+	const taskApi = useMemo(
+		() =>
+			organizationSlug
+				? createOrganizationScopedWebSpaceApi({
+						organizationSlug,
+						openMeldProfileId,
+					})
+				: createUnscopedWebSpaceApi({ openMeldProfileId }),
+		[openMeldProfileId, organizationSlug]
+	);
+	const onAdd = useCallback(
+		async (item: SpaceTimelineItem, threadId: string | null) => {
+			if (disabled || !spaceId || pendingSourceSignalId) {
+				return;
+			}
+			setPendingSourceSignalId(item.id);
+			try {
+				const compactText = item.text.replace(/\s+/gu, " ").trim();
+				const title =
+					compactText.length > SPACE_TASK_TITLE_MAX_CHARS
+						? `${compactText.slice(0, SPACE_TASK_TITLE_MAX_CHARS - 1).trimEnd()}…`
+						: compactText || `Follow up on ${item.actorName}'s message`;
+				await taskApi.createTask({
+					spaceId,
+					body: {
+						operationId: crypto.randomUUID(),
+						title,
+						sourceSignalId: item.id,
+						threadId,
+						assigneeProfileId:
+							item.wakeTargetProfileIds.length === 1
+								? (item.wakeTargetProfileIds[0] ?? null)
+								: null,
+					},
+				});
+				await queryClient.invalidateQueries({
+					queryKey: spaceTaskQueryKeys.space(spaceId),
+				});
+				onSpaceViewChange("tasks");
+				toast.success("Task created from this message.");
+			} catch (error) {
+				toast.error(
+					error instanceof Error && error.message
+						? error.message
+						: "OpenMeld couldn't create a Task from this message."
+				);
+			} finally {
+				setPendingSourceSignalId(null);
+			}
+		},
+		[
+			disabled,
+			onSpaceViewChange,
+			pendingSourceSignalId,
+			queryClient,
+			spaceId,
+			taskApi,
+		]
+	);
+	return { onAdd: disabled ? undefined : onAdd, pendingSourceSignalId };
+}
+
 function SpaceConversationPanelContent(
 	publicInput: SpaceConversationPanelProps
 ) {
 	const readingHeader = useSpaceReadingHeader();
 	const { viewState, ...props } = publicInput;
 	const timelineItems = useOptimisticSpaceMessages(props.timelineItems);
+	const taskAction = useSpaceMessageTaskAction({
+		disabled: viewState.isDirectMessage,
+		onSpaceViewChange: props.onSpaceViewChange,
+		openMeldProfileId: props.selfProfileId,
+		organizationSlug: props.orgSlug,
+		spaceId: props.spaceId,
+	});
 	const input: SpaceConversationPanelResolvedProps = {
 		...props,
 		...viewState,
+		onAddMessageToTasks: taskAction.onAdd,
+		taskCreationSourceSignalId: taskAction.pendingSourceSignalId,
 		timelineItems,
 	};
 	const presentation = useSpaceConversationPresentationController(input);
@@ -803,6 +904,7 @@ function SpaceConversationPanelContent(
 						</MessageScroller>
 					</MessageScrollerProvider>
 				}
+				tasks={input.tasks}
 			/>
 
 			{showComposer ? (
@@ -922,6 +1024,7 @@ function renderPanelConversationBody(input: {
 		onOpenMessageDetails: presentation.setMessageDetailsItem,
 		onOpenThread: navigation.onOpenThread,
 		onOpenSpaceFile: panel.onOpenSpaceFile,
+		onAddMessageToTasks: panel.onAddMessageToTasks,
 		onReplyToMessage: presentation.onReplyToMessage,
 		onReportMessage: presentation.onReportMessage,
 		onRecoverExecution: presentation.messageDetailsItem
@@ -956,6 +1059,7 @@ function renderPanelConversationBody(input: {
 		selfAvatarImageUrl: panel.selfAvatarImageUrl ?? null,
 		selfProfileId: panel.selfProfileId,
 		spaceId: panel.spaceId,
+		taskCreationSourceSignalId: panel.taskCreationSourceSignalId,
 		spaceReferencesById: panel.spaceReferencesById,
 		highlightedSignalId: navigation.highlightedSignalId,
 		timelineItems: presentation.mainTimelineItems,
@@ -1673,6 +1777,7 @@ function SpacePrimaryView(input: {
 	graph: ReactNode;
 	idPrefix: string;
 	messages: ReactNode;
+	tasks?: ReactNode;
 }) {
 	const selectedIndex = getSpaceViewIndex(input.activeView);
 	let activeContent = input.files;
@@ -1680,6 +1785,8 @@ function SpacePrimaryView(input: {
 		activeContent = input.messages;
 	} else if (input.activeView === "graph") {
 		activeContent = input.graph;
+	} else if (input.activeView === "tasks") {
+		activeContent = input.tasks;
 	}
 	return (
 		<div
@@ -2064,6 +2171,10 @@ function renderConversationBody(input: {
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
+	onAddMessageToTasks?: (
+		item: SpaceTimelineItem,
+		threadId: string | null
+	) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -2089,6 +2200,7 @@ function renderConversationBody(input: {
 	selfAvatarImageUrl: string | null;
 	selfProfileId: string;
 	spaceId?: string;
+	taskCreationSourceSignalId?: string | null;
 	spaceReferencesById?: SpaceMessageReferencesById;
 	highlightedSignalId: string | null;
 	timelineItems: readonly SpaceTimelineItem[];
@@ -2294,6 +2406,7 @@ function renderConversationBody(input: {
 						loadedMainTimelineSignalIds={input.loadedMainTimelineSignalIds}
 						membersSnapshot={input.membersSnapshot}
 						modelCatalog={input.modelCatalog}
+						onAddMessageToTasks={input.onAddMessageToTasks}
 						onAgentInteractionResponse={input.onAgentInteractionResponse}
 						onAgentRecoveryAction={input.onAgentRecoveryAction}
 						onCreateThread={input.onCreateThread}
@@ -2319,6 +2432,7 @@ function renderConversationBody(input: {
 						selfProfileId={input.selfProfileId}
 						spaceId={input.spaceId}
 						spaceReferencesById={input.spaceReferencesById}
+						taskCreationSourceSignalId={input.taskCreationSourceSignalId}
 						threadPreviewByThreadId={input.threadPreviewByThreadId}
 						threadsByRootSignalId={input.threadsByRootSignalId}
 						timelineItems={input.timelineItems}
@@ -2412,6 +2526,10 @@ type ConversationBubbleRunInput = {
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
+	onAddMessageToTasks?: (
+		item: SpaceTimelineItem,
+		threadId: string | null
+	) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
@@ -2433,6 +2551,7 @@ type ConversationBubbleRunInput = {
 	selfAvatarImageUrl: string | null;
 	selfProfileId: string;
 	spaceId?: string;
+	taskCreationSourceSignalId?: string | null;
 	spaceReferencesById?: SpaceMessageReferencesById;
 	timelineItems: readonly SpaceTimelineItem[];
 	wakeOutcomeIndex: SpaceWakeOutcomeIndex;
@@ -2703,12 +2822,15 @@ const ConversationBubbleRun = memo(function ConversationBubbleRun(
 												onCreateThread: input.onCreateThread,
 												onOpenMessageDetails: input.onOpenMessageDetails,
 												onOpenThread: input.onOpenThread,
+												onAddMessageToTasks: input.onAddMessageToTasks,
 												onReplyToMessage: input.onReplyToMessage,
 												orgSlug: input.orgSlug,
 												profileEntriesById: input.profileEntriesById,
 												profilePresentationsById:
 													input.profilePresentationsById,
 												selfProfileId: input.selfProfileId,
+												taskCreationSourceSignalId:
+													input.taskCreationSourceSignalId,
 												threadsByRootSignalId: input.threadsByRootSignalId,
 											})}
 										</div>
@@ -3165,6 +3287,10 @@ function renderConversationMessageFooter(input: {
 	onCreateThread: (input: { rootSignalId: string }) => Promise<void>;
 	onOpenMessageDetails: (item: SpaceTimelineItem) => void;
 	onOpenThread: (threadId: string) => void;
+	onAddMessageToTasks?: (
+		item: SpaceTimelineItem,
+		threadId: string | null
+	) => void;
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	orgSlug?: string;
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
@@ -3173,6 +3299,7 @@ function renderConversationMessageFooter(input: {
 		SpaceCollaborationProfilePresentation
 	>;
 	selfProfileId: string;
+	taskCreationSourceSignalId?: string | null;
 	threadsByRootSignalId: ReadonlyMap<string, SpaceThread>;
 }) {
 	if (
@@ -3237,6 +3364,23 @@ function renderConversationMessageFooter(input: {
 					: undefined
 			}
 			signalId={canUseCollaborationActions ? input.item.id : undefined}
+			task={
+				canUseCollaborationActions && input.onAddMessageToTasks
+					? {
+							disabled: Boolean(input.taskCreationSourceSignalId),
+							label:
+								input.taskCreationSourceSignalId === input.item.id
+									? "Creating Task…"
+									: "Add to Tasks",
+							onSelect: () =>
+								input.onAddMessageToTasks?.(
+									input.item,
+									input.threadsByRootSignalId.get(input.item.id)?.threadId ??
+										null
+								),
+						}
+					: undefined
+			}
 			thread={
 				canUseCollaborationActions
 					? resolveConversationMessageFooterThreadAction({

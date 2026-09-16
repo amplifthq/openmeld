@@ -81,6 +81,7 @@ export const spaceLiveInvalidationFrameSchema = z.strictObject({
     "space.members.changed",
     "space.meta.changed",
     "space.files.changed",
+    "space.tasks.changed",
     "space.reactions.changed",
     "agent.readiness.invalidated",
     "wake.progress.changed",

@@ -1174,6 +1174,22 @@ export type {
   SpaceStatusMembersSummary,
 } from "./space-status";
 export type {
+  CreateSpaceTaskBody,
+  ListSpaceTasksQuery,
+  ListSpaceTasksResponse,
+  MutateSpaceTaskBody,
+  SpaceTask,
+  SpaceTaskActor,
+  SpaceTaskEvent,
+  SpaceTaskEventType,
+  SpaceTaskId,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
+  SpaceTaskResult,
+  SpaceTaskReview,
+} from "./space-tasks";
+export type {
   CreateSpaceThreadBody,
   CreateSpaceThreadResponse,
   GetSpaceThreadResponse,

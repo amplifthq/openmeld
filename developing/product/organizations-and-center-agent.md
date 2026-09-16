@@ -600,12 +600,14 @@ The session selects conversational context; it does not create another Agent or
 Computer. Existing Space/session authorization, execution controls, and native
 delivery own admission, steering, stopping, and results.
 
-The separate Center Agent Task product is retired: no Task creation/discovery
-tools, board, detail route, HTTP/RPC API, recovery scheduler, or Inbox producer
-remain. Local Agent Task Handles and Agent Task Coordination are execution
-selectors and callbacks, not this retired product, and remain supported.
-Historical Task data is not migrated into sessions. Ordinary Space messages
-remain readable; old Task links do not revive a Task.
+The separate private Center Agent Task product is retired. Its historical
+records, routes, recovery scheduler, and session-scoped board do not return.
+Ordinary shared **Space Tasks** are a distinct Space-owned collaboration
+capability and are intentionally unavailable in the Center Agent Direct
+Message. Local Agent Task Handles and Agent Task Coordination remain execution
+selectors and callbacks; they are not Space Tasks. Historical private Task data
+is not migrated into either sessions or Space Tasks, and old Task links do not
+revive a Task.
 
 Task tables and their schema declarations are retained only for safe deployment
 ordering. No active product code reads or writes them. Inbox reads filter to

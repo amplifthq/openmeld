@@ -3568,11 +3568,28 @@ presentations.
 
 It should keep the familiar conversation model clear:
 
-The authenticated Space header exposes **Messages | Files** as one
+The authenticated ordinary shared-Space header exposes **Messages | Tasks |
+Files** as one
 keyboard-accessible tab list. Files keeps the same Space header and membership
 context; it is not a Resources redirect or a second app shell. Opening Files
 loads the Space root, and opening folders uses breadcrumb navigation without
 changing file identity.
+
+Tasks opens one responsive board with **To do**, **In progress**, and **In
+review** as the active columns. Done and Canceled stay in collapsed history
+groups instead of creating a competing list view. Cards show the requester,
+assignee, optional reviewer, completion conditions, current result, and only
+the controls the current profile can plausibly use; Core remains authoritative
+and rejects stale or unauthorized mutations. Empty state copy sends the user
+back to Messages. Direct Messages omit the tab and normalize stale `tasks` view
+state back to Messages.
+
+Every retained text message in an eligible Space has a secondary **Add to
+Tasks** action. The created Task preserves that Signal as its source, inherits
+the source Thread, and assigns the sole Woken Agent when the message addressed
+exactly one. The action opens Tasks only after the server receipt succeeds.
+`space.tasks.changed` invalidates the Space Task query; the frame never mutates
+the board directly.
 
 The initial Files surface supports native file upload, whole-surface drag and
 drop with a visible drop target, folder creation, download, Markdown-file
@@ -3609,7 +3626,7 @@ drawer and previews that snapshot read-only in the main surface. A member may
 restore it as a new latest revision without erasing later revisions. The header
 uses the viewer's local date and time instead of a hard-coded timezone.
 
-Returning to the file list, changing **Messages | Graph | Files**, opening a
+Returning to the file list, changing **Messages | Tasks | Files**, opening a
 different chat file, following an internal route, reloading, or closing the
 window with a local draft uses the same save, discard, or cancel contract as
 Organization Documents. A repeated click on a chat file card reopens its exact

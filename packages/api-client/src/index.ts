@@ -374,6 +374,12 @@ export {
   readOrUpdateSpaceFilePins,
   readOrUpdateSpaceMessagePins,
 } from "./space/message-pins";
+export {
+  createSpaceTask,
+  getSpaceTask,
+  listSpaceTasks,
+  mutateSpaceTask,
+} from "./space/tasks";
 export type {
   OpenMeldApiClientStreamTransport,
   OpenMeldApiClientTransport,

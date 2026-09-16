@@ -66,6 +66,23 @@ instead of persisting copied previews. Missing messages and trashed files are
 omitted. Retrying a pin preserves its original owner and timestamp, and unpin
 ownership is checked synchronously before deletion in the owning Space.
 
+## Space Task ownership
+
+The Space Durable Object is the only writer for Space Tasks. Its SQLite schema
+owns `space_tasks`, append-only `space_task_events`, and idempotent
+`space_task_operations`. The stored Task document is the current read model;
+phase and revision columns support bounded board reads and conflict-safe writes.
+Every mutation compares the expected Task revision inside the Space transaction.
+An operation id may replay only the exact same request and returns the retained
+receipt without appending another event.
+
+Task phase is collaboration truth. RuntimeCoordinator and Remote Agent native
+delivery continue to own execution state. Cancellation may call their existing
+Stop boundary after the Task transaction commits, but no Task row proves that a
+process started, stopped, or completed. Task handoff and completion messages are
+deterministic Space Signals, so retrying a Task operation cannot duplicate the
+visible transition or Agent Wake.
+
 ## Space message previews and slow Web experiences
 
 Space member snapshots use the existing request-local D1 read batch for Agent

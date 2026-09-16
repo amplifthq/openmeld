@@ -614,6 +614,11 @@ const AGENT_WORK_COPY = {
 		"Updated Space settings",
 		"Couldn't update Space settings"
 	),
+	"space.tasks.manage": workCopy(
+		"Coordinating Space Tasks…",
+		"Coordinated Space Tasks",
+		"Couldn't coordinate Space Tasks"
+	),
 	"spaces.read": workCopy(
 		"Checking available Spaces…",
 		"Checked available Spaces",
