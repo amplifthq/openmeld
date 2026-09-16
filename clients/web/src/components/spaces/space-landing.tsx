@@ -25,6 +25,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
+	lazy,
+	Suspense,
 	useCallback,
 	useEffect,
 	useEffectEvent,
@@ -122,7 +124,7 @@ import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recover
 import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
-import { SpaceFilesPanel } from "./space-files-panel";
+
 import { SpaceHeader } from "./space-header";
 import {
 	isSameOwnerUserId,
@@ -194,6 +196,12 @@ import {
 	useWelcomeSpace,
 	welcomeStepStartedAt,
 } from "./welcome-space-state";
+
+const SpaceFilesPanel = lazy(() =>
+	import("./space-files-panel").then((module) => ({
+		default: module.SpaceFilesPanel,
+	}))
+);
 
 const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
 const EMPTY_SPACE_DESCRIPTION =
@@ -2138,14 +2146,22 @@ function SpaceLandingConversation({
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
-				<SpaceFilesPanel
-					fileToOpen={spaceFileToOpen}
-					key={controller.spaceId}
-					onLeaveGuardChange={spaceFileNavigation.setSpaceFileLeaveGuard}
-					openMeldProfileId={controller.profileId}
-					organizationSlug={input.orgSlug}
-					spaceId={controller.spaceId}
-				/>
+				<Suspense
+					fallback={
+						<output className="p-6 text-muted-foreground text-sm">
+							Loading files…
+						</output>
+					}
+				>
+					<SpaceFilesPanel
+						fileToOpen={spaceFileToOpen}
+						key={controller.spaceId}
+						onLeaveGuardChange={spaceFileNavigation.setSpaceFileLeaveGuard}
+						openMeldProfileId={controller.profileId}
+						organizationSlug={input.orgSlug}
+						spaceId={controller.spaceId}
+					/>
+				</Suspense>
 			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
 			historyActionErrorMessage={controller.historyActionErrorMessage}

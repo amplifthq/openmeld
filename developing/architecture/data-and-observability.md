@@ -68,6 +68,13 @@ ownership is checked synchronously before deletion in the owning Space.
 
 ## Space message previews and slow Web experiences
 
+Space member snapshots use the existing request-local D1 read batch for Agent
+readiness profile reads. The batch changes transport round trips only: owning
+repositories retain SQL, validation, identity checks, and failure semantics.
+No readiness result survives into the next request, and separate physical
+databases never share a batch. Bootstrap keeps its current response and
+authorization contract.
+
 Space owns message preview truth. Message publication and retention capture a
 bounded text preview and a monotonically increasing Space-local revision into
 the existing durable Space index outbox. Core projects this into

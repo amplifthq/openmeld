@@ -12,6 +12,7 @@ import {
 	continuePendingAgentProfileCreationLocalSetup,
 	readPendingAgentProfileCreationLocalSetup,
 	rememberPendingAgentProfileCreationLocalSetup,
+	transferPendingAgentProfileCreationLocalSetup,
 } from "./agent-profile-creation-local-setup";
 
 describe("pending Agent Profile creation local setup", () => {
@@ -23,6 +24,58 @@ describe("pending Agent Profile creation local setup", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
+	});
+
+	it.each([
+		"computer-1",
+		"computer-2",
+	])("carries custom-folder intent into recovery on %s without copying private paths to another computer", (computerId) => {
+		const source = {
+			organizationId: "org-1",
+			requestId: "request-1",
+			storageScope: "account-1",
+		};
+		rememberPendingAgentProfileCreationLocalSetup({
+			...source,
+			agentProfileId: null,
+			workspacePath: "/private/project",
+		});
+		const fromRequest = requestFixture({
+			status: "failed",
+			createdAgentProfileId: null,
+		});
+		const toRequest = {
+			...fromRequest,
+			id: "replacement",
+			configuration: {
+				...fromRequest.configuration,
+				targetComputerId: computerId,
+			},
+		};
+		expect(
+			transferPendingAgentProfileCreationLocalSetup({
+				fromRequest,
+				toRequest,
+				storageScope: source.storageScope,
+			})
+		).toBe(true);
+		expect(
+			readPendingAgentProfileCreationLocalSetup({
+				...source,
+				requestId: toRequest.id,
+			})
+		).toEqual({
+			agentProfileId: null,
+			workspacePath: computerId === "computer-1" ? "/private/project" : null,
+		});
+		expect(readPendingAgentProfileCreationLocalSetup(source)).toBeNull();
+		window.sessionStorage.clear();
+		expect(
+			readPendingAgentProfileCreationLocalSetup({
+				...source,
+				requestId: toRequest.id,
+			})
+		).toEqual({ agentProfileId: null, workspacePath: null });
 	});
 
 	it("keeps setup incomplete without persisting the private path after the tab closes", async () => {

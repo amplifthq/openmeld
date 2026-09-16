@@ -17,6 +17,7 @@ import {
 	saveComposerFileDraftUpload,
 } from "#/lib/spaces/composer-file-drafts";
 import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
+import { SPACE_COMPOSER_FILE_PUBLISH_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
 import { formatSpaceFileSizeLimitError } from "./space-file-utils";
 
 type ComposerFileScope = {
@@ -519,6 +520,7 @@ async function publishPendingFile(input: {
 				await api.publishComposerUpload({
 					clientMutationId: input.file.publishMutationId,
 					spaceId: input.spaceId,
+					timeoutMs: SPACE_COMPOSER_FILE_PUBLISH_TIMEOUT_MS,
 					uploadId: upload.id,
 				})
 		);

@@ -16,9 +16,11 @@ import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	Fragment,
+	lazy,
 	memo,
 	type ReactNode,
 	type Ref,
+	Suspense,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -143,7 +145,7 @@ import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
-import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
+import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
@@ -216,12 +218,17 @@ import {
 } from "./space-wake-stop-control";
 import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
+
 import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
 } from "./use-space-mention-authoring";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
+
+const SpaceGraph = lazy(() =>
+	import("./space-graph").then((module) => ({ default: module.SpaceGraph }))
+);
 
 type SpaceConversationPanelResolvedProps = {
 	agentStreams?: readonly import("#/lib/spaces/conversation-stream").SpaceConversationVisibleStreamProjection[];
@@ -645,24 +652,34 @@ function SpaceConversationPanelContent(
 				activeView={input.activeSpaceView}
 				files={input.files}
 				graph={
-					<SpaceGraph
-						focusRequest={spaceGraphFocusRequest}
-						graph={spaceGraph}
-						hasEarlierHistory={input.hasEarlierHistory}
-						isLoadingEarlierHistory={input.isLoadingEarlierHistory}
-						nodePositions={spaceGraphLayout.nodePositions}
-						onLoadEarlierHistory={() => {
-							loadEarlierHistory().catch((error) => {
-								console.error(
-									"Failed to load earlier activity in the Space Graph.",
-									error
-								);
-							});
-						}}
-						onNodePositionChange={spaceGraphLayout.onNodePositionChange}
-						onOpenMessageDetails={setMessageDetailsItem}
-						onResetNodePositions={spaceGraphLayout.onResetNodePositions}
-					/>
+					spaceGraph ? (
+						<Suspense
+							fallback={
+								<output className="p-6 text-muted-foreground text-sm">
+									Loading graph…
+								</output>
+							}
+						>
+							<SpaceGraph
+								focusRequest={spaceGraphFocusRequest}
+								graph={spaceGraph}
+								hasEarlierHistory={input.hasEarlierHistory}
+								isLoadingEarlierHistory={input.isLoadingEarlierHistory}
+								nodePositions={spaceGraphLayout.nodePositions}
+								onLoadEarlierHistory={() => {
+									loadEarlierHistory().catch((error) => {
+										console.error(
+											"Failed to load earlier activity in the Space Graph.",
+											error
+										);
+									});
+								}}
+								onNodePositionChange={spaceGraphLayout.onNodePositionChange}
+								onOpenMessageDetails={setMessageDetailsItem}
+								onResetNodePositions={spaceGraphLayout.onResetNodePositions}
+							/>
+						</Suspense>
+					) : null
 				}
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
@@ -1066,13 +1083,16 @@ function useSpaceConversationPresentationController(
 	);
 	const spaceGraph = useMemo(
 		() =>
-			buildSpaceGraphPresentation({
-				profileNamesById: wakeStopTargetLabelsByProfileId,
-				profilePresentationsById,
-				timelineItems: mainTimelineItems,
-				wakeProgressItems: input.ephemeralActivityItems,
-			}),
+			input.activeSpaceView === "graph"
+				? buildSpaceGraphPresentation({
+						profileNamesById: wakeStopTargetLabelsByProfileId,
+						profilePresentationsById,
+						timelineItems: mainTimelineItems,
+						wakeProgressItems: input.ephemeralActivityItems,
+					})
+				: null,
 		[
+			input.activeSpaceView,
 			input.ephemeralActivityItems,
 			mainTimelineItems,
 			profilePresentationsById,

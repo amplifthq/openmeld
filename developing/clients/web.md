@@ -251,6 +251,9 @@ the privacy, coverage, and operator query contract.
 
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
+Vite's content-hashed `/assets/` responses use a one-year immutable browser
+cache through the static asset `_headers` policy. This does not change HTML,
+authenticated API, or private attachment caching or the version recovery path.
 
 If a page that was already open can no longer load one of those assets, Web
 handles the Vite preload failure before router error rendering. The document
@@ -650,11 +653,22 @@ The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
 **Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
-preserves **Memory** and **Center Agent settings**. The
+preserves **Memory**. The
 conversation variant of that menu also preserves **Conversation information**.
 There is no separate About surface or Slack shortcut; Center Agent identity,
 model, status, and Slack management remain available through Center Agent
 settings and Channels.
+
+**Center Agent settings live in the global App Settings destination**, not in the
+Center Agent conversation header menu. Its canonical route is
+`/o/{orgSlug}/settings/center-agent`, registered as the `center-agent` Settings
+section, so the same panel renders in both the standalone Settings route and the
+global Settings dialog (`?appSettings=center-agent`). The section is grouped
+under the current Organization's name, and under **Personal** in a Personal
+Workspace, where the coordinator belongs to that one member. The historical
+`/o/{orgSlug}/center-agent/settings` route remains as a redirect only, so
+existing links keep working without a second copy of the panel. There is exactly
+one Center Agent settings entry point.
 
 The Inbox launcher is present across ordinary authorized routes and opens a compact
 preview first. The sidebar header alone shows the deduplicated attention count
@@ -1027,7 +1041,8 @@ mutations do not fork by presentation.
 The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
-  Safety**, and **Send feedback**.
+  Safety**, and **Send feedback**. In a Personal Workspace, it also includes
+  **Center Agent** (placed after Privacy & Safety, before Send feedback).
   Account preferences do not change when the selected Organization changes.
   Privacy & Safety also shows **Agent creation permissions** for the signed-in
   member in the current Organization, explicitly naming that scope. It links to **Center Agent →
@@ -1035,14 +1050,17 @@ The Settings secondary sidebar always shows these two groups:
   signed-in member's Computers for Computer file access. Both operations stay
   on their canonical product surfaces rather than creating duplicate settings
   state. Send feedback is an account-level utility action immediately after
-  Privacy & Safety. It opens the existing feedback dialog rather than creating
-  a route or a second submission contract.
-- **Current Organization name** — **General**, **Members**, **Invitations**,
-  and **Security**. General owns identity and lifecycle, Members owns roles,
-  Invitations owns requests and invitation delivery, and Security owns information
-  protection. Security is visible only to owners and admins. A personal workspace
-  shows General only: organization membership and invitation management do not
-  apply there. The visible group label is the selected
+  Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
+  the existing feedback dialog rather than creating a route or a second
+  submission contract.
+- **Current Organization name** — **General**, **Center Agent**, **Members**,
+  **Invitations**, and **Security**. General owns identity and lifecycle, Center
+  Agent owns coordinator identity, connection, model, usage, and audit history,
+  Members owns roles, Invitations owns requests and invitation delivery, and
+  Security owns information protection. Security is visible only to owners and
+  admins. A personal workspace shows General only: organization membership
+  and invitation management do not apply there, and its coordinator belongs to
+  Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
@@ -1144,8 +1162,11 @@ avatar field or keep a card-local successful avatar after the owner projections
 reload. The controls fail closed when the active default Human Profile is
 unavailable.
 
-**Center Agent → Center Agent settings** owns Center Agent configuration. It
-contains Model, Usage, the Audit Log, and the reversible
+**Settings → Center Agent** owns Center Agent configuration. It lives in the
+global App Settings destination (grouped under the current Organization's name,
+or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
+The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
+It contains Model, Usage, the Audit Log, and the reversible
 Organization-wide operating control in **Danger Zone**. Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
@@ -3691,6 +3712,13 @@ Failed attachments are never silently omitted, and publication failure preserves
 the entire message for retry with the same upload identities, including files
 that already published. Navigation preserves each conversation's attachment draft.
 
+Each file-publication request has a 30-second deadline and reuses the existing
+single automatic retry with the same mutation identity. If both attempts fail,
+the message keeps its attachments and exposes Retry; its send queue reservation
+is released so later messages can proceed. This bounds publication of an already
+staged file, not the byte upload or an Agent execution. A lost publication response
+does not justify creating a new file identity on retry.
+
 After publication, Web submits only server-returned Space File references. A pending
 outgoing message may use a local image preview until the canonical signal with
 the same client message id arrives. Durable message cards fetch an image
@@ -4418,6 +4446,18 @@ and confirmation. Expired waits expose **Send again**, which prepares a draft
 referencing the original message for only the expired Agent, without overwriting
 another draft. A later send uses ordinary new-message admission and identity;
 this UI does not redrive an expired or partly executed Wake.
+
+Historical Wake recovery skips a source only when the existing shared terminal
+matcher resolves every target from loaded durable Signals. Unresolved siblings
+and outcomes outside loaded history retain recovery. Reads run in groups of at
+most four, publish successful groups progressively, and are canceled when the
+owning effect is replaced. Canceled or failed reads remain eligible for a later
+recovery; cancellation never changes execution state.
+
+Graph and Files code loads on first display. Graph presentation is derived only
+while Graph is selected. Files image thumbnails enable their revision-scoped
+content query only when within 100 pixels of the viewport; image-element lazy
+loading alone does not control authenticated Blob downloads.
 
 Active Wake progress must survive browser refreshes by reading the Core/Space
 Wake progress read model. Browser-local progress state may provide immediate

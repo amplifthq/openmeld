@@ -619,7 +619,9 @@ function AgentsWorkspaceHome(input: {
 				onOpenAgent={(profileId) => {
 					input.onViewChange("agents", profileId);
 				}}
+				onOpenRequest={(requestId) => input.onViewChange("requests", requestId)}
 				organizationId={input.organizationId}
+				orgSlug={input.orgSlug}
 				storageScope={input.recovery.storageScope}
 			/>
 		);

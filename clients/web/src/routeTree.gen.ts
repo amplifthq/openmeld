@@ -134,6 +134,7 @@ import { Route as OOrgSlugProjectsProjectIdRouteImport } from './routes/o/$orgSl
 import { Route as OOrgSlugSettingsIndexRouteImport } from './routes/o/$orgSlug/settings/index'
 import { Route as OOrgSlugSettingsAccountRouteImport } from './routes/o/$orgSlug/settings/account'
 import { Route as OOrgSlugSettingsAppearanceRouteImport } from './routes/o/$orgSlug/settings/appearance'
+import { Route as OOrgSlugSettingsCenterAgentRouteImport } from './routes/o/$orgSlug/settings/center-agent'
 import { Route as OOrgSlugSettingsComputersRouteImport } from './routes/o/$orgSlug/settings/computers'
 import { Route as OOrgSlugSettingsConnectedAppsRouteImport } from './routes/o/$orgSlug/settings/connected-apps'
 import { Route as OOrgSlugSettingsGeneralRouteImport } from './routes/o/$orgSlug/settings/general'
@@ -822,6 +823,12 @@ const OOrgSlugSettingsAppearanceRoute =
     path: '/appearance',
     getParentRoute: () => OOrgSlugSettingsRoute,
   } as any)
+const OOrgSlugSettingsCenterAgentRoute =
+  OOrgSlugSettingsCenterAgentRouteImport.update({
+    id: '/center-agent',
+    path: '/center-agent',
+    getParentRoute: () => OOrgSlugSettingsRoute,
+  } as any)
 const OOrgSlugSettingsComputersRoute =
   OOrgSlugSettingsComputersRouteImport.update({
     id: '/computers',
@@ -1117,6 +1124,7 @@ export interface FileRoutesByFullPath {
   '/o/$orgSlug/projects/$projectId': typeof OOrgSlugProjectsProjectIdRoute
   '/o/$orgSlug/settings/account': typeof OOrgSlugSettingsAccountRoute
   '/o/$orgSlug/settings/appearance': typeof OOrgSlugSettingsAppearanceRoute
+  '/o/$orgSlug/settings/center-agent': typeof OOrgSlugSettingsCenterAgentRoute
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
@@ -1266,6 +1274,7 @@ export interface FileRoutesByTo {
   '/o/$orgSlug/projects/$projectId': typeof OOrgSlugProjectsProjectIdRoute
   '/o/$orgSlug/settings/account': typeof OOrgSlugSettingsAccountRoute
   '/o/$orgSlug/settings/appearance': typeof OOrgSlugSettingsAppearanceRoute
+  '/o/$orgSlug/settings/center-agent': typeof OOrgSlugSettingsCenterAgentRoute
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
@@ -1423,6 +1432,7 @@ export interface FileRoutesById {
   '/o/$orgSlug/projects/$projectId': typeof OOrgSlugProjectsProjectIdRoute
   '/o/$orgSlug/settings/account': typeof OOrgSlugSettingsAccountRoute
   '/o/$orgSlug/settings/appearance': typeof OOrgSlugSettingsAppearanceRoute
+  '/o/$orgSlug/settings/center-agent': typeof OOrgSlugSettingsCenterAgentRoute
   '/o/$orgSlug/settings/computers': typeof OOrgSlugSettingsComputersRouteWithChildren
   '/o/$orgSlug/settings/connected-apps': typeof OOrgSlugSettingsConnectedAppsRoute
   '/o/$orgSlug/settings/general': typeof OOrgSlugSettingsGeneralRoute
@@ -1582,6 +1592,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/projects/$projectId'
     | '/o/$orgSlug/settings/account'
     | '/o/$orgSlug/settings/appearance'
+    | '/o/$orgSlug/settings/center-agent'
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
     | '/o/$orgSlug/settings/general'
@@ -1731,6 +1742,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/projects/$projectId'
     | '/o/$orgSlug/settings/account'
     | '/o/$orgSlug/settings/appearance'
+    | '/o/$orgSlug/settings/center-agent'
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
     | '/o/$orgSlug/settings/general'
@@ -1887,6 +1899,7 @@ export interface FileRouteTypes {
     | '/o/$orgSlug/projects/$projectId'
     | '/o/$orgSlug/settings/account'
     | '/o/$orgSlug/settings/appearance'
+    | '/o/$orgSlug/settings/center-agent'
     | '/o/$orgSlug/settings/computers'
     | '/o/$orgSlug/settings/connected-apps'
     | '/o/$orgSlug/settings/general'
@@ -2868,6 +2881,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OOrgSlugSettingsAppearanceRouteImport
       parentRoute: typeof OOrgSlugSettingsRoute
     }
+    '/o/$orgSlug/settings/center-agent': {
+      id: '/o/$orgSlug/settings/center-agent'
+      path: '/center-agent'
+      fullPath: '/o/$orgSlug/settings/center-agent'
+      preLoaderRoute: typeof OOrgSlugSettingsCenterAgentRouteImport
+      parentRoute: typeof OOrgSlugSettingsRoute
+    }
     '/o/$orgSlug/settings/computers': {
       id: '/o/$orgSlug/settings/computers'
       path: '/computers'
@@ -3358,6 +3378,7 @@ const OOrgSlugSettingsComputersRouteWithChildren =
 interface OOrgSlugSettingsRouteChildren {
   OOrgSlugSettingsAccountRoute: typeof OOrgSlugSettingsAccountRoute
   OOrgSlugSettingsAppearanceRoute: typeof OOrgSlugSettingsAppearanceRoute
+  OOrgSlugSettingsCenterAgentRoute: typeof OOrgSlugSettingsCenterAgentRoute
   OOrgSlugSettingsComputersRoute: typeof OOrgSlugSettingsComputersRouteWithChildren
   OOrgSlugSettingsConnectedAppsRoute: typeof OOrgSlugSettingsConnectedAppsRoute
   OOrgSlugSettingsGeneralRoute: typeof OOrgSlugSettingsGeneralRoute
@@ -3373,6 +3394,7 @@ interface OOrgSlugSettingsRouteChildren {
 const OOrgSlugSettingsRouteChildren: OOrgSlugSettingsRouteChildren = {
   OOrgSlugSettingsAccountRoute: OOrgSlugSettingsAccountRoute,
   OOrgSlugSettingsAppearanceRoute: OOrgSlugSettingsAppearanceRoute,
+  OOrgSlugSettingsCenterAgentRoute: OOrgSlugSettingsCenterAgentRoute,
   OOrgSlugSettingsComputersRoute: OOrgSlugSettingsComputersRouteWithChildren,
   OOrgSlugSettingsConnectedAppsRoute: OOrgSlugSettingsConnectedAppsRoute,
   OOrgSlugSettingsGeneralRoute: OOrgSlugSettingsGeneralRoute,

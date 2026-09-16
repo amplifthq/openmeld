@@ -210,7 +210,27 @@ flow for creating an Agent Profile owned by the requester or by another member.
 Web, CLI, Local Agents, and the Center Agent use the same Core-owned request
 state machine rather than implementing separate approval rules.
 
-Each request freezes these product facts:
+Each request freezes its creation intent.
+
+Web recovery keeps a failed creation's context. **Review setup** opens that
+request rather than ordinary New Agent. Before identity creation, an owner can
+choose a current Computer for the same local controller while retaining the
+name, model, permissions, Project, session strategy, and intended Space. Resume
+and fork recovery stays on the original Computer. The existing Core cancellation
+and creation contracts end the old attempt before submitting the revised intent;
+one requester-scoped recovery idempotency key per original request prevents
+duplicate replacements across retries and tabs. A lost read fails closed. A
+cancelled attempt can be explicitly restarted, including after interruption
+between cancellation and replacement acceptance. Once a replacement is accepted,
+recovery opens it rather than changing its frozen intent. A committed Profile
+always uses the existing finish-setup path and must never be replaced this way.
+The existing browser-local custom-folder intent follows an accepted replacement.
+Private paths remain per-tab and may continue only on the same Computer; another
+Computer retains the incomplete-setup marker and requires folder reselection.
+Cancellation is presented as **Cancel setup**, followed by an explicit cancelled
+outcome; it must not imply that the Agent was created or repaired.
+
+The frozen facts are:
 
 - requester user and acting Profile
 - target owner user

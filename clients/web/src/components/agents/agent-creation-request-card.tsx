@@ -12,7 +12,6 @@ type PresentedAgentCreation =
 
 export function AgentCreationRequestCard(input: {
 	onDismiss?: () => void;
-	onModify: () => void;
 	onReview: () => void;
 	request: PresentedAgentCreation;
 }) {
@@ -32,7 +31,7 @@ export function AgentCreationRequestCard(input: {
 	if (isOptimistic) {
 		reviewActionLabel = "Edit and try again";
 	} else if (failed) {
-		reviewActionLabel = "Review and retry";
+		reviewActionLabel = "Review setup";
 	}
 
 	return (
@@ -65,16 +64,6 @@ export function AgentCreationRequestCard(input: {
 						{reviewActionLabel}
 					</Button>
 				)}
-				{failed && !isOptimistic ? (
-					<Button
-						onClick={input.onModify}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						Modify
-					</Button>
-				) : null}
 				{failed && isOptimistic && input.onDismiss ? (
 					<Button
 						onClick={input.onDismiss}

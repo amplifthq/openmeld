@@ -12,6 +12,47 @@ export type PendingAgentProfileCreationLocalSetup = {
 	workspacePath: string | null;
 };
 
+export function transferPendingAgentProfileCreationLocalSetup(input: {
+	fromRequest: AgentProfileCreationRequest;
+	toRequest: AgentProfileCreationRequest;
+	storageScope: string;
+}): boolean {
+	const source = {
+		organizationId: input.fromRequest.organizationId,
+		requestId: input.fromRequest.id,
+		storageScope: input.storageScope,
+	};
+	const pending = readPendingAgentProfileCreationLocalSetup(source);
+	if (!pending) {
+		return true;
+	}
+	if (input.toRequest.organizationId !== source.organizationId) {
+		return false;
+	}
+	const target = { ...source, requestId: input.toRequest.id };
+	const sameComputer =
+		input.fromRequest.configuration.targetComputerId ===
+		input.toRequest.configuration.targetComputerId;
+	try {
+		window.localStorage.setItem(
+			buildStorageKey(target, MARKER_STORAGE_PREFIX),
+			input.toRequest.createdAgentProfileId ?? PROFILE_ID_PENDING_MARKER
+		);
+		if (sameComputer && pending.workspacePath) {
+			rememberPendingAgentProfileCreationLocalSetup({
+				...target,
+				agentProfileId: input.toRequest.createdAgentProfileId,
+				workspacePath: pending.workspacePath,
+			});
+		}
+		// A path from another Computer must be chosen again, never applied there.
+		clearPendingAgentProfileCreationLocalSetup(source);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
 export function rememberPendingAgentProfileCreationLocalSetup(input: {
 	agentProfileId: string | null;
 	organizationId: string;

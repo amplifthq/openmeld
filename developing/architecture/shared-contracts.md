@@ -2218,10 +2218,12 @@ Send publishes each ready Composer Upload through an idempotent mutation. Core
 reauthorizes the Space and actor, validates the frozen name, MIME type, byte
 size, scope, and expiry, then creates the canonical root Space File through the
 ordinary prepare, immutable-object-write, and commit contract. Web uses only
-the returned canonical revision reference in the message. In-progress staging
-blocks Send. A failed stage or publication is omitted while text and other
-successfully published files continue; an empty message is never posted when
-all publications fail. A message-send failure after publication may leave the
+the returned canonical revision reference in the message. Send captures the
+attachment batch while staging finishes. A failed stage or publication preserves
+the entire message for retry with the same upload and mutation identities; text
+and other files are not posted with a missing attachment. Web bounds publication
+requests and releases the send queue after failure. A message-send failure after
+publication may leave the
 now-ordinary Space File visible in Files because Send was the explicit publish
 boundary. This remains one canonical file with one message reference, not an
 atomic file-and-message transaction or a second message-owned byte copy.
