@@ -3,7 +3,7 @@ import {
   fauxProvider,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
-import { setProvider, useModel, useTool } from "@flue/runtime";
+import { init, setProvider, useModel, useTool } from "@flue/runtime";
 import type { ConversationRecord } from "@flue/runtime/adapter";
 import {
   createFlueContext,
@@ -11,12 +11,13 @@ import {
   resetModelsForTests,
   resolveModel,
 } from "@flue/runtime/internal";
-import { sqlite } from "@flue/runtime/node";
+import { sqlite, start } from "@flue/runtime/node";
 import { object } from "valibot";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   createRemoteAgentCallbackContext,
   putRemoteAgentCallbackContext,
+  readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import {
   buildRemoteAgentExecutionIdentity,
@@ -48,6 +49,113 @@ describe("Remote Agent canonical tool result persistence", () => {
       await cleanup();
     }
     resetModelsForTests();
+  });
+
+  it.each([
+    false,
+    true,
+  ])("finishes more than 64 real tool turns across SDK compaction (personal=%s)", async (personalAgent) => {
+    const storage = await createToolExecutionStorage();
+    const receipts: number[] = [];
+    const tools = await getRemoteAgentFlueTools({
+      codeModeRuntime: TEST_CODE_MODE_RUNTIME,
+      coreWorker: {
+        personalRemoteAgentSpaceTool: () =>
+          Promise.resolve({ kind: "authorize" }),
+      },
+      personalAgent,
+      env: { LOADER: TEST_CODE_MODE_LOADER },
+      sandboxDefinitions: [
+        {
+          name: TOOL_NAME,
+          description:
+            "Complete the next distinct item and return its receipt.",
+          input: object({}),
+          execute: () => {
+            const receipt = receipts.length + 1;
+            receipts.push(receipt);
+            return Promise.resolve({
+              receipt,
+              details: "Completed item evidence. ".repeat(60),
+            });
+          },
+        },
+      ],
+      storage,
+      submissionId: CALLBACK_SUBMISSION_ID,
+    });
+    const tool = tools.find((candidate) => candidate.name === TOOL_NAME);
+    if (!tool) {
+      throw new Error("Expected the real OpenMeld tool wrapper.");
+    }
+    const registeredTool = tool;
+    const provider = fauxProvider({
+      provider: "continuous-work",
+      tokensPerSecond: Number.POSITIVE_INFINITY,
+      models: [{ id: "work", contextWindow: 128_000, maxTokens: 1024 }],
+    });
+    const summarizer = fauxProvider({
+      provider: "continuous-summary",
+      tokensPerSecond: Number.POSITIVE_INFINITY,
+    });
+    const summaryModel = summarizer.getModel();
+    summarizer.setResponses(
+      Array.from({ length: 65 }, () =>
+        fauxAssistantMessage(
+          "## Goal\nComplete all 65 requested items.\n## Current Status\nKeep completed receipts; continue the next unfinished item."
+        )
+      )
+    );
+    let finalContext = "";
+    const workSteps = Array.from({ length: 65 }, (_, index) =>
+      fauxAssistantMessage(
+        fauxToolCall(TOOL_NAME, {}, { id: `item-${index + 1}` }),
+        { stopReason: "toolUse" }
+      )
+    );
+    provider.setResponses([
+      ...workSteps.slice(0, 20),
+      fauxAssistantMessage("", {
+        stopReason: "error",
+        errorMessage: "413 (request_too_large)",
+      }),
+      ...workSteps.slice(20),
+      (context) => {
+        finalContext = JSON.stringify(context.messages);
+        return fauxAssistantMessage("All 65 requested items are complete.");
+      },
+    ]);
+    function ContinuousWork() {
+      useModel("continuous-work/work", {
+        compaction: {
+          reserveTokens: 20_000,
+          keepRecentTokens: 2048,
+          model: `${summaryModel.provider}/${summaryModel.id}`,
+        },
+      });
+      useTool(registeredTool);
+      return "Complete all 65 requested items. Never repeat a completed item.";
+    }
+    const runtime = await start({
+      agents: [ContinuousWork],
+      providers: [provider.provider, summarizer.provider],
+    });
+    cleanups.push(() => runtime.stop());
+    const agent = init(ContinuousWork, { id: "continuous-work" });
+    const receipt = await agent.dispatch("Complete all 65 requested items.");
+    const answer = await agent.read(receipt);
+    expect(JSON.stringify(answer)).toContain(
+      "All 65 requested items are complete."
+    );
+    expect(receipts).toEqual(
+      Array.from({ length: 65 }, (_, index) => index + 1)
+    );
+    expect(summarizer.state.callCount).toBeGreaterThan(0);
+    expect(provider.state.callCount).toBe(67);
+    expect(finalContext).toContain("Complete all 65 requested items.");
+    expect(
+      await readRemoteAgentCallbackContext(storage, CALLBACK_SUBMISSION_ID)
+    ).not.toHaveProperty("workLoopCheckpoint");
   });
 
   it("persists an oversized tool response as a bounded explicit error instead of a successful semantic shell", async () => {

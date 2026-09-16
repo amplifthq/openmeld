@@ -325,7 +325,7 @@ async function handleCenterAgentStreamDelta(input: {
       observedAtMs: input.streamDelta.observedAtMs,
     });
   }
-  await markRemoteAgentExecutionProgress({
+  const execution = await markRemoteAgentExecutionProgress({
     identity: buildRemoteAgentExecutionIdentity(context),
     nowMs: input.streamDelta.observedAtMs,
     progressKind:
@@ -336,6 +336,12 @@ async function handleCenterAgentStreamDelta(input: {
     return;
   }
   if (context.workLoopCheckpoint) {
+    return;
+  }
+  if (
+    execution &&
+    ["failed", "aborted", "cancellation_requested"].includes(execution.status)
+  ) {
     return;
   }
   if (!isRemoteAgentStreamEligible(context)) {
@@ -442,21 +448,30 @@ async function handleCenterAgentPromptCompletion(input: {
   const usage = normalizeFluePromptUsage(input.event.usage);
   const observedFailure = resolveObservedRemoteAgentTerminalFailure({
     event: input.event,
-    hasAssistantText,
+    hasAssistantText: hasAssistantText || !!callbackContext?.workLoopCheckpoint,
   });
   const commandFailure = await finishComputerCommands(
     callbackContext,
     input.dependencies
   );
   const terminalFailure = commandFailure ?? observedFailure;
-  const settledExecution = await settleRemoteAgentPromptExecution({
-    assistantText,
-    executionIdentity,
-    hasAssistantText,
-    isError: input.event.isError || terminalFailure !== null,
-    storage,
-    terminalFailure,
-  });
+  const settledExecution =
+    callbackContext?.workLoopCheckpoint && !terminalFailure && executionIdentity
+      ? await completeRemoteAgentExecutionState({
+          identity: executionIdentity,
+          nowMs: completedAtMs,
+          storage,
+          status: "checkpoint",
+          checkpoint: callbackContext.workLoopCheckpoint,
+        })
+      : await settleRemoteAgentPromptExecution({
+          assistantText,
+          executionIdentity,
+          hasAssistantText,
+          isError: input.event.isError || terminalFailure !== null,
+          storage,
+          terminalFailure,
+        });
   await flushRemoteAgentStream({
     coreWorker,
     env,

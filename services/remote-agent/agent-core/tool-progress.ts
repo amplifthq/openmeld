@@ -1,11 +1,31 @@
+import { REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE } from "@openmeld/schemas";
 import { digestCanonicalJson } from "@openmeld/utils";
-import type { RemoteAgentStorage } from "./callback-context";
+import {
+  type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
+} from "./callback-context";
 
 const REMOTE_AGENT_TOOL_PROGRESS_PREFIX =
   "openmeld:remote-agent:tool-progress:";
 const REMOTE_AGENT_TOOL_PROGRESS_RETENTION_MS = 60 * 60 * 1000;
 const REMOTE_AGENT_TOOL_PROGRESS_CLEANUP_BATCH_SIZE = 64;
-export const REMOTE_AGENT_TOOL_CALL_LIMIT = 64;
+// Deployment-owned coarse runaway protection, not a model cost meter or a
+// checkpoint interval. Normal productive work stays in the same execution.
+export const REMOTE_AGENT_TOOL_CALL_LIMIT = 4096;
+const POSITIVE_INTEGER_PATTERN = /^\d+$/;
+export function resolveRemoteAgentToolCallLimit(value?: string): number {
+  if (value === undefined) {
+    return REMOTE_AGENT_TOOL_CALL_LIMIT;
+  }
+  const limit = Number(value);
+  if (
+    !(POSITIVE_INTEGER_PATTERN.test(value) && Number.isSafeInteger(limit)) ||
+    limit < 1
+  ) {
+    throw new RemoteAgentToolProgressStateInvalidError();
+  }
+  return limit;
+}
 const REMOTE_AGENT_UNCHANGED_OBSERVATION_LIMIT = 3;
 const REMOTE_AGENT_RECENT_OBSERVATION_LIMIT = 16;
 const REMOTE_AGENT_TOOL_PROGRESS_WRITE_MAX_ATTEMPTS = 128;
@@ -19,6 +39,8 @@ type RemoteAgentObservationProgress = {
 
 type RemoteAgentToolProgressState = {
   callCount: number;
+  callLimit?: number;
+  lastSubmissionId?: string;
   expiresAtMs: number;
   observations: RemoteAgentObservationProgress[];
   v: 1;
@@ -27,6 +49,7 @@ type RemoteAgentToolProgressState = {
 export type RemoteAgentToolProgressTracking = "observation";
 
 export type RemoteAgentToolAttempt = {
+  callLimit: number;
   callFingerprint?: string;
   callNumber: number;
   toolName: string;
@@ -46,13 +69,14 @@ export class RemoteAgentNoProgressError extends Error {
 }
 
 export class RemoteAgentToolCallBudgetExceededError extends Error {
-  readonly limit = REMOTE_AGENT_TOOL_CALL_LIMIT;
-  readonly reasonCode = "remote_agent.tool_call_budget_exceeded";
+  readonly limit: number;
+  readonly reasonCode = REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE;
 
-  constructor() {
+  constructor(limit = REMOTE_AGENT_TOOL_CALL_LIMIT) {
     super(
-      "This request reached OpenMeld's tool-call limit. Stop calling tools and finish with the evidence already available."
+      "This assignment reached OpenMeld's safety limit. Execution is incomplete and has been stopped; do not report it as completed or repeat its actions."
     );
+    this.limit = limit;
     this.name = "RemoteAgentToolCallBudgetExceededError";
   }
 }
@@ -62,13 +86,14 @@ export class RemoteAgentToolProgressStateInvalidError extends Error {
 
   constructor() {
     super(
-      "Stored Remote Agent tool progress is invalid. Tool execution stopped without resetting the submission budget."
+      "Stored Remote Agent tool progress is invalid. Tool execution stopped without resetting the assignment safety limit."
     );
     this.name = "RemoteAgentToolProgressStateInvalidError";
   }
 }
 
 export async function beginRemoteAgentToolAttempt(input: {
+  callLimit?: number;
   nowMs?: number;
   progressTracking?: RemoteAgentToolProgressTracking;
   storage: RemoteAgentStorage;
@@ -84,7 +109,7 @@ export async function beginRemoteAgentToolAttempt(input: {
           toolName: input.toolName,
         })
       : undefined;
-  const expiresAtMs = nowMs + REMOTE_AGENT_TOOL_PROGRESS_RETENTION_MS;
+  const expiresAtMs = Number.MAX_SAFE_INTEGER;
   return await updateRemoteAgentToolProgressState({
     expiresAtMs,
     nowMs,
@@ -103,17 +128,24 @@ export async function beginRemoteAgentToolAttempt(input: {
         throw new RemoteAgentNoProgressError(input.toolName);
       }
       const callCount = current?.callCount ?? 0;
-      if (callCount >= REMOTE_AGENT_TOOL_CALL_LIMIT) {
-        throw new RemoteAgentToolCallBudgetExceededError();
+      const callLimit =
+        current?.callLimit ?? input.callLimit ?? REMOTE_AGENT_TOOL_CALL_LIMIT;
+      if (!Number.isSafeInteger(callLimit) || callLimit < 1) {
+        throw new RemoteAgentToolProgressStateInvalidError();
+      }
+      if (callCount >= callLimit) {
+        throw new RemoteAgentToolCallBudgetExceededError(callLimit);
       }
       return {
         next: {
           callCount: callCount + 1,
+          callLimit,
           expiresAtMs,
           observations: current?.observations ?? [],
           v: 1,
         },
         result: {
+          callLimit,
           ...(callFingerprint ? { callFingerprint } : {}),
           callNumber: callCount + 1,
           toolName: input.toolName,
@@ -136,7 +168,7 @@ export async function recordRemoteAgentToolResultProgress(input: {
   }
   const nowMs = input.nowMs ?? Date.now();
   const resultFingerprint = await digestCanonicalJson({ result: input.result });
-  const expiresAtMs = nowMs + REMOTE_AGENT_TOOL_PROGRESS_RETENTION_MS;
+  const expiresAtMs = Number.MAX_SAFE_INTEGER;
   const repeatCount = await updateRemoteAgentToolProgressState({
     expiresAtMs,
     nowMs,
@@ -158,6 +190,7 @@ export async function recordRemoteAgentToolResultProgress(input: {
       return {
         next: {
           callCount: current?.callCount ?? input.attempt.callNumber,
+          callLimit: current?.callLimit,
           expiresAtMs,
           observations: [
             ...observations.filter(
@@ -198,7 +231,7 @@ export async function cleanupExpiredRemoteAgentToolProgress(input: {
 
 function parseRemoteAgentToolProgressState(
   state: unknown,
-  nowMs: number
+  _nowMs: number
 ): RemoteAgentToolProgressState | null {
   if (state === undefined) {
     return null;
@@ -206,9 +239,7 @@ function parseRemoteAgentToolProgressState(
   if (!isRemoteAgentToolProgressState(state)) {
     throw new RemoteAgentToolProgressStateInvalidError();
   }
-  if (state.expiresAtMs <= nowMs) {
-    return null;
-  }
+  // An idle execution can still resume. Expiry must not refill its allowance.
   return state;
 }
 
@@ -222,6 +253,12 @@ function isRemoteAgentToolProgressState(
     state.v !== 1 ||
     !Number.isSafeInteger(state.callCount) ||
     (state.callCount as number) < 0 ||
+    (state.lastSubmissionId !== undefined &&
+      (typeof state.lastSubmissionId !== "string" ||
+        state.lastSubmissionId.length === 0)) ||
+    (state.callLimit !== undefined &&
+      (!Number.isSafeInteger(state.callLimit) ||
+        (state.callLimit as number) < 1)) ||
     !Number.isSafeInteger(state.expiresAtMs) ||
     (state.expiresAtMs as number) <= 0 ||
     !Array.isArray(state.observations) ||
@@ -268,7 +305,23 @@ async function updateRemoteAgentToolProgressState<Result>(input: {
     result: Result;
   };
 }): Promise<Result> {
-  const key = buildRemoteAgentToolProgressKey(input.submissionId);
+  const context = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.submissionId
+  );
+  const key = context
+    ? buildRemoteAgentToolProgressKey(
+        JSON.stringify([
+          context.organizationId,
+          context.agentProfileId,
+          context.dispatchId,
+        ])
+      )
+    : buildRemoteAgentToolProgressKey(input.submissionId);
+  const initial =
+    context && (await input.storage.get(key)) === undefined
+      ? await readLegacyAssignmentProgress({ ...input, context })
+      : null;
   for (
     let attempt = 0;
     attempt < REMOTE_AGENT_TOOL_PROGRESS_WRITE_MAX_ATTEMPTS;
@@ -276,26 +329,106 @@ async function updateRemoteAgentToolProgressState<Result>(input: {
   ) {
     const stored = await input.storage.get<unknown>(key);
     const transition = input.update(
-      parseRemoteAgentToolProgressState(stored, input.nowMs)
+      parseRemoteAgentToolProgressState(stored, input.nowMs) ?? initial
     );
+    const next = { ...transition.next, lastSubmissionId: input.submissionId };
     const written =
       stored === undefined
-        ? await input.storage.putIfAbsentExpiring(
-            key,
-            transition.next,
-            input.expiresAtMs
-          )
-        : await input.storage.compareAndSetExpiring(
-            key,
-            stored,
-            transition.next,
-            input.expiresAtMs
-          );
+        ? await input.storage.putIfAbsent(key, next)
+        : await input.storage.compareAndSet(key, stored, next);
     if (written) {
       return transition.result;
     }
   }
   throw new Error(
     "Remote Agent tool progress could not be updated after repeated concurrent changes."
+  );
+}
+
+async function readLegacyAssignmentProgress(input: {
+  context: import("./callback-context").RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+  submissionId: string;
+  nowMs: number;
+  expiresAtMs: number;
+}): Promise<RemoteAgentToolProgressState> {
+  const { context } = input;
+  let legacyCount = 0;
+  let legacyObservations: RemoteAgentObservationProgress[] = [];
+  {
+    let cursor: typeof context | null = context;
+    const seen = new Set<string>();
+    while (cursor) {
+      if (seen.has(cursor.submissionId)) {
+        throw new RemoteAgentToolProgressStateInvalidError();
+      }
+      seen.add(cursor.submissionId);
+      const legacy = parseRemoteAgentToolProgressState(
+        await input.storage.get(
+          buildRemoteAgentToolProgressKey(cursor.submissionId)
+        ),
+        input.nowMs
+      );
+      if (
+        cursor.submissionId !== input.submissionId &&
+        !(legacy || cursor.workLoopCheckpoint)
+      ) {
+        throw new RemoteAgentToolProgressStateInvalidError();
+      }
+      legacyCount +=
+        legacy?.callCount ?? cursor.workLoopCheckpoint?.toolCallLimit ?? 0;
+      if (cursor.submissionId === input.submissionId) {
+        legacyObservations = legacy?.observations ?? [];
+      }
+      const previousId: string | undefined =
+        cursor.turnEnvelope?.workLoopContinuation?.previousSubmissionId;
+      cursor = previousId
+        ? await readRemoteAgentCallbackContext(input.storage, previousId)
+        : null;
+      if (previousId && !cursor) {
+        throw new RemoteAgentToolProgressStateInvalidError();
+      }
+      if (
+        cursor &&
+        (cursor.dispatchId !== context.dispatchId ||
+          cursor.organizationId !== context.organizationId ||
+          cursor.agentProfileId !== context.agentProfileId)
+      ) {
+        throw new RemoteAgentToolProgressStateInvalidError();
+      }
+    }
+  }
+  return {
+    callCount: legacyCount,
+    observations: legacyObservations,
+    expiresAtMs: input.expiresAtMs,
+    v: 1,
+  };
+}
+
+/** Called only after Core accepts a terminal (non-continuation) callback. */
+export async function retainFinalizedRemoteAgentToolProgress(input: {
+  context: import("./callback-context").RemoteAgentCallbackContext;
+  nowMs: number;
+  storage: RemoteAgentStorage;
+}): Promise<void> {
+  const { context } = input;
+  const key = buildRemoteAgentToolProgressKey(
+    JSON.stringify([
+      context.organizationId,
+      context.agentProfileId,
+      context.dispatchId,
+    ])
+  );
+  const current = await input.storage.get<RemoteAgentToolProgressState>(key);
+  if (!current || current.lastSubmissionId !== context.submissionId) {
+    return;
+  }
+  const expiresAtMs = input.nowMs + REMOTE_AGENT_TOOL_PROGRESS_RETENTION_MS;
+  await input.storage.compareAndSetExpiring(
+    key,
+    current,
+    { ...current, expiresAtMs },
+    expiresAtMs
   );
 }

@@ -1,6 +1,6 @@
 "use agent";
 
-import { useModel, useSkill, useTool } from "@flue/runtime";
+import { useAgentFinish, useModel, useSkill, useTool } from "@flue/runtime";
 import { extend, getCloudflareContext } from "@flue/runtime/cloudflare";
 import {
   remoteAgentWorkerAdmissionRejectedResponseSchema,
@@ -77,6 +77,7 @@ import {
   requireRemoteAgentExecutionResources,
   resolveRemoteAgentExecutionCallbackContext,
 } from "../../flue-adapter/execution-context";
+import { checkRemoteAgentExecutionFinish } from "../../flue-adapter/execution-finish";
 import {
   createRemoteAgentSteeringSource,
   readRemoteAgentExecutionInput,
@@ -280,6 +281,18 @@ async function prepareCenterAgentRender() {
   });
 
   return {
+    checkFinish: executionContext
+      ? (
+          finish: Parameters<
+            typeof checkRemoteAgentExecutionFinish
+          >[0]["finish"]
+        ) =>
+          checkRemoteAgentExecutionFinish({
+            context: executionContext,
+            storage,
+            finish,
+          })
+      : undefined,
     steeringSource: executionContext
       ? createRemoteAgentSteeringSource({ context: executionContext, storage })
       : null,
@@ -311,6 +324,9 @@ export function CenterAgentV2() {
     requireRemoteAgentExecutionResources<
       Awaited<ReturnType<typeof prepareCenterAgentRender>>
     >();
+  if (resources.checkFinish) {
+    useAgentFinish(resources.checkFinish);
+  }
   useModel(resources.model, {
     compaction: resources.compaction,
     thinkingLevel: resources.thinkingLevel,

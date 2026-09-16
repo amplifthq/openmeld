@@ -4,13 +4,11 @@ import type {
   RemoteAgentCallbackContext,
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
-import {
-  readRemoteAgentCallbackContext,
-  recordRemoteAgentWorkLoopCheckpoint,
-} from "../agent-core/callback-context";
+import { readRemoteAgentCallbackContext } from "../agent-core/callback-context";
 import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionIdentity,
+  completeRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
@@ -51,6 +49,7 @@ export async function requireRemoteAgentToolExecutionContext(input: {
 }
 
 export async function executeRemoteAgentToolDefinition(input: {
+  callLimit?: number;
   definition: RemoteAgentToolDefinition;
   signal?: AbortSignal;
   source?: "code_mode" | "direct";
@@ -62,6 +61,7 @@ export async function executeRemoteAgentToolDefinition(input: {
     input.signal?.throwIfAborted();
     await requireRemoteAgentToolExecutionContext(input);
     const attempt = await beginRemoteAgentToolExecutionAttempt({
+      callLimit: input.callLimit,
       progressTracking: input.definition.progressTracking,
       storage: input.storage,
       submissionId: input.submissionId,
@@ -107,6 +107,7 @@ export async function executeRemoteAgentToolDefinition(input: {
 }
 
 export async function beginRemoteAgentToolExecutionAttempt(input: {
+  callLimit?: number;
   progressTracking?: RemoteAgentToolDefinition["progressTracking"];
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -123,6 +124,8 @@ export async function beginRemoteAgentToolExecutionAttempt(input: {
         source: input.source,
         toolName: input.toolName,
         type: "tool_call",
+        callNumber: attempt.callNumber,
+        callLimit: attempt.callLimit,
       },
       storage: input.storage,
       submissionId: input.submissionId,
@@ -130,15 +133,6 @@ export async function beginRemoteAgentToolExecutionAttempt(input: {
     return attempt;
   } catch (error) {
     if (error instanceof RemoteAgentToolCallBudgetExceededError) {
-      await recordRemoteAgentWorkLoopCheckpoint({
-        checkpoint: {
-          reason: "tool_call_budget_exhausted",
-          toolCallLimit: error.limit,
-          v: 1,
-        },
-        storage: input.storage,
-        submissionId: input.submissionId,
-      });
       await recordRemoteAgentTurnObservabilityBestEffort({
         event: { observedAtMs: Date.now(), type: "tool_budget_exhausted" },
         storage: input.storage,
@@ -149,12 +143,24 @@ export async function beginRemoteAgentToolExecutionAttempt(input: {
       error instanceof RemoteAgentToolCallBudgetExceededError ||
       error instanceof RemoteAgentToolProgressStateInvalidError
     ) {
+      const context = await requireRemoteAgentToolExecutionContext(input);
+      await completeRemoteAgentExecutionState({
+        identity: buildRemoteAgentExecutionIdentity(context),
+        nowMs: Date.now(),
+        status: "failed",
+        terminalFailure: {
+          code: error.reasonCode,
+          detail: error.message,
+          reasonCode: "remote_agent.turn_not_completed",
+        },
+        storage: input.storage,
+      });
       await markRemoteAgentTurnEnded({
         storage: input.storage,
         submissionId: input.submissionId,
         toolName:
           error instanceof RemoteAgentToolCallBudgetExceededError
-            ? "the submission tool-call budget"
+            ? "the assignment safety limit"
             : "invalid durable tool progress",
       });
     }

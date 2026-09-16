@@ -2,6 +2,7 @@ import {
   remoteAgentWorkerCancellationResponseSchema,
   remoteAgentWorkerExecutionQueryResponseSchema,
   remoteAgentWorkerExecutionStateSchema,
+  remoteAgentWorkLoopCheckpointSchema,
 } from "@openmeld/schemas";
 import type {
   RemoteAgentWorkerCancellationResponse,
@@ -9,8 +10,12 @@ import type {
   RemoteAgentWorkerExecutionQuery,
   RemoteAgentWorkerExecutionQueryResponse,
   RemoteAgentWorkerExecutionState,
+  RemoteAgentWorkLoopCheckpoint,
 } from "@openmeld/schemas/types";
-import type { RemoteAgentStorage } from "./callback-context";
+import {
+  type RemoteAgentStorage,
+  readRemoteAgentCallbackContext,
+} from "./callback-context";
 import { normalizeRemoteAgentCompletedAnswer } from "./completed-answer";
 import {
   createRemoteAgentTerminalFailureFact,
@@ -23,6 +28,7 @@ const EXECUTION_STATE_PREFIX = "openmeld:remote-agent:execution-state:";
 type RemoteAgentStoredExecutionState = RemoteAgentWorkerExecutionState & {
   completedText?: string;
   terminalFailure?: RemoteAgentTerminalFailureFact;
+  workLoopCheckpoint?: RemoteAgentWorkLoopCheckpoint;
 };
 
 type RemoteAgentStoredExecutionRead =
@@ -41,6 +47,12 @@ type RemoteAgentStoredExecutionRead =
 
 export type RemoteAgentTerminalExecutionOutcome =
   | {
+      status: "checkpoint";
+      execution: RemoteAgentWorkerExecutionState;
+      checkpoint: RemoteAgentWorkLoopCheckpoint;
+      completedText: null;
+    }
+  | {
       completedText: string;
       execution: RemoteAgentWorkerExecutionState;
       status: "completed";
@@ -57,6 +69,12 @@ type CompleteRemoteAgentExecutionStateInput = {
   nowMs: number;
   storage: RemoteAgentStorage;
 } & (
+  | {
+      status: "checkpoint";
+      checkpoint: RemoteAgentWorkLoopCheckpoint;
+      completedText?: never;
+      terminalFailure?: never;
+    }
   | { completedText: string; status: "completed"; terminalFailure?: never }
   | {
       completedText?: never;
@@ -199,6 +217,7 @@ async function readRemoteAgentStoredExecutionState(input: {
   const {
     completedText: storedCompletedText,
     terminalFailure: storedTerminalFailure,
+    workLoopCheckpoint: storedCheckpoint,
     ...executionInput
   } = stored as Record<string, unknown>;
   const execution = remoteAgentWorkerExecutionStateSchema.parse(executionInput);
@@ -209,6 +228,14 @@ async function readRemoteAgentStoredExecutionState(input: {
     };
   }
   const completedText = parseStoredCompletedText(storedCompletedText);
+  if (storedCheckpoint !== undefined) {
+    remoteAgentWorkLoopCheckpointSchema.parse(storedCheckpoint);
+    if (execution.status !== "completed" || completedText) {
+      throw new Error(
+        "Remote Agent checkpoint conflicts with its execution outcome."
+      );
+    }
+  }
   const terminalFailure = parseRemoteAgentTerminalFailureFact(
     storedTerminalFailure
   );
@@ -309,10 +336,12 @@ export async function completeRemoteAgentExecutionState(
     if (isTerminalStatus(result.execution.status)) {
       return result.execution;
     }
+    const requestedStatus =
+      input.status === "checkpoint" ? "completed" : input.status;
     const settledStatus =
       result.execution.status === "cancellation_requested"
         ? "aborted"
-        : input.status;
+        : requestedStatus;
     const next = remoteAgentWorkerExecutionStateSchema.parse({
       ...result.execution,
       completedAtMs: input.nowMs,
@@ -333,6 +362,7 @@ export async function completeRemoteAgentExecutionState(
         expected: result.stored,
         identity: input.identity,
         next: {
+          workLoopCheckpoint: settledCheckpoint(input, settledStatus),
           completedText:
             settledStatus === "completed" ? requestedCompletedText : null,
           execution: next,
@@ -346,10 +376,20 @@ export async function completeRemoteAgentExecutionState(
   }
 }
 
+function settledCheckpoint(
+  input: CompleteRemoteAgentExecutionStateInput,
+  status: string
+): RemoteAgentWorkLoopCheckpoint | undefined {
+  if (status === "completed" && input.status === "checkpoint") {
+    return remoteAgentWorkLoopCheckpointSchema.parse(input.checkpoint);
+  }
+  return undefined;
+}
+
 function resolveRequestedTerminalFailure(
   input: CompleteRemoteAgentExecutionStateInput
 ): RemoteAgentTerminalFailureFact | null {
-  if (input.status === "completed") {
+  if (input.status === "completed" || input.status === "checkpoint") {
     return null;
   }
   return (
@@ -392,7 +432,11 @@ export async function repairRemoteAgentCompletedExecutionWithoutAnswer(input: {
         "Remote Agent execution identity does not match its durable state."
       );
     }
-    if (result.execution.status !== "completed" || result.completedText) {
+    if (
+      result.execution.status !== "completed" ||
+      result.completedText ||
+      result.stored.workLoopCheckpoint
+    ) {
       return result.execution;
     }
     const failed = remoteAgentWorkerExecutionStateSchema.parse({
@@ -449,9 +493,7 @@ export async function resolveRemoteAgentTerminalExecutionOutcome(input: {
         failure:
           stored.terminalFailure ??
           createRemoteAgentTerminalFailureFact({
-            ...(execution.status === "aborted" && execution.cancellationReason
-              ? { error: execution.cancellationReason }
-              : {}),
+            error: execution.cancellationReason ?? undefined,
             status: execution.status,
           }),
         status: execution.status,
@@ -462,10 +504,18 @@ export async function resolveRemoteAgentTerminalExecutionOutcome(input: {
         "Remote Agent terminal outcome requires a terminal execution owner."
       );
     }
-    const completedText = await readRemoteAgentCompletedExecutionAnswer({
-      identity: input.identity,
-      storage: input.storage,
-    });
+    if (stored.stored.workLoopCheckpoint) {
+      return {
+        status: "checkpoint",
+        execution,
+        completedText: null,
+        checkpoint: stored.stored.workLoopCheckpoint,
+      };
+    }
+    if (await adoptLegacyRemoteAgentCheckpoint({ ...input, stored })) {
+      continue;
+    }
+    const completedText = stored.completedText;
     if (completedText) {
       return { completedText, execution, status: "completed" };
     }
@@ -476,6 +526,33 @@ export async function resolveRemoteAgentTerminalExecutionOutcome(input: {
     });
   }
   return null;
+}
+
+async function adoptLegacyRemoteAgentCheckpoint(input: {
+  identity: RemoteAgentWorkerExecutionQuery;
+  storage: RemoteAgentStorage;
+  stored: Extract<RemoteAgentStoredExecutionRead, { status: "found" }>;
+}): Promise<boolean> {
+  const context = await readRemoteAgentCallbackContext(
+    input.storage,
+    input.identity.submissionId
+  );
+  if (!context?.workLoopCheckpoint) {
+    return false;
+  }
+  await compareAndSetRemoteAgentExecutionState({
+    expected: input.stored.stored,
+    identity: input.identity,
+    storage: input.storage,
+    next: {
+      execution: input.stored.execution,
+      completedText: null,
+      terminalFailure: null,
+      workLoopCheckpoint: context.workLoopCheckpoint,
+    },
+  });
+  // Re-read the CAS winner, including cancellation or failure if it won.
+  return true;
 }
 
 export async function requestRemoteAgentExecutionCancellation(input: {
@@ -573,6 +650,7 @@ function compareAndSetRemoteAgentExecutionState(input: {
   expected: RemoteAgentStoredExecutionState;
   identity: RemoteAgentWorkerExecutionQuery;
   next: {
+    workLoopCheckpoint?: RemoteAgentWorkLoopCheckpoint;
     completedText: string | null;
     execution: RemoteAgentWorkerExecutionState;
     terminalFailure: RemoteAgentTerminalFailureFact | null;
@@ -584,6 +662,9 @@ function compareAndSetRemoteAgentExecutionState(input: {
     input.expected,
     {
       ...input.next.execution,
+      ...(input.next.workLoopCheckpoint
+        ? { workLoopCheckpoint: input.next.workLoopCheckpoint }
+        : {}),
       ...(input.next.completedText
         ? { completedText: input.next.completedText }
         : {}),

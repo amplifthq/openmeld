@@ -11,6 +11,8 @@ import {
   REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE,
   remoteAgentCoreCallbackBodySchema,
   remoteAgentCoreCallbackEventSchema,
   remoteAgentCoreCallbackResponseSchema,
@@ -151,6 +153,7 @@ import {
   normalizeRemoteAgentErrorMessage,
 } from "./error-message";
 import { extractSlackThreadPublicationTargetKeys } from "./slack-thread-publication-evidence";
+import { retainFinalizedRemoteAgentToolProgress } from "./tool-progress";
 import type { RemoteAgentTurnUsage, RemoteAgentUsageRecord } from "./usage";
 
 export type RemoteAgentCallbackStatus =
@@ -695,7 +698,7 @@ export async function putRemoteAgentCallbackContext(
   notifyRemoteAgentCallbackContextWaiters(context.submissionId);
 }
 
-async function updateRemoteAgentCallbackContext(input: {
+export async function updateRemoteAgentCallbackContext(input: {
   storage: RemoteAgentStorage;
   submissionId: string;
   update: (current: RemoteAgentCallbackContext) => RemoteAgentCallbackContext;
@@ -1426,7 +1429,6 @@ export async function projectRemoteAgentCompletedAnswer(input: {
         lastFailureFact: _lastFailureFact,
         lastCoreResponse: _lastCoreResponse,
         terminalFailureFact: _terminalFailureFact,
-        workLoopCheckpoint: _workLoopCheckpoint,
         ...contextWithoutStalePayload
       } = current;
       return {
@@ -1524,6 +1526,16 @@ export async function attemptRemoteAgentCallbackDelivery(input: {
       spaceId: body.spaceId,
       submissionId: body.submissionId,
     });
+    if (
+      response.status === "accepted" &&
+      body.status !== "continuation_required"
+    ) {
+      await retainFinalizedRemoteAgentToolProgress({
+        context,
+        nowMs: input.nowMs,
+        storage: input.storage,
+      });
+    }
     return await updateRemoteAgentCallbackContext({
       storage: input.storage,
       submissionId: context.submissionId,
@@ -1788,6 +1800,8 @@ function resolveRemoteAgentFailureMessage(code: string): string {
       return CENTER_AGENT_EMPTY_REPLY_PUBLIC_COPY;
     case REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE:
       return REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY;
+    case REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE:
+      return REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY;
     case "remote_agent.turn_not_completed":
       return CENTER_AGENT_REQUEST_FAILED_PUBLIC_COPY;
     case "remote_agent.execution_cancelled":

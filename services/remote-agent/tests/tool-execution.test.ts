@@ -8,6 +8,7 @@ import {
 import {
   buildRemoteAgentExecutionIdentity,
   initializeRemoteAgentExecutionState,
+  readRemoteAgentExecutionState,
 } from "../agent-core/execution-state";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
 import {
@@ -191,7 +192,7 @@ describe("Remote Agent tool execution", () => {
     expect(execute).toHaveBeenCalledTimes(4);
   });
 
-  it("enforces one durable tool-call budget across the whole submission", async () => {
+  it("continues past the former checkpoint and records a safety failure at the configured limit", async () => {
     const { storage } = await createToolExecutionTestContext();
     const execute = vi.fn(async () => ({ ok: true }));
     const definition: RemoteAgentToolDefinition = {
@@ -201,8 +202,9 @@ describe("Remote Agent tool execution", () => {
       name: "budgeted_tool",
     };
 
-    for (let attempt = 0; attempt < 64; attempt += 1) {
+    for (let attempt = 0; attempt < 70; attempt += 1) {
       await executeRemoteAgentToolDefinition({
+        callLimit: 70,
         definition,
         storage,
         submissionId: SUBMISSION_ID,
@@ -217,16 +219,62 @@ describe("Remote Agent tool execution", () => {
         toolInput: { attempt: 64 },
       })
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
-    expect(execute).toHaveBeenCalledTimes(64);
+    expect(execute).toHaveBeenCalledTimes(70);
     await expect(
       readRemoteAgentCallbackContext(storage, SUBMISSION_ID)
-    ).resolves.toMatchObject({
-      workLoopCheckpoint: {
-        reason: "tool_call_budget_exhausted",
-        toolCallLimit: 64,
-        v: 1,
-      },
+    ).resolves.not.toHaveProperty("workLoopCheckpoint");
+    const context = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!context) {
+      throw new Error("Missing execution context");
+    }
+    await expect(
+      readRemoteAgentExecutionState({
+        storage,
+        identity: buildRemoteAgentExecutionIdentity(context),
+      })
+    ).resolves.toMatchObject({ execution: { status: "failed" } });
+  });
+
+  it("retains a frozen assignment allowance across replacement submissions and idle time", async () => {
+    const { storage } = await createToolExecutionTestContext();
+    const original = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!original) {
+      throw new Error("Missing execution context");
+    }
+    const attempt = (
+      submissionId: string,
+      callLimit: number,
+      nowMs = TEST_NOW_MS
+    ) =>
+      beginRemoteAgentToolAttempt({
+        storage,
+        submissionId,
+        callLimit,
+        nowMs,
+        toolName: "read",
+        toolInput: {},
+      });
+    await expect(attempt(SUBMISSION_ID, 2)).resolves.toMatchObject({
+      callNumber: 1,
     });
+    const replacement = {
+      ...original,
+      submissionId: "replacement",
+      idempotencyKey: "replacement-key",
+    };
+    await putRemoteAgentCallbackContext(storage, replacement);
+    await expect(
+      attempt("replacement", 100, TEST_NOW_MS + 86_400_000)
+    ).resolves.toMatchObject({ callNumber: 2, callLimit: 2 });
+    await expect(attempt("replacement", 100)).rejects.toBeInstanceOf(
+      RemoteAgentToolCallBudgetExceededError
+    );
   });
 
   it("accounts for concurrent outer and inner attempts without losing budget updates", async () => {
@@ -234,6 +282,7 @@ describe("Remote Agent tool execution", () => {
     const attempts = await Promise.all(
       Array.from({ length: 64 }, (_, attempt) =>
         beginRemoteAgentToolAttempt({
+          callLimit: 64,
           storage,
           submissionId: "submission-concurrent-budget",
           toolInput: { attempt },
@@ -253,6 +302,53 @@ describe("Remote Agent tool execution", () => {
         toolName: "codemode",
       })
     ).rejects.toBeInstanceOf(RemoteAgentToolCallBudgetExceededError);
+  });
+
+  it("carries a legacy checkpoint's spent allowance into its replacement", async () => {
+    const { storage } = await createToolExecutionTestContext();
+    const original = await readRemoteAgentCallbackContext(
+      storage,
+      SUBMISSION_ID
+    );
+    if (!original?.turnEnvelope) {
+      throw new Error("Missing original turn context");
+    }
+    await putRemoteAgentCallbackContext(storage, {
+      ...original,
+      workLoopCheckpoint: {
+        v: 1,
+        reason: "tool_call_budget_exhausted",
+        toolCallLimit: 64,
+      },
+    });
+    await putRemoteAgentCallbackContext(storage, {
+      ...original,
+      submissionId: "legacy-replacement",
+      turnEnvelope: {
+        ...original.turnEnvelope,
+        workLoopContinuation: {
+          v: 1,
+          reason: "tool_call_budget_exhausted",
+          attempt: 1,
+          previousSubmissionId: SUBMISSION_ID,
+        },
+      },
+    });
+    const attempt = () =>
+      beginRemoteAgentToolAttempt({
+        storage,
+        submissionId: "legacy-replacement",
+        callLimit: 65,
+        toolName: "read",
+        toolInput: {},
+      });
+    await expect(attempt()).resolves.toMatchObject({
+      callNumber: 65,
+      callLimit: 65,
+    });
+    await expect(attempt()).rejects.toBeInstanceOf(
+      RemoteAgentToolCallBudgetExceededError
+    );
   });
 
   it.each([
@@ -302,7 +398,7 @@ describe("Remote Agent tool execution", () => {
     ).resolves.toEqual(state);
   });
 
-  it("restarts the budget only when a valid durable state has expired", async () => {
+  it("does not refill the allowance when an idle execution resumes after legacy expiry", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const submissionId = "submission-expired-budget";
     await storage.putExpiring(
@@ -324,7 +420,7 @@ describe("Remote Agent tool execution", () => {
         toolInput: {},
         toolName: "new_turn_tool",
       })
-    ).resolves.toMatchObject({ callNumber: 1 });
+    ).resolves.toMatchObject({ callNumber: 65 });
   });
 
   it("does not execute tools after detecting invalid durable progress", async () => {

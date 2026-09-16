@@ -74,6 +74,7 @@ type Command = {
   createdAt: number;
   stopRequested?: boolean;
   lossReported?: boolean;
+  completed?: boolean;
 };
 type CommandResult = {
   id: string;
@@ -111,7 +112,7 @@ export function createComputerCommandTool(input: {
   const definition: RemoteAgentToolDefinition = {
     name: "computer_command",
     description:
-      "Run long Linux commands using the Computer's retained native process sessions. Each action accepts only its own fields: start {action,key,command,timeoutSeconds?}; poll {action,key,after?,waitSeconds?}; stop {action,key}; list {action}. Do not pass poll fields to start. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work. list recovers keys after interruption. stop requests SIGTERM for that exact command. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. While a command is running, publish progress with openmeld_post_space_message and continue polling. A user saying they will press Stop does not stop the command: keep polling until actual cancellation or completion. Never end your turn to wait for Stop; ending the turn terminates unfinished commands. Finish all commands before your final answer. Use bash for short commands.",
+      "Run long Linux commands using the Computer's retained native process sessions. Each action accepts only its own fields: start {action,key,command,timeoutSeconds?}; poll {action,key,after?,waitSeconds?}; stop {action,key}; list {action}. Do not pass poll fields to start. start launches the command directly (never add shell &, nohup, or a background subprocess), returning an initial output slice; use a unique stable key per command. poll returns bounded output plus an after cursor; repeat until completed. running with outputPending means the native process is alive but its existing output subscription has not detached; continue polling, and retained output will be available after exit. Use separate polls with the default 20-second wait for long work, outside indefinite Code Mode loops. list recovers keys after interruption. stop requests SIGTERM for that exact command; stop_requested does not confirm termination. Commands belong to this execution only. Repeating start with the same key never launches a second process. A transport error can mean launch outcome is unknown: list/poll, never blindly rerun. Continue collecting results until completion or actual cancellation. Use only progress tools available in your current role. Do not end your turn merely to wait for a running command or a possible future Stop. Collect command results before your final answer; actual cancellation and terminal failure clean up unfinished commands. Use bash for short commands.",
     input: commandToolSchema,
     async execute(rawInput, options) {
       options?.signal?.throwIfAborted();
@@ -254,6 +255,14 @@ export function createComputerCommandTool(input: {
           result && typeof result === "object"
             ? (result as Record<string, unknown>)
             : {};
+        if (isCompletedCommandReceipt(receipt, rawInput)) {
+          const command = await read(String(rawInput.key));
+          await input.storage.putExpiring(
+            `${prefix}${encodeURIComponent(command.key)}`,
+            { ...command, completed: true },
+            Date.now() + 7 * 24 * 60 * 60 * 1000
+          );
+        }
         console.info("[remote_agent.computer_command_result]", {
           submissionId: input.context.submissionId,
           action: rawInput.action,
@@ -294,6 +303,13 @@ export function createComputerCommandTool(input: {
       }
     },
   };
+}
+
+function isCompletedCommandReceipt(
+  receipt: Record<string, unknown>,
+  input: Record<string, unknown>
+): boolean {
+  return receipt.status === "completed" && typeof input.key === "string";
 }
 
 async function pollComputerCommand(
@@ -428,6 +444,21 @@ export async function readCommandSlice(
   }
 }
 
+export async function listPendingRemoteAgentComputerCommands(input: {
+  context: RemoteAgentCallbackContext;
+  storage: RemoteAgentStorage;
+}): Promise<string[]> {
+  const commands = await input.storage.list<Command>({
+    prefix: commandPrefix(input.context.submissionId),
+  });
+  return [...commands.values()]
+    .filter(
+      (command) =>
+        !(command.completed || command.lossReported || command.stopRequested)
+    )
+    .map((command) => command.key);
+}
+
 export async function stopRemoteAgentComputerCommands(input: {
   context: RemoteAgentCallbackContext;
   env: { AGENT_COMPUTER?: unknown };
@@ -452,7 +483,7 @@ export async function stopRemoteAgentComputerCommands(input: {
     // The SDK proved this process belonged to a replaced Computer, and its
     // failure was returned to the model. Do not override later recovery with
     // another attempt to signal that now-absent process.
-    if (command.lossReported) {
+    if (command.lossReported || command.completed) {
       continue;
     }
     try {

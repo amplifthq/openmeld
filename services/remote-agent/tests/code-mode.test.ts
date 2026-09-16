@@ -675,6 +675,7 @@ describe("Remote Agent Code Mode", () => {
   it("counts outer Code Mode calls toward the submission tool budget", async () => {
     const storage = await createStorage(createSubmitTurnRequest());
     const tool = await createRemoteAgentCodeModeFlueTool({
+      callLimit: 64,
       definitions: [],
       env: {},
       loader: {} as WorkerLoader,

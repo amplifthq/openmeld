@@ -12,6 +12,7 @@ import {
   readCommandSlice,
   stopRemoteAgentComputerCommands,
 } from "../flue-adapter/computer-command";
+import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -95,6 +96,40 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it("keeps owned work pending until its retained completion receipt is collected", async () => {
+    const f = fixture();
+    const append = vi.fn();
+    const check = () =>
+      checkRemoteAgentExecutionFinish({
+        context: context("execution-a"),
+        storage: f.storage,
+        finish: { append },
+      });
+    await check();
+    expect(append).not.toHaveBeenCalled();
+    const started = (await f
+      .tool()
+      .execute({ action: "start", key: "long", command: "sleep 300" })) as {
+      id: string;
+    };
+    await check();
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "owned_commands_pending",
+        body: expect.stringContaining('"long"'),
+      })
+    );
+    expect(f.killExec).not.toHaveBeenCalled();
+    f.getExec.mockImplementation(async (id) =>
+      handle(id, [{ id, name: "exit", seq: 1, code: 0 }], true)
+    );
+    await f.tool().execute({ action: "poll", key: "long", waitSeconds: 0 });
+    append.mockClear();
+    await check();
+    expect(append).not.toHaveBeenCalled();
+    expect(f.exec).toHaveBeenCalledTimes(1);
+    expect(started.id).toBeTruthy();
+  });
   it("still signals every owned command when terminal output inspection fails", async () => {
     const f = fixture();
     const ids: string[] = [];
