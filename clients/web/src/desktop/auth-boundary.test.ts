@@ -28,6 +28,7 @@ describe("Desktop route authentication", () => {
 			notificationFocused: vi.fn(),
 			onNotificationPoll: vi.fn(() => () => undefined),
 			onNotificationClick: vi.fn(() => () => undefined),
+			localComputer: vi.fn(),
 			signIn: vi.fn(),
 			signOut: vi.fn(),
 			connectComputer: vi.fn(),

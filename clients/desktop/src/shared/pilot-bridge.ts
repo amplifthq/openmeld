@@ -1,6 +1,7 @@
 import type {
   DesktopComputerConnectionRequest,
   DesktopComputerConnectionResult,
+  DesktopLocalComputer,
   DesktopNotificationContext,
   DesktopNotificationReference,
   DesktopNotificationRequest,
@@ -27,6 +28,7 @@ export const PILOT_IPC = {
   notificationPoll: "desktop:notification-poll",
   platform: "desktop:platform",
   session: "desktop:session",
+  localComputer: "desktop:local-computer",
   signIn: "desktop:sign-in",
   signOut: "desktop:sign-out",
   connectComputer: "desktop:connect-computer",
@@ -51,6 +53,7 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
   ): () => void;
   platform(): Promise<DesktopPlatform>;
   session(): Promise<DesktopSession>;
+  localComputer(): Promise<DesktopLocalComputer>;
   signIn(): Promise<void>;
   signOut(): Promise<void>;
   connectComputer(

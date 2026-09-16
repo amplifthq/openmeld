@@ -96,6 +96,7 @@ describe("new Agent Profile local setup", () => {
 
 		expect(updateWorkspaceMock).toHaveBeenCalledWith({
 			actorProfileId: "profile-human",
+			target: { deviceId: "device-1", runtimeLane: "dev-local" },
 			organizationId: "organization-1",
 			profileId: "profile-agent",
 			workspaceMode: "custom",
@@ -189,6 +190,7 @@ describe("new Agent Profile local setup", () => {
 
 		expect(updateWorkspaceMock).toHaveBeenCalledWith({
 			actorProfileId: "profile-human",
+			target: { deviceId: "device-1", runtimeLane: "dev-local" },
 			organizationId: "organization-1",
 			profileId: "profile-agent",
 			workspaceMode: "openmeld_managed",
@@ -210,6 +212,7 @@ describe("new Agent Profile local setup", () => {
 		expect(ensureRuntimeBindingMock).not.toHaveBeenCalled();
 		expect(updateWorkspaceMock).toHaveBeenCalledWith({
 			actorProfileId: "profile-human",
+			target: { deviceId: "device-1", runtimeLane: "dev-local" },
 			organizationId: "organization-1",
 			profileId: "profile-agent",
 			workspaceMode: "openmeld_managed",

@@ -228,11 +228,23 @@ transport as well as native IPC. `canConfigureLocalComputer` removes unsupported
 configuration actions while retaining reported status, details, and a Web handoff.
 `pilot-local-control-policy.ts` rejects the exact Gateway method/path families
 before attaching credentials: current and explicit Computer updates, local agent
-configuration, maintenance, file access, local Project controls, enrollment,
+configuration, maintenance, file access, general local Project controls, enrollment,
 rename/forget, and Prepare mutations. Catalog refresh is also unavailable in this
 pilot; reading existing reports remains available. Ordinary Web and Space/Wake
 mutations retain their existing contracts. These are pilot capability limits, not
 new Core authorization rules.
+
+Working folder selection is a narrow exception. Main reads the existing CLI
+`computer connection-review --json` projection without installing or starting a
+Service and checks its account against the Desktop session before and after the
+read. The shared renderer uses that exact device and lane for folder selection,
+Project discovery, connection, default-folder selection, and workspace saving.
+Main independently rejects a different device or lane before attaching
+credentials. A selected Agent on another Computer is not retargeted. The account's
+current-Computer preference is never a fallback for these Desktop requests.
+Cancellation changes no draft; selecting a folder alone grants no file access,
+connects no Project, and saves no workspace. The existing Service remains the
+only local writer, and paths stay within the existing private control contracts.
 
 After a positively acknowledged account-admitted Stop, CLI manager cleanup reuses
 the completed drain instead of sending another shutdown to an exited carrier.

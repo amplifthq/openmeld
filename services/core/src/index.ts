@@ -808,6 +808,8 @@ import {
   rpcConnectCandidate,
   rpcConnectCenterAgentSlackWorkspace,
   rpcConnectDeclaredPath,
+  rpcConnectPeopleComputerProjectCandidate,
+  rpcConnectPeopleComputerProjectPath,
   rpcConsumeMessageChannelIdentityLink,
   rpcConsumeSlackIdentityLink,
   rpcConsumeSlackOAuthState,
@@ -978,6 +980,7 @@ import {
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSetPeopleComputerOpenMeldToolsMaintenance,
+  rpcSetPeopleComputerProjectDefaultConnection,
   rpcSetSpaceAccessMode,
   rpcSetSpaceMessageReaction,
   rpcSpaceFilePins,
@@ -1299,6 +1302,32 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: Parameters<typeof rpcDiscoverPeopleComputerProjects>[1]
   ) {
     return rpcDiscoverPeopleComputerProjects(this.env, input);
+  }
+
+  connectPeopleComputerProjectCandidate(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
+  ) {
+    return rpcConnectPeopleComputerProjectCandidate(this.env, input);
+  }
+  setPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    const { deviceId, runtimeLane, ...request } = input;
+    return rpcSetCurrentAgentProfileWorkspace(this.env, request, {
+      deviceId,
+      runtimeLane,
+    });
+  }
+  connectPeopleComputerProjectPath(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
+  ) {
+    return rpcConnectPeopleComputerProjectPath(this.env, input);
+  }
+  setPeopleComputerProjectDefaultConnection(
+    input: Parameters<typeof rpcSetPeopleComputerProjectDefaultConnection>[1]
+  ) {
+    return rpcSetPeopleComputerProjectDefaultConnection(this.env, input);
   }
 
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
@@ -3608,6 +3637,28 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: Parameters<typeof rpcDiscoverPeopleComputerProjects>[1]
   ) {
     return super.discoverPeopleComputerProjects(input);
+  }
+
+  connectPeopleComputerProjectCandidate(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
+  ) {
+    return super.connectPeopleComputerProjectCandidate(input);
+  }
+  setPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.setPeopleComputerAgentProfileWorkspace(input);
+  }
+  connectPeopleComputerProjectPath(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
+  ) {
+    return super.connectPeopleComputerProjectPath(input);
+  }
+  setPeopleComputerProjectDefaultConnection(
+    input: Parameters<typeof rpcSetPeopleComputerProjectDefaultConnection>[1]
+  ) {
+    return super.setPeopleComputerProjectDefaultConnection(input);
   }
 
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {

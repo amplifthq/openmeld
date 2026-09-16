@@ -82,6 +82,7 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
   },
   platform: () => ipcRenderer.invoke(PILOT_IPC.platform),
   session: () => ipcRenderer.invoke(PILOT_IPC.session),
+  localComputer: () => ipcRenderer.invoke(PILOT_IPC.localComputer),
   signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),
   signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
   connectComputer: (input) =>

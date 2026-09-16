@@ -28,6 +28,7 @@ import type {
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
 	ModelCatalog,
+	PeopleComputerTarget,
 	ProfileDetailsRecoveryAction,
 	ProfileDetailsSnapshot,
 	ProfileDetailsViewerScope,
@@ -2512,6 +2513,14 @@ function AgentProfileExecutionReadinessRowMenu(input: {
 			supportingContent={input.supportingContent}
 			wakeAvailability={input.row.readiness?.agentWakeAvailability ?? null}
 			wakeAvailabilityNowMs={input.row.wakeAvailabilityNowMs}
+			workingFolderTarget={
+				input.row.readiness?.routeDeviceId && input.row.readiness.routeLane
+					? {
+							deviceId: input.row.readiness.routeDeviceId,
+							runtimeLane: input.row.readiness.routeLane,
+						}
+					: undefined
+			}
 		/>
 	);
 }
@@ -3102,6 +3111,7 @@ function AgentProfileOptionsPopover(input: {
 }
 
 type AgentProfileRowMoreMenuProps = {
+	workingFolderTarget?: PeopleComputerTarget;
 	activityNavigation: AgentProfileActivityNavigation | null;
 	actorProfileId: string | null;
 	capabilities: {
@@ -3467,6 +3477,7 @@ function AgentProfileCardPresentation(input: {
 				open={input.presentationState.projectSettingsOpen}
 				organizationId={input.input.organizationId}
 				profile={input.input.profile}
+				target={input.input.workingFolderTarget}
 			/>
 			<AgentProfileEditDialog
 				controllerChangeEligibilityStatus={
@@ -3806,6 +3817,7 @@ function AgentProfileWorkspacePresentation(input: {
 				open={input.presentationState.projectSettingsOpen}
 				organizationId={input.input.organizationId}
 				profile={input.input.profile}
+				target={input.input.workingFolderTarget}
 			/>
 			<AgentProfileUnbindControllerDialog
 				controllerChangeEligibilityStatus={

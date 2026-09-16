@@ -26,6 +26,63 @@ const PROJECT = {
 } as const;
 
 describe("api-client Projects API", () => {
+  it("sends explicit Project writes to the same device and lane without leaking routing fields into their body", async () => {
+    const transport = vi.fn<OpenMeldApiClientTransport>(async (call) =>
+      jsonResponse(
+        call.url.endsWith("set-default")
+          ? { status: "updated", connections: [] }
+          : {
+              status: "connected",
+              bindingGeneration: "binding-a",
+              canonicalPath: "/work/Design 中文 ",
+              isDefault: true,
+            }
+      )
+    );
+    const api = createLocalProjectControlApi(
+      createOpenMeldApiClient({
+        baseUrl: "https://gateway.openmeld.invalid",
+        transport,
+      })
+    );
+    const input = {
+      target: { deviceId: "mac-a", runtimeLane: "canary" as const },
+      expectedOrganizationId: "org-1",
+      projectId: PROJECT_ID,
+      clientGeneration: 1,
+      idempotencyKey: "connect",
+    };
+    await api.connectCandidate({
+      ...input,
+      candidateId: "candidate-a",
+      candidatePath: "/work/Design 中文 ",
+    });
+    await api.connectDeclaredPath({
+      ...input,
+      declaredPath: "/work/Design 中文 ",
+      confirmNonGit: true,
+    });
+    await api.setDefaultConnection({
+      ...input,
+      targetBindingGeneration: "binding-a",
+    });
+    expect(
+      transport.mock.calls.map(([call]) => new URL(call.url).pathname)
+    ).toEqual([
+      "/v1/people-computers/mac-a/lanes/canary/projects/connect-candidate",
+      "/v1/people-computers/mac-a/lanes/canary/projects/connect-declared-path",
+      "/v1/people-computers/mac-a/lanes/canary/projects/connections/set-default",
+    ]);
+    for (const [call] of transport.mock.calls) {
+      expect(JSON.parse(String(call.init?.body))).not.toHaveProperty("target");
+    }
+    expect(
+      JSON.parse(String(transport.mock.calls[1]?.[0].init?.body))
+    ).toMatchObject({
+      declaredPath: "/work/Design 中文 ",
+      confirmNonGit: true,
+    });
+  });
   it("builds only the hard-cut Project routes", () => {
     expect(buildProjectsPath()).toBe("/v1/organizations/current/projects");
     expect(buildProjectPath(PROJECT_ID)).toBe(
