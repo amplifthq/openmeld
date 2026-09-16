@@ -2098,7 +2098,12 @@ replaced by the execution record's exact normalized answer before publication;
 a legacy callback-only answer cannot repair a completed execution that has no
 owner answer. That invalid legacy owner state is durably changed to failure,
 and either side of a restart can repeat the same explicit-failure projection.
-One terminal-outcome projector maps completed, failed, aborted, and missing
+Previously persisted work-loop checkpoints are an explicit exception to the
+completed-answer invariant: the execution owner adopts that structured fact
+before projection, retains it with no completed answer, and replays the existing
+continuation callback. Assistant text cannot replace it, while an authoritative
+failure or Stop wins. Already finalized Core deliveries are not reopened.
+One terminal-outcome projector maps completed, legacy checkpoint, failed, aborted, and missing
 execution outcomes into callback payloads for both observation and
 reconciliation. If the callback projection itself is missing, reconciliation
 fails with `remote_agent.terminal_callback_projection_missing`, leaves the
@@ -2183,7 +2188,13 @@ milestones and decisions: provider
 request preparation and response headers, first model event, first visible
 assistant content, model completion, model and tool counts, capability search
 and describe results, the source of each tool call, and whether the per-attempt
-tool budget was exhausted. It never records prompt text, reply text, model
+assignment safety budget was exhausted. For current workers, `toolCallCount`
+is the aggregate admitted attempt number across the same dispatch and
+`toolCallLimit` is its frozen configured limit; source counters and recent events
+remain submission-local. Legacy records retain their original per-submission
+meaning. Active accounting does not expire; after Core accepts a final callback,
+the matching last submission's accounting can expire after one hour. An older
+submission's callback cannot expire a newer submission's accounting. It never records prompt text, reply text, model
 reasoning, tool arguments, tool results, tokens, or provider payloads.
 
 Core reports runtime evidence as `available`, `not_recorded`, or `unavailable`.
