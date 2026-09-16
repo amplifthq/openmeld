@@ -40,6 +40,35 @@ describe("preload bridge", () => {
       listener
     );
   });
+
+  it("validates Space stream close details before delivering them", async () => {
+    await import("../src/preload/preload");
+    const bridge = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const handler = vi.fn();
+    const unsubscribe = bridge.onSpaceStream(handler);
+    const listener = on.mock.calls.find(
+      ([channel]) => channel === PILOT_IPC.spaceStreamEvent
+    )?.[1];
+    const close = {
+      id: "10000000-0000-4000-8000-000000000001",
+      type: "close",
+      code: 1008,
+      reason: "space_access_changed",
+    };
+
+    listener({}, close);
+    listener({}, { id: close.id, type: "close" });
+
+    expect(handler).toHaveBeenCalledOnce();
+    expect(handler).toHaveBeenCalledWith(close);
+    unsubscribe();
+    expect(removeListener).toHaveBeenCalledWith(
+      PILOT_IPC.spaceStreamEvent,
+      listener
+    );
+  });
   it("exposes only the OpenMeld bridge methods on window.openmeld", async () => {
     await import("../src/preload/preload");
 

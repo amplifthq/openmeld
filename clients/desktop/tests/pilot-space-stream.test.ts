@@ -92,6 +92,41 @@ it("opens only the fixed authenticated Space stream and carries the existing kee
   }
 });
 
+it("forwards the native socket close code and reason", async () => {
+  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  await once(server, "listening");
+  const streams = createPilotSpaceStreams({
+    webOrigin: `http://127.0.0.1:${(server.address() as AddressInfo).port}`,
+    webBuild: "a".repeat(64),
+    cookie: () => "session=main-only",
+  });
+  try {
+    const connected = once(server, "connection");
+    const closed = Promise.withResolvers<DesktopSpaceStreamEvent>();
+    streams.open(
+      { id, spaceId: "space-a", profileId: "profile-a" },
+      (event) => {
+        if (event.type === "close") {
+          closed.resolve(event);
+        }
+      }
+    );
+    const [socket] = await connected;
+    socket.close(1008, "space_access_changed");
+
+    expect(await closed.promise).toEqual({
+      id,
+      type: "close",
+      code: 1008,
+      reason: "space_access_changed",
+    });
+    expect(() => streams.ping(id)).toThrow("not open");
+  } finally {
+    streams.closeAll();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+});
+
 it("refuses an upgrade redirect without forwarding the authenticated connection", async () => {
   const server = createServer();
   const paths: string[] = [];
