@@ -2332,6 +2332,7 @@ export {
   spacePasswordStateSchema,
   upsertSpacePasswordBodySchema,
 } from "./http/space-password";
+export { spaceReadContextSchema } from "./http/space-read-context";
 export {
   getSpaceDispatchResultInputSchema,
   getSpaceDispatchResultResponseSchema,
