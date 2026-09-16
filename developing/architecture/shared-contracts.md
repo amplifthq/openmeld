@@ -2186,6 +2186,12 @@ surface for messages authored before canonical chat files. New Web and CLI
 Composer uploads must use the Space File contract below. No migration or
 dual-write projects old attachment objects into Files.
 
+Attachment downloads use the owning Space's current read authorization, including
+anonymous public reading and Space-only Guests. Core derives the Organization
+from the authorized Space, never the reader's selected Organization. Download
+responses use `private, no-store`; upload and deletion retain their existing
+authenticated membership requirements.
+
 `packages/schemas` owns the shared Space attachment descriptor, upload query and
 response schemas, Core RPC metadata payloads, MIME and size limits, and
 attachment error codes. The initial contract accepts only JPEG and PNG images

@@ -19560,10 +19560,12 @@ export async function rpcResolveSpaceAttachmentForDownload(
   env: CoreBindings,
   input: ResolveSpaceAttachmentForDownloadInput
 ): Promise<SpaceAttachmentDescriptor> {
-  const access = await requireSpaceAttachmentAccess(env, input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const meta = await stub.rpcGetMeta({ spaceId, spaceAccess });
   const payload = resolveSpaceAttachmentForDownloadPayloadSchema.safeParse({
     attachmentId: input.attachmentId,
-    spaceId: access.spaceId,
+    spaceId,
   });
   if (!payload.success) {
     throwAttachmentNotFound();
@@ -19571,9 +19573,9 @@ export async function rpcResolveSpaceAttachmentForDownload(
 
   const attachment = await readSpaceAttachmentRecord({
     attachmentId: payload.data.attachmentId,
-    db: access.db,
-    organizationId: access.organizationId,
-    spaceId: access.spaceId,
+    db: requireSpaceAttachmentDb(env),
+    organizationId: meta.organizationId,
+    spaceId,
   });
   if (!attachment) {
     throwAttachmentNotFound();

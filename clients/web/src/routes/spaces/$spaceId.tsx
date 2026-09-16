@@ -325,6 +325,7 @@ function PublicSpaceResolvedPage(input: {
 	const [selectedThreadId, setSelectedThreadId] = useState<
 		string | null | undefined
 	>(undefined);
+	const [pinFocus, setPinFocus] = useState<PublicSpaceFocus | null>(null);
 	const textareaRef: SpaceComposerInputRef = useRef(null);
 	const threadTextareaRef: SpaceComposerInputRef = useRef(null);
 	const openSpaceFile = (fileId: string, revision: number) => {
@@ -449,6 +450,29 @@ function PublicSpaceResolvedPage(input: {
 					) ?? null),
 		[effectiveSelectedThreadId, threads]
 	);
+	const openPinnedThread = async (target: {
+		rootSignalId: string;
+		signalId?: string;
+	}) => {
+		let thread = threads.find(
+			(item) => item.rootSignalId === target.rootSignalId
+		);
+		if (!thread) {
+			const refreshed = await threadsQuery.refetch();
+			thread = refreshed.data?.threads.find(
+				(item) => item.rootSignalId === target.rootSignalId
+			);
+		}
+		if (!(thread && (await historyNavigation.open(target.rootSignalId)))) {
+			return false;
+		}
+		setSelectedThreadId(thread.threadId);
+		setPinFocus({
+			signalId: target.signalId ?? target.rootSignalId,
+			threadRootSignalId: target.rootSignalId,
+		});
+		return true;
+	};
 
 	if (protectedFailure) {
 		return (
@@ -489,11 +513,14 @@ function PublicSpaceResolvedPage(input: {
 			activeThread={activeThread}
 			historyIsPending={statusQuery.isPending || signalsQuery.isPending}
 			historyNavigation={historyNavigation}
-			initialFocusSignalId={input.signalId}
-			initialFocusThreadRootSignalId={input.threadRootSignalId}
+			initialFocusSignalId={pinFocus?.signalId ?? input.signalId}
+			initialFocusThreadRootSignalId={
+				pinFocus?.threadRootSignalId ?? input.threadRootSignalId
+			}
 			isAuthenticated={input.isAuthenticated}
 			membership={membership}
 			onOpenSpaceFile={openSpaceFile}
+			onOpenUnreadThread={openPinnedThread}
 			onRetry={refetchSpace}
 			onSelectedThreadChange={setSelectedThreadId}
 			onSpaceViewChange={setSpaceView}
@@ -701,6 +728,10 @@ type PublicSpaceOpenViewProps = {
 	isAuthenticated: boolean;
 	membership: SpaceViewerMembershipResponse | null;
 	onOpenSpaceFile: (fileId: string, revision: number) => void;
+	onOpenUnreadThread: (target: {
+		rootSignalId: string;
+		signalId?: string;
+	}) => Promise<boolean>;
 	onRetry: () => Promise<void>;
 	onSelectedThreadChange: (threadId: string | null) => void;
 	onSpaceViewChange: (view: SpaceView) => void;
@@ -876,6 +907,7 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				onMentionButtonClick={() => undefined}
 				onOpenSpaceFile={input.onOpenSpaceFile}
 				onOpenThread={input.onSelectedThreadChange}
+				onOpenUnreadThread={input.onOpenUnreadThread}
 				onRemoveComposerFile={() => undefined}
 				onReplyToMessage={() => undefined}
 				onReportMessage={noopPromise}
@@ -1105,9 +1137,6 @@ function PublicSpaceViewerAction(input: {
 	spaceName: string;
 }) {
 	const canJoin = useContext(PublicParticipationContext);
-	if (!canJoin) {
-		return <span className="text-muted-foreground text-xs">Read only</span>;
-	}
 	if (!input.isAuthenticated) {
 		return (
 			<Link
@@ -1132,6 +1161,9 @@ function PublicSpaceViewerAction(input: {
 	// are brought in later from inside the Space (deferred-binding).
 	if (profiles.length > 0) {
 		return null;
+	}
+	if (!canJoin) {
+		return <span className="text-muted-foreground text-xs">Read only</span>;
 	}
 
 	return (

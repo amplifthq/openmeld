@@ -11,6 +11,7 @@ const ANONYMOUS_SPACE_READ_ROUTE_PATTERNS: readonly RegExp[] = [
   ),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/tasks/[^/]+$`, "u"),
   new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/files$`, "u"),
+  new RegExp(`^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/attachments/[^/]+$`, "u"),
   new RegExp(
     `^/v1/spaces/(${HEX_SPACE_ID_PATTERN})/files/[^/]+(?:/content|/revisions)?$`,
     "u"

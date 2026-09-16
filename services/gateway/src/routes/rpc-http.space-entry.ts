@@ -69,6 +69,7 @@ export function registerSpaceEntryResolutionRoute(
             "Messages are bounded pages. Follow the HTTP Link rel=next URL until absent; nextCursor=null completes that traversal. New messages may arrive afterward. Anchor windows are partial; use messages to traverse the full history.",
             "Thread IDs and rootSignalId identify relationships. Read threads/{threadId}/signals for replies and placements. A reply-only entry target resolves its threadRootSignalId.",
             "Files lists a folder. Follow folders with files?parentId={id}; read files/{id}/content for bytes and files/{id}/revisions for revisions. File links and task sourceSignalId/threadId refer to the same Space records.",
+            "Retained message data.attachments entries use attachments/{id} for image bytes, under the same Space access policy.",
             "Anonymous access is read-only. It creates no account or membership. Private linked Spaces and unpublished Agent internals are not shared. Public reading does not permit indexing or imply consent to model training.",
           ],
         };

@@ -255,9 +255,12 @@ describe("PublicSpacePage", () => {
 		).toBeNull();
 	});
 
-	it("uses the shared resolver and preserves a message target through sign-in", async () => {
+	it.each([
+		"self_join_available",
+		"owner_add_required",
+	])("preserves a message target through sign-in with %s participation", async (state) => {
 		const resolveEntry = vi.fn(async () => ({
-			participation: { state: "self_join_available" },
+			participation: { state },
 			recovery: null,
 			safeContext: {
 				spaceName: "Shared Roadmap",
