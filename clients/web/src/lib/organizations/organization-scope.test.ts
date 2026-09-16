@@ -1,10 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { accountOrganizationContextSchema } from "@openmeld/schemas";
+import { describe, expect, it, vi } from "vitest";
+import { readCurrentAccountOrganizationContext } from "./account-organization-context";
 import {
 	resolveDefaultOrganizationForSession,
-	resolveOrganizationScopeForSession,
+	resolveOptionalActiveOrganizationEntryPath,
+	resolveOrganizationScope,
 	resolvePublicLoginRedirectTarget,
 } from "./organization-scope";
 import type { OrganizationSummary } from "./organization-types";
+
+vi.mock("./account-organization-context", () => ({
+	readCurrentAccountOrganizationContext: vi.fn(),
+}));
 
 const ORGANIZATIONS: readonly OrganizationSummary[] = [
 	{ id: "org-acme", name: "Acme", slug: "acme" },
@@ -30,6 +37,73 @@ function createSession(
 }
 
 describe("organization scope resolution", () => {
+	it("keeps entry, denied scope, and account storage tied to the shared projection", async () => {
+		vi.mocked(readCurrentAccountOrganizationContext).mockResolvedValue(
+			accountOrganizationContextSchema.parse({
+				currentUserId: "user-current",
+				account: { email: "current@example.com", image: null, name: "Current" },
+				organizations: ORGANIZATIONS,
+				defaultOrganizationId: "org-beta",
+			})
+		);
+		await expect(
+			resolveOptionalActiveOrganizationEntryPath({
+				data: { routeFamily: "/desktop-shell" },
+			})
+		).resolves.toBe("/o/beta/spaces");
+		await expect(
+			resolveOrganizationScope({
+				data: { orgSlug: "acme", routeFamily: "/o/acme" },
+			})
+		).resolves.toMatchObject({
+			access: "authorized",
+			currentOrganization: { id: "org-acme" },
+			activeOrganization: { id: "org-beta" },
+			currentUserId: "user-current",
+			storageScope: "user-current",
+		});
+		const denied = await resolveOrganizationScope({
+			data: { orgSlug: "unknown", routeFamily: "/o/unknown" },
+		});
+		expect(denied.access).toBe("denied");
+		expect("currentOrganization" in denied).toBe(false);
+	});
+
+	it("keeps anonymous, no-membership, and unavailable contexts distinct", async () => {
+		const entryInput = { data: { routeFamily: "/desktop-shell" } };
+		vi.mocked(readCurrentAccountOrganizationContext).mockResolvedValue(null);
+		await expect(
+			resolveOptionalActiveOrganizationEntryPath(entryInput)
+		).resolves.toBeNull();
+		await expect(
+			resolveOrganizationScope({
+				data: { orgSlug: "acme", routeFamily: "/o/acme/plugins/gmail" },
+			})
+		).rejects.toMatchObject({
+			options: { to: "/login", search: { redirect: "/o/acme/plugins" } },
+		});
+		vi.mocked(readCurrentAccountOrganizationContext).mockResolvedValue(
+			accountOrganizationContextSchema.parse({
+				currentUserId: "user",
+				account: { email: null, image: null, name: null },
+				organizations: [],
+				defaultOrganizationId: null,
+			})
+		);
+		await expect(
+			resolveOptionalActiveOrganizationEntryPath(entryInput)
+		).rejects.toThrow("No organization is available for this account.");
+		const error = new Error("upstream unavailable");
+		vi.mocked(readCurrentAccountOrganizationContext).mockRejectedValue(error);
+		await expect(
+			resolveOptionalActiveOrganizationEntryPath(entryInput)
+		).rejects.toBe(error);
+		await expect(
+			resolveOrganizationScope({
+				data: { orgSlug: "acme", routeFamily: "/o/acme" },
+			})
+		).rejects.toBe(error);
+	});
 	it("keeps provider names out of the public login URL for Plugin detail routes", () => {
 		expect(
 			resolvePublicLoginRedirectTarget("/o/acme/center-agent/plugins/gmail")
@@ -61,65 +135,5 @@ describe("organization scope resolution", () => {
 				session: createSession("org-acme", "org-revoked"),
 			})
 		).toEqual({ id: "org-acme", name: "Acme", slug: "acme" });
-	});
-
-	it("authorizes a route when the URL slug belongs to the signed-in account", () => {
-		const scope = resolveOrganizationScopeForSession({
-			organizations: ORGANIZATIONS,
-			orgSlug: "acme",
-			session: createSession("org-acme", "org-beta"),
-		});
-
-		expect(scope).toMatchObject({
-			access: "authorized",
-			activeOrganization: { id: "org-beta", slug: "beta" },
-			currentOrganization: { id: "org-acme", slug: "acme" },
-			currentUserId: "user-123",
-			storageScope: "user-123",
-		});
-	});
-
-	it("authorizes the URL organization without requiring a shared Session mutation", () => {
-		const scope = resolveOrganizationScopeForSession({
-			organizations: ORGANIZATIONS,
-			orgSlug: "beta",
-			session: createSession("org-acme"),
-		});
-
-		expect(scope).toMatchObject({
-			access: "authorized",
-			activeOrganization: { id: "org-acme", slug: "acme" },
-			currentOrganization: { id: "org-beta", slug: "beta" },
-		});
-	});
-
-	it("fails closed when the URL slug is not one of the account organizations", () => {
-		const scope = resolveOrganizationScopeForSession({
-			organizations: ORGANIZATIONS,
-			orgSlug: "unknown-org",
-			session: createSession("org-acme"),
-		});
-
-		expect(scope).toMatchObject({
-			access: "denied",
-			activeOrganization: { id: "org-acme", slug: "acme" },
-			currentUserId: "user-123",
-			storageScope: "user-123",
-		});
-		expect("currentOrganization" in scope).toBe(false);
-	});
-
-	it("recovers an unavailable URL to the account's last selected Organization", () => {
-		const scope = resolveOrganizationScopeForSession({
-			organizations: ORGANIZATIONS,
-			orgSlug: "unknown-org",
-			session: createSession("org-acme", "org-beta"),
-		});
-
-		expect(scope).toMatchObject({
-			access: "denied",
-			activeOrganization: { id: "org-beta", name: "Beta", slug: "beta" },
-		});
-		expect("currentOrganization" in scope).toBe(false);
 	});
 });

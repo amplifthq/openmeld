@@ -32,6 +32,7 @@ import {
   addOrganizationDirectoryProfilesToSpaceBodySchema,
   agentExecutionReadinessRouteParamsSchema,
   agentProfileBindingRouteParamsSchema,
+  agentProfileExecutionModeResponseSchema,
   authRpcResolveUserDisplayNameResultSchema,
   buildAgentTaskKey,
   buildSpaceComposerPublishedFileId,
@@ -320,6 +321,7 @@ import {
   submitRuntimeRegistrationResponseSchema,
   summarizeComputerFileAccessPolicy,
   updateAgentProfileDefaultProjectRpcInputSchema,
+  updateAgentProfileExecutionModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerCollaborationModeBodySchema,
   updateAgentProfilePrimaryBindingAgentControllerPermissionModeBodySchema,
   updateAgentProfilePrimaryBindingModelSelectionBodySchema,
@@ -347,6 +349,7 @@ import type {
   AgentExecutionReadinessTargetRuntime,
   AgentProfileBindingOpenCodePermission,
   AgentProfileBindingProjection,
+  AgentProfileExecutionModeResponse,
   AgentStreamToolPart,
   AgentTaskCompletionCondition,
   ArchiveProjectRpcInput,
@@ -738,6 +741,7 @@ import {
   readPreloadedRuntimeDeviceDisplayName,
   resolveCoreAgentExecutionReadinessForProfile,
 } from "../agent-execution/application/agent-execution-readiness-service";
+import { readAgentProfileUsage } from "../agent-execution/application/agent-profile-usage";
 import { acceptProviderConversationProofRecord } from "../agent-execution/infrastructure/d1/provider-conversation-proof-repo";
 import { projectOrganizationDirectoryAgentProfileOperationalContext } from "../agent-profile/application/agent-profile-operational-context";
 import { resolveAgentProfileWorkRecoveryAuthScope } from "../agent-profile/application/agent-profile-work-recovery-auth-scope";
@@ -1404,9 +1408,15 @@ export function rpcDiscoverPeopleComputerProjects(
     });
   }
   const { deviceId, runtimeLane, ...request } = parsed.data;
-  const target = { deviceId, runtimeLane };
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).discoverProjects(env, request);
+}
+
+function buildPeopleComputerProjectControlRpc(target: PeopleComputerTarget) {
   return createLocalProjectControlRpc({
-    resolveCurrentTarget: async ({ env: targetEnv, userId }) => {
+    resolveCurrentTarget: async ({ capability, env: targetEnv, userId }) => {
       const { localRuntimes, ownerService } =
         await resolveCurrentLocalServiceContext({
           env: targetEnv,
@@ -1419,19 +1429,52 @@ export function rpcDiscoverPeopleComputerProjects(
         ownerService,
       });
       if (
-        !projectPeopleComputerControls(session).localProjectControl
-          .discoverProjects
+        session.executionCompatibility.status !== "compatible" ||
+        session.capabilities.localProjectControl?.[capability] !== true
       ) {
         throw createCoreRpcHttpError({
           status: 409,
           code: "service_update_required",
           reason:
-            "Update OpenMeld Service in this environment before checking Project folders.",
+            "Update OpenMeld Service in this environment before managing Project folders.",
         });
       }
       return target;
     },
-  }).discoverProjects(env, request);
+  });
+}
+
+export function rpcConnectPeopleComputerProjectCandidate(
+  env: CoreBindings,
+  input: ConnectCandidateInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectCandidate(env, request);
+}
+
+export function rpcConnectPeopleComputerProjectPath(
+  env: CoreBindings,
+  input: ConnectDeclaredPathInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectDeclaredPath(env, request);
+}
+
+export function rpcSetPeopleComputerProjectDefaultConnection(
+  env: CoreBindings,
+  input: SetDefaultConnectionInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).setDefaultConnection(env, request);
 }
 
 function buildComputerFileAccessRpc(target?: PeopleComputerTarget) {
@@ -2261,6 +2304,7 @@ export async function rpcMutateSpaceMessage(
 }
 
 export type PostSignalInput = {
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   deviceWait?: SignalText["data"]["deviceWait"];
   agentStreamId?: string;
   spaceId: string;
@@ -3069,6 +3113,12 @@ export type ExecuteAgentProfileWorkRecoveryInput = {
   context?: CoreRpcContextInput;
 };
 
+export type AgentProfileExecutionModeInput = {
+  agentProfileId: string;
+  body?: { mode: "parallel" | "serial" };
+  context?: CoreRpcContextInput;
+};
+
 export type GetAgentProfileControllerChangeEligibilityInput = {
   agentProfileId: string;
   context?: CoreRpcContextInput;
@@ -3109,6 +3159,7 @@ export type GetCurrentOrganizationProfileDirectoryInput =
   };
 
 export type GetCurrentOrganizationAgentRuntimeOverviewInput = {
+  includeUsageLimits?: boolean;
   agentProfileWorkRecoveryVersion?: 2;
   includeTaskActivity?: boolean;
   context?: CoreRpcContextInput;
@@ -4515,7 +4566,8 @@ function requireLocalAgentInstallationSelectionStatus(
 
 export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
-  input: SetCurrentAgentProfileWorkspaceInput
+  input: SetCurrentAgentProfileWorkspaceInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
@@ -4546,6 +4598,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
     capability: "setProfileWorkspace",
     env,
+    target,
     unsupportedCode: "local_agent_control.profile_workspace_unsupported",
     unsupportedReason:
       "The current local OpenMeld Service does not support Project folder changes from OpenMeld Web.",
@@ -5506,6 +5559,32 @@ export async function rpcExecuteAgentProfileWorkRecovery(
   });
 }
 
+export async function rpcAgentProfileExecutionMode(
+  env: CoreBindings,
+  input: AgentProfileExecutionModeInput
+): Promise<AgentProfileExecutionModeResponse> {
+  const request = await requireAgentProfileWorkRecoveryScope(env, input);
+  const body =
+    input.body === undefined
+      ? undefined
+      : updateAgentProfileExecutionModeBodySchema.safeParse(input.body);
+  if (body && !body.success) {
+    throw createCoreRpcHttpError({
+      code: "invalid_payload",
+      reason: "Execution mode must be parallel or serial.",
+      status: 400,
+    });
+  }
+  const ownerShard = resolveRuntimeTransportOwnerShard(env, request.owner.id);
+  return agentProfileExecutionModeResponseSchema.parse(
+    await ownerShard.rpcAgentProfileExecutionMode({
+      ownerUserId: request.owner.id,
+      targetProfileId: request.agentProfileId,
+      ...(body?.success ? { mode: body.data.mode } : {}),
+    })
+  );
+}
+
 async function executeAgentProfileInterruptedWorkSkip(input: {
   expectedInterruptedTargetWakeLifecycleId: string;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
@@ -6346,6 +6425,7 @@ export async function rpcGetCurrentOrganizationAgentRuntimeOverview(
     requestId: context.actorContext.requestId,
   });
   const response = await resolveOrganizationAgentRuntimeOverview({
+    includeUsageLimits: input.includeUsageLimits,
     agentProfileWorkRecoveryVersion: input.agentProfileWorkRecoveryVersion,
     eligibleAgentProfiles,
     env,
@@ -6486,6 +6566,7 @@ const ORGANIZATION_AGENT_RUNTIME_OWNER_CONCURRENCY = 4;
 const ORGANIZATION_AGENT_RUNTIME_PROFILE_CONCURRENCY = 8;
 
 async function resolveOrganizationAgentRuntimeOverview(input: {
+  includeUsageLimits?: boolean;
   agentProfileWorkRecoveryVersion?: 2;
   eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
@@ -6587,6 +6668,7 @@ async function resolveOrganizationAgentRuntimeOverview(input: {
 }
 
 async function resolveOrganizationAgentReadinessByProfileId(input: {
+  includeUsageLimits?: boolean;
   eligibleAgentProfiles: readonly EligibleOrganizationAgentProfile[];
   env: CoreBindings;
   generatedAt: string;
@@ -6681,16 +6763,27 @@ async function resolveOrganizationAgentReadinessByProfileId(input: {
               : {}),
             profileId: agent.profileId,
           });
-          return [
-            agent.profileId,
+          const projectedReadiness =
             buildOrganizationDirectoryAgentExecutionReadinessResponse({
               generatedAt: input.generatedAt,
-              isOwner:
-                input.viewerUserId !== null &&
-                agent.ownerUserId === input.viewerUserId,
+              isOwner: agent.ownerUserId === input.viewerUserId,
               readiness,
-            }),
-          ] as const;
+            });
+          if (input.includeUsageLimits) {
+            projectedReadiness.usageLimits = await readAgentProfileUsage({
+              db: localStateDb(input.env),
+              binding: readiness.primaryBinding,
+              reads,
+              nowMs: Date.parse(input.generatedAt),
+            }).catch((error) => {
+              console.warn("[core.agent_profile.usage_unavailable]", {
+                profileId: agent.profileId,
+                error,
+              });
+              return [];
+            });
+          }
+          return [agent.profileId, projectedReadiness] as const;
         }
       );
     }
@@ -17560,6 +17653,20 @@ export async function rpcEnsureAgentProfilePrimaryBinding(
           }
           controllerMutationOperationId =
             controllerMutationAdmission.operationId;
+          if (body.data.agentControllerConversationId) {
+            const mode = await resolveRuntimeTransportOwnerShard(
+              env,
+              request.owner.id
+            ).rpcAgentProfileExecutionMode({
+              ownerUserId: request.owner.id,
+              targetProfileId: request.agentProfileId,
+            });
+            if (mode.migration !== "legacy") {
+              throw new AgentProfileExecutionTargetMutationAdmissionError(
+                "execution_context.legacy_association_frozen"
+              );
+            }
+          }
         },
         db,
         ...(body.data.sessionInventorySelection
@@ -18215,6 +18322,9 @@ export async function rpcPostSignal(
     profile: input.profile,
     text: normalizedText,
     ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
+    ...(input.contextSelection
+      ? { contextSelection: input.contextSelection }
+      : {}),
     authoringPolicy: input.authoringPolicy,
     ...(attachments ? { attachments } : {}),
     ...(input.files ? { files: input.files } : {}),
@@ -18264,6 +18374,9 @@ export async function rpcPostSignalOnceByClientMessageId(
   });
 
   return await stub.rpcPostSignalOnceByClientMessageId({
+    ...(input.contextSelection
+      ? { contextSelection: input.contextSelection }
+      : {}),
     ...(input.agentStreamId === undefined
       ? {}
       : { agentStreamId: input.agentStreamId }),

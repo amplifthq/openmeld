@@ -8,6 +8,8 @@ type CenterAgentContextCommandModule =
 type OrgCommandModule = typeof import("../src/org/command");
 type ProfileCreationRequestCommandModule =
   typeof import("../src/profile-creation-request/command");
+type ProfileExecutionModeCommandModule =
+  typeof import("../src/profile/execution-mode-command");
 type SpaceBoardCommandModule = typeof import("../src/space/board-command");
 type SpaceAccessCommandModule = typeof import("../src/space/access-command");
 type SpaceAddMeCommandModule = typeof import("../src/space/add-me-command");
@@ -47,6 +49,9 @@ const runMocks = vi.hoisted(() => ({
   >(async () => undefined),
   runProfileCreationRequestPreferenceSet: vi.fn<
     ProfileCreationRequestCommandModule["runProfileCreationRequestPreferenceSet"]
+  >(async () => undefined),
+  runProfileExecutionMode: vi.fn<
+    ProfileExecutionModeCommandModule["runProfileExecutionMode"]
   >(async () => undefined),
   runSpaceJoin: vi.fn<SpaceCommandModule["runSpaceJoin"]>(
     async () => "completed"
@@ -187,6 +192,10 @@ vi.mock("../src/profile-creation-request/command", async (importOriginal) => {
       runMocks.runProfileCreationRequestPreferenceSet,
   };
 });
+
+vi.mock("../src/profile/execution-mode-command", () => ({
+  runProfileExecutionMode: runMocks.runProfileExecutionMode,
+}));
 
 vi.mock("../src/center-agent/ask-command", async (importOriginal) => {
   const actual = await importOriginal<CenterAgentAskCommandModule>();
@@ -812,6 +821,30 @@ describe("command entry CLI wiring", () => {
       json: true,
       view: "agent",
     });
+  });
+
+  it.each([
+    undefined,
+    "serial",
+    "parallel",
+  ])("routes execution-mode %s through the checked CLI entry", async (mode) => {
+    await runCli([
+      "profiles",
+      "execution-mode",
+      "agt_11111111-1111-4111-8111-111111111111",
+      ...(mode ? ["--mode", mode] : []),
+    ]);
+    expect(runMocks.runProfileExecutionMode).toHaveBeenCalledExactlyOnceWith({
+      profile: "agt_11111111-1111-4111-8111-111111111111",
+      mode,
+      view: "agent",
+    });
+    expect(runCommandWithEntryChecksMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        routeTokens: ["profile", "execution-mode"],
+        view: "agent",
+      })
+    );
   });
 
   it("maps Agent Profile creation request argv to the request runner", async () => {

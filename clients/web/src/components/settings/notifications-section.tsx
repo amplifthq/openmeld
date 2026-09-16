@@ -1,15 +1,18 @@
 "use client";
 
 import type { InboxNotificationPreferencesResponse } from "@openmeld/schemas/types";
+import { Button } from "@openmeld/ui/components/button";
 import { SettingsRow } from "@openmeld/ui/components/settings-row";
 import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { Switch } from "@openmeld/ui/components/switch";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
-import { BrowserNotificationControl } from "#/components/inbox/browser-notification-toggle";
-import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
-import { resolveBrowserNotificationDescription } from "#/lib/inbox/browser-notifications";
+import { ClientNotificationControl } from "#/components/inbox/client-notification-control";
+import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { resolveClientNotificationDescription } from "#/lib/inbox/client-notifications";
 import { updateCurrentInboxNotificationPreferences } from "#/lib/organizations/inbox";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -18,17 +21,18 @@ import {
 } from "#/query/organizations/inbox";
 
 export function NotificationsSection() {
+	const [testStatus, setTestStatus] = useState<string | null>(null);
 	const queryClient = useQueryClient();
 	const account = useAppShellAccount();
 	const { currentOrganization, currentUserId } = useAppOrganization();
 	const {
-		error: browserError,
-		isPending: browserPending,
-		setEnabled: updateBrowserNotifications,
-		setSoundEnabled: updateBrowserNotificationSounds,
+		error: notificationError,
+		isPending: notificationPending,
+		setEnabled: updateNotifications,
+		setSoundEnabled: updateNotificationSounds,
 		soundError,
-		settings: browserSettings,
-	} = useInboxBrowserNotificationSettings(currentUserId);
+		settings,
+	} = useInboxNotificationSettings(currentUserId);
 	const preferencesQuery = useQuery(
 		inboxNotificationPreferencesQueryOptions({
 			organizationId: currentOrganization.id,
@@ -71,12 +75,12 @@ export function NotificationsSection() {
 		},
 	});
 
-	if (!browserSettings) {
+	if (!settings) {
 		return null;
 	}
 
-	const browserDescription = resolveBrowserNotificationDescription(
-		browserSettings.permission
+	const notificationDescription = resolveClientNotificationDescription(
+		settings.permission
 	);
 
 	const emailDescription = account.email?.trim()
@@ -87,9 +91,9 @@ export function NotificationsSection() {
 		isPending: emailMutation.isPending,
 		isSaved: emailMutation.isSuccess,
 	});
-	const browserStatus = resolveSettingsRowStatus({
-		hasError: browserError !== null,
-		isPending: browserPending,
+	const notificationStatus = resolveSettingsRowStatus({
+		hasError: notificationError !== null,
+		isPending: notificationPending,
 		isSaved: false,
 	});
 	const soundStatus = resolveSettingsRowStatus({
@@ -116,26 +120,34 @@ export function NotificationsSection() {
 			>
 				<SettingsRow
 					control={
-						<BrowserNotificationControl
-							disabled={browserPending}
-							onChange={updateBrowserNotifications}
-							settings={browserSettings}
+						<ClientNotificationControl
+							disabled={notificationPending}
+							onChange={updateNotifications}
+							settings={settings}
 						/>
 					}
-					description={browserDescription}
-					error={browserError ?? undefined}
-					label="Browser notifications"
-					status={browserStatus}
+					description={notificationDescription}
+					error={notificationError ?? undefined}
+					label={
+						settings.permission === "unknown"
+							? "Desktop notifications"
+							: "Browser notifications"
+					}
+					status={notificationStatus}
 				/>
 				<SettingsRow
 					control={
 						<Switch
 							aria-label="Play OpenMeld sounds"
-							checked={browserSettings.soundEnabled}
-							onCheckedChange={updateBrowserNotificationSounds}
+							checked={settings.soundEnabled}
+							onCheckedChange={updateNotificationSounds}
 						/>
 					}
-					description="Play an OpenMeld sound when a browser notification appears on this device. Browser and system notification sounds are controlled separately."
+					description={
+						settings.permission === "unknown"
+							? "Play a sound with Desktop notifications. Your Mac’s sound and Focus settings still apply."
+							: "Play an OpenMeld sound when a browser notification appears on this device. Browser and system notification sounds are controlled separately."
+					}
 					error={soundError ?? undefined}
 					label="Play OpenMeld sounds"
 					status={soundStatus}
@@ -160,6 +172,36 @@ export function NotificationsSection() {
 					status={emailStatus}
 				/>
 			</SettingsSection>
+			{settings.permission === "unknown" ? (
+				<div className="space-y-2">
+					<Button
+						onClick={async () => {
+							try {
+								const result = await getDesktopPlatform()?.testNotification({
+									userId: currentUserId,
+									soundEnabled: settings.soundEnabled,
+								});
+								setTestStatus(
+									result === "delivered"
+										? "Test sent to macOS. Focus and notification settings control how it appears."
+										: "The test could not be delivered. Check OpenMeld in your Mac’s notification settings and try again."
+								);
+							} catch {
+								setTestStatus("The test could not be sent. Try again.");
+							}
+						}}
+						size="sm"
+						variant="outline"
+					>
+						Send test notification
+					</Button>
+					{testStatus ? (
+						<output className="text-muted-foreground text-sm">
+							{testStatus}
+						</output>
+					) : null}
+				</div>
+			) : null}
 		</>
 	);
 }

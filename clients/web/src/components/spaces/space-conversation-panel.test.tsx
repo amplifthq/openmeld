@@ -148,7 +148,7 @@ describe("SpaceConversationPanel", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("returns from the retained Graph view to Messages with the draft intact", () => {
+	it("returns from the retained Graph view to Messages with the draft intact", async () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
 		renderSpaceConversationPanelWithViewTabs({
 			activeSpaceView: "graph",
@@ -171,7 +171,9 @@ describe("SpaceConversationPanel", () => {
 				name: SPACE_COMPOSER_ACCESSIBLE_NAME,
 			})
 		).toBeNull();
-		expect(screen.getByRole("region", { name: "Space Graph" })).toBeTruthy();
+		expect(
+			await screen.findByRole("region", { name: "Space Graph" })
+		).toBeTruthy();
 		expect(screen.getByText("Review the release plan.")).toBeTruthy();
 
 		fireEvent.click(screen.getByRole("tab", { name: "Messages" }));
@@ -1296,7 +1298,9 @@ describe("SpaceConversationPanel", () => {
 
 	it("uses the shared Space reference renderer in a thread preview", () => {
 		const thread = createThread();
+		const onOpenThread = vi.fn();
 		renderSpaceConversationPanel({
+			onOpenThread,
 			spaceReferencesById: createSpaceReferences(),
 			threadPreviews: [createThreadPreview(thread.threadId)],
 			threads: [thread],
@@ -1308,6 +1312,22 @@ describe("SpaceConversationPanel", () => {
 		expect(
 			screen.getByRole("link", { name: "Open Space Launch Planning" })
 		).toBeTruthy();
+		fireEvent.click(
+			screen.getByRole("link", { name: "Open Space Launch Planning" })
+		);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		const preview = screen.getByRole("link", { name: "Thread preview" });
+		fireEvent.click(preview);
+		fireEvent.keyDown(preview, { key: "Enter" });
+		fireEvent.keyDown(preview, { key: " " });
+		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		expect(onOpenThread).toHaveBeenLastCalledWith(thread.threadId);
+		const selection = vi
+			.spyOn(window, "getSelection")
+			.mockReturnValue({ toString: () => "selected reply" } as Selection);
+		fireEvent.click(preview);
+		expect(onOpenThread).toHaveBeenCalledTimes(3);
+		selection.mockRestore();
 	});
 
 	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
@@ -1436,14 +1456,14 @@ describe("SpaceConversationPanel", () => {
 
 	it("stops advancing the unread watermark while the Graph is open", () => {
 		vi.spyOn(console, "error").mockImplementation(() => undefined);
-		const onViewingLatestChange = vi.fn();
+		const onViewedThroughTs = vi.fn();
 		renderSpaceConversationPanelWithViewTabs({
 			activeSpaceView: "graph",
-			onViewingLatestChange,
+			onViewedThroughTs,
 			timelineItems: [createTimelineItem()],
 		});
 
-		expect(onViewingLatestChange).toHaveBeenLastCalledWith(false);
+		expect(onViewedThroughTs).not.toHaveBeenCalled();
 	});
 
 	it("loads earlier Space activity directly from the Graph", () => {

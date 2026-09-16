@@ -230,6 +230,7 @@ import type {
 } from "@openmeld/schemas/types";
 import {
   applyAutomaticThreadWake,
+  buildBareMentionContext,
   buildDispatchQuotedMessage,
   buildWakeProgressMessage,
   changeSpaceOwners,
@@ -1106,6 +1107,7 @@ function mergePublishedOriginFactsIntoAuthorProfile(
 }
 
 function createPreparedDispatchOutboxRecordForDecision(input: {
+  contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
   callerContext: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
   >["callerContext"];
@@ -1162,6 +1164,10 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
   });
 
   return createDispatchOutboxRecord({
+    ...(input.signal.type === "signal.text" &&
+    input.signal.data.contextSelection
+      ? { contextSelection: input.signal.data.contextSelection }
+      : {}),
     bindingEnabled: true,
     ...(input.signal.type === "signal.text" &&
     input.signal.data.deviceWait?.targetProfileId ===
@@ -1186,6 +1192,7 @@ function createPreparedDispatchOutboxRecordForDecision(input: {
     sourceSignalSnapshot: buildDispatchSourceSignalSnapshot({
       callerContext: input.callerContext,
       quotedMessage: input.quotedMessage,
+      contextMessages: input.contextMessages,
       pinnedFiles: input.pinnedFiles,
       signal: input.signal,
       sourceText: directMessageSourceText,
@@ -1301,6 +1308,7 @@ function resolveDispatchReplyStalenessMeta(input: {
 }
 
 function buildDispatchSourceSignalSnapshot(input: {
+  contextMessages?: DispatchSourceSignalSnapshotInput["contextMessages"];
   callerContext: NonNullable<
     OpenMeldDaemonDispatchQueueMessage["sourceSignalSnapshot"]
   >["callerContext"];
@@ -1330,6 +1338,9 @@ function buildDispatchSourceSignalSnapshot(input: {
     profileId: input.senderProfileId,
     callerContext: input.callerContext,
     ...(input.quotedMessage ? { quotedMessage: input.quotedMessage } : {}),
+    ...(input.contextMessages?.length
+      ? { contextMessages: input.contextMessages }
+      : {}),
     ...(input.pinnedFiles?.length ? { pinnedFiles: input.pinnedFiles } : {}),
     profileKind: input.signal.profile.kind,
     ...(centerAgentInteractionSource ? { centerAgentInteractionSource } : {}),
@@ -4772,6 +4783,7 @@ export class Space extends DurableObject<CoreBindings> {
         data: {
           text: normalizedText,
           ...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
+          contextSelection: input.contextSelection,
           ...(input.attachments ? { attachments: input.attachments } : {}),
           ...(input.files ? { files: input.files } : {}),
           ...(input.messageEnvelope
@@ -4879,6 +4891,9 @@ export class Space extends DurableObject<CoreBindings> {
   }): PostSignalInput {
     return {
       ...(input.input.deviceWait ? { deviceWait: input.input.deviceWait } : {}),
+      ...(input.input.contextSelection
+        ? { contextSelection: input.input.contextSelection }
+        : {}),
       ...(input.agentStreamId ? { agentStreamId: input.agentStreamId } : {}),
       authoringPolicy: input.input.authoringPolicy,
       ...(input.input.attachments
@@ -10126,7 +10141,7 @@ export class Space extends DurableObject<CoreBindings> {
       signal: SignalEnvelope | null;
     }>
   ): SpaceThreadPreview {
-    const previewEntries = entries.slice(0, 2);
+    const previewEntries = entries.slice(-2);
     return {
       threadId: thread.threadId,
       replyCount: entries.length,
@@ -10474,6 +10489,7 @@ export class Space extends DurableObject<CoreBindings> {
         parsed.data.text,
         {
           deviceWait: parsed.data.deviceWait,
+          contextSelection: parsed.data.contextSelection,
           ...(parsed.data.messageEnvelope
             ? { messageEnvelope: parsed.data.messageEnvelope }
             : {}),
@@ -15672,6 +15688,9 @@ export class Space extends DurableObject<CoreBindings> {
       data: {
         text,
         ...(options?.deviceWait ? { deviceWait: options.deviceWait } : {}),
+        ...(options?.contextSelection
+          ? { contextSelection: options.contextSelection }
+          : {}),
         ...(options?.attachments ? { attachments: options.attachments } : {}),
         ...(options?.files ? { files: options.files } : {}),
         ...(options?.messageEnvelope
@@ -16664,18 +16683,57 @@ export class Space extends DurableObject<CoreBindings> {
       );
 
     const outboxRecords: OpenMeldDaemonDispatchOutboxRecord[] = [];
-    const quotedSignalId =
+    const explicitQuotedSignalId =
       signal.type === "signal.text"
         ? (signal.data.messageEnvelope?.replyToSignalId ??
-          signal.data.replyTo?.signalId ??
-          signalContext?.threadContext?.rootSignalId)
+          signal.data.replyTo?.signalId)
         : null;
+    const quotedSignalId =
+      explicitQuotedSignalId ?? signalContext?.threadContext?.rootSignalId;
     const quotedMessage = quotedSignalId
       ? buildDispatchQuotedMessage({
           signalId: quotedSignalId,
           signal: this.readSignalById(quotedSignalId),
         })
       : undefined;
+    const sourceThreadId = signalContext?.threadContext?.threadId ?? null;
+    const contextMessages = buildBareMentionContext({
+      source: signal,
+      mentionTexts: [...activeMemberByProfileId.values()].flatMap((member) => [
+        `@${member.profileId}`,
+        `@${member.profileNameSnapshot}`,
+        ...(effectiveMentionLabelByProfileId.has(member.profileId)
+          ? [`@${effectiveMentionLabelByProfileId.get(member.profileId)}`]
+          : []),
+      ]),
+      quotedSignal: explicitQuotedSignalId
+        ? this.readSignalById(explicitQuotedSignalId)
+        : null,
+      rootSignal: signalContext?.threadContext
+        ? this.readSignalById(signalContext.threadContext.rootSignalId)
+        : null,
+      readRecentSignals: () =>
+        recentSignals
+          .toReversed()
+          .filter(
+            (candidate) =>
+              candidate.profile.profileId === signal.profile.profileId &&
+              candidate.ts <= signal.ts &&
+              candidate.id !== signal.id
+          )
+          .slice(0, 20)
+          .filter((candidate) => {
+            const placement = readSpaceThreadSignalPlacementBySignalId(
+              this.ctx.storage.sql,
+              candidate.id
+            );
+            return (
+              (placement?.placement === "thread"
+                ? placement.threadId
+                : null) === sourceThreadId
+            );
+          }),
+    });
     const pinnedFiles = this.readFilePins()
       .pins.slice(0, 100)
       .map(({ file }) => ({
@@ -16690,6 +16748,7 @@ export class Space extends DurableObject<CoreBindings> {
         createPreparedDispatchOutboxRecordForDecision({
           callerContext,
           quotedMessage,
+          contextMessages,
           pinnedFiles,
           spaceId: this.spaceId,
           organizationId: spaceMeta.organizationId,
@@ -21760,6 +21819,9 @@ function buildDispatchQueueMessageFromOutboxRecord(
     spacePassword: outboxRecord.spacePassword,
     controllerSnapshot: outboxRecord.controllerSnapshot,
     ...(outboxRecord.deviceWait ? { deviceWait: outboxRecord.deviceWait } : {}),
+    ...(outboxRecord.contextSelection
+      ? { contextSelection: outboxRecord.contextSelection }
+      : {}),
     contextIdMappingSpec: outboxRecord.contextIdMappingSpec,
     dispatchRulesSnapshot: outboxRecord.dispatchRulesSnapshot,
     ...(outboxRecord.spaceContractSnapshot

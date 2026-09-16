@@ -4,6 +4,7 @@ import {
 	installPerformanceReporting,
 	summarizePerformanceRequests,
 } from "./performance-client";
+import { beginSpaceOpen, markSpaceOpen } from "./space-open";
 
 afterEach(() => {
 	vi.restoreAllMocks();
@@ -71,6 +72,21 @@ it("reports slow and unfinished navigation with route templates, without reporti
 	vi.advanceTimersByTime(5000);
 	posts = fetchMock.mock.calls.filter(([, init]) => init?.method === "POST");
 	expect(JSON.parse(posts[1]?.[1].body).outcome).toBe("still_pending");
+	// Slow router reports cannot consume the failure-report allowance.
+	for (let i = 0; i < 25; i++) {
+		emit("onBeforeNavigate");
+		now += 2000;
+		emit("onResolved");
+	}
+	beginSpaceOpen("/spaces/failure-example", "navigation");
+	markSpaceOpen("failure-example", "failed");
+	const spaceFailures = fetchMock.mock.calls
+		.filter(([, init]) => init?.method === "POST")
+		.map(([, init]) => JSON.parse(init.body))
+		.filter(
+			(report) => report.kind === "space_open" && report.outcome === "failed"
+		);
+	expect(spaceFailures).toHaveLength(1);
 	cleanup();
 	expect(handlers.size).toBe(0);
 });

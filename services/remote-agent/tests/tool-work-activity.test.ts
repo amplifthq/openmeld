@@ -13,8 +13,11 @@ describe("Remote Agent user-visible work semantics", () => {
       ...REMOTE_AGENT_OPENMELD_TOOL_NAMES,
       ...REMOTE_AGENT_EVENT_AUTHORIZED_TOOL_NAMES,
     ]) {
-      if (toolName === "openmeld_set_reply_placement") {
-        // Selecting where the answer will appear is preparation, not a send.
+      if (
+        toolName === "openmeld_set_reply_placement" ||
+        toolName === "openmeld_set_final_reply_mentions"
+      ) {
+        // Selecting placement or recipients prepares the answer without sending it.
         continue;
       }
       expect(
@@ -50,6 +53,11 @@ describe("Remote Agent user-visible work semantics", () => {
   });
 
   it("keeps reply preparation, the Code Mode wrapper, and unknown internal tools hidden", () => {
+    expect(
+      resolveRemoteAgentToolWorkActivity("openmeld_set_final_reply_mentions", {
+        mentionProfileIds: ["human_1"],
+      })
+    ).toBeNull();
     expect(
       resolveRemoteAgentToolWorkActivity("openmeld_set_reply_placement", {
         placement: "conversation",

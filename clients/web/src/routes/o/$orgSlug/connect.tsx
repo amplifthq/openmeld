@@ -60,6 +60,14 @@ export function AppConnectContent(input: {
 	orgSlug: string;
 	search: ConnectRouteSearch;
 }) {
+	return <WebConnectContent {...input} />;
+}
+
+function WebConnectContent(input: {
+	initialOuterSidebarState?: SidebarPersistedState;
+	orgSlug: string;
+	search: ConnectRouteSearch;
+}) {
 	const { orgSlug, search } = input;
 	const isCreatingAgent = search.returnTo === "agent_creation";
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);

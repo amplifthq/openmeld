@@ -1,7 +1,7 @@
 import {
 	memberRoleHasOrganizationPermission,
 	type OrganizationPermissionCheck,
-} from "@openmeld/auth";
+} from "@openmeld/auth/organization-policy";
 
 // Use the shared pure function so Web and server authorization stay on the same AC source.
 export function canManageOrganizationArea(

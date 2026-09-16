@@ -2,6 +2,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
+	isQuotaWakeFailure,
 	resolveWakeFailureDisplay,
 	type WakeFailureDisplay,
 	type WakeFailureTargetContext,
@@ -198,8 +199,8 @@ export function groupAnchoredOutcomeNotices(
 
 // A terminal failure inside a message bubble is only a pointer to Message
 // details. Keep it calm and consistent: name the Agent that could not reply,
-// but leave the actual reason, recovery guidance, and diagnostics in Message
-// details. Wake stops are not failures, so their existing outcome copy remains
+// and surface a known quota limit inline. Recovery guidance and diagnostics stay
+// in Message details. Wake stops are not failures, so their existing outcome copy remains
 // visible. `resolveTargetLabel` is a callback because the main conversation and
 // Thread callers resolve member names from different projections.
 export function resolveGroupedOutcomeRowText(input: {
@@ -212,7 +213,9 @@ export function resolveGroupedOutcomeRowText(input: {
 		const targetLabel = targetProfileId
 			? input.resolveTargetLabel(targetProfileId)
 			: null;
-		return `${targetLabel ?? "Agent"} couldn’t reply`;
+		return isQuotaWakeFailure(input.notices[0]?.systemNoticeReasonCode)
+			? `${targetLabel ?? "Agent"} reached its provider usage limit`
+			: `${targetLabel ?? "Agent"} couldn’t reply`;
 	}
 
 	if (input.notices.length === 1) {

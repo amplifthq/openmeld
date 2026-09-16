@@ -25,6 +25,24 @@
 
 ## Boundary
 
+### Shared Profile and Organization actions
+
+Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
+`lib/auth-business.server.ts` validates public inputs and safe response projections
+while retaining Auth's original HTTP handlers, permissions, middleware, cookies,
+and mutation effects. Organization settings endpoints accept only name/slug,
+member admin/member roles, and the existing invitation operations. They expose no
+vendor session object or caller-selected upstream route. Invitation URLs remain
+legitimate permission-checked domain results.
+
+Agent removal uses `DELETE /v1/profiles/agents/:profileId`: Auth checks owner and
+Agent kind before deleting through its existing owner service. Generic Auth/RPC
+Profile deletion retains its existing consumers and semantics. Auth owns deletion
+reconciliation; Web retains warning-only catalog refresh on success or 404 and
+the shared UI retains optimistic rollback/invalidation. Profile creation remains
+a durable commit before local setup. No new Organization active-session writer
+or membership store is introduced.
+
 ### Center Agent selected sessions (Flue 2 candidate)
 
 The Center Agent chat at `/o/{orgSlug}/chats/center-agent` accepts `?session=<space-id>`. This selects an exact
@@ -139,6 +157,17 @@ it, and neither changes membership, execution or history. Generic Space
 management remains restricted; permanent deletion is not exposed.
 Archived chats can be found through the Agents group settings or a chat group's
 settings menu. Both controls share one filter state and the Archived badge.
+The conversation header and Direct messages directory also expose Archive and
+Unarchive for ordinary DMs and Center Agent sessions. These actions use the same
+account preferences as the sidebar. The open conversation remains readable and
+the success message explains where to recover it; no destructive confirmation
+or shared-history deletion is involved.
+
+Your Spaces and the sidebar render active memberships from the account Space
+index. The Organization discovery snapshot must not veto a newer account index
+entry. The account index refreshes every five seconds in the foreground so a
+newly added Human or Agent owner can discover a Space without reloading. Unread
+counts continue to come from Inbox; joining does not fabricate unread history.
 
 Contract impact: the shared account-sidebar payload adds an optional `chats`
 namespace. Auth preserves it when older clients omit it and uses the existing
@@ -222,6 +251,9 @@ the privacy, coverage, and operator query contract.
 
 Web document responses require browser revalidation so an old HTML document
 does not keep stale content-hashed asset references after a deployment.
+Vite's content-hashed `/assets/` responses use a one-year immutable browser
+cache through the static asset `_headers` policy. This does not change HTML,
+authenticated API, or private attachment caching or the version recovery path.
 
 If a page that was already open can no longer load one of those assets, Web
 handles the Vite preload failure before router error rendering. The document
@@ -356,7 +388,21 @@ Organization selection remains URL-owned per tab after the newly active account
 loads; account switching must not add Better Auth active-Organization state.
 
 For `/o/{orgSlug}` routes, the URL selects the current tab's Organization after
-the route loader freshly confirms that the signed-in account is a member. The
+the route loader freshly confirms that the signed-in account is a member.
+Shared Organization scope and optional account entry reads use Auth's
+`GET /v1/account/organization-context` through the existing API client. SSR
+forwards the current request cookie directly to Auth; browser and Desktop use
+the same Web HTTP route. Both use the same strict projection without a new
+cache, preference writer, or account store. Existing query keys and account
+reset/invalidation policy remain unchanged. Optional anonymous entry returns
+null, authenticated entry without Organizations remains an explicit error,
+and an unknown Organization URL remains a denied scope. Required anonymous
+scope retains its sanitized login redirect. This read opts into preserving Auth
+401 responses through the Web proxy; existing Auth form status normalization
+is unchanged. Infrastructure errors are not
+converted to anonymous or denied state.
+
+The
 Auth-owned account `lastSelectedOrganizationId` is the default entry preference
 for routes without an explicit Organization. A valid Better Auth Session active
 Organization remains only a backward-compatible recovery preference. Neither is
@@ -550,6 +596,11 @@ The visible destinations resolve in this order: **Inbox**, **Spaces**, and
    describe accessible conversations the Agent has joined, with the latest
    conversation preview; they do not claim a complete execution history or
    that the latest message was authored by this Agent.
+   When a row has a message preview, its link includes that exact Signal target.
+   Thread placement comes from the shared Space thread catalog. Explicit targets
+   take precedence over a previously saved open Thread, and target message reads
+   begin alongside Space prefetch. Known Thread targets show a loading panel
+   during access and bootstrap checks without rendering protected messages early.
 5. **Agents** — the first-level home for ordinary Agent Profiles that members
    manage. User-facing management copy calls them **Agents**; `Agent Profile`
    remains the internal identity-model term. Its Main Sidebar contextual list groups
@@ -602,11 +653,22 @@ The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
 **Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
-preserves **Memory** and **Center Agent settings**. The
+preserves **Memory**. The
 conversation variant of that menu also preserves **Conversation information**.
 There is no separate About surface or Slack shortcut; Center Agent identity,
 model, status, and Slack management remain available through Center Agent
 settings and Channels.
+
+**Center Agent settings live in the global App Settings destination**, not in the
+Center Agent conversation header menu. Its canonical route is
+`/o/{orgSlug}/settings/center-agent`, registered as the `center-agent` Settings
+section, so the same panel renders in both the standalone Settings route and the
+global Settings dialog (`?appSettings=center-agent`). The section is grouped
+under the current Organization's name, and under **Personal** in a Personal
+Workspace, where the coordinator belongs to that one member. The historical
+`/o/{orgSlug}/center-agent/settings` route remains as a redirect only, so
+existing links keep working without a second copy of the panel. There is exactly
+one Center Agent settings entry point.
 
 The Inbox launcher is present across ordinary authorized routes and opens a compact
 preview first. The sidebar header alone shows the deduplicated attention count
@@ -945,6 +1007,17 @@ CLI controls.
 
 ### Settings structure
 
+Account display reads use Auth's `/v1/account/session` projection through the
+shared API client and the existing `userQueryKeys.session` cache. The projection
+preserves the Joined date, verification badge, name/avatar identity updates, and
+current-session row identifier. SSR forwards only the current request's cookie
+to configured Auth. A 401 means no session; backend or malformed-response failures
+remain visible query errors. Security, device switching, and token-based session
+revocation keep their separate existing Web contracts. See the
+[Account session contract](../architecture/shared-contracts.md#account-session-read).
+The Auth read preserves vendor-owned browser session renewal and deletion cookies
+through the HTTP proxy, separate from the credential-free JSON projection.
+
 The application rail keeps Settings and theme controls visible above the account
 trigger. Their hit areas and keyboard order are stable; footer hover does not
 reveal, hide, or move them.
@@ -968,7 +1041,8 @@ mutations do not fork by presentation.
 The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
-  Safety**, and **Send feedback**.
+  Safety**, and **Send feedback**. In a Personal Workspace, it also includes
+  **Center Agent** (placed after Privacy & Safety, before Send feedback).
   Account preferences do not change when the selected Organization changes.
   Privacy & Safety also shows **Agent creation permissions** for the signed-in
   member in the current Organization, explicitly naming that scope. It links to **Center Agent →
@@ -976,14 +1050,17 @@ The Settings secondary sidebar always shows these two groups:
   signed-in member's Computers for Computer file access. Both operations stay
   on their canonical product surfaces rather than creating duplicate settings
   state. Send feedback is an account-level utility action immediately after
-  Privacy & Safety. It opens the existing feedback dialog rather than creating
-  a route or a second submission contract.
-- **Current Organization name** — **General**, **Members**, **Invitations**,
-  and **Security**. General owns identity and lifecycle, Members owns roles,
-  Invitations owns requests and invitation delivery, and Security owns information
-  protection. Security is visible only to owners and admins. A personal workspace
-  shows General only: organization membership and invitation management do not
-  apply there. The visible group label is the selected
+  Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
+  the existing feedback dialog rather than creating a route or a second
+  submission contract.
+- **Current Organization name** — **General**, **Center Agent**, **Members**,
+  **Invitations**, and **Security**. General owns identity and lifecycle, Center
+  Agent owns coordinator identity, connection, model, usage, and audit history,
+  Members owns roles, Invitations owns requests and invitation delivery, and
+  Security owns information protection. Security is visible only to owners and
+  admins. A personal workspace shows General only: organization membership
+  and invitation management do not apply there, and its coordinator belongs to
+  Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
@@ -1085,8 +1162,11 @@ avatar field or keep a card-local successful avatar after the owner projections
 reload. The controls fail closed when the active default Human Profile is
 unavailable.
 
-**Center Agent → Center Agent settings** owns Center Agent configuration. It
-contains Model, Usage, the Audit Log, and the reversible
+**Settings → Center Agent** owns Center Agent configuration. It lives in the
+global App Settings destination (grouped under the current Organization's name,
+or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
+The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
+It contains Model, Usage, the Audit Log, and the reversible
 Organization-wide operating control in **Danger Zone**. Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and
@@ -2380,10 +2460,15 @@ Agent identity controls in messages, Threads, and the Members panel open one
 compact Profile Details popover. It shows the Agent identity, current
 availability, and a primary **Chat with {Agent name}** action. The popover omits
 configuration cards and gives the owner one persistent pencil action to open
-the canonical Agent route; it shows no edit affordance to other viewers. It
+the canonical Agent route; other viewers receive a right-arrow profile link. It
 does not add a second details dialog or an overflow-menu details action. Owners
 edit supported settings from the canonical route; other viewers keep the
-popover read-only.
+popover read-only. Agent cards, profile pages, mention picker rows, and composed
+Agent mentions share the Core-projected provider Usage Limits, including remaining
+percentages, reset times, and stale or unknown evidence. The picker places the
+usage preview after the availability indicator. Selecting a composed profile name
+opens the same Profile Details popover used by messages without changing the draft
+or its Wake relation. Usage display does not derive or override Wakeability.
 Both owner and observer popovers show the same compact activity summary and
 recorded `lastTaskActivityAt` when supplied by the runtime overview. Location
 links appear only when Core disclosed them. The timestamp is historical task
@@ -3627,6 +3712,13 @@ Failed attachments are never silently omitted, and publication failure preserves
 the entire message for retry with the same upload identities, including files
 that already published. Navigation preserves each conversation's attachment draft.
 
+Each file-publication request has a 30-second deadline and reuses the existing
+single automatic retry with the same mutation identity. If both attempts fail,
+the message keeps its attachments and exposes Retry; its send queue reservation
+is released so later messages can proceed. This bounds publication of an already
+staged file, not the byte upload or an Agent execution. A lost publication response
+does not justify creating a new file identity on retry.
+
 After publication, Web submits only server-returned Space File references. A pending
 outgoing message may use a local image preview until the canonical signal with
 the same client message id arrives. Durable message cards fetch an image
@@ -4236,11 +4328,14 @@ Profile, and Space. Returning to the latest messages expands the header. A new
 preference starts expanded; obsolete intermediate-position preferences are not
 reused. Files does not drive compaction. A short vertical entrance runs once
 per collapse, with no travel under reduced motion.
-Latest-message observations update the read-through scheduler directly rather
+Message-header visibility observations update the read-through scheduler directly rather
 than publishing React state through the Space controller. Scrolling away cancels
 the pending read immediately without rerendering the transcript. Space/Profile
-changes require a fresh latest-message measurement; document visibility, access
-confirmation, and a brief 150 ms dwell still gate persistence. After that dwell,
+changes require a fresh visible-message measurement; document visibility, access
+confirmation, loaded Core unread targets, and a brief 150 ms dwell gate persistence.
+Main conversations, Threads, and DMs share this observer. Unseen targets block
+advancing the read watermark past them, and temporary progress cannot advance it.
+After that dwell,
 the existing optimistic Inbox projection updates before the server write settles;
 failed writes retain the existing rollback and reconciliation path.
 Scroll events only check distance from the latest messages. Layout and preference
@@ -4352,6 +4447,18 @@ referencing the original message for only the expired Agent, without overwriting
 another draft. A later send uses ordinary new-message admission and identity;
 this UI does not redrive an expired or partly executed Wake.
 
+Historical Wake recovery skips a source only when the existing shared terminal
+matcher resolves every target from loaded durable Signals. Unresolved siblings
+and outcomes outside loaded history retain recovery. Reads run in groups of at
+most four, publish successful groups progressively, and are canceled when the
+owning effect is replaced. Canceled or failed reads remain eligible for a later
+recovery; cancellation never changes execution state.
+
+Graph and Files code loads on first display. Graph presentation is derived only
+while Graph is selected. Files image thumbnails enable their revision-scoped
+content query only when within 100 pixels of the viewport; image-element lazy
+loading alone does not control authenticated Blob downloads.
+
 Active Wake progress must survive browser refreshes by reading the Core/Space
 Wake progress read model. Browser-local progress state may provide immediate
 feedback for a just-submitted Wake, but it must not be the only source for an
@@ -4389,6 +4496,22 @@ Bounded summaries disclose additional active tasks. Reduced-motion and
 input-waiting Orbs are paused.
 
 Unfinished Agent replies follow the latest message in their owning conversation.
+The server-selected `replyThreadRootSignalId` takes precedence over the trigger
+message's location once reply placement is known. Before selection, progress
+keeps its source context. A Thread-bound reply has a compact progress marker on
+the main entrance; its complete progress and authorized Stop control stay in the
+Thread. Durable outcomes fetched in Thread history or previews reconcile the
+same Wake presentation as live outcomes.
+
+Thread entrances retain the viewer's existing Inbox unread targets. Their
+preview rows support pointer and keyboard activation without intercepting real
+links or text selection. Previews show the latest two replies in chronological
+order. Hover/focus warms the same profile-scoped message query used by the panel;
+a saved panel warms alongside Space loading after account cache activation.
+Prefetch does not acknowledge unread messages. A short freshness window avoids
+an immediate duplicate read, while live-only partial snapshots remain invalidated
+until a complete Thread read succeeds. Loading messages is visibly indicated.
+
 Main Space and Thread use the same presentation-only ordering: published history
 keeps its server order, followed by active Wakes in request order. A public reply
 stream replaces its matching placeholder; it does not add another status row.
@@ -4732,34 +4855,39 @@ normal Prepare flow; it never silently reruns an existing Wake.
 
 ## Desktop Download Entry
 
-Web owns the public OpenMeld Desktop download entry, but it does not own local setup
-truth.
+Web owns the public, account-free preview page at
+`/desktop?candidate=<64-character lowercase sha256>`. It reuses the strict
+candidate selector, manifest parser, derived artifact keys, and artifact size
+verification used by GET/HEAD `/desktop/download?candidate=<hash>`. Version,
+size, and the download button come from that same verified candidate. Missing,
+invalid, repeated, or mismatched selectors never select another package.
 
-Desktop distribution is currently paused. `/desktop` deliberately returns 404;
-the page and artifact pipeline remain in the repository for a later, explicitly
-approved release.
+The plain `/desktop` page reads the existing default manifest. When no default
+release exists, it explains that a full preview invitation link is needed and
+offers no download. Candidate pages do not select a default, write
+`desktop/update.json`, add marketing navigation, or require login or Access.
+The page is marked noindex while the preview is shared directly.
 
-Current MVP routes:
+The existing private R2 binding `OPENMELD_DESKTOP_DOWNLOADS` remains the artifact
+owner. Missing manifests or artifacts show an unavailable page; corrupt metadata
+or storage failures reach the route error boundary, which offers no download.
+The server function independently validates its candidate input. Web keeps no
+second release version, package identity, or object-key registry.
 
-- `/desktop` is the retained public download-page route and stays behind the
-  distribution pause gate until release approval.
-- `/desktop/download` streams the current unsigned Apple silicon DMG from the
-  private R2 bucket binding `OPENMELD_DESKTOP_DOWNLOADS`.
-- `/desktop/update.json` returns the Desktop app update-awareness manifest.
+The page identifies the build as a Preview for macOS Apple silicon and gives
+brief DMG installation instructions. Do not promise stability, zero setup, or
+unverified capabilities. Default-release notices may come from the existing
+manifest `message`; immutable candidate manifests currently have no notice field,
+so the page must not hard-code temporary limitations for one candidate.
 
-The page must make the preview contract explicit:
+Validation covers anonymous candidate and default pages, narrow and wide
+layouts, a real candidate manifest and artifact, matching button/download
+identity, absent candidates, malformed/repeated selectors, and size mismatch.
+Download and update endpoint contracts remain unchanged.
 
-- the build is macOS Apple silicon only;
-- the build is unsigned and not notarized;
-- Node.js LTS with npm is required for this preview;
-- Desktop will install or upgrade the global OpenMeld CLI when Node/npm is present;
-- users may need to approve the first launch in macOS Privacy & Security or by
-  Control-clicking the app and choosing Open.
-
-Web must not claim setup success because the app was downloaded. The successful
-first-round path is: user opens OpenMeld Desktop, Desktop drives CLI/service setup,
-OpenMeld Web Spaces can create a Space and Profiles, and a local agent can be woken
-through the local OpenMeld Service.
+Web must not claim setup success because the app was downloaded. A local Wake
+still requires computer/agent setup and a reply or explicit outcome through the
+existing OpenMeld Service and Space owners.
 
 ### OpenMeld Agent Interface
 

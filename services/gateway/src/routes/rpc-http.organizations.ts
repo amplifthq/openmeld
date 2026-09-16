@@ -404,6 +404,9 @@ export function registerOrganizationRoutes(app: Hono<HonoBindings>): void {
       c,
       execute: async () =>
         await c.var.coreRpc.getCurrentOrganizationAgentRuntimeOverview({
+          ...(c.req.query("includeUsageLimits") === "true"
+            ? { includeUsageLimits: true }
+            : {}),
           ...(c.req.query(
             ORGANIZATION_DIRECTORY_INCLUDE_TASK_ACTIVITY_QUERY_PARAMETER
           ) === "true"

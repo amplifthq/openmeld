@@ -47,13 +47,16 @@ function buildUpstreamUrl(input: {
 	return upstreamUrl;
 }
 
-export function buildUpstreamHeaders(requestHeaders: Headers): Headers {
+export function buildUpstreamHeaders(
+	requestHeaders: Headers,
+	preserveOrigin = false
+): Headers {
 	const headers = new Headers(requestHeaders);
 	for (const headerName of HOP_BY_HOP_HEADERS) {
 		headers.delete(headerName);
 	}
 
-	if (!headers.get("origin")) {
+	if (!(preserveOrigin || headers.get("origin"))) {
 		headers.set("origin", getRequiredServerEnv("WEB_APP_URL"));
 	}
 
@@ -63,6 +66,8 @@ export function buildUpstreamHeaders(requestHeaders: Headers): Headers {
 export async function proxyAuthOwnedRequest(input: {
 	request: Request;
 	upstreamPath: string;
+	preserveUnauthorizedStatus?: boolean;
+	preserveOrigin?: boolean;
 }): Promise<Response> {
 	const { readWebProxyCloudflareRuntimeEvidence } = await import(
 		"#/lib/openmeld-api/proxy-cloudflare-runtime.server"
@@ -73,7 +78,10 @@ export async function proxyAuthOwnedRequest(input: {
 		proxyKind: "auth",
 		execute: async (diagnostics) => {
 			const method = input.request.method.toUpperCase();
-			const headers = buildUpstreamHeaders(input.request.headers);
+			const headers = buildUpstreamHeaders(
+				input.request.headers,
+				input.preserveOrigin
+			);
 			diagnostics.setLastStage("build_upstream_url");
 			const upstreamUrl = buildUpstreamUrl({
 				requestUrl: input.request.url,
@@ -105,6 +113,7 @@ export async function proxyAuthOwnedRequest(input: {
 			diagnostics.setLastStage("process_upstream_response");
 			return await buildBufferedAuthProxyResponse({
 				method,
+				preserveUnauthorizedStatus: input.preserveUnauthorizedStatus,
 				requestUrl: input.request.url,
 				upstreamResponse,
 			});
@@ -124,6 +133,7 @@ async function readAuthProxyRequestBody(
 
 export async function buildBufferedAuthProxyResponse(input: {
 	method: string;
+	preserveUnauthorizedStatus?: boolean;
 	requestUrl?: string;
 	upstreamResponse: Response;
 }): Promise<Response> {
@@ -230,6 +240,7 @@ function readRedirectAuthError(location: string | null): {
 
 async function buildAuthProxyErrorResponse(input: {
 	upstreamResponse: Response;
+	preserveUnauthorizedStatus?: boolean;
 }): Promise<Response> {
 	const contentType = input.upstreamResponse.headers.get("content-type") ?? "";
 	const upstreamBody = contentType.includes("application/json")
@@ -256,7 +267,9 @@ async function buildAuthProxyErrorResponse(input: {
 
 	return new Response(body, {
 		headers,
-		status: resolveAuthProxyErrorStatus(input.upstreamResponse.status),
+		status: input.preserveUnauthorizedStatus
+			? input.upstreamResponse.status
+			: resolveAuthProxyErrorStatus(input.upstreamResponse.status),
 	});
 }
 
@@ -267,7 +280,9 @@ function resolveAuthProxyErrorStatus(upstreamStatus: number): number {
 	return upstreamStatus === 401 ? 400 : upstreamStatus;
 }
 
-function buildDownstreamAuthProxyHeaders(upstreamHeaders: Headers): Headers {
+export function buildDownstreamAuthProxyHeaders(
+	upstreamHeaders: Headers
+): Headers {
 	const headers = new Headers();
 	for (const [headerName, headerValue] of upstreamHeaders.entries()) {
 		const normalizedHeaderName = headerName.toLowerCase();
@@ -301,6 +316,11 @@ function readSetCookieHeaders(headers: Headers): string[] {
 			.filter((value) => value.length > 0);
 	}
 
+	const getAll = (headers as Headers & { getAll?: (name: string) => string[] })
+		.getAll;
+	if (typeof getAll === "function") {
+		return getAll.call(headers, "Set-Cookie");
+	}
 	const cookieHeader = headers.get("set-cookie")?.trim();
 	return cookieHeader ? [cookieHeader] : [];
 }

@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import test from "node:test";
+import test, { mock } from "node:test";
 
 const AUTH_401_RE = /401 Unauthorized/;
 const MODEL_NOT_FOUND_RE = /model_not_found|requested model/i;
@@ -18,6 +18,8 @@ const CODEX_UPGRADE_REQUIRED_RE = /requires a newer version of codex/i;
 const DANGEROUS_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
 const CODEX_COMMAND_DENIED_BY_SANDBOX_RE = /command denied by sandbox/i;
 const CODEX_EXECUTION_DENIED_RE = /execution denied/i;
+const FORK_CHECKPOINT_UNAVAILABLE_RE =
+  /execution_context.fork_checkpoint_unavailable/;
 const QUOTA_RE = /insufficient_quota/;
 const RATE_LIMIT_RE = /rate limit/i;
 const USAGE_LIMIT_RE = /usage limit/i;
@@ -679,6 +681,7 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
     [
       "#!/usr/bin/env node",
       "import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';",
+      "if (process.argv.includes('mcp') && process.argv.includes('list')) { console.log('[]'); process.exit(0); }",
       "const logPath = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_LOG;",
       "const startupAttemptPath = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH;",
       "let startupAttempt = 1;",
@@ -743,6 +746,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    return;",
       "  }",
       "  if (message.method === 'initialized') return;",
+      "  if (message.method === 'command/exec') { write({ jsonrpc: '2.0', id: message.id, result: { exitCode: 0, stdout: 'denied:denied:allowed:denied', stderr: '' } }); return; }",
+      "  if (message.method === 'mcpServerStatus/list') { write({ jsonrpc: '2.0', id: message.id, result: { data: [], nextCursor: null } }); return; }",
       "  if (message.method === 'collaborationMode/list') {",
       "    write({ jsonrpc: '2.0', id: message.id, result: { data: [",
       "      { name: 'Plan', mode: 'plan', model: null, reasoning_effort: 'medium' },",
@@ -768,7 +773,8 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    if (startupAttempt <= hangingResumeAttempts) return;",
       "    const model = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_OMIT_THREAD_MODEL === '1' ? {} : { model: process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_MODEL ?? 'gpt-5' };",
       "    const threadSource = process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_SOURCE ?? 'user';",
-      "    const respond = () => write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, reasoningEffort: process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_REASONING_EFFORT ?? null } });",
+      "    const scopedPermissions = message.params.permissions ? { activePermissionProfile: { id: message.params.permissions, extends: null }, runtimeWorkspaceRoots: [message.params.cwd], sandbox: { type: 'readOnly' } } : {};",
+      "    const respond = () => write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread(message.params.threadId, threadSource), ...model, modelProvider: 'openai', serviceTier: null, cwd: message.params.cwd, instructionSources: [], approvalPolicy: 'never', approvalsReviewer: 'client', sandbox: { mode: 'read-only' }, ...scopedPermissions, reasoningEffort: process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_REASONING_EFFORT ?? null } });",
       "    const resumeResponseDelayMs = Number(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_RESUME_RESPONSE_DELAY_MS ?? '0');",
       "    if (resumeResponseDelayMs > 0) setTimeout(respond, resumeResponseDelayMs); else respond();",
       "    return;",
@@ -1344,6 +1350,17 @@ test("invokeCodexAppServerTransport keeps the controller process out of the work
       (event) => event.phase === "process_spawned"
     );
     assert.ok(processSpawnedEvent);
+    const processExitedEvent = runtimeEvents.find(
+      (event) => event.phase === "process_exit"
+    );
+    assert.ok(processExitedEvent);
+    assert.equal(
+      processExitedEvent.ownedProcessesQuiescent,
+      process.platform === "win32" ? undefined : true
+    );
+    assert.throws(() => process.kill(processSpawnedEvent.processId, 0), {
+      code: "ESRCH",
+    });
     assert.equal(processSpawnedEvent.processLaunchKind, "package_entrypoint");
     assert.equal(
       processSpawnedEvent.processWorkingDirectoryKind,
@@ -3065,6 +3082,58 @@ test("invokeCodexAppServerTransport applies interactive Ask for approval policy 
   }
 });
 
+test("invokeCodexAppServerTransport repairs a scoped Context in its own thread with read-only access", async () => {
+  const { invokeCodexAppServerTransport } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-scoped-repair-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  const events = [];
+  try {
+    const result = await invokeCodexAppServerTransport({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: fixtureDir,
+      computerFileAccessBoundary: {
+        mode: "only_selected_folders",
+        folders: [fixtureDir],
+        revision: 1,
+        updatedAtMs: 1,
+        executionContextAccess: "workspace",
+      },
+      env: { OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath },
+      executionMode: "repair",
+      prompt: "Reconsider the final reply.",
+      taskId: "scoped-repair",
+      threadId: "context-thread",
+      onRuntimeEvent: (event) => events.push(event),
+    });
+    const messages = await readFakeAppServerMessages(logPath);
+    assert.equal(
+      messages.some((message) => message.method === "thread/fork"),
+      false
+    );
+    assert.equal(
+      messages.find((message) => message.method === "thread/resume").params
+        .threadId,
+      "context-thread"
+    );
+    assert.equal(
+      messages.find((message) => message.method === "turn/start").params
+        .threadId,
+      "context-thread"
+    );
+    assert.equal(result.threadId, "context-thread");
+    assert.equal(
+      events.find((event) => event.phase === "provider_turn_accepted")
+        .agentControllerConversationId,
+      "context-thread"
+    );
+  } finally {
+    await rm(fixtureDir, { recursive: true, force: true });
+  }
+});
+
 test("invokeCodexAppServerTransport isolates structured-action repair from the source thread", async () => {
   const { invokeCodexAppServerTransport } = await import("../dist/index.js");
   const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-repair-policy-"));
@@ -3529,6 +3598,22 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
   await chmod(fixturePath, 0o755);
 
   try {
+    await assert.rejects(
+      forkCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        sourceThreadId: "thread-source-1",
+        computerFileAccessBoundary: {
+          mode: "only_selected_folders",
+          folders: [dispatchDir],
+          revision: 1,
+          updatedAtMs: 1,
+          executionContextAccess: "workspace",
+        },
+      }),
+      FORK_CHECKPOINT_UNAVAILABLE_RE
+    );
     const result = await forkCodexAppServerThread({
       launchContract: createNodeScriptLaunchContract(fixturePath),
       codexTimeoutMs: 5000,
@@ -3557,6 +3642,44 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("codex withholds workspace quiescence when the process group remains present after leader exit", async () => {
+  const { forkCodexAppServerThread } = await import("../dist/index.js");
+  const directory = await mkdtemp(join(tmpdir(), "codex-quiescence-"));
+  const fixture = join(directory, "fake.mjs");
+  await writeFakeCodexAppServerFixture(fixture);
+  let processId;
+  const events = [];
+  const kill = process.kill;
+  const mockKill = mock.method(process, "kill", (pid, signal) => {
+    // The OS boundary reports a surviving group member although its leader
+    // exited. Supervision's out-of-group inventory alone cannot see this case.
+    if (signal === 0 && pid === -processId) {
+      return true;
+    }
+    return kill(pid, signal);
+  });
+  try {
+    await forkCodexAppServerThread({
+      launchContract: createNodeScriptLaunchContract(fixture),
+      codexTimeoutMs: 5000,
+      codexWorkdir: directory,
+      sourceThreadId: "thread-source-1",
+      onRuntimeEvent: (event) => {
+        events.push(event);
+        if (event.phase === "process_spawned") {
+          processId = event.processId;
+        }
+      },
+    });
+    const exited = events.find((event) => event.phase === "process_exit");
+    assert.ok(exited);
+    assert.equal(exited.ownedProcessesQuiescent, undefined);
+  } finally {
+    mockKill.mock.restore();
+    await rm(directory, { force: true, recursive: true });
   }
 });
 

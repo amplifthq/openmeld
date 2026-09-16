@@ -357,6 +357,7 @@ const DAEMON_MENU_COMMANDS = [
 ] as const;
 
 type DaemonRunInput = DaemonBaseInput & {
+  accountAdmissionId?: string;
   deviceId?: string;
   heartbeatMs?: number;
   profile?: string;
@@ -2402,7 +2403,8 @@ async function runDaemonRunInteractivePreflightBeforeModePrompt(input: {
 }
 
 export async function runDaemonStop(
-  input: DaemonStopInput
+  input: DaemonStopInput,
+  internal: { completedControlledShutdownOwnerPid?: number } = {}
 ): Promise<SharedDaemonStopResult> {
   const runtime = await resolveRuntimeContext({
     view: input.view,
@@ -2433,6 +2435,8 @@ export async function runDaemonStop(
             await uninstallDaemonServiceUpdateWorker();
           }
           const stopped = await executeDaemonStopCommand({
+            completedControlledShutdownOwnerPid:
+              internal.completedControlledShutdownOwnerPid,
             force: input.force,
             presenter,
             profile: input.profile,
@@ -2578,12 +2582,15 @@ export async function runDaemonAutostart(
 }
 
 async function executeDaemonStopCommand(input: {
+  completedControlledShutdownOwnerPid?: number;
   force?: boolean;
   presenter: ReturnType<typeof createPresenter>;
   profile?: string;
   runtime: RuntimeContext;
 }): Promise<SharedDaemonStopResult> {
   const stopResult = await stopCurrentLaneDaemonService({
+    completedControlledShutdownOwnerPid:
+      input.completedControlledShutdownOwnerPid,
     force: input.force,
     mode: "interactive",
     runtime: input.runtime,
@@ -4811,7 +4818,7 @@ type DaemonDetachedLaunchInput = Omit<DaemonRunInput, "profile"> & {
   mode: DaemonRunMode;
 };
 
-async function runDaemonServiceDetached(
+export async function runDaemonServiceDetached(
   input: DaemonDetachedLaunchInput
 ): Promise<DaemonRunResult> {
   const startFailureLogCursor = await captureDaemonStartFailureLogCursor();
@@ -4920,6 +4927,9 @@ function buildDetachedDaemonLaunchSpec(input: DaemonDetachedLaunchInput): {
 } {
   const detachedMode = input.mode === "background" ? "foreground" : input.mode;
   const sharedArgs = [
+    ...(input.accountAdmissionId
+      ? ["--account-admission-id", input.accountAdmissionId]
+      : []),
     ...(input.openMeldProfileId ? ["--profile", input.openMeldProfileId] : []),
     ...(input.deviceId ? ["--device-id", input.deviceId] : []),
     ...(typeof input.heartbeatMs === "number"

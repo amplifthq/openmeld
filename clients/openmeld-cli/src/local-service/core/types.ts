@@ -227,6 +227,7 @@ export type OpenMeldDaemonTaskErrorType =
   | "timeout";
 
 export type ParsedDispatchTask = {
+  executionContext?: import("@openmeld/schemas/types").ExecutionContextTask;
   callerContext?: NonNullable<
     RuntimeTransportDeliverDispatchRequest["payload"]["sourceSignalSnapshot"]
   >["callerContext"];

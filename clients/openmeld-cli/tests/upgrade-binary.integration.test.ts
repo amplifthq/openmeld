@@ -4,12 +4,12 @@ import { EventEmitter } from "node:events";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import packageJson from "../package.json";
 import {
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
-} from "../src/runtime/cli-binary-update-artifact";
+} from "@openmeld/local-service/cli-binary-update-artifact";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import packageJson from "../package.json";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { seedVersionState } from "./helpers/version";
 
@@ -409,12 +409,7 @@ describe("openmeld upgrade in binary distribution", () => {
     await expect(
       verifyCliBinaryCodeSignature({
         artifactPath: "/tmp/openmeld",
-        release: {
-          ...platformRelease,
-          minRequiredCliVersion: manifest.channels.stable.minRequiredCliVersion,
-          platform,
-          version: manifest.channels.stable.version,
-        },
+        release: platformRelease,
         runCommand,
       })
     ).rejects.toThrow("signed OpenMeld CLI verification requires macOS");

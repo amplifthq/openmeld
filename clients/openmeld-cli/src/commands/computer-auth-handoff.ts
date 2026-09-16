@@ -1,9 +1,14 @@
+import {
+  type ComputerConnectionIntent,
+  computerConnectionIntentSchema,
+} from "@openmeld/schemas";
 import type { PrepareSessionContinuation } from "@openmeld/schemas/types";
 import {
   AuthSessionChangedBeforeTransitionError,
   type AuthSessionMetadata,
   AuthSessionRecoveryInProgressError,
   beginAuthSessionTransition,
+  buildStoredAuthSessionIdentity,
   getAuthSessionMetadata,
   getAuthSessionState,
 } from "../config/auth-session";
@@ -36,6 +41,7 @@ import {
 import { bestEffortStopCurrentLaneDaemonService } from "./service";
 
 type ComputerAuthHandoffInput = {
+  connectionIntent?: ComputerConnectionIntent;
   interactive: boolean;
   localAgentSelection?: PrepareSessionLocalAgentSelection;
   presenter: Presenter;
@@ -124,7 +130,13 @@ async function runPreparedComputerAuthHandoff(
       ownerUserId: initialSnapshot.ownerUserId,
     });
     const currentSession = await resolveCurrentComputerSession(candidate);
+    await assertReviewedComputerConnection(
+      input.connectionIntent,
+      candidate,
+      currentSession
+    );
     const confirmed = await confirmComputerAccountSwitch({
+      reviewedConnection: Boolean(input.connectionIntent),
       candidate,
       currentSession,
       interactive: input.interactive,
@@ -222,6 +234,29 @@ async function runPreparedComputerAuthHandoff(
   } finally {
     stream.close();
   }
+}
+
+async function assertReviewedComputerConnection(
+  review: ComputerConnectionIntent | undefined,
+  candidate: PreparedAuthSession,
+  currentSession: AuthSessionMetadata | null
+) {
+  if (!review) {
+    return;
+  }
+  const intent = computerConnectionIntentSchema.safeParse(review);
+  if (
+    intent.success &&
+    intent.data.expectedAccount === candidate.user.id &&
+    intent.data.previousSessionIdentity ===
+      buildStoredAuthSessionIdentity(currentSession)
+  ) {
+    return;
+  }
+  const revoked = await revokePreparedAuthSession(candidate);
+  throw new Error(
+    `The computer sign-in changed. Review the connection again before continuing.${formatComputerAuthCleanupFailureSuffix(revoked)}`
+  );
 }
 
 async function assertPrepareSessionOwner(input: {
@@ -349,6 +384,7 @@ function attachComputerAuthCleanupFailure(input: {
 }
 
 async function confirmComputerAccountSwitch(input: {
+  reviewedConnection: boolean;
   candidate: PreparedAuthSession;
   currentSession: AuthSessionMetadata | null;
   interactive: boolean;
@@ -368,6 +404,9 @@ async function confirmComputerAccountSwitch(input: {
     );
   }
   if (currentUserId === input.candidate.user.id) {
+    return true;
+  }
+  if (input.reviewedConnection) {
     return true;
   }
 

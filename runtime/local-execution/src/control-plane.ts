@@ -53,6 +53,7 @@ type OpenMeldDaemonServiceUpdateReadinessResponsePayload = Extract<
 >["payload"];
 
 export type OpenMeldDaemonControlPlaneContext = {
+  accountCheckedServiceControl?: boolean;
   healthPayload: OpenMeldDaemonHealthPayload;
   historyEntries: OpenMeldDaemonHistoryEntry[];
   interruptHandler?: (
@@ -175,6 +176,14 @@ export async function buildControlPlaneResponse(input: {
         context: input.context,
         payload: request.payload,
         requestMeta,
+      });
+    case "account_control_capabilities":
+      return openMeldDaemonControlPlaneResponseSchema.parse({
+        ...requestMeta,
+        code: "service.account_control_capabilities",
+        payload: {
+          supported: input.context.accountCheckedServiceControl === true,
+        },
       });
     case "service_update_readiness":
       return await buildServiceUpdateReadinessControlPlaneResponse({

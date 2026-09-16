@@ -19,10 +19,13 @@ import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { publishAgentReadinessInvalidationFrame } from "#/lib/agents/agent-readiness-invalidation-bus";
 import {
-	createSpaceLiveStreamUrl,
 	parseSpaceLiveMessage,
 	type SpaceLiveMessage,
 } from "#/lib/spaces/live-stream";
+import {
+	createSpaceLiveTransport,
+	type SpaceLiveTransport,
+} from "#/lib/spaces/live-transport";
 import {
 	isSpaceTimelineCatchUpAnchorSignal,
 	mergeSpaceTimelineEnvelopes,
@@ -819,13 +822,11 @@ export function useSpaceLandingFeed(input: {
 		setLiveState("connecting");
 		setLiveErrorMessage(null);
 
-		const socket = new WebSocket(
-			createSpaceLiveStreamUrl({
-				origin: window.location.origin,
-				spaceId: input.spaceId,
-				profileId: input.openMeldProfileId,
-			})
-		);
+		const socket = createSpaceLiveTransport({
+			origin: window.location.origin,
+			spaceId: input.spaceId,
+			profileId: input.openMeldProfileId,
+		});
 
 		const onOpen = () => {
 			if (isDisposed) {
@@ -1074,7 +1075,7 @@ function resolveLiveReconnectDelayMs(attemptCount: number): number {
 function startSpaceLiveKeepaliveTimer(input: {
 	onStalled: () => void;
 	readLastInboundFrameTs: () => number | null;
-	socket: WebSocket;
+	socket: SpaceLiveTransport;
 }): () => void {
 	let hasSentKeepalivePing = false;
 	let stopped = false;

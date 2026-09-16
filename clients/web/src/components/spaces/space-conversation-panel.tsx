@@ -13,12 +13,14 @@ import type { SpaceMemberDirectoryEntry } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
 import { cn } from "@openmeld/ui/lib/utils";
 import { ChatCircleIcon, InfoIcon, XIcon } from "@phosphor-icons/react";
-import { useMessageScrollerScrollable } from "@shadcn/react/message-scroller";
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	Fragment,
+	lazy,
 	memo,
 	type ReactNode,
 	type Ref,
+	Suspense,
 	useCallback,
 	useEffect,
 	useLayoutEffect,
@@ -29,6 +31,7 @@ import {
 import { RemoteAgentIndicator } from "#/components/agents/remote-agent-indicator";
 import { APP_MOBILE_TOUCH_TARGET_CLASS_NAME } from "#/components/app/app-touch-target";
 import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
+import { useSpaceConversationOpenPaint } from "#/lib/observability/use-space-open-paint";
 import { getSpaceConversationHistorySignalId } from "#/lib/space-conversation-position";
 import {
 	buildActiveWakeConversationItems,
@@ -68,11 +71,13 @@ import {
 	type SpaceWakeStopRequestStatus,
 } from "#/lib/spaces/wake-stop-target";
 import { SPACE_INITIAL_HISTORY_MAX_MESSAGES } from "#/query/spaces/history";
+import { spaceThreadSignalsQueryOptions } from "#/query/spaces/threads";
 import {
 	type CenterAgentComputerSetupContext,
 	resolveLatestComputerSetupActionSignalId,
 } from "./center-agent-computer-setup-card";
 import { CenterAgentDirectMessageIntro } from "./center-agent-direct-message-intro";
+import { formatDirectMessageTime } from "./direct-message-preview";
 import type { OnboardingSetupPresentation } from "./onboarding-setup-presentation";
 import { Bubble, BubbleContent, BubbleGroup } from "./primitives/bubble";
 import { Marker, MarkerContent, MarkerIcon } from "./primitives/marker";
@@ -127,6 +132,7 @@ import {
 	SpaceConversationSendScrollController,
 	type SpaceMessageScrollAction,
 	SpaceMessageScrollController,
+	scrollMessageIntoConversationViewport,
 } from "./space-conversation-scroll-controller";
 import { buildSpaceConversationScrollRestorationId } from "./space-conversation-scroll-restoration";
 import { SpaceConversationSkeleton } from "./space-conversation-skeleton";
@@ -139,7 +145,7 @@ import {
 	resolveAnchoredSpaceExecutionRecoveryRequest,
 	type SpaceExecutionRecoveryHandler,
 } from "./space-execution-recovery-actions";
-import { SpaceGraph, type SpaceGraphFocusRequest } from "./space-graph";
+import type { SpaceGraphFocusRequest } from "./space-graph";
 import { buildSpaceGraphPresentation } from "./space-graph-presentation";
 import { SpaceHistoryJumpControl } from "./space-history-jump-control";
 import { SpaceHistoryRail } from "./space-history-rail";
@@ -181,6 +187,7 @@ import {
 	MessageReactionsProvider,
 	resolveMessageReactionInput,
 } from "./space-message-reactions";
+import { SpaceMessageReadObserver } from "./space-message-read-observer";
 import {
 	EMPTY_SPACE_MESSAGE_REFERENCES,
 	hasResolvedSpaceMessageReference,
@@ -211,6 +218,7 @@ import {
 } from "./space-wake-stop-control";
 import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
+
 import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
 import type {
 	SpaceComposerAddressingTarget,
@@ -218,7 +226,12 @@ import type {
 } from "./use-space-mention-authoring";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
 
+const SpaceGraph = lazy(() =>
+	import("./space-graph").then((module) => ({ default: module.SpaceGraph }))
+);
+
 type SpaceConversationPanelResolvedProps = {
+	agentStreams?: readonly import("#/lib/spaces/conversation-stream").SpaceConversationVisibleStreamProjection[];
 	historyNavigation?: SpaceHistoryNavigationController;
 	activeSpaceView: SpaceView;
 	allowedActions: readonly string[];
@@ -306,9 +319,8 @@ type SpaceConversationPanelResolvedProps = {
 	onSendStarterPrompt: (prompt: string) => Promise<void>;
 	onSpaceViewChange: (view: SpaceView) => void;
 	orgSlug?: string;
-	// Fired with whether the conversation is scrolled to the latest message, so
-	// the unread watermark only advances while the user is actually at the bottom.
-	onViewingLatestChange?: (isViewingLatest: boolean) => void;
+	// The shared observer acknowledges only visible Core unread targets.
+	onViewedThroughTs?: (timestamp: number) => Promise<void> | void;
 	prepareSetupHref?: string;
 	pendingActionSurface?: ReactNode;
 	readOnly?: boolean;
@@ -533,6 +545,15 @@ function SpaceConversationPanelContent(
 		threadsByRootSignalId,
 		wakeStopTargetLabelsByProfileId,
 	} = presentation;
+	useSpaceConversationOpenPaint({
+		spaceId: input.spaceId,
+		messagesVisible: input.activeSpaceView === "messages",
+		historyPending: input.historyIsPending,
+		historyError: Boolean(input.historyErrorMessage),
+		hasMessages: entries.length > 0,
+		canEdit: canSendMessage,
+		showComposer,
+	});
 	const navigation = useSpaceConversationNavigationController({
 		activeSpaceView: input.activeSpaceView,
 		ephemeralActivityItems: input.ephemeralActivityItems,
@@ -549,7 +570,6 @@ function SpaceConversationPanelContent(
 		onOpenThread,
 		onOpenUnreadThread: input.onOpenUnreadThread,
 		onSpaceViewChange: input.onSpaceViewChange,
-		onViewingLatestChange: input.onViewingLatestChange,
 		presentedWakeProgressItems: input.presentedWakeProgressItems,
 		selfProfileId: input.selfProfileId,
 		spaceId: input.spaceId,
@@ -632,24 +652,34 @@ function SpaceConversationPanelContent(
 				activeView={input.activeSpaceView}
 				files={input.files}
 				graph={
-					<SpaceGraph
-						focusRequest={spaceGraphFocusRequest}
-						graph={spaceGraph}
-						hasEarlierHistory={input.hasEarlierHistory}
-						isLoadingEarlierHistory={input.isLoadingEarlierHistory}
-						nodePositions={spaceGraphLayout.nodePositions}
-						onLoadEarlierHistory={() => {
-							loadEarlierHistory().catch((error) => {
-								console.error(
-									"Failed to load earlier activity in the Space Graph.",
-									error
-								);
-							});
-						}}
-						onNodePositionChange={spaceGraphLayout.onNodePositionChange}
-						onOpenMessageDetails={setMessageDetailsItem}
-						onResetNodePositions={spaceGraphLayout.onResetNodePositions}
-					/>
+					spaceGraph ? (
+						<Suspense
+							fallback={
+								<output className="p-6 text-muted-foreground text-sm">
+									Loading graph…
+								</output>
+							}
+						>
+							<SpaceGraph
+								focusRequest={spaceGraphFocusRequest}
+								graph={spaceGraph}
+								hasEarlierHistory={input.hasEarlierHistory}
+								isLoadingEarlierHistory={input.isLoadingEarlierHistory}
+								nodePositions={spaceGraphLayout.nodePositions}
+								onLoadEarlierHistory={() => {
+									loadEarlierHistory().catch((error) => {
+										console.error(
+											"Failed to load earlier activity in the Space Graph.",
+											error
+										);
+									});
+								}}
+								onNodePositionChange={spaceGraphLayout.onNodePositionChange}
+								onOpenMessageDetails={setMessageDetailsItem}
+								onResetNodePositions={spaceGraphLayout.onResetNodePositions}
+							/>
+						</Suspense>
+					) : null
 				}
 				idPrefix={input.spaceViewIdPrefix}
 				messages={
@@ -685,13 +715,6 @@ function SpaceConversationPanelContent(
 								/>
 							)}
 
-							<ConversationLatestObserver
-								onChange={(value) =>
-									input.onViewingLatestChange?.(
-										value && !input.historyNavigation?.activeWindow
-									)
-								}
-							/>
 							<SpaceConversationTopOverlay
 								overlayRef={setConversationTopOverlayElement}
 							>
@@ -728,6 +751,15 @@ function SpaceConversationPanelContent(
 								ref={registerReadingScrollElement}
 								role="log"
 							>
+								<SpaceMessageReadObserver
+									key={`${input.spaceId}:${input.selfProfileId}`}
+									onViewedThroughTs={
+										input.historyIsPending ? undefined : input.onViewedThroughTs
+									}
+									unreadTargets={(input.unreadTargets ?? []).filter(
+										(target) => target.threadRootSignalId === null
+									)}
+								/>
 								<SpaceConversationStickyDate
 									afterDate={
 										<SpaceUnreadNavigationControl
@@ -844,6 +876,13 @@ function renderPanelConversationBody(input: {
 	const navigation = input.navigation;
 	const presentation = input.presentation;
 	return renderConversationBody({
+		activeThreadRootSignalIds: new Set(
+			(panel.agentStreams ?? []).flatMap((stream) =>
+				stream.status === "streaming" && stream.replyThreadRootSignalId
+					? [stream.replyThreadRootSignalId]
+					: []
+			)
+		),
 		agentRecoveryPlansByProfileId: panel.agentRecoveryPlansByProfileId,
 		anchoredOutcomeNoticesBySourceSignalId:
 			presentation.anchoredOutcomeNoticesBySourceSignalId,
@@ -998,6 +1037,7 @@ function useSpaceConversationPresentationController(
 	const activeConversationItems = useMemo(
 		() =>
 			buildActiveWakeConversationItems({
+				agentStreams: input.agentStreams,
 				activityItems: input.presentedWakeProgressItems,
 				profileEntriesById,
 				spaceId: input.spaceId,
@@ -1006,6 +1046,7 @@ function useSpaceConversationPresentationController(
 			}),
 		[
 			baseMainTimelineItems,
+			input.agentStreams,
 			input.presentedWakeProgressItems,
 			input.spaceId,
 			profileEntriesById,
@@ -1042,13 +1083,16 @@ function useSpaceConversationPresentationController(
 	);
 	const spaceGraph = useMemo(
 		() =>
-			buildSpaceGraphPresentation({
-				profileNamesById: wakeStopTargetLabelsByProfileId,
-				profilePresentationsById,
-				timelineItems: mainTimelineItems,
-				wakeProgressItems: input.ephemeralActivityItems,
-			}),
+			input.activeSpaceView === "graph"
+				? buildSpaceGraphPresentation({
+						profileNamesById: wakeStopTargetLabelsByProfileId,
+						profilePresentationsById,
+						timelineItems: mainTimelineItems,
+						wakeProgressItems: input.ephemeralActivityItems,
+					})
+				: null,
 		[
+			input.activeSpaceView,
 			input.ephemeralActivityItems,
 			mainTimelineItems,
 			profilePresentationsById,
@@ -1216,7 +1260,6 @@ function useSpaceConversationNavigationController(input: {
 	onOpenThread: (threadId: string) => void;
 	onOpenUnreadThread?: SpaceConversationPanelResolvedProps["onOpenUnreadThread"];
 	onSpaceViewChange: (view: SpaceView) => void;
-	onViewingLatestChange?: (isViewingLatest: boolean) => void;
 	presentedWakeProgressItems: readonly SpaceEphemeralActivityItem[];
 	selfProfileId: string;
 	spaceId?: string;
@@ -1558,11 +1601,7 @@ function useSpaceConversationNavigationController(input: {
 		input.onLoadHistoryAround,
 		targetKey,
 	]);
-	useEffect(() => {
-		if (input.activeSpaceView === "graph") {
-			input.onViewingLatestChange?.(false);
-		}
-	}, [input.activeSpaceView, input.onViewingLatestChange]);
+
 	useEffect(() => {
 		const scrollElement = conversationScrollRef.current;
 		if (
@@ -1696,18 +1735,6 @@ function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
 	);
 }
 
-function ConversationLatestObserver(input: {
-	onChange?: (isViewingLatest: boolean) => void;
-}) {
-	const { end: canScrollToEnd } = useMessageScrollerScrollable();
-
-	useLayoutEffect(() => {
-		input.onChange?.(!canScrollToEnd);
-	}, [canScrollToEnd, input.onChange]);
-
-	return null;
-}
-
 function SpaceUnreadNavigationControl(input: {
 	dismissedTargetKeys: ReadonlySet<string>;
 	navigation: SpaceUnreadNavigationState;
@@ -1808,33 +1835,6 @@ function resolveSpaceUnreadNavigationState(input: {
 	return { targets };
 }
 
-function scrollMessageIntoConversationViewport(input: {
-	messageElement: HTMLElement;
-	scrollElement: HTMLElement;
-}): void {
-	const alignMessage = () => {
-		const messageRect = input.messageElement.getBoundingClientRect();
-		const viewportRect = input.scrollElement.getBoundingClientRect();
-		const messageCenter = (messageRect.top + messageRect.bottom) / 2;
-		const viewportCenter = (viewportRect.top + viewportRect.bottom) / 2;
-		// Canvas transforms scale viewport coordinates, while scrollTop uses CSS pixels.
-		// The first deep-link focus can run before layout reports an offset height.
-		// Use unscaled coordinates for that frame; the scheduled passes below will
-		// correct the position once layout has settled.
-		const scale =
-			input.scrollElement.offsetHeight > 0 && viewportRect.height > 0
-				? viewportRect.height / input.scrollElement.offsetHeight
-				: 1;
-		if (scale > 0) {
-			input.scrollElement.scrollTop += (messageCenter - viewportCenter) / scale;
-		}
-	};
-	alignMessage();
-	window.requestAnimationFrame(() => {
-		window.requestAnimationFrame(alignMessage);
-	});
-}
-
 function unreadTargetKey(target: SpaceInboxUnreadTarget): string {
 	return `${target.threadRootSignalId ?? "main"}:${target.signalId}:${String(target.occurredAtMs)}`;
 }
@@ -1917,6 +1917,7 @@ function SpaceComposerSection(input: {
 							: undefined,
 						targetName: input.composerTargetName,
 					}}
+					key={`${panel.spaceId}:${panel.selfProfileId}`}
 					members={panel.composerMembers}
 					recovery={{
 						blockedWakeProfileId: panel.composerBlockedWakeProfileId,
@@ -1948,6 +1949,10 @@ function SpaceComposerSection(input: {
 						primaryAction: panel.composerPrimaryAction,
 						profileControl: panel.profileControl,
 					}}
+					taskSources={buildSpaceTaskSources(
+						panel.timelineItems,
+						panel.selfProfileId
+					)}
 				/>
 			</div>
 		</div>
@@ -2013,6 +2018,7 @@ function ComposerError(input: { panel: SpaceConversationPanelResolvedProps }) {
 }
 
 function renderConversationBody(input: {
+	activeThreadRootSignalIds: ReadonlySet<string>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -2262,6 +2268,7 @@ function renderConversationBody(input: {
 						actionableAgentInteractionPlacement={
 							input.actionableAgentInteractionPlacement
 						}
+						activeThreadRootSignalIds={input.activeThreadRootSignalIds}
 						agentRecoveryPlansByProfileId={input.agentRecoveryPlansByProfileId}
 						anchoredOutcomeNoticesBySourceSignalId={
 							input.anchoredOutcomeNoticesBySourceSignalId
@@ -2367,6 +2374,7 @@ function resolveConversationEntryKey(entry: SpaceConversationEntry): string {
 }
 
 type ConversationBubbleRunInput = {
+	activeThreadRootSignalIds: ReadonlySet<string>;
 	agentRecoveryPlansByProfileId: ReadonlyMap<
 		string,
 		AgentProfileReplyRecoveryPlan
@@ -2830,6 +2838,7 @@ function ConversationBubbleContent(input: {
 			})}
 			<MessageBubbleReactions />
 			<ThreadPreview
+				isReplyInProgress={parent.activeThreadRootSignalIds.has(input.item.id)}
 				membersSnapshot={parent.membersSnapshot}
 				onOpenThread={parent.onOpenThread}
 				preview={
@@ -2837,6 +2846,7 @@ function ConversationBubbleContent(input: {
 						parent.threadsByRootSignalId.get(input.item.id)?.threadId ?? ""
 					) ?? null
 				}
+				profileId={parent.selfProfileId}
 				spaceReferencesById={parent.spaceReferencesById}
 				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
 				unreadCount={
@@ -3387,6 +3397,8 @@ function resolveReplyItemsForMessage(input: {
 }
 
 function ThreadPreview(input: {
+	isReplyInProgress: boolean;
+	profileId: string;
 	membersSnapshot: SpaceMembersSnapshot | null;
 	unreadCount: number;
 	onOpenThread: (threadId: string) => void;
@@ -3394,6 +3406,8 @@ function ThreadPreview(input: {
 	spaceReferencesById?: SpaceMessageReferencesById;
 	thread: SpaceThread | null;
 }) {
+	const queryClient = useQueryClient();
+	const pointerStart = useRef<{ x: number; y: number } | null>(null);
 	const thread = input.thread;
 	if (!thread) {
 		return null;
@@ -3402,7 +3416,7 @@ function ThreadPreview(input: {
 	const previewItems = buildSpaceTimelineItems({
 		envelopes: input.preview?.signals ?? [],
 		membersSnapshot: input.membersSnapshot,
-	}).slice(0, 2);
+	}).slice(-2);
 	const replyCount = input.preview?.replyCount ?? 0;
 	const replyCountText = formatThreadReplyCount(replyCount);
 	const unreadLabel = `${String(input.unreadCount)} unread`;
@@ -3410,13 +3424,64 @@ function ThreadPreview(input: {
 	const showCount = input.unreadCount > 0 || replyCount > 0;
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
+	const prefetch = () => {
+		return queryClient.prefetchQuery(
+			spaceThreadSignalsQueryOptions({
+				spaceId: thread.spaceId,
+				threadId: thread.threadId,
+				openMeldProfileId: input.profileId,
+				enabled: true,
+			})
+		);
+	};
 
 	return (
 		<div className="flex w-full min-w-0 max-w-full flex-col gap-2 overflow-hidden border-border border-t pt-2">
 			{previewItems.length > 0 ? (
-				<section
+				// biome-ignore lint/a11y/useSemanticElements: The preview contains independently usable links and selectable text.
+				<div
 					aria-label="Thread preview"
-					className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden pe-2"
+					className="flex w-full min-w-0 max-w-full cursor-pointer flex-col gap-1.5 overflow-hidden rounded-sm pe-2 hover:bg-foreground/5 focus-visible:outline focus-visible:outline-ring"
+					onClick={(event) => {
+						if (
+							event.target instanceof Element &&
+							event.target.closest(
+								'a,button,input,textarea,select,pre,code,[contenteditable="true"]'
+							)
+						) {
+							return;
+						}
+						if (window.getSelection()?.toString()) {
+							return;
+						}
+						if (
+							pointerStart.current &&
+							Math.hypot(
+								event.clientX - pointerStart.current.x,
+								event.clientY - pointerStart.current.y
+							) > 5
+						) {
+							return;
+						}
+						input.onOpenThread(thread.threadId);
+					}}
+					onFocus={prefetch}
+					onKeyDown={(event) => {
+						if (
+							event.target !== event.currentTarget ||
+							!(event.key === "Enter" || event.key === " ")
+						) {
+							return;
+						}
+						event.preventDefault();
+						input.onOpenThread(thread.threadId);
+					}}
+					onPointerDown={(event) => {
+						pointerStart.current = { x: event.clientX, y: event.clientY };
+					}}
+					onPointerEnter={prefetch}
+					role="link"
+					tabIndex={0}
 				>
 					{previewItems.map((item) => (
 						<div
@@ -3428,15 +3493,22 @@ function ThreadPreview(input: {
 									{item.actorName}
 								</span>
 							)}
-							<span className="min-w-0 flex-1 truncate text-muted-foreground text-xs leading-5">
+							<span className="line-clamp-2 min-w-0 flex-1 text-muted-foreground text-xs leading-5">
 								<SpaceMessageReferenceText
 									referencesById={spaceReferencesById}
-									text={item.text}
+									text={threadReplyPreviewText(item.text)}
 								/>
 							</span>
+							<time
+								className="shrink-0 text-muted-foreground/75 text-xs leading-5"
+								dateTime={new Date(item.createdAtMs).toISOString()}
+								title={new Date(item.createdAtMs).toLocaleString("en-US")}
+							>
+								{formatDirectMessageTime(item.createdAtMs)}
+							</time>
 						</div>
 					))}
-				</section>
+				</div>
 			) : null}
 			<button
 				aria-label={showCount ? `Open thread (${countLabel})` : "Open thread"}
@@ -3447,11 +3519,16 @@ function ThreadPreview(input: {
 						: "text-muted-foreground"
 				)}
 				onClick={() => input.onOpenThread(thread.threadId)}
+				onFocus={prefetch}
+				onPointerEnter={prefetch}
 				title="Only threads you start or reply to count as unread. Read the thread to clear its unread replies and reactions."
 				type="button"
 			>
 				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
 				<span>Open thread</span>
+				{input.isReplyInProgress ? (
+					<span className="text-muted-foreground">· Reply in progress</span>
+				) : null}
 				{showCount ? (
 					<span
 						className={
@@ -3463,6 +3540,29 @@ function ThreadPreview(input: {
 				) : null}
 			</button>
 		</div>
+	);
+}
+
+const THREAD_PREVIEW_LINES = /\r?\n/;
+const THREAD_PREVIEW_LEADING_MARKDOWN = /^(?:#{1,6}|>|[-*+]|\d+[.)])\s+/;
+const THREAD_PREVIEW_BOLD = /\*\*([^*]+)\*\*/g;
+const THREAD_PREVIEW_UNDERSCORE_BOLD = /__([^_]+)__/g;
+const THREAD_PREVIEW_DECORATION = /^(?:[-*_]{3,}|`{3,}.*|~{3,}.*)$/;
+
+function threadReplyPreviewText(text: string): string {
+	return (
+		text
+			.split(THREAD_PREVIEW_LINES)
+			.map((line) =>
+				line
+					.trim()
+					.replace(THREAD_PREVIEW_LEADING_MARKDOWN, "")
+					.replace(THREAD_PREVIEW_BOLD, "$1")
+					.replace(THREAD_PREVIEW_UNDERSCORE_BOLD, "$1")
+			)
+			.find(
+				(line) => line.length > 0 && !THREAD_PREVIEW_DECORATION.test(line)
+			) ?? text
 	);
 }
 
@@ -3752,3 +3852,5 @@ const TIMELINE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	second: "2-digit",
 	timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
 });
+
+import { buildSpaceTaskSources } from "./space-composer-task-menu";

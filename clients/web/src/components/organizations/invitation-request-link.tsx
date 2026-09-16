@@ -1,13 +1,13 @@
-import { getOrganizationJoinLinkResponseSchema } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
 import { Input } from "@openmeld/ui/components/input";
 import { cn } from "@openmeld/ui/lib/utils";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { requestAuthEndpoint } from "#/lib/auth-transport";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
+	ensureOrganizationJoinLink,
 	getOrganizationJoinLink,
+	prepareOrganizationJoinLink,
 	resetOrganizationJoinLink,
 	revokeOrganizationJoinLink,
 } from "#/lib/organizations/auth-organizations";
@@ -52,30 +52,9 @@ export function InvitationRequestLink(input: {
 		},
 		mutationFn: async () => {
 			if (input.canManage) {
-				return resetOrganizationJoinLink(scope);
+				return await resetOrganizationJoinLink(scope);
 			}
-			const response = await requestAuthEndpoint({
-				path: "/organization/join-link/ensure",
-				fallbackMessage: "Could not create the link. Try again.",
-				request: {
-					method: "POST",
-					headers: { "content-type": "application/json" },
-					body: JSON.stringify({
-						responseVersion: "3",
-						organizationId: input.organizationId,
-						spaceId: input.spaceId,
-						mode,
-					}),
-				},
-			});
-			if (response.error) {
-				throw new Error(response.error.message ?? "Could not create the link.");
-			}
-			const result = getOrganizationJoinLinkResponseSchema.parse(response.data);
-			if (!result.joinLink) {
-				throw new Error("No invitation link was returned. Try again.");
-			}
-			return result.joinLink;
+			return await ensureOrganizationJoinLink(scope);
 		},
 	});
 	const revoke = useMutation({
@@ -222,21 +201,7 @@ async function prepareInvitationLink(
 	scope: Parameters<typeof getOrganizationJoinLink>[0]
 ) {
 	if (!scope.spaceId) {
-		return getOrganizationJoinLink(scope);
+		return await getOrganizationJoinLink(scope);
 	}
-	const response = await requestAuthEndpoint({
-		path: "/organization/join-link/prepare",
-		fallbackMessage: "Couldn't prepare the invite link. Try again.",
-		request: {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: JSON.stringify({ ...scope, responseVersion: "3" }),
-		},
-	});
-	if (response.error) {
-		throw new Error(
-			response.error.message ?? "Couldn't prepare the invite link."
-		);
-	}
-	return getOrganizationJoinLinkResponseSchema.parse(response.data).joinLink;
+	return await prepareOrganizationJoinLink(scope);
 }

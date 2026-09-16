@@ -109,11 +109,26 @@ export function summarizeDaemonStopJournalResult(
 }
 
 export async function stopCurrentLaneDaemonService(input: {
+  /** Internal completion evidence from the account-admitted drain, under the lifecycle lock. */
+  completedControlledShutdownOwnerPid?: number;
   force?: boolean;
   mode: SharedDaemonStopMode;
   runtime: RuntimeContext;
 }): Promise<SharedDaemonStopResult> {
   const context = await loadCurrentLaneDaemonStopContext();
+  if (
+    input.completedControlledShutdownOwnerPid !== undefined &&
+    ((context.ownerSnapshot.runtimeStatus.pid !== null &&
+      context.ownerSnapshot.runtimeStatus.pid !==
+        input.completedControlledShutdownOwnerPid) ||
+      context.ownerSnapshot.ownedProcesses.some(
+        (process) => process.pid !== input.completedControlledShutdownOwnerPid
+      ))
+  ) {
+    throw new Error(
+      "The Service owner changed after controlled shutdown. Check its status before trying again."
+    );
+  }
   await emitDaemonLifecycleEvent({
     type: "owner.snapshot",
     result: "observed",
@@ -140,6 +155,8 @@ export async function stopCurrentLaneDaemonService(input: {
   }
   if (context.stopStrategy.kind === "manager_first") {
     return await stopManagedCurrentLaneDaemonService({
+      controlledShutdownComplete:
+        input.completedControlledShutdownOwnerPid !== undefined,
       force: input.force,
       mode: input.mode,
       ownerSnapshot: context.ownerSnapshot,
@@ -234,6 +251,7 @@ export async function buildDaemonStopNotRunningResult(
 }
 
 export async function stopManagedCurrentLaneDaemonService(input: {
+  controlledShutdownComplete?: boolean;
   force?: boolean;
   mode: SharedDaemonStopMode;
   ownerSnapshot: DaemonOwnerSnapshot;
@@ -263,11 +281,13 @@ export async function stopManagedCurrentLaneDaemonService(input: {
     }
   }
 
-  const drainPreparationResult = await prepareManagedDaemonServiceForStop({
-    force: input.force,
-    mode: input.mode,
-    ownerSnapshot: input.ownerSnapshot,
-  });
+  const drainPreparationResult = input.controlledShutdownComplete
+    ? null
+    : await prepareManagedDaemonServiceForStop({
+        force: input.force,
+        mode: input.mode,
+        ownerSnapshot: input.ownerSnapshot,
+      });
   if (drainPreparationResult) {
     return drainPreparationResult;
   }

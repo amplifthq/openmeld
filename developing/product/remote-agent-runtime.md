@@ -239,6 +239,23 @@ continuity. Both roles share the same filesystem and execution implementation.
 Selected Space files, including binary files up to the existing 10 MiB limit,
 can be downloaded into the current Computer and published back through canonical
 Space Files. Published files attach their exact revision to the final reply.
+
+Center Agent final Space replies and Space Routine reports may prepare explicit
+Human Profile recipients with `openmeld_set_final_reply_mentions`. The latest
+selection replaces the earlier selection for that turn; an empty list clears it.
+The native completion callback carries `mentionTargets`, and the existing Space
+publication boundary validates active Human membership and creates normal Mention
+notifications with the final message. Preparation is not publication, and plain
+names never create notifications or Agent Wakes. Web renders explicit recipients
+even when the message prose does not contain an inline mention.
+
+Contract Impact Audit: the optional callback field is Core/Remote Agent only.
+Deploy the accepting Core before a Remote Agent build can send this field; older
+Core uses a strict callback schema and rejects unknown fields. Old Remote Agent
+callbacks remain accepted by new Core. CLI, Service, Skills, Gateway, setup,
+workstation Wake admission, and diagnostics have no new required fields or
+minimum versions from this addition. Existing Space addressing remains the
+publication and notification authority.
 No bucket credentials or another conversation's Computer are exposed.
 
 `browser_execute` uses the Agents SDK browser tools with a native Code Mode

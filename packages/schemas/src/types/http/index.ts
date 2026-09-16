@@ -1,4 +1,8 @@
 export type {
+  AgentProfileExecutionModeResponse,
+  RuntimeTransportAgentProfileExecutionModeRequest,
+} from "../../schemas/http/agent-profile-execution-mode";
+export type {
   AccountDisplayName,
   SelectLastSelectedOrganizationBody,
   SelectLastSelectedOrganizationErrorCode,

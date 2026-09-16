@@ -64,22 +64,14 @@ describe("AgentProfileGenerator", () => {
 		expect(onStart).toHaveBeenCalledOnce();
 		if (state === "local_agents") {
 			expect(
-				screen.getByTestId("local-agent-catalog-empty").className
-			).toContain("border-dashed");
-			for (const name of [
-				"Codex",
-				"Claude Code",
-				"Grok Build",
-				"OpenCode",
-				"Cursor CLI",
-			]) {
-				expect(
-					within(screen.getByTestId("local-agent-catalog-empty")).getByText(
-						name,
-						{ selector: "div" }
-					)
-				).toBeTruthy();
-			}
+				screen.getByText("Local agent details aren’t available")
+			).toBeTruthy();
+			expect(screen.queryByText("No supported agents detected")).toBeNull();
+			expect(
+				screen.getByText(
+					"If you haven’t installed a local agent, install one such as Codex or Claude Code, then check again."
+				)
+			).toBeTruthy();
 			const guide = screen.getByRole("link", {
 				name: "See the install guide (opens in a new tab)",
 			});

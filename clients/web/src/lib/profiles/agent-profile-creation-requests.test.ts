@@ -8,6 +8,7 @@ import {
 } from "#/query/profiles/agent-profile-creation-requests";
 
 const api = vi.hoisted(() => ({
+	cancelAgentProfileCreationRequest: vi.fn(),
 	createAgentProfileCreationRequest: vi.fn(),
 	listAgentProfileCreationRequests: vi.fn(),
 }));
@@ -19,7 +20,10 @@ vi.mock("#/lib/openmeld-api/client", () => ({
 	createOrganizationScopedWebOpenMeldApiFoundation: () => ({}),
 }));
 
-import { createAgentProfileCreationRequest } from "./agent-profile-creation-requests";
+import {
+	createAgentProfileCreationRequest,
+	restartAgentProfileCreationOnComputer,
+} from "./agent-profile-creation-requests";
 
 const accepted: AgentProfileCreationRequest = {
 	actorProfileId: "actor",
@@ -57,8 +61,147 @@ describe("accepted Agent creation in Web", () => {
 			.mockReset()
 			.mockResolvedValue({ replayed: false, request: accepted });
 		api.listAgentProfileCreationRequests.mockReset();
+		api.cancelAgentProfileCreationRequest
+			.mockReset()
+			.mockResolvedValue({ request: { ...accepted, status: "cancelled" } });
 	});
 	afterEach(() => vi.useRealTimers());
+
+	it.each([
+		"failed",
+		"cancelled",
+	] as const)("recovers %s setup with preserved intent and a current Computer selection", async (status) => {
+		const original: AgentProfileCreationRequest = {
+			...accepted,
+			status,
+			configuration: {
+				...accepted.configuration,
+				agentControllerRef: "builtin:opencode",
+				targetComputerId: "old-computer",
+				localAgentConnectionCandidateId: "obsolete",
+				modelId: "openrouter/z-ai/glm-5.3",
+			},
+			requestedSpaceId: "intended-space",
+		};
+		api.listAgentProfileCreationRequests
+			.mockResolvedValueOnce({ organizationId: "org-1", requests: [] })
+			.mockResolvedValueOnce({ organizationId: "org-1", requests: [original] });
+		api.createAgentProfileCreationRequest.mockResolvedValue({
+			replayed: false,
+			request: {
+				...original,
+				id: "replacement",
+				status: "completed",
+				createdAgentProfileId: "one-agent",
+			},
+		});
+		const result = await restartAgentProfileCreationOnComputer({
+			organizationId: "org-1",
+			currentUserId: "owner",
+			requestId: original.id,
+			computerId: "new-computer",
+		});
+		expect(result.request.createdAgentProfileId).toBe("one-agent");
+		expect(api.createAgentProfileCreationRequest).toHaveBeenCalledWith(
+			expect.objectContaining({
+				idempotencyKey: `recovery:${original.id}`,
+				profileName: original.profileName,
+				requestedSpaceId: "intended-space",
+				configuration: {
+					...original.configuration,
+					targetComputerId: "new-computer",
+					localAgentConnectionCandidateId: null,
+				},
+			})
+		);
+		expect(api.cancelAgentProfileCreationRequest).toHaveBeenCalledTimes(
+			status === "failed" ? 1 : 0
+		);
+	});
+
+	it("reopens an accepted replacement after a lost response without creating again", async () => {
+		api.listAgentProfileCreationRequests.mockResolvedValue({
+			organizationId: "org-1",
+			requests: [{ ...accepted, id: "already-accepted" }],
+		});
+		const result = await restartAgentProfileCreationOnComputer({
+			organizationId: "org-1",
+			currentUserId: "owner",
+			requestId: "old-attempt",
+			computerId: "computer",
+		});
+		expect(result.request.id).toBe("already-accepted");
+		expect(api.createAgentProfileCreationRequest).not.toHaveBeenCalled();
+		expect(api.cancelAgentProfileCreationRequest).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{ createdAgentProfileId: "existing-agent", status: "failed" },
+		{ status: "approved" },
+		{ status: "failed", targetOwnerUserId: "other-owner" },
+		{ status: "failed", organizationId: "other-org" },
+		{
+			status: "failed",
+			sessionStrategy: "resume",
+			nativeSessionId: "native-session",
+		},
+	])("refuses replacement when identity, ownership, or conversation location changed: %j", async (change) => {
+		api.listAgentProfileCreationRequests
+			.mockResolvedValueOnce({ organizationId: "org-1", requests: [] })
+			.mockResolvedValueOnce({
+				organizationId: "org-1",
+				requests: [
+					{
+						...accepted,
+						...change,
+						configuration: {
+							...accepted.configuration,
+							targetComputerId: "original-computer",
+						},
+					},
+				],
+			});
+		await expect(
+			restartAgentProfileCreationOnComputer({
+				organizationId: "org-1",
+				currentUserId: "owner",
+				requestId: accepted.id,
+				computerId: "different-computer",
+			})
+		).rejects.toThrow("This setup has changed");
+		expect(api.createAgentProfileCreationRequest).not.toHaveBeenCalled();
+		expect(api.cancelAgentProfileCreationRequest).not.toHaveBeenCalled();
+	});
+
+	it("does not create a replacement if Core rejects cancellation of a concurrently started request", async () => {
+		api.listAgentProfileCreationRequests
+			.mockResolvedValueOnce({ organizationId: "org-1", requests: [] })
+			.mockResolvedValueOnce({
+				organizationId: "org-1",
+				requests: [
+					{
+						...accepted,
+						status: "failed",
+						configuration: {
+							...accepted.configuration,
+							targetComputerId: "computer",
+						},
+					},
+				],
+			});
+		api.cancelAgentProfileCreationRequest.mockRejectedValue(
+			new Error("This request can no longer be cancelled.")
+		);
+		await expect(
+			restartAgentProfileCreationOnComputer({
+				organizationId: "org-1",
+				currentUserId: "owner",
+				requestId: accepted.id,
+				computerId: "computer",
+			})
+		).rejects.toThrow("can no longer be cancelled");
+		expect(api.createAgentProfileCreationRequest).not.toHaveBeenCalled();
+	});
 
 	it("waits on the exact accepted request and returns its completed identity", async () => {
 		const completed = {

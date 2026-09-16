@@ -62,6 +62,7 @@ export class SpaceSignalAuthoringError extends Error {
 }
 
 export type SignalTextBuildOptions = {
+  contextSelection?: SignalTextData["contextSelection"];
   deviceWait?: SignalTextData["deviceWait"];
   attachments?: SignalTextData["attachments"];
   files?: SignalTextData["files"];
@@ -125,6 +126,7 @@ export const buildSignalTextOptions = (
     !(
       data.attachments ||
       data.deviceWait ||
+      data.contextSelection ||
       data.files ||
       data.messageEnvelope ||
       meta ||
@@ -135,6 +137,9 @@ export const buildSignalTextOptions = (
   }
 
   return {
+    ...(data.contextSelection
+      ? { contextSelection: data.contextSelection }
+      : {}),
     ...(data.deviceWait ? { deviceWait: data.deviceWait } : {}),
     ...(data.attachments ? { attachments: data.attachments } : {}),
     ...(data.files ? { files: data.files } : {}),

@@ -25,6 +25,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type { ComponentProps, CSSProperties, ReactNode } from "react";
 import {
+	lazy,
+	Suspense,
 	useCallback,
 	useEffect,
 	useEffectEvent,
@@ -60,6 +62,10 @@ import type {
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedRuntimeTarget } from "#/lib/connect/connected-runtime";
 import { mapCurrentLocalRuntimeReplyReadinessQueryState } from "#/lib/connect/current-local-runtime-readiness";
+import {
+	spaceOpenFailureMilestone,
+	useSpaceOpenPaint,
+} from "#/lib/observability/use-space-open-paint";
 import { recordProfileSpaceHistory } from "#/lib/onboarding/record-profile-space-history";
 import {
 	createOrganizationScopedWebOpenMeldApiFoundation,
@@ -118,7 +124,7 @@ import type { SpaceAgentProfileBindingRecoveryPlan } from "./space-agent-recover
 import { SpaceComposer } from "./space-composer";
 import type { SpaceAgentDirectConversationComposerHintKind } from "./space-composer-copy";
 import { SpaceConversationPanel } from "./space-conversation-panel";
-import { SpaceFilesPanel } from "./space-files-panel";
+
 import { SpaceHeader } from "./space-header";
 import {
 	isSameOwnerUserId,
@@ -177,6 +183,7 @@ import { useSpaceLandingController } from "./use-space-landing-controller";
 import { useSpaceMessageReferences } from "./use-space-message-references";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpacePendingAgentActions } from "./use-space-pending-agent-actions";
+import { useSpaceThreadTarget } from "./use-space-thread-target";
 import { useWakeDisplayDebounce } from "./use-wake-display-debounce";
 import { WelcomeSpaceGuide } from "./welcome-space-guide";
 import {
@@ -189,6 +196,12 @@ import {
 	useWelcomeSpace,
 	welcomeStepStartedAt,
 } from "./welcome-space-state";
+
+const SpaceFilesPanel = lazy(() =>
+	import("./space-files-panel").then((module) => ({
+		default: module.SpaceFilesPanel,
+	}))
+);
 
 const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
 const EMPTY_SPACE_DESCRIPTION =
@@ -1337,17 +1350,36 @@ type ReadySpaceLandingController = Extract<
 >;
 
 export function SpaceLanding(input: SpaceLandingInput) {
+	const target = useSpaceThreadTarget({
+		spaceId: input.spaceId,
+		profileId: input.profileId,
+		focusSignalId: input.initialFocusSignalId,
+		focusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+	});
+	return (
+		<SpaceLandingContent
+			{...input}
+			initialFocusThreadRootSignalId={
+				input.initialFocusThreadRootSignalId ?? target?.rootSignalId
+			}
+		/>
+	);
+}
+
+function SpaceLandingContent(input: SpaceLandingInput) {
 	useSpaceConversationReadCache({
 		spaceId: input.spaceId,
 		openMeldProfileId: input.profileId,
 	});
 	const state = useSpaceLandingState(input);
 	const { controller } = state;
+	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
 	if (controller.mode === "loading") {
 		return (
 			input.loadingFallback ?? (
 				<SpaceLandingLoadingShell
 					composer={<SpaceColdLoadingComposer controller={controller} />}
+					threadOpen={Boolean(input.initialFocusThreadRootSignalId)}
 				/>
 			)
 		);
@@ -2078,6 +2110,7 @@ function SpaceLandingConversation({
 			activeSpaceView={spaceView}
 			agentDirectConversationKind={agentDirectConversationKind}
 			agentRecoveryPlansByProfileId={agentRecoveryPlansByProfileId}
+			agentStreams={controller.agentStreams}
 			allowedActions={controller.status.allowedActions}
 			allowSendWhileAccessSettles={!controller.isCurrentAccessConfirmed}
 			centerAgentProfileId={centerAgentState.centerAgentProfileId}
@@ -2113,14 +2146,22 @@ function SpaceLandingConversation({
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
-				<SpaceFilesPanel
-					fileToOpen={spaceFileToOpen}
-					key={controller.spaceId}
-					onLeaveGuardChange={spaceFileNavigation.setSpaceFileLeaveGuard}
-					openMeldProfileId={controller.profileId}
-					organizationSlug={input.orgSlug}
-					spaceId={controller.spaceId}
-				/>
+				<Suspense
+					fallback={
+						<output className="p-6 text-muted-foreground text-sm">
+							Loading files…
+						</output>
+					}
+				>
+					<SpaceFilesPanel
+						fileToOpen={spaceFileToOpen}
+						key={controller.spaceId}
+						onLeaveGuardChange={spaceFileNavigation.setSpaceFileLeaveGuard}
+						openMeldProfileId={controller.profileId}
+						organizationSlug={input.orgSlug}
+						spaceId={controller.spaceId}
+					/>
+				</Suspense>
 			}
 			firstUnreadSignalId={controller.firstUnreadSignalId}
 			historyActionErrorMessage={controller.historyActionErrorMessage}
@@ -2159,7 +2200,7 @@ function SpaceLandingConversation({
 			onSend={controller.onSend}
 			onSendStarterPrompt={controller.onSendText}
 			onSpaceViewChange={spaceFileNavigation.changeSpaceView}
-			onViewingLatestChange={controller.onConversationViewingLatestChange}
+			onViewedThroughTs={controller.onConversationViewedThroughTs}
 			onWakeStopRequest={controller.onWakeStopRequest}
 			orgSlug={input.orgSlug}
 			pendingActionSurface={pendingActionSurface}
@@ -2729,7 +2770,7 @@ function SpaceLandingSecondaryPanels({
 				onSend={controller.onThreadSend}
 				onSendText={controller.onThreadSendText}
 				onViewedThroughTs={
-					input.readingEnabled === false
+					input.readingEnabled === false || !spaceInboxReadPosition.isReady
 						? undefined
 						: async (throughOccurredAtMs) => {
 								const rootSignalId = controller.activeThread?.rootSignalId;

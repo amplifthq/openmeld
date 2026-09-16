@@ -3,6 +3,7 @@ import {
 	isActiveWakeProgressItem,
 	type SpaceMemberDirectoryEntry,
 } from "@openmeld/space";
+import type { SpaceConversationVisibleStreamProjection } from "./conversation-stream";
 import type { SpaceTimelineItem } from "./timeline";
 import { buildSpaceWakeOutcomeIndex } from "./wake-stop-target";
 
@@ -12,6 +13,8 @@ export function buildActiveWakeConversationItems(input: {
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	spaceId: string | undefined;
 	threadId: string | null;
+	threadRootSignalId?: string | null;
+	agentStreams?: readonly SpaceConversationVisibleStreamProjection[];
 	timelineItems: readonly SpaceTimelineItem[];
 }): readonly SpaceTimelineItem[] {
 	const history = input.timelineItems.filter(
@@ -36,12 +39,7 @@ export function buildActiveWakeConversationItems(input: {
 		const source =
 			sourcesById.get(progress.sourceSignalId ?? "") ??
 			sourcesByClientId.get(progress.clientMessageId ?? "");
-		// A loaded source proves the scope for optimistic/older snapshots without sourceContext.
-		if (
-			progress.sourceContext
-				? progress.sourceContext.threadId !== input.threadId
-				: !source
-		) {
+		if (!isWakeProgressInConversation({ ...input, progress, source })) {
 			continue;
 		}
 		if (
@@ -112,6 +110,30 @@ export function buildActiveWakeConversationItems(input: {
 					?.wakeTargetProfileIds.indexOf(item.actorProfileId) ?? -1)
 			: -1;
 	}
+}
+
+export function isWakeProgressInConversation(input: {
+	progress: WakeProgressItem;
+	source?: SpaceTimelineItem;
+	agentStreams?: readonly SpaceConversationVisibleStreamProjection[];
+	threadId: string | null;
+	threadRootSignalId?: string | null;
+}): boolean {
+	const { progress } = input;
+	const placement = input.agentStreams?.find(
+		(stream) =>
+			stream.profileId === progress.targetProfileId &&
+			(stream.dispatchId === progress.dispatchId ||
+				(!progress.dispatchId &&
+					stream.triggerMessageId === progress.sourceSignalId))
+	)?.replyThreadRootSignalId;
+	if (placement !== undefined) {
+		return placement === (input.threadId ? input.threadRootSignalId : null);
+	}
+	if (progress.sourceContext) {
+		return progress.sourceContext.threadId === input.threadId;
+	}
+	return Boolean(input.source && input.source.id !== input.threadRootSignalId);
 }
 
 function hasPublishedReply(

@@ -13,6 +13,7 @@ import {
 	within,
 } from "@testing-library/react";
 import "fake-indexeddb/auto";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createPlateEditor } from "platejs/react";
 import { createRef, useLayoutEffect, useRef } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -457,6 +458,64 @@ describe("SpaceComposerEditor", () => {
 		expect(within(token).getByText("Runner").className).not.toContain(
 			"max-w-40"
 		);
+	});
+
+	it("opens composed Agent details without sending or changing the draft", async () => {
+		const onChange = vi.fn();
+		const onSend = vi.fn();
+		render(
+			<QueryClientProvider
+				client={
+					new QueryClient({ defaultOptions: { queries: { retry: false } } })
+				}
+			>
+				<SpaceComposerEditor
+					addressingTargets={[createAgentTarget()]}
+					ariaLabel="Message this space"
+					authoredMentions={[
+						{
+							end: 7,
+							profileId: AGENT_PROFILE_ID,
+							relation: "wake",
+							start: 0,
+							text: "@Runner",
+						},
+					]}
+					mentionPickerItems={createMentionPickerItems()}
+					onChange={onChange}
+					onSend={onSend}
+					placeholder="Message"
+					text="@Runner review this"
+				/>
+			</QueryClientProvider>
+		);
+		fireEvent.click(
+			screen.getByRole("button", { name: "View Runner's profile" })
+		);
+		expect(await screen.findByRole("dialog")).toBeTruthy();
+		expect(within(screen.getByRole("dialog")).getByText("Runner")).toBeTruthy();
+		expect(
+			screen.getByRole("textbox", { name: "Message this space" }).textContent
+		).toContain("review this");
+		expect(
+			screen.getByRole("combobox", { name: "Change relation for Runner" })
+				.textContent
+		).toBe("Wake");
+		expect(onSend).not.toHaveBeenCalled();
+		for (const [change] of onChange.mock.calls) {
+			expect(change).toMatchObject({
+				text: "@Runner review this",
+				authoredMentions: [
+					{
+						end: 7,
+						profileId: AGENT_PROFILE_ID,
+						relation: "wake",
+						start: 0,
+						text: "@Runner",
+					},
+				],
+			});
+		}
 	});
 
 	it("removes an inline profile token from its hover and focus control", async () => {

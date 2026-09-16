@@ -1,4 +1,6 @@
 export type CodexAppServerControlOperation =
+  | "command/exec"
+  | "mcpServerStatus/list"
   | "collaborationMode/list"
   | "thread/fork"
   | "thread/name/set"
@@ -16,6 +18,8 @@ const CONTROL_REQUEST_TIMEOUT_MS_BY_OPERATION: Record<
   CodexAppServerControlOperation,
   number
 > = {
+  "command/exec": FAST_METADATA_ADMISSION_TIMEOUT_MS,
+  "mcpServerStatus/list": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "collaborationMode/list": FAST_METADATA_ADMISSION_TIMEOUT_MS,
   "thread/fork": COLD_CONTROLLER_ADMISSION_TIMEOUT_MS,
   "thread/name/set": FAST_METADATA_ADMISSION_TIMEOUT_MS,

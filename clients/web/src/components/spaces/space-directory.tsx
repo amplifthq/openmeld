@@ -99,12 +99,9 @@ export function SpaceDirectory(input: {
 	}, [input.tab]);
 	const search = searches[input.tab] ?? "";
 	const searchTerm = useDeferredValue(search.trim().toLowerCase());
-	const joinedIds = new Set(
-		input.spaces.filter((space) => space.joined).map((space) => space.spaceId)
-	);
-	const items = [...input.accountSpaceItemsById.values()].filter((item) =>
-		joinedIds.has(item.spaceId)
-	);
+	// The account index already contains the viewer's active memberships. The
+	// discovery snapshot can be older and must not hide a newly joined Space.
+	const items = [...input.accountSpaceItemsById.values()];
 	const sections = {
 		pinnedItems: items.filter((item) => item.pinnedAt !== null),
 		spaceItems: items.filter((item) => item.pinnedAt === null),

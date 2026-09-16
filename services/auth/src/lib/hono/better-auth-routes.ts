@@ -1,11 +1,29 @@
 import type { Context, Hono } from "hono";
 import { getAccountOrganizationPreferenceRepository } from "../account/organization-preference-service";
 import type { AppContext } from "../context";
+import { requireTrustedCookieOrigin } from "../middlewares/trusted-origin";
 import { toDiagnosticError } from "../observability/diagnostic-error";
 
 const BETTER_AUTH_SESSION_ROUTE = "/api/auth/get-session";
 
 export function registerBetterAuthRoutes(app: Hono<AppContext>) {
+  // These ordinary business writes are also reached by the fixed Web/Desktop
+  // adapters. Keep cookie CSRF enforcement ahead of the native Auth handler.
+  for (const operation of [
+    "update",
+    "delete",
+    "invite-member",
+    "accept-invitation",
+    "cancel-invitation",
+    "update-member-role",
+    "remove-member",
+  ] as const) {
+    app.post(
+      `/api/auth/organization/${operation}`,
+      requireTrustedCookieOrigin,
+      (c) => c.var.betterAuth.handler(c.req.raw)
+    );
+  }
   app.get(BETTER_AUTH_SESSION_ROUTE, async (c) => {
     const response = await c.var.betterAuth.handler(c.req.raw);
     return projectLastSelectedOrganization(c, response);

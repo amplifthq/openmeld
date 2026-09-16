@@ -61,6 +61,30 @@ const SPACE_STATUS_CANONICAL_RESPONSE = {
 };
 
 describe("@openmeld/api-client", () => {
+  it.each([
+    false,
+    true,
+  ])("preserves the injected callable receiver (explicitly bound: %s)", async (bound) => {
+    const caller = new AbortController();
+    const receiver = { transport: "caller-owned" };
+    const injected: typeof fetch = function (this: unknown, _url, init) {
+      expect(this).toBe(bound ? receiver : undefined);
+      expect(init?.signal).toBe(caller.signal);
+      return Promise.resolve(new Response("read"));
+    };
+    const transport = createFetchTransport({
+      fetch: bound ? injected.bind(receiver) : injected,
+    });
+    await expect(
+      (
+        await transport({
+          url: "https://auth.test",
+          operation: "read",
+          init: { signal: caller.signal },
+        })
+      ).text()
+    ).resolves.toBe("read");
+  });
   it("normalizes origin-only base URLs", () => {
     expect(normalizeApiBaseUrl("https://gateway.openmeld.invalid/")).toBe(
       "https://gateway.openmeld.invalid"

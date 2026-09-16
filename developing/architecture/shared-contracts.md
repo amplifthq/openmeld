@@ -25,6 +25,270 @@
 - Source of truth: This file owns the durable boundary for shared OpenMeld contracts
   and reusable policy.
 
+## Desktop platform contract
+
+`desktop-notifications.ts` owns additive renderer/native Inbox reference,
+test-request and delivery-result contracts. Only the current trusted window
+can request delivery. Native credentials reread the recipient-authorized Core
+item; callers cannot supply notification text or navigation URLs. Shared
+API-client notification policy derives eligibility from those Inbox facts.
+Refresh IPC is a signal to the existing reader, never a separate snapshot.
+The renderer projects its current delivery context (account, Organization,
+enabled preference, and existing rendered-conversation locator). Shared
+API-client matching and current native focus/visibility suppress the exact
+conversation immediately before submission, after asynchronous reads. Context
+invalidation cancels and settles submitted but unacknowledged native attempts;
+late native events cannot turn cancellation into delivery. Delivered alerts
+retain click-back across Organization switches; account invalidation clears all.
+This is a delivery permit, not account or Inbox authority; native
+session and recipient-authorized Core reads remain mandatory.
+These additions ship with the matching local renderer and require no cloud,
+CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
+their existing behavior; cloud rollout does not require a new Desktop floor.
+
+Installed Desktop contract version 1 uses the strict compatibility response at
+`GET /v1/desktop/compatibility` and `x-openmeld-desktop-contract: 1` on fixed-origin
+business requests and streams. The Web admission layer accepts this version
+independently of source-build fingerprints, rejects unsupported versions before
+business handling, and never grants authentication from this header. Packaged
+renderer/native fingerprint and target agreement still protects local assets.
+Private development clients retain their matching-build requirement.
+
+Installed target metadata and the bounded production/private/disposable Auth
+identity mapping live in `packages/schemas/src/desktop-client.ts`. Production
+compiles `https://openmeld.ai`; runtime renderer or lane configuration cannot
+select a different endpoint. Native owns SDK credentials and strips response
+cookies from renderer output. Generated server functions and generic Auth APIs
+remain unavailable to installed renderers.
+
+`GET /v1/cli/release` projects only `channels.stable.version` from the existing
+public CLI binary manifest. `cliReleaseSchema` and the shared API client own its
+portable representation. It adds no release source, update writer, fallback,
+or installation capability. Missing or invalid published metadata stays an error.
+
+Contract Impact Audit: Web/Auth must support the installed identity and contract
+before app distribution. Compatible Web deployments preserve version 1; older
+private clients still require their corresponding Web build. Browser clients keep
+their normal authorization paths. CLI, Service, Skills, Core, Gateway, Prepare,
+Wake, and Space action payloads and minimum versions are unchanged. Installing
+this entry does not establish Service readiness or authorize local setup.
+
+### Desktop Working folder
+
+`desktopLocalComputerSchema` owns the bounded native IPC projection of the CLI's
+account-aligned device and lane. It exposes no credentials or previous-session
+identity. Desktop admits only that target for the existing picker/discovery and
+the additive PeopleComputer Project connect-candidate, connect-declared-path,
+set-default, and Profile workspace routes. Gateway reuses strict shared request
+and response schemas; Core reuses the existing business writers and validates the
+exact owned Service session and capability. Account-current routes remain blocked
+in Desktop. An authentication change while admitting a request refuses it before
+forwarding; the shared auth boundary clears account-scoped queries on session
+changes.
+
+Contract Impact Audit: the IPC projection and Gateway/Core routes are additive.
+Deploy Core and Gateway support before distributing the new Desktop caller (or
+Web callers using the explicit mutations). During mixed versions, unsupported
+routes fail without falling back to another Computer. Existing CLI/Service
+picker, Project and workspace requests, Prepare, Wake, Space actions, Skills,
+status, diagnostics and recovery commands are unchanged. Capabilities continue
+to reject old Services that cannot perform an operation; no semantic CLI/Service
+epoch, minimum-version, or Desktop contract-version bump is required. Shared
+schema paths still trigger the repository's Service release classification;
+the integrated release must complete local-component stamping and release-ready
+verification. Leaf development does not establish that artifact evidence.
+Old Desktop builds keep their existing restrictions. Rollback removes the new
+caller before removing these additive cloud receivers.
+
+### Desktop candidate distribution
+
+`packages/schemas/src/desktop-release.ts` owns the strict immutable candidate
+manifest and derived artifact locations shared by the publisher and Web download
+route. The signed production source record is owned by `desktop-client.ts` and
+reuses the installed production target schema. A candidate hash is an artifact
+selector, never a credential or an arbitrary R2 path. Candidate manifests do not
+write or project the default update channel.
+
+Contract Impact Audit: this adds an opt-in public download selector and new
+candidate metadata only. Existing download/update requests and installed runtime
+contract version 1 retain their behavior. CLI, Service, Skills, Core, Gateway,
+Auth, Prepare, Wake, Space actions and diagnostics gain no new required fields
+or minimum versions from this leaf. Web must deploy the candidate route before
+advertising its URL. Runtime production compatibility remains the integration
+release owner's separate acceptance responsibility.
+
+### Account session read
+
+Auth owns `GET /v1/account/session`, defined by the strict `accountSessionSchema`
+in `packages/schemas`. It returns only `user.id`, `email`, `name`, nullable
+`image`, `emailVerified`, ISO `createdAt`, and `session.id`. The user creation
+date preserves the Account Joined display. The session ID identifies the current
+row in Web Account Settings; it is never a credential or revocation authority.
+No vendor object, token, cookie, session dates, IP address, user agent, membership,
+or preference enters this projection. The route accepts no identity selector.
+
+The existing Auth session resolver bypasses its cookie cache for this read and
+checks the current local user. Missing or expired authentication returns 401;
+local-state failure remains 500 and unavailable Auth remains 503. Invalid required
+source facts fail rather than producing an invented session or date. Responses,
+including authentication failures, are `private, no-store` before session
+resolution. No Organization reads or new account/session writer are involved.
+
+This read preserves Better Auth's existing session renewal at the HTTP boundary.
+The authenticated HTTP middleware's cookie sink on the same session resolution forwards only the vendor's
+separate `Set-Cookie` headers after local-user validation succeeds, or its
+deletion cookies when the vendor reports no session. Local verification errors
+and stale-local-user refusals emit no successful renewal. The Web proxy preserves
+these headers; the Desktop transport keeps them out of renderer responses.
+No second session read, cookie rewriting, or independent session writer is added.
+Internal identity-only callers without a cookie sink use the vendor's
+`disableRefresh` query option so they cannot consume renewal before an HTTP
+caller can return it. Existing cache-bypass and local-user checks remain intact.
+HTTP business failures retain their original status/body and separate renewal
+or deletion cookies, with private/no-store responses. Native SDK response-cookie
+handling precedes status handling; its pinned patch is documented in the Desktop
+owner document. Neither a business error nor cached vendor data grants identity.
+
+The shared Web/Desktop account query uses the shared API-client decoder and the
+same `userQueryKeys.session`. Only 401 maps to null; backend, transport, and
+malformed-response errors remain errors. SSR captures each request's cookie and
+uses the configured Auth origin through the same standalone fetch transport.
+Native Desktop entry and account fences retain their narrower session bridge;
+they do not populate the shared account query. Web-only session/device management
+continues using its existing credential-bearing contracts.
+
+Contract impact: deploy the additive Auth endpoint and exact Web GET proxy before
+the new consumers. Old clients keep working. There is no new store, writer, data
+migration, CLI/Service/Skills/Core/Gateway epoch, or setup/Wake/Space action change.
+Remaining browser entry server functions and pilot matching-build admission are
+unchanged; this read does not establish general cross-build compatibility.
+
+### Account Organization context
+
+The shared fetch transport invokes its injected fetch as a standalone callable,
+without assigning the transport options object or another arbitrary receiver.
+This supports Worker global fetch and preserves explicitly bound injections;
+cancellation, timeout and structured failure semantics remain unchanged.
+
+Auth owns `GET /v1/account/organization-context`, a credential-free read
+projection defined in `packages/schemas`. It returns the authenticated account's
+display fields and user ID, normalized membership Organization summaries, and
+the resolved default Organization ID. It accepts no identity selector. Auth
+reuses its session resolver (bypassing the cookie cache), membership-list API,
+and existing account preference repository; no new identity or preference store
+is introduced. Responses are private and not cacheable.
+
+Default selection remains: member-matched `lastSelectedOrganizationId`, then
+member-matched session `activeOrganizationId`, then the first membership.
+Missing authentication is 401; unavailable backend state stays an error. An
+authenticated empty list has a null default. Web/shared client code owns URL
+construction, login redirects, and the authorized/denied route projection.
+
+Contract impact: this additive Auth route must be available before releasing
+the new Web/Desktop consumers. Old clients retain their existing reads and
+preference writes. CLI, Service, Skills, Core, Gateway, setup, Wake, Space
+actions, diagnostics, and contract epochs are unchanged. No data migration or
+local component release is required by this slice. Other pilot reads still use
+matching-build server functions; this route alone does not establish full
+cross-build compatibility or relax pilot admission.
+
+### Runtime client environment and Profile reads
+`packages/schemas/src/client-environment.ts` owns the Web runtime publication
+`GET /v1/client-environment`. Its strict response contains only `gatewayHost`,
+normalized from the served Web environment's existing `OPENMELD_GATEWAY_URL`.
+It has no account, session, credentials or caller-selected configuration. Web
+returns `Cache-Control: no-store`; clients do not persist it. This metadata
+selects the existing account/profile-Space history namespace and grants no
+authorization. SSR retains its request-aware server boundary and reads the
+same runtime setting directly.
+
+Web also forwards only `GET /v1/profiles` to Auth's existing profile-list
+endpoint through its established Auth-owned request proxy; it does not expose
+generic Auth session operations.
+
+Deploy the additive Web routes before clients that depend on them. Existing
+HTTP/RPC payloads and old clients remain unchanged; an unavailable or malformed
+response fails the new dependent operation without an RPC/default fallback.
+CLI, Service, Skills, Core and Gateway require no protocol or version-floor
+change. The Desktop fingerprint and request admission rules remain in force.
+
+### Remaining pilot transport
+
+Auth's cookie-write guard preserves the exact `DESKTOP_APP_ORIGIN` before URL
+origin normalization and then checks the existing environment trust set. Only
+the configured environment admits that exact origin. Custom-scheme near matches, callback origins,
+opaque/null origins, and custom-scheme Referers are not substitutes. Configured
+HTTP(S) Web origins and the existing HTTP(S) Referer behavior remain supported;
+session and membership checks still apply. No native Origin rewriting is used.
+
+`packages/schemas/src/desktop-client.ts` owns the Desktop origin, build header,
+sanitized session identity, and platform metadata. The native process owns
+credentials; renderer session responses contain no session token. Existing
+CLI, Service, Core, Gateway, Wake, and Space action payloads are unchanged.
+
+The development-only pilot uses matching compiled Web server functions for
+existing reads and shared `/v1` APIs for business writes. A build fingerprint
+mismatch is rejected before handling either. This coupling is an explicit
+pilot limitation, not a durable API contract. See
+[Desktop](../clients/desktop.md#cloud-transport-and-compatibility) for the
+transport and account boundaries. Old production clients remain on their
+existing paths; the pilot cannot target production or a Vite dev registry.
+
+## Local Service account admission
+
+`computer-connection.ts` owns the opt-in CLI review/intent and fixed Desktop
+connection request/result. Review exposes an exact non-secret session identity
+and optional owner-validated device/lane reuse evidence. Desktop does not derive
+that identity from credentials or Service files. Generic Prepare writes remain
+blocked in the renderer; the native fixed operation uses existing cloud APIs.
+
+Contract Impact Audit: the CLI gains an opt-in connection command/flag and the
+Desktop bundle gains an IPC method. Existing CLI setup, Wake, Space actions,
+status, diagnostics, Service transport, Skills, and Core/Gateway/Prepare payloads
+remain compatible in both directions. The shared binary artifact extraction
+preserves existing update and signature behavior. CLI/Service changes are
+advisory `available`; no global command/Service/Skills floor changes. The binary
+channel must contain the new CLI connection protocol before distributing this
+Desktop capability. Older binaries cannot be treated as capable from version
+strings and must pass the explicit review probe after managed installation.
+No cloud migration or new Computer/Profile/Service owner is introduced.
+
+`packages/schemas/src/service-account-admission.ts` owns the expected-account
+request and local admission record. The authenticated local shutdown payload
+has an optional `accountAdmissionId`; ordinary shutdown requests are unchanged.
+The unpublished admission shape contains one current command and at most one
+accepted-start receipt referencing current canonical facts. Later reservations
+preserve that receipt. The established strict Service v1 file stays unchanged,
+so its older readers do not interpret a new field as a missing contract.
+The Service contract, Gateway transport, Prepare, Wake dispatch, Space actions,
+status, and trace schemas are unchanged. New CLI/carrier pairs support the
+opt-in operation; older carriers reject its unknown startup argument or strict
+shutdown field. Callers must surface that refusal and must not retry unguarded.
+
+Cloud-facing contracts are unchanged in both directions. Updated local writers
+honor the pending reservation; older CLI writers do not implement that guard.
+The updated carrier's final auth-mutex identity check still refuses a mismatched
+account before admission. Older CLIs/carriers do not implement the new guarded
+operation and cannot be treated as capable from a preceding status read. The
+updated Service also binds credentials for ordinary carrier execution, not only
+opt-in commands; same-account renewal and setup candidate visibility retain
+their existing owners.
+
+Only an explicit pre-commit coordinator refusal permits Stop autostart rollback.
+Generic transport/persistence errors, including unsupported-carrier errors,
+remain uncertain and keep autostart disabled. The CLI reports that partial
+outcome. A later Desktop caller must require the capable CLI and carrier before
+exposing controls. No cloud deployment or global local-file-reader floor is
+introduced for this opt-in capability. The pilot enables guarded Start/Stop
+after its read-only pair capability query. `serviceControlCapabilitiesSchema`
+owns the separate CLI response; `account_control_capabilities` is an additive
+authenticated control request with explicit carrier support. Older readers keep
+their existing strict status responses; older carriers reject the unknown read
+without lifecycle effects. No existing request starts emitting new status fields. The
+release is deferred to the normal clean-main local-component release; no
+contract epoch, command-contract floor, or feature-branch manifest stamp is
+introduced. See the
+[owning admission semantics](local-openmeld-service.md#account-checked-service-start-and-stop).
 ## Center Agent Space reply placement
 
 Space owns the durable per-dispatch output destination. The native delivery's
@@ -150,6 +414,46 @@ local Service, Desktop, and Agent execution contracts do not change. Delivery
 requires Core and Gateway before Web; no local component upgrade is required.
 
 ## Boundary
+
+### Dispatch Space Action receipts
+
+`@openmeld/schemas` owns `dispatchSpaceActionToolResultSchema` and its inferred
+types for the local recorder's MCP result. Its `receipt.status` is
+`proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`. All variants
+leave Coordinator acceptance and Space publication `unconfirmed`; a local
+process cannot infer either fact from expiry, a saved file, or an error.
+Saved receipts carry the original context/dispatch/attempt identity, action
+type, and recording timestamp. Context nonces remain private to local records.
+
+Exact receipt recovery after local expiry is read-only. It retains runtime
+identity checks and record nonce validation and cannot create a different
+action, upload a file, renew execution, or bypass RuntimeCoordinator or Space
+publication. Corrupt or unreadable evidence is preserved with an unknown
+receipt. New actions remain subject to the existing active-context writer.
+
+This is an additive MCP output contract with retained text content. On-disk
+context/action formats, CLI JSON, Service/Coordinator payloads, setup, Wake,
+trace, and diagnostics contracts are unchanged. Old cloud/Service and new CLI,
+or new cloud/Service and old CLI, can interoperate; older MCP clients may read
+the text, and consumers must not require structured receipts from older CLI
+versions. No migration, mandatory version floor, or cloud deploy order is
+introduced. A future CLI/Service release may deliver this as an available
+update; release manifest stamping stays with that release.
+
+The same dispatch-owned MCP server exposes `read_history` for a bounded Space
+text window. `dispatchSpaceHistoryRequestSchema` accepts no arguments;
+`dispatchSpaceHistoryResultSchema` owns its strict output with `spaceId`,
+`sourceSignalId`, literal `beforeCount: 20` and `afterCount: 0`, at most 21 text
+signals including the anchor, and `nextCursor`. Space, anchor, and acting Profile
+come from the active dispatch, never model input. Existing public Space readers
+still enforce access, and the local bridge rechecks active dispatch identity
+after the read. Wrong-Space, non-text, oversized, or expired results fail closed.
+The tool does not read local project files, grant shell access, or publish an
+action. It is an additive local MCP contract using existing cloud history
+receivers; it introduces no backend endpoint or data migration. Older local
+components retain their existing history commands. Scoped bootstrap guidance
+uses the MCP reader because native file isolation can prevent loading a local
+CLI and its dependencies.
 
 ### Thread continuation and file working context
 
@@ -1489,6 +1793,22 @@ query, state store, or visibility policy. The RPC is additive and audited
 behind Center Agent audit action set `v19`, so older strict audit readers
 exclude the new action row.
 
+The Organization Agent Runtime Overview also accepts `includeUsageLimits=true`.
+Only opted-in responses include `readiness.usageLimits`, using the same sanitized
+Usage Limit schema as Computers. Core resolves the exact Profile Binding's
+Runtime and Controller before applying the owner/observer projection. Provider-scoped
+controllers expose only the selected model's provider. Expired reports and usage
+observations remain explicitly stale; missing evidence yields an empty list.
+This field is equally visible to authorized Organization members. It does not
+expose Binding, account, path, conversation, or Runtime identity to observers,
+and it does not change Wakeability or execution admission. Web must consume this
+projection rather than joining redacted readiness fields to Computer inventory.
+Older callers omit the opt-in and retain their exact response shape; older
+Gateway/Core omit the field for new Web, which displays unknown usage. Deploy
+Core, Gateway, then Web for this additive projection. CLI, Service, Skills, setup,
+Wake, Space actions, and diagnostics retain their existing contracts; a shared
+schema bundle change still follows the local-component release policy.
+
 The CLI `org computers` Agent View and strict `organization.computers` JSON
 envelope use this same current-Organization HTTP response. They explicitly
 request Usage Limits and preserve the team-safe projection; they do not call a
@@ -1944,10 +2264,12 @@ Send publishes each ready Composer Upload through an idempotent mutation. Core
 reauthorizes the Space and actor, validates the frozen name, MIME type, byte
 size, scope, and expiry, then creates the canonical root Space File through the
 ordinary prepare, immutable-object-write, and commit contract. Web uses only
-the returned canonical revision reference in the message. In-progress staging
-blocks Send. A failed stage or publication is omitted while text and other
-successfully published files continue; an empty message is never posted when
-all publications fail. A message-send failure after publication may leave the
+the returned canonical revision reference in the message. Send captures the
+attachment batch while staging finishes. A failed stage or publication preserves
+the entire message for retry with the same upload and mutation identities; text
+and other files are not posted with a missing attachment. Web bounds publication
+requests and releases the send queue after failure. A message-send failure after
+publication may leave the
 now-ordinary Space File visible in Files because Send was the explicit publish
 boundary. This remains one canonical file with one message reference, not an
 atomic file-and-message transaction or a second message-owned byte copy.
@@ -6071,6 +6393,105 @@ into the RuntimeCoordinator authority path. Caller authority, owner evidence,
 Binding evidence, and claim truth must come from verified Gateway/Core context,
 not request bodies.
 
+## Execution Context Contract
+
+`packages/schemas` owns `ExecutionContextSelection`, the Core-created request and
+assignment, the Service task projection, and the returned completion. Clients
+submit only a selection. Core constructs requester/discussion scope and assigns
+the context once. Native conversation IDs and local workspace fingerprints are
+resolved from retained Core context records. Results echo the context ID; native
+history checkpoints are stored per accepted Wake and survive Head retirement.
+
+An omitted access preference selects `space_context`; local project access is
+explicit or inherited from an authorized fork source. `workspace: isolated`
+with local access now means a committed project worktree with private Git data.
+The local preparation journal binds the shared assignment to its source and
+starting commit. Its paths remain local; it neither replaces the Core context
+association nor introduces a second Project connection. Source policy is checked
+before materialization, and native project access is probed before execution.
+Native platform temporary-directory access remains in effect; this contract
+does not promise complete temporary-directory isolation.
+
+Core sets `contextRequest.required` only for an explicit client selection. An
+ordinary thread Wake carries its discussion scope with `required: false`; the
+Context authority creates implicit thread contexts only for supported harnesses.
+Other harnesses retain their existing serial Binding path and do not select
+retained Context history from a previously configured harness. Explicit
+new/resume/fork/auto selections never fall back to that path. This changes Core's
+request-selection policy without changing the wire shape or Service capability
+version, and leaves existing Binding, lifecycle, and readiness checks in effect.
+
+The public signal read encoder omits `contextSelection` so older strict history
+readers remain usable. This encoder must never be used for persistence, dispatch
+snapshots, or authoring. The existing singular workload reference remains a
+compatibility projection of the first reserved task; waiting counts exclude all
+reserved contexts. Per-Wake progress continues to show every actual execution.
+
+The Profile admission ceiling is five reservations plus 50 waiting Wakes,
+owned by `packages/agent-runtime`. Readers accept five reservations and 55 total
+work items, including records retained across a temporary reduction in capacity.
+Serial policy reduces future reservations to one while retaining Context
+identity and already reserved work. Setup, dispatch-owned actions, status,
+trace, and self-rescue retain their contracts.
+
+Restoring parallel capacity from three to five changes the shared admission and
+local slot policy, not the wire shape or capability version. Existing readers
+already accept five reservations and 55 total items. A Service built with the
+three-task policy remains locally limited to three until updated; compatible
+Core and Service builds must both use the five-task policy to reach that ceiling.
+The existing serial switch continues to admit one task. This policy change does
+not add host-resource admission or certify five-way native execution.
+
+The local Space Action receipt is deliberately limited to
+`proposal_saved_locally`, `rejected_closed`, or `outcome_unknown`. Its
+`coordinatorAcceptance` and `publication` fields remain `unconfirmed`; it does
+not implement remote `accepted_for_finalization` or `published` receipts. Core
+execution and Space publication must be read from their existing authorities.
+The separate Late reply presentation remains outside this implementation.
+
+Contract impact: HTTP signal/thread sends gain optional selection fields;
+accepted snapshots and RuntimeTransport gain version-1 context assignments;
+current task results gain context identity/completion fields; the local ledger
+and fork journal migrate to v2. Dispatch Space Action authority is unchanged.
+Setup, Service installation, CLI self-rescue, and managed Skill contracts are
+unchanged. Legacy unscoped execution keeps its existing payload and epoch.
+
+The owner-shard work-coordinator record advances to v3 for the durable migration
+marker and serial/parallel policy. Its reader accepts v1/v2 and the original
+legacy execution-admission record; it preserves previously accepted five-slot
+data. An earlier v2 binary is not a supported rollback reader for v3 policy.
+
+`GET` and `PATCH /v1/agent-profiles/:id/execution-mode` use the shared execution
+mode schemas. PATCH accepts only `serial` or `parallel`; the response reports
+Profile id, mode, migration phase, and revision. Core rechecks current
+Organization and Profile ownership, then mutates the existing owner-shard
+record under the same transaction/index-generation fences as admission. Clients
+cannot use this endpoint to supply native IDs, migration boundaries, or higher
+numeric capacity. An additive reader-first release is required before exposing
+the new CLI caller.
+
+Scoped delivery carrying the Core-owned legacy association requires a fresh
+Service adapter declaration of `executionContextVersion: 2`, as well as
+runtime-specific file-access verification. The reader still accepts version-1
+capability declarations and existing task envelopes without the additive legacy
+association. An older Service receives a visible update-required outcome when
+it cannot read the selected task contract, never a delivery that silently reuses
+the Binding conversation. Assignment/history version remains 1; the capability
+increment identifies the new Service-side migration guard. Older Core strictly
+rejects unknown capability declarations, so deploy Core/Gateway support
+before distributing this Service and Web/CLI feature. This ordered rollout is
+required; publishing the local component first is unsupported. Local-component
+release metadata is deferred in the feature PR and must be produced by the
+guarded release workflow before production rollout.
+
+The legacy association is server-owned metadata from a current primary Binding
+read under the owner-shard mutation lease. The local Service compares only the
+selected pre-isolation Profile/controller/transport/workspace ledger lookup;
+two known, unequal native IDs reject before execution. Missing evidence does
+not choose or rewrite an identity, and unrelated historical roots are not
+treated as conflicts. The association is omitted from local workspace identity
+and never grants the requesting member access to the legacy transcript.
+
 ## Agent Profile Binding Contract
 
 The shared Agent Profile Binding contract must stay synchronized across schemas,
@@ -6441,6 +6862,31 @@ not import Start-owned setup, device projection, or profile Wakeability types
 into `packages/agent-profile`.
 
 ## Cross-Client Reuse Policy
+
+### Profile and Organization business HTTP adapters
+
+`organization-actions.ts` defines strict safe Organization management inputs,
+invitation display results and error code/message envelopes. Existing Profile,
+join-link, public join-request, Space-invitation and account-context schemas stay
+their respective owners. Fixed Web handlers call existing Auth HTTP endpoints;
+Auth/Core remain the only authorization and mutation owners. Never expose the
+internal invitation RPC union through these adapters.
+
+Contract impact: these are additive Web HTTP routes and an additive Auth Agent-only
+DELETE route. The Agent precondition is internal to the deletion service, not a
+caller-selectable field. No CLI/Service/Skills runtime contract, Wake envelope,
+setup command, trace response, database schema or execution epoch changes.
+Old and new local components retain their existing cloud setup/Wake/Space-action
+and diagnostic contracts. No local component stamp is needed.
+
+Rollout: deploy Auth before the new Web handlers, then release Desktop with its
+separately accepted native API/trust contract. Cookie Profile creation now requires
+the existing trusted-origin check: old generated Web create helpers did not
+forward Origin, so minimize the Auth-to-Web deployment window (those old helpers
+fail closed until Web is updated). Verified bearer callers without cookies retain
+their behavior. Roll back new Web/Desktop callers before Auth; do not remove
+cookie-origin enforcement to restore an older unsafe helper. Browser security
+and account session endpoints remain outside this change.
 
 OpenMeld has both Web and CLI clients. New feature work must classify touched logic
 before implementation.

@@ -124,6 +124,13 @@ new writers create only `space_mention`.
 
 ## Item contract and ownership
 
+Independent Local Agent Contexts do not create new Inbox identities or a new
+execution authority. Recovery and interaction items remain keyed to the exact
+Wake, source message, requester, and target Agent Profile. Multiple reserved or
+interrupted Wakes may coexist; the first reserved work reference is only a
+compatibility projection. Reading or dismissing one item cannot settle another
+Context, release its reservation, or publish a reply.
+
 Core owns one canonical item with:
 
 - stable item id and recipient;
@@ -475,11 +482,14 @@ Opening any Space destination does not clear unread state on route entry alone.
 For one open Space, Web reads Core's exact unread message targets and preserves
 their main-conversation or thread-root scope; a browser Space cursor is not an
 unread owner. Web writes one monotonic main-conversation read-through watermark
-only after the document is visible and the member has remained at the latest
-main message for the normal read debounce. Scrolling up, switching tabs, or
-arriving through a deep link without viewing the latest reply does not clear it.
+only after the document is visible and the message header and beginning of its
+body remain in the conversation viewport for 150 ms. Long messages do not require
+scrolling to their end. Unseen targets above, below, or outside loaded history
+block advancing past their occurrence time; jumping past a message is not reading
+it. Only Core unread targets can advance the watermark, never temporary Agent
+progress, prefetching, or route entry. Background tabs cancel the pending dwell.
 Each thread has its own monotonic read-through watermark, which advances only
-while that exact thread is open, visible, and held at its latest message. Main
+while that exact thread is open and its message beginning passes the same dwell. Main
 and thread watermarks make delayed projections of older already-viewed updates
 arrive read while newer updates remain unread; one scope never clears another.
 Core and Web reject implausible future read positions instead of letting a bad
@@ -537,7 +547,7 @@ action is idempotent and allows the oldest later Wake to continue.
 ## Delivery channels and preferences
 
 The in-product Inbox is always available and cannot be disabled. Phase 1 has
-two optional delivery channels:
+optional delivery channels:
 
 - **Browser notifications** are browser-local and become enabled when the
   browser grants permission unless the member has explicitly turned them off
@@ -595,6 +605,24 @@ two optional delivery channels:
   there is no separate volume slider. Browser autoplay policy, missing audio
   support, or playback failure stays silent, never changes notification
   delivery truth, and never makes the Inbox item retry.
+- **Desktop notifications** independently deliver the same eligible Core Inbox
+  items while the authenticated GUI is running, including unfocused, minimized,
+  and hidden windows. Quit ends GUI delivery and does not stop the Service.
+  The shared client listener owns bounded observation, retry and deduplication;
+  the native process supplies the background cadence and OS delivery adapter,
+  never another Inbox or execution authority. A native `show` acknowledgement
+  settles delivery; failure or no acknowledgement remains retryable. Desktop
+  reads its own account-local enabled and sound preferences, defaulting on;
+  browser permission, browser preferences and Web presence do not control it.
+  Settings > Personal > Notifications and Space Info show Desktop wording.
+  macOS permission is unknown unless an API establishes it; platform support
+  is not authorization. Focus and OS notification settings remain authoritative
+  for presentation. The test button checks OS delivery only. Native sound
+  replaces the Web sound cue, and bounded Core previews retain their existing
+  privacy scope. Only a focused, visible Desktop reading the exact conversation
+  may suppress its notification or advance its read position. Notification
+  clicks revalidate current account and source access before restoring the
+  window and opening the canonical item target.
 - **Urgent email** is enabled by default at the account level and may be turned
   off in **Settings -> Personal -> Notifications**. Only `urgent` items are
   eligible. Email links to the same Inbox item/source and carries bounded safe
@@ -608,7 +636,7 @@ two optional delivery channels:
 Browser permission and the OpenMeld sound preference are device/browser state.
 The email preference is durable account state. Phase 1 does not provide
 per-source rules, schedules, digests, quiet hours, snooze, Slack delivery, CLI
-delivery, Web Push for a closed browser, Desktop delivery, or Mobile delivery.
+delivery, Web Push for a closed browser, or Mobile delivery.
 
 ## Delivery reliability
 
@@ -656,7 +684,7 @@ adapters without changing Inbox truth.
   **Recent updates** together when both exist, and its maximize action opens the
   canonical full Inbox page.
 - Unread Center Agent replies show the rail dot in every rail tier and clear
-  only through the visible-at-latest read-through contract.
+  only through the visible-message read-through contract.
 - Explicit Center Agent response requests classify normal versus urgent from
   the model-visible impact enum, and the member's next reply resolves the open
   source request.

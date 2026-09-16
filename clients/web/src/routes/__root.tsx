@@ -8,6 +8,7 @@ import {
 	HeadContent,
 	Link,
 	Scripts,
+	useRouter,
 } from "@tanstack/react-router";
 import { ThemeProvider, useTheme } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
@@ -23,6 +24,8 @@ import { AppearanceShapeProvider } from "#/components/appearance/appearance-shap
 import { GlobalThemeShortcut } from "#/components/global-theme-shortcut";
 import { OpenMeldLogo } from "#/components/openmeld-logo-weak";
 import { Toaster } from "#/components/ui/sonner";
+import { beforeDesktopLoad } from "#/desktop/auth-boundary";
+import { DesktopFrame } from "#/desktop/desktop-frame";
 import { TanStackDevtoolsSlot } from "#/integrations/tanstack-devtools/devtools-slot";
 import { APPEARANCE_SHAPE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/shape-preference";
 import { TOOLBAR_PREFERENCE_BOOTSTRAP_SCRIPT } from "#/lib/appearance/toolbar-preference";
@@ -71,6 +74,8 @@ const THEME_BOOTSTRAP_SCRIPT = `(() => {
 const NOT_FOUND_LOGO_SCALE = 0.72;
 
 export const Route = createRootRouteWithContext<RouterContext>()({
+	beforeLoad: ({ location, context }) =>
+		beforeDesktopLoad(location.pathname, location.href, context.queryClient),
 	headers: () => ({
 		"Cache-Control": "no-cache",
 	}),
@@ -208,7 +213,9 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 						<GlobalThemeShortcut />
 						<TooltipProvider>
 							<NuqsAdapter>
-								<ClientVersionRecovery>{children}</ClientVersionRecovery>
+								<DesktopFrame>
+									<ClientVersionRecovery>{children}</ClientVersionRecovery>
+								</DesktopFrame>
 							</NuqsAdapter>
 						</TooltipProvider>
 						<Toaster position="bottom-right" />
@@ -242,7 +249,17 @@ export function ThemeColorMeta() {
 }
 
 export function RootErrorComponent({ error }: ErrorComponentProps) {
-	return <PageError error={error} />;
+	const router = useRouter();
+	// Retry loaders and reset their boundary without document navigation, which
+	// Desktop intentionally blocks. Failed assets still need a document reload.
+	return (
+		<PageError
+			error={error}
+			onRetry={
+				isClientAssetLoadError(error) ? undefined : () => router.invalidate()
+			}
+		/>
+	);
 }
 
 export function ClientVersionRecovery({
@@ -266,7 +283,13 @@ export function ClientVersionRecovery({
 	return children;
 }
 
-function PageError({ error }: { error: unknown }) {
+function PageError({
+	error,
+	onRetry,
+}: {
+	error: unknown;
+	onRetry?: () => Promise<void>;
+}) {
 	let message = "Unexpected runtime error";
 	if (error instanceof Error) {
 		message = error.message;
@@ -302,11 +325,14 @@ function PageError({ error }: { error: unknown }) {
 					description={description}
 					details={`${diagnosticDetails}\n\nBuild: ${WEB_ERROR_BUILD.id ?? "development"}\nSource: ${WEB_ERROR_BUILD.sha ?? "local"}`}
 					message={displayMessage}
-					onAction={() => {
-						if (typeof window !== "undefined") {
-							window.location.reload();
-						}
-					}}
+					onAction={
+						onRetry ??
+						(() => {
+							if (typeof window !== "undefined") {
+								window.location.reload();
+							}
+						})
+					}
 					onReport={() => submitApplicationErrorReport(error)}
 				>
 					{isEnvError && import.meta.env.DEV ? (

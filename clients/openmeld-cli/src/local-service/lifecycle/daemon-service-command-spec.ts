@@ -61,12 +61,16 @@ const DAEMON_SERVICE_ENV_KEY_WHITELIST = new Set([
 ]);
 
 export function buildDaemonSystemServiceCommandSpec(input: {
+  accountAdmissionId?: string;
   controller: DaemonServiceManager["controller"];
   binaryExecutablePath?: string;
   distribution?: OpenMeldDistribution;
   environmentTarget?: OpenMeldEnvironmentTarget;
 }): DaemonServiceCommandSpec {
   const args: string[] = ["service", "run", "--mode", "foreground"];
+  if (input.accountAdmissionId) {
+    args.push("--account-admission-id", input.accountAdmissionId);
+  }
   const environmentTarget =
     input.environmentTarget ?? resolveOpenMeldEnvironmentTargetFromEnv();
   const { executable, specArgs } = resolveDaemonServiceExecutable({

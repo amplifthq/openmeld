@@ -8,7 +8,7 @@
   "main": "out/main/index.js",
   "description": "OpenMeld Desktop GUI (Electron) — thin local control surface for the OpenMeld Service. See developing/clients/desktop.md.",
   "scripts": {
-    "build:contract-deps": "pnpm -C ../.. exec turbo run build --filter=@openmeld/agent-runtime --concurrency=1",
+    "build:contract-deps": "pnpm -C ../.. exec turbo run build --filter=@openmeld/api-client --filter=@openmeld/agent-runtime --filter=@openmeld/gateway-contract --filter=@openmeld/protocol --concurrency=1",
     "dev": "electron-vite dev",
     "build": "pnpm run build:contract-deps && electron-vite build",
     "icons:generate": "node scripts/generate-icons.mjs",
@@ -23,14 +23,24 @@
     "check": "biome check --no-errors-on-unmatched ./ && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@better-auth/electron": "1.6.30",
+    "@better-auth/utils": "0.4.2",
     "@openmeld/agent-runtime": "workspace:*",
+    "@openmeld/api-client": "workspace:*",
+    "@openmeld/gateway-contract": "workspace:*",
+    "@openmeld/protocol": "workspace:*",
     "@openmeld/schemas": "workspace:*",
     "@openmeld/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
+    "better-auth": "1.6.30",
+    "conf": "15.0.2",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "ws": "^8.18.3",
+    "zod": "^4.3.6"
   },
   "build": {
+    "forceCodeSigning": true,
     "appId": "sh.openmeld.desktop",
     "productName": "OpenMeld Desktop",
     "directories": {
@@ -46,7 +56,9 @@
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "resources/icon.icns",
-      "identity": null,
+      "identity": "-",
+      "notarize": false,
+      "strictVerify": true,
       "target": [
         {
           "target": "dmg",
@@ -62,14 +74,16 @@
     }
   },
   "devDependencies": {
+    "@openmeld/local-service": "workspace:*",
     "@tailwindcss/vite": "^4.1.18",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/react": "^16.2.0",
     "@types/node": "^24.3.0",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "5.2.0",
-    "electron": "42.4.1",
+    "electron": "44.3.0",
     "electron-builder": "^26.15.3",
     "electron-vite": "5.0.0",
     "jsdom": "^27.0.0",

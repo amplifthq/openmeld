@@ -100,8 +100,8 @@ export function spaceThreadSignalsQueryOptions(input: {
 		enabled: input.enabled && input.threadId !== null,
 		gcTime: ROUTE_REVISIT_GC_TIME_MS,
 		retry: shouldRetrySpaceQuery,
-		staleTime: 0,
-		refetchOnMount: "always",
+		staleTime: SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS,
+		refetchOnMount: true,
 		refetchOnWindowFocus: false,
 	});
 }

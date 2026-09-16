@@ -419,9 +419,14 @@ export const createCurrentDeviceApi: CreateCurrentDeviceApi = (
     },
     setCurrentAgentProfileWorkspace: async (input) => {
       const body = requireValidCurrentAgentProfileWorkspaceBody(input);
+      const target = input.target
+        ? peopleComputerTargetSchema.parse(input.target)
+        : null;
 
       return await client.requestJson({
-        url: buildCurrentAgentProfileWorkspaceRoute(input.agentProfileId),
+        url: target
+          ? `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/agent-profiles/${encodeURIComponent(input.agentProfileId)}/workspace`
+          : buildCurrentAgentProfileWorkspaceRoute(input.agentProfileId),
         operation: "local_runtime.current.agent_profile_workspace.write",
         method: "PUT",
         headers: {

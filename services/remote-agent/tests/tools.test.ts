@@ -4774,6 +4774,41 @@ describe("remote agent OpenMeld tool catalog", () => {
     expect(centerAgentPostSpaceMessage).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    "wake",
+    "routine",
+  ])("prepares and replaces %s final reply mentions without publishing early", async (kind) => {
+    const request =
+      kind === "routine"
+        ? createRoutineSubmitTurnRequest("routine_run_1")
+        : createSubmitTurnRequest({
+            turnEnvelope: {
+              ...createSubmitTurnRequest().turnEnvelope,
+              trigger: { source: "space_wake" },
+            },
+          });
+    const storage = await createStorageWithPendingContext(request);
+    const tools = getRemoteAgentOpenMeldToolDefinitions({
+      coreWorker: {},
+      storage,
+      turnEnvelope: request.turnEnvelope,
+    });
+    await executeTool(tools, "openmeld_set_final_reply_mentions", {
+      mentionProfileIds: [HUMAN_PROFILE_ID, HUMAN_PROFILE_ID],
+    });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
+        ?.mentionTargets
+    ).toEqual([HUMAN_PROFILE_ID]);
+    await executeTool(tools, "openmeld_set_final_reply_mentions", {
+      mentionProfileIds: [],
+    });
+    expect(
+      (await readRemoteAgentCallbackContext(storage, ACK.submissionId))
+        ?.mentionTargets
+    ).toEqual([]);
+  });
+
   it("publishes Human Mentions separately from Agent References", async () => {
     const request = createSubmitTurnRequest();
     const centerAgentPostSpaceMessage = vi.fn(async () =>

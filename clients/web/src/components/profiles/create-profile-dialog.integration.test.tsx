@@ -968,6 +968,12 @@ describe("CreateProfileDialog", () => {
 		expect(
 			screen.queryByRole("button", { name: "Back to Agent setup" })
 		).toBeNull();
+		expect(screen.queryByText("Reconnect Office Mac")).toBeNull();
+		expect(screen.getByDisplayValue("Connect a new computer")).toBeTruthy();
+		fireEvent.change(
+			screen.getByRole("combobox", { name: "Computer to reconnect" }),
+			{ target: { value: computer.deviceId } }
+		);
 		expect(screen.getByText("Reconnect Office Mac")).toBeTruthy();
 		expect(screen.queryByRole("textbox", { name: "Agent name" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "Create Agent" })).toBeNull();

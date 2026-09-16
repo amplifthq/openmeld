@@ -1,5 +1,7 @@
 // biome-ignore-all lint/performance/noBarrelFile: This package intentionally exposes a single public entrypoint.
 
+export { readAccountOrganizationContext } from "./account-organization-context";
+export { readAccountSession } from "./account-session";
 export { createAccountSpaceIndexApi } from "./account-space-index/api";
 export {
   buildAccountSpaceActiveWakeSummaryPath,
@@ -40,6 +42,7 @@ export type {
   UpdateAgentProfilePrimaryBindingModelSelectionInput,
   UpdateAgentProfilePrimaryBindingOpenCodePermissionInput,
 } from "./agent-profile-binding/types";
+export { createAgentProfileExecutionModeApi } from "./agent-profile-execution-mode";
 export { createAgentProfileWorkRecoveryApi } from "./agent-profile-work-recovery/api";
 export { buildAgentProfileWorkRecoveryRoute } from "./agent-profile-work-recovery/routes";
 export type {
@@ -66,12 +69,14 @@ export type {
   CreateCenterAgentApi,
   ListCenterAgentAuditJournalInput,
 } from "./center-agent/types";
+export { readCliRelease } from "./cli-release";
 export type {
   OpenMeldApiClientConfig,
   OpenMeldApiClientFoundation,
   OpenMeldApiClientRequestOptions,
 } from "./client";
 export { createOpenMeldApiClient } from "./client";
+export { createComputerAuthorizationGrant } from "./computer-authorization";
 export { createComputerFileAccessApi } from "./computer-file-access/api";
 export {
   buildComputerFileAccessReadPath,
@@ -133,6 +138,10 @@ export type {
   SubmitFeedbackIssueInput,
 } from "./feedback/types";
 export { createInboxApi } from "./inbox/api";
+export {
+  isInboxItemVisibleConversation,
+  isInboxNotificationEligible,
+} from "./inbox/notification-policy";
 export {
   buildCenterAgentInboxReadThroughPath,
   buildCenterAgentInboxSummaryPath,

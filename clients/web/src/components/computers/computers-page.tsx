@@ -16,6 +16,8 @@ import {
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -36,6 +38,20 @@ import {
 } from "./organization-computers";
 
 const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
+
+function renderDesktopConnectComputerAction(orgSlug: string) {
+	if (!getDesktopPlatform()) {
+		return null;
+	}
+	return (
+		<Link
+			className={buttonVariants({ size: "sm", variant: "outline" })}
+			to={buildConnectComputerPath({ orgSlug })}
+		>
+			Connect this Mac
+		</Link>
+	);
+}
 
 type ComputerProjectionQueryState = {
 	isFetchedAfterMount: boolean;
@@ -198,6 +214,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	return (
 		<>
 			<AppPageHeader
+				action={renderDesktopConnectComputerAction(orgSlug)}
 				description={sectionDescription}
 				eyebrow="Run agents locally"
 				id="computers-heading"

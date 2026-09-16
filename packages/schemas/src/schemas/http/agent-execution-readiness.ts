@@ -8,6 +8,7 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "../daemon/runtime-trans
 import { daemonServiceLaneSchema } from "../daemon/service-contract";
 import { openMeldDaemonProviderAccessEvidenceProviderSchema } from "../daemon/task-result";
 import { agentProfileIdSchema } from "../protocol/profile";
+import { agentControllerUsageLimitsSchema } from "../runtime/agent-controller-interface";
 import {
   agentProfileBindingAgentControllerCollaborationModeSchema,
   agentProfileBindingAgentControllerPermissionModeSchema,
@@ -295,6 +296,7 @@ export const agentExecutionReadinessSchema = z.strictObject({
 });
 
 export const getAgentExecutionReadinessResponseSchema = z.strictObject({
+  usageLimits: agentControllerUsageLimitsSchema.optional(),
   agentExecutionReadiness: agentExecutionReadinessSchema,
   agentWakeAvailability: agentWakeAvailabilitySchema,
   agentWakeRouteRegistration: agentWakeRouteRegistrationSchema,

@@ -3,6 +3,12 @@ import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { cancel, confirm, isCancel } from "@clack/prompts";
+import {
+  type CliBinaryUpdatePlan,
+  downloadCliBinaryUpdateArtifact,
+  resolveCliBinaryUpdatePlan,
+  verifyCliBinaryCodeSignature,
+} from "@openmeld/local-service/cli-binary-update-artifact";
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { resolveServiceUpdateUrgency } from "../command-entry-checks/service-update-urgency";
 import { hasIndependentMaintenanceRegistration } from "../config/daemon-service-update-worker-registration";
@@ -30,12 +36,6 @@ import { resolveVersionChangeDirection } from "../local-service/lifecycle/versio
 import { readOpenMeldToolsUpdateContextFromEnv } from "../local-service/maintenance/openmeld-tools-update-context";
 import { createOpenMeldToolsUpdateCoordinator } from "../local-service/maintenance/openmeld-tools-update-coordinator";
 import { resolveExternalOpenMeldToolsUpdate } from "../local-service/maintenance/openmeld-tools-update-join";
-import {
-  type CliBinaryUpdatePlan,
-  downloadCliBinaryUpdateArtifact,
-  resolveCliBinaryUpdatePlan,
-  verifyCliBinaryCodeSignature,
-} from "../runtime/cli-binary-update-artifact";
 import {
   formatInlineOpenMeldCliCommands,
   formatOpenMeldCliTextBlock,

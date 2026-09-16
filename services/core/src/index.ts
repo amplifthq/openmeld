@@ -15,6 +15,7 @@ import type {
   AccountSpaceActiveWakeSummaryResponse,
   AccountSpaceIndexResponse,
   AgentProfileCreationRequestMutationResponse,
+  AgentProfileExecutionModeResponse,
   ApproveOrganizationDocumentDraftResponse,
   ApproveOrganizationDocumentDraftRpcInput,
   CenterAgentAddAgentProfilesToSpaceResponse,
@@ -520,6 +521,7 @@ import {
   type AddCenterAgentToSpaceInput,
   type AddOrganizationDirectoryProfilesToSpaceInput,
   type AddSpaceMembersInput,
+  type AgentProfileExecutionModeInput,
   type ArchiveProjectInput,
   type AssertCurrentDesignatedCenterAgentInput,
   type AuthorizeConnectorDisconnectInput,
@@ -732,6 +734,7 @@ import {
   rpcAddCenterAgentToSpace,
   rpcAddOrganizationDirectoryProfilesToSpace,
   rpcAddSpaceMembers,
+  rpcAgentProfileExecutionMode,
   rpcArchiveProject,
   rpcAssertCurrentDesignatedCenterAgent,
   rpcAuthorizeConnectorDisconnect,
@@ -805,6 +808,8 @@ import {
   rpcConnectCandidate,
   rpcConnectCenterAgentSlackWorkspace,
   rpcConnectDeclaredPath,
+  rpcConnectPeopleComputerProjectCandidate,
+  rpcConnectPeopleComputerProjectPath,
   rpcConsumeMessageChannelIdentityLink,
   rpcConsumeSlackIdentityLink,
   rpcConsumeSlackOAuthState,
@@ -975,6 +980,7 @@ import {
   rpcSetOrganizationInformationProtectionPolicy,
   rpcSetPeopleComputerLocalAgentEnabled,
   rpcSetPeopleComputerOpenMeldToolsMaintenance,
+  rpcSetPeopleComputerProjectDefaultConnection,
   rpcSetSpaceAccessMode,
   rpcSetSpaceMessageReaction,
   rpcSpaceFilePins,
@@ -1296,6 +1302,32 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: Parameters<typeof rpcDiscoverPeopleComputerProjects>[1]
   ) {
     return rpcDiscoverPeopleComputerProjects(this.env, input);
+  }
+
+  connectPeopleComputerProjectCandidate(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
+  ) {
+    return rpcConnectPeopleComputerProjectCandidate(this.env, input);
+  }
+  setPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    const { deviceId, runtimeLane, ...request } = input;
+    return rpcSetCurrentAgentProfileWorkspace(this.env, request, {
+      deviceId,
+      runtimeLane,
+    });
+  }
+  connectPeopleComputerProjectPath(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
+  ) {
+    return rpcConnectPeopleComputerProjectPath(this.env, input);
+  }
+  setPeopleComputerProjectDefaultConnection(
+    input: Parameters<typeof rpcSetPeopleComputerProjectDefaultConnection>[1]
+  ) {
+    return rpcSetPeopleComputerProjectDefaultConnection(this.env, input);
   }
 
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
@@ -2319,6 +2351,12 @@ class CoreRpcEntrypoint extends WorkerEntrypoint<CoreBindings> {
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return rpcExecuteAgentProfileWorkRecovery(this.env, input);
+  }
+
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return rpcAgentProfileExecutionMode(this.env, input);
   }
 
   getAgentProfileControllerChangeEligibility(
@@ -3601,6 +3639,28 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     return super.discoverPeopleComputerProjects(input);
   }
 
+  connectPeopleComputerProjectCandidate(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectCandidate>[1]
+  ) {
+    return super.connectPeopleComputerProjectCandidate(input);
+  }
+  setPeopleComputerAgentProfileWorkspace(
+    input: SetCurrentAgentProfileWorkspaceInput &
+      import("@openmeld/schemas/types").PeopleComputerTarget
+  ) {
+    return super.setPeopleComputerAgentProfileWorkspace(input);
+  }
+  connectPeopleComputerProjectPath(
+    input: Parameters<typeof rpcConnectPeopleComputerProjectPath>[1]
+  ) {
+    return super.connectPeopleComputerProjectPath(input);
+  }
+  setPeopleComputerProjectDefaultConnection(
+    input: Parameters<typeof rpcSetPeopleComputerProjectDefaultConnection>[1]
+  ) {
+    return super.setPeopleComputerProjectDefaultConnection(input);
+  }
+
   readComputerFileAccessPolicy(input: ReadComputerFileAccessPolicyInput) {
     return super.readComputerFileAccessPolicy(input);
   }
@@ -4505,6 +4565,12 @@ export class GatewayRpcEntrypoint extends CoreRpcEntrypoint {
     input: ExecuteAgentProfileWorkRecoveryInput
   ): Promise<ExecuteAgentProfileWorkRecoveryResponse> {
     return super.executeAgentProfileWorkRecovery(input);
+  }
+
+  agentProfileExecutionMode(
+    input: AgentProfileExecutionModeInput
+  ): Promise<AgentProfileExecutionModeResponse> {
+    return super.agentProfileExecutionMode(input);
   }
 
   getAgentProfileControllerChangeEligibility(

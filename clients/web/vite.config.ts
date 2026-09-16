@@ -7,11 +7,37 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
+import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target";
+// @ts-expect-error Build-only JavaScript helper.
+import { desktopWebBuildIdentity } from "../../scripts/desktop/web-build-identity.mjs";
+import { desktopPilotBuildPrerequisites } from "./scripts/desktop-pilot-build";
 import { resolveIsolatedWebDevSettings } from "./scripts/isolated-dev-config.ts";
 
 const isolatedDev = resolveIsolatedWebDevSettings(process.env);
 
 const config = defineConfig(({ command }) => {
+	const installedTarget = readInstalledDesktopTarget(process.env);
+	if (installedTarget) {
+		Object.assign(process.env, {
+			VITE_BETTER_AUTH_URL: installedTarget.webOrigin,
+		});
+	}
+	const desktopPilotBuild =
+		process.env.OPENMELD_DESKTOP_PILOT === "1" &&
+		command === "build" &&
+		process.env.CLOUDFLARE_ENV !== "prod";
+	const desktopRendererBuild =
+		command === "build" && (desktopPilotBuild || Boolean(installedTarget));
+	const desktopWebBuild = desktopRendererBuild
+		? desktopWebBuildIdentity(path.resolve(import.meta.dirname, "../.."))
+		: "";
+	const isolatedListener = isolatedDev
+		? {
+				host: new URL(isolatedDev.vars.WEB_APP_URL).hostname,
+				port: isolatedDev.port,
+				strictPort: true,
+			}
+		: undefined;
 	if (command === "build") {
 		execFileSync(
 			process.execPath,
@@ -27,6 +53,8 @@ const config = defineConfig(({ command }) => {
 	}
 	return {
 		define: {
+			__OPENMELD_DESKTOP_WEB_BUILD__: JSON.stringify(desktopWebBuild),
+			__OPENMELD_DESKTOP_PILOT__: JSON.stringify(desktopPilotBuild),
 			__OPENMELD_WEB_BUILD__: JSON.stringify({
 				id: randomUUID(),
 				sha: execFileSync("git", ["rev-parse", "HEAD"], {
@@ -40,8 +68,36 @@ const config = defineConfig(({ command }) => {
 		},
 		// Keep browser diagnostics private. Full SSR maps exceed the current 4 GB
 		// release build budget; server errors retain native Worker invocation logs.
-		environments: { client: { build: { sourcemap: "hidden" } } },
+		environments: {
+			client: {
+				build: {
+					sourcemap: "hidden",
+					// Keep real source lines for local Electron DevTools breakpoints.
+					...(desktopPilotBuild ? { minify: false } : {}),
+				},
+			},
+		},
 		plugins: [
+			desktopPilotBuildPrerequisites(
+				desktopRendererBuild,
+				installedTarget?.webOrigin
+			),
+			{
+				name: "openmeld-desktop-build-identity",
+				apply: "build",
+				generateBundle() {
+					if (desktopRendererBuild && this.environment.name === "client") {
+						this.emitFile({
+							type: "asset",
+							fileName: "desktop-build.json",
+							source: JSON.stringify({
+								webBuild: desktopWebBuild,
+								...(installedTarget ? { installedTarget } : {}),
+							}),
+						});
+					}
+				},
+			},
 			cloudflare({
 				viteEnvironment: { name: "ssr" },
 				...(isolatedDev
@@ -61,7 +117,12 @@ const config = defineConfig(({ command }) => {
 					: {}),
 			}),
 			tsconfigPaths({ projects: ["./tsconfig.json"] }),
-			tanstackStart(),
+			tanstackStart({
+				spa: {
+					enabled: desktopRendererBuild,
+					maskPath: "/desktop-shell",
+				},
+			}),
 			viteReact({
 				babel: {
 					plugins: ["babel-plugin-react-compiler"],
@@ -91,11 +152,10 @@ const config = defineConfig(({ command }) => {
 		},
 		...(isolatedDev
 			? {
-					server: {
-						host: new URL(isolatedDev.vars.WEB_APP_URL).hostname,
-						port: isolatedDev.port,
-						strictPort: true,
-					},
+					server: isolatedListener,
+					// TanStack prerender requires a Vite resolvedUrls.local entry.
+					// Only the listener uses loopback; lane URLs remain unchanged.
+					preview: { ...isolatedListener, host: "127.0.0.1" },
 				}
 			: {}),
 	};

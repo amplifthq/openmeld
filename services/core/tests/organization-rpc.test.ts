@@ -16,6 +16,8 @@ import type {
 } from "@openmeld/schemas/types";
 import { OPENMELD_DIRECT_MESSAGE_SPACE_PURPOSE } from "@openmeld/space";
 import { afterEach, describe, expect, it, vi } from "vitest";
+// biome-ignore lint/performance/noNamespaceImport: Spy on the usage read boundary while exercising organization authorization and projection.
+import * as agentProfileUsage from "../src/agent-execution/application/agent-profile-usage";
 // biome-ignore lint/performance/noNamespaceImport: Vitest spies on the shared batch read used by RPC readiness orchestration.
 import * as localRuntimeExpectedRoutesService from "../src/agent-profile-binding/application/local-runtime-expected-routes-service";
 import { MAX_ENABLED_PRIMARY_BINDING_OWNERS_PER_AGENT_PROFILE } from "../src/agent-profile-binding/infrastructure/d1/agent-profile-binding-repo";
@@ -545,7 +547,23 @@ describe("organization Core RPC", () => {
     expect(unavailable.agentProfiles[0]).not.toHaveProperty("modelSelection");
   });
 
-  it("batches Agent runtime lookups once per owner and reads each target Profile", async () => {
+  it.each([
+    false,
+    true,
+  ])("batches Agent runtime lookups and exposes only opted-in usage (%s)", async (includeUsageLimits) => {
+    const usageLimits = [
+      {
+        key: "weekly",
+        label: "Weekly usage",
+        status: "available" as const,
+        usedPercent: 92,
+        resetsAt: "2026-09-22T00:00:00Z",
+        observedAt: "2026-09-15T00:00:00Z",
+      },
+    ];
+    vi.spyOn(agentProfileUsage, "readAgentProfileUsage").mockResolvedValue(
+      usageLimits
+    );
     const resolveProfileById = vi.fn();
     const resolveProfilesByIds = vi.fn(
       async (input: { profileIds: string[] }) => ({
@@ -632,6 +650,7 @@ describe("organization Core RPC", () => {
     });
 
     const response = await rpcGetCurrentOrganizationAgentRuntimeOverview(env, {
+      includeUsageLimits,
       context: buildContext({
         activeOrganizationId: "org-a",
         userId: "user-a",
@@ -642,6 +661,11 @@ describe("organization Core RPC", () => {
       AGENT_PROFILE_ID,
       SECOND_AGENT_PROFILE_ID,
     ]);
+    for (const profile of response.agentProfiles) {
+      expect(profile.readiness.usageLimits).toEqual(
+        includeUsageLimits ? usageLimits : undefined
+      );
+    }
     expect(response.agentProfiles[0]).toMatchObject({
       operationalContext: { status: "working" },
       readiness: {

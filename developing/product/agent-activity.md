@@ -33,6 +33,13 @@ confirmation.
 
 ## Canonical Project Consumption
 
+An Execution Context is distinct from an observed native Session. A Profile may
+have several independent Contexts and retained native conversations while
+keeping one teammate identity. Activity observations cannot assign Contexts,
+infer a migration mode, select a fork source, release reservations, or prove
+process-tree cleanup. Continuation and recovery read Core's retained work
+associations; native history and local workspace paths remain private.
+
 Agent Activity consumes the canonical Organization-scoped Project identity
 owned by `developing/product/projects.md`. It may reference Project IDs, filter
 or group Activity by Project, and retain historical Project references while
