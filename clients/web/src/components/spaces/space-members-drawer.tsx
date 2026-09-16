@@ -35,7 +35,7 @@ import {
 	UsersThreeIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
 	AnimatePresence,
 	domAnimation,
@@ -872,6 +872,7 @@ function SpaceAddProfilesSection(input: SpaceAddProfilesSectionProps) {
 }
 
 function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
+	const queryClient = useQueryClient();
 	const [selectedProfileIds, setSelectedProfileIds] = useState<
 		ReadonlySet<string>
 	>(() => new Set());
@@ -897,6 +898,20 @@ function useSpaceAddProfilesSectionModel(input: SpaceAddProfilesSectionProps) {
 			organizationId: organization?.id ?? "",
 		})
 	);
+	const organizationId = organization?.id;
+	useEffect(() => {
+		if (!(input.open && organizationId)) {
+			return;
+		}
+		// Reuse fresh data and any in-flight request; opening never blocks on a read.
+		// The query observer keeps cached rows and exposes refresh errors.
+		queryClient.prefetchQuery(
+			organizationSpaceProfileCandidatesQueryOptions({
+				enabled: true,
+				organizationId,
+			})
+		);
+	}, [input.open, organizationId, queryClient]);
 
 	const personalProfilesPlan = useMemo(
 		() =>
@@ -1333,12 +1348,19 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			actions={
 				input.spaceId ? (
 					<div className="flex flex-wrap items-center gap-2">
-						<Button onClick={() => setCreating(true)} size="xs">
+						<Button
+							onClick={() => setCreating(true)}
+							size="xs"
+							variant="outline"
+						>
 							<PlusIcon aria-hidden="true" />
 							New Agent
 						</Button>
 						{input.usesOrganizationDirectory ? (
-							<SpaceInvitationsSection spaceId={input.spaceId} />
+							<SpaceInvitationsSection
+								spaceId={input.spaceId}
+								triggerLabel="Invite by email"
+							/>
 						) : null}
 					</div>
 				) : null
@@ -1347,17 +1369,12 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			canSubmit={input.canSubmit}
 			description={
 				input.usesOrganizationDirectory
-					? `Choose people and their agents from ${input.organizationName}.`
+					? `Select people or agents from ${input.organizationName} to add directly to this Space.`
 					: "Choose people and their agents to add to this Space."
 			}
 			emptyMessage={input.emptyMessage}
 			emptySelectionLabel="Select members to add"
-			errorMessage={
-				input.errorMessage ??
-				(waitsForDirectory && input.directoryIsError
-					? "Couldn’t load the Organization Directory."
-					: null)
-			}
+			errorMessage={input.errorMessage}
 			finalFocus={input.finalFocus}
 			id={input.dialogId}
 			includeAgentOwners
@@ -1366,11 +1383,31 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 			}
 			isSubmitting={busy || input.isSubmitting}
 			notice={
-				input.successMessage ? (
-					<p className={cn("text-xs", resolveStatusToneIconClassName("ready"))}>
-						{input.successMessage}
-					</p>
-				) : null
+				<>
+					{input.usesOrganizationDirectory && input.directoryIsError ? (
+						<div className="flex items-center justify-between gap-3">
+							<p className="text-muted-foreground text-sm">
+								{input.directoryHasData
+									? "Couldn’t update the list. Showing the last available results."
+									: "Couldn’t load people and agents. Try again."}
+							</p>
+							<Button
+								onClick={input.onRetryDirectory}
+								size="xs"
+								variant="outline"
+							>
+								Try again
+							</Button>
+						</div>
+					) : null}
+					{input.successMessage ? (
+						<p
+							className={cn("text-xs", resolveStatusToneIconClassName("ready"))}
+						>
+							{input.successMessage}
+						</p>
+					) : null}
+				</>
 			}
 			onClear={input.onClear}
 			onOpenChange={(open) => {
@@ -1380,11 +1417,6 @@ function SpaceAddProfilesDialog(input: SpaceAddProfilesDialogProps) {
 				input.onOpenChange(open);
 			}}
 			onQueryChange={input.onAddQueryChange}
-			onRetry={
-				waitsForDirectory && input.directoryIsError
-					? input.onRetryDirectory
-					: undefined
-			}
 			onSubmit={() => {
 				input.onSubmit().catch(input.onSubmitError);
 			}}

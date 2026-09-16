@@ -19,6 +19,7 @@ import {
 import type { ComponentProps, ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
+import { readCurrentOrganizationDirectory } from "#/lib/organizations/organization-directory";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { agentProfilePrimaryBindingQueryKeys } from "#/query/profiles/primary-binding";
@@ -61,6 +62,16 @@ vi.mock("#/lib/spaces/direct-message", () => ({
 vi.mock("sonner", () => ({
 	toast: toastMock,
 }));
+
+vi.mock(
+	"#/lib/organizations/organization-directory",
+	async (importOriginal) => ({
+		...(await importOriginal<
+			typeof import("#/lib/organizations/organization-directory")
+		>()),
+		readCurrentOrganizationDirectory: vi.fn(),
+	})
+);
 
 vi.mock(
 	"#/lib/profiles/agent-profile-primary-binding",
@@ -209,6 +220,75 @@ import {
 } from "./space-members-error-copy";
 
 describe("SpaceMembersSidePanel", () => {
+	it("reuses fresh candidates and preserves selection through a failed stale refresh and retry", async () => {
+		vi.useFakeTimers({ toFake: ["Date"] });
+		vi.setSystemTime(new Date("2026-09-16T12:00:00Z"));
+		const directory = buildOrganizationDirectory({
+			centerAgentProfileId: "agt_44444444-4444-4444-8444-444444444444",
+			humanProfileId: "22222222-2222-4222-8222-222222222222",
+		});
+		const pending = Promise.withResolvers<OrganizationDirectoryResponse>();
+		const read = vi
+			.mocked(readCurrentOrganizationDirectory)
+			.mockReturnValueOnce(pending.promise)
+			.mockResolvedValue(directory);
+		const client = createTestQueryClient();
+		client.setQueryData(organizationQueryKeys.directory("org-acme"), directory);
+		const surface = (nonce: number) => (
+			<TestQueryClientProvider queryClient={client}>
+				<AppOrganizationProvider scope={createOrganizationScope()}>
+					<SpaceAddMembersLauncher
+						activeWakeWaitingTargetProfileIds={new Set()}
+						agentRecoveryPlansByProfileId={new Map()}
+						autoRefreshExhaustedProfileIds={new Set()}
+						currentOwnerUserId="user_felix"
+						currentProfileId="11111111-1111-4111-8111-111111111111"
+						isAgentRecoveryPending={() => false}
+						isLoading={false}
+						membersError={null}
+						onAddOrganizationDirectoryProfiles={vi.fn()}
+						onAgentRecoveryAction={async () => undefined}
+						onOpenChange={vi.fn()}
+						onRefresh={async () => undefined}
+						open={false}
+						openAddMembersNonce={nonce}
+						orgSlug="acme"
+						snapshot={createSpaceMembersSnapshot()}
+					/>
+				</AppOrganizationProvider>
+			</TestQueryClientProvider>
+		);
+		const view = render(surface(0));
+		view.rerender(surface(1));
+		await screen.findByRole("checkbox", { name: "Mira" });
+		fireEvent.click(screen.getByText("Close"));
+		view.rerender(surface(2));
+		await screen.findByRole("checkbox", { name: "Mira" });
+		expect(read).not.toHaveBeenCalled();
+		fireEvent.click(screen.getByText("Close"));
+		vi.setSystemTime(new Date("2026-09-16T12:00:11Z"));
+		view.rerender(surface(3));
+		await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+		fireEvent.click(screen.getByText("Close"));
+		view.rerender(surface(4));
+		const choice = screen.getByRole("checkbox", { name: "Mira" });
+		fireEvent.click(choice);
+		expect(read).toHaveBeenCalledTimes(1);
+		pending.reject(
+			Object.assign(new Error("Invalid directory response"), {
+				code: "gateway.invalid_response",
+			})
+		);
+		const refreshMessage =
+			"Couldn’t update the list. Showing the last available results.";
+		await screen.findByText(refreshMessage);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+		fireEvent.click(screen.getByText("Try again"));
+		await waitFor(() => expect(screen.queryByText(refreshMessage)).toBeNull());
+		expect(read).toHaveBeenCalledTimes(2);
+		expect(choice.getAttribute("aria-checked")).toBe("true");
+	});
+
 	it.each([
 		true,
 		false,
@@ -263,8 +343,10 @@ describe("SpaceMembersSidePanel", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.useRealTimers();
 		vi.restoreAllMocks();
 		readPrimaryBindingMock.mockReset();
+		vi.mocked(readCurrentOrganizationDirectory).mockReset();
 		toastMock.error.mockReset();
 		toastMock.success.mockReset();
 		updatePrimaryBindingAgentControllerCollaborationModeMock.mockReset();
@@ -1411,7 +1493,9 @@ describe("SpaceMembersSidePanel", () => {
 			).toBe("false");
 		}
 		expect(
-			screen.getByText("Choose people and their agents from Acme.")
+			screen.getByText(
+				"Select people or agents from Acme to add directly to this Space."
+			)
 		).toBeTruthy();
 		expect(screen.queryByRole("checkbox", { name: "Felix" })).toBeNull();
 		expect(
@@ -2232,7 +2316,7 @@ describe("SpaceMembersSidePanel", () => {
 		const createProfileButton = dialogScope.getByRole("button", {
 			name: "New Agent",
 		});
-		expect(createProfileButton.className).toContain("bg-primary");
+		expect(createProfileButton).toBeTruthy();
 		const footerLabel = dialogScope.getByText("Select members to add");
 		const footer = footerLabel.parentElement;
 		expect(footer?.className).toContain("flex-col");
