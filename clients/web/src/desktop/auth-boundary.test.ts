@@ -16,6 +16,11 @@ describe("Desktop route authentication", () => {
 		true,
 	])("runs protected child loaders only with a native session: %s", async (signedIn) => {
 		const bridge = {
+			updaterState: vi.fn(),
+			updaterAction: vi.fn(),
+			updaterPrepared: vi.fn(),
+			onUpdaterChanged: vi.fn(() => () => undefined),
+			onUpdaterPrepare: vi.fn(() => () => undefined),
 			session: async () => ({
 				user: signedIn
 					? { id: "account-a", email: "a@example.com", name: "A" }

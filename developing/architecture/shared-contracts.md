@@ -27,6 +27,20 @@
 
 ## Desktop platform contract
 
+`desktop-updater.ts` owns main/renderer update snapshots, action names and the
+request-scoped restart preparation reply. Existing trusted-window authorization
+applies before every updater IPC call. Renderer replies contain only the main
+request ID and whether existing owners saved their work. Main alone selects the
+fixed production feed and starts download or installation. These local IPC
+additions ship with the matching bundled renderer; cloud, CLI, Service, Skills,
+Core and Gateway execution contracts and their version floors do not change.
+
+`desktop-release.ts` owns immutable candidate metadata and the sole promoted
+release pointer. The optional ZIP metadata preserves older DMG-only candidate
+links, but promotion requires a ZIP. The default page, legacy JSON and updater
+feed derive their version from that same pointer. No separate latest manifest
+may be edited or uploaded for electron-updater.
+
 `desktop-notifications.ts` owns additive renderer/native Inbox reference,
 test-request and delivery-result contracts. Only the current trusted window
 can request delivery. Native credentials reread the recipient-authorized Core

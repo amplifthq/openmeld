@@ -11,11 +11,6 @@ const DEFAULT_DESKTOP_DOWNLOAD_PAGE_URL_BY_PRESET = {
   "dev-local": "http://localhost:3000/desktop",
   canary: "http://localhost:3000/desktop",
 } as const satisfies Record<DesktopEnvPreset, string>;
-const DEFAULT_DESKTOP_UPDATE_MANIFEST_URL_BY_PRESET = {
-  prod: "https://openmeld.ai/desktop/update.json",
-  "dev-local": "http://localhost:3000/desktop/update.json",
-  canary: "http://localhost:3000/desktop/update.json",
-} as const satisfies Record<DesktopEnvPreset, string>;
 
 export function resolveDesktopWebUrl(
   input: { env?: NodeJS.ProcessEnv; path?: string } = {}
@@ -80,24 +75,6 @@ export function resolveDesktopDownloadPageUrl(
     );
   }
   return DEFAULT_DESKTOP_DOWNLOAD_PAGE_URL_BY_PRESET[
-    resolveDesktopEnvPreset({ env })
-  ];
-}
-
-export function resolveDesktopUpdateManifestUrl(
-  input: { env?: NodeJS.ProcessEnv } = {}
-): string {
-  const env = input.env ?? process.env;
-  const explicitManifestUrl = normalizeOptionalText(
-    env.OPENMELD_DESKTOP_UPDATE_MANIFEST_URL
-  );
-  if (explicitManifestUrl) {
-    return normalizeHttpUrl(
-      explicitManifestUrl,
-      "OPENMELD_DESKTOP_UPDATE_MANIFEST_URL"
-    );
-  }
-  return DEFAULT_DESKTOP_UPDATE_MANIFEST_URL_BY_PRESET[
     resolveDesktopEnvPreset({ env })
   ];
 }

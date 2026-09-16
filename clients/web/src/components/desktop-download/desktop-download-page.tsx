@@ -55,12 +55,12 @@ export function DesktopDownloadPage({
 						<>
 							<h2 className="font-medium">
 								{unavailable === "default"
-									? "No default download yet"
+									? "Desktop downloads aren't available yet"
 									: "This preview is unavailable"}
 							</h2>
 							<p className="mt-2 text-muted-foreground text-sm leading-6">
 								{unavailable === "default"
-									? "Have a preview invitation? Open the full link you received to download that version."
+									? "Please check back later. You can keep using OpenMeld Web."
 									: "Check that you opened the full preview link, or ask the person who shared it for a new one."}
 							</p>
 						</>

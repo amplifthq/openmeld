@@ -1,10 +1,12 @@
 import {
+	DESKTOP_PROMOTED_RELEASE_KEY,
 	desktopCandidateIdSchema,
 	desktopCandidateLocation,
 	desktopCandidateManifestKey,
 	desktopCandidateManifestSchema,
+	desktopPromotedReleaseSchema,
+	desktopUpdaterFeedSchema,
 } from "@openmeld/schemas";
-import { z } from "zod/v4";
 
 export function parseDesktopCandidateSelector(value: unknown) {
 	return desktopCandidateIdSchema.optional().parse(value);
@@ -51,7 +53,6 @@ export async function readDesktopCandidate(
 export const DESKTOP_DOWNLOAD_PAGE_PATH = "/desktop";
 export const DESKTOP_DOWNLOAD_ROUTE_PATH = "/desktop/download";
 export const DESKTOP_UPDATE_ROUTE_PATH = "/desktop/update.json";
-export const DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY = "desktop/update.json";
 
 export type DesktopUpdateManifest = {
 	latestVersion: string;
@@ -83,53 +84,64 @@ type DesktopReleaseManifestStore = {
 	get: (key: string) => Promise<{ json: () => Promise<unknown> } | null>;
 };
 
-const desktopPreviewReleaseManifestSchema = z.object({
-	latestVersion: z.string().trim().min(1),
-	minimumSupportedVersion: z.string().trim().min(1).nullable().optional(),
-	message: z.string().nullable().optional(),
-	macosArm64: z.object({
-		artifactName: z.string().trim().min(1),
-		objectKey: z.string().trim().min(1),
-		version: z.string().trim().min(1),
-		sha256: z.string().trim().min(1).nullable().optional(),
-		sizeBytes: z.number().int().nonnegative().nullable().optional(),
-	}),
-});
-
-export function parseDesktopPreviewReleaseManifest(
-	value: unknown
-): DesktopPreviewReleaseManifest {
-	const parsed = desktopPreviewReleaseManifestSchema.safeParse(value);
-	if (!parsed.success) {
-		throw new Error(
-			`Invalid OpenMeld Desktop preview release manifest: ${parsed.error.message}`
-		);
+export async function readDesktopPreviewReleaseManifest(input: {
+	store: DesktopReleaseManifestStore;
+}): Promise<DesktopPreviewReleaseManifest | null> {
+	const candidate = await readPromotedDesktopRelease(input.store);
+	if (!candidate) {
+		return null;
 	}
-
 	return {
-		latestVersion: parsed.data.latestVersion,
-		minimumSupportedVersion:
-			parsed.data.minimumSupportedVersion ?? parsed.data.latestVersion,
-		message: parsed.data.message ?? null,
+		latestVersion: candidate.version,
+		minimumSupportedVersion: null,
+		message: null,
 		macosArm64: {
-			artifactName: parsed.data.macosArm64.artifactName,
-			objectKey: parsed.data.macosArm64.objectKey,
-			version: parsed.data.macosArm64.version,
-			sha256: parsed.data.macosArm64.sha256 ?? null,
-			sizeBytes: parsed.data.macosArm64.sizeBytes ?? null,
+			artifactName: candidate.artifactName,
+			objectKey: candidate.objectKey,
+			version: candidate.version,
+			sha256: candidate.sha256,
+			sizeBytes: candidate.sizeBytes,
 		},
 	};
 }
 
-export async function readDesktopPreviewReleaseManifest(input: {
-	store: DesktopReleaseManifestStore;
-}): Promise<DesktopPreviewReleaseManifest | null> {
-	const object = await input.store.get(DESKTOP_RELEASE_MANIFEST_R2_OBJECT_KEY);
+export async function readPromotedDesktopRelease(
+	store: DesktopReleaseManifestStore
+) {
+	const object = await store.get(DESKTOP_PROMOTED_RELEASE_KEY);
 	if (!object) {
 		return null;
 	}
+	const pointer = desktopPromotedReleaseSchema.parse(await object.json());
+	const candidate = await readDesktopCandidate(store, pointer.candidate);
+	if (!candidate?.zip) {
+		throw new Error("Promoted Desktop release is incomplete.");
+	}
+	return { ...candidate, releaseDate: pointer.promotedAt };
+}
 
-	return parseDesktopPreviewReleaseManifest(await object.json());
+export function buildDesktopUpdaterFeed(
+	candidate: NonNullable<Awaited<ReturnType<typeof readPromotedDesktopRelease>>>
+) {
+	if (!candidate.zip) {
+		throw new Error("Desktop release has no update ZIP.");
+	}
+	// JSON is a YAML subset. Every artifact URL is immutable and derived locally.
+	return JSON.stringify(
+		desktopUpdaterFeedSchema.parse({
+			version: candidate.version,
+			releaseDate: candidate.releaseDate,
+			files: [
+				{
+					url: candidate.zipDownloadPath,
+					sha512: candidate.zip.sha512,
+					size: candidate.zip.sizeBytes,
+				},
+			],
+			path: candidate.zipDownloadPath,
+			sha512: candidate.zip.sha512,
+		})
+	);
 }
 
 // The page offers only artifacts present in the same store as the download route.
@@ -164,7 +176,7 @@ export async function readAvailableDesktopRelease(
 		return null;
 	}
 	const artifact = await store.head(release.macosArm64.objectKey);
-	return artifact && artifact.size > 0
+	return artifact && artifact.size === release.macosArm64.sizeBytes
 		? {
 				version: release.macosArm64.version,
 				sizeBytes: release.macosArm64.sizeBytes,

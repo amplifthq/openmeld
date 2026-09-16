@@ -25,6 +25,13 @@
 
 ## Boundary
 
+The account avatar's top-level **Download Desktop** item appears only on Web and
+opens the public `/desktop` page. That page, the default DMG route, legacy update
+JSON and macOS updater feed read the single promoted Desktop release in R2.
+Explicit candidate selectors remain strict and never fall back to the promoted
+release. Desktop's shared renderer exposes Updates through its native bridge;
+browser Web has no updater controls.
+
 ### Shared Profile and Organization actions
 
 Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.

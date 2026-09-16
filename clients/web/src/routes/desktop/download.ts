@@ -125,13 +125,19 @@ async function downloadDefault(bucket: R2Bucket, includeBody: boolean) {
 		});
 	}
 
-	return new Response(includeBody ? object.body : null, {
-		headers: buildDesktopDownloadHeaders({
-			artifactName: releaseManifest.macosArm64.artifactName,
-			etag: object.httpEtag,
-			sizeBytes: object.size,
-		}),
+	if (object.size !== releaseManifest.macosArm64.sizeBytes) {
+		return new Response("Desktop artifact size mismatch.", {
+			status: 503,
+			headers: { "cache-control": "no-store" },
+		});
+	}
+	const headers = buildDesktopDownloadHeaders({
+		artifactName: releaseManifest.macosArm64.artifactName,
+		etag: object.httpEtag,
+		sizeBytes: object.size,
 	});
+	headers.set("cache-control", "no-store");
+	return new Response(includeBody ? object.body : null, { headers });
 }
 
 export const Route = createFileRoute("/desktop/download")({

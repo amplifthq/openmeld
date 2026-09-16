@@ -1,6 +1,8 @@
 import {
   desktopNotificationReferenceSchema,
   desktopSpaceStreamEventSchema,
+  desktopUpdaterRestartRequestSchema,
+  desktopUpdaterStateSchema,
 } from "@openmeld/schemas";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import {
@@ -56,6 +58,34 @@ const openMeldBridge: OpenMeldBridge = {
 
 contextBridge.exposeInMainWorld("openmeld", openMeldBridge);
 contextBridge.exposeInMainWorld("openmeldDesktop", {
+  updaterState: async () =>
+    desktopUpdaterStateSchema.parse(
+      await ipcRenderer.invoke(PILOT_IPC.updaterState)
+    ),
+  updaterAction: (action) =>
+    ipcRenderer.invoke(PILOT_IPC.updaterAction, action),
+  updaterPrepared: (reply) =>
+    ipcRenderer.invoke(PILOT_IPC.updaterPrepared, reply),
+  onUpdaterChanged: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const result = desktopUpdaterStateSchema.safeParse(value);
+      if (result.success) {
+        handler(result.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.updaterChanged, listener);
+    return () => ipcRenderer.removeListener(PILOT_IPC.updaterChanged, listener);
+  },
+  onUpdaterPrepare: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const result = desktopUpdaterRestartRequestSchema.safeParse(value);
+      if (result.success) {
+        handler(result.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.updaterPrepare, listener);
+    return () => ipcRenderer.removeListener(PILOT_IPC.updaterPrepare, listener);
+  },
   setNotificationContext: (input) =>
     ipcRenderer.invoke(PILOT_IPC.notificationContext, input),
   showNotification: (input) =>
