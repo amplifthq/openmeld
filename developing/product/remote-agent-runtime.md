@@ -2071,14 +2071,17 @@ comparisons, labels, assignees, reviews, requested reviewers, commit statuses,
 check runs, and merge state; and GitHub Actions workflow and run diagnosis. The
 write surface can create and update Issues, comments, labels, assignees,
 branches, files, pull requests, and pull-request reviews; request or remove
-reviewers; update pull-request branches; rerun workflows; delete individual
-files; and merge pull requests. Repository deletion and release publication
-remain unavailable. File deletion and pull-request merge operations use the
-interactive two-turn destructive-confirmation contract. Every other GitHub
-write executes directly from an explicit verified-user request or an explicit
-connected Message Channel member request with `githubActor = organization`. Explicit
-Routine instructions direct ordinary writes without per-Run confirmation.
-GitHub file deletion and pull-request merge are unsupported during a Routine.
+reviewers; update pull-request branches; dispatch or rerun workflows; delete
+individual files; and merge pull requests. The read surface can also resolve a
+GitHub Release by its exact tag so the Agent can distinguish a published
+Release from a completed workflow. Repository deletion and direct release
+publication remain unavailable. File deletion and pull-request merge operations
+use the interactive two-turn destructive-confirmation contract. Every other
+GitHub write executes directly from an explicit verified-user request or an
+explicit connected Message Channel member request with
+`githubActor = organization`. Explicit Routine instructions direct ordinary
+writes without per-Run confirmation. GitHub file deletion and pull-request
+merge are unsupported during a Routine.
 
 Every dedicated GitHub tool has one required model-visible
 `githubActor = organization | requester` input. `organization` means the
@@ -2089,6 +2092,28 @@ Interactive turns choose from the concrete repository and authorship need.
 Routine turns and member research reject `requester`; they may use only
 `organization`. Remote Agent strips `githubActor` before calling OpenConnector
 because it is OpenMeld authorization input, not a provider action parameter.
+
+Workflow dispatch is a general GitHub capability, not an OpenMeld release
+endpoint. Its provider input is only repository, workflow identifier, explicit
+branch or tag `ref`, and an optional string-to-string workflow input map. The
+Agent reads the selected repository's workflow and declared inputs before
+dispatch; the connector does not require OpenMeld-only fields such as
+`release_sha`, `scope`, a component order, or a repository allowlist. Existing
+GitHub Environment protections and repository workflow validation continue to
+own release authority.
+
+The existing Core connector-action operation owns dispatch replay, connection
+identity, authorization, request signature, provider execution, and the saved
+result. With GitHub API version `2022-11-28`, OpenConnector requests
+`return_run_details` and returns the exact `workflow_run_id`, API URL, and HTML
+URL when GitHub supplies them. A successful dispatch operation means only that
+GitHub accepted the request; it does not prove workflow completion, deployment,
+health, Release publication, or product smoke. If GitHub returns the compatible
+empty response, the result records that run identity is unavailable. The Agent
+must report that uncertainty and must not dispatch again or select a latest run
+just to manufacture a correlation. Later inspection uses the existing workflow
+run and job reads and the exact returned run identity when known. This path does
+not add polling infrastructure, callbacks, or a release scheduler.
 
 #### OpenConnector access boundary
 
@@ -2156,6 +2181,15 @@ must not be presented as the remedy for either result. GitHub `Not Found` and
 authorization failures preserve the provider error while explaining that the
 repository must be included in the OpenMeld GitHub App installation and
 available to the explicitly selected GitHub identity.
+
+Workflow dispatch depends on the provider contract that returns honest run
+identity status. OpenConnector must be updated before Remote Agent exposes the
+tool. The shared Center Agent speaker enum is additive but strict: deploy Core
+with the new tool names before Remote Agent begins sending them. Old Remote
+Agent remains compatible with new Core; new Remote Agent against old Core fails
+closed instead of bypassing speaker authorization. The change does not affect
+CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
+versions.
 
 `config/openconnector/wrangler.production.jsonc` is the tracked source of truth
 for this deployment policy, Worker identity, D1 binding, R2 binding, and public
