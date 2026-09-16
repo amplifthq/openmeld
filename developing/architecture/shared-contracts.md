@@ -73,8 +73,11 @@ Web callers using the explicit mutations). During mixed versions, unsupported
 routes fail without falling back to another Computer. Existing CLI/Service
 picker, Project and workspace requests, Prepare, Wake, Space actions, Skills,
 status, diagnostics and recovery commands are unchanged. Capabilities continue
-to reject old Services that cannot perform an operation; no CLI/Service epoch,
-minimum version, bundle stamp, or Desktop contract-version bump is required.
+to reject old Services that cannot perform an operation; no semantic CLI/Service
+epoch, minimum-version, or Desktop contract-version bump is required. Shared
+schema paths still trigger the repository's Service release classification;
+the integrated release must complete local-component stamping and release-ready
+verification. Leaf development does not establish that artifact evidence.
 Old Desktop builds keep their existing restrictions. Rollback removes the new
 caller before removing these additive cloud receivers.
 
