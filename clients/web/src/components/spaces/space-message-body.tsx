@@ -11,6 +11,7 @@ import {
 	type ReactNode,
 	type Ref,
 	useCallback,
+	useEffect,
 	useLayoutEffect,
 	useMemo,
 	useRef,
@@ -749,9 +750,29 @@ function SpaceMessageFileImage(input: {
 	onOpenSpaceFile?: (fileId: string, revision: number) => void;
 	spaceId: string;
 }) {
+	const placeholder = useRef<HTMLOutputElement>(null);
+	const [visible, setVisible] = useState(false);
+	useEffect(() => {
+		const element = placeholder.current;
+		if (!element) {
+			return;
+		}
+		const observer = new IntersectionObserver(
+			(entries) => {
+				if (entries.some((entry) => entry.isIntersecting)) {
+					setVisible(true);
+					observer.disconnect();
+				}
+			},
+			{ rootMargin: "100px" }
+		);
+		observer.observe(element);
+		return () => observer.disconnect();
+	}, []);
 	const [isBroken, setIsBroken] = useState(false);
 	const imageSource = useSpaceFileImageSource({
 		api: input.api,
+		enabled: visible,
 		fileId: input.file.fileId,
 		isLocal: input.file.isLocal,
 		localPreviewUrl: input.file.localPreviewUrl,
@@ -768,6 +789,7 @@ function SpaceMessageFileImage(input: {
 					"animate-pulse bg-muted motion-reduce:animate-none",
 					input.isSingle ? "h-48 w-72 max-w-full" : "aspect-square w-full"
 				)}
+				ref={placeholder}
 			/>
 		);
 	}

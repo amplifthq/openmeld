@@ -3447,7 +3447,7 @@ function ThreadPreview(input: {
 			{previewItems.map((item) => (
 				// biome-ignore lint/a11y/useSemanticElements: The preview contains independently usable links and selectable text.
 				<div
-					aria-label="Thread preview"
+					aria-label={`Open reply from ${item.actorName}: ${threadReplyPreviewText(item.text)}`}
 					className="flex w-full min-w-0 max-w-full cursor-pointer items-start gap-2 overflow-hidden pe-2 hover:underline focus-visible:outline focus-visible:outline-ring"
 					key={item.id}
 					onClick={(event) => {

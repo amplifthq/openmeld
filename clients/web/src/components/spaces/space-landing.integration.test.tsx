@@ -305,6 +305,9 @@ vi.mock("@tanstack/react-query", async () => {
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
 			const queryMock = useQueryMock;
+			if (options.queryKey?.[0] === "message-notification-preferences") {
+				return createQueryResult({ isPending: true });
+			}
 			if (options.queryKey?.[3] === "history-navigation") {
 				return createQueryResult({
 					isSuccess: true,
@@ -331,6 +334,12 @@ vi.mock("@tanstack/react-query", async () => {
 				) as (queryKey: readonly unknown[], update: unknown) => unknown;
 				return new Proxy(mockedQueryClient, {
 					get(target, property, receiver) {
+						if (!(property in target)) {
+							const actualValue = Reflect.get(actualQueryClient, property);
+							return typeof actualValue === "function"
+								? actualValue.bind(actualQueryClient)
+								: actualValue;
+						}
 						if (property === "setQueryData") {
 							return (queryKey: readonly unknown[], update: unknown) => {
 								if (usesRealQuery(queryKey)) {
@@ -365,6 +374,12 @@ vi.mock("@tanstack/react-router", () => ({
 	useBlocker: () => ({ status: "unblocked" as const }),
 	useElementScrollRestoration: () => undefined,
 	useNavigate: () => useNavigateMock,
+	useLocation: (options?: {
+		select?: (location: { pathname: string }) => unknown;
+	}) => {
+		const location = { pathname: "/o/acme/spaces/space-123" };
+		return options?.select ? options.select(location) : location;
+	},
 	useRouterState: (input: {
 		select?: (state: { location: { pathname: string } }) => unknown;
 	}) => {
@@ -567,6 +582,7 @@ const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
+const THREAD_REPLY_LINK_PATTERN = /^Open reply from /;
 const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
 	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -10559,9 +10575,9 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Open thread (7 replies)" })
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("link", { name: "Thread preview" })).getByText(
-				"Saved reply preview"
-			)
+			within(
+				screen.getByRole("link", { name: THREAD_REPLY_LINK_PATTERN })
+			).getByText("Saved reply preview")
 		).toBeTruthy();
 		expect(
 			screen
@@ -16198,7 +16214,9 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Can someone check the privacy page?")
 		).toBeTruthy();
-		const previews = screen.getAllByRole("link", { name: "Thread preview" });
+		const previews = screen.getAllByRole("link", {
+			name: THREAD_REPLY_LINK_PATTERN,
+		});
 		expect(previews).toHaveLength(2);
 		expect(
 			within(previews[0] as HTMLElement).getByText("Filed the issue.")

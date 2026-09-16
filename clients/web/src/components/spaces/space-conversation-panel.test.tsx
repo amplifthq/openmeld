@@ -49,6 +49,7 @@ type SpaceConversationPanelOverrides = Partial<
 };
 
 const FAILED_TEXT_PATTERN = /failed/i;
+const THREAD_REPLY_LINK_PATTERN = /^Open reply from Felix:/;
 const UNREAD_JUMP_PATTERN = /Jump to first unread/;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
@@ -1318,7 +1319,9 @@ describe("SpaceConversationPanel", () => {
 			screen.getByRole("link", { name: "Open Space Launch Planning" })
 		);
 		expect(onOpenThread).not.toHaveBeenCalled();
-		const preview = screen.getByRole("link", { name: "Thread preview" });
+		const preview = screen.getByRole("link", {
+			name: THREAD_REPLY_LINK_PATTERN,
+		});
 		fireEvent.click(preview);
 		fireEvent.keyDown(preview, { key: "Enter" });
 		fireEvent.keyDown(preview, { key: " " });
