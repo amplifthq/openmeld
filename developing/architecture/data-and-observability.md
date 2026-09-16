@@ -2187,14 +2187,15 @@ per-turn evidence and expires it after seven days. It records only structured
 milestones and decisions: provider
 request preparation and response headers, first model event, first visible
 assistant content, model completion, model and tool counts, capability search
-and describe results, the source of each tool call, and whether the per-attempt
+and describe results, the source of each tool call, and whether the
 assignment safety budget was exhausted. For current workers, `toolCallCount`
 is the aggregate admitted attempt number across the same dispatch and
 `toolCallLimit` is its frozen configured limit; source counters and recent events
 remain submission-local. Legacy records retain their original per-submission
 meaning. Active accounting does not expire; after Core accepts a final callback,
 the matching last submission's accounting can expire after one hour. An older
-submission's callback cannot expire a newer submission's accounting. It never records prompt text, reply text, model
+submission's callback cannot expire a newer submission's accounting. It never
+records prompt text, reply text, model
 reasoning, tool arguments, tool results, tokens, or provider payloads.
 
 Core reports runtime evidence as `available`, `not_recorded`, or `unavailable`.
