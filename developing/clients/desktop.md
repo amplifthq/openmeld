@@ -168,7 +168,7 @@ renderer bridge. Storage is scoped to the configured Web origin.
 Desktop sign-out revokes the Desktop session; it does not run CLI logout.
 The pilot exposes the independently read CLI account ID for comparison with its
 cloud session. This comparison is display evidence, not the mutation fence.
-The existing Computer surface offers Start/Stop only when the installed CLI and
+The existing Computer surface offers Service Start/Stop only when the installed CLI and
 actual macOS binary carrier positively advertise account-checked control.
 The renderer sends the displayed account as immutable intent. Main verifies the
 current native session, then passes that same account to the CLI admission owner.
@@ -224,6 +224,31 @@ file-backed output. GUI exit does not stop it or the OS-managed Service. The
 existing Prepare continuation journal and maintenance worker retain recovery
 ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
 snapshot; errors retain a shared local-machine action and diagnostic correlation.
+
+The standalone connection page reads the same native account-aligned Computer
+projection as Working folder selection. A positive connection shows Connected
+and a destructive Disconnect this Mac action; the header links to that page and
+preserves the originating Human Profile for Back. New Agent recovery retains
+its explicit connection intent instead of offering Disconnect.
+
+Disconnect requires a native confirmation. The fixed `computer disconnect
+--connection-intent <json> --view agent` command carries the displayed account
+and exact reviewed local session identity. The CLI reuses account-admitted Stop,
+waits for its controlled active-work drain, and then clears only that reviewed
+CLI session under existing lifecycle ownership. Desktop remains signed in and
+the cloud Computer record remains. A refused or unconfirmed Stop never clears
+credentials. A changed account or same-account replacement session cannot be
+stopped by stale reviewed intent. Retry can finish credential cleanup only after
+the matching Service owner's stopped intent and verified runtime absence.
+Connect can enroll this Mac again; Forget is never required for account switching.
+
+Setup progress comes from actual CLI agent-output stages, without percentages
+or a GUI deadline. Failed setup retains its original subprocess error and any
+blocked Prepare step even if the final snapshot read fails. A private temporary
+diagnostic file retains the last 100 parsed events, with bounded, redacted
+messages; raw output is removed on completion. The UI exposes its path alongside
+the Prepare correlation ID. These diagnostics do not establish an incident's
+root cause without the failed operation's evidence.
 
 Signed production previews use `desktop:package:production-preview`, the same
 installed build pipeline and existing Developer ID/Keychain notarization as local
@@ -323,10 +348,17 @@ configuration actions while retaining reported status, details, and a Web handof
 `pilot-local-control-policy.ts` rejects the exact Gateway method/path families
 before attaching credentials: current and explicit Computer updates, local agent
 configuration, maintenance, file access, general local Project controls, enrollment,
-rename/forget, and Prepare mutations. Catalog refresh is also unavailable in this
+rename, current-Computer forget shortcuts, and Prepare mutations. Catalog refresh is also unavailable in this
 pilot; reading existing reports remains available. Ordinary Web and Space/Wake
 mutations retain their existing contracts. These are pilot capability limits, not
 new Core authorization rules.
+
+Forget this computer is a separate cloud-account action available in an owned
+Computer's details, using the existing confirmation and Core authorization.
+Desktop admits only `POST /v1/devices/:deviceId/forget` with an explicit device
+ID; it still rejects `/v1/devices/current/forget`. Forget removes the account's
+record. It is not Service Stop or local CLI sign-out, and this exception grants
+no local configuration capability.
 
 Working folder selection is a narrow exception. Main reads the existing CLI
 `computer connection-review --json` projection without installing or starting a

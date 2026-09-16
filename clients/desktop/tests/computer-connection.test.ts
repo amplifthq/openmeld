@@ -1,6 +1,10 @@
+import { spawn } from "node:child_process";
 import { prepareSessionWithTokenResponseSchema } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createComputerConnection } from "../src/main/computer-connection";
+import {
+  createComputerConnection,
+  createComputerDisconnection,
+} from "../src/main/computer-connection";
 
 const mocks = vi.hoisted(() => ({
   exec: vi.fn(),
@@ -25,6 +29,49 @@ vi.mock("../src/main/cli/managed-binary", () => ({
 
 describe("Desktop computer connection admission", () => {
   beforeEach(() => vi.clearAllMocks());
+  it.each([
+    "cancelled",
+    "account changed",
+  ])("does not start Disconnect when confirmation is %s", async (scenario) => {
+    const session = vi.fn().mockResolvedValue({
+      user: { id: "account-a", email: "a@example.com", name: "A" },
+    });
+    mocks.exec.mockResolvedValue({
+      stdout: JSON.stringify({
+        protocol: "computer-connection-v1",
+        previousSessionIdentity: "reviewed-session",
+        account: { id: "account-a", email: "a@example.com" },
+        existingConnection: { deviceId: "device-a", runtimeLane: "dev-local" },
+      }),
+    });
+    const disconnect = createComputerDisconnection({
+      auth: { session },
+      commandDeps: {
+        openMeldBin: "/test-owned/openmeld",
+        env: {
+          OPENMELD_HOME: "/test-owned",
+          OPENMELD_AUTH_URL: "http://lane.localhost:8788",
+          OPENMELD_GATEWAY_URL: "http://lane.localhost:8080",
+        },
+      },
+      confirmDisconnect: () => {
+        session.mockResolvedValue({
+          user: { id: "account-b", email: "b@example.com", name: "B" },
+        });
+        return Promise.resolve(scenario !== "cancelled");
+      },
+    });
+    if (scenario === "cancelled") {
+      await expect(disconnect({ expectedAccount: "account-a" })).resolves.toBe(
+        false
+      );
+    } else {
+      await expect(
+        disconnect({ expectedAccount: "account-a" })
+      ).rejects.toThrow("Desktop sign-in changed");
+    }
+    expect(spawn).not.toHaveBeenCalled();
+  });
   it.each([
     "same_account",
     "cancel_switch",
@@ -237,7 +284,7 @@ describe("Prepare diagnostic continuity", () => {
       message: {
         grant: "Grant failed",
         account: "Account unavailable",
-        snapshot: "Snapshot unavailable",
+        snapshot: "Test executable unavailable",
       }[failure],
     });
   });

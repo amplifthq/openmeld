@@ -114,6 +114,7 @@ export type CommandEntryName =
   | "computer.list"
   | "computer.current"
   | "computer.rename"
+  | "computer.disconnect"
   | "service.menu"
   | "service.run"
   | "service.status"

@@ -18,7 +18,10 @@ import {
   type WebContents,
 } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
-import { createComputerConnection } from "./computer-connection";
+import {
+  createComputerConnection,
+  createComputerDisconnection,
+} from "./computer-connection";
 import { checkDesktopCompatibility } from "./desktop-compatibility";
 import {
   resolveDesktopEnvPreset,
@@ -114,10 +117,12 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
   } else {
     configurePilotUserData(app, process.env);
   }
+  let sessionRevision = 0;
   const auth = createPilotAuth(
     webOrigin,
     getWindow,
     () => {
+      sessionRevision += 1;
       streams.closeAll();
       notifications.clear();
       const owner = getWindow()?.webContents;
@@ -227,6 +232,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       };
       const connectComputer = createComputerConnection({
         auth,
+        sessionRevision: () => sessionRevision,
         commandDeps,
         webOrigin,
         webBuild: platform.webBuild,
@@ -243,7 +249,36 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           });
           return result.response === 1;
         },
+        onProgress: (progress) => {
+          const owner = getWindow()?.webContents;
+          if (owner && !owner.isDestroyed()) {
+            owner.send(PILOT_IPC.connectionProgress, progress);
+          }
+        },
       });
+      const disconnectComputer = createComputerDisconnection({
+        auth,
+        commandDeps,
+        confirmDisconnect: async () => {
+          const result = await dialog.showMessageBox({
+            type: "warning",
+            message: "Disconnect this Mac?",
+            detail:
+              "OpenMeld will finish active work, stop its Service, and sign this Mac out. The computer record stays in your account. Desktop stays signed in.",
+            buttons: ["Cancel", "Disconnect this Mac"],
+            defaultId: 0,
+            cancelId: 0,
+          });
+          return result.response === 1;
+        },
+      });
+      ipcMain.handle(
+        PILOT_IPC.disconnectComputer,
+        (event, request: unknown) => {
+          authorize(event);
+          return disconnectComputer(request);
+        }
+      );
       ipcMain.handle(PILOT_IPC.connectComputer, (event, request: unknown) => {
         authorize(event);
         return connectComputer(request);

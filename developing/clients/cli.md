@@ -1205,6 +1205,18 @@ remains a compatibility receiver for commands generated before this contract
 changed and uses the same fail-atomic Prepare handoff; it is not the
 Web-recommended handoff.
 
+`computer disconnect --connection-intent <json>` ends the explicitly reviewed
+local account connection while retaining its cloud Computer record. The intent
+uses the same expected account and stable previous-session identity as setup.
+The existing Service admission owner checks that identity under its auth lock
+before Stop, including same-account re-login. Controlled Stop must complete
+before the existing auth owner clears that exact session; lifecycle ownership
+covers both operations. A cleanup retry requires matching stopped Service intent,
+environment ownership, and verified runtime absence. Desktop sign-in is separate.
+Ordinary Service Stop keeps CLI credentials; cloud Forget removes the saved
+Computer record. Neither is an alias for Disconnect. Entry checks must not
+sign in, update, repair, or start the Service before reviewed admission.
+
 The signed macOS binary stores new bearer sessions in the user's macOS
 Keychain through Security.framework. The bare Developer ID CLI must not request
 a restricted Keychain access-group entitlement, because it has no embedded

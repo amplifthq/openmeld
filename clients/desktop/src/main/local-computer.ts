@@ -29,7 +29,7 @@ export function createLocalComputerReader(
       if (!before.user) {
         return {
           status: "unavailable",
-          message: "Sign in to Desktop to choose a working folder.",
+          message: "Sign in to Desktop to check this Mac’s connection.",
         };
       }
       const review = await readComputerConnection(
@@ -51,7 +51,7 @@ export function createLocalComputerReader(
         return {
           status: "unavailable",
           message:
-            "Connect this computer to OpenMeld to choose a working folder.",
+            "This Mac has no confirmed connection to this account. Connect it to continue.",
         };
       }
       return {
@@ -61,15 +61,13 @@ export function createLocalComputerReader(
       };
     } catch (error) {
       // Retain bounded native diagnostics without logging CLI output or private paths.
-      console.warn("[desktop.folder.computer_check_failed]", {
+      console.warn("[desktop.computer_check_failed]", {
         errorName: error instanceof Error ? error.name : "UnknownError",
         code: (error as { code?: string | number })?.code ?? null,
       });
-      return {
-        status: "unavailable",
-        message:
-          "Couldn’t check this computer for folder selection. Check its OpenMeld Service connection and try again.",
-      };
+      throw new Error(
+        "Couldn’t check this Mac’s connection. Check its OpenMeld Service and try again."
+      );
     }
   };
 }

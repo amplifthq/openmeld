@@ -1,4 +1,5 @@
 import {
+  desktopComputerConnectionProgressSchema,
   desktopNotificationReferenceSchema,
   desktopSpaceStreamEventSchema,
   desktopUpdaterRestartRequestSchema,
@@ -141,6 +142,19 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
   signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
   connectComputer: (input) =>
     ipcRenderer.invoke(PILOT_IPC.connectComputer, input),
+  disconnectComputer: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.disconnectComputer, input),
+  onConnectionProgress: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const parsed = desktopComputerConnectionProgressSchema.safeParse(value);
+      if (parsed.success) {
+        handler(parsed.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.connectionProgress, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.connectionProgress, listener);
+  },
   onSessionChanged: (handler) => {
     const listener = () => handler();
     ipcRenderer.on(PILOT_IPC.sessionChanged, listener);

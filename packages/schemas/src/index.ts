@@ -94,10 +94,15 @@ export {
   type ComputerConnectionIntent,
   computerConnectionIntentSchema,
   computerConnectionReviewSchema,
+  computerSetupOutputSchema,
+  type DesktopComputerConnectionProgress,
   type DesktopComputerConnectionRequest,
   type DesktopComputerConnectionResult,
+  type DesktopComputerDisconnectRequest,
+  desktopComputerConnectionProgressSchema,
   desktopComputerConnectionRequestSchema,
   desktopComputerConnectionResultSchema,
+  desktopComputerDisconnectRequestSchema,
 } from "./computer-connection";
 export {
   DESKTOP_APP_ORIGIN,

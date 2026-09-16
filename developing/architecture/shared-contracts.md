@@ -27,6 +27,25 @@
 
 ## Desktop platform contract
 
+`computer-connection.ts` owns the account-bound native Connect/Disconnect
+requests, progress events, and connection result. These IPC additions ship with
+their bundled renderer. Progress accepts the CLI's existing verbose and compact
+Agent View envelopes. Failed Connect results may include a local redacted
+diagnostic-file path; it is not a cloud URL or credential.
+
+The existing strict `computer-connection-v1` review output is unchanged, so old
+Desktop builds can still read new CLI versions. The additive reviewed
+`computer disconnect` CLI command requires updated Tools; an older CLI refuses
+it without stopping or logging out. Existing cloud setup, Wake, Space actions,
+status, diagnostics, and self-rescue contracts are unchanged in both rollout
+directions. No execution epoch or cloud minimum-version increase is needed.
+Publish the compatible CLI update before shipping this Desktop capability;
+local-component stamping remains deferred to the authorized release worktree.
+Feature candidates still run base-aware `verify:release-ready --defer-release`
+through Final Candidate; deferring publication metadata does not skip packaged
+CLI/Service build verification.
+The explicit-device Forget route already uses Core account authorization.
+
 `desktop-updater.ts` owns main/renderer update snapshots, action names and the
 request-scoped restart preparation reply. Existing trusted-window authorization
 applies before every updater IPC call. Renderer replies contain only the main
