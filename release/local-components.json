@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-16T04:00:44.461Z",
+  "updatedAt": "2026-09-16T07:36:53.400Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.210",
+      "packageVersion": "0.3.211",
       "updatePolicy": "available",
-      "reason": "Existing commands, setup, Space actions, and diagnostics remain compatible; new task selection requires the cloud receivers deployed first."
+      "reason": "Space Task tools are additive dispatch-scoped commands; existing commands and older clients remain compatible. Publish required cloud task receivers before exposing the new tools."
     },
     "service": {
-      "bundleHash": "04228fd80a7cf617fe8286f8f621a0f34c5d5275fd77b94de3bb0200f0a7ebc0",
-      "bundleVersion": "0.3.210",
+      "bundleHash": "41b5eba858ab7d36a0b461af609d7e41c86cda223a4b6ee2096acc527d1bd22b",
+      "bundleVersion": "0.3.211",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Only optional bootstrap and notification schema enrichment changed; old cloud and old Services remain compatible, with no new Wake or setup requirement."
+      "reason": "The dispatch tool catalog adds optional Space Task actions without changing Wake transport or lifecycle; old Services continue safe Wake work with existing final reply actions."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",
