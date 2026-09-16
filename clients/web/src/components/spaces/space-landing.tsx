@@ -1431,6 +1431,13 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 				: input.loadingFallback) ?? (
 				<SpaceLandingLoadingShell
 					composer={<SpaceColdLoadingComposer controller={controller} />}
+					membersOpen={
+						state.isDesktopMembersPanel &&
+						state.membersOpen &&
+						!state.currentSpaceIsCenterAgentDirectMessage
+					}
+					membersPanelWidth={state.membersPanelWidth.width}
+					spaceId={input.spaceId}
 					threadOpen={Boolean(input.initialFocusThreadRootSignalId)}
 				/>
 			)

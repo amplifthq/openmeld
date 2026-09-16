@@ -20,10 +20,12 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
+import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { SpaceLandingLoadingShell } from "#/components/spaces/space-state-surfaces";
+import { useSpacePanelWidth } from "#/components/spaces/use-space-panel-width";
 import { useSpaceThreadTarget } from "#/components/spaces/use-space-thread-target";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
@@ -147,14 +149,19 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 
 function AppSpaceConversationPendingRoute() {
 	const search = Route.useSearch();
+	const { spaceId } = Route.useParams();
+	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
 		<SpaceWindowShell
 			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
 			initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
+			sidebar={<ConversationsSidebar />}
 			sidebarPreferenceKey="spaces"
 		>
-			<AppMainContent bodyClassName="flex" header={null}>
+			<AppMainContent bodyClassName="flex" showHeader={false}>
 				<SpaceLandingLoadingShell
+					membersPanelWidth={membersPanel.width}
+					spaceId={spaceId}
 					threadOpen={Boolean(search.focusThreadRootSignalId)}
 				/>
 			</AppMainContent>
@@ -584,6 +591,10 @@ function AppSpaceAccessGate(
 ) {
 	const organization = useAppOrganization();
 	const queryClient = useQueryClient();
+	const membersPanel = useSpacePanelWidth({
+		panel: "members",
+		spaceId: input.spaceId,
+	});
 	// SSR loader hydration does not rerun the route loader in the browser.
 	// Activate here too, after the account, Organization, and Profile checks.
 	useEffect(() => {
@@ -682,6 +693,8 @@ function AppSpaceAccessGate(
 	});
 	const pendingContent = (
 		<SpaceLandingLoadingShell
+			membersPanelWidth={membersPanel.width}
+			spaceId={input.spaceId}
 			threadOpen={input.threadOpen}
 			title={knownTitle}
 		/>
@@ -893,7 +906,7 @@ function AppSpaceEntryShell(input: {
 	navigationSurface?: AppSpaceNavigationSurface;
 }) {
 	const content = input.conversationLayout ? (
-		<AppMainContent bodyClassName="flex" header={null}>
+		<AppMainContent bodyClassName="flex" showHeader={false}>
 			{input.children}
 		</AppMainContent>
 	) : (

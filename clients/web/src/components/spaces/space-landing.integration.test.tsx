@@ -568,6 +568,7 @@ import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import { hardRefreshSpaceStatusAndMembers } from "./use-space-landing-controller";
 
 const DEFAULT_SPACE_PROFILE_ID = "11111111-1111-1111-1111-111111111111";
+const REMOVE_ATTACHMENT_NAME = /^Remove /;
 const DEFAULT_AGENT_PROFILE_ID = "agt_22222222-2222-2222-2222-222222222222";
 const SECOND_AGENT_PROFILE_ID = "agt_33333333-3333-3333-3333-333333333333";
 const HISTORY_BOOTSTRAP_ERROR_TEXT = /Couldn't load recent history\./;
@@ -13384,6 +13385,42 @@ describe("SpaceLanding", () => {
 	});
 
 	it("stages a selected image and publishes it as a Space File only on Send", async () => {
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class implements IntersectionObserver {
+				readonly root = null;
+				readonly rootMargin = "0px";
+				readonly thresholds = [0];
+				private readonly callback: IntersectionObserverCallback;
+				constructor(callback: IntersectionObserverCallback) {
+					this.callback = callback;
+				}
+				observe(target: Element) {
+					const rect = target.getBoundingClientRect();
+					queueMicrotask(() =>
+						this.callback(
+							[
+								{
+									target,
+									time: 0,
+									isIntersecting: true,
+									intersectionRatio: 1,
+									boundingClientRect: rect,
+									intersectionRect: rect,
+									rootBounds: null,
+								},
+							],
+							this
+						)
+					);
+				}
+				unobserve = vi.fn();
+				disconnect = vi.fn();
+				takeRecords(): IntersectionObserverEntry[] {
+					return [];
+				}
+			}
+		);
 		const descriptor = createSpaceFileDescriptor();
 		const messageFile = createSpaceMessageFileReference(descriptor);
 		const stageComposerUploadMock = vi.fn().mockImplementation((input) =>
@@ -13455,7 +13492,7 @@ describe("SpaceLanding", () => {
 				spaceId: "space-123",
 				uploadId: expect.any(String),
 			});
-			expect(screen.getByText("Ready")).toBeTruthy();
+			expect(screen.getByRole("group", { name: "Files to send" })).toBeTruthy();
 		});
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
 		createWebSpaceApiMock.mockClear();
@@ -13485,6 +13522,7 @@ describe("SpaceLanding", () => {
 		expect(publishComposerUploadMock).toHaveBeenCalledWith({
 			clientMutationId: expect.any(String),
 			spaceId: "space-123",
+			timeoutMs: 30_000,
 			uploadId: expect.any(String),
 		});
 		const optimisticImage = document.querySelector(
@@ -13567,7 +13605,7 @@ describe("SpaceLanding", () => {
 			},
 		});
 
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(stageComposerUploadMock).toHaveBeenCalledTimes(2);
 		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toEqual(
 			stageComposerUploadMock.mock.calls[0]?.[0]
@@ -13630,7 +13668,7 @@ describe("SpaceLanding", () => {
 			},
 		});
 
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(screen.getByRole("button", { name: "Send message" })).toHaveProperty(
 			"disabled",
 			false
@@ -13724,7 +13762,7 @@ describe("SpaceLanding", () => {
 		});
 
 		await screen.findByText("The Space does not belong to this Organization.");
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		expect(screen.getByText("Request ID: request-upload-403")).toBeTruthy();
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -13818,7 +13856,11 @@ describe("SpaceLanding", () => {
 			},
 		});
 		await waitFor(() => {
-			expect(screen.getAllByText("Ready")).toHaveLength(2);
+			expect(
+				within(
+					screen.getByRole("group", { name: "Files to send" })
+				).getAllByRole("button", { name: REMOVE_ATTACHMENT_NAME })
+			).toHaveLength(2);
 		});
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
@@ -13895,7 +13937,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["retry"], "retriable.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 		await setComposerValue(
 			screen.getByRole("textbox", { name: "Message this space" }),
 			"Send this with the file"
@@ -13957,7 +13999,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -13992,7 +14034,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
-		expect(screen.getByText("Ready")).toBeTruthy();
+		expect(screen.getByRole("group", { name: "Files to send" })).toBeTruthy();
 		expect(readComposerValue(textarea)).toBe("@Runner review these notes");
 	});
 
@@ -14057,7 +14099,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["notes"], "notes.txt", { type: "text/plain" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -14132,7 +14174,7 @@ describe("SpaceLanding", () => {
 				files: [new File(["broken"], "broken.png", { type: "image/png" })],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
@@ -14209,7 +14251,11 @@ describe("SpaceLanding", () => {
 		});
 
 		await waitFor(() => {
-			expect(screen.getAllByText("Ready")).toHaveLength(10);
+			expect(
+				within(
+					screen.getByRole("group", { name: "Files to send" })
+				).getAllByRole("button", { name: REMOVE_ATTACHMENT_NAME })
+			).toHaveLength(10);
 		});
 		expect(screen.getByRole("button", { name: "Add" })).toHaveProperty(
 			"disabled",
@@ -15150,7 +15196,7 @@ describe("SpaceLanding", () => {
 				],
 			},
 		});
-		await screen.findByText("Ready");
+		await screen.findByRole("group", { name: "Files to send" });
 
 		const textarea = screen.getByRole("textbox", {
 			name: "Message this space",
@@ -15198,7 +15244,7 @@ describe("SpaceLanding", () => {
 		expect(postNormalMessageMock.mock.calls[1]?.[0]).toEqual(
 			postNormalMessageMock.mock.calls[0]?.[0]
 		);
-		expect(screen.queryByText("Ready")).toBeNull();
+		expect(screen.queryByRole("group", { name: "Files to send" })).toBeNull();
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(sendButton);
 		expect(postNormalMessageMock).toHaveBeenCalledTimes(2);
@@ -17518,7 +17564,7 @@ describe("SpaceLanding", () => {
 				},
 			}
 		);
-		await within(threadPanel).findByText("Ready");
+		await within(threadPanel).findByRole("group", { name: "Files to send" });
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -17554,7 +17600,9 @@ describe("SpaceLanding", () => {
 			within(threadPanel).getByRole("button", { name: "Send reply" })
 		).toHaveProperty("disabled", true);
 		expect(publishComposerUploadMock).not.toHaveBeenCalled();
-		expect(within(threadPanel).getByText("Ready")).toBeTruthy();
+		expect(
+			within(threadPanel).getByRole("group", { name: "Files to send" })
+		).toBeTruthy();
 		expect(
 			readComposerValue(
 				within(threadPanel).getByRole("textbox", {
@@ -17673,7 +17721,7 @@ describe("SpaceLanding", () => {
 				},
 			}
 		);
-		await within(threadPanel).findByText("Ready");
+		await within(threadPanel).findByRole("group", { name: "Files to send" });
 		const threadComposer = within(threadPanel).getByRole("textbox", {
 			name: "Reply in thread",
 		});
@@ -17725,7 +17773,9 @@ describe("SpaceLanding", () => {
 		expect(postThreadSignalMock.mock.calls[1]?.[0]).toEqual(
 			postThreadSignalMock.mock.calls[0]?.[0]
 		);
-		expect(within(threadPanel).queryByText("Ready")).toBeNull();
+		expect(
+			within(threadPanel).queryByRole("group", { name: "Files to send" })
+		).toBeNull();
 		expect((sendButton as HTMLButtonElement).disabled).toBe(true);
 		fireEvent.click(sendButton);
 		expect(postThreadSignalMock).toHaveBeenCalledTimes(2);

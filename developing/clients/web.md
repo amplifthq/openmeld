@@ -145,6 +145,15 @@ new chat in that group if it still exists. Explicit draft and session selectors
 cannot be combined. Existing-session loading and pending sends share one
 conversation skeleton inside the inset app frame.
 
+Space and direct-message pending routes retain the authorized conversation
+sidebar and use the loaded conversation's header and centered content/composer
+rails. They do not add an empty app header above the conversation header.
+Loading shells reserve persisted Members panel geometry without reading protected
+content or deciding membership. A later product-driven panel opening remains a
+separate interaction. The existing Space-open performance report also covers
+Organization direct-message routes; Center Agent session routes are not Space
+IDs and are excluded from that route matcher.
+
 New-chat attachments use the shared Space file picker, paste/drop handling,
 preview tray, and account-scoped browser draft storage. They remain local until
 the first send creates a session; their original attachment and publication
@@ -168,6 +177,10 @@ Loading sends claim their message identity, text timestamp, and selected attachm
 IDs at click time, before asynchronous file preparation. A queued submission is
 not a composer draft: the ready conversation sends it independently, clears only
 the submitted draft revision, and leaves newer text and attachments untouched.
+Attachment restoration rejects IDs removed, cleared, or successfully consumed
+in the same file session, even when an older storage read finishes later. The
+admission rule is shared by restoration and explicit handoff; distinct late-saved
+IDs remain eligible for adoption.
 
 Sidebar activity indicators resolve their destination from an authorized
 active-Wake progress read on click, without adding per-row subscriptions.

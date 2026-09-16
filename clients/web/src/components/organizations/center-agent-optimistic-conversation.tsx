@@ -1,7 +1,7 @@
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { ArrowUpIcon } from "@phosphor-icons/react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -36,6 +36,7 @@ import { SpaceMessageProfileAvatar } from "#/components/spaces/space-message-pro
 import type { PendingCenterAgentMessage } from "#/lib/organizations/center-agent-pending-message";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import { SPACE_PANEL_WIDTH_METRICS } from "#/lib/spaces/panel-width-storage";
 import {
 	CenterAgentHeaderMenu,
 	CenterAgentHeaderTabs,
@@ -79,6 +80,12 @@ export function CenterAgentOptimisticConversation(input: {
 			className="flex h-full min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden rounded-[inherit] bg-background"
 			data-space-conversation-presentation={input.presentation}
 			data-testid="center-agent-conversation-skeleton"
+			style={
+				{
+					"--space-members-panel-width":
+						SPACE_PANEL_WIDTH_METRICS.members.defaultWidth,
+				} as CSSProperties
+			}
 		>
 			{input.header ?? (
 				<SpaceWindowHeader

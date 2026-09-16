@@ -41,6 +41,8 @@ function createFileSession(input: ComposerFileScope) {
 		sourceFiles: new Map<string, File>(),
 		files: [] as SpaceComposerFile[],
 		activeFileIds: new Set<string>(),
+		// An older draft read must not undo removal or successful consumption.
+		retiredFileIds: new Set<string>(),
 		previewUrlsByLocalId: new Map<string, string>(),
 		scope: input,
 		restorationTask: Promise.resolve() as Promise<unknown>,
@@ -118,6 +120,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		}
 		for (const localId of session.activeFileIds) {
 			if (!session.submittingIds.has(localId)) {
+				session.retiredFileIds.add(localId);
 				session.uploadControllers.get(localId)?.abort();
 				session.uploadControllers.delete(localId);
 				session.activeFileIds.delete(localId);
@@ -137,6 +140,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			}
 			const publishedLocalIdSet = new Set(publishedLocalIds);
 			for (const localId of publishedLocalIdSet) {
+				session.retiredFileIds.add(localId);
 				removeFileDraft(localId);
 				session.activeFileIds.delete(localId);
 				session.sourceFiles.delete(localId);
@@ -166,6 +170,7 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 
 	const removeFile = useCallback(
 		(localId: string) => {
+			session.retiredFileIds.add(localId);
 			session.uploadControllers.get(localId)?.abort();
 			session.uploadControllers.delete(localId);
 			removeFileDraft(localId);
@@ -205,7 +210,14 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			);
 			const selected = selectedFiles
 				.map((file, index) => ({ file, draft: restored?.[index] }))
-				.filter(({ draft }) => !(draft && session.activeFileIds.has(draft.id)))
+				.filter(
+					({ draft }) =>
+						!(
+							draft &&
+							(session.activeFileIds.has(draft.id) ||
+								session.retiredFileIds.has(draft.id))
+						)
+				)
 				.slice(0, availableSlots);
 			const acceptedFiles = selected.map(({ file }) => file);
 			if (acceptedFiles.length === 0) {
@@ -296,13 +308,10 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 			session.restorationTask = Promise.all(scopes.map(readComposerFileDrafts))
 				.then((batches) => batches.flat())
 				.then((drafts) => {
-					const pending = drafts.filter(
-						(d) => !session.activeFileIds.has(d.id)
-					);
-					if (!disposed && pending.length) {
+					if (!disposed && drafts.length) {
 						return addFiles(
-							pending.map((d) => d.file),
-							pending
+							drafts.map((d) => d.file),
+							drafts
 						);
 					}
 				})

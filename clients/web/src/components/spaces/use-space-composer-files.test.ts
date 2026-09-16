@@ -16,6 +16,9 @@ vi.mock("#/lib/spaces/api", () => ({
 }));
 const drafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
 const draftListeners = vi.hoisted(() => new Set<(scope: string) => void>());
+const draftReadGates = vi.hoisted(
+	() => new Map<string, Promise<ComposerFileDraft[]>>()
+);
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	subscribeComposerFileDrafts: (listener: (scope: string) => void) => {
 		draftListeners.add(listener);
@@ -43,6 +46,7 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 		return Promise.resolve();
 	},
 	readComposerFileDrafts: async (scope: string) =>
+		draftReadGates.get(scope) ??
 		[...drafts.values()].filter((draft) => draft.scope === scope),
 	readComposerFileDraftsByIds: async (ids: string[]) =>
 		[...drafts.values()].filter((draft) => ids.includes(draft.id)),
@@ -52,6 +56,7 @@ afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
 	drafts.clear();
+	draftReadGates.clear();
 });
 
 function setup() {
@@ -174,6 +179,71 @@ it.each([
 		)
 	);
 	expect(destination.result.current.files).toHaveLength(0);
+});
+
+it.each([
+	"remove",
+	"consume",
+	"clear",
+	"keep",
+] as const)("does not undo %s when an older restoration finishes, and still adopts new files", async (action) => {
+	setup();
+	const hook = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			restoreFromScopes: ["loading-chat"],
+		})
+	);
+	await act(async () =>
+		hook.result.current.addFiles([new File(["first"], "first.txt")])
+	);
+	const firstId = hook.result.current.files[0].localId;
+	let release!: (drafts: ComposerFileDraft[]) => void;
+	draftReadGates.set(
+		"loading-chat",
+		new Promise((resolve) => {
+			release = resolve;
+		})
+	);
+	act(() => {
+		for (const listener of draftListeners) {
+			listener("loading-chat");
+		}
+	});
+	act(() => {
+		if (action === "remove") {
+			hook.result.current.removeFile(firstId);
+		}
+		if (action === "clear") {
+			hook.result.current.clearFiles();
+		}
+		if (action === "consume") {
+			const submitted = hook.result.current.beginSubmission();
+			hook.result.current.consumePublishedFiles([firstId]);
+			hook.result.current.finishSubmission(submitted);
+		}
+	});
+	expect(hook.result.current.files).toHaveLength(action === "keep" ? 1 : 0);
+	// A different file saved by the loading owner must still be adopted.
+	const loading = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			storageKey: "loading-chat",
+			deferUpload: true,
+		})
+	);
+	draftReadGates.delete("loading-chat");
+	await act(async () =>
+		loading.result.current.addFiles([new File(["second"], "second.txt")])
+	);
+	await act(async () => release([]));
+	expect(hook.result.current.files.map((file) => file.fileName)).toEqual(
+		action === "keep" ? ["first.txt", "second.txt"] : ["second.txt"]
+	);
 });
 
 it("keeps each conversation's attachments and pending upload when navigating away", async () => {
