@@ -1714,7 +1714,7 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 }
 
 function resolveOpenMeldToolsUpdateFailureCode(
-	cliUpdate: LocalComponentUpdateStatus | null
+	cliUpdate: OpenMeldToolsCliUpdate | null
 ): OpenMeldToolsUpdateFailureCode | null {
 	return findOpenMeldToolsUpdateFailureCode(cliUpdate?.reasonCodes ?? []);
 }

@@ -93,6 +93,12 @@ vi.mock("@tanstack/react-router", async () => {
 			<a href={to}>{children}</a>
 		),
 		useNavigate: () => navigateSpy,
+		useLocation: (input?: {
+			select?: (location: { state: Record<string, never> }) => unknown;
+		}) => {
+			const location = { state: {} };
+			return input?.select ? input.select(location) : location;
+		},
 		useRouterState: ({
 			select,
 		}: {
