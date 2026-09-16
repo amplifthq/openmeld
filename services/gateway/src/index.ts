@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { parseAnonymousSpaceReadRoute } from "./lib/anonymous-space-read-routes";
 import type { HonoBindings } from "./lib/bindings";
 import { gatewayAuthMiddleware } from "./middlewares/auth";
 import { gatewayContextMiddleware } from "./middlewares/context";
@@ -17,6 +18,13 @@ import { registerWebSocketRoute } from "./routes/ws-stream";
 
 const app = new Hono<HonoBindings>();
 app.use("/v1/*", gatewayContextMiddleware);
+app.use("/v1/*", async (c, next) => {
+  await next();
+  if (parseAnonymousSpaceReadRoute(c.req.raw)) {
+    c.header("Cache-Control", "private, no-store");
+    c.header("X-Robots-Tag", "noindex, nofollow");
+  }
+});
 app.use("/v1/*", gatewayAuthMiddleware);
 app.use("/slack/oauth/*", gatewayContextMiddleware);
 app.use("/slack/oauth/start", gatewayAuthMiddleware);

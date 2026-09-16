@@ -211,7 +211,10 @@ never create Organization membership. Guests use the existing conversation
 and cannot open Organization directories or manage the Space. Disabling guest
 access blocks existing external guests and closes their live connections;
 re-enabling it restores their existing memberships. Removing a guest from the
-Space remains permanent until a new invitation is accepted.
+Space remains effective until a new invitation is accepted or the person
+explicitly rejoins under a currently enabled link-join policy. Link self-join
+admits only the caller's verified Human Profile as a Space Guest, never an
+Organization member; it requires guest access to be enabled separately.
 
 Discover includes Organization-open Spaces and the signed-in recipient's
 pending invitations, labeled **Invited**. A private invitation exposes its
@@ -761,8 +764,9 @@ policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
 The common UI asks **Who can join this Space**, with **Invited people** or
 **Everyone at [Organization]**. External guest invitations appear separately,
-only to owners. Existing public/password link policies are shown explicitly
-when present; they are not implied by Organization visibility.
+only to owners. Owners can explicitly configure public/password link access
+in Access settings; neither Organization visibility nor enabling guests
+publishes a Space.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access
@@ -777,11 +781,20 @@ OpenMeld has four access modes:
 - `members_only`: only an active member or another active Profile
   owned by the same account can view the Space. New participants must be added
   explicitly or self-join under the Organization-public policy above.
-- `public`: anyone with the link can view the Space and join.
+- `public`: anyone with the link can view the Space. Signed-in external visitors
+  can explicitly join only while external guest access is enabled.
 - `public_view_join_password`: anyone with the link can view the Space, but
   joining requires the Space password unless the Organization-public grant applies.
+  External joining also requires guest access to be enabled.
 - `protected`: viewing and joining require the Space password unless an existing
   membership or Organization-public self-join grant admits the caller.
+  External joining also requires guest access to be enabled.
+
+Public reading includes retained messages, Threads, files, shared guide, pins,
+and Tasks from the same Space. It creates no account or membership. Login does
+not join automatically. Every content request rechecks current access; closing
+link access blocks subsequent anonymous reads. Previously copied content cannot
+be recalled. Private linked Spaces and unpublished Agent internals stay private.
 
 There is one Space password. OpenMeld must not maintain a separate password for
 viewing, joining, sharing, or any other Space access mode. When an owner turns
