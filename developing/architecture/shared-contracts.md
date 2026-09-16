@@ -7090,6 +7090,15 @@ entries is never a valid degradation.
 
 ## Space Entry Resolution Contract
 
+Public HTML advertises `GET /v1/spaces/:spaceId/context` as an alternate JSON
+representation. `spaceReadContextSchema` is a discovery directory, not a second
+content store: it links existing authorized Space reads and explains bounded
+pagination and Thread/file relationships. Message pages expose `Link: rel=next`.
+All anonymous-readable resources return `private, no-store` and `noindex,
+nofollow`; these headers are not a guarantee against copying or model training.
+An authorized reply-only entry target resolves its canonical Thread root in the
+Space owner before clients perform navigation.
+
 `packages/schemas/src/schemas/http/space-entry.ts` owns the shared Space entry
 target and resolution read model. The target preserves the Space plus optional
 message and Thread-root focus so a client can continue to the original
