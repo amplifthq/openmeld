@@ -227,10 +227,15 @@ describe("SpaceMembersSidePanel", () => {
 			centerAgentProfileId: "agt_44444444-4444-4444-8444-444444444444",
 			humanProfileId: "22222222-2222-4222-8222-222222222222",
 		});
-		const pending = Promise.withResolvers<OrganizationDirectoryResponse>();
+		let rejectRefresh: (reason: Error) => void = () => undefined;
+		const pending = new Promise<OrganizationDirectoryResponse>(
+			(_resolve, reject) => {
+				rejectRefresh = reject;
+			}
+		);
 		const read = vi
 			.mocked(readCurrentOrganizationDirectory)
-			.mockReturnValueOnce(pending.promise)
+			.mockReturnValueOnce(pending)
 			.mockResolvedValue(directory);
 		const client = createTestQueryClient();
 		client.setQueryData(organizationQueryKeys.directory("org-acme"), directory);
@@ -248,9 +253,7 @@ describe("SpaceMembersSidePanel", () => {
 						membersError={null}
 						onAddOrganizationDirectoryProfiles={vi.fn()}
 						onAgentRecoveryAction={async () => undefined}
-						onOpenChange={vi.fn()}
 						onRefresh={async () => undefined}
-						open={false}
 						openAddMembersNonce={nonce}
 						orgSlug="acme"
 						snapshot={createSpaceMembersSnapshot()}
@@ -274,7 +277,7 @@ describe("SpaceMembersSidePanel", () => {
 		const choice = screen.getByRole("checkbox", { name: "Mira" });
 		fireEvent.click(choice);
 		expect(read).toHaveBeenCalledTimes(1);
-		pending.reject(
+		rejectRefresh(
 			Object.assign(new Error("Invalid directory response"), {
 				code: "gateway.invalid_response",
 			})

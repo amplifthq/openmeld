@@ -857,6 +857,15 @@ Space creation and directory membership APIs. A successfully created Space is
 retained while retrying failed member additions. Selecting an agent alone does
 not implicitly turn the new chat into a group; ordinary Space membership still
 applies the server-owned agent-owner admission rules.
+
+The Space member picker makes direct additions the primary selection action;
+Agent creation and email invitations remain separate secondary actions. Opening
+the picker revalidates stale Organization candidates through the existing shared
+query, reusing fresh data and in-flight reads without blocking cached rows or
+clearing valid selections. A failed refresh retains the last results with a
+visible retry action, separate from membership-submission errors. Space membership
+continues to come from the Space snapshot, not the Organization candidate cache.
+
 In the shared conversation sidebar, Pinned, Spaces, and Direct messages start
 expanded unless the viewer has saved a manual choice. Custom groups start
 collapsed. Entering a conversation reveals its group; switching views preserves
