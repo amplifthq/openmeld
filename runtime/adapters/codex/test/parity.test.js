@@ -20,6 +20,8 @@ const CODEX_COMMAND_DENIED_BY_SANDBOX_RE = /command denied by sandbox/i;
 const CODEX_EXECUTION_DENIED_RE = /execution denied/i;
 const FORK_CHECKPOINT_UNAVAILABLE_RE =
   /execution_context.fork_checkpoint_unavailable/;
+const FORK_BOUNDARY_CONFLICT_RE =
+  /a fork takes either sourceCompletedTurnId or forkFullHistory/;
 const QUOTA_RE = /insufficient_quota/;
 const RATE_LIMIT_RE = /rate limit/i;
 const USAGE_LIMIT_RE = /usage limit/i;
@@ -3721,6 +3723,7 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
   await chmod(fixturePath, 0o755);
 
   try {
+    // A scoped fork has to prove the completed prefix it copies.
     await assert.rejects(
       forkCodexAppServerThread({
         launchContract: createNodeScriptLaunchContract(fixturePath),
@@ -3737,6 +3740,29 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
       }),
       FORK_CHECKPOINT_UNAVAILABLE_RE
     );
+    // So does an unscoped one: without a cutoff the child would inherit the
+    // source's whole history, including a turn that is still running.
+    await assert.rejects(
+      forkCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        sourceThreadId: "thread-source-1",
+      }),
+      FORK_CHECKPOINT_UNAVAILABLE_RE
+    );
+    // Copying everything is a decision the caller has to name.
+    await assert.rejects(
+      forkCodexAppServerThread({
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        forkFullHistory: true,
+        sourceCompletedTurnId: "turn-1",
+        sourceThreadId: "thread-source-1",
+      }),
+      FORK_BOUNDARY_CONFLICT_RE
+    );
     const result = await forkCodexAppServerThread({
       launchContract: createNodeScriptLaunchContract(fixturePath),
       codexTimeoutMs: 5000,
@@ -3744,6 +3770,7 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
       env: {
         OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
       },
+      forkFullHistory: true,
       sourceThreadId: "thread-source-1",
       title: "OpenMeld · Release Agent",
     });
@@ -3768,6 +3795,45 @@ test("forkCodexAppServerThread forks the native thread and applies the OpenMeld 
   }
 });
 
+test("forkCodexAppServerThread sends the proven cutoff as lastTurnId", async () => {
+  const { forkCodexAppServerThread } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-fork-cutoff-"));
+  const dispatchDir = await mkdtemp(join(tmpdir(), "codex-fork-cutoff-cwd-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await forkCodexAppServerThread({
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      codexTimeoutMs: 5000,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+      },
+      sourceCompletedTurnId: "turn-completed-7",
+      sourceThreadId: "thread-source-1",
+    });
+    const forkParams = (await readFakeAppServerMessages(logPath)).find(
+      (message) => message.method === "thread/fork"
+    ).params;
+
+    assert.equal(result.threadId, "thread-fork-1");
+    // The cutoff must reach the provider, and the copied child must inherit
+    // exactly that prefix rather than everything the source has stored.
+    assert.deepEqual(forkParams, {
+      excludeTurns: true,
+      lastTurnId: "turn-completed-7",
+      threadId: "thread-source-1",
+    });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("codex withholds workspace quiescence when the process group remains present after leader exit", async () => {
   const { forkCodexAppServerThread } = await import("../dist/index.js");
   const directory = await mkdtemp(join(tmpdir(), "codex-quiescence-"));
@@ -3786,6 +3852,7 @@ test("codex withholds workspace quiescence when the process group remains presen
   });
   try {
     await forkCodexAppServerThread({
+      forkFullHistory: true,
       launchContract: createNodeScriptLaunchContract(fixture),
       codexTimeoutMs: 5000,
       codexWorkdir: directory,

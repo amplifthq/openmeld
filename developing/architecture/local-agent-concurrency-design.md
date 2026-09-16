@@ -344,9 +344,13 @@ defines `thread/fork` as copying stored history into a new thread and supports
 `lastTurnId` for an inclusive cutoff. An in-progress cutoff is rejected; omitting
 it while the source is mid-turn adds an interruption marker. OpenMeld's proposed
 completed-prefix contract must therefore pass a proven completed cutoff. The
-current ordinary wrapper does not yet do so. Other Controllers need their own
-verified equivalent; generic native fork support is insufficient evidence for
-this stronger contract. Do not simulate native Fork by injecting a summary.
+Codex wrapper enforces this at the fork call rather than per caller: a fork with
+no `lastTurnId` is refused unless the caller sets `forkFullHistory`, so the
+whole-history copy is a decision someone wrote down, never the shape a missing
+checkpoint happens to produce. `excludeTurns` is not that decision — it trims the
+response, not the inherited context. Other Controllers need their own verified
+equivalent; generic native fork support is insufficient evidence for this
+stronger contract. Do not simulate native Fork by injecting a summary.
 The official `developers.openai.com/codex/app-server` entry was checked on
 2026-09-11 and redirects to `learn.chatgpt.com/docs/app-server`. The latter is
 the fetched official destination; the link here uses the recognizable original

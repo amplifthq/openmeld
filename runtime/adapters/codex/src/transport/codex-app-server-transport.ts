@@ -587,6 +587,7 @@ export async function forkCodexAppServerThread(input: {
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   env?: Record<string, string | undefined>;
+  forkFullHistory?: boolean;
   launchContract: RuntimeAgentControllerLaunchContract;
   sourceThreadId: string;
   sourceCompletedTurnId?: string;
@@ -602,15 +603,32 @@ export async function forkCodexAppServerThread(input: {
       message: "schema.invalid: sourceThreadId is required",
     });
   }
-  if (
-    input.computerFileAccessBoundary?.executionContextAccess &&
-    !normalizeOptionalText(input.sourceCompletedTurnId)
-  ) {
+  const sourceCompletedTurnId = normalizeOptionalText(
+    input.sourceCompletedTurnId
+  );
+  const executionContextScoped =
+    input.computerFileAccessBoundary?.executionContextAccess !== undefined;
+  if (sourceCompletedTurnId && input.forkFullHistory) {
+    throw new CodexAppServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message:
+        "schema.invalid: a fork takes either sourceCompletedTurnId or forkFullHistory, not both",
+    });
+  }
+  // A fork without a cutoff copies the source's whole stored history. When the
+  // source is mid-turn that history contains the turn in progress, so the child
+  // would inherit an interrupted or never-finished turn as if it were settled
+  // context. Nothing here can detect whether the source is mid-turn, so the only
+  // safe default is to require a proven cutoff and make the unbounded copy an
+  // explicit, named decision by the caller.
+  if (!(sourceCompletedTurnId || input.forkFullHistory)) {
     throw new CodexAppServerTransportError({
       code: "execution_context.fork_checkpoint_unavailable",
       errorType: "config",
-      message:
-        "execution_context.fork_checkpoint_unavailable: a completed turn is required for a scoped fork",
+      message: executionContextScoped
+        ? "execution_context.fork_checkpoint_unavailable: a completed turn is required for a scoped fork"
+        : "execution_context.fork_checkpoint_unavailable: a completed turn is required, or forkFullHistory must be set to fork the source's entire history",
     });
   }
 
@@ -638,8 +656,8 @@ export async function forkCodexAppServerThread(input: {
                 ],
               }
             : {}),
-          ...(input.sourceCompletedTurnId
-            ? { lastTurnId: input.sourceCompletedTurnId }
+          ...(sourceCompletedTurnId
+            ? { lastTurnId: sourceCompletedTurnId }
             : {}),
           ...(input.targetWorkingDirectory
             ? { cwd: input.targetWorkingDirectory }
