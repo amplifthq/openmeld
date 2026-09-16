@@ -112,6 +112,7 @@ describe("computer setup process outcome", () => {
         fs.watch(${JSON.stringify(home)}, () => {
           if (!fs.existsSync(${JSON.stringify(home)})) process.exit(1);
           if (!fs.existsSync(${JSON.stringify(marker)})) return;
+          console.error('Native helper failed. Authorization: Bearer native-secret');
           console.log(JSON.stringify({type:'error',code:'prepare.auth.account_mismatch',message:'Account changed. Authorization: Bearer secret-token'}));
           process.exit(1);
         });
@@ -141,6 +142,10 @@ describe("computer setup process outcome", () => {
       const diagnostic = await readFile(error.diagnosticsPath, "utf8");
       expect(diagnostic).toContain("prepare.auth.account_mismatch");
       expect(diagnostic).not.toContain("secret-token");
+      expect(diagnostic).toContain(
+        "Native helper failed. Authorization: Bearer [redacted]"
+      );
+      expect(diagnostic).not.toContain("native-secret");
       await expect(
         readFile(join(diagnosticDirectory, "setup.log"))
       ).rejects.toMatchObject({ code: "ENOENT" });

@@ -393,6 +393,15 @@ export async function runConnectionSetup(
       )
     ).slice(0, 4096);
   const events: { code: string; message: string }[] = [];
+  const remember = (event: { code: string; message: string }) => {
+    if (!event.message) {
+      return;
+    }
+    events.push(event);
+    if (events.length > 100) {
+      events.shift();
+    }
+  };
   let completed = false;
   let failure: string | null = null;
   const acceptLine = (line: string) => {
@@ -400,6 +409,9 @@ export async function runConnectionSetup(
     try {
       raw = JSON.parse(line);
     } catch {
+      // Native startup failures can precede the CLI's structured presenter.
+      // Preserve their redacted text as diagnostics, never as progress/state.
+      remember({ code: "process.output", message: redact(line.trim()) });
       return;
     }
     const parsed = computerSetupOutputSchema.safeParse(raw);
@@ -418,10 +430,7 @@ export async function runConnectionSetup(
       return;
     }
     const item = { code: event.code, message };
-    events.push(item);
-    if (events.length > 100) {
-      events.shift();
-    }
+    remember(item);
     if (
       issue.success ||
       event.type === "error" ||
@@ -474,9 +483,11 @@ export async function runConnectionSetup(
     // The CLI's existing Prepare continuation and OS-managed Service survive
     // GUI exit. A regular file keeps output independent of the GUI's pipes.
     const completion = new Promise<number | null>((resolve, reject) => {
-      child.once("error", () =>
+      child.once("error", (error) =>
         reject(
-          new Error("OpenMeld Tools could not start. Try connecting again.")
+          new Error(
+            `OpenMeld Tools could not start. ${redact(error.message)} Try connecting again.`
+          )
         )
       );
       child.once("exit", resolve);
