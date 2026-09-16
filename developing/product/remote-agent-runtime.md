@@ -2183,12 +2183,14 @@ repository must be included in the OpenMeld GitHub App installation and
 available to the explicitly selected GitHub identity.
 
 Workflow dispatch depends on the provider contract that returns honest run
-identity status. OpenConnector must be updated before Remote Agent exposes the
-tool. The shared Center Agent speaker enum is additive but strict: deploy Core
-with the new tool names before Remote Agent begins sending them. Old Remote
-Agent remains compatible with new Core; new Remote Agent against old Core fails
-closed instead of bypassing speaker authorization. The change does not affect
-CLI, OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
+identity status. Update OpenConnector first. Then use the normal cloud rollout
+order so Web receives the exhaustive activity presentation before Core accepts
+the new strict speaker tool names and Remote Agent begins emitting the new
+activity keys. Old Remote Agent remains compatible with updated Web and Core;
+new Remote Agent against old Core fails closed instead of bypassing speaker
+authorization. A Web tab loaded before the Web deployment must be refreshed
+before validating these new activity rows. The change does not affect CLI,
+OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
 versions.
 
 `config/openconnector/wrangler.production.jsonc` is the tracked source of truth
