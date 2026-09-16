@@ -224,21 +224,22 @@ function assertConnectionEnvironment(env?: NodeJS.ProcessEnv) {
 
 const UNSUPPORTED_CONNECTION_COMMAND =
   /error: unknown command '(?:computer|connection-review)'/;
+export async function readComputerConnection(bin: string, deps: CommandDeps) {
+  const result = await promisify(execFile)(
+    bin,
+    ["computer", "connection-review", "--json"],
+    { env: deps.env, timeout: 10_000, maxBuffer: 16_384 }
+  );
+  return computerConnectionReviewSchema.parse(JSON.parse(result.stdout));
+}
+
 async function reviewComputerConnection(
   bin: string,
   webOrigin: string,
   deps: CommandDeps
 ) {
-  const read = async () => {
-    const result = await promisify(execFile)(
-      bin,
-      ["computer", "connection-review", "--json"],
-      { env: deps.env, timeout: 10_000, maxBuffer: 16_384 }
-    );
-    return computerConnectionReviewSchema.parse(JSON.parse(result.stdout));
-  };
   try {
-    return await read();
+    return await readComputerConnection(bin, deps);
   } catch (error) {
     const failure = error as { code?: string | number; stderr?: string };
     const unsupported =
@@ -248,7 +249,7 @@ async function reviewComputerConnection(
       throw error;
     }
     await installManagedBinary(webOrigin, deps);
-    return await read();
+    return await readComputerConnection(bin, deps);
   }
 }
 

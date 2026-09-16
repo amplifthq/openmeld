@@ -200,6 +200,7 @@ export async function continuePendingAgentProfileCreationLocalSetup(input: {
 	});
 	try {
 		await configureNewAgentProfileWorkspace({
+			expectedComputerId: input.request.configuration.targetComputerId,
 			agentProfileId: createdAgentProfileId,
 			bindingEstablished: true,
 			organizationId: input.organizationId,

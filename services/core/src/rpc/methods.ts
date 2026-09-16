@@ -1408,9 +1408,15 @@ export function rpcDiscoverPeopleComputerProjects(
     });
   }
   const { deviceId, runtimeLane, ...request } = parsed.data;
-  const target = { deviceId, runtimeLane };
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).discoverProjects(env, request);
+}
+
+function buildPeopleComputerProjectControlRpc(target: PeopleComputerTarget) {
   return createLocalProjectControlRpc({
-    resolveCurrentTarget: async ({ env: targetEnv, userId }) => {
+    resolveCurrentTarget: async ({ capability, env: targetEnv, userId }) => {
       const { localRuntimes, ownerService } =
         await resolveCurrentLocalServiceContext({
           env: targetEnv,
@@ -1423,19 +1429,52 @@ export function rpcDiscoverPeopleComputerProjects(
         ownerService,
       });
       if (
-        !projectPeopleComputerControls(session).localProjectControl
-          .discoverProjects
+        session.executionCompatibility.status !== "compatible" ||
+        session.capabilities.localProjectControl?.[capability] !== true
       ) {
         throw createCoreRpcHttpError({
           status: 409,
           code: "service_update_required",
           reason:
-            "Update OpenMeld Service in this environment before checking Project folders.",
+            "Update OpenMeld Service in this environment before managing Project folders.",
         });
       }
       return target;
     },
-  }).discoverProjects(env, request);
+  });
+}
+
+export function rpcConnectPeopleComputerProjectCandidate(
+  env: CoreBindings,
+  input: ConnectCandidateInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectCandidate(env, request);
+}
+
+export function rpcConnectPeopleComputerProjectPath(
+  env: CoreBindings,
+  input: ConnectDeclaredPathInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectDeclaredPath(env, request);
+}
+
+export function rpcSetPeopleComputerProjectDefaultConnection(
+  env: CoreBindings,
+  input: SetDefaultConnectionInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).setDefaultConnection(env, request);
 }
 
 function buildComputerFileAccessRpc(target?: PeopleComputerTarget) {
@@ -4527,7 +4566,8 @@ function requireLocalAgentInstallationSelectionStatus(
 
 export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
-  input: SetCurrentAgentProfileWorkspaceInput
+  input: SetCurrentAgentProfileWorkspaceInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
@@ -4558,6 +4598,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
     capability: "setProfileWorkspace",
     env,
+    target,
     unsupportedCode: "local_agent_control.profile_workspace_unsupported",
     unsupportedReason:
       "The current local OpenMeld Service does not support Project folder changes from OpenMeld Web.",

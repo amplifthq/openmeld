@@ -15,6 +15,112 @@ import {
 import { expect, it, vi } from "vitest";
 import { createPilotProtocol } from "../src/main/pilot-protocol";
 
+it.each([
+  ["POST", "folders/select"],
+  ["POST", "projects/discover"],
+  ["POST", "projects/connect-candidate"],
+  ["POST", "projects/connect-declared-path"],
+  ["POST", "projects/connections/set-default"],
+  ["PUT", "agent-profiles/profile/workspace"],
+])("admits %s %s only for the native account-aligned device and lane", async (method, action) => {
+  const cloudRequest = vi.fn(async (_path: string) =>
+    Response.json({ status: "cancelled", deviceId: "mac-a" })
+  );
+  const readLocalComputer = vi.fn(async () => ({
+    status: "available" as const,
+    accountId: "owner-a",
+    target: { deviceId: "mac-a", runtimeLane: "dev-local" as const },
+  }));
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    cookie: () => "native-only",
+    fetch,
+    cloudRequest,
+    readLocalComputer,
+  });
+  const request = (device: string, lane: string) =>
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/people-computers/${device}/lanes/${lane}/${action}`,
+      { method }
+    );
+  for (const [device, lane] of [
+    ["mac-b", "dev-local"],
+    ["mac-a", "prod"],
+  ] as const) {
+    const response = await handle(request(device, lane));
+    expect(response.status).toBe(409);
+    expect(await response.text()).not.toContain("Service Start and Stop");
+  }
+  expect(cloudRequest).not.toHaveBeenCalled();
+  expect(await (await handle(request("mac-a", "dev-local"))).json()).toEqual({
+    status: "cancelled",
+    deviceId: "mac-a",
+  });
+  expect(cloudRequest.mock.calls[0]?.[0]).toBe(
+    `/v1/people-computers/mac-a/lanes/dev-local/${action}`
+  );
+});
+
+it("refuses a sign-in change while admitting a folder request", async () => {
+  let cookie = "session-a";
+  const cloudRequest = vi.fn();
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    fetch,
+    cookie: () => cookie,
+    cloudRequest,
+    readLocalComputer: () => {
+      cookie = "session-b";
+      return Promise.resolve({
+        status: "available",
+        accountId: "owner-b",
+        target: { deviceId: "mac-a", runtimeLane: "dev-local" },
+      });
+    },
+  });
+  const response = await handle(
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/people-computers/mac-a/lanes/dev-local/folders/select`,
+      { method: "POST" }
+    )
+  );
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({
+    code: "desktop.folder.account_changed",
+  });
+  expect(cloudRequest).not.toHaveBeenCalled();
+});
+
+it("refuses folder operations when native identity is unavailable before attaching credentials", async () => {
+  const cookie = vi.fn(() => "private");
+  const cloudRequest = vi.fn();
+  const handle = createPilotProtocol({
+    assets: "/unused",
+    webOrigin: "https://web.example",
+    webBuild: "a".repeat(64),
+    cookie,
+    fetch,
+    cloudRequest,
+    readLocalComputer: async () => ({
+      status: "unavailable",
+      message: "Desktop and this computer use different accounts.",
+    }),
+  });
+  const response = await handle(
+    new Request(
+      `${DESKTOP_APP_ORIGIN}/v1/people-computers/mac-a/lanes/dev-local/folders/select`,
+      { method: "POST" }
+    )
+  );
+  expect(response.status).toBe(409);
+  expect(cookie).toHaveBeenCalledTimes(1);
+  expect(cloudRequest).not.toHaveBeenCalled();
+});
+
 it("admits installed API requests before credentials and preserves SDK errors without exposing cookies", async () => {
   const cookie = vi.fn(() => "session=native-only");
   const compatibility = vi

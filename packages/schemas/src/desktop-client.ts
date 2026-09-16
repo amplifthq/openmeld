@@ -1,4 +1,18 @@
 import * as z from "zod/v4";
+import { peopleComputerTargetSchema } from "./schemas/http/people-computers";
+
+export const desktopLocalComputerSchema = z.discriminatedUnion("status", [
+  z.strictObject({
+    status: z.literal("available"),
+    accountId: z.string().min(1),
+    target: peopleComputerTargetSchema,
+  }),
+  z.strictObject({
+    status: z.literal("unavailable"),
+    message: z.string().min(1),
+  }),
+]);
+export type DesktopLocalComputer = z.infer<typeof desktopLocalComputerSchema>;
 
 export const DESKTOP_APP_ORIGIN = "openmeld-desktop://app";
 export const DESKTOP_AUTH_SCHEME = "sh.openmeld.desktop.dev";
