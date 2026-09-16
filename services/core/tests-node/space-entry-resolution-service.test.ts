@@ -5,9 +5,13 @@ import {
   buildUnavailableSpaceEntryResolution,
 } from "../src/space/application/space-entry-resolution-service";
 
-const baseMeta: Pick<GetSpaceStatusResponse, "name" | "accessMode"> = {
+const baseMeta: Pick<
+  GetSpaceStatusResponse,
+  "name" | "accessMode" | "allowGuests"
+> = {
   name: "Launch planning",
   accessMode: "public",
+  allowGuests: true,
 };
 
 const indexed = {
@@ -22,6 +26,27 @@ const indexed = {
 };
 
 describe("Space entry resolution service", () => {
+  it.each([
+    false,
+    undefined,
+  ])("keeps public reading available without granting external joining when guest access is %s", (allowGuests) => {
+    expect(
+      buildSpaceEntryResolution({
+        access: {
+          kind: "allowed",
+          activeMember: false,
+          meta: { ...baseMeta, allowGuests },
+        },
+        authenticated: true,
+        indexed,
+        organizationMember: false,
+        target: { spaceId: "space-1" },
+      })
+    ).toMatchObject({
+      view: { state: "allowed", experience: "public" },
+      participation: { state: "owner_add_required" },
+    });
+  });
   it.each([
     "space.membership_required",
     "space.password_required",
