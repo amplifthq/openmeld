@@ -149,28 +149,35 @@ export function applySpaceBootstrapSnapshotToCache(input: {
 		spaceQueryKeys.status(input.spaceId, input.viewerProfileId),
 		input.bootstrap.status
 	);
-	input.queryClient.setQueryData<SpaceMembersSnapshot>(
-		membersQueryKey,
-		(current) => {
-			presentationMembers = resolveSpaceMembersPresentationSnapshot({
-				bootstrap: input.bootstrap.members,
-				current: current ?? null,
-			});
-			if (current && presentationMembers === current) {
-				return current;
+	// A display bootstrap must never replace a full operational snapshot.
+	if (input.bootstrap.includesAgentReadiness !== false) {
+		input.queryClient.setQueryData<SpaceMembersSnapshot>(
+			membersQueryKey,
+			(current) => {
+				presentationMembers = resolveSpaceMembersPresentationSnapshot({
+					bootstrap: input.bootstrap.members,
+					current: current ?? null,
+				});
+				if (current && presentationMembers === current) {
+					return current;
+				}
+				if (!current) {
+					return input.bootstrap.members;
+				}
+				return {
+					...mergeSpaceMembersSnapshot(
+						current,
+						listSpaceMemberSnapshotItems(input.bootstrap.members)
+					),
+					generatedAt: input.bootstrap.members.generatedAt,
+				};
 			}
-			if (!current) {
-				return input.bootstrap.members;
-			}
-			return {
-				...mergeSpaceMembersSnapshot(
-					current,
-					listSpaceMemberSnapshotItems(input.bootstrap.members)
-				),
-				generatedAt: input.bootstrap.members.generatedAt,
-			};
-		}
-	);
+		);
+	} else {
+		presentationMembers =
+			input.queryClient.getQueryData<SpaceMembersSnapshot>(membersQueryKey) ??
+			presentationMembers;
+	}
 	input.queryClient.setQueryData<SpaceBootstrapSnapshot["history"]>(
 		spaceQueryKeys.history(input.spaceId, input.viewerProfileId),
 		(current) =>
@@ -204,10 +211,14 @@ export function applySpaceBootstrapSnapshotToCache(input: {
 
 export function resolveSpaceMembersPresentationSnapshot(input: {
 	bootstrap: SpaceMembersSnapshot;
+	includesAgentReadiness?: boolean;
 	current: SpaceMembersSnapshot | null;
 }): SpaceMembersSnapshot {
 	if (input.current === null) {
 		return input.bootstrap;
+	}
+	if (input.includesAgentReadiness === false) {
+		return input.current;
 	}
 
 	return Date.parse(input.current.generatedAt) >

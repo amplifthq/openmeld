@@ -864,6 +864,9 @@ The shared sidebar deduplicates ordinary Spaces, People, Local, Remote, and
 Center Agent conversations by Space identity. Ordinary Space rows come from
 the current Organization's authorized Account Space Index; direct messages
 reuse the existing peer/title resolution and paged Center Agent session list.
+Center Agent chat avatars resolve the session's canonical `centerAgentProfileId`
+through the same lightweight profile directory used by other chat identities;
+they do not wait for designation or full readiness-directory queries.
 The global command center uses these same titles and exact destinations,
 including the Center Agent session selector. Space-name search remains bounded
 by the existing 500-item Account Space Index query; this UI change does not
@@ -981,6 +984,17 @@ as an intermediate destination.
 
 **Settings -> Personal -> Notifications** owns phase 1 delivery preferences:
 
+- **Default message notifications** saves the account-wide All new messages or
+  Mentions and replies default. The shared Space/DM header bell exposes Use
+  default (with its current value), both explicit choices, and Mute message
+  notifications. The selected value comes from Core; failed saves preserve the
+  last confirmed choice and show the error. A conversation override belongs to
+  the signed-in member, not the displayed Agent Profile. The bell links to
+  global settings and explains that urgent email remains independent.
+- **Show an example** requests a local sample notification beside the browser
+  control. It is disabled until browser notifications are enabled, never writes
+  an Inbox item, and does not claim that a native banner was displayed.
+
 - **Browser notifications** reflects permission in the current browser and
   explains when the browser has blocked the permission. If permission is still
   undecided after Account Setup Studio, Web presents one browser-local
@@ -998,10 +1012,10 @@ as an intermediate destination.
   the fixed full app volume, and the setting explains that browser or operating
   system notification sounds are controlled separately. Blocked or failed
   audio does not change delivery truth or trigger a notification retry.
-- **Email for urgent items** is a durable account preference, enabled by
+- **Urgent email alerts** is a durable account preference, enabled by
   default, and may be disabled without hiding Inbox items.
 
-Phase 1 intentionally has no per-source switches, schedules, quiet hours,
+Phase 1 intentionally has no schedules, quiet hours,
 digests, snooze, Slack delivery, closed-browser Web Push, Desktop, Mobile, or
 CLI controls.
 
@@ -2905,6 +2919,14 @@ After the entry access gate permits a cold conversation, its bounded bootstrap
 starts alongside route classification. Space and direct-message routes reuse
 that same bootstrap query in the conversation; saved-history visits keep their
 existing contiguous-update path instead of requesting a new tail window.
+Web requests `includeAgentReadiness=false` for this bounded bootstrap. Core
+returns member identity for message presentation without waiting for runtime
+readiness enrichment. The mounted conversation loads the authoritative members
+query independently; a bootstrap marked `includesAgentReadiness=false` must
+never seed or replace that query. Existing full members remain usable until its
+own refresh completes. Bootstrap still checks access and seeds current status;
+live reconciliation and explicit actions continue to refetch status and members.
+Empty reaction rows do not mount layout observers.
 The explicitly persisted display queries use the longer lifetime defined
 below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
@@ -3599,6 +3621,13 @@ sent revision even after the viewer temporarily returned to the current file.
 - thread replies stay in the thread panel
 - the root message may show a compact thread preview
 - the main timeline must not render thread replies as standalone root messages
+
+Each reply preview occupies one truncated line and opens its exact reply with
+scroll and highlight, including repeated selection. Hover underlines only that
+row. The Open thread action uses the same spacing as the preview rows.
+Starting a new Thread opens the existing loading panel before creation completes.
+Closing or switching the panel while creation is pending must not be undone by
+the response; the server result updates the query cache, not panel selection.
 
 On desktop, the inline Members and Thread panels are resizable from their left
 edge because they occupy the right side of the Space. They reuse the shared

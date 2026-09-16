@@ -2,6 +2,7 @@ import { isInboxNotificationEligible } from "@openmeld/api-client";
 import type { InboxItem } from "@openmeld/schemas/types";
 
 import { getDesktopPlatform } from "#/desktop/platform";
+
 import {
 	queueInboxBrowserNotificationSound,
 	readInboxBrowserNotificationSoundEnabled,
@@ -29,7 +30,7 @@ export function resolveClientNotificationDescription(
 	permission: InboxNotificationSettings["permission"]
 ): string {
 	if (permission === "unknown") {
-		return "Notify for directly addressed messages, actions, and urgent items while Desktop is running. Applies to every Space and Direct Message on this Mac.";
+		return "Show notifications on this Mac while Desktop is running. Messages follow your default and conversation settings. Your system notification and Focus settings still apply.";
 	}
 	if (permission === "unsupported") {
 		return "This browser does not support notifications. Your Inbox is still available in OpenMeld.";
@@ -37,7 +38,7 @@ export function resolveClientNotificationDescription(
 	if (permission === "denied") {
 		return "Notifications are blocked. Allow them in your browser’s site settings, then return here.";
 	}
-	return "Notify for directly addressed messages, actions, and urgent items in this browser. Applies to every Space and Direct Message.";
+	return "Show notifications in this browser while OpenMeld is open. Messages follow your default and conversation settings. Your browser and operating system must also allow notifications.";
 }
 
 export type InboxNotificationDeliveryResult =
@@ -191,6 +192,39 @@ export function readInboxNotificationPermission(): InboxNotificationPermission {
 	return window.Notification.permission;
 }
 
+/** A local example has no Inbox identity, unread mutation, or delivery receipt. */
+export function showInboxBrowserNotificationExample(
+	userId: string
+): Notification {
+	if (
+		!(
+			readInboxNotificationSettings({ userId }).enabled &&
+			readInboxNotificationPermission() === "granted"
+		)
+	) {
+		throw new Error("Enable browser notifications before showing an example.");
+	}
+	const notification = new window.Notification(
+		"OpenMeld notification example",
+		{
+			body: "This is how OpenMeld notifications appear on this device.",
+			icon: ICON_PATH,
+			tag: "openmeld-notification-example",
+		}
+	);
+	notification.onshow = () =>
+		queueInboxBrowserNotificationSound({
+			userId,
+			item: {
+				importance: "normal",
+				attention: "update",
+				resolutionStatus: "not_applicable",
+			},
+		});
+	notification.onclick = () => notification.close();
+	return notification;
+}
+
 export async function showInboxNotification(input: {
 	item: InboxItem;
 	resolveCurrentReadiness?: () =>
@@ -210,7 +244,14 @@ export async function showInboxNotification(input: {
 	) {
 		return { reason: "permission_unavailable", status: "deferred" };
 	}
-	if (!isInboxNotificationEligible(input.item)) {
+	// The listener revalidates the saved preference after acquiring the lock.
+	// Admit ordinary messages here only when that authoritative callback exists.
+	if (
+		!isInboxNotificationEligible(
+			input.item,
+			input.resolveCurrentReadiness ? "all_messages" : "mentions_and_replies"
+		)
+	) {
 		return { status: "ineligible" };
 	}
 	if (

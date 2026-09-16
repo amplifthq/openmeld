@@ -10,6 +10,7 @@ const navigateMock = vi.hoisted(() => vi.fn());
 const showInboxNotificationMock = vi.hoisted(() => vi.fn());
 const invalidateInboxFactsMock = vi.hoisted(() => vi.fn());
 const getCurrentInboxItemMock = vi.hoisted(() => vi.fn());
+const getMessagePreferencesMock = vi.hoisted(() => vi.fn());
 const queryClientMock = vi.hoisted(() => ({ fetchQuery: vi.fn() }));
 const pendingItemIds = vi.hoisted(() => new Set<string>());
 const notificationSettingsByUserId = vi.hoisted(
@@ -40,7 +41,10 @@ vi.mock("@tanstack/react-query", () => ({
 	useQueryClient: () => queryClientMock,
 }));
 
-vi.mock("#/lib/inbox/client-notifications", () => ({
+vi.mock("#/lib/inbox/client-notifications", async (importOriginal) => ({
+	...(await importOriginal<
+		typeof import("#/lib/inbox/client-notifications")
+	>()),
 	clearInboxNotificationItemPending: (input: {
 		itemId: string;
 		organizationId: string;
@@ -97,6 +101,7 @@ vi.mock("#/lib/inbox/source-target", async (importOriginal) => {
 
 vi.mock("#/lib/organizations/inbox", () => ({
 	getCurrentInboxItem: getCurrentInboxItemMock,
+	getCurrentInboxMessageNotificationPreferences: getMessagePreferencesMock,
 }));
 
 vi.mock("#/query/organizations/inbox", () => ({
@@ -123,6 +128,9 @@ describe("InboxNotificationListener", () => {
 		| undefined;
 
 	beforeEach(() => {
+		getMessagePreferencesMock
+			.mockReset()
+			.mockResolvedValue({ effectiveMode: "mentions_and_replies" });
 		currentItems = [];
 		queryDataItems = null;
 		queryData = undefined;
@@ -1050,7 +1058,11 @@ describe("InboxNotificationListener", () => {
 		});
 	});
 
-	it("keeps ordinary updates and resolved actions in Inbox without browser delivery", () => {
+	it.each([
+		["mentions_and_replies", "ineligible"],
+		["all_messages", "eligible"],
+		["muted", "ineligible"],
+	])("revalidates ordinary messages against the latest %s preference and excludes resolved actions", async (mode, status) => {
 		const existingItem = createInboxItem({ id: "existing-item" });
 		currentItems = [existingItem];
 		const view = renderListener();
@@ -1072,10 +1084,59 @@ describe("InboxNotificationListener", () => {
 			/>
 		);
 
-		expect(showInboxNotificationMock).not.toHaveBeenCalled();
+		expect(showInboxNotificationMock).toHaveBeenCalledOnce();
+		getCurrentInboxItemMock.mockResolvedValue({ item: currentItems[0] });
+		// Preferences can change while the delivery waits for its cross-tab lock.
+		getMessagePreferencesMock.mockResolvedValue({ effectiveMode: mode });
+		const delivery = showInboxNotificationMock.mock
+			.calls[0]?.[0] as TestDeliveryInput;
+		await expect(delivery.resolveCurrentReadiness?.()).resolves.toMatchObject({
+			status,
+		});
+		expect(getMessagePreferencesMock).toHaveBeenCalledWith({
+			organizationId: "organization-123",
+			spaceId: "space-123",
+		});
+
 		expect(invalidateInboxFactsMock).toHaveBeenCalledOnce();
 	});
 
+	it("keeps unavailable preference reads retryable and suppresses revoked conversations", async () => {
+		currentItems = [];
+		const view = renderListener();
+		const item = createInboxItem({ id: "preference-retry" });
+		currentItems = [item];
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+		getCurrentInboxItemMock.mockResolvedValue({ item });
+		const delivery = showInboxNotificationMock.mock
+			.calls[0]?.[0] as TestDeliveryInput;
+		getMessagePreferencesMock.mockRejectedValueOnce({
+			status: 404,
+			code: "route_not_found",
+		});
+		await expect(delivery.resolveCurrentReadiness?.()).resolves.toEqual({
+			status: "revalidation_failed",
+		});
+		getMessagePreferencesMock.mockResolvedValueOnce({
+			effectiveMode: "all_messages",
+		});
+		await expect(delivery.resolveCurrentReadiness?.()).resolves.toMatchObject({
+			status: "eligible",
+		});
+		getMessagePreferencesMock.mockRejectedValueOnce({
+			status: 404,
+			code: "inbox.conversation_not_found",
+		});
+		await expect(delivery.resolveCurrentReadiness?.()).resolves.toEqual({
+			status: "ineligible",
+		});
+	});
 	it("delivers a directly addressed reply and reports whether the source session is being viewed", () => {
 		const existingItem = createInboxItem({ id: "existing-item" });
 		currentItems = [existingItem];

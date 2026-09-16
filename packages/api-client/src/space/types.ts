@@ -252,6 +252,7 @@ export type SpaceApi = {
   leaveSpace: (input: SpaceRequestInput) => Promise<LeaveSpaceResponse>;
   getBootstrap: (
     input: SpaceRequestInput & {
+      includeAgentReadiness?: boolean;
       historyQuery?: SpaceSignalsReadQuery;
       includeAgentStreamPresence?: boolean;
     }

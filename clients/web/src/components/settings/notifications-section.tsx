@@ -9,10 +9,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { AppPageHeader } from "#/components/app/app-page-header";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
+import { BrowserNotificationExample } from "#/components/inbox/browser-notification-example";
 import { ClientNotificationControl } from "#/components/inbox/client-notification-control";
+import { DefaultMessageNotificationSetting } from "#/components/inbox/default-message-notification-setting";
 import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
 import { getDesktopPlatform } from "#/desktop/platform";
 import { resolveClientNotificationDescription } from "#/lib/inbox/client-notifications";
+
 import { updateCurrentInboxNotificationPreferences } from "#/lib/organizations/inbox";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -118,13 +121,23 @@ export function NotificationsSection() {
 				id="notification-delivery"
 				title="Delivery"
 			>
+				<DefaultMessageNotificationSetting key={currentUserId} />
 				<SettingsRow
 					control={
-						<ClientNotificationControl
-							disabled={notificationPending}
-							onChange={updateNotifications}
-							settings={settings}
-						/>
+						<div className="flex max-w-sm flex-col items-end gap-3">
+							<ClientNotificationControl
+								disabled={notificationPending}
+								onChange={updateNotifications}
+								settings={settings}
+							/>
+							{settings.permission !== "unknown" && (
+								<BrowserNotificationExample
+									enabled={settings.enabled}
+									key={currentUserId}
+									userId={currentUserId}
+								/>
+							)}
+						</div>
 					}
 					description={notificationDescription}
 					error={notificationError ?? undefined}
@@ -175,6 +188,7 @@ export function NotificationsSection() {
 			{settings.permission === "unknown" ? (
 				<div className="space-y-2">
 					<Button
+						disabled={!settings.enabled}
 						onClick={async () => {
 							try {
 								const result = await getDesktopPlatform()?.testNotification({
@@ -193,7 +207,7 @@ export function NotificationsSection() {
 						size="sm"
 						variant="outline"
 					>
-						Send test notification
+						Show an example
 					</Button>
 					{testStatus ? (
 						<output className="text-muted-foreground text-sm">

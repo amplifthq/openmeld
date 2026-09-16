@@ -73,6 +73,14 @@ do not move business rules into that package.
 
 ### Native Inbox notifications
 
+Account message-notification defaults and conversation overrides apply to
+Desktop as well as Web. The shared API-client notification policy evaluates
+ordinary messages, Human reply markers, and mute consistently. Native delivery
+re-reads the authorized conversation preference with its own credentials before
+showing the notification; renderer eligibility cannot bypass a saved mute.
+Desktop retains its installation-local delivery and sound switches and native
+acknowledgement. **Show an example** uses the native test path on Desktop.
+
 Running Desktop delivers eligible Core Inbox items independently of Web's
 notification permission and preferences. The shared client listener owns the
 feed, first-page baseline, bounded pending recovery and delivery receipts.

@@ -1,5 +1,8 @@
 "use client";
-import { isInboxNotificationEligible } from "@openmeld/api-client";
+import {
+	inboxMessageNotificationSpaceId,
+	isInboxNotificationEligible,
+} from "@openmeld/api-client";
 
 import {
 	type QueryClient,
@@ -26,11 +29,15 @@ import {
 	subscribeInboxNotificationSettings,
 } from "#/lib/inbox/client-notifications";
 import { isNotificationConversationVisible } from "#/lib/inbox/desktop-notifications";
+
 import {
 	buildInboxItemSourceNavigation,
 	isInboxItemSourceLocation,
 } from "#/lib/inbox/source-target";
-import { getCurrentInboxItem } from "#/lib/organizations/inbox";
+import {
+	getCurrentInboxItem,
+	getCurrentInboxMessageNotificationPreferences,
+} from "#/lib/organizations/inbox";
 import {
 	inboxBrowserNotificationRecoveryItemQueryOptions,
 	inboxItemsInfiniteQueryOptions,
@@ -675,6 +682,39 @@ async function resolveCurrentInboxNotificationReadiness(input: {
 		return { status: "revalidation_failed" };
 	}
 
+	try {
+		const spaceId = inboxMessageNotificationSpaceId(currentItem);
+		if (spaceId) {
+			const preferences = await getCurrentInboxMessageNotificationPreferences({
+				organizationId: input.organizationId,
+				spaceId,
+			});
+			if (
+				!isInboxNotificationEligible(currentItem, preferences.effectiveMode)
+			) {
+				return { status: "ineligible" };
+			}
+		}
+	} catch (error) {
+		if (
+			typeof error === "object" &&
+			error !== null &&
+			"code" in error &&
+			error.code === "inbox.conversation_not_found"
+		) {
+			return { status: "ineligible" };
+		}
+		console.warn(
+			"[openmeld.web.inbox.message_notification_preference_read_failed]",
+			{
+				error: error instanceof Error ? error.message : String(error),
+				itemId: input.itemId,
+				organizationId: input.organizationId,
+			}
+		);
+		return { status: "revalidation_failed" };
+	}
+
 	if (!isCurrentInboxNotificationDeliveryContext(input)) {
 		return { status: "context_changed" };
 	}
@@ -771,7 +811,9 @@ function clearPendingInboxNotificationItem(input: {
 }
 
 function shouldDeliverInboxNotification(item: NotificationInboxItem): boolean {
-	return item.readAt === null && isInboxNotificationEligible(item);
+	return (
+		item.readAt === null && isInboxNotificationEligible(item, "all_messages")
+	);
 }
 
 function mergeInboxNotificationItems(input: {

@@ -40,6 +40,11 @@ observability database.
 
 ## Groundwork Kept On Purpose
 
+Account message notification defaults and per-conversation overrides are
+Core-owned product preferences in the shared `OPENMELD_DB`. They are not
+time-decaying observability data and remain with product state in any future
+observability-only split.
+
 These remain as harmless no-ops on the single DB and are reusable by a future
 observability-only split. Do not clean them up as dead code:
 
