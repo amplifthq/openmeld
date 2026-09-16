@@ -1,4 +1,9 @@
+import { isInboxItemVisibleConversation } from "@openmeld/api-client";
+import type { InboxVisibleConversation } from "@openmeld/schemas";
 import type { InboxItem } from "@openmeld/schemas/types";
+
+export type { InboxVisibleConversation } from "@openmeld/schemas";
+
 import {
 	buildOrganizationAgentCreationRequestsPath,
 	buildOrganizationCenterAgentChatPath,
@@ -10,12 +15,6 @@ import {
 	buildOrganizationSpacePath,
 } from "#/lib/organizations/organization-routes";
 import { buildAgentProfilePath } from "#/lib/profile-routes";
-
-export type InboxVisibleConversation = {
-	kind: "space";
-	spaceId: string;
-	threadRootSignalId: string | null;
-};
 
 export function buildInboxItemSourceNavigation(input: {
 	item: InboxItem;
@@ -142,32 +141,14 @@ export function isInboxItemSourceLocation(input: {
 	visibleConversation: InboxVisibleConversation | null;
 }): boolean {
 	const target = input.item.sourceTarget;
-	if (target.kind === "center_agent") {
-		return Boolean(
-			target.spaceId &&
-				input.visibleConversation?.kind === "space" &&
-				input.visibleConversation.spaceId === target.spaceId &&
-				input.visibleConversation.threadRootSignalId === null
-		);
-	}
-	if (target.kind === "space") {
-		return (
-			input.visibleConversation?.kind === "space" &&
-			input.visibleConversation.spaceId === target.spaceId &&
-			input.visibleConversation.threadRootSignalId ===
-				(target.threadRootSignalId ?? null)
-		);
-	}
-	if (target.kind === "agent_interaction") {
-		// Missing means this durable item predates the exact thread locator. Do
-		// not guess that it came from the main timeline and hide its alert.
-		if (target.threadRootSignalId === undefined) {
-			return false;
-		}
-		return (
-			input.visibleConversation?.kind === "space" &&
-			input.visibleConversation.spaceId === target.spaceId &&
-			input.visibleConversation.threadRootSignalId === target.threadRootSignalId
+	if (
+		target.kind === "center_agent" ||
+		target.kind === "space" ||
+		target.kind === "agent_interaction"
+	) {
+		return isInboxItemVisibleConversation(
+			input.item,
+			input.visibleConversation
 		);
 	}
 	if (!input.pathname) {

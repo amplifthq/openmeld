@@ -185,6 +185,7 @@ describe("pending Agent Profile creation local setup", () => {
 		expect(configureWorkspaceMock).toHaveBeenCalledWith({
 			agentProfileId: AGENT_PROFILE_ID,
 			bindingEstablished: true,
+			expectedComputerId: "computer-1",
 			organizationId: "org-1",
 			projectFolderPath: "/Users/felix/Desktop/work/openmeld",
 			selectedHumanProfileId: "human-felix",
@@ -242,6 +243,7 @@ describe("pending Agent Profile creation local setup", () => {
 		expect(configureWorkspaceMock).toHaveBeenCalledWith({
 			agentProfileId: AGENT_PROFILE_ID,
 			bindingEstablished: true,
+			expectedComputerId: "computer-1",
 			organizationId: "org-1",
 			projectFolderPath: "/Users/felix/Desktop/work/openmeld",
 			selectedHumanProfileId: "human-felix",

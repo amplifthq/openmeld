@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import app from "../src/index";
 
 type CoreRpcMock = {
+  connectPeopleComputerProjectCandidate: ReturnType<typeof vi.fn>;
+  connectPeopleComputerProjectPath: ReturnType<typeof vi.fn>;
+  setPeopleComputerProjectDefaultConnection: ReturnType<typeof vi.fn>;
+  setPeopleComputerAgentProfileWorkspace: ReturnType<typeof vi.fn>;
   discoverPeopleComputerProjects: ReturnType<typeof vi.fn>;
   selectPeopleComputerFolders: ReturnType<typeof vi.fn>;
   readPeopleComputerFileAccessPolicy: ReturnType<typeof vi.fn>;
@@ -45,6 +49,10 @@ function makeEnv(input?: {
   authOverrides?: Partial<AuthRpcMock>;
 }) {
   const coreRpc: CoreRpcMock = {
+    connectPeopleComputerProjectCandidate: vi.fn(),
+    connectPeopleComputerProjectPath: vi.fn(),
+    setPeopleComputerProjectDefaultConnection: vi.fn(),
+    setPeopleComputerAgentProfileWorkspace: vi.fn(),
     discoverPeopleComputerProjects: vi.fn(),
     selectPeopleComputerFolders: vi.fn(),
     readPeopleComputerFileAccessPolicy: vi.fn(),
@@ -173,6 +181,50 @@ function makeEnv(input?: {
 
 describe("current device target routes", () => {
   it.each([
+    [
+      "POST",
+      "projects/connect-candidate",
+      "connectPeopleComputerProjectCandidate",
+      {
+        expectedOrganizationId: "organization-1",
+        projectId: "project-1",
+        clientGeneration: 1,
+        idempotencyKey: "connect",
+        candidateId: "candidate-1",
+        candidatePath: "/work/Design 中文",
+      },
+    ],
+    [
+      "POST",
+      "projects/connect-declared-path",
+      "connectPeopleComputerProjectPath",
+      {
+        expectedOrganizationId: "organization-1",
+        projectId: "project-1",
+        clientGeneration: 1,
+        idempotencyKey: "connect",
+        declaredPath: "/work/Design 中文",
+        confirmNonGit: true,
+      },
+    ],
+    [
+      "POST",
+      "projects/connections/set-default",
+      "setPeopleComputerProjectDefaultConnection",
+      {
+        expectedOrganizationId: "organization-1",
+        projectId: "project-1",
+        clientGeneration: 1,
+        idempotencyKey: "default",
+        targetBindingGeneration: "generation-1",
+      },
+    ],
+    [
+      "PUT",
+      "agent-profiles/agt_11111111-1111-4111-8111-111111111111/workspace",
+      "setPeopleComputerAgentProfileWorkspace",
+      { workspaceMode: "custom", workspacePath: "/work/Design 中文" },
+    ],
     [
       "POST",
       "projects/discover",

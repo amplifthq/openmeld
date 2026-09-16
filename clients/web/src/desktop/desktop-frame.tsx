@@ -1,15 +1,27 @@
 import type { DesktopSession } from "@openmeld/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { useHydrated, useLocation, useRouter } from "@tanstack/react-router";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
+import { createDesktopNavigation } from "./navigation";
 import { getDesktopPlatform } from "./platform";
+import { DesktopTitlebarContext } from "./titlebar-context";
 import "./desktop.css";
 
 export function DesktopFrame({ children }: { children: ReactNode }) {
 	const hydrated = useHydrated();
 	const bridge = getDesktopPlatform();
 	const router = useRouter();
+	const navigation = useMemo(
+		() => (bridge ? createDesktopNavigation(router.history) : null),
+		[bridge, router]
+	);
+	const [target, setTarget] = useState<HTMLDivElement | null>(null);
+	const titlebar = useMemo(
+		() => (navigation ? { target, navigation } : null),
+		[target, navigation]
+	);
+	useEffect(() => navigation?.connect(), [navigation]);
 	const queryClient = useQueryClient();
 	const pathname = useLocation({ select: (location) => location.pathname });
 	useEffect(() => {
@@ -28,6 +40,7 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 				return;
 			}
 			if (session.user) {
+				navigation?.identify(session.user.id);
 				if (sessionChanged) {
 					await router.invalidate();
 				}
@@ -41,6 +54,9 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 			}
 		}
 		const refresh = (sessionChanged = false) => {
+			if (sessionChanged) {
+				navigation?.reset();
+			}
 			if (pathname === "/desktop-shell") {
 				return;
 			}
@@ -67,16 +83,18 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 			unsubscribe();
 			window.removeEventListener("focus", onFocus);
 		};
-	}, [bridge, router, queryClient, pathname]);
+	}, [bridge, router, queryClient, pathname, navigation]);
 	// The prerendered shell has no native bridge. Match that document during
 	// hydration so React preserves the shared Appearance bootstrap attributes.
 	if (!(bridge && hydrated)) {
 		return children;
 	}
 	return (
-		<div className="desktop-window">
-			<div aria-hidden="true" className="desktop-titlebar" />
-			<div className="desktop-content">{children}</div>
-		</div>
+		<DesktopTitlebarContext.Provider value={titlebar}>
+			<div className="desktop-window">
+				<div className="desktop-titlebar" ref={setTarget} />
+				<div className="desktop-content">{children}</div>
+			</div>
+		</DesktopTitlebarContext.Provider>
 	);
 }
