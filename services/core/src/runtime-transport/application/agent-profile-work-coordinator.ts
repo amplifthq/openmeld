@@ -87,6 +87,93 @@ export function markAgentProfileWorkControllerConversationOccupancy(input: {
   };
 }
 
+export type AgentProfileWorkHandoffStatus =
+  | "already_handed_off"
+  | "handed_off"
+  | "source_not_occupied"
+  | "successor_conflict";
+
+/**
+ * Moves one occupied reservation to the work that continues it, in place.
+ *
+ * The successor takes the source's slot rather than joining the queue, so the
+ * reservation is never released: no gap opens for a following legacy item to
+ * start ahead of it, and the concurrency ceiling, serial mode, and draining
+ * all keep holding because the reserved count does not change. Callers own the
+ * evidence that the source execution has stopped; this transition only
+ * requires that Core still sees the source as reserved and occupied, which is
+ * what distinguishes a blocked wait from a turn that is already running.
+ */
+export function handOffOccupiedAgentProfileWork(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  nowMs: number;
+  sourceTargetWakeLifecycleId: string;
+  successor: AgentProfileWorkCoordinatorItem;
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  status: AgentProfileWorkHandoffStatus;
+} {
+  const sourceIndex = input.coordinator.workItems.findIndex(
+    (item) => item.targetWakeLifecycleId === input.sourceTargetWakeLifecycleId
+  );
+  const source = input.coordinator.workItems[sourceIndex];
+  if (!source) {
+    // A repeated request finds the successor already holding the slot.
+    return {
+      coordinator: input.coordinator,
+      status: input.coordinator.workItems.some(
+        (item) =>
+          item.targetWakeLifecycleId === input.successor.targetWakeLifecycleId
+      )
+        ? "already_handed_off"
+        : "source_not_occupied",
+    };
+  }
+  if (
+    source.waitReason !== "controller_conversation_occupied" ||
+    !reservedAgentProfileWork(input.coordinator).includes(source)
+  ) {
+    return { coordinator: input.coordinator, status: "source_not_occupied" };
+  }
+  if (
+    input.coordinator.workItems.some(
+      (item) =>
+        item !== source &&
+        item.targetWakeLifecycleId === input.successor.targetWakeLifecycleId
+    )
+  ) {
+    return { coordinator: input.coordinator, status: "successor_conflict" };
+  }
+
+  const { waitReason: _waitReason, ...successor } = input.successor;
+  const placed: AgentProfileWorkCoordinatorItem = successor.executionContextId
+    ? { ...successor, reservationState: "reserved" }
+    : successor;
+  const workItems = input.coordinator.workItems.map((item, index) =>
+    index === sourceIndex ? placed : item
+  );
+  const coordinator = {
+    ...input.coordinator,
+    revision: input.coordinator.revision + 1,
+    updatedAtMs: input.nowMs,
+    workItems,
+  } satisfies AgentProfileWorkCoordinator;
+
+  const reserved = reservedAgentProfileWork(coordinator);
+  const sameContextConflict =
+    placed.executionContextId !== undefined &&
+    reserved.some(
+      (item) =>
+        item !== placed && item.executionContextId === placed.executionContextId
+    );
+  // A successor that would not hold the slot, or would break a context's
+  // serial guarantee, must leave the source untouched rather than half move.
+  if (!reserved.includes(placed) || sameContextConflict) {
+    return { coordinator: input.coordinator, status: "successor_conflict" };
+  }
+  return { coordinator, status: "handed_off" };
+}
+
 type AgentProfileWorkAcceptance = {
   coordinator: AgentProfileWorkCoordinator;
   queuePosition: number | null;

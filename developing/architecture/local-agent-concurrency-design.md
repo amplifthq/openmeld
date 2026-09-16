@@ -8,10 +8,11 @@
 - Do not use this for: Current production behavior, release authorization, a new memory system, or Remote Agent scheduling.
 - Source of truth: This is a design proposal. Existing scoped owner documents remain authoritative until implementation updates them together.
 
-Status: IMPLEMENTATION IN DRAFT PR #956 — accepted context, admission, isolation,
-and compatibility rules are now recorded in the scoped owner documents. Local
-acceptance has verified concurrent Codex project tasks and Claude Space-context
-tasks on macOS; this document does not claim production availability.
+Status: IMPLEMENTED AND MERGED — PR #956 merged on 2026-09-15, so independent
+execution contexts and the five-reservation concurrency ceiling are on `main`,
+not awaiting a draft. Accepted context, admission, isolation, and compatibility
+rules are recorded in the scoped owner documents. Local acceptance verified
+concurrent Codex project tasks and Claude Space-context tasks on macOS.
 
 Remove when this feature ships and its accepted rules, compatibility requirements,
 and validation evidence have been incorporated into the scoped owner documents.

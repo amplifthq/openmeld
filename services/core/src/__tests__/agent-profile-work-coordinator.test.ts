@@ -1,11 +1,16 @@
 import { AGENT_PROFILE_WORK_MAX_WAITING } from "@openmeld/agent-runtime";
 import { describe, expect, it } from "vitest";
+import type {
+  AgentProfileWorkCoordinator,
+  AgentProfileWorkCoordinatorItem,
+} from "../runtime-transport/application/agent-profile-work-coordinator";
 import {
   AGENT_PROFILE_WORK_COORDINATOR_MAX_WAITING,
   acceptAgentProfileWork,
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  handOffOccupiedAgentProfileWork,
   markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
@@ -771,6 +776,255 @@ describe("Agent Profile Work Coordinator", () => {
       status: "idle",
       waitingCount: 0,
     });
+  });
+});
+
+describe("occupied work handoff", () => {
+  const FORK = {
+    dispatchId: "dispatch-fork",
+    enqueuedAtMs: 1_700_000_000_500,
+    executionContextId: "context-fork",
+    targetWakeLifecycleId: "wake-fork",
+  };
+  const legacyQueue = (count: number) => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= count; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: workItem(index),
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    return coordinator;
+  };
+  const occupy = (
+    coordinator: AgentProfileWorkCoordinator,
+    dispatchId: string
+  ) =>
+    markAgentProfileWorkControllerConversationOccupancy({
+      coordinator,
+      dispatchId,
+      nowMs: 1_700_000_000_100,
+      state: "occupied",
+    }).coordinator;
+  const handOff = (
+    coordinator: AgentProfileWorkCoordinator,
+    sourceTargetWakeLifecycleId = "wake-1",
+    successor: AgentProfileWorkCoordinatorItem = FORK
+  ) =>
+    handOffOccupiedAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_600,
+      sourceTargetWakeLifecycleId,
+      successor,
+    });
+
+  it("continues a blocked legacy head in the fork without letting the next legacy item start", () => {
+    const occupied = occupy(legacyQueue(3), "dispatch-1");
+    const result = handOff(occupied);
+
+    expect(result.status).toBe("handed_off");
+    const summary = summarizeAgentProfileWorkCoordinator(result.coordinator);
+    expect(summary.currentWorks).toEqual([
+      { ...FORK, reservationState: "reserved" },
+    ]);
+    expect(summary.currentWaitReason).toBeUndefined();
+    expect(summary.queuedWork.map((item) => item.dispatchId)).toEqual([
+      "dispatch-2",
+      "dispatch-3",
+    ]);
+    expect(result.coordinator.revision).toBe(occupied.revision + 1);
+  });
+
+  it("reuses the same reservation instead of adding one, so the ceiling still holds", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 6; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: `context-${index}` },
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    const result = handOff(occupy(coordinator, "dispatch-1"));
+
+    expect(result.status).toBe("handed_off");
+    const summary = summarizeAgentProfileWorkCoordinator(result.coordinator);
+    expect(summary.currentWorks.map((item) => item.dispatchId)).toEqual([
+      "dispatch-fork",
+      "dispatch-2",
+      "dispatch-3",
+      "dispatch-4",
+      "dispatch-5",
+    ]);
+    expect(summary.queuedWork.map((item) => item.dispatchId)).toEqual([
+      "dispatch-6",
+    ]);
+  });
+
+  it("rescues the blocked item under serial and draining without admitting anything new", () => {
+    for (const admissionMode of ["serial", "draining"] as const) {
+      const accepted = acceptAgentProfileWork({
+        coordinator: createAgentProfileWorkCoordinator({
+          nowMs: 1_700_000_000_000,
+          targetProfileId: PROFILE_ID,
+        }),
+        item: { ...workItem(1), executionContextId: "context-1" },
+        nowMs: 1_700_000_000_001,
+      }).coordinator;
+      const queued = acceptAgentProfileWork({
+        coordinator: { ...accepted, admissionMode },
+        item: { ...workItem(2), executionContextId: "context-2" },
+        nowMs: 1_700_000_000_002,
+      });
+      expect(queued.status).toBe("queued");
+
+      const result = handOff(occupy(queued.coordinator, "dispatch-1"));
+      expect(result.status).toBe("handed_off");
+      const summary = summarizeAgentProfileWorkCoordinator(result.coordinator);
+      expect(summary.currentWorks.map((item) => item.dispatchId)).toEqual([
+        "dispatch-fork",
+      ]);
+      expect(summary.queuedWork.map((item) => item.dispatchId)).toEqual([
+        "dispatch-2",
+      ]);
+    }
+  });
+
+  it("refuses work that is running rather than blocked on the occupied conversation", () => {
+    const coordinator = legacyQueue(2);
+    const result = handOff(coordinator);
+
+    expect(result.status).toBe("source_not_occupied");
+    expect(result.coordinator).toBe(coordinator);
+  });
+
+  it("refuses a queued waiter that holds no reservation to hand over", () => {
+    const occupied = occupy(legacyQueue(3), "dispatch-1");
+    const result = handOff(occupied, "wake-2");
+
+    expect(result.status).toBe("source_not_occupied");
+    expect(result.coordinator).toBe(occupied);
+  });
+
+  it("refuses a paused legacy head, which holds no reservation to hand over", () => {
+    const occupied = occupy(legacyQueue(2), "dispatch-1");
+    const paused: AgentProfileWorkCoordinator = {
+      ...occupied,
+      recoveryGate: {
+        continuationClientMessageId: null,
+        interruptedWork: workItem(9),
+        status: "awaiting_usage",
+        updatedAtMs: 1_700_000_000_200,
+      },
+    };
+    expect(summarizeAgentProfileWorkCoordinator(paused).currentWorks).toEqual(
+      []
+    );
+
+    const result = handOff(paused);
+    expect(result.status).toBe("source_not_occupied");
+    expect(result.coordinator).toBe(paused);
+  });
+
+  it("still hands off a reserved context while a recovery gate holds the queue", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: `context-${index}` },
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    const paused = settleAgentProfileWork({
+      coordinator: occupy(coordinator, "dispatch-1"),
+      nowMs: 1_700_000_000_200,
+      outcome: "usage_exhausted",
+      targetWakeLifecycleId: "wake-2",
+    }).coordinator;
+    expect(paused.recoveryGate?.status).toBe("awaiting_usage");
+
+    const result = handOff(paused);
+    expect(result.status).toBe("handed_off");
+    expect(
+      summarizeAgentProfileWorkCoordinator(result.coordinator).currentWorks.map(
+        (item) => item.dispatchId
+      )
+    ).toEqual(["dispatch-fork"]);
+  });
+
+  it("answers a replayed handoff without moving the slot a second time", () => {
+    const first = handOff(occupy(legacyQueue(3), "dispatch-1"));
+    const replay = handOff(first.coordinator);
+
+    expect(replay.status).toBe("already_handed_off");
+    expect(replay.coordinator).toBe(first.coordinator);
+  });
+
+  it("refuses a successor that would run a second execution in an already reserved context", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: `context-${index}` },
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    const occupied = occupy(coordinator, "dispatch-1");
+    const result = handOff(occupied, "wake-1", {
+      ...FORK,
+      executionContextId: "context-2",
+    });
+
+    expect(result.status).toBe("successor_conflict");
+    expect(result.coordinator).toBe(occupied);
+  });
+
+  it("refuses a successor that would not hold the slot it was given", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: `context-${index}` },
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    const occupied = occupy(coordinator, "dispatch-2");
+    const { executionContextId: _context, ...legacySuccessor } = FORK;
+    const result = handOff(occupied, "wake-2", legacySuccessor);
+
+    expect(result.status).toBe("successor_conflict");
+    expect(result.coordinator).toBe(occupied);
+  });
+
+  it("promotes the next waiter normally once the fork finishes", () => {
+    const handedOff = handOff(occupy(legacyQueue(3), "dispatch-1")).coordinator;
+    const settled = settleAgentProfileWork({
+      coordinator: handedOff,
+      nowMs: 1_700_000_000_700,
+      outcome: "succeeded",
+      targetWakeLifecycleId: "wake-fork",
+    });
+
+    expect(settled.removed).toBe(true);
+    expect(
+      summarizeAgentProfileWorkCoordinator(settled.coordinator).currentWork
+        ?.dispatchId
+    ).toBe("dispatch-2");
   });
 });
 
