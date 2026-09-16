@@ -515,6 +515,62 @@ describe("Space Inbox projection", () => {
     ]);
   });
 
+  it.each([
+    "user-sender",
+    "user-root",
+  ])("marks a Human reply only for another member's thread root (%s)", (authorUserId) => {
+    const record = buildSpaceInboxProjectionOutboxRecord({
+      activeMemberRecords: [
+        member("profile-root", "user-root", "human"),
+        member("profile-sender", authorUserId, "human"),
+        member("profile-participant", "user-participant", "human"),
+        member("profile-observer", "user-observer", "human"),
+      ],
+      nowMs: 2000,
+      organizationId: "org-1",
+      spaceName: "Planning",
+      signal: textSignal({
+        authorKind: "human",
+        authorName: "Human sender",
+        authorProfileId: "profile-sender",
+        text: "Here is the answer.",
+      }),
+      signalContext: {
+        threadContext: { rootSignalId: "signal-root", threadId: "thread-1" },
+        threadPlacement: "thread",
+      },
+      threadRootAuthorUserId: "user-root",
+      threadParticipantProfileIds: [
+        "profile-root",
+        "profile-sender",
+        "profile-participant",
+      ],
+    });
+    const recipients = record?.candidates ?? [];
+    const root = recipients.find(
+      (item) => item.recipientUserId === "user-root"
+    );
+    expect(root).toMatchObject({
+      kind: "space_message",
+      attention: "update",
+      importance: "normal",
+      sourceTarget: { signalId: "signal-1", threadRootSignalId: "signal-root" },
+    });
+    if (authorUserId !== "user-root") {
+      expect(root?.sourceTarget).toMatchObject({ replyToRecipient: true });
+    } else {
+      expect(root?.sourceTarget).not.toHaveProperty("replyToRecipient");
+    }
+    expect(
+      recipients
+        .filter((item) => item.recipientUserId !== "user-root")
+        .every((item) => !("replyToRecipient" in item.sourceTarget))
+    ).toBe(true);
+    expect(
+      recipients.some((item) => item.recipientUserId === "user-observer")
+    ).toBe(false);
+  });
+
   it("delivers an agent reply to the requester, Human Mentions, and thread target without broadcasting", () => {
     const record = buildSpaceInboxProjectionOutboxRecord({
       activeMemberRecords: [

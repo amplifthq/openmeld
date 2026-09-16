@@ -2,6 +2,7 @@ import { INBOX_SPACE_SUMMARY_MAX_SPACES } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import { canReceivePersonalAgentActivity } from "../src/inbox/application/inbox-agent-owner-access";
 import { ensureInboxItem } from "../src/inbox/application/inbox-item-service";
+import { createInboxMessageNotificationPreferencesService } from "../src/inbox/application/inbox-message-notification-preferences";
 import { createInboxService } from "../src/inbox/application/inbox-service";
 import { reconcileInvitationInbox } from "../src/organizations/invitation-inbox-projection";
 import {
@@ -10,6 +11,126 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("persists account defaults and personal conversation overrides without changing email or unread state", async () => {
+    const harness = createInboxHarness();
+    try {
+      const service = createInboxMessageNotificationPreferencesService(
+        harness.db
+      );
+      const inbox = createInboxService({ db: harness.db });
+      const identity = { userId: "user_one", organizationId: "org_one" };
+      const conversation = { ...identity, spaceId: "space_one" };
+      await seedSpaceItem(harness.db, {
+        recipientUserId: identity.userId,
+        sourceKey: "notification-preference-message",
+        spaceId: "space_one",
+      });
+      await inbox.updatePreferences({
+        userId: identity.userId,
+        urgentEmailEnabled: false,
+      });
+      const before = await inbox.summary({
+        organizationId: identity.organizationId,
+        recipientUserId: identity.userId,
+      });
+      expect(before.totalUnreadCount).toBe(1);
+      expect(await service.get(conversation)).toMatchObject({
+        defaultMode: "mentions_and_replies",
+        overrideMode: null,
+        effectiveMode: "mentions_and_replies",
+      });
+      await service.update({
+        ...identity,
+        preference: {
+          scope: "conversation",
+          spaceId: "space_one",
+          mode: "all_messages",
+        },
+      });
+      await service.update({
+        ...identity,
+        preference: { scope: "account", mode: "all_messages" },
+      });
+      await service.update({
+        ...identity,
+        preference: { scope: "account", mode: "mentions_and_replies" },
+      });
+      expect(await service.get(conversation)).toMatchObject({
+        defaultMode: "mentions_and_replies",
+        overrideMode: "all_messages",
+        effectiveMode: "all_messages",
+      });
+      expect(
+        await service.get({ ...conversation, userId: "user_two" })
+      ).toMatchObject({
+        overrideMode: null,
+        effectiveMode: "mentions_and_replies",
+      });
+      await service.update({
+        ...identity,
+        preference: {
+          scope: "conversation",
+          spaceId: "space_one",
+          mode: "muted",
+        },
+      });
+      expect(await service.get(conversation)).toMatchObject({
+        effectiveMode: "muted",
+      });
+      expect(
+        await inbox.getPreferences({ userId: identity.userId })
+      ).toMatchObject({ urgentEmailEnabled: false });
+      await inbox.updatePreferences({
+        userId: identity.userId,
+        urgentEmailEnabled: true,
+      });
+      expect(await service.get(conversation)).toMatchObject({
+        effectiveMode: "muted",
+      });
+      await service.update({
+        ...identity,
+        preference: { scope: "conversation", spaceId: "space_one", mode: null },
+      });
+      await service.update({
+        ...identity,
+        preference: { scope: "account", mode: "all_messages" },
+      });
+      expect(await service.get(conversation)).toMatchObject({
+        overrideMode: null,
+        effectiveMode: "all_messages",
+      });
+      expect(
+        await service.get({ ...identity, organizationId: "org_two" })
+      ).toMatchObject({ defaultMode: "all_messages" });
+      await expect(
+        service.get({ ...conversation, organizationId: "org_two" })
+      ).rejects.toMatchObject({ status: 404 });
+      expect(
+        await inbox.summary({
+          organizationId: identity.organizationId,
+          recipientUserId: identity.userId,
+        })
+      ).toEqual(before);
+      harness.run({
+        sql: "UPDATE space_index_memberships SET status = 'left' WHERE owner_user_id_snapshot = 'user_one'",
+      });
+      await expect(
+        service.update({
+          ...identity,
+          preference: {
+            scope: "conversation",
+            spaceId: "space_one",
+            mode: "muted",
+          },
+        })
+      ).rejects.toMatchObject({ status: 404 });
+      await expect(service.get(conversation)).rejects.toMatchObject({
+        status: 404,
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it("separates shared reviews from fulfillment, preserves personal reading, and revokes reviewer access", async () => {
     const harness = createInboxHarness();
     try {
@@ -1697,6 +1818,8 @@ function createInboxHarness() {
     "inbox_items",
     "inbox_email_deliveries",
     "inbox_notification_preferences",
+    "inbox_message_notification_defaults",
+    "inbox_conversation_notification_preferences",
     "inbox_center_agent_read_watermarks",
     "inbox_space_thread_read_watermarks",
     "space_index_spaces",

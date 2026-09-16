@@ -8,10 +8,9 @@ import { useOptionalAppOrganization } from "#/lib/organizations/organization-con
 /**
  * Global client-notification switch surfaced inside Space Info.
  *
- * There are no per-Space subscriptions: this is the same installation/browser
- * preference as Settings -> Personal -> Notifications, shown here so members
- * can discover and flip it from any conversation. Copy identifies all Spaces
- * and chats so the control is never mistaken for a per-Space toggle.
+ * This controls delivery on this client. The header bell owns the current
+ * conversation's account-saved message preference.
+
  */
 export function SpaceInfoNotificationsSection() {
 	const organization = useOptionalAppOrganization();
@@ -35,6 +34,8 @@ export function SpaceInfoNotificationsSection() {
 					{settings.permission === "unknown"
 						? "Applies to all your Spaces and chats on this Mac. You can also change this in Settings > Notifications."
 						: "Applies to all your Spaces and chats in this browser. You can also change this in Settings > Notifications."}
+					Use the bell at the top of this conversation to choose which messages
+					notify you.
 				</p>
 			</div>
 			<div className="flex items-center justify-between gap-3">
@@ -69,6 +70,6 @@ function resolveSpaceInfoNotificationStatusDescription(input: {
 		return resolveClientNotificationDescription(input.permission);
 	}
 	return input.enabled
-		? "On for all conversations while OpenMeld runs in the background."
+		? "On. Messages follow your default and conversation settings."
 		: "Off for all conversations.";
 }

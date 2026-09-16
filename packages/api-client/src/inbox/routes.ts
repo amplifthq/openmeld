@@ -2,6 +2,15 @@ import type { ListInboxItemsQuery } from "@openmeld/schemas/types";
 
 const INBOX_PATH = "/v1/inbox";
 
+export function buildInboxMessageNotificationPreferencesPath(
+  spaceId?: string
+): string {
+  const base = `${INBOX_PATH}/message-notification-preferences`;
+  return spaceId === undefined
+    ? base
+    : `${base}?${new URLSearchParams({ spaceId })}`;
+}
+
 export function buildInboxPath(query: ListInboxItemsQuery = {}): string {
   const search = new URLSearchParams();
   if (query.cursor !== undefined) {

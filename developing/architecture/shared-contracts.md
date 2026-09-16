@@ -490,6 +490,24 @@ File maintenance prefills the existing Routine contract without a new scheduler.
 Rollback the new Web callers before their receivers; no local component release
 or execution-contract epoch bump is required for these additive capabilities.
 
+### Optional Space bootstrap readiness enrichment
+
+`GET /v1/spaces/:spaceId/bootstrap` accepts `includeAgentReadiness=false`.
+Only this explicit opt-in returns `includesAgentReadiness=false`; omitted or
+true requests retain the existing full response without a new marker. Gateway
+forwards the option to Core. Access checks and member identity remain present,
+while runtime readiness reads and liveness observation writes are skipped.
+Missing readiness is unknown, not an offline result. Clients must keep this
+identity-only snapshot out of the authoritative members Query cache and load
+that projection independently.
+
+Both additions are optional in `packages/schemas`. Old callers retain the full
+response, and new callers accept an unmarked full response from older cloud
+components. The normal Web, Gateway, Core rollout order is compatible: an older
+Gateway never forwards the opt-in to Core. CLI, Service, setup, Wake, Space
+publication, and diagnostic contracts are unchanged; no local component epoch
+or required-update floor changes.
+
 ### Direct Message conversion member snapshots
 
 The conversion request may opt into `includeMemberSnapshots`. The Space-owned
@@ -909,6 +927,49 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
+targets without adding an Inbox kind or changing urgency. Space emits true only
+for a different Human account replying to the recipient's retained thread root,
+after existing recipient filtering. Browser notification policy reads this fact
+instead of parsing the title or equating thread membership with addressing.
+
+Source-target version `7` exposes this field. Gateway strips it for version
+`6` and older clients while preserving each version's existing target fields.
+List, direct-item, and mark-read RPCs also accept optional
+`includeReplyToRecipient`: Core omits the field unless the Gateway explicitly
+opts in. This protects an older strict Gateway even after Core persists new
+rows. New Gateway opts in and owns the separate browser-version projection.
+Unlike earlier ungated source-target additions, this field can roll out
+**Core, Gateway, Web**, matching the message-preference API below. Deploy Core
+before a Gateway that sends the new RPC option. No new migration or local
+component contract bump is required for the reply marker. Retain compatible
+Core readers on rollback while stored rows or projection intents contain it.
+
+Message notification preferences use the new strict
+`GET/PATCH /v1/inbox/message-notification-preferences` and matching Core RPCs.
+GET optionally accepts a Space id and returns the account default, nullable
+conversation override, and Core-resolved effective mode. PATCH writes either
+the account default or one conversation override; null removes the override.
+Core derives the user and Organization from verified active membership and
+rechecks indexed conversation membership/current personal Agent ownership for
+conversation reads and writes. Client-supplied recipient ids are rejected.
+The existing urgent-email preference and Inbox payloads remain unchanged.
+
+Contract impact: apply additive migration `0174_pretty_meggan` first, then
+deploy the Core receiver, Gateway routes, and Web caller in that order. New Web
+must not be exposed before both receivers; missing support is a visible error,
+not a fabricated default. Roll back Web first, then Gateway/Core, retaining
+the additive tables. Already-open old Web tabs keep the old message policy
+until reloaded; they cannot honor newly saved overrides. Desktop now uses the
+same shared API-client policy and re-reads message preferences in its native
+process. Publish the matching Desktop/Web build after the Core and Gateway
+receivers are available; existing Desktop installations need an app update to
+honor the new preferences. Native IPC request shapes remain unchanged. Setup, CLI, Service,
+Skills, Wake execution, Space publication, and diagnostics payloads do not
+change and require no local-component contract bump. Message preferences only
+filter browser delivery of authorized Inbox facts; they cannot alter source
+recipients, unread state, action resolution, urgency, or email eligibility.
 
 Organization invitation requests use `organizationJoinRequestInputSchema` for
 Web and CLI and a separate trusted RPC envelope for Auth-proven account identity,

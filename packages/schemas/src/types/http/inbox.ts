@@ -2,6 +2,25 @@ import type { z } from "zod/v4";
 
 type InboxSchemas = typeof import("../../schemas/http/inbox");
 
+export type InboxMessageNotificationMode = z.infer<
+  InboxSchemas["inboxMessageNotificationModeSchema"]
+>;
+export type InboxConversationNotificationMode = z.infer<
+  InboxSchemas["inboxConversationNotificationModeSchema"]
+>;
+export type InboxMessageNotificationPreferencesResponse = z.infer<
+  InboxSchemas["inboxMessageNotificationPreferencesResponseSchema"]
+>;
+export type UpdateInboxMessageNotificationPreferencesBody = z.infer<
+  InboxSchemas["updateInboxMessageNotificationPreferencesBodySchema"]
+>;
+export type GetInboxMessageNotificationPreferencesRpcInput = z.infer<
+  InboxSchemas["getInboxMessageNotificationPreferencesRpcInputSchema"]
+>;
+export type UpdateInboxMessageNotificationPreferencesRpcInput = z.infer<
+  InboxSchemas["updateInboxMessageNotificationPreferencesRpcInputSchema"]
+>;
+
 export type InboxView = z.infer<InboxSchemas["inboxViewSchema"]>;
 export type InboxAttention = z.infer<InboxSchemas["inboxAttentionSchema"]>;
 export type InboxImportance = z.infer<InboxSchemas["inboxImportanceSchema"]>;
