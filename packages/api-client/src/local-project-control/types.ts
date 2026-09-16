@@ -24,13 +24,17 @@ export type LocalProjectControlRequestInput = {
 export type DiscoverLocalProjectsInput = LocalProjectControlRequestInput &
   LocalProjectControlDiscoverProjectsRequest;
 export type ConnectLocalProjectCandidateInput =
-  LocalProjectControlRequestInput & LocalProjectControlConnectCandidateRequest;
+  LocalProjectControlRequestInput & {
+    target?: PeopleComputerTarget;
+  } & LocalProjectControlConnectCandidateRequest;
 export type ConnectLocalProjectDeclaredPathInput =
-  LocalProjectControlRequestInput &
-    LocalProjectControlConnectDeclaredPathRequest;
+  LocalProjectControlRequestInput & {
+    target?: PeopleComputerTarget;
+  } & LocalProjectControlConnectDeclaredPathRequest;
 export type SetDefaultLocalProjectConnectionInput =
-  LocalProjectControlRequestInput &
-    LocalProjectControlSetDefaultConnectionRequest;
+  LocalProjectControlRequestInput & {
+    target?: PeopleComputerTarget;
+  } & LocalProjectControlSetDefaultConnectionRequest;
 export type RemoveLocalProjectConnectionInput =
   LocalProjectControlRequestInput & LocalProjectControlRemoveConnectionRequest;
 export type RemoveMissingLocalProjectConnectionsInput =

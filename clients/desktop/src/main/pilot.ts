@@ -25,6 +25,7 @@ import {
   resolveDesktopWebUrl,
 } from "./desktop-environment";
 import { installedCommandEnvironment } from "./installed-environment";
+import { createLocalComputerReader } from "./local-computer";
 import { resolvePilotAssets } from "./pilot-assets";
 import { createPilotAuth } from "./pilot-auth";
 import { observePilotWindow } from "./pilot-diagnostics";
@@ -131,6 +132,10 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
     installed: Boolean(installedTarget),
     ensureCompatible,
   });
+  const commandDeps = installedTarget
+    ? installedCommandEnvironment(installedTarget, app.getPath("userData"))
+    : { env: process.env, openMeldBin: process.env.OPENMELD_BIN };
+  const readLocalComputer = createLocalComputerReader(auth, commandDeps);
   let transportSession: Session | undefined;
   let disposeTransport: (() => void) | undefined;
   const diagnosticsEnabled =
@@ -174,11 +179,13 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           fetch,
           installed: Boolean(installedTarget),
           cloudRequest: auth.cloudRequest,
+          readLocalComputer,
           ensureCompatible,
         }
       );
       const handlers = {
         [PILOT_IPC.platform]: () => platform,
+        [PILOT_IPC.localComputer]: readLocalComputer,
         [PILOT_IPC.session]: async () => {
           await ensureCompatible();
           return auth.session();
@@ -194,12 +201,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       };
       const connectComputer = createComputerConnection({
         auth,
-        commandDeps: installedTarget
-          ? installedCommandEnvironment(
-              installedTarget,
-              app.getPath("userData")
-            )
-          : { env: process.env, openMeldBin: process.env.OPENMELD_BIN },
+        commandDeps,
         webOrigin,
         webBuild: platform.webBuild,
         installed: Boolean(installedTarget),

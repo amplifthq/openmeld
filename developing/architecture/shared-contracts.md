@@ -54,6 +54,30 @@ their normal authorization paths. CLI, Service, Skills, Core, Gateway, Prepare,
 Wake, and Space action payloads and minimum versions are unchanged. Installing
 this entry does not establish Service readiness or authorize local setup.
 
+### Desktop Working folder
+
+`desktopLocalComputerSchema` owns the bounded native IPC projection of the CLI's
+account-aligned device and lane. It exposes no credentials or previous-session
+identity. Desktop admits only that target for the existing picker/discovery and
+the additive PeopleComputer Project connect-candidate, connect-declared-path,
+set-default, and Profile workspace routes. Gateway reuses strict shared request
+and response schemas; Core reuses the existing business writers and validates the
+exact owned Service session and capability. Account-current routes remain blocked
+in Desktop. An authentication change while admitting a request refuses it before
+forwarding; the shared auth boundary clears account-scoped queries on session
+changes.
+
+Contract Impact Audit: the IPC projection and Gateway/Core routes are additive.
+Deploy Core and Gateway support before distributing the new Desktop caller (or
+Web callers using the explicit mutations). During mixed versions, unsupported
+routes fail without falling back to another Computer. Existing CLI/Service
+picker, Project and workspace requests, Prepare, Wake, Space actions, Skills,
+status, diagnostics and recovery commands are unchanged. Capabilities continue
+to reject old Services that cannot perform an operation; no CLI/Service epoch,
+minimum version, bundle stamp, or Desktop contract-version bump is required.
+Old Desktop builds keep their existing restrictions. Rollback removes the new
+caller before removing these additive cloud receivers.
+
 ### Desktop candidate distribution
 
 `packages/schemas/src/desktop-release.ts` owns the strict immutable candidate
@@ -233,7 +257,7 @@ Generic transport/persistence errors, including unsupported-carrier errors,
 remain uncertain and keep autostart disabled. The CLI reports that partial
 outcome. A later Desktop caller must require the capable CLI and carrier before
 exposing controls. No cloud deployment or global local-file-reader floor is
-introduced for this opt-in capability. The pilot enables only guarded Start/Stop
+introduced for this opt-in capability. The pilot enables guarded Start/Stop
 after its read-only pair capability query. `serviceControlCapabilitiesSchema`
 owns the separate CLI response; `account_control_capabilities` is an additive
 authenticated control request with explicit carrier support. Older readers keep

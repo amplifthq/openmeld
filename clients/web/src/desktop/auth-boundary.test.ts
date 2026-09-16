@@ -22,6 +22,7 @@ describe("Desktop route authentication", () => {
 					: null,
 			}),
 			platform: vi.fn(),
+			localComputer: vi.fn(),
 			signIn: vi.fn(),
 			signOut: vi.fn(),
 			connectComputer: vi.fn(),
