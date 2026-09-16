@@ -173,6 +173,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 			</a>
 		),
 		useNavigate: () => navigateMock,
+		useLocation: ({
+			select,
+		}: {
+			select: (location: { href: string }) => unknown;
+		}) => select({ href: "/o/acme/spaces" }),
 		useRouterState: ({
 			select,
 		}: {
