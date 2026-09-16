@@ -15,6 +15,7 @@ import {
   markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
   removeAgentProfileWork,
+  reservedAgentProfileWork,
   settleAgentProfileWork,
   skipAgentProfileInterruptedWork,
   summarizeAgentProfileWorkCoordinator,
@@ -1006,6 +1007,75 @@ describe("occupied work handoff", () => {
     const occupied = occupy(coordinator, "dispatch-2");
     const { executionContextId: _context, ...legacySuccessor } = FORK;
     const result = handOff(occupied, "wake-2", legacySuccessor);
+
+    expect(result.status).toBe("successor_conflict");
+    expect(result.coordinator).toBe(occupied);
+  });
+
+  it("consumes the successor's own queue entry instead of leaving two entries for one piece of work", () => {
+    const occupied = occupy(legacyQueue(3), "dispatch-1");
+    const queued = acceptAgentProfileWork({
+      coordinator: occupied,
+      item: FORK,
+      nowMs: 1_700_000_000_500,
+    }).coordinator;
+    expect(queued.workItems).toHaveLength(4);
+
+    const result = handOff(queued);
+
+    expect(result.status).toBe("handed_off");
+    expect(
+      result.coordinator.workItems.map((item) => item.targetWakeLifecycleId)
+    ).toEqual(["wake-fork", "wake-2", "wake-3"]);
+    const summary = summarizeAgentProfileWorkCoordinator(result.coordinator);
+    expect(summary.currentWorks).toEqual([
+      { ...FORK, reservationState: "reserved" },
+    ]);
+    // The work kept the source's place in line rather than its own later one.
+    expect(summary.currentWorks[0]?.enqueuedAtMs).toBe(FORK.enqueuedAtMs);
+    expect(summary.waitingCount).toBe(2);
+  });
+
+  it("refuses a successor whose queued entry names a different execution context", () => {
+    const occupied = occupy(legacyQueue(2), "dispatch-1");
+    const queued = acceptAgentProfileWork({
+      coordinator: occupied,
+      item: { ...FORK, executionContextId: "context-other" },
+      nowMs: 1_700_000_000_500,
+    }).coordinator;
+
+    const result = handOff(queued);
+
+    expect(result.status).toBe("successor_conflict");
+    expect(result.coordinator).toBe(queued);
+  });
+
+  it("refuses a successor whose queued entry already holds a reservation of its own", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (const item of [
+      {
+        dispatchId: "dispatch-1",
+        enqueuedAtMs: 1_700_000_000_001,
+        executionContextId: "context-1",
+        targetWakeLifecycleId: "wake-1",
+      },
+      FORK,
+    ]) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item,
+        nowMs: item.enqueuedAtMs,
+      }).coordinator;
+    }
+    const occupied = occupy(coordinator, "dispatch-1");
+    expect(
+      reservedAgentProfileWork(occupied).map((item) => item.dispatchId)
+    ).toEqual(["dispatch-1", "dispatch-fork"]);
+
+    const result = handOff(occupied);
 
     expect(result.status).toBe("successor_conflict");
     expect(result.coordinator).toBe(occupied);

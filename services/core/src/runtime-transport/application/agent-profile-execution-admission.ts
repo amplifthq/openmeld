@@ -22,11 +22,13 @@ import {
 import {
   type AgentProfileWorkCoordinator,
   type AgentProfileWorkCoordinatorItem,
+  type AgentProfileWorkHandoffStatus,
   type AgentProfileWorkRecoveryGate,
   acceptAgentProfileWork,
   approveAgentProfileWorkQueue,
   authorizeAgentProfileWorkContinuation,
   createAgentProfileWorkCoordinator,
+  handOffOccupiedAgentProfileWork,
   markAgentProfileWorkContinuationNeedsAttention,
   markAgentProfileWorkControllerConversationOccupancy,
   markAgentProfileWorkUsageAvailable,
@@ -1828,6 +1830,129 @@ async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
       input.currentAgentControllerRef &&
     acceptedControllerSnapshot.configurationRevision ===
       input.currentConfigurationRevision
+  );
+}
+
+/**
+ * Verifies that both sides of a handoff are work this owner really has on this
+ * Profile, then moves the occupied reservation to the successor in place.
+ *
+ * The head lifecycle records are the authorization boundary: a caller can only
+ * name a successor whose Wake already exists under the same owner, Profile and
+ * dispatch, so this entry point can never mint a reservation for foreign work.
+ * `activeHeadLifecycleIds` is deliberately untouched — it follows head
+ * lifecycle status transitions, not coordinator membership, and the successor's
+ * own lifecycle write is what admits it there.
+ */
+export async function handOffRuntimeCoordinatorOccupiedAgentProfileWork(input: {
+  nowMs: number;
+  ownerUserId: string;
+  sourceDispatchId: string;
+  sourceTargetWakeLifecycleId: string;
+  storage: ExecutionAdmissionStorage;
+  successorDispatchId: string;
+  successorExecutionContextId?: string;
+  successorTargetWakeLifecycleId: string;
+  targetProfileId: string;
+}): Promise<{ status: AgentProfileWorkHandoffStatus | "unavailable" }> {
+  const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
+  const readyIndex = await ensureExecutionIndexReady({
+    nowMs: input.nowMs,
+    ownerUserId: input.ownerUserId,
+    storage: input.storage,
+  });
+  if (readyIndex.status !== "ready") {
+    return { status: "unavailable" };
+  }
+  return await input.storage.transaction(async (transaction) => {
+    const index = parseExecutionIndexState(
+      await transaction.get<unknown>(EXECUTION_INDEX_STORAGE_KEY)
+    );
+    if (
+      index?.status !== "ready" ||
+      index.generation !== readyIndex.generation ||
+      index.ownerUserId !== input.ownerUserId
+    ) {
+      return { status: "unavailable" as const };
+    }
+    const admission = parseExecutionAdmissionRecord(
+      await transaction.get<unknown>(storageKey)
+    );
+    if (!admission || admission.targetProfileId !== input.targetProfileId) {
+      return { status: "source_not_occupied" as const };
+    }
+    if (
+      !(await handoffHeadLifecycleMatches({
+        dispatchId: input.successorDispatchId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+        targetWakeLifecycleId: input.successorTargetWakeLifecycleId,
+        transaction,
+      }))
+    ) {
+      // An unverifiable successor cannot take the slot, which is the same
+      // outcome the pure transition reports for a successor it must refuse.
+      return { status: "successor_conflict" as const };
+    }
+    const source = admission.workItems.find(
+      (item) => item.targetWakeLifecycleId === input.sourceTargetWakeLifecycleId
+    );
+    if (
+      source &&
+      !(await handoffHeadLifecycleMatches({
+        dispatchId: input.sourceDispatchId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+        targetWakeLifecycleId: input.sourceTargetWakeLifecycleId,
+        transaction,
+      }))
+    ) {
+      return { status: "source_not_occupied" as const };
+    }
+    const handoff = handOffOccupiedAgentProfileWork({
+      coordinator: projectAgentProfileWorkCoordinator(admission),
+      nowMs: input.nowMs,
+      sourceTargetWakeLifecycleId: input.sourceTargetWakeLifecycleId,
+      successor: {
+        dispatchId: input.successorDispatchId,
+        // The successor continues the same queue entry, so it inherits the
+        // source's enqueue time rather than moving to the back of the line.
+        enqueuedAtMs: source?.enqueuedAtMs ?? input.nowMs,
+        targetWakeLifecycleId: input.successorTargetWakeLifecycleId,
+        ...(input.successorExecutionContextId === undefined
+          ? {}
+          : { executionContextId: input.successorExecutionContextId }),
+      },
+    });
+    if (handoff.status !== "handed_off") {
+      return { status: handoff.status };
+    }
+    await transaction.put(storageKey, {
+      ...admission,
+      revision: handoff.coordinator.revision,
+      updatedAtMs: handoff.coordinator.updatedAtMs,
+      workItems: handoff.coordinator.workItems,
+    } satisfies AgentProfileExecutionAdmissionRecord);
+    return { status: handoff.status };
+  });
+}
+
+async function handoffHeadLifecycleMatches(input: {
+  dispatchId: string;
+  ownerUserId: string;
+  targetProfileId: string;
+  targetWakeLifecycleId: string;
+  transaction: Pick<DurableObjectTransaction, "get">;
+}): Promise<boolean> {
+  const head = await input.transaction.get<unknown>(
+    buildRuntimeCoordinatorHeadLifecycleStorageKey(input.targetWakeLifecycleId)
+  );
+  return (
+    isRuntimeCoordinatorHeadLifecycleRecord(head) &&
+    head.targetWakeLifecycleId === input.targetWakeLifecycleId &&
+    head.ownerUserId === input.ownerUserId &&
+    head.primaryDispatchId === input.dispatchId &&
+    head.targetWakeLifecycleIdentity.targetProfileId === input.targetProfileId
   );
 }
 

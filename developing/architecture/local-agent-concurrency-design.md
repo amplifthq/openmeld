@@ -506,6 +506,41 @@ An executing forked child consumes one of the same five reservations. Its parent
 consumes another only while the parent's work holds a reservation. Fork depth or
 history inheritance cannot create additional concurrency outside this limit.
 
+### Occupied-reservation handoff
+
+When an external process holds the native conversation's writer lock, the
+blocked work keeps its reservation and its `waitReason` records
+`controller_conversation_occupied`. Recovering that one request must not push a
+replacement to the back of the queue: it would then wait for the same blocked
+queue it was meant to escape. Core therefore transfers the reservation in place
+rather than releasing and re-admitting it.
+
+`handOffOccupiedAgentProfileWork` in the
+[Work Coordinator](../../services/core/src/runtime-transport/application/agent-profile-work-coordinator.ts)
+puts the successor Wake into the source's slot and consumes the successor's own
+waiting entry, so exactly one entry represents the work and the reserved count
+never changes. The five-reservation ceiling, `serial`, and `draining` keep
+holding without a special case, and no unprotected gap opens for a following
+legacy item. It refuses anything that would not hold that slot, would run a
+second execution in an already reserved context, or names a source that is not
+both reserved and occupied — a turn that has already started is not a blocked
+wait and must not be handed off.
+
+`handOffRuntimeCoordinatorOccupiedAgentProfileWork` in
+[execution admission](../../services/core/src/runtime-transport/application/agent-profile-execution-admission.ts)
+is the storage entry point, reachable as `rpcHandOffOccupiedAgentProfileWork`.
+Head lifecycle records are its authorization boundary: both source and
+successor must exist under the same owner, dispatch, and Profile, so the RPC
+cannot mint a reservation for foreign work. Idempotency keys on the successor's
+`targetWakeLifecycleId` already holding the slot, matching how acceptance keys
+on the same identity. The handoff never writes `activeHeadLifecycleIds`, which
+follows head lifecycle status transitions rather than queue membership.
+
+This is the admission half only. Proving the old wait has stopped, creating the
+successor Wake with a verified historical boundary, and the user-facing entry
+point remain outstanding; see
+[Codex session coexistence](review/2026-09-14-codex-session-coexistence.md).
+
 ### Limits and how to change them
 
 `packages/agent-runtime/src/work-policy.ts` owns the fixed

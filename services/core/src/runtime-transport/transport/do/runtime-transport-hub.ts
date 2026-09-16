@@ -61,6 +61,8 @@ import {
   runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSchema,
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
+  runtimeTransportAgentProfileWorkHandoffRequestSchema,
+  runtimeTransportAgentProfileWorkHandoffResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
@@ -201,6 +203,8 @@ import type {
   RuntimeTransportAgentProfileWorkContinuationAuthorizeResponse,
   RuntimeTransportAgentProfileWorkContinuationNeedsAttentionRequest,
   RuntimeTransportAgentProfileWorkContinuationNeedsAttentionResponse,
+  RuntimeTransportAgentProfileWorkHandoffRequest,
+  RuntimeTransportAgentProfileWorkHandoffResponse,
   RuntimeTransportAgentProfileWorkQueueApproveRequest,
   RuntimeTransportAgentProfileWorkQueueApproveResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadRequest,
@@ -336,6 +340,7 @@ import {
   approveRuntimeCoordinatorAgentProfileWorkQueue,
   authorizeRuntimeCoordinatorAgentProfileWorkContinuation,
   completeRuntimeCoordinatorAgentProfileWorkRecoveryInboxProjection,
+  handOffRuntimeCoordinatorOccupiedAgentProfileWork,
   listDrainingAgentProfileContextMigrations,
   markRuntimeCoordinatorAgentProfileWorkContinuationNeedsAttention,
   markRuntimeCoordinatorAgentProfileWorkControllerConversationOccupancy,
@@ -1896,6 +1901,40 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       }
     }
     return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
+      response
+    );
+  }
+
+  async rpcHandOffOccupiedAgentProfileWork(
+    input: RuntimeTransportAgentProfileWorkHandoffRequest
+  ): Promise<RuntimeTransportAgentProfileWorkHandoffResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkHandoffRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const response = await handOffRuntimeCoordinatorOccupiedAgentProfileWork({
+      nowMs: Date.now(),
+      ownerUserId: parsed.data.ownerUserId,
+      sourceDispatchId: parsed.data.sourceDispatchId,
+      sourceTargetWakeLifecycleId: parsed.data.sourceTargetWakeLifecycleId,
+      storage: this.ctx.storage,
+      successorDispatchId: parsed.data.successorDispatchId,
+      successorExecutionContextId: parsed.data.successorExecutionContextId,
+      successorTargetWakeLifecycleId:
+        parsed.data.successorTargetWakeLifecycleId,
+      targetProfileId: parsed.data.targetProfileId,
+    });
+    if (response.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+    }
+    if (response.status === "handed_off") {
+      this.publishAgentReadinessInvalidated({
+        profileIds: [parsed.data.targetProfileId],
+        reason: "agent_profile_work_coordinator.changed",
+      });
+    }
+    return runtimeTransportAgentProfileWorkHandoffResponseSchema.parse(
       response
     );
   }

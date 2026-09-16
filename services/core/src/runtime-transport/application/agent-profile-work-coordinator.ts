@@ -96,13 +96,15 @@ export type AgentProfileWorkHandoffStatus =
 /**
  * Moves one occupied reservation to the work that continues it, in place.
  *
- * The successor takes the source's slot rather than joining the queue, so the
- * reservation is never released: no gap opens for a following legacy item to
- * start ahead of it, and the concurrency ceiling, serial mode, and draining
- * all keep holding because the reserved count does not change. Callers own the
- * evidence that the source execution has stopped; this transition only
- * requires that Core still sees the source as reserved and occupied, which is
- * what distinguishes a blocked wait from a turn that is already running.
+ * The successor takes over the source's slot instead of waiting for its turn,
+ * so the reservation is never released: no gap opens for a following legacy
+ * item to start ahead of it, and the concurrency ceiling, serial mode, and
+ * draining all keep holding because the reserved count does not change. A
+ * successor that was already waiting in this queue has that entry consumed,
+ * leaving exactly one entry for the work. Callers own the evidence that the
+ * source execution has stopped; this transition only requires that Core still
+ * sees the source as reserved and occupied, which is what distinguishes a
+ * blocked wait from a turn that is already running.
  */
 export function handOffOccupiedAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
@@ -135,13 +137,21 @@ export function handOffOccupiedAgentProfileWork(input: {
   ) {
     return { coordinator: input.coordinator, status: "source_not_occupied" };
   }
+  // Accepting the successor Wake is what creates it, so it is normally already
+  // waiting in this queue. Taking over the source's slot consumes that entry
+  // instead of leaving a second entry behind for the same piece of work.
+  const queuedSuccessor = input.coordinator.workItems.find(
+    (item) =>
+      item !== source &&
+      item.targetWakeLifecycleId === input.successor.targetWakeLifecycleId
+  );
   if (
-    input.coordinator.workItems.some(
-      (item) =>
-        item !== source &&
-        item.targetWakeLifecycleId === input.successor.targetWakeLifecycleId
-    )
+    queuedSuccessor &&
+    (reservedAgentProfileWork(input.coordinator).includes(queuedSuccessor) ||
+      queuedSuccessor.executionContextId !== input.successor.executionContextId)
   ) {
+    // An already reserved successor is running work of its own, and a context
+    // the caller states wrongly must be refused rather than quietly corrected.
     return { coordinator: input.coordinator, status: "successor_conflict" };
   }
 
@@ -149,9 +159,9 @@ export function handOffOccupiedAgentProfileWork(input: {
   const placed: AgentProfileWorkCoordinatorItem = successor.executionContextId
     ? { ...successor, reservationState: "reserved" }
     : successor;
-  const workItems = input.coordinator.workItems.map((item, index) =>
-    index === sourceIndex ? placed : item
-  );
+  const workItems = input.coordinator.workItems
+    .map((item, index) => (index === sourceIndex ? placed : item))
+    .filter((item) => item !== queuedSuccessor);
   const coordinator = {
     ...input.coordinator,
     revision: input.coordinator.revision + 1,

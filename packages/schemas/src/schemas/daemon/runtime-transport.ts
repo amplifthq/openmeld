@@ -289,6 +289,26 @@ export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseS
     status: z.enum(["marked", "not_pending", "unavailable"]),
   });
 
+export const runtimeTransportAgentProfileWorkHandoffRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    sourceDispatchId: z.string().trim().min(1).max(512),
+    sourceTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    successorDispatchId: z.string().trim().min(1).max(512),
+    successorExecutionContextId: z.string().trim().min(1).max(512).optional(),
+    successorTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "already_handed_off",
+      "handed_off",
+      "source_not_occupied",
+      "successor_conflict",
+      "unavailable",
+    ]),
+  });
+
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =
   runtimeTransportAgentProfileWorkRecoveryTargetSchema;
 

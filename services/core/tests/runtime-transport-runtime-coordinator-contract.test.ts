@@ -2607,6 +2607,28 @@ const acceptDefaultRuntimeCoordinatorHead = (
     buildRuntimeCoordinatorHeadAcceptRequest()
   );
 
+const storageRecordsAdmission = (
+  storageRecords: Map<string, unknown>,
+  admissionKey: string
+): {
+  revision: number;
+  updatedAtMs: number;
+  workItems: Array<{
+    dispatchId: string;
+    enqueuedAtMs: number;
+    executionContextId?: string;
+    reservationState?: "reserved" | "waiting";
+    targetWakeLifecycleId: string;
+    waitReason?: "controller_conversation_occupied";
+  }>;
+} => {
+  const admission = storageRecords.get(admissionKey);
+  if (!admission) {
+    throw new Error(`Expected an admission record at ${admissionKey}.`);
+  }
+  return admission as ReturnType<typeof storageRecordsAdmission>;
+};
+
 const prepareRunningContinuationWithQueuedWork = async (input: {
   defaultProjectId?: string;
   hub: RuntimeTransportHub;
@@ -7473,6 +7495,203 @@ describe("runtime transport runtime coordinator transport contract", () => {
     expect([...recordingD1.interactionInboxRows.values()]).toEqual([
       expect.objectContaining({ resolution_status: "resolved" }),
     ]);
+  });
+
+  const prepareOccupiedWorkWithSuccessorWake = async (input: {
+    hub: RuntimeTransportHub;
+    sentFrames: unknown[];
+    socket: WebSocket;
+    state: RuntimeTransportMutableState;
+    storageRecords: Map<string, unknown>;
+  }): Promise<{
+    admissionKey: string;
+    sourceTargetWakeLifecycleId: string;
+    successorTargetWakeLifecycleId: string;
+  }> => {
+    await issueDeliveryToken({
+      hub: input.hub,
+      sentFrames: input.sentFrames,
+      socket: input.socket,
+      state: input.state,
+    });
+    await fetchRuntimeTransportJson(
+      input.hub,
+      "/runtime-coordinator/head/accept",
+      buildRuntimeCoordinatorHeadAcceptRequest({
+        dispatchId: "dispatch-fork",
+        idempotencyKey: "idempotency-fork",
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: "client-message-fork",
+          dispatchId: "dispatch-fork",
+          sourceSignalId: "signal-fork",
+          spaceId: HEX_SPACE_ID,
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+        }),
+      })
+    );
+    const admissionKey =
+      runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+        TARGET_AGENT_PROFILE_ID
+      );
+    const admission = storageRecordsAdmission(
+      input.storageRecords,
+      admissionKey
+    );
+    const source = admission.workItems.find(
+      (item) => item.dispatchId === "dispatch-1"
+    );
+    const successor = admission.workItems.find(
+      (item) => item.dispatchId === "dispatch-fork"
+    );
+    if (!(source && successor)) {
+      throw new Error("Expected the occupied Wake and its successor Wake.");
+    }
+    // The Adapter's occupancy report is what marks the blocked wait; this
+    // fixture writes the same state directly so the handoff contract is the
+    // only thing under test.
+    input.storageRecords.set(admissionKey, {
+      ...admission,
+      workItems: admission.workItems.map((item) =>
+        item === source
+          ? { ...item, waitReason: "controller_conversation_occupied" }
+          : item
+      ),
+    });
+    return {
+      admissionKey,
+      sourceTargetWakeLifecycleId: source.targetWakeLifecycleId,
+      successorTargetWakeLifecycleId: successor.targetWakeLifecycleId,
+    };
+  };
+
+  const asHandoffHub = (hub: RuntimeTransportHub) =>
+    hub as unknown as {
+      rpcHandOffOccupiedAgentProfileWork: (input: {
+        ownerUserId: string;
+        sourceDispatchId: string;
+        sourceTargetWakeLifecycleId: string;
+        successorDispatchId: string;
+        successorExecutionContextId?: string;
+        successorTargetWakeLifecycleId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+
+  it("hands the occupied reservation to the successor Wake and answers a replay without moving it again", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const {
+      admissionKey,
+      sourceTargetWakeLifecycleId,
+      successorTargetWakeLifecycleId,
+    } = await prepareOccupiedWorkWithSuccessorWake({
+      hub,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const request = {
+      ownerUserId: "owner-1",
+      sourceDispatchId: "dispatch-1",
+      sourceTargetWakeLifecycleId,
+      successorDispatchId: "dispatch-fork",
+      successorTargetWakeLifecycleId,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork(request)
+    ).resolves.toEqual({ status: "handed_off" });
+
+    const handedOff = storageRecordsAdmission(storageRecords, admissionKey);
+    // One entry for the work, still holding the reservation it never released.
+    expect(handedOff.workItems).toEqual([
+      expect.objectContaining({
+        dispatchId: "dispatch-fork",
+        targetWakeLifecycleId: successorTargetWakeLifecycleId,
+      }),
+    ]);
+    expect(handedOff.workItems[0]?.waitReason).toBeUndefined();
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork(request)
+    ).resolves.toEqual({ status: "already_handed_off" });
+    expect(storageRecordsAdmission(storageRecords, admissionKey).revision).toBe(
+      handedOff.revision
+    );
+  });
+
+  it("refuses a successor Wake this owner and Profile do not actually have", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const { admissionKey, sourceTargetWakeLifecycleId } =
+      await prepareOccupiedWorkWithSuccessorWake({
+        hub,
+        sentFrames,
+        socket,
+        state,
+        storageRecords,
+      });
+    const before = storageRecordsAdmission(storageRecords, admissionKey);
+    const request = {
+      ownerUserId: "owner-1",
+      sourceDispatchId: "dispatch-1",
+      sourceTargetWakeLifecycleId,
+      successorDispatchId: "dispatch-fork",
+      successorTargetWakeLifecycleId: "twl_not-a-real-successor",
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    };
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork(request)
+    ).resolves.toEqual({ status: "successor_conflict" });
+    // A named Wake whose head record does not match cannot mint a reservation.
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork({
+        ...request,
+        successorDispatchId: "dispatch-not-the-successor",
+        successorTargetWakeLifecycleId: request.sourceTargetWakeLifecycleId,
+      })
+    ).resolves.toEqual({ status: "successor_conflict" });
+    expect(storageRecordsAdmission(storageRecords, admissionKey)).toEqual(
+      before
+    );
+  });
+
+  it("refuses to hand off work that is not blocked on the occupied conversation", async () => {
+    const { hub, sentFrames, socket, state, storageRecords } = createHarness();
+    const {
+      admissionKey,
+      sourceTargetWakeLifecycleId,
+      successorTargetWakeLifecycleId,
+    } = await prepareOccupiedWorkWithSuccessorWake({
+      hub,
+      sentFrames,
+      socket,
+      state,
+      storageRecords,
+    });
+    const occupied = storageRecordsAdmission(storageRecords, admissionKey);
+    storageRecords.set(admissionKey, {
+      ...occupied,
+      workItems: occupied.workItems.map(
+        ({ waitReason: _waitReason, ...item }) => item
+      ),
+    });
+    const running = storageRecordsAdmission(storageRecords, admissionKey);
+
+    await expect(
+      asHandoffHub(hub).rpcHandOffOccupiedAgentProfileWork({
+        ownerUserId: "owner-1",
+        sourceDispatchId: "dispatch-1",
+        sourceTargetWakeLifecycleId,
+        successorDispatchId: "dispatch-fork",
+        successorTargetWakeLifecycleId,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "source_not_occupied" });
+    expect(storageRecordsAdmission(storageRecords, admissionKey)).toEqual(
+      running
+    );
   });
 
   it("does not let a stale Skip action clear a later interrupted-work gate", async () => {
