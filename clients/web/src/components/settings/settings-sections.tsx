@@ -5,6 +5,8 @@ import { APP_CONTEXTUAL_MAIN_TEXT_BASE_START_CLASS_NAME } from "#/components/app
 import { CenterAgentPrivacyPage } from "#/components/organizations/center-agent-privacy-page";
 import { CenterAgentSettingsPage } from "#/components/organizations/center-agent-settings-page";
 import { OrganizationSettingsPage } from "#/components/organizations/organization-settings-page";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { DesktopUpdatesSection } from "#/desktop/updater";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import { buildSettingsRoutes } from "#/lib/settings-routes";
 import { AccountSection } from "./account-section";
@@ -35,6 +37,20 @@ export function buildSettingsSections(
 ): readonly SettingsSectionDef[] {
 	const settingsRoutes = buildSettingsRoutes(orgSlug);
 	return [
+		...(getDesktopPlatform()
+			? [
+					{
+						id: "updates",
+						title: "Updates",
+						to: settingsRoutes.updates,
+						render: () => (
+							<SettingsLeafLayout>
+								<DesktopUpdatesSection />
+							</SettingsLeafLayout>
+						),
+					},
+				]
+			: []),
 		{
 			id: "account",
 			title: "Account",

@@ -37,7 +37,7 @@ import { initializeDesktopPilot } from "./pilot";
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
-import { readDesktopUpdateStatus } from "./update/desktop-update";
+import { registerAppUpdater } from "./update/register-app-updater";
 
 // Keep the native window at the full Desktop workspace size from launch so the
 // app shell never flashes through a compact splash-sized frame.
@@ -67,6 +67,7 @@ let mainWindow: BrowserWindow | null = null;
 const pilot = initializeDesktopPilot(() => mainWindow);
 let tray: Tray | null = null;
 let latestServiceView: ServiceView | null = null;
+let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
 
 type SyncTrayOptions = {
   showProblem: boolean;
@@ -167,6 +168,12 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       label: APP_NAME,
       submenu: [
         { label: `About ${APP_NAME}`, role: "about" },
+        {
+          label: "Check for Updates…",
+          click: () => {
+            appUpdater?.showNative().catch(console.error);
+          },
+        },
         { type: "separator" },
         {
           accelerator: "Command+,",
@@ -625,6 +632,18 @@ function bootstrapApp(): void {
   runBackgroundTask(
     app.whenReady().then(() => {
       pilot?.install(authorizeRenderer);
+      const updater = registerAppUpdater({
+        enabled:
+          app.isPackaged &&
+          process.platform === "darwin" &&
+          pilot?.installedTarget?.kind === "production",
+        authorize: authorizeRenderer,
+        getWindow: () => mainWindow,
+        setInstalling: (value) => {
+          isQuitting = value;
+        },
+      });
+      appUpdater = updater;
       const commandDeps = pilot?.installedTarget
         ? installedCommandEnvironment(
             pilot.installedTarget,
@@ -641,11 +660,7 @@ function bootstrapApp(): void {
           },
         },
         desktopUpdate: {
-          getStatus: () =>
-            readDesktopUpdateStatus({
-              currentVersion: app.getVersion(),
-              env: commandDeps?.env ?? process.env,
-            }),
+          getStatus: updater.legacyStatus,
           openDownloadPage: async () => {
             await shell.openExternal(
               resolveDesktopDownloadPageUrl({
@@ -681,6 +696,7 @@ function bootstrapApp(): void {
       });
       createTray();
       showStatusWindow();
+      appUpdater.check()?.catch(console.error);
     })
   );
 }

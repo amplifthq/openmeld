@@ -211,8 +211,66 @@ acceptance. Production preview requires the exact clean merged release SHA and
 rejects disposable settings. Its signed source record binds the release SHA,
 production identity, and renderer fingerprint; publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
-It does not select a default update. Web offers an account-free preview page at
-`/desktop?candidate=<hash>` using that candidate's verified metadata and artifact.
+Building and uploading do not select a default update. Web offers an account-free
+page at `/desktop`, with an immutable `/desktop?candidate=<hash>` override.
+An explicit promotion selects the default download and update feed together.
+
+### In-app updates
+
+Production macOS builds use electron-updater 6.8.9. Main owns the update snapshot;
+the shared renderer's Updates section, Settings indicator, notice, and native
+Check for Updates menu consume it. The native entry is independent of cloud
+admission and sign-in. Development and disposable packages cannot update from
+the production feed. Renderer IPC accepts only check, download, and restart
+actions, never an origin, file path, or installer arguments.
+
+Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
+explicitly false. Download requires consent; after checksum verification the
+user chooses Restart to update or Later. On macOS the downloaded ZIP is not
+handed to Squirrel until Restart to update. Later therefore neither installs on
+ordinary Quit nor silently installs on the next launch. A subsequent launch
+checks again; a requested download can reuse the verified cache.
+
+Restart freezes document editing, flushes active text through the existing
+composer draft owner, and refuses while navigation guards, pending sends,
+attachment writes, failed attachment persistence, or unfinished uploads block
+leaving. Normal messages, Threads, and Center Agent text use `useComposerDraft`;
+file blobs and upload references retain their existing IndexedDB owner. New
+Center Agent chat file selections are still memory-only and block restart until
+sent or removed. Center Agent handoffs read their existing pending-message
+owner and also block restart. Pending
+send acknowledgements remain with existing reconciliation: updating never
+resends a message. The current workspace URL is retained for the normal router
+to authorize after relaunch. Native credentials, account data, and app identity
+are not reset. Failed preparation restores editing; failed installation handoff
+restores the normal close-to-tray flag. An installation error requires quitting
+and reopening before retry; do not register a second native install attempt in
+the same process after Squirrel may have begun staging. Installation affects the GUI only and
+does not call, update, stop, or reconfigure CLI or OpenMeld Service.
+
+### Manual installed A-to-B acceptance
+
+Felix performs this acceptance after the implementation and release candidates
+are reviewed. Do not promote a release merely to run an automated smoke.
+
+1. Install signed A containing this updater. Record its version and existing
+   account, conversation, Service identity and an independently running Wake.
+2. Build a newer signed B from its exact merged SHA. Verify DMG and ZIP identity,
+   upload the immutable candidate, then explicitly promote B after review.
+3. Confirm `/desktop`, legacy `/desktop/update.json`, and `latest-mac.yml` select
+   B. Invalid and missing candidate overrides must never offer B as a fallback.
+4. In A, check while signed in, signed out, with an expired session, and with
+   cloud admission blocked. Confirm no download starts until requested; Settings
+   and the native menu show the same result. Interrupt the network and retry.
+5. Download B, choose Later, close the window, switch Organizations, and reopen
+   Settings. Quit and relaunch A normally: A must remain installed.
+6. Prepare unsent text in a Space, a Thread, and a Center Agent conversation,
+   plus a persisted attachment. Try restart during upload, pending send, and
+   storage failure: it must refuse without resending or losing content.
+7. Once work is durable, choose Restart to update. Confirm B, the same account
+   and conversation, preserved text and attachments, and unchanged Service/Wake.
+   Also exercise an installation error and confirm editing and close-to-tray
+   recover. Record actual observations separately from unit/build evidence.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using

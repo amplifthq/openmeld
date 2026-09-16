@@ -10,6 +10,10 @@ import type {
   DesktopPlatform,
   DesktopSession,
   DesktopSpaceStreamBridge,
+  DesktopUpdaterAction,
+  DesktopUpdaterRestartReply,
+  DesktopUpdaterRestartRequest,
+  DesktopUpdaterState,
 } from "@openmeld/schemas";
 
 declare global {
@@ -20,6 +24,11 @@ declare global {
 }
 
 export const PILOT_IPC = {
+  updaterState: "desktop:updater-state",
+  updaterAction: "desktop:updater-action",
+  updaterChanged: "desktop:updater-changed",
+  updaterPrepare: "desktop:updater-prepare",
+  updaterPrepared: "desktop:updater-prepared",
   notificationContext: "desktop:notification-context",
   notificationShow: "desktop:notification-show",
   notificationTest: "desktop:notification-test",
@@ -39,6 +48,13 @@ export const PILOT_IPC = {
   spaceStreamEvent: "desktop:space-stream-event",
 } as const;
 export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
+  updaterState(): Promise<DesktopUpdaterState>;
+  updaterAction(action: DesktopUpdaterAction): Promise<void>;
+  updaterPrepared(reply: DesktopUpdaterRestartReply): Promise<void>;
+  onUpdaterChanged(handler: (state: DesktopUpdaterState) => void): () => void;
+  onUpdaterPrepare(
+    handler: (request: DesktopUpdaterRestartRequest) => void
+  ): () => void;
   setNotificationContext(input: DesktopNotificationContext): Promise<void>;
   showNotification(
     input: DesktopNotificationRequest

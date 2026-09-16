@@ -42,7 +42,7 @@ export async function getDesktopUpdateManifest(
 			}),
 			{
 				headers: {
-					"cache-control": "public, max-age=60, s-maxage=60",
+					"cache-control": "no-store",
 					"x-content-type-options": "nosniff",
 				},
 			}
