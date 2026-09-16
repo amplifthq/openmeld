@@ -1,7 +1,12 @@
+import { isInboxNotificationEligible } from "@openmeld/api-client";
 import type { InboxItem } from "@openmeld/schemas/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const queueSoundMock = vi.hoisted(() => vi.fn());
+const desktopPlatformMock = vi.hoisted(() => vi.fn());
+vi.mock("#/desktop/platform", () => ({
+	getDesktopPlatform: desktopPlatformMock,
+}));
 const readSoundEnabledMock = vi.hoisted(() => vi.fn(() => true));
 const writeSoundEnabledMock = vi.hoisted(() => vi.fn());
 
@@ -14,20 +19,19 @@ vi.mock("./browser-notification-sound", () => ({
 }));
 
 import {
-	clearInboxBrowserNotificationItemPending,
-	disableInboxBrowserNotifications,
+	clearInboxNotificationItemPending,
+	disableInboxNotifications,
 	dismissInboxBrowserNotificationPrompt,
-	enableInboxBrowserNotifications,
-	isInboxBrowserNotificationEligible,
-	markInboxBrowserNotificationItemPending,
+	enableInboxNotifications,
+	markInboxNotificationItemPending,
 	readInboxBrowserNotificationPromptDismissed,
-	readInboxBrowserNotificationSettings,
-	readPendingInboxBrowserNotificationItemIds,
-	setInboxBrowserNotificationSoundEnabled,
-	showInboxBrowserNotification,
+	readInboxNotificationSettings,
+	readPendingInboxNotificationItemIds,
+	setInboxNotificationSoundEnabled,
 	showInboxBrowserNotificationExample,
-	subscribeInboxBrowserNotificationSettings,
-} from "./browser-notifications";
+	showInboxNotification,
+	subscribeInboxNotificationSettings,
+} from "./client-notifications";
 
 const USER_ID = "11111111-1111-1111-1111-111111111111";
 const PREFERENCE_KEY = `openmeld.inbox.browser-notifications.enabled:${USER_ID}`;
@@ -35,7 +39,7 @@ const PROMPT_DISMISSED_KEY = `openmeld.inbox.browser-notifications.prompt-dismis
 
 describe("Inbox browser notifications", () => {
 	it("notifies a Human reply from the recipient marker, not the title or thread membership", async () => {
-		await enableInboxBrowserNotifications({ userId: USER_ID });
+		await enableInboxNotifications({ userId: USER_ID });
 		const item = createInboxItem({
 			kind: "space_message",
 			attention: "update",
@@ -50,17 +54,17 @@ describe("Inbox browser notifications", () => {
 				replyToRecipient: true,
 			},
 		});
-		expect(
-			isInboxBrowserNotificationEligible(item, "mentions_and_replies")
-		).toBe(true);
-		expect(isInboxBrowserNotificationEligible(item, "muted")).toBe(false);
+		expect(isInboxNotificationEligible(item, "mentions_and_replies")).toBe(
+			true
+		);
+		expect(isInboxNotificationEligible(item, "muted")).toBe(false);
 		const { replyToRecipient: _reply, ...ordinaryTarget } =
 			item.sourceTarget as Extract<
 				InboxItem["sourceTarget"],
 				{ kind: "space" }
 			>;
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				{
 					...item,
 					title: "Someone replied to your thread",
@@ -70,7 +74,7 @@ describe("Inbox browser notifications", () => {
 			)
 		).toBe(false);
 		expect(
-			await showInboxBrowserNotification({
+			await showInboxNotification({
 				item,
 				userId: USER_ID,
 				sourcePath:
@@ -81,7 +85,7 @@ describe("Inbox browser notifications", () => {
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 	});
 	it("creates an ordinary-message notification only after the saved policy revalidation allows it", async () => {
-		await enableInboxBrowserNotifications({ userId: USER_ID });
+		await enableInboxNotifications({ userId: USER_ID });
 		const item = createInboxItem({
 			kind: "space_message",
 			attention: "update",
@@ -100,14 +104,14 @@ describe("Inbox browser notifications", () => {
 			viewingSourceSession: false,
 		};
 		expect(
-			await showInboxBrowserNotification({
+			await showInboxNotification({
 				...input,
 				resolveCurrentReadiness: () => ({ status: "ineligible" }),
 			})
 		).toEqual({ status: "ineligible" });
 		expect(notificationConstructorMock).not.toHaveBeenCalled();
 		expect(
-			await showInboxBrowserNotification({
+			await showInboxNotification({
 				...input,
 				resolveCurrentReadiness: () => ({ status: "eligible", item }),
 			})
@@ -134,7 +138,7 @@ describe("Inbox browser notifications", () => {
 				signalId: "message",
 			},
 		});
-		expect(isInboxBrowserNotificationEligible(item, mode)).toBe(expected);
+		expect(isInboxNotificationEligible(item, mode)).toBe(expected);
 	});
 
 	it("keeps direct messages eligible and does not mute independent action requests", () => {
@@ -151,13 +155,11 @@ describe("Inbox browser notifications", () => {
 			},
 		});
 		expect(
-			isInboxBrowserNotificationEligible(directMessage, "mentions_and_replies")
+			isInboxNotificationEligible(directMessage, "mentions_and_replies")
 		).toBe(true);
-		expect(isInboxBrowserNotificationEligible(directMessage, "muted")).toBe(
-			false
-		);
+		expect(isInboxNotificationEligible(directMessage, "muted")).toBe(false);
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				{
 					...directMessage,
 					attention: "action_required",
@@ -172,7 +174,7 @@ describe("Inbox browser notifications", () => {
 		expect(() => showInboxBrowserNotificationExample(USER_ID)).toThrow(
 			"Enable browser notifications"
 		);
-		await enableInboxBrowserNotifications({ userId: USER_ID });
+		await enableInboxNotifications({ userId: USER_ID });
 		const before = Object.entries(window.localStorage);
 		const notification = showInboxBrowserNotificationExample(USER_ID);
 		expect(notificationConstructorMock).toHaveBeenCalledWith(
@@ -183,11 +185,11 @@ describe("Inbox browser notifications", () => {
 		expect(queueSoundMock).not.toHaveBeenCalled();
 		notification.onshow?.call(notification, new Event("show"));
 		expect(queueSoundMock).toHaveBeenCalledOnce();
-		disableInboxBrowserNotifications({ userId: USER_ID });
+		disableInboxNotifications({ userId: USER_ID });
 		expect(() => showInboxBrowserNotificationExample(USER_ID)).toThrow(
 			"Enable browser notifications"
 		);
-		await enableInboxBrowserNotifications({ userId: USER_ID });
+		await enableInboxNotifications({ userId: USER_ID });
 		installNotificationMock({
 			constructorMock: notificationConstructorMock,
 			permission: "denied",
@@ -198,8 +200,62 @@ describe("Inbox browser notifications", () => {
 		);
 		expect(notificationConstructorMock).toHaveBeenCalledOnce();
 	});
+	it("keeps Desktop preferences independent and only settles acknowledged native delivery", async () => {
+		window.localStorage.setItem(PREFERENCE_KEY, "disabled");
+		const showNotification = vi
+			.fn()
+			.mockResolvedValueOnce("unavailable")
+			.mockResolvedValue("delivered");
+		desktopPlatformMock.mockReturnValue({
+			showNotification,
+			notificationFocused: async () => false,
+		});
+		expect(readInboxNotificationSettings({ userId: USER_ID })).toEqual({
+			enabled: true,
+			permission: "unknown",
+			soundEnabled: true,
+		});
+		disableInboxNotifications({ userId: USER_ID });
+		expect(readInboxNotificationSettings({ userId: USER_ID }).enabled).toBe(
+			false
+		);
+		await enableInboxNotifications({ userId: USER_ID });
+		expect(window.localStorage.getItem(PREFERENCE_KEY)).toBe("disabled");
+		const send = () =>
+			showInboxNotification({
+				item: createInboxItem(),
+				userId: USER_ID,
+				organizationSlug: "workspace",
+				sourcePath: "/unused",
+				viewingSourceSession: false,
+			});
+		expect((await send()).status).toBe("deferred");
+		expect((await send()).status).toBe("delivered");
+		expect((await send()).status).toBe("already_delivered");
+		expect(showNotification).toHaveBeenCalledTimes(2);
+		expect(queueSoundMock).not.toHaveBeenCalled();
+	});
+	it.each([
+		true,
+		false,
+	])("uses native focus %s to suppress only the conversation being read", async (focused) => {
+		const showNotification = vi.fn().mockResolvedValue("delivered");
+		desktopPlatformMock.mockReturnValue({
+			showNotification,
+			notificationFocused: async () => focused,
+		});
+		const result = await showInboxNotification({
+			item: createInboxItem(),
+			userId: USER_ID,
+			organizationSlug: "workspace",
+			sourcePath: "/unused",
+			viewingSourceSession: true,
+		});
+		expect(result.status).toBe(focused ? "deferred" : "delivered");
+		expect(showNotification).toHaveBeenCalledTimes(focused ? 0 : 1);
+	});
 	it("coalesces personal Agent owner alerts without suppressing another conversation", async () => {
-		await enableInboxBrowserNotifications({ userId: USER_ID });
+		await enableInboxNotifications({ userId: USER_ID });
 		const item = createInboxItem({
 			kind: "space_message",
 			attention: "update",
@@ -213,7 +269,7 @@ describe("Inbox browser notifications", () => {
 			},
 		});
 		const send = (value: InboxItem) =>
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item: value,
 				sourcePath: "/chats/owner-chat",
 				userId: USER_ID,
@@ -244,6 +300,7 @@ describe("Inbox browser notifications", () => {
 	let requestPermissionMock: ReturnType<typeof vi.fn>;
 
 	beforeEach(() => {
+		desktopPlatformMock.mockReset().mockReturnValue(null);
 		window.localStorage.clear();
 		notificationConstructorMock = vi.fn();
 		requestPermissionMock = vi.fn().mockResolvedValue("granted");
@@ -272,14 +329,14 @@ describe("Inbox browser notifications", () => {
 	});
 
 	it("requires an explicit user action before notifications are enabled", async () => {
-		expect(readInboxBrowserNotificationSettings({ userId: USER_ID })).toEqual({
+		expect(readInboxNotificationSettings({ userId: USER_ID })).toEqual({
 			enabled: false,
 			permission: "default",
 			soundEnabled: true,
 		});
 		expect(requestPermissionMock).not.toHaveBeenCalled();
 
-		const settings = await enableInboxBrowserNotifications({ userId: USER_ID });
+		const settings = await enableInboxNotifications({ userId: USER_ID });
 
 		expect(requestPermissionMock).toHaveBeenCalledOnce();
 		expect(settings).toEqual({
@@ -293,7 +350,7 @@ describe("Inbox browser notifications", () => {
 	it("does not save an opt-out when the permission prompt is dismissed", async () => {
 		requestPermissionMock.mockResolvedValueOnce("default");
 
-		const settings = await enableInboxBrowserNotifications({ userId: USER_ID });
+		const settings = await enableInboxNotifications({ userId: USER_ID });
 
 		expect(settings).toEqual({
 			enabled: false,
@@ -310,7 +367,7 @@ describe("Inbox browser notifications", () => {
 			requestPermissionMock,
 		});
 
-		expect(readInboxBrowserNotificationSettings({ userId: USER_ID })).toEqual({
+		expect(readInboxNotificationSettings({ userId: USER_ID })).toEqual({
 			enabled: true,
 			permission: "granted",
 			soundEnabled: true,
@@ -319,7 +376,7 @@ describe("Inbox browser notifications", () => {
 	});
 
 	it("does not introduce notifications after an explicit off choice", () => {
-		disableInboxBrowserNotifications({ userId: USER_ID });
+		disableInboxNotifications({ userId: USER_ID });
 		expect(
 			readInboxBrowserNotificationPromptDismissed({ userId: USER_ID })
 		).toBe(true);
@@ -327,7 +384,7 @@ describe("Inbox browser notifications", () => {
 
 	it("notifies ordinary direct messages without promoting group messages", () => {
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({
 					attention: "update",
 					importance: "normal",
@@ -338,7 +395,7 @@ describe("Inbox browser notifications", () => {
 			)
 		).toBe(true);
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({
 					attention: "update",
 					importance: "normal",
@@ -368,15 +425,15 @@ describe("Inbox browser notifications", () => {
 			throw new Error("Storage is unavailable");
 		});
 
-		await expect(
-			enableInboxBrowserNotifications({ userId: USER_ID })
-		).rejects.toThrow("Storage is unavailable");
+		await expect(enableInboxNotifications({ userId: USER_ID })).rejects.toThrow(
+			"Storage is unavailable"
+		);
 	});
 
 	it("turns off the local preference without changing browser permission", async () => {
-		await enableInboxBrowserNotifications({ userId: USER_ID });
+		await enableInboxNotifications({ userId: USER_ID });
 
-		const settings = disableInboxBrowserNotifications({ userId: USER_ID });
+		const settings = disableInboxNotifications({ userId: USER_ID });
 
 		expect(settings).toEqual({
 			enabled: false,
@@ -393,7 +450,7 @@ describe("Inbox browser notifications", () => {
 			requestPermissionMock,
 		});
 
-		const settings = setInboxBrowserNotificationSoundEnabled({
+		const settings = setInboxNotificationSoundEnabled({
 			enabled: false,
 			userId: USER_ID,
 		});
@@ -407,7 +464,7 @@ describe("Inbox browser notifications", () => {
 
 	it("refreshes settings after focus and every visibility change", () => {
 		const onChange = vi.fn();
-		const unsubscribe = subscribeInboxBrowserNotificationSettings(onChange);
+		const unsubscribe = subscribeInboxNotificationSettings(onChange);
 
 		window.dispatchEvent(new Event("focus"));
 		Object.defineProperty(document, "visibilityState", {
@@ -437,13 +494,13 @@ describe("Inbox browser notifications", () => {
 
 		const requestLock = installExclusiveLockMock();
 		const [first, second] = await Promise.all([
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
 				userId: USER_ID,
 				viewingSourceSession: false,
 			}),
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
 				userId: USER_ID,
@@ -481,7 +538,7 @@ describe("Inbox browser notifications", () => {
 		const item = createInboxItem();
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
 				userId: USER_ID,
@@ -489,7 +546,7 @@ describe("Inbox browser notifications", () => {
 			})
 		).rejects.toThrow("Notification constructor failed");
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=retry-item",
 				userId: USER_ID,
@@ -512,7 +569,7 @@ describe("Inbox browser notifications", () => {
 			"openmeld.inbox.browser-notifications.delivered-item-ids";
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item: createInboxItem({ id: "constructor-crash-item" }),
 				sourcePath: "/o/amplift/inbox?item=constructor-crash-item",
 				userId: USER_ID,
@@ -538,7 +595,7 @@ describe("Inbox browser notifications", () => {
 			.mockImplementation(() => undefined);
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item: createInboxItem({ id: "sound-queue-failure-item" }),
 				sourcePath: "/o/amplift/inbox?item=sound-queue-failure-item",
 				userId: USER_ID,
@@ -582,7 +639,7 @@ describe("Inbox browser notifications", () => {
 		});
 		let contextChanged = false;
 		const item = createInboxItem({ id: "queued-context-item" });
-		const delivery = showInboxBrowserNotification({
+		const delivery = showInboxNotification({
 			item,
 			resolveCurrentReadiness: () =>
 				contextChanged
@@ -611,7 +668,7 @@ describe("Inbox browser notifications", () => {
 		});
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item: createInboxItem({ id: "resolved-while-queued" }),
 				resolveCurrentReadiness: async () => ({
 					status: "ineligible" as const,
@@ -641,7 +698,7 @@ describe("Inbox browser notifications", () => {
 		});
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item: queuedItem,
 				resolveCurrentReadiness: async () => ({
 					item: freshItem,
@@ -667,32 +724,32 @@ describe("Inbox browser notifications", () => {
 	});
 
 	it("keeps pending retries scoped to the user and Organization", () => {
-		markInboxBrowserNotificationItemPending({
+		markInboxNotificationItemPending({
 			itemId: "pending-item",
 			organizationId: "organization-a",
 			userId: USER_ID,
 		});
 
 		expect(
-			readPendingInboxBrowserNotificationItemIds({
+			readPendingInboxNotificationItemIds({
 				organizationId: "organization-a",
 				userId: USER_ID,
 			})
 		).toEqual(new Set(["pending-item"]));
 		expect(
-			readPendingInboxBrowserNotificationItemIds({
+			readPendingInboxNotificationItemIds({
 				organizationId: "organization-b",
 				userId: USER_ID,
 			})
 		).toEqual(new Set());
 
-		clearInboxBrowserNotificationItemPending({
+		clearInboxNotificationItemPending({
 			itemId: "pending-item",
 			organizationId: "organization-a",
 			userId: USER_ID,
 		});
 		expect(
-			readPendingInboxBrowserNotificationItemIds({
+			readPendingInboxNotificationItemIds({
 				organizationId: "organization-a",
 				userId: USER_ID,
 			})
@@ -700,12 +757,12 @@ describe("Inbox browser notifications", () => {
 	});
 
 	it("stores pending items in independent cross-tab-safe records", () => {
-		markInboxBrowserNotificationItemPending({
+		markInboxNotificationItemPending({
 			itemId: "pending-item-a",
 			organizationId: "organization-a",
 			userId: USER_ID,
 		});
-		markInboxBrowserNotificationItemPending({
+		markInboxNotificationItemPending({
 			itemId: "pending-item-b",
 			organizationId: "organization-a",
 			userId: USER_ID,
@@ -719,7 +776,7 @@ describe("Inbox browser notifications", () => {
 		);
 		expect(pendingKeys).toHaveLength(2);
 		expect(
-			readPendingInboxBrowserNotificationItemIds({
+			readPendingInboxNotificationItemIds({
 				organizationId: "organization-a",
 				userId: USER_ID,
 			})
@@ -727,7 +784,7 @@ describe("Inbox browser notifications", () => {
 	});
 
 	it("skips one malformed pending key without hiding valid retries", () => {
-		markInboxBrowserNotificationItemPending({
+		markInboxNotificationItemPending({
 			itemId: "valid-pending-item",
 			organizationId: "organization-a",
 			userId: USER_ID,
@@ -739,7 +796,7 @@ describe("Inbox browser notifications", () => {
 		vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
 		expect(
-			readPendingInboxBrowserNotificationItemIds({
+			readPendingInboxNotificationItemIds({
 				organizationId: "organization-a",
 				userId: USER_ID,
 			})
@@ -761,7 +818,7 @@ describe("Inbox browser notifications", () => {
 		const item = createInboxItem({ id: "claim-retry-item" });
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
 				userId: USER_ID,
@@ -772,7 +829,7 @@ describe("Inbox browser notifications", () => {
 
 		storageRead.mockRestore();
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/inbox?item=claim-retry-item",
 				userId: USER_ID,
@@ -795,7 +852,7 @@ describe("Inbox browser notifications", () => {
 		const item = createInboxItem();
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/inbox",
 				userId: USER_ID,
@@ -805,7 +862,7 @@ describe("Inbox browser notifications", () => {
 		expect(notificationConstructorMock).not.toHaveBeenCalled();
 
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item,
 				sourcePath: "/o/amplift/inbox",
 				userId: USER_ID,
@@ -819,7 +876,7 @@ describe("Inbox browser notifications", () => {
 			value: "hidden",
 		});
 		await expect(
-			showInboxBrowserNotification({
+			showInboxNotification({
 				item: createInboxItem({ id: "hidden-tab-item" }),
 				sourcePath: "/o/amplift/inbox",
 				userId: USER_ID,
@@ -830,7 +887,7 @@ describe("Inbox browser notifications", () => {
 
 	it("delivers directly addressed updates but not ordinary space messages", () => {
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({
 					importance: "normal",
 					kind: "space_mention",
@@ -838,22 +895,20 @@ describe("Inbox browser notifications", () => {
 			)
 		).toBe(true);
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({ importance: "normal", kind: "agent_reply" })
 			)
 		).toBe(true);
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({ importance: "normal", kind: "wake_outcome" })
 			)
 		).toBe(true);
 		expect(
-			isInboxBrowserNotificationEligible(
-				createInboxItem({ importance: "urgent" })
-			)
+			isInboxNotificationEligible(createInboxItem({ importance: "urgent" }))
 		).toBe(true);
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({
 					importance: "normal",
 					attention: "action_required",
@@ -863,7 +918,7 @@ describe("Inbox browser notifications", () => {
 		).toBe(true);
 
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({
 					importance: "normal",
 					attention: "update",
@@ -872,7 +927,7 @@ describe("Inbox browser notifications", () => {
 			)
 		).toBe(false);
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({
 					importance: "normal",
 					attention: "action_required",
@@ -881,7 +936,7 @@ describe("Inbox browser notifications", () => {
 			)
 		).toBe(false);
 		expect(
-			isInboxBrowserNotificationEligible(
+			isInboxNotificationEligible(
 				createInboxItem({
 					importance: "normal",
 					attention: "update",

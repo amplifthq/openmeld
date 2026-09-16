@@ -10,6 +10,8 @@ Set an account default for message notifications, then use the bell in any
 Space or Direct Message to follow that default, receive all new messages, keep
 mentions and replies, or mute message notifications. Conversation choices stay
 personal and do not change unread state or urgent email alerts.
+These message preferences apply to both browser and Desktop notifications;
+each client keeps its own delivery and sound switches.
 
 Mentions and replies also notifies you when another person replies to a thread
 you started. Self replies stay quiet, and muting the conversation still applies.

@@ -3,13 +3,13 @@
 import { useCallback, useState, useSyncExternalStore } from "react";
 import { subscribeInboxBrowserNotificationSoundSettings } from "#/lib/inbox/browser-notification-sound";
 import {
-	disableInboxBrowserNotifications,
-	enableInboxBrowserNotifications,
-	type InboxBrowserNotificationSettings,
-	readInboxBrowserNotificationSettings,
-	setInboxBrowserNotificationSoundEnabled,
-	subscribeInboxBrowserNotificationSettings,
-} from "#/lib/inbox/browser-notifications";
+	disableInboxNotifications,
+	enableInboxNotifications,
+	type InboxNotificationSettings,
+	readInboxNotificationSettings,
+	setInboxNotificationSoundEnabled,
+	subscribeInboxNotificationSettings,
+} from "#/lib/inbox/client-notifications";
 
 type SettingsOperationState = {
 	error: string | null;
@@ -19,12 +19,9 @@ type SettingsOperationState = {
 
 type SettingsOperationStates = Record<string, SettingsOperationState>;
 
-const settingsSnapshotCache = new Map<
-	string,
-	InboxBrowserNotificationSettings
->();
+const settingsSnapshotCache = new Map<string, InboxNotificationSettings>();
 
-export function useInboxBrowserNotificationSettings(
+export function useInboxNotificationSettings(
 	userId: string | null | undefined
 ) {
 	const [operationStates, setOperationStates] =
@@ -42,7 +39,7 @@ export function useInboxBrowserNotificationSettings(
 				onStoreChange();
 			};
 			const unsubscribeNotifications =
-				subscribeInboxBrowserNotificationSettings(handleChange);
+				subscribeInboxNotificationSettings(handleChange);
 			const unsubscribeSounds =
 				subscribeInboxBrowserNotificationSoundSettings(handleChange);
 			return () => {
@@ -71,8 +68,8 @@ export function useInboxBrowserNotificationSettings(
 		let nextError: string | null = null;
 		try {
 			const nextSettings = enabled
-				? await enableInboxBrowserNotifications({ userId })
-				: disableInboxBrowserNotifications({ userId });
+				? await enableInboxNotifications({ userId })
+				: disableInboxNotifications({ userId });
 			if (enabled && nextSettings.permission === "default") {
 				nextError = "OpenMeld did not receive notification permission.";
 			}
@@ -95,7 +92,7 @@ export function useInboxBrowserNotificationSettings(
 		}
 		let nextError: string | null = null;
 		try {
-			setInboxBrowserNotificationSoundEnabled({ enabled, userId });
+			setInboxNotificationSoundEnabled({ enabled, userId });
 		} catch (caughtError) {
 			nextError =
 				caughtError instanceof Error
@@ -120,10 +117,8 @@ export function useInboxBrowserNotificationSettings(
 	};
 }
 
-function readStableSettingsSnapshot(
-	userId: string
-): InboxBrowserNotificationSettings {
-	const current = readInboxBrowserNotificationSettings({ userId });
+function readStableSettingsSnapshot(userId: string): InboxNotificationSettings {
+	const current = readInboxNotificationSettings({ userId });
 	const cached = settingsSnapshotCache.get(userId);
 	if (
 		cached &&

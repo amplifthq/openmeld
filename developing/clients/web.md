@@ -653,11 +653,22 @@ The global Center Agent surface has no secondary sidebar. Its persistent header
 navigation is exactly **Messages**, **Graph**, **Files**, **Routines**,
 **Skills**, and **Channels**, in that order. Messages, Graph, and Files preserve the
 selected Center Agent conversation surface. One compact header menu
-preserves **Memory** and **Center Agent settings**. The
+preserves **Memory**. The
 conversation variant of that menu also preserves **Conversation information**.
 There is no separate About surface or Slack shortcut; Center Agent identity,
 model, status, and Slack management remain available through Center Agent
 settings and Channels.
+
+**Center Agent settings live in the global App Settings destination**, not in the
+Center Agent conversation header menu. Its canonical route is
+`/o/{orgSlug}/settings/center-agent`, registered as the `center-agent` Settings
+section, so the same panel renders in both the standalone Settings route and the
+global Settings dialog (`?appSettings=center-agent`). The section is grouped
+under the current Organization's name, and under **Personal** in a Personal
+Workspace, where the coordinator belongs to that one member. The historical
+`/o/{orgSlug}/center-agent/settings` route remains as a redirect only, so
+existing links keep working without a second copy of the panel. There is exactly
+one Center Agent settings entry point.
 
 The Inbox launcher is present across ordinary authorized routes and opens a compact
 preview first. The sidebar header alone shows the deduplicated attention count
@@ -1041,7 +1052,8 @@ mutations do not fork by presentation.
 The Settings secondary sidebar always shows these two groups:
 
 - **Personal** — **Account**, **Appearance**, **Notifications**, **Privacy &
-  Safety**, and **Send feedback**.
+  Safety**, and **Send feedback**. In a Personal Workspace, it also includes
+  **Center Agent** (placed after Privacy & Safety, before Send feedback).
   Account preferences do not change when the selected Organization changes.
   Privacy & Safety also shows **Agent creation permissions** for the signed-in
   member in the current Organization, explicitly naming that scope. It links to **Center Agent →
@@ -1049,14 +1061,17 @@ The Settings secondary sidebar always shows these two groups:
   signed-in member's Computers for Computer file access. Both operations stay
   on their canonical product surfaces rather than creating duplicate settings
   state. Send feedback is an account-level utility action immediately after
-  Privacy & Safety. It opens the existing feedback dialog rather than creating
-  a route or a second submission contract.
-- **Current Organization name** — **General**, **Members**, **Invitations**,
-  and **Security**. General owns identity and lifecycle, Members owns roles,
-  Invitations owns requests and invitation delivery, and Security owns information
-  protection. Security is visible only to owners and admins. A personal workspace
-  shows General only: organization membership and invitation management do not
-  apply there. The visible group label is the selected
+  Privacy & Safety (or after Center Agent in a Personal Workspace). It opens
+  the existing feedback dialog rather than creating a route or a second
+  submission contract.
+- **Current Organization name** — **General**, **Center Agent**, **Members**,
+  **Invitations**, and **Security**. General owns identity and lifecycle, Center
+  Agent owns coordinator identity, connection, model, usage, and audit history,
+  Members owns roles, Invitations owns requests and invitation delivery, and
+  Security owns information protection. Security is visible only to owners and
+  admins. A personal workspace shows General only: organization membership
+  and invitation management do not apply there, and its coordinator belongs to
+  Personal. The visible group label is the selected
   Organization's stored name, including for the personal Organization; it is
   never the generic label `Workspace`. Every member can see these surfaces;
   each mutation is shown and enforced according to the member's role. The group
@@ -1158,8 +1173,11 @@ avatar field or keep a card-local successful avatar after the owner projections
 reload. The controls fail closed when the active default Human Profile is
 unavailable.
 
-**Center Agent → Center Agent settings** owns Center Agent configuration. It
-contains Model, Usage, the Audit Log, and the reversible
+**Settings → Center Agent** owns Center Agent configuration. It lives in the
+global App Settings destination (grouped under the current Organization's name,
+or under **Personal** in a Personal Workspace) at `/o/{orgSlug}/settings/center-agent`.
+The historical `/o/{orgSlug}/center-agent/settings` path redirects here.
+It contains Model, Usage, the Audit Log, and the reversible
 Organization-wide operating control in **Danger Zone**. Only the immutable
 Organization creator may pause or resume the Center Agent; owner/admin roles do
 not grant this authority. The active state presents **Pause Center Agent** and

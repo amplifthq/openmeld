@@ -22,8 +22,8 @@ vi.mock("#/lib/organizations/organization-context", () => {
 	});
 	return { useAppOrganization: context, useOptionalAppOrganization: context };
 });
-vi.mock("#/components/inbox/use-inbox-browser-notification-settings", () => ({
-	useInboxBrowserNotificationSettings: () => ({ settings: { enabled: false } }),
+vi.mock("#/components/inbox/use-inbox-notification-settings", () => ({
+	useInboxNotificationSettings: () => ({ settings: { enabled: false } }),
 }));
 vi.mock("#/components/settings/use-app-settings", () => ({
 	useAppSettings: () => state.openSettings,

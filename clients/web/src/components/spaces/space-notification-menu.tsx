@@ -12,7 +12,7 @@ import {
 import { FluidDropdownMenuContent } from "@openmeld/ui/fluid/dropdown-menu";
 import { BellIcon, BellSlashIcon } from "@phosphor-icons/react";
 import { useState } from "react";
-import { useInboxBrowserNotificationSettings } from "#/components/inbox/use-inbox-browser-notification-settings";
+import { useInboxNotificationSettings } from "#/components/inbox/use-inbox-notification-settings";
 import {
 	MESSAGE_NOTIFICATION_LABELS,
 	useMessageNotificationPreferences,
@@ -42,7 +42,7 @@ function ConversationNotificationMenu(input: {
 	userId: string;
 }) {
 	const { query, mutation } = useMessageNotificationPreferences(input.spaceId);
-	const { settings } = useInboxBrowserNotificationSettings(input.userId);
+	const { settings } = useInboxNotificationSettings(input.userId);
 	const openSettings = useAppSettings();
 	const [navigationError, setNavigationError] = useState<string | null>(null);
 	const muted = query.data?.effectiveMode === "muted";
@@ -158,7 +158,9 @@ function ConversationNotificationMenu(input: {
 				</p>
 				{settings && !settings.enabled ? (
 					<p className="px-2 py-2 text-muted-foreground text-xs">
-						Browser notifications are off in this browser.
+						{settings.permission === "unknown"
+							? "Desktop notifications are off on this Mac."
+							: "Browser notifications are off in this browser."}
 					</p>
 				) : null}
 				<Button

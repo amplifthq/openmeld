@@ -117,9 +117,14 @@ describe("buildCenterAgentHeaderMenuItems", () => {
 				item.label,
 				item.to,
 			])
-		).toEqual([
-			["Memory", "/o/acme/center-agent/memory"],
-			["Center Agent settings", "/o/acme/center-agent/settings"],
-		]);
+		).toEqual([["Memory", "/o/acme/center-agent/memory"]]);
+	});
+
+	it("does not offer a second Center Agent settings entry point", () => {
+		// Center Agent settings live in global App Settings at
+		// /o/:orgSlug/settings/center-agent, so this menu must not duplicate it.
+		expect(
+			buildCenterAgentHeaderMenuItems("acme").map((item) => item.label)
+		).not.toContain("Center Agent settings");
 	});
 });

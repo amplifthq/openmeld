@@ -2,7 +2,7 @@
 
 import { Button } from "@openmeld/ui/components/button";
 import { useEffect, useRef, useState } from "react";
-import { showInboxBrowserNotificationExample } from "#/lib/inbox/browser-notifications";
+import { showInboxBrowserNotificationExample } from "#/lib/inbox/client-notifications";
 
 export function BrowserNotificationExample(input: {
 	userId: string;

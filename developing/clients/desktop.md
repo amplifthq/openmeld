@@ -23,6 +23,23 @@ Appearance bootstrap attributes, including conversation width and self-message
 alignment. Preserve that initialization rather than deriving Desktop-specific
 preferences or compensating with local CSS.
 
+The macOS titlebar places Toggle sidebar, Back, and Forward after the native
+window controls, using Command+B, Command+[, and Command+] outside editors and
+modal controls. Its buttons are not draggable; the remaining titlebar is.
+The sidebar control is a portal from the existing module-sidebar provider, so
+it controls the contextual list (or the existing narrow-window drawer), not
+the application rail. Desktop omits the corresponding work-area header entry;
+browser Web keeps its existing placement and shortcuts.
+Pages that supply their own inner sidebar, such as standalone Settings and
+Agent Activity, retain their existing narrow-window drawer opener. The titlebar
+does not take ownership of those sidebars.
+
+Back and Forward use the shared router history. Desktop retains only the
+observed history-index bounds for the current account, not another entry stack.
+Native session invalidation, account changes, and leaving workspace routes
+clear those bounds. Unobserved history from before opening the app is excluded.
+These controls never reload the document or bypass route authorization.
+
 Organization entry and route scope use the shared Auth-owned
 `GET /v1/account/organization-context` projection rather than generated
 server-function IDs. The native credential transport remains unchanged; the
@@ -53,6 +70,37 @@ belong outside the shared content shell. Reuse `packages/ui` for primitives;
 do not move business rules into that package.
 
 ## Local pilot foundation
+
+### Native Inbox notifications
+
+Account message-notification defaults and conversation overrides apply to
+Desktop as well as Web. The shared API-client notification policy evaluates
+ordinary messages, Human reply markers, and mute consistently. Native delivery
+re-reads the authorized conversation preference with its own credentials before
+showing the notification; renderer eligibility cannot bypass a saved mute.
+Desktop retains its installation-local delivery and sound switches and native
+acknowledgement. **Show an example** uses the native test path on Desktop.
+
+Running Desktop delivers eligible Core Inbox items independently of Web's
+notification permission and preferences. The shared client listener owns the
+feed, first-page baseline, bounded pending recovery and delivery receipts.
+The native process supplies the existing ten-second cadence through a refresh
+signal, so hidden-window timer throttling does not suspend that feed. It does
+not disable Chromium background throttling or change document visibility.
+
+`pilot-notifications.ts` accepts only a schema-validated Inbox reference or a
+fixed test request from the trusted current window. It rereads Core with native
+credentials and checks current account identity before creating a Notification;
+clicks recheck access and identity again. No renderer-supplied notification text
+or external URL crosses this boundary. Session invalidation closes retained
+notifications. Only native `show` settles a delivery; failures remain retryable.
+
+Personal Notifications and Space Info expose the same installation-local,
+account-scoped Desktop switch. Sound uses the native notification only. The
+macOS permission state is unknown, not inferred from `isSupported()`. A test
+notification confirms only native acknowledgement, not that a person saw it.
+Notifications continue when the window is hidden and end when the GUI quits;
+the independent Service has no notification responsibility.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
@@ -188,11 +236,23 @@ transport as well as native IPC. `canConfigureLocalComputer` removes unsupported
 configuration actions while retaining reported status, details, and a Web handoff.
 `pilot-local-control-policy.ts` rejects the exact Gateway method/path families
 before attaching credentials: current and explicit Computer updates, local agent
-configuration, maintenance, file access, local Project controls, enrollment,
+configuration, maintenance, file access, general local Project controls, enrollment,
 rename/forget, and Prepare mutations. Catalog refresh is also unavailable in this
 pilot; reading existing reports remains available. Ordinary Web and Space/Wake
 mutations retain their existing contracts. These are pilot capability limits, not
 new Core authorization rules.
+
+Working folder selection is a narrow exception. Main reads the existing CLI
+`computer connection-review --json` projection without installing or starting a
+Service and checks its account against the Desktop session before and after the
+read. The shared renderer uses that exact device and lane for folder selection,
+Project discovery, connection, default-folder selection, and workspace saving.
+Main independently rejects a different device or lane before attaching
+credentials. A selected Agent on another Computer is not retargeted. The account's
+current-Computer preference is never a fallback for these Desktop requests.
+Cancellation changes no draft; selecting a folder alone grants no file access,
+connects no Project, and saves no workspace. The existing Service remains the
+only local writer, and paths stay within the existing private control contracts.
 
 After a positively acknowledged account-admitted Stop, CLI manager cleanup reuses
 the completed drain instead of sending another shutdown to an exited carrier.

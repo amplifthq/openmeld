@@ -294,7 +294,7 @@ describe("AppContextualSidebarNav", () => {
 								icon: MonitorIcon,
 								id: "settings",
 								label: "Center Agent settings",
-								to: "/o/acme/center-agent/settings",
+								to: "/o/acme/settings/center-agent",
 							},
 						],
 						label: "Manage",
