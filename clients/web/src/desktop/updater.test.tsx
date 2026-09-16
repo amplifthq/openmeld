@@ -3,7 +3,7 @@ import type {
 	DesktopUpdaterState,
 } from "@openmeld/schemas";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import {
@@ -12,7 +12,7 @@ import {
 	readCenterAgentPendingMessage,
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
-import { DesktopUpdater } from "./updater";
+import { DesktopUpdater, DesktopUpdatesSection } from "./updater";
 
 const editingPaused = /Editing is paused/;
 
@@ -32,6 +32,7 @@ const native = vi.hoisted(() => ({
 			})
 		),
 		updaterPrepared: vi.fn(async () => undefined),
+		updaterAction: vi.fn(async () => undefined),
 		session: vi.fn(() => {
 			throw new Error("Cloud admission blocked");
 		}),
@@ -58,6 +59,66 @@ vi.mock("./platform", () => ({
 afterEach(() => {
 	cleanup();
 	localStorage.clear();
+});
+it("keeps the installed version separate from the changing update status", async () => {
+	const currentState: DesktopUpdaterState = {
+		status: "current",
+		currentVersion: "0.1.1",
+		version: null,
+		percent: null,
+		errorStage: null,
+	};
+	native.bridge.updaterState.mockResolvedValueOnce(currentState);
+	render(
+		<QueryClientProvider client={new QueryClient()}>
+			<DesktopUpdater />
+			<DesktopUpdatesSection presentation="settings" />
+		</QueryClientProvider>
+	);
+
+	const heading = await screen.findByRole("heading", {
+		level: 1,
+		name: "Updates",
+	});
+	const settings = heading.closest("section");
+	if (!settings) {
+		throw new Error("Expected the Desktop Updates settings section.");
+	}
+	await within(settings).findByText("OpenMeld Desktop is up to date.");
+	expect(within(settings).getByText("Installed version")).toBeTruthy();
+	expect(within(settings).getByText("Version 0.1.1")).toBeTruthy();
+	expect(within(settings).queryByText("Available version")).toBeNull();
+
+	act(() =>
+		native.changed?.({
+			...currentState,
+			status: "downloading",
+			version: "0.1.2",
+			percent: 42.4,
+		})
+	);
+	expect(within(settings).getByText("Available version")).toBeTruthy();
+	expect(within(settings).getByText("Version 0.1.2")).toBeTruthy();
+	expect(
+		within(settings).getByText("Downloading version 0.1.2… 42%")
+	).toBeTruthy();
+	const notice = screen.getByRole("complementary", { name: "Desktop update" });
+	expect(within(notice).getByRole("heading", { name: "Updates" })).toBeTruthy();
+	expect(within(notice).queryByText("Installed version")).toBeNull();
+
+	act(() =>
+		native.changed?.({
+			...currentState,
+			status: "downloaded",
+			version: "0.1.2",
+			percent: 100,
+		})
+	);
+	expect(
+		within(settings).getByText("Version 0.1.2 is ready to install.")
+	).toBeTruthy();
+	within(settings).getByRole("button", { name: "Restart to update" }).click();
+	expect(native.bridge.updaterAction).toHaveBeenCalledWith("restart");
 });
 it.each([
 	"installing",

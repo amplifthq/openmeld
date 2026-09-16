@@ -293,6 +293,14 @@ admission and sign-in. Development and disposable packages cannot update from
 the production feed. Renderer IPC accepts only check, download, and restart
 actions, never an origin, file path, or installer arguments.
 
+Desktop Settings places Updates after Privacy & Safety in the Personal group.
+The page always identifies the installed Desktop version from Main's existing
+`currentVersion`, then presents the changing check, target version, download
+progress, restart, or failure state separately. A downloaded version remains an
+available version until restart completes; the renderer never claims that a
+download is installed. The compact update notice reuses the same status and
+action without inheriting the full Settings page heading or version rows.
+
 Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
 explicitly false. Download requires consent; after checksum verification the
 user chooses Restart to update or Later. On macOS the downloaded ZIP is not
