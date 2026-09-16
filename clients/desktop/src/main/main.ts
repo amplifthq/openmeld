@@ -62,7 +62,7 @@ app.setName(APP_NAME);
 
 let handlers: DesktopHandlers;
 let ipcDisposer: (() => void) | null = null;
-let isQuitting = false;
+let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 const pilot = initializeDesktopPilot(() => mainWindow);
 let tray: Tray | null = null;
@@ -115,13 +115,18 @@ function createMainWindow(
   window.webContents.on("will-navigate", (event) => {
     event.preventDefault();
   });
+  window.webContents.on("will-prevent-unload", () => {
+    if (quitIntent === "ordinary") {
+      quitIntent = "none";
+    }
+  });
 
   window.once("ready-to-show", () => {
     window.show();
   });
 
   window.on("close", (event) => {
-    if (isQuitting) {
+    if (quitIntent !== "none") {
       return;
     }
     event.preventDefault();
@@ -620,7 +625,9 @@ function resolveSetupComputerLabel(): string {
 }
 
 function quitDesktop(): void {
-  isQuitting = true;
+  if (quitIntent !== "updater-install") {
+    quitIntent = "ordinary";
+  }
   app.quit();
 }
 
@@ -639,7 +646,9 @@ if (hasSingleInstanceLock) {
   app.on("second-instance", showStatusWindow);
 
   app.on("before-quit", () => {
-    isQuitting = true;
+    if (quitIntent !== "updater-install") {
+      quitIntent = "ordinary";
+    }
   });
 
   app.on("window-all-closed", () => {
@@ -666,7 +675,7 @@ function bootstrapApp(): void {
         authorize: authorizeRenderer,
         getWindow: () => mainWindow,
         setInstalling: (value) => {
-          isQuitting = value;
+          quitIntent = value ? "updater-install" : "none";
         },
       });
       appUpdater = updater;
