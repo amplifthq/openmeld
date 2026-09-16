@@ -294,6 +294,83 @@ test("codex Stop fences the default app-server path while writer occupancy waits
   }
 });
 
+test("codex Stop keeps the turn a released writer retry already started", async () => {
+  const { createCodexAdapter } = await import("../dist/index.js");
+  const fixtureDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-stop-after-turn-")
+  );
+  const dispatchDir = await mkdtemp(
+    join(tmpdir(), "codex-default-writer-stop-after-turn-dispatch-")
+  );
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const startupAttemptPath = join(fixtureDir, "startup-attempt.txt");
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const events = [];
+    const adapter = createCodexAdapter({
+      codexTimeoutMs: 5000,
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      waitForThreadWriterAvailability: () =>
+        Promise.resolve("release_observed"),
+    });
+    const dispatchOutcome = adapter.dispatch({
+      agentControllerConversationId: "thread-default-stop-after-turn",
+      agentId: "agt-demo",
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_RESUME_WRITER_ATTEMPTS: "1",
+        OPENMELD_FAKE_CODEX_APP_SERVER_STARTUP_ATTEMPT_PATH: startupAttemptPath,
+        OPENMELD_FAKE_CODEX_APP_SERVER_TURN_DELAY_MS: "5000",
+      },
+      onRuntimeEvent: (event) => {
+        if (event.phase.startsWith("agent_controller_conversation_")) {
+          events.push(event.phase);
+        }
+      },
+      prompt: "continue after the writer releases",
+      runtimeContext: createRuntimeContext(dispatchDir),
+      sourceEventId: "evt-default-stop-after-turn",
+      spaceId: "space-1",
+      taskId: "task-default-stop-after-turn",
+      transportMode: "codex-app-server",
+    });
+
+    // The retry won the writer lock and the native turn is running, so this
+    // Stop lands after `turn/start` rather than ahead of it.
+    await waitForFakeAppServerMethod(logPath, "turn/start");
+    const stopResult = await adapter.interrupt({
+      mode: "force",
+      taskId: "task-default-stop-after-turn",
+    });
+    const dispatchResult = await dispatchOutcome;
+    const methods = await readFakeAppServerMethods(logPath);
+
+    assert.equal(stopResult.accepted, true);
+    assert.equal(
+      methods.filter((method) => method === "thread/resume").length,
+      2
+    );
+    assert.equal(methods.filter((method) => method === "turn/start").length, 1);
+    assert.equal(
+      methods.filter((method) => method === "turn/interrupt").length,
+      1
+    );
+    // The RPC log proves a turn ran, so the dispatch must not come back as a
+    // request that was stopped before starting one.
+    assert.equal(dispatchResult.status, "success");
+    assert.deepEqual(events, [
+      "agent_controller_conversation_occupied",
+      "agent_controller_conversation_available",
+    ]);
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
 test("codex clears occupied evidence when the retry is accepted", async () => {
   const { CodexAppServerTransportError, createCodexAdapter } = await import(
     "../dist/index.js"
