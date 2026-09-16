@@ -38,6 +38,7 @@ describe("Desktop route authentication", () => {
 			signOut: vi.fn(),
 			connectComputer: vi.fn(),
 			onSessionChanged: vi.fn(() => () => undefined),
+			onWindowDestinationChange: vi.fn(() => () => undefined),
 			spaceStreamOpen: vi.fn(),
 			spaceStreamClose: vi.fn(),
 			spaceStreamPing: vi.fn(),

@@ -15,6 +15,7 @@ import type {
   DesktopUpdaterRestartRequest,
   DesktopUpdaterState,
 } from "@openmeld/schemas";
+import type { OpenMeldBridge } from "./ipc-contract";
 
 declare global {
   // biome-ignore lint/style/useConsistentTypeDefinitions: Window requires interface merging.
@@ -55,6 +56,7 @@ export type DesktopPilotBridge = DesktopSpaceStreamBridge & {
   onUpdaterPrepare(
     handler: (request: DesktopUpdaterRestartRequest) => void
   ): () => void;
+  onWindowDestinationChange: OpenMeldBridge["onWindowDestinationChange"];
   setNotificationContext(input: DesktopNotificationContext): Promise<void>;
   showNotification(
     input: DesktopNotificationRequest
