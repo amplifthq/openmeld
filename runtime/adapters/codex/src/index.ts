@@ -399,6 +399,27 @@ function buildCodexDispatchCancelledResult(): AdapterDispatchFailure {
   };
 }
 
+/**
+ * Whether a dispatch result proves the attempt never reached a native turn.
+ *
+ * A Stop that lands while a dispatch is in flight must not be reported as
+ * `runtime.turn.cancelled`: the transport uses that code for "Codex was stopped
+ * before starting a turn", so claiming it for an attempt that may have won the
+ * thread writer lock would tell Core nothing ran while a turn is running, and
+ * invite a second execution of the same work. Only the transport's own pre-turn
+ * cancellation and a refused `thread/resume` prove nothing started; every other
+ * result is reported exactly as it came back, output included.
+ */
+function codexDispatchStoppedBeforeTurn(
+  result: AdapterDispatchResult
+): boolean {
+  return (
+    result.status === "failed" &&
+    (result.errorCode === "runtime.turn.cancelled" ||
+      result.agentControllerConversationOccupancy !== undefined)
+  );
+}
+
 async function emitCodexConversationAvailable(input: {
   occupancy: AdapterAgentControllerConversationOccupancy;
   request: AdapterDispatchRequest;
@@ -468,7 +489,10 @@ async function dispatchCodexWithConversationOccupancy(input: {
         ...input.request,
         ...(cancellationSignal ? { cancellationSignal } : {}),
       });
-      if (state.registration?.abortController.signal.aborted) {
+      if (
+        state.registration?.abortController.signal.aborted &&
+        codexDispatchStoppedBeforeTurn(result)
+      ) {
         return buildCodexDispatchCancelledResult();
       }
       const occupancy = readCodexConversationOccupancy(result, input.request);

@@ -427,13 +427,50 @@ test("codex Stop aborts an occupied writer wait without resuming the thread agai
   }
 });
 
-for (const acceptedBeforeStop of [false, true]) {
-  test(`codex Stop fences a released writer retry (already accepted: ${acceptedBeforeStop})`, async () => {
+// A Stop that lands while the released-writer retry is in flight must be
+// reported by what the retry actually did. `runtime.turn.cancelled` is the
+// transport's own "stopped before starting a turn" code, so handing it back for
+// a retry that already won the writer lock would tell Core nothing ran while a
+// native turn had run — the premise that invites the same work running twice.
+const stopAfterReleaseScenarios = [
+  {
+    expectedErrorCode: "runtime.turn.cancelled",
+    expectedErrorMessage:
+      "runtime.turn.cancelled: This OpenMeld request was stopped",
+    name: "landed before the turn started",
+    retryFailure: {
+      code: "runtime.turn.cancelled",
+      message:
+        "runtime.turn.cancelled: Codex was stopped before starting a turn",
+    },
+    startsTurn: false,
+  },
+  {
+    expectedOutput: "retry completed",
+    name: "landed after the turn started and the turn finished",
+    retryFailure: null,
+    startsTurn: true,
+  },
+  {
+    expectedErrorCode: "runtime.turn.failed",
+    expectedErrorMessage: "runtime.turn.failed: the turn ended while stopping",
+    name: "landed after the turn started and the turn failed",
+    retryFailure: {
+      code: "runtime.turn.failed",
+      message: "runtime.turn.failed: the turn ended while stopping",
+    },
+    startsTurn: true,
+  },
+];
+
+for (const scenario of stopAfterReleaseScenarios) {
+  test(`codex Stop fences a released writer retry (${scenario.name})`, async () => {
     const { CodexAppServerTransportError, createCodexAdapter } = await import(
       "../dist/index.js"
     );
     let dispatchCalls = 0;
     let turnStartCount = 0;
+    let retryObservedCancellation = false;
     let retryReachedProviderBoundaryResolve;
     const retryReachedProviderBoundary = new Promise((resolve) => {
       retryReachedProviderBoundaryResolve = resolve;
@@ -461,13 +498,19 @@ for (const acceptedBeforeStop of [false, true]) {
               rpcErrorCode: -32_600,
             });
           }
-          if (acceptedBeforeStop) {
+          if (scenario.startsTurn) {
             turnStartCount += 1;
           }
           retryReachedProviderBoundaryResolve();
           await releaseRetry;
-          if (!input.cancellationSignal?.aborted) {
-            turnStartCount += 1;
+          retryObservedCancellation =
+            input.cancellationSignal?.aborted === true;
+          if (scenario.retryFailure) {
+            throw new CodexAppServerTransportError({
+              code: scenario.retryFailure.code,
+              errorType: "adapter",
+              message: scenario.retryFailure.message,
+            });
           }
           return {
             contextDelta: {
@@ -498,14 +541,17 @@ for (const acceptedBeforeStop of [false, true]) {
     const dispatchResult = await dispatchOutcome;
 
     assert.equal(stopResult.accepted, true);
-    assert.equal(dispatchResult.status, "failed");
-    assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
     assert.equal(dispatchCalls, 2);
-    assert.equal(turnStartCount, acceptedBeforeStop ? 1 : 0);
-    assert.equal(
-      dispatchResult.errorMessage,
-      "runtime.turn.cancelled: This OpenMeld request was stopped"
-    );
+    assert.equal(turnStartCount, scenario.startsTurn ? 1 : 0);
+    assert.equal(retryObservedCancellation, true);
+    if (scenario.expectedOutput) {
+      assert.equal(dispatchResult.status, "success");
+      assert.equal(dispatchResult.output, scenario.expectedOutput);
+    } else {
+      assert.equal(dispatchResult.status, "failed");
+      assert.equal(dispatchResult.errorCode, scenario.expectedErrorCode);
+      assert.equal(dispatchResult.errorMessage, scenario.expectedErrorMessage);
+    }
   });
 }
 

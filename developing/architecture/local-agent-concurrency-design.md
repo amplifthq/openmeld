@@ -536,6 +536,15 @@ cannot mint a reservation for foreign work. Idempotency keys on the successor's
 on the same identity. The handoff never writes `activeHeadLifecycleIds`, which
 follows head lifecycle status transitions rather than queue membership.
 
+A Stop that lands while the blocked dispatch is retrying is reported by what
+the retry actually did. `runtime.turn.cancelled` is the adapter's "stopped
+before starting a turn" code, so the Codex adapter returns it only when the
+transport cancelled ahead of `turn/start` or the `thread/resume` was refused; a
+retry that already won the writer lock returns its own turn result, output
+included. Reporting a cancellation for a turn that had started would hand Core
+the false premise that nothing ran, which is exactly what invites the same work
+being executed twice.
+
 This is the admission half only. Proving the old wait has stopped, creating the
 successor Wake with a verified historical boundary, and the user-facing entry
 point remain outstanding; see
