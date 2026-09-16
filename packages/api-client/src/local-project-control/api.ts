@@ -12,6 +12,7 @@ import {
   localProjectControlSetDefaultConnectionResponseSchema,
   peopleComputerTargetSchema,
 } from "@openmeld/schemas";
+import type { PeopleComputerTarget } from "@openmeld/schemas/types";
 import { buildLocalProjectControlPath } from "./routes";
 import type {
   CreateLocalProjectControlApi,
@@ -76,7 +77,7 @@ export const createLocalProjectControlApi: CreateLocalProjectControlApi = (
       method: "POST",
       operation: "local-project-control.connect-candidate",
       schema: localProjectControlConnectOutcomeSchema,
-      url: buildLocalProjectControlPath("connect-candidate"),
+      url: projectControlPath(input, "connect-candidate"),
     }),
   connectDeclaredPath: async (input) =>
     await client.requestJson({
@@ -92,7 +93,7 @@ export const createLocalProjectControlApi: CreateLocalProjectControlApi = (
       method: "POST",
       operation: "local-project-control.connect-declared-path",
       schema: localProjectControlConnectOutcomeSchema,
-      url: buildLocalProjectControlPath("connect-declared-path"),
+      url: projectControlPath(input, "connect-declared-path"),
     }),
   setDefaultConnection: async (input) =>
     await client.requestJson({
@@ -108,7 +109,7 @@ export const createLocalProjectControlApi: CreateLocalProjectControlApi = (
       method: "POST",
       operation: "local-project-control.set-default",
       schema: localProjectControlSetDefaultConnectionResponseSchema,
-      url: buildLocalProjectControlPath("connections/set-default"),
+      url: projectControlPath(input, "connections/set-default"),
     }),
   removeConnection: async (input) =>
     await client.requestJson({
@@ -158,16 +159,35 @@ function requestOptions(input: LocalProjectControlRequestInput): {
   };
 }
 
-function requestBody<TInput extends LocalProjectControlRequestInput>(
+function requestBody<
+  TInput extends LocalProjectControlRequestInput & {
+    target?: PeopleComputerTarget;
+  },
+>(
   input: TInput
-): Omit<TInput, keyof LocalProjectControlRequestInput> {
+): Omit<TInput, keyof LocalProjectControlRequestInput | "target"> {
   const {
+    target: _target,
     requestContext: _requestContext,
     signal: _signal,
     timeoutMs: _timeoutMs,
     ...body
   } = input;
   return body;
+}
+
+function projectControlPath(
+  input: { target?: PeopleComputerTarget },
+  action:
+    | "connect-candidate"
+    | "connect-declared-path"
+    | "connections/set-default"
+) {
+  if (!input.target) {
+    return buildLocalProjectControlPath(action);
+  }
+  const target = requireValidInput(peopleComputerTargetSchema, input.target);
+  return `/v1/people-computers/${encodeURIComponent(target.deviceId)}/lanes/${encodeURIComponent(target.runtimeLane)}/projects/${action}`;
 }
 
 function requireValidInput<T>(

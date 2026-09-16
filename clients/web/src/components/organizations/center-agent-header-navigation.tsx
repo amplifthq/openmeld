@@ -12,6 +12,9 @@ import {
 	resolveSpaceView,
 	type SpaceView,
 } from "#/components/spaces/space-view";
+
+type CenterAgentConversationView = Exclude<SpaceView, "tasks">;
+
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import {
 	buildOrganizationCenterAgentChatPath,
@@ -27,10 +30,10 @@ const CHANNELS_TAB_INDEX = 5;
 
 export function CenterAgentHeaderTabs(input: {
 	activeSectionId: CenterAgentSectionId;
-	activeSpaceView?: SpaceView;
+	activeSpaceView?: CenterAgentConversationView;
 	className?: string;
 	idPrefix: string;
-	onSpaceViewChange?: (view: SpaceView) => void;
+	onSpaceViewChange?: (view: CenterAgentConversationView) => void;
 	organizationSlug: string;
 }) {
 	const navigate = useNavigate();
@@ -58,6 +61,9 @@ export function CenterAgentHeaderTabs(input: {
 			onSelect={(index) => {
 				if (index <= 2) {
 					const view = resolveSpaceView(index);
+					if (view === "tasks") {
+						return;
+					}
 					if (input.onSpaceViewChange) {
 						input.onSpaceViewChange(view);
 						return;
@@ -128,7 +134,7 @@ export function buildCenterAgentHeaderMenuItems(
 
 function resolveCenterAgentHeaderTabIndex(input: {
 	activeSectionId: CenterAgentSectionId;
-	activeSpaceView?: SpaceView;
+	activeSpaceView?: CenterAgentConversationView;
 }): number {
 	if (input.activeSectionId === "routines") {
 		return ROUTINES_TAB_INDEX;

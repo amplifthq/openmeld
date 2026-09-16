@@ -3,6 +3,7 @@
 import type {
 	AuthProfileView,
 	LocalProjectControlConnection,
+	PeopleComputerTarget,
 } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
@@ -27,6 +28,7 @@ import {
 } from "./agent-profile-project-settings";
 
 type SettingsInput = {
+	target?: PeopleComputerTarget;
 	actorProfileId: string | null;
 	agentControllerRef: string | null;
 	executionTargetChangeEligibilityStatus: "allowed" | "blocked" | "unavailable";
@@ -50,7 +52,7 @@ export function AgentProfileProjectSettingsDialog(input: SettingsInput) {
 	return (
 		<LocalAgentProfileProjectSettingsDialog
 			{...input}
-			key={`${input.organizationId}:${input.profile.openMeldProfileId}:${input.open}:${input.profile.defaultProjectId === undefined}`}
+			key={`${input.organizationId}:${input.profile.openMeldProfileId}:${input.target?.deviceId}:${input.target?.runtimeLane}:${input.open}:${input.profile.defaultProjectId === undefined}`}
 		/>
 	);
 }
@@ -106,6 +108,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 			if (!projectId) {
 				await updateAgentProfileWorkspace({
 					...context,
+					target: input.target,
 					workspaceMode:
 						fallback === "advanced" ? "custom" : "openmeld_managed",
 					...(fallback === "advanced" ? { workspacePath: path } : {}),
@@ -180,6 +183,7 @@ function LocalAgentProfileProjectSettingsDialog(input: SettingsInput) {
 						projectId={projectId}
 						projects={projectsQuery.data?.projects ?? []}
 						selectedBindingGeneration={connection?.bindingGeneration ?? null}
+						target={input.target}
 						workspaceFallbackMode={fallback}
 					/>
 					{projectsQuery.isPending ? (

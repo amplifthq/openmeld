@@ -23,6 +23,23 @@ Appearance bootstrap attributes, including conversation width and self-message
 alignment. Preserve that initialization rather than deriving Desktop-specific
 preferences or compensating with local CSS.
 
+The macOS titlebar places Toggle sidebar, Back, and Forward after the native
+window controls, using Command+B, Command+[, and Command+] outside editors and
+modal controls. Its buttons are not draggable; the remaining titlebar is.
+The sidebar control is a portal from the existing module-sidebar provider, so
+it controls the contextual list (or the existing narrow-window drawer), not
+the application rail. Desktop omits the corresponding work-area header entry;
+browser Web keeps its existing placement and shortcuts.
+Pages that supply their own inner sidebar, such as standalone Settings and
+Agent Activity, retain their existing narrow-window drawer opener. The titlebar
+does not take ownership of those sidebars.
+
+Back and Forward use the shared router history. Desktop retains only the
+observed history-index bounds for the current account, not another entry stack.
+Native session invalidation, account changes, and leaving workspace routes
+clear those bounds. Unobserved history from before opening the app is excluded.
+These controls never reload the document or bypass route authorization.
+
 Organization entry and route scope use the shared Auth-owned
 `GET /v1/account/organization-context` projection rather than generated
 server-function IDs. The native credential transport remains unchanged; the
@@ -53,6 +70,37 @@ belong outside the shared content shell. Reuse `packages/ui` for primitives;
 do not move business rules into that package.
 
 ## Local pilot foundation
+
+### Native Inbox notifications
+
+Account message-notification defaults and conversation overrides apply to
+Desktop as well as Web. The shared API-client notification policy evaluates
+ordinary messages, Human reply markers, and mute consistently. Native delivery
+re-reads the authorized conversation preference with its own credentials before
+showing the notification; renderer eligibility cannot bypass a saved mute.
+Desktop retains its installation-local delivery and sound switches and native
+acknowledgement. **Show an example** uses the native test path on Desktop.
+
+Running Desktop delivers eligible Core Inbox items independently of Web's
+notification permission and preferences. The shared client listener owns the
+feed, first-page baseline, bounded pending recovery and delivery receipts.
+The native process supplies the existing ten-second cadence through a refresh
+signal, so hidden-window timer throttling does not suspend that feed. It does
+not disable Chromium background throttling or change document visibility.
+
+`pilot-notifications.ts` accepts only a schema-validated Inbox reference or a
+fixed test request from the trusted current window. It rereads Core with native
+credentials and checks current account identity before creating a Notification;
+clicks recheck access and identity again. No renderer-supplied notification text
+or external URL crosses this boundary. Session invalidation closes retained
+notifications. Only native `show` settles a delivery; failures remain retryable.
+
+Personal Notifications and Space Info expose the same installation-local,
+account-scoped Desktop switch. Sound uses the native notification only. The
+macOS permission state is unknown, not inferred from `isSupported()`. A test
+notification confirms only native acknowledgement, not that a person saw it.
+Notifications continue when the window is hidden and end when the GUI quits;
+the independent Service has no notification responsibility.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
@@ -87,6 +135,26 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   before invoking a handler. Other windows, frames, and remote documents fail.
 - Main retains context isolation, sandboxing, and disabled Node integration.
   New windows and renderer-initiated document navigation are denied.
+
+Native tray Open Settings, app-menu Settings, and Command-comma share the existing
+window destination action. Main restores/focuses the window and waits for its
+document to load; preload retains the latest intent until a renderer subscribes.
+The authorized shared App Settings dialog consumes that intent through
+`useAppSettings`, preserving the current route, search parameters, draft and scroll
+context. No separate Settings page or account bypass is introduced: before an
+authorized workspace mounts, the existing sign-in entry remains in control.
+Settings intents respect the updater's document interaction freeze.
+
+The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
+for shared diagnostics. It still strips cookies, credentials and unlisted headers.
+Renderer abort is not claimed to cancel forwarded cloud work: an isolated
+Electron 44.3.0 protocol GET probe, waiting for response headers, observed renderer
+`AbortError` while its protocol Request signal and upstream response stayed open
+for the 250ms observation. This is not a claim about every Electron path or
+server-side execution cancellation. Electron 44.4.1
+source still constructs that Request without a cancellation signal. A trusted
+request/cancellation association needs a separate design; no inert signal plumbing
+or cancellation of mutations is added here.
 
 Better Auth's matching Electron integration owns PKCE/state, system-browser
 return, and encrypted cookie storage. Auth enables its additive Electron plugin
@@ -163,8 +231,74 @@ acceptance. Production preview requires the exact clean merged release SHA and
 rejects disposable settings. Its signed source record binds the release SHA,
 production identity, and renderer fingerprint; publication uses the immutable
 candidate workflow in [Development Workflow](../engineering/development-workflow.md#desktop-preview-release-workflow).
-It does not select a default update. Web offers an account-free preview page at
-`/desktop?candidate=<hash>` using that candidate's verified metadata and artifact.
+Building and uploading do not select a default update. Web offers an account-free
+page at `/desktop`, with an immutable `/desktop?candidate=<hash>` override.
+An explicit promotion selects the default download and update feed together.
+
+### In-app updates
+
+Production macOS builds use electron-updater 6.8.9. Main owns the update snapshot;
+the shared renderer's Updates section, Settings indicator, notice, and native
+Check for Updates menu consume it. The native entry is independent of cloud
+admission and sign-in. Development and disposable packages cannot update from
+the production feed. Renderer IPC accepts only check, download, and restart
+actions, never an origin, file path, or installer arguments.
+
+Launch and six-hour checks run automatically. Both `autoDownload` and `autoInstallOnAppQuit` are
+explicitly false. Download requires consent; after checksum verification the
+user chooses Restart to update or Later. On macOS the downloaded ZIP is not
+handed to Squirrel until Restart to update. Later therefore neither installs on
+ordinary Quit nor silently installs on the next launch. A subsequent launch
+checks again; a requested download can reuse the verified cache.
+
+Restart freezes document editing, flushes active text through the existing
+composer draft owner, and refuses while navigation guards, pending sends,
+attachment writes, failed attachment persistence, or unfinished uploads block
+leaving. Normal messages, Threads, and Center Agent text use `useComposerDraft`;
+file blobs and upload references retain their existing IndexedDB owner. New
+Center Agent chat file selections are still memory-only and block restart until
+sent or removed. Center Agent handoffs read their existing pending-message
+owner and also block restart. Pending
+send acknowledgements remain with existing reconciliation: updating never
+resends a message. The current workspace URL is retained for the normal router
+to authorize after relaunch. Native credentials, account data, and app identity
+are not reset. Failed preparation restores editing. After explicit restart consent
+and successful preparation, native installation is irreversible within that process:
+MacUpdater has no public cancellation of its pending native install callback.
+Installation errors, repeated errors and late download events keep editing frozen
+and `isQuitting` true. Reloads/remounts freeze before reading the native snapshot
+and retain that freeze for installing or installation-error states. The visible
+failure directs the user to the native app menu's Quit action and then reopening;
+the already-authorized update may complete during quit. Do not restore close-to-tray,
+offer Later/retry, or claim installation succeeded. Native menu and Cmd+Q remain
+available. Installation affects the GUI only and
+does not call, update, stop, or reconfigure CLI or OpenMeld Service.
+
+### Manual installed A-to-B acceptance
+
+Felix performs this acceptance after the implementation and release candidates
+are reviewed. Do not promote a release merely to run an automated smoke.
+
+1. Install signed A containing this updater. Record its version and existing
+   account, conversation, Service identity and an independently running Wake.
+2. Build a newer signed B from its exact merged SHA. Verify DMG and ZIP identity,
+   upload the immutable candidate, then explicitly promote B after review.
+3. Confirm `/desktop`, legacy `/desktop/update.json`, and `latest-mac.yml` select
+   B. Invalid and missing candidate overrides must never offer B as a fallback.
+4. In A, check while signed in, signed out, with an expired session, and with
+   cloud admission blocked. Confirm no download starts until requested; Settings
+   and the native menu show the same result. Interrupt the network and retry.
+5. Download B, choose Later, close the window, switch Organizations, and reopen
+   Settings. Quit and relaunch A normally: A must remain installed.
+6. Prepare unsent text in a Space, a Thread, and a Center Agent conversation,
+   plus a persisted attachment. Try restart during upload, pending send, and
+   storage failure: it must refuse without resending or losing content.
+7. Once work is durable, choose Restart to update. Confirm B, the same account
+   and conversation, preserved text and attachments, and unchanged Service/Wake.
+   Also exercise an installation error: editing must stay frozen (including
+   after reload), retries stay unavailable, and native menu Quit must exit.
+   Record the installed version after reopening, without assuming which version
+   won. Record actual observations separately from unit/build evidence.
 
 Production resolves the existing `~/.openmeld` managed installation. An installed
 disposable build must compile its already aligned test lane using
@@ -188,11 +322,23 @@ transport as well as native IPC. `canConfigureLocalComputer` removes unsupported
 configuration actions while retaining reported status, details, and a Web handoff.
 `pilot-local-control-policy.ts` rejects the exact Gateway method/path families
 before attaching credentials: current and explicit Computer updates, local agent
-configuration, maintenance, file access, local Project controls, enrollment,
+configuration, maintenance, file access, general local Project controls, enrollment,
 rename/forget, and Prepare mutations. Catalog refresh is also unavailable in this
 pilot; reading existing reports remains available. Ordinary Web and Space/Wake
 mutations retain their existing contracts. These are pilot capability limits, not
 new Core authorization rules.
+
+Working folder selection is a narrow exception. Main reads the existing CLI
+`computer connection-review --json` projection without installing or starting a
+Service and checks its account against the Desktop session before and after the
+read. The shared renderer uses that exact device and lane for folder selection,
+Project discovery, connection, default-folder selection, and workspace saving.
+Main independently rejects a different device or lane before attaching
+credentials. A selected Agent on another Computer is not retargeted. The account's
+current-Computer preference is never a fallback for these Desktop requests.
+Cancellation changes no draft; selecting a folder alone grants no file access,
+connects no Project, and saves no workspace. The existing Service remains the
+only local writer, and paths stay within the existing private control contracts.
 
 After a positively acknowledged account-admitted Stop, CLI manager cleanup reuses
 the completed drain instead of sending another shutdown to an exited carrier.

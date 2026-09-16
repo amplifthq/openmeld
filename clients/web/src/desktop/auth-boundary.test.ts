@@ -16,16 +16,29 @@ describe("Desktop route authentication", () => {
 		true,
 	])("runs protected child loaders only with a native session: %s", async (signedIn) => {
 		const bridge = {
+			updaterState: vi.fn(),
+			updaterAction: vi.fn(),
+			updaterPrepared: vi.fn(),
+			onUpdaterChanged: vi.fn(() => () => undefined),
+			onUpdaterPrepare: vi.fn(() => () => undefined),
 			session: async () => ({
 				user: signedIn
 					? { id: "account-a", email: "a@example.com", name: "A" }
 					: null,
 			}),
 			platform: vi.fn(),
+			showNotification: vi.fn(),
+			setNotificationContext: vi.fn(),
+			testNotification: vi.fn(),
+			notificationFocused: vi.fn(),
+			onNotificationPoll: vi.fn(() => () => undefined),
+			onNotificationClick: vi.fn(() => () => undefined),
+			localComputer: vi.fn(),
 			signIn: vi.fn(),
 			signOut: vi.fn(),
 			connectComputer: vi.fn(),
 			onSessionChanged: vi.fn(() => () => undefined),
+			onWindowDestinationChange: vi.fn(() => () => undefined),
 			spaceStreamOpen: vi.fn(),
 			spaceStreamClose: vi.fn(),
 			spaceStreamPing: vi.fn(),

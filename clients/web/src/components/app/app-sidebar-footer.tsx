@@ -29,6 +29,7 @@ import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar
 import { useAppSettings } from "#/components/settings/use-app-settings";
 import { DesktopSignOutMenuItem } from "#/desktop/desktop-account-actions";
 import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopUpdater } from "#/desktop/updater";
 import { useLogoutAction } from "#/hooks/auth-form.hooks";
 import {
 	AccountsSwitcherView,
@@ -44,6 +45,39 @@ import {
 	CurrentComputerAttentionIndicator,
 	useCurrentComputer,
 } from "./current-computer";
+
+function DesktopUpdateDot() {
+	const state = useDesktopUpdater();
+	if (
+		!(
+			getDesktopPlatform() &&
+			(state?.status === "available" || state?.status === "downloaded")
+		)
+	) {
+		return null;
+	}
+	return (
+		<span
+			aria-label="Desktop update available"
+			className="absolute top-1 right-1 size-1.5 rounded-full bg-primary"
+			role="img"
+		/>
+	);
+}
+function DesktopDownloadMenuItem({ index }: { index: number }) {
+	if (getDesktopPlatform()) {
+		return null;
+	}
+	return (
+		<FluidDropdownMenuItem
+			index={index}
+			onClick={() => window.location.assign("/desktop")}
+		>
+			<DesktopTowerIcon />
+			Download Desktop
+		</FluidDropdownMenuItem>
+	);
+}
 
 export function AppSidebarFooter({
 	account,
@@ -137,6 +171,7 @@ export function AppSidebarFooter({
 						type="button"
 					>
 						<GearSixIcon className="size-4" />
+						<DesktopUpdateDot />
 					</button>
 				</CollapsedRailTooltip>
 				<CollapsedRailTooltip
@@ -219,6 +254,9 @@ export function AppSidebarFooter({
 								<GearSixIcon />
 								Settings
 							</FluidDropdownMenuItem>
+							<DesktopDownloadMenuItem
+								index={invitationEntry.nextMenuIndex + 2}
+							/>
 							{desktop ? (
 								<DesktopSignOutMenuItem
 									index={invitationEntry.nextMenuIndex + 2}
@@ -226,7 +264,7 @@ export function AppSidebarFooter({
 							) : (
 								<FluidDropdownMenuItem
 									disabled={logout.isPending}
-									index={invitationEntry.nextMenuIndex + 2}
+									index={invitationEntry.nextMenuIndex + 3}
 									onClick={() => {
 										logout.mutate(undefined, {
 											onSuccess: () => window.location.assign("/"),

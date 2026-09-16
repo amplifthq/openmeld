@@ -143,6 +143,7 @@ import {
 } from "./space-members-drawer";
 import { SPACE_MEMBERS_LOAD_ERROR_MESSAGE } from "./space-members-error-copy";
 import { MessageActionTooltipProvider } from "./space-message-actions";
+import { SpaceNotificationMenu } from "./space-notification-menu";
 import {
 	SetupRecallButton,
 	SpaceConversationRecoveryBanner,
@@ -202,6 +203,43 @@ const SpaceFilesPanel = lazy(() =>
 		default: module.SpaceFilesPanel,
 	}))
 );
+
+const SpaceTasksPanel = lazy(() =>
+	import("./space-tasks-panel").then((module) => ({
+		default: module.SpaceTasksPanel,
+	}))
+);
+
+function SpaceTasksPanelSlot(input: {
+	enabled: boolean;
+	membersSnapshot: SpaceMembersSnapshot | null;
+	onOpenThread: (threadId: string) => void;
+	openMeldProfileId: string;
+	organizationSlug?: string;
+	spaceId: string;
+}) {
+	if (!input.enabled) {
+		return null;
+	}
+	return (
+		<Suspense
+			fallback={
+				<output className="p-6 text-muted-foreground text-sm">
+					Loading Tasks…
+				</output>
+			}
+		>
+			<SpaceTasksPanel
+				key={input.spaceId}
+				membersSnapshot={input.membersSnapshot}
+				onOpenThread={input.onOpenThread}
+				openMeldProfileId={input.openMeldProfileId}
+				organizationSlug={input.organizationSlug}
+				spaceId={input.spaceId}
+			/>
+		</Suspense>
+	);
+}
 
 const EMPTY_ACCOUNT_PROFILES: readonly AuthProfileView[] = [];
 const EMPTY_SPACE_DESCRIPTION =
@@ -1292,6 +1330,11 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			directMessageConvertedAt: controller.status.directMessageConvertedAt,
 			purpose: controller.status.spacePurpose,
 		});
+	useEffect(() => {
+		if (isDirectMessage && spaceView === "tasks") {
+			changeSpaceView("messages");
+		}
+	}, [changeSpaceView, isDirectMessage, spaceView]);
 	const spaceMemberRemovalHandler = resolveSpaceMemberRemovalHandler({
 		canRemoveMembers: canCurrentProfileRemoveSpaceMembers,
 		isDirectMessage,
@@ -1699,6 +1742,12 @@ function SpaceLandingReady({
 									: undefined
 							}
 							menuLabel="Center Agent menu"
+							notificationControl={
+								<SpaceNotificationMenu
+									isGuest={input.isGuest}
+									spaceId={controller.status.spaceId}
+								/>
+							}
 							onDeleteSpace={controller.onDeleteSpace}
 							onLeaveSpace={currentProfileLeaveAction}
 							onRecallPinnedItems={() =>
@@ -1720,7 +1769,9 @@ function SpaceLandingReady({
 								currentSpaceIsCenterAgentDirectMessage && input.orgSlug ? (
 									<CenterAgentHeaderTabs
 										activeSectionId="chat"
-										activeSpaceView={spaceView}
+										activeSpaceView={resolveCenterAgentConversationView(
+											spaceView
+										)}
 										className="h-full shrink-0 gap-5"
 										idPrefix={spaceViewIdPrefix}
 										onSpaceViewChange={spaceFileNavigation.changeSpaceView}
@@ -1732,6 +1783,7 @@ function SpaceLandingReady({
 										className="shrink-0"
 										idPrefix={spaceViewIdPrefix}
 										onViewChange={spaceFileNavigation.changeSpaceView}
+										tasksEnabled={!isDirectMessage}
 									/>
 								)
 							}
@@ -2134,15 +2186,12 @@ function SpaceLandingConversation({
 			composerText={controller.composerText}
 			currentOwnerUserId={currentOwnerUserId}
 			emptyStateAlignment={welcomeStep ? "start" : "center"}
-			emptyStateDescription={
-				welcomeStep
-					? null
-					: resolveSpaceConversationEmptyStateDescription({
-							isAgentOwnerDirectMessageObserver:
-								agentOwnerDirectMessageObserver !== null,
-							isDirectMessage,
-						})
-			}
+			emptyStateDescription={resolveReadySpaceEmptyStateDescription({
+				hasWelcomeStep: Boolean(welcomeStep),
+				isAgentOwnerDirectMessageObserver:
+					agentOwnerDirectMessageObserver !== null,
+				isDirectMessage,
+			})}
 			emptyStateTitle={isDirectMessage ? undefined : EMPTY_SPACE_TITLE}
 			ephemeralActivityItems={controller.ephemeralActivityItems}
 			files={
@@ -2261,6 +2310,19 @@ function SpaceLandingConversation({
 			spaceId={controller.spaceId}
 			spaceReferencesById={spaceReferencesById}
 			spaceViewIdPrefix={spaceViewIdPrefix}
+			tasks={
+				<SpaceTasksPanelSlot
+					enabled={!isDirectMessage}
+					membersSnapshot={controller.presentationMembersSnapshot}
+					onOpenThread={(threadId) => {
+						spaceFileNavigation.changeSpaceView("messages");
+						controller.onOpenThread(threadId);
+					}}
+					openMeldProfileId={controller.profileId}
+					organizationSlug={input.orgSlug}
+					spaceId={controller.spaceId}
+				/>
+			}
 			textareaRef={controller.textareaRef}
 			threadPreviews={controller.threadPreviews}
 			threads={controller.threads}
@@ -2480,6 +2542,22 @@ function resolveSpaceConversationEmptyStateDescription(input: {
 		return "Join the conversation to send the first message.";
 	}
 	return input.isDirectMessage ? undefined : EMPTY_SPACE_DESCRIPTION;
+}
+
+function resolveReadySpaceEmptyStateDescription(input: {
+	hasWelcomeStep: boolean;
+	isAgentOwnerDirectMessageObserver: boolean;
+	isDirectMessage: boolean;
+}): string | null | undefined {
+	return input.hasWelcomeStep
+		? null
+		: resolveSpaceConversationEmptyStateDescription(input);
+}
+
+function resolveCenterAgentConversationView(
+	view: SpaceView
+): Exclude<SpaceView, "tasks"> {
+	return view === "tasks" ? "messages" : view;
 }
 
 type AgentOwnerDirectMessageJoinState = {
@@ -2732,6 +2810,7 @@ function SpaceLandingSecondaryPanels({
 				currentOwnerUserId={currentOwnerUserId}
 				ephemeralActivityItems={controller.presentedWakeProgressItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
+				initialFocusRequestId={controller.threadUnreadFocus?.requestId}
 				initialFocusSignalId={
 					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
 				}

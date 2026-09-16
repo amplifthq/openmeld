@@ -1,4 +1,9 @@
-import { desktopSpaceStreamEventSchema } from "@openmeld/schemas";
+import {
+  desktopNotificationReferenceSchema,
+  desktopSpaceStreamEventSchema,
+  desktopUpdaterRestartRequestSchema,
+  desktopUpdaterStateSchema,
+} from "@openmeld/schemas";
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from "electron";
 import {
   type DesktopWindowDestination,
@@ -7,6 +12,28 @@ import {
   WINDOW_IPC,
 } from "../shared/ipc-contract";
 import { type DesktopPilotBridge, PILOT_IPC } from "../shared/pilot-bridge";
+
+// Attach before renderer code loads. Keep only the latest navigation intent
+// until the active renderer subscribes; this is not Settings dialog state.
+let pendingDestination: DesktopWindowDestination | undefined;
+const destinationHandlers = new Set<
+  (destination: DesktopWindowDestination) => void
+>();
+ipcRenderer.on(
+  WINDOW_IPC.navigateDestination,
+  (_event, destination: unknown) => {
+    if (!isDesktopWindowDestination(destination)) {
+      return;
+    }
+    if (destinationHandlers.size === 0) {
+      pendingDestination = destination;
+      return;
+    }
+    for (const handler of destinationHandlers) {
+      handler(destination);
+    }
+  }
+);
 
 const openMeldBridge: OpenMeldBridge = {
   getAuthStatus: () => ipcRenderer.invoke(OPENMELD_IPC.getAuthStatus),
@@ -40,21 +67,76 @@ const openMeldBridge: OpenMeldBridge = {
   enterApp: () => ipcRenderer.invoke(WINDOW_IPC.enterApp),
   quitDesktop: () => ipcRenderer.invoke(WINDOW_IPC.quitDesktop),
   onWindowDestinationChange: (handler) => {
-    const listener = (_event: IpcRendererEvent, destination: unknown) => {
-      if (isDesktopWindowDestination(destination)) {
-        handler(destination);
-      }
+    destinationHandlers.add(handler);
+    if (pendingDestination) {
+      const destination = pendingDestination;
+      pendingDestination = undefined;
+      handler(destination);
+    }
+    return () => {
+      destinationHandlers.delete(handler);
     };
-    ipcRenderer.on(WINDOW_IPC.navigateDestination, listener);
-    return () =>
-      ipcRenderer.removeListener(WINDOW_IPC.navigateDestination, listener);
   },
 };
 
 contextBridge.exposeInMainWorld("openmeld", openMeldBridge);
 contextBridge.exposeInMainWorld("openmeldDesktop", {
+  updaterState: async () =>
+    desktopUpdaterStateSchema.parse(
+      await ipcRenderer.invoke(PILOT_IPC.updaterState)
+    ),
+  updaterAction: (action) =>
+    ipcRenderer.invoke(PILOT_IPC.updaterAction, action),
+  updaterPrepared: (reply) =>
+    ipcRenderer.invoke(PILOT_IPC.updaterPrepared, reply),
+  onUpdaterChanged: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const result = desktopUpdaterStateSchema.safeParse(value);
+      if (result.success) {
+        handler(result.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.updaterChanged, listener);
+    return () => ipcRenderer.removeListener(PILOT_IPC.updaterChanged, listener);
+  },
+  onUpdaterPrepare: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const result = desktopUpdaterRestartRequestSchema.safeParse(value);
+      if (result.success) {
+        handler(result.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.updaterPrepare, listener);
+    return () => ipcRenderer.removeListener(PILOT_IPC.updaterPrepare, listener);
+  },
+  onWindowDestinationChange: openMeldBridge.onWindowDestinationChange,
+  setNotificationContext: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.notificationContext, input),
+  showNotification: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.notificationShow, input),
+  testNotification: (input) =>
+    ipcRenderer.invoke(PILOT_IPC.notificationTest, input),
+  notificationFocused: () => ipcRenderer.invoke(PILOT_IPC.notificationFocused),
+  onNotificationPoll: (handler) => {
+    const listener = () => handler();
+    ipcRenderer.on(PILOT_IPC.notificationPoll, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.notificationPoll, listener);
+  },
+  onNotificationClick: (handler) => {
+    const listener = (_event: IpcRendererEvent, value: unknown) => {
+      const parsed = desktopNotificationReferenceSchema.safeParse(value);
+      if (parsed.success) {
+        handler(parsed.data);
+      }
+    };
+    ipcRenderer.on(PILOT_IPC.notificationClick, listener);
+    return () =>
+      ipcRenderer.removeListener(PILOT_IPC.notificationClick, listener);
+  },
   platform: () => ipcRenderer.invoke(PILOT_IPC.platform),
   session: () => ipcRenderer.invoke(PILOT_IPC.session),
+  localComputer: () => ipcRenderer.invoke(PILOT_IPC.localComputer),
   signIn: () => ipcRenderer.invoke(PILOT_IPC.signIn),
   signOut: () => ipcRenderer.invoke(PILOT_IPC.signOut),
   connectComputer: (input) =>

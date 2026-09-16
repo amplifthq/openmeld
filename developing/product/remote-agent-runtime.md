@@ -1873,8 +1873,14 @@ surface adopts official features where they are free**:
   callers), read bounded recent Dispatch Ledger diagnostics, create Spaces,
   create Agent Profiles, enable Agent Profiles, add active Organization members
   and Agent Profiles to Spaces, remove Agent Profiles from Spaces, update Space
-  settings, post plain Space messages, and Wake Agent Profiles in Spaces through
-  Space activation targets. For an ordinary verified-member Slack turn, Core
+  settings, post plain Space messages, manage revision-bound Space Tasks in the
+  current ordinary shared Space, and Wake Agent Profiles in Spaces through
+  Space activation targets. Space Task creation is reserved for clear delivery
+  obligations; assignment, start, submission, review, and cancellation remain
+  distinct. Task review handoffs use the existing Space Wake path and stop after
+  two automatic rework rounds for a human decision. This Task surface does not
+  replace Agent Task Handles or native-delivery execution truth. For an ordinary
+  verified-member Slack turn, Core
   may place one encrypted, event-bound search authorization in the trusted turn
   envelope. The normal Flue Agent loop decides semantically whether public
   workspace search advances the request; no keyword gate or second model

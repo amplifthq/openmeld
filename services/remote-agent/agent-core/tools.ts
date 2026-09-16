@@ -106,6 +106,7 @@ import {
   changelogQueryResponseSchema,
   createAgentProfileCreationRequestResponseSchema,
   createCenterAgentRoutineResponseSchema,
+  createSpaceTaskBodySchema,
   daemonServiceLaneSchema,
   deleteCenterAgentRoutineResponseSchema,
   executeExecutionRecoveryBodySchema,
@@ -121,7 +122,9 @@ import {
   listCenterAgentRoutinesResponseSchema,
   listFeedbackIssuesForOrganizationRequestSchema,
   listFeedbackIssuesForOrganizationResponseSchema,
+  listSpaceTasksResponseSchema,
   MAX_TEXT_LENGTH,
+  mutateSpaceTaskBodySchema,
   nativeReplyPlacementSchema,
   OPPORTUNITY_DECISIONS,
   OPPORTUNITY_EVIDENCE_MAX_CHARS,
@@ -155,8 +158,15 @@ import {
   SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES,
   SPACE_MESSAGE_FILE_MAX_COUNT,
   SPACE_PASSWORD_MIN_LENGTH,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
+  SPACE_TASK_DESCRIPTION_MAX_CHARS,
+  SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
+  SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
+  SPACE_TASK_TITLE_MAX_CHARS,
   setAgentProfileCreationApprovalPreferenceResponseSchema,
   setOrganizationWorkingLanguagePreferenceBodySchema,
+  spaceTaskMutationReceiptSchema,
   startCenterAgentMemberResearchResponseSchema,
   submitFeedbackIssueRequestSchema,
   TEAMMATE_AGENT_REQUESTS_ENABLED,
@@ -1317,6 +1327,7 @@ export const REMOTE_AGENT_OPENMELD_TOOL_NAMES = [
   "openmeld_set_reply_placement",
   "openmeld_read_center_agent_turn_diagnostics",
   "openmeld_read_space_context",
+  "openmeld_manage_space_tasks",
   "openmeld_list_space_files",
   "openmeld_read_space_file",
   "openmeld_save_space_file",
@@ -1442,6 +1453,7 @@ export const REMOTE_AGENT_ROUTINE_HIDDEN_TOOL_NAMES = [
   "openmeld_respond_to_opportunity",
   "openmeld_learn_about_me",
   "openmeld_list_agent_tasks",
+  "openmeld_manage_space_tasks",
   "openmeld_watch_agent_task",
   "openmeld_inspect_execution_recovery",
   "openmeld_recover_execution_result",
@@ -1582,6 +1594,142 @@ const setOrganizationWorkingLanguageToolInputSchema = strictObject({
   ),
   mode: picklist(["automatic", "selected"]),
 });
+
+const manageSpaceTasksToolInputSchema = strictObject({
+  action: picklist([
+    "list",
+    "create",
+    "assign",
+    "update_brief",
+    "set_reviewer",
+    "mark_in_progress",
+    "submit_result",
+    "review",
+    "cancel",
+    "reopen",
+    "continue_rework",
+  ] as const),
+  assigneeProfileId: optional(nullable(nonEmptyStringSchema)),
+  completionConditions: optional(
+    pipe(
+      array(
+        pipe(
+          string(),
+          trim(),
+          minLength(1),
+          maxLength(SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS)
+        )
+      ),
+      maxLength(SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS)
+    )
+  ),
+  decision: optional(picklist(["accepted", "changes_requested"] as const)),
+  description: optional(
+    nullable(
+      pipe(
+        string(),
+        trim(),
+        minLength(1),
+        maxLength(SPACE_TASK_DESCRIPTION_MAX_CHARS)
+      )
+    )
+  ),
+  expectedRevision: optional(pipe(number(), integer(), minValue(1))),
+  feedback: optional(
+    nullable(
+      pipe(
+        string(),
+        trim(),
+        minLength(1),
+        maxLength(SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS)
+      )
+    )
+  ),
+  reason: optional(pipe(string(), trim(), minLength(1), maxLength(1000))),
+  reviewerProfileId: optional(nullable(nonEmptyStringSchema)),
+  summary: optional(
+    pipe(
+      string(),
+      trim(),
+      minLength(1),
+      maxLength(SPACE_TASK_RESULT_SUMMARY_MAX_CHARS)
+    )
+  ),
+  taskId: optional(nonEmptyStringSchema),
+  title: optional(
+    pipe(string(), trim(), minLength(1), maxLength(SPACE_TASK_TITLE_MAX_CHARS))
+  ),
+});
+
+type ManageSpaceTasksToolInput = InferOutput<
+  typeof manageSpaceTasksToolInputSchema
+>;
+
+function buildSpaceTaskMutationFromTool(input: ManageSpaceTasksToolInput) {
+  if (!(input.taskId && input.expectedRevision)) {
+    throw new TypeError(
+      "Task changes require taskId and the latest expectedRevision."
+    );
+  }
+  const base = {
+    operationId: crypto.randomUUID(),
+    expectedRevision: input.expectedRevision,
+  };
+  switch (input.action) {
+    case "assign":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        assigneeProfileId: input.assigneeProfileId ?? null,
+      });
+    case "update_brief":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.description === undefined
+          ? {}
+          : { description: input.description }),
+        ...(input.completionConditions === undefined
+          ? {}
+          : { completionConditions: input.completionConditions }),
+      });
+    case "set_reviewer":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        reviewerProfileId: input.reviewerProfileId ?? null,
+      });
+    case "mark_in_progress":
+      return mutateSpaceTaskBodySchema.parse({ ...base, action: input.action });
+    case "submit_result":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        summary: input.summary,
+      });
+    case "review":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        decision: input.decision,
+        ...(input.feedback === undefined ? {} : { feedback: input.feedback }),
+      });
+    case "cancel":
+    case "reopen":
+    case "continue_rework":
+      return mutateSpaceTaskBodySchema.parse({
+        ...base,
+        action: input.action,
+        reason: input.reason,
+      });
+    case "list":
+    case "create":
+      throw new TypeError(`${input.action} is not a Task mutation.`);
+    default:
+      throw new TypeError("Unsupported Space Task action.");
+  }
+}
 
 type RemoteAgentOpenMeldToolDefinitionsInput = {
   agentActivityReadEnabled?: boolean;
@@ -3191,6 +3339,77 @@ export function getRemoteAgentOpenMeldToolDefinitions(
             ...(payload.threadId === undefined
               ? {}
               : { threadId: payload.threadId }),
+          })
+        );
+      },
+    }),
+    toolDefinition({
+      name: "openmeld_manage_space_tasks",
+      description:
+        "Manage durable commitments in the current shared OpenMeld Space. Create a Task when the current message asks for a clear, discrete deliverable that will outlive an immediate conversational answer or needs ownership, progress, review, or later closure. Do not create Tasks for questions, tiny same-turn actions, exploratory discussion, acknowledgements, or every Agent tool call. A created Task is assigned to you by default but remains To do; call mark_in_progress when work actually begins, then submit_result with the concrete result and verification. Assignment alone never starts execution. Use list before changing an existing Task so expectedRevision is current. When an Agent reviewer must act, wake that reviewer after submitting the result. When an Agent reviewer requests changes and the Task returns to In progress, wake the assignee with the review feedback. Do not wake more work when needsHumanDecision is true. Two automatic Agent rework rounds are allowed before a human must decide. This tool is limited to this conversation's shared Space and does not control Agent execution truth.",
+      input: manageSpaceTasksToolInputSchema,
+      execute: async (payload) => {
+        const request = parseValibot(manageSpaceTasksToolInputSchema, payload);
+        const toolContext = await buildOpenMeldToolContext({
+          storage: input.storage,
+          submissionId: input.submissionId,
+          toolName: "openmeld_manage_space_tasks",
+        });
+        const space = toolContext.turnEnvelope?.space;
+        if (!space || space.kind !== "space") {
+          throw new Error(
+            "Space Tasks are available only in the current shared OpenMeld Space."
+          );
+        }
+        if (request.action === "list") {
+          const rpc = requireCoreRpc(
+            input.coreWorker.listSpaceTasks,
+            "listSpaceTasks"
+          );
+          return listSpaceTasksResponseSchema.parse(
+            await rpc({ context: toolContext.context, spaceId: space.id })
+          );
+        }
+        if (request.action === "create") {
+          const body = createSpaceTaskBodySchema.parse({
+            operationId: crypto.randomUUID(),
+            title: request.title,
+            ...(request.description === undefined
+              ? {}
+              : { description: request.description }),
+            ...(request.completionConditions === undefined
+              ? {}
+              : { completionConditions: request.completionConditions }),
+            assigneeProfileId:
+              request.assigneeProfileId === undefined
+                ? toolContext.context.actorContext.openMeldProfileId
+                : request.assigneeProfileId,
+            ...(request.reviewerProfileId === undefined
+              ? {}
+              : { reviewerProfileId: request.reviewerProfileId }),
+          });
+          const rpc = requireCoreRpc(
+            input.coreWorker.createSpaceTask,
+            "createSpaceTask"
+          );
+          return spaceTaskMutationReceiptSchema.parse(
+            await rpc({
+              body,
+              context: toolContext.context,
+              spaceId: space.id,
+            })
+          );
+        }
+        const rpc = requireCoreRpc(
+          input.coreWorker.mutateSpaceTask,
+          "mutateSpaceTask"
+        );
+        return spaceTaskMutationReceiptSchema.parse(
+          await rpc({
+            body: buildSpaceTaskMutationFromTool(request),
+            context: toolContext.context,
+            spaceId: space.id,
+            taskId: request.taskId,
           })
         );
       },

@@ -2332,6 +2332,7 @@ export {
   spacePasswordStateSchema,
   upsertSpacePasswordBodySchema,
 } from "./http/space-password";
+export { spaceReadContextSchema } from "./http/space-read-context";
 export {
   getSpaceDispatchResultInputSchema,
   getSpaceDispatchResultResponseSchema,
@@ -2357,6 +2358,30 @@ export {
   spaceStatusLatestVisibleUpdateSchema,
   spaceStatusMembersSummarySchema,
 } from "./http/space-status";
+export {
+  createSpaceTaskBodySchema,
+  listSpaceTasksQuerySchema,
+  listSpaceTasksResponseSchema,
+  mutateSpaceTaskBodySchema,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_CHARS,
+  SPACE_TASK_COMPLETION_CONDITION_MAX_ITEMS,
+  SPACE_TASK_DESCRIPTION_MAX_CHARS,
+  SPACE_TASK_LIST_MAX_ITEMS,
+  SPACE_TASK_OPERATION_ID_MAX_CHARS,
+  SPACE_TASK_RESULT_SUMMARY_MAX_CHARS,
+  SPACE_TASK_REVIEW_FEEDBACK_MAX_CHARS,
+  SPACE_TASK_TITLE_MAX_CHARS,
+  spaceTaskActorSchema,
+  spaceTaskEventSchema,
+  spaceTaskEventTypeSchema,
+  spaceTaskIdSchema,
+  spaceTaskMutationReceiptSchema,
+  spaceTaskPhaseSchema,
+  spaceTaskResponseSchema,
+  spaceTaskResultSchema,
+  spaceTaskReviewSchema,
+  spaceTaskSchema,
+} from "./http/space-tasks";
 export {
   createSpaceThreadBodySchema,
   createSpaceThreadResponseSchema,

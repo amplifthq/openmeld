@@ -282,6 +282,7 @@ type SpaceThreadPanelProps = {
 	isDiagnosticReportSent: (signalId: string) => boolean;
 	isCenterAgentDirectMessage?: boolean;
 	isDirectMessage?: boolean;
+	initialFocusRequestId?: number;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	actionableAgentInteractionPlacement?: SpaceAgentInteractionPlacement;
@@ -363,6 +364,7 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 		useThreadInitialFocus({
 			signals: input.signals,
 			activeThread: input.activeThread,
+			initialFocusRequestId: input.initialFocusRequestId,
 			initialFocusSignalId: input.initialFocusSignalId,
 			initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 		});
@@ -795,6 +797,7 @@ function useThreadMessageDetailsController(input: {
 }
 
 function useThreadInitialFocus(input: {
+	initialFocusRequestId?: number;
 	signals: SpaceThreadPanelProps["signals"];
 	activeThread: SpaceThread | null;
 	initialFocusSignalId?: string;
@@ -831,7 +834,7 @@ function useThreadInitialFocus(input: {
 			highlightedElementRef.current = null;
 			return;
 		}
-		const targetKey = `${input.activeThread.threadId}:${targetSignalId}`;
+		const targetKey = `${input.activeThread.threadId}:${targetSignalId}:${input.initialFocusRequestId ?? 0}`;
 		if (appliedInitialFocusRef.current === targetKey) {
 			return;
 		}
@@ -869,6 +872,7 @@ function useThreadInitialFocus(input: {
 		}, 1800);
 	}, [
 		input.activeThread,
+		input.initialFocusRequestId,
 		input.initialFocusSignalId,
 		input.initialFocusThreadRootSignalId,
 		input.signals,

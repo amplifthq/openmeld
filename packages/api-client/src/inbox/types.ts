@@ -2,6 +2,7 @@ import type {
   CenterAgentInboxSummaryResponse,
   DismissInboxItemResponse,
   GetInboxItemResponse,
+  InboxMessageNotificationPreferencesResponse,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   InboxView,
@@ -13,6 +14,7 @@ import type {
   OpenMeldRequestContext,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  UpdateInboxMessageNotificationPreferencesBody,
 } from "@openmeld/schemas/types";
 import type { OpenMeldApiClientFoundation } from "../client";
 
@@ -23,6 +25,14 @@ export type InboxRequestInput = {
 };
 
 export type InboxApi = {
+  getMessageNotificationPreferences: (
+    input?: InboxRequestInput & { spaceId?: string }
+  ) => Promise<InboxMessageNotificationPreferencesResponse>;
+  updateMessageNotificationPreferences: (
+    input: InboxRequestInput & {
+      preference: UpdateInboxMessageNotificationPreferencesBody;
+    }
+  ) => Promise<InboxMessageNotificationPreferencesResponse>;
   centerAgentSummary: (
     input?: InboxRequestInput
   ) => Promise<CenterAgentInboxSummaryResponse>;

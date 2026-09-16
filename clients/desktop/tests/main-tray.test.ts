@@ -18,11 +18,15 @@ const electronMock = vi.hoisted(() => {
   const windowInstances: Array<{
     center: ReturnType<typeof vi.fn>;
     focus: ReturnType<typeof vi.fn>;
+    isMinimized: ReturnType<typeof vi.fn>;
+    restore: ReturnType<typeof vi.fn>;
     options: Record<string, unknown> | undefined;
     setSize: ReturnType<typeof vi.fn>;
     webContents: {
       mainFrame: { url: string };
       isDestroyed: () => boolean;
+      isLoadingMainFrame: ReturnType<typeof vi.fn>;
+      once: ReturnType<typeof vi.fn>;
       on: ReturnType<typeof vi.fn>;
       send: ReturnType<typeof vi.fn>;
       setWindowOpenHandler: ReturnType<typeof vi.fn>;
@@ -38,6 +42,8 @@ const electronMock = vi.hoisted(() => {
         ).href,
       },
       isDestroyed: () => false,
+      isLoadingMainFrame: vi.fn(() => false),
+      once: vi.fn(),
       on: vi.fn(),
       send: vi.fn(),
       setWindowOpenHandler: vi.fn(),
@@ -407,15 +413,28 @@ describe("main tray behavior", () => {
     expect(tray?.setTitle).not.toHaveBeenCalled();
   });
 
-  it("opens Settings from the tray menu", async () => {
+  it("restores the window and delivers Settings after its document loads", async () => {
     await importMain();
-
-    trayMenuItem("Open Settings")?.click?.();
-
     const window = electronMock.windowInstances.at(0);
-    expect(window).toBeDefined();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(window?.webContents.send).toHaveBeenCalledWith(
+    if (!window) {
+      throw new Error("Missing window");
+    }
+    window.isMinimized.mockReturnValue(true);
+    window.webContents.isLoadingMainFrame.mockReturnValue(true);
+    trayMenuItem("Open Settings")?.click?.();
+    expect(window.restore).toHaveBeenCalled();
+    expect(window.show).toHaveBeenCalled();
+    expect(window.focus).toHaveBeenCalled();
+    expect(window.webContents.send).not.toHaveBeenCalled();
+    const loaded = window.webContents.once.mock.calls.find(
+      ([event]) => event === "did-finish-load"
+    )?.[1];
+    if (!loaded) {
+      throw new Error("Missing load listener");
+    }
+    window.webContents.isLoadingMainFrame.mockReturnValue(false);
+    loaded();
+    expect(window.webContents.send).toHaveBeenCalledWith(
       WINDOW_IPC.navigateDestination,
       "settings"
     );

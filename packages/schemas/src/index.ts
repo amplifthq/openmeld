@@ -109,6 +109,7 @@ export {
   DESKTOP_TEST_AUTH_SCHEME,
   DESKTOP_WEB_BUILD_HEADER,
   type DesktopInstalledTarget,
+  type DesktopLocalComputer,
   type DesktopPlatform,
   type DesktopSession,
   type DesktopSpaceStreamBridge,
@@ -117,6 +118,7 @@ export {
   desktopAuthIdentity,
   desktopCompatibilitySchema,
   desktopInstalledTargetSchema,
+  desktopLocalComputerSchema,
   desktopPlatformSchema,
   desktopProductionSourceSchema,
   desktopSessionSchema,
@@ -125,13 +127,19 @@ export {
   desktopSpaceStreamInputSchema,
   desktopWebBuildSchema,
 } from "./desktop-client";
+export * from "./desktop-notifications";
 export {
+  DESKTOP_PROMOTED_RELEASE_KEY,
+  DESKTOP_UPDATE_FEED_URL,
   type DesktopCandidateManifest,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
+  desktopPromotedReleaseSchema,
+  desktopUpdaterFeedSchema,
 } from "./desktop-release";
+export * from "./desktop-updater";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,

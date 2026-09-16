@@ -41,6 +41,7 @@ for (const args of [
     "electron-builder.installed.config.mjs",
     "--mac",
     "dmg",
+    ...(signedMode === "production-preview" ? ["zip"] : []),
     "--arm64",
     "--publish",
     "never",

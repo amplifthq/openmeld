@@ -14,6 +14,9 @@ const idleState: ClientVersionRecoveryState = { status: "idle" };
 let recoveryState: ClientVersionRecoveryState = idleState;
 const listeners = new Set<() => void>();
 const reloadBlockers = new Set<() => boolean>();
+export function hasClientRestartBlocker() {
+	return [...reloadBlockers].some((isBlocked) => isBlocked());
+}
 let navigationTimeout: ReturnType<typeof setTimeout> | undefined;
 
 export function resetClientVersionRecovery() {
@@ -82,7 +85,7 @@ export function installClientVersionRecovery(input: {
 		}
 		const error =
 			payload instanceof Error ? payload : new Error(String(payload));
-		if ([...reloadBlockers].some((isBlocked) => isBlocked())) {
+		if (hasClientRestartBlocker()) {
 			console.warn("[openmeld.web.client_version_recovery_deferred]", {
 				reason: "unsaved_work",
 			});

@@ -36,6 +36,12 @@ export {
   buildSpaceSignalsReadPath,
   buildSpaceSignalsReadSearchParams,
 } from "./signals";
+export {
+  createSpaceTask,
+  getSpaceTask,
+  listSpaceTasks,
+  mutateSpaceTask,
+} from "./tasks";
 export type {
   AddSpaceMembersInput,
   CreateSpaceApi,

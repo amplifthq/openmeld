@@ -77,6 +77,22 @@ describe("space live stream helpers", () => {
 		});
 	});
 
+	it("parses Space Tasks invalidation frames", () => {
+		expect(
+			parseSpaceLiveMessage(
+				JSON.stringify({
+					type: "space.tasks.changed",
+					spaceId: "space-123",
+					version: 10,
+					reason: "space.task.result_submitted",
+				})
+			)
+		).toMatchObject({
+			kind: "invalidation",
+			frame: { type: "space.tasks.changed", version: 10 },
+		});
+	});
+
 	it("parses thread-aware signal frames without treating them as main timeline messages", () => {
 		expect(
 			parseSpaceLiveMessage(

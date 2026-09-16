@@ -27,6 +27,39 @@
 
 ## Desktop platform contract
 
+`desktop-updater.ts` owns main/renderer update snapshots, action names and the
+request-scoped restart preparation reply. Existing trusted-window authorization
+applies before every updater IPC call. Renderer replies contain only the main
+request ID and whether existing owners saved their work. Main alone selects the
+fixed production feed and starts download or installation. These local IPC
+additions ship with the matching bundled renderer; cloud, CLI, Service, Skills,
+Core and Gateway execution contracts and their version floors do not change.
+
+`desktop-release.ts` owns immutable candidate metadata and the sole promoted
+release pointer. The optional ZIP metadata preserves older DMG-only candidate
+links, but promotion requires a ZIP. The default page, legacy JSON and updater
+feed derive their version from that same pointer. No separate latest manifest
+may be edited or uploaded for electron-updater.
+
+`desktop-notifications.ts` owns additive renderer/native Inbox reference,
+test-request and delivery-result contracts. Only the current trusted window
+can request delivery. Native credentials reread the recipient-authorized Core
+item; callers cannot supply notification text or navigation URLs. Shared
+API-client notification policy derives eligibility from those Inbox facts.
+Refresh IPC is a signal to the existing reader, never a separate snapshot.
+The renderer projects its current delivery context (account, Organization,
+enabled preference, and existing rendered-conversation locator). Shared
+API-client matching and current native focus/visibility suppress the exact
+conversation immediately before submission, after asynchronous reads. Context
+invalidation cancels and settles submitted but unacknowledged native attempts;
+late native events cannot turn cancellation into delivery. Delivered alerts
+retain click-back across Organization switches; account invalidation clears all.
+This is a delivery permit, not account or Inbox authority; native
+session and recipient-authorized Core reads remain mandatory.
+These additions ship with the matching local renderer and require no cloud,
+CLI, Service, Wake or runtime contract change. Existing Desktop bundles retain
+their existing behavior; cloud rollout does not require a new Desktop floor.
+
 Installed Desktop contract version 1 uses the strict compatibility response at
 `GET /v1/desktop/compatibility` and `x-openmeld-desktop-contract: 1` on fixed-origin
 business requests and streams. The Web admission layer accepts this version
@@ -53,6 +86,33 @@ private clients still require their corresponding Web build. Browser clients kee
 their normal authorization paths. CLI, Service, Skills, Core, Gateway, Prepare,
 Wake, and Space action payloads and minimum versions are unchanged. Installing
 this entry does not establish Service readiness or authorize local setup.
+
+### Desktop Working folder
+
+`desktopLocalComputerSchema` owns the bounded native IPC projection of the CLI's
+account-aligned device and lane. It exposes no credentials or previous-session
+identity. Desktop admits only that target for the existing picker/discovery and
+the additive PeopleComputer Project connect-candidate, connect-declared-path,
+set-default, and Profile workspace routes. Gateway reuses strict shared request
+and response schemas; Core reuses the existing business writers and validates the
+exact owned Service session and capability. Account-current routes remain blocked
+in Desktop. An authentication change while admitting a request refuses it before
+forwarding; the shared auth boundary clears account-scoped queries on session
+changes.
+
+Contract Impact Audit: the IPC projection and Gateway/Core routes are additive.
+Deploy Core and Gateway support before distributing the new Desktop caller (or
+Web callers using the explicit mutations). During mixed versions, unsupported
+routes fail without falling back to another Computer. Existing CLI/Service
+picker, Project and workspace requests, Prepare, Wake, Space actions, Skills,
+status, diagnostics and recovery commands are unchanged. Capabilities continue
+to reject old Services that cannot perform an operation; no semantic CLI/Service
+epoch, minimum-version, or Desktop contract-version bump is required. Shared
+schema paths still trigger the repository's Service release classification;
+the integrated release must complete local-component stamping and release-ready
+verification. Leaf development does not establish that artifact evidence.
+Old Desktop builds keep their existing restrictions. Rollback removes the new
+caller before removing these additive cloud receivers.
 
 ### Desktop candidate distribution
 
@@ -233,7 +293,7 @@ Generic transport/persistence errors, including unsupported-carrier errors,
 remain uncertain and keep autostart disabled. The CLI reports that partial
 outcome. A later Desktop caller must require the capable CLI and carrier before
 exposing controls. No cloud deployment or global local-file-reader floor is
-introduced for this opt-in capability. The pilot enables only guarded Start/Stop
+introduced for this opt-in capability. The pilot enables guarded Start/Stop
 after its read-only pair capability query. `serviceControlCapabilitiesSchema`
 owns the separate CLI response; `account_control_capabilities` is an additive
 authenticated control request with explicit carrier support. Older readers keep
@@ -367,6 +427,33 @@ are unchanged. Web consumes both APIs and refreshes after existing
 local Service, Desktop, and Agent execution contracts do not change. Delivery
 requires Core and Gateway before Web; no local component upgrade is required.
 
+## Space Task contracts
+
+`@openmeld/schemas` owns the strict Space Task, actor, result, review, event,
+create, mutation, list, detail, and receipt contracts. Gateway authenticates
+`GET/POST /v1/spaces/:spaceId/tasks` and
+`GET/PATCH /v1/spaces/:spaceId/tasks/:taskId`; Core RPC delegates to the owning
+Space Durable Object. Reads and writes require an active human or Agent member
+whose profile ownership matches the authenticated actor. Current Direct
+Messages reject the capability.
+
+Create and mutation requests carry an operation id. Mutations also carry an
+expected revision. Replaying the same operation returns `applied: false`; reuse
+for different input conflicts. List responses are bounded to 500 Tasks and
+report `truncated` rather than silently claiming complete history. The additive
+`space.tasks.changed` WebSocket
+frame is only a refresh signal. Web rereads the Task projection and never
+derives Task state from the frame.
+
+The local Space Action MCP adds non-final Task tools alongside its one required
+final Space action. This is an additive CLI/OpenMeld Service/adapter contract
+and requires the normal local-component release audit. Remote Agent exposes the
+same Space-owned HTTP/RPC contract. Neither surface changes Agent Task Handles,
+RuntimeCoordinator envelopes, Wakeability, or final action receipts.
+`space.tasks.manage` is the additive privacy-safe Agent Activity key for the
+Remote Agent tool. Deploy schema consumers in Web, Gateway, and Core before the
+Remote Agent producer; an old Remote Agent simply lacks the Task tool.
+
 ## Boundary
 
 ### Dispatch Space Action receipts
@@ -443,6 +530,24 @@ remain unchanged, as do CLI, Service, Skills, setup, and diagnostics contracts.
 File maintenance prefills the existing Routine contract without a new scheduler.
 Rollback the new Web callers before their receivers; no local component release
 or execution-contract epoch bump is required for these additive capabilities.
+
+### Optional Space bootstrap readiness enrichment
+
+`GET /v1/spaces/:spaceId/bootstrap` accepts `includeAgentReadiness=false`.
+Only this explicit opt-in returns `includesAgentReadiness=false`; omitted or
+true requests retain the existing full response without a new marker. Gateway
+forwards the option to Core. Access checks and member identity remain present,
+while runtime readiness reads and liveness observation writes are skipped.
+Missing readiness is unknown, not an offline result. Clients must keep this
+identity-only snapshot out of the authoritative members Query cache and load
+that projection independently.
+
+Both additions are optional in `packages/schemas`. Old callers retain the full
+response, and new callers accept an unmarked full response from older cloud
+components. The normal Web, Gateway, Core rollout order is compatible: an older
+Gateway never forwards the opt-in to Core. CLI, Service, setup, Wake, Space
+publication, and diagnostic contracts are unchanged; no local component epoch
+or required-update floor changes.
 
 ### Direct Message conversion member snapshots
 
@@ -863,6 +968,49 @@ exactly or admission fails. A plan is disclosure policy, not member authority,
 tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
+
+Human thread reply awareness adds optional `replyToRecipient` to Space Inbox
+targets without adding an Inbox kind or changing urgency. Space emits true only
+for a different Human account replying to the recipient's retained thread root,
+after existing recipient filtering. Browser notification policy reads this fact
+instead of parsing the title or equating thread membership with addressing.
+
+Source-target version `7` exposes this field. Gateway strips it for version
+`6` and older clients while preserving each version's existing target fields.
+List, direct-item, and mark-read RPCs also accept optional
+`includeReplyToRecipient`: Core omits the field unless the Gateway explicitly
+opts in. This protects an older strict Gateway even after Core persists new
+rows. New Gateway opts in and owns the separate browser-version projection.
+Unlike earlier ungated source-target additions, this field can roll out
+**Core, Gateway, Web**, matching the message-preference API below. Deploy Core
+before a Gateway that sends the new RPC option. No new migration or local
+component contract bump is required for the reply marker. Retain compatible
+Core readers on rollback while stored rows or projection intents contain it.
+
+Message notification preferences use the new strict
+`GET/PATCH /v1/inbox/message-notification-preferences` and matching Core RPCs.
+GET optionally accepts a Space id and returns the account default, nullable
+conversation override, and Core-resolved effective mode. PATCH writes either
+the account default or one conversation override; null removes the override.
+Core derives the user and Organization from verified active membership and
+rechecks indexed conversation membership/current personal Agent ownership for
+conversation reads and writes. Client-supplied recipient ids are rejected.
+The existing urgent-email preference and Inbox payloads remain unchanged.
+
+Contract impact: apply additive migration `0174_pretty_meggan` first, then
+deploy the Core receiver, Gateway routes, and Web caller in that order. New Web
+must not be exposed before both receivers; missing support is a visible error,
+not a fabricated default. Roll back Web first, then Gateway/Core, retaining
+the additive tables. Already-open old Web tabs keep the old message policy
+until reloaded; they cannot honor newly saved overrides. Desktop now uses the
+same shared API-client policy and re-reads message preferences in its native
+process. Publish the matching Desktop/Web build after the Core and Gateway
+receivers are available; existing Desktop installations need an app update to
+honor the new preferences. Native IPC request shapes remain unchanged. Setup, CLI, Service,
+Skills, Wake execution, Space publication, and diagnostics payloads do not
+change and require no local-component contract bump. Message preferences only
+filter browser delivery of authorized Inbox facts; they cannot alter source
+recipients, unread state, action resolution, urgency, or email eligibility.
 
 Organization invitation requests use `organizationJoinRequestInputSchema` for
 Web and CLI and a separate trusted RPC envelope for Auth-proven account identity,
@@ -2037,6 +2185,12 @@ This JPEG/PNG attachment contract remains a read and runtime compatibility
 surface for messages authored before canonical chat files. New Web and CLI
 Composer uploads must use the Space File contract below. No migration or
 dual-write projects old attachment objects into Files.
+
+Attachment downloads use the owning Space's current read authorization, including
+anonymous public reading and Space-only Guests. Core derives the Organization
+from the authorized Space, never the reader's selected Organization. Download
+responses use `private, no-store`; upload and deletion retain their existing
+authenticated membership requirements.
 
 `packages/schemas` owns the shared Space attachment descriptor, upload query and
 response schemas, Core RPC metadata payloads, MIME and size limits, and
@@ -6942,6 +7096,15 @@ entries is never a valid degradation.
 
 ## Space Entry Resolution Contract
 
+Public HTML advertises `GET /v1/spaces/:spaceId/context` as an alternate JSON
+representation. `spaceReadContextSchema` is a discovery directory, not a second
+content store: it links existing authorized Space reads and explains bounded
+pagination and Thread/file relationships. Message pages expose `Link: rel=next`.
+All anonymous-readable resources return `private, no-store` and `noindex,
+nofollow`; these headers are not a guarantee against copying or model training.
+An authorized reply-only entry target resolves its canonical Thread root in the
+Space owner before clients perform navigation.
+
 `packages/schemas/src/schemas/http/space-entry.ts` owns the shared Space entry
 target and resolution read model. The target preserves the Space plus optional
 message and Thread-root focus so a client can continue to the original
@@ -6953,6 +7116,17 @@ projection into separate `view` and `participation` outcomes. This separation
 is required because `public_view_join_password` permits reading while still
 requiring a password to join. Web, CLI, and Agent View consume the result; they
 must not rebuild the access table from HTTP status codes or client caches.
+
+Entry resolution reads the existing authorized Space metadata RPC for the name
+and access mode, then the existing viewer membership projection. It must not
+read full status, Agent readiness, runtime routes, or Service health to decide
+entry. Metadata and status enforce the same canonical Space access policy;
+missing access-mode evidence fails closed. The response contract is unchanged.
+Status member summaries also omit optional readiness counts and do not enrich
+runtime readiness. Operational members remain the readiness owner, and absence
+of those optional counts is not an offline verdict. Existing schema consumers
+accept these omissions; no CLI, Service, Wake, setup, publication, or diagnostic
+contract/version changes or coordinated rollout are required.
 
 The resolver is a read projection, not an authorization token. Every content
 or mutation endpoint still performs its own Core-owned authorization. Same-

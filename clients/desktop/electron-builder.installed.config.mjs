@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { desktopProductionSourceSchema } from "../../packages/schemas/src/desktop-client.ts";
+import { desktopProductionSourceSchema } from "../../packages/schemas/dist/desktop-client.js";
+import { DESKTOP_UPDATE_FEED_URL } from "../../packages/schemas/dist/desktop-release.js";
 import { readInstalledDesktopTarget } from "../../scripts/desktop/installed-target.ts";
 import {
   desktopProductionSource,
@@ -74,6 +75,8 @@ export default {
   mac: signedMode
     ? {
         ...build.mac,
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: electron-builder expands these artifact macros.
+        artifactName: "OpenMeld-Desktop-${version}-macos-${arch}.${ext}",
         identity: `SOPHIAPRO PTE. LTD. (${DEFAULT_APPLE_TEAM_ID})`,
         type: "distribution",
         notarize: true,
@@ -89,5 +92,10 @@ export default {
         sign: true,
       }
     : build.dmg,
-  publish: null,
+  // Metadata generation is required by electron-updater's download cache.
+  // The root packaging command still passes --publish never.
+  publish:
+    signedMode === "production-preview"
+      ? { provider: "generic", url: DESKTOP_UPDATE_FEED_URL }
+      : null,
 };

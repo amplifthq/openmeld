@@ -25,6 +25,13 @@
 
 ## Boundary
 
+The account avatar's top-level **Download Desktop** item appears only on Web and
+opens the public `/desktop` page. That page, the default DMG route, legacy update
+JSON and macOS updater feed read the single promoted Desktop release in R2.
+Explicit candidate selectors remain strict and never fall back to the promoted
+release. Desktop's shared renderer exposes Updates through its native bridge;
+browser Web has no updater controls.
+
 ### Shared Profile and Organization actions
 
 Web and the packaged Desktop renderer use the same fixed `/v1/` business routes.
@@ -864,6 +871,9 @@ The shared sidebar deduplicates ordinary Spaces, People, Local, Remote, and
 Center Agent conversations by Space identity. Ordinary Space rows come from
 the current Organization's authorized Account Space Index; direct messages
 reuse the existing peer/title resolution and paged Center Agent session list.
+Center Agent chat avatars resolve the session's canonical `centerAgentProfileId`
+through the same lightweight profile directory used by other chat identities;
+they do not wait for designation or full readiness-directory queries.
 The global command center uses these same titles and exact destinations,
 including the Center Agent session selector. Space-name search remains bounded
 by the existing 500-item Account Space Index query; this UI change does not
@@ -981,6 +991,17 @@ as an intermediate destination.
 
 **Settings -> Personal -> Notifications** owns phase 1 delivery preferences:
 
+- **Default message notifications** saves the account-wide All new messages or
+  Mentions and replies default. The shared Space/DM header bell exposes Use
+  default (with its current value), both explicit choices, and Mute message
+  notifications. The selected value comes from Core; failed saves preserve the
+  last confirmed choice and show the error. A conversation override belongs to
+  the signed-in member, not the displayed Agent Profile. The bell links to
+  global settings and explains that urgent email remains independent.
+- **Show an example** requests a local sample notification beside the browser
+  control. It is disabled until browser notifications are enabled, never writes
+  an Inbox item, and does not claim that a native banner was displayed.
+
 - **Browser notifications** reflects permission in the current browser and
   explains when the browser has blocked the permission. If permission is still
   undecided after Account Setup Studio, Web presents one browser-local
@@ -998,10 +1019,10 @@ as an intermediate destination.
   the fixed full app volume, and the setting explains that browser or operating
   system notification sounds are controlled separately. Blocked or failed
   audio does not change delivery truth or trigger a notification retry.
-- **Email for urgent items** is a durable account preference, enabled by
+- **Urgent email alerts** is a durable account preference, enabled by
   default, and may be disabled without hiding Inbox items.
 
-Phase 1 intentionally has no per-source switches, schedules, quiet hours,
+Phase 1 intentionally has no schedules, quiet hours,
 digests, snooze, Slack delivery, closed-browser Web Push, Desktop, Mobile, or
 CLI controls.
 
@@ -2834,11 +2855,18 @@ permissions, or message state. Do not add separate full-width block placeholders
 Intent preload warms the same TanStack Query keys consumed by the target page:
 account Profiles plus the Organization Directory for Agent Profiles, account Profiles
 plus the Organization Space Directory for Spaces, and the current Space display
-snapshot, history, status, and bootstrap for a confirmed human profile. Conversation
+snapshot, history, entry resolution, and bootstrap for a confirmed human profile. Conversation
 preload restores the bounded Dexie display snapshot and recent history before
 prefetching the current server reads, so a saved conversation can render immediately
-without racing browser hydration. Status and bootstrap prefetch remain parallel with
-that restore-and-history chain. Links from
+without racing browser hydration. After restoration, entry resolution runs alongside
+bootstrap or contiguous history updates. It uses the gate's exact Space, acting
+Profile, message, and Thread target Query key; a fresh server decision can be reused
+on click even without a persisted display snapshot. Bootstrap does not fabricate
+an access decision or seed a second authorization cache. Entry decisions remain
+memory-only, use the existing 30-second freshness window, and are cleared at the
+account authentication boundary. Membership and metadata live changes invalidate
+entry resolution; runtime readiness changes do not. Every server content read
+and action still rechecks permissions. Links from
 the Space Directory carry
 the already selected human profile so the Space bootstrap can start during
 intent preload instead of waiting for a second profile-resolution navigation.
@@ -2901,10 +2929,25 @@ This includes the bounded Space bootstrap, status, recent history, and members.
 Thread catalogs and opened replies use the same 30-minute in-memory revisit
 window. Returning to a Space must not replace a newer Thread catalog with an
 older cached bootstrap.
-After the entry access gate permits a cold conversation, its bounded bootstrap
-starts alongside route classification. Space and direct-message routes reuse
+After the entry access gate permits a cold conversation, route classification
+uses status already returned by its bounded bootstrap or the mounted conversation.
+It does not issue a separate full status request to distinguish Spaces from
+Direct Messages. Space and direct-message routes reuse
 that same bootstrap query in the conversation; saved-history visits keep their
 existing contiguous-update path instead of requesting a new tail window.
+While cold entry permission is pending, the app uses the existing conversation
+loading layout, including a known account/Organization-scoped title and a linked
+Thread loading panel when applicable. That shell contains no messages, composer,
+or mutation controls. Error, password, membership, and profile recovery keep their
+own entry surfaces. Web and Desktop consume this same Web-owned implementation.
+Web requests `includeAgentReadiness=false` for this bounded bootstrap. Core
+returns member identity for message presentation without waiting for runtime
+readiness enrichment. The mounted conversation loads the authoritative members
+query independently; a bootstrap marked `includesAgentReadiness=false` must
+never seed or replace that query. Existing full members remain usable until its
+own refresh completes. Bootstrap still checks access and seeds current status;
+live reconciliation and explicit actions continue to refetch status and members.
+Empty reaction rows do not mount layout observers.
 The explicitly persisted display queries use the longer lifetime defined
 below. Query-specific `staleTime`, live invalidation, and server reads still own
 freshness; the Organization scope query is not given either longer lifetime.
@@ -3492,6 +3535,14 @@ from status, the Account Space Index, or a failed conversation request. A
 transient resolver failure keeps the target and offers retry; it is not treated
 as denied access.
 
+The public reader reuses the member history navigator for anchored windows and
+both directions of retained history, and reuses read-only Files, Tasks, and pin
+surfaces. It preserves the resolved message/Thread target across sign-in and
+explicit join. Joining reloads the shared entry so Core chooses the guest or
+Organization experience. Public entry revalidates on focus and every 15 seconds
+while visible; rejection removes the mounted reader. Its HTML advertises the
+shared JSON context directory and is not cacheable or indexable.
+
 Organization-scoped routes retain the App shell for permitted public reads and
 membership gates. Tenant-neutral links resolve to the Organization App route
 before mounting a public viewer when Core supplies the caller's Organization
@@ -3546,11 +3597,28 @@ presentations.
 
 It should keep the familiar conversation model clear:
 
-The authenticated Space header exposes **Messages | Files** as one
+The authenticated ordinary shared-Space header exposes **Messages | Tasks |
+Files** as one
 keyboard-accessible tab list. Files keeps the same Space header and membership
 context; it is not a Resources redirect or a second app shell. Opening Files
 loads the Space root, and opening folders uses breadcrumb navigation without
 changing file identity.
+
+Tasks opens one responsive board with **To do**, **In progress**, and **In
+review** as the active columns. Done and Canceled stay in collapsed history
+groups instead of creating a competing list view. Cards show the requester,
+assignee, optional reviewer, completion conditions, current result, and only
+the controls the current profile can plausibly use; Core remains authoritative
+and rejects stale or unauthorized mutations. Empty state copy sends the user
+back to Messages. Direct Messages omit the tab and normalize stale `tasks` view
+state back to Messages.
+
+Every retained text message in an eligible Space has a secondary **Add to
+Tasks** action. The created Task preserves that Signal as its source, inherits
+the source Thread, and assigns the sole Woken Agent when the message addressed
+exactly one. The action opens Tasks only after the server receipt succeeds.
+`space.tasks.changed` invalidates the Space Task query; the frame never mutates
+the board directly.
 
 The initial Files surface supports native file upload, whole-surface drag and
 drop with a visible drop target, folder creation, download, Markdown-file
@@ -3587,7 +3655,7 @@ drawer and previews that snapshot read-only in the main surface. A member may
 restore it as a new latest revision without erasing later revisions. The header
 uses the viewer's local date and time instead of a hard-coded timezone.
 
-Returning to the file list, changing **Messages | Graph | Files**, opening a
+Returning to the file list, changing **Messages | Tasks | Files**, opening a
 different chat file, following an internal route, reloading, or closing the
 window with a local draft uses the same save, discard, or cancel contract as
 Organization Documents. A repeated click on a chat file card reopens its exact
@@ -3599,6 +3667,13 @@ sent revision even after the viewer temporarily returned to the current file.
 - thread replies stay in the thread panel
 - the root message may show a compact thread preview
 - the main timeline must not render thread replies as standalone root messages
+
+Each reply preview occupies one truncated line and opens its exact reply with
+scroll and highlight, including repeated selection. Hover underlines only that
+row. The Open thread action uses the same spacing as the preview rows.
+Starting a new Thread opens the existing loading panel before creation completes.
+Closing or switching the panel while creation is pending must not be undone by
+the response; the server result updates the query cache, not panel selection.
 
 On desktop, the inline Members and Thread panels are resizable from their left
 edge because they occupy the right side of the Space. They reuse the shared

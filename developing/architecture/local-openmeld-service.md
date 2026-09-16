@@ -1436,6 +1436,14 @@ account's routing preference. The existing current-Computer endpoint remains
 for supported clients. A browser draft discards late picker results after
 either the selected device or environment changes, or the editor unmounts.
 
+Desktop Working folder uses the same Service picker after native account,
+device, and lane admission. Its explicit PeopleComputer Project connection and
+default-folder routes reuse the existing Project control business functions;
+its explicit Profile workspace route reuses the existing workspace mutation
+admission and Service writer. Every request revalidates owner inventory, the
+exact live session, and the requested capability. Changing the account's current
+Computer cannot redirect these operations.
+
 The picker returns only folders the person selected. It does not inspect folder
 contents, discover Projects, validate repositories, update Computer file access,
 connect a Project, or save an Agent Profile working folder. Each product surface

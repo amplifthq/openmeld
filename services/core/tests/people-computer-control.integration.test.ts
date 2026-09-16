@@ -3,18 +3,23 @@ import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import type {
   ComputerFileAccessPolicyResponse,
   LocalFolderPickerResult,
+  LocalProjectControlConnectResponse,
   LocalProjectControlDiscoverProjectsResponse,
+  LocalProjectControlSetDefaultConnectionResponse,
   OpenMeldRequestContext,
   RuntimeTransportLookupOwnerServiceResponse,
   RuntimeTransportOpenMeldToolsControlResponse,
 } from "@openmeld/schemas/types";
 import { describe, expect, it, vi } from "vitest";
 import type { CoreBindings } from "../src/lib/bindings";
+import { rpcCreateProject } from "../src/projects/project-rpc";
 import {
+  rpcConnectPeopleComputerProjectPath,
   rpcDiscoverPeopleComputerProjects,
   rpcReadPeopleComputerFileAccessPolicy,
   rpcRequestPeopleComputerOpenMeldToolsUpdate,
   rpcSelectPeopleComputerFolders,
+  rpcSetPeopleComputerProjectDefaultConnection,
   rpcUpdatePeopleComputerFileAccessPolicy,
 } from "../src/rpc/methods";
 
@@ -78,6 +83,67 @@ describe("PeopleComputer explicit control RPC", () => {
         },
       }),
     ]);
+
+    // The account's preferred computer is B. Every explicit operation stays on A,
+    // including subsequent writes after that preference changes again.
+    await env.OPENMELD_DB.prepare(
+      "INSERT INTO openMeldDaemon_current_device_targets (owner_user_id, device_id, runtime_lane, updated_at_ms) VALUES (?, 'computer-b', 'prod', ?)"
+    )
+      .bind(f.userId, now)
+      .run();
+    const created = await rpcCreateProject(f.coreEnv, {
+      context: request.context,
+      expectedOrganizationId: organizationId,
+      name: "Folder contract",
+      slug: "folder-contract",
+    });
+    const mutation = {
+      ...request,
+      projectId: created.project.id,
+      idempotencyKey: "connect-native-a",
+      declaredPath: "/work/Design 中文 ",
+      confirmNonGit: true,
+    };
+    const before = f.commands.length;
+    for (const target of [
+      { ...f.target, deviceId: "foreign-device" },
+      { ...f.target, runtimeLane: "prod" as const },
+    ]) {
+      await expect(
+        rpcConnectPeopleComputerProjectPath(f.coreEnv, {
+          ...mutation,
+          ...target,
+        })
+      ).rejects.toThrow();
+    }
+    expect(f.commands).toHaveLength(before);
+    await expect(
+      rpcConnectPeopleComputerProjectPath(f.coreEnv, mutation)
+    ).resolves.toMatchObject({
+      status: "connected",
+      canonicalPath: mutation.declaredPath,
+    });
+    await env.OPENMELD_DB.prepare(
+      "UPDATE openMeldDaemon_current_device_targets SET device_id = 'computer-c' WHERE owner_user_id = ?"
+    )
+      .bind(f.userId)
+      .run();
+    await rpcSetPeopleComputerProjectDefaultConnection(f.coreEnv, {
+      ...request,
+      projectId: created.project.id,
+      idempotencyKey: "default-native-a",
+      targetBindingGeneration: "binding-a",
+    });
+    for (const command of f.commands.slice(before)) {
+      expect(command).toMatchObject({
+        deviceId: f.target.deviceId,
+        lane: "canary",
+        ownerUserId: f.userId,
+      });
+    }
+    expect(f.commands[before]).toMatchObject({
+      request: { declaredPath: mutation.declaredPath, confirmNonGit: true },
+    });
   });
   it("opens a folder picker only on the exact owned environment and preserves cancellation", async () => {
     const f = await fixture();
@@ -302,7 +368,11 @@ async function fixture() {
           openMeldToolsControl: { requestUpdate: true },
           computerFileAccess: { readPolicy: true, updatePolicy: true },
           localFolderPicker: { selectFolders: true },
-          localProjectControl: { discoverProjects: true },
+          localProjectControl: {
+            discoverProjects: true,
+            connectDeclaredPath: true,
+            setDefaultConnection: true,
+          },
         },
         executionCompatibility: {
           status: "compatible",
@@ -346,6 +416,32 @@ async function fixture() {
         clientGeneration: 1,
         gitStatus: "available",
         requestId: "project-discovery",
+      };
+      return Promise.resolve(Response.json(result));
+    }
+    if (path === "/local-project-control/connect-declared-path") {
+      const command = JSON.parse(String(init.body));
+      commands.push(command);
+      const result: LocalProjectControlConnectResponse = {
+        status: "connected",
+        canonicalPath: command.request.declaredPath,
+        bindingGeneration: "binding-a",
+        isDefault: false,
+      };
+      return Promise.resolve(Response.json(result));
+    }
+    if (path === "/local-project-control/set-default-connection") {
+      commands.push(JSON.parse(String(init.body)));
+      const result: LocalProjectControlSetDefaultConnectionResponse = {
+        status: "updated",
+        connections: [
+          {
+            bindingGeneration: "binding-a",
+            path: "/work/Design 中文 ",
+            isDefault: true,
+            status: "available",
+          },
+        ],
       };
       return Promise.resolve(Response.json(result));
     }

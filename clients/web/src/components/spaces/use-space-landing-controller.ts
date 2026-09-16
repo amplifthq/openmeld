@@ -874,7 +874,7 @@ function useSpaceLandingBootstrapState(input: {
 		spaceStatusQueryOptions({
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
-			enabled: true,
+			enabled: false,
 		})
 	);
 	const displaySnapshotQuery = useQuery(
@@ -916,13 +916,14 @@ function useSpaceLandingBootstrapState(input: {
 		spaceMembersQueryOptions({
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
-			enabled: false,
+			enabled: true,
 		})
 	);
 	const membersSnapshot = membersQuery.data ?? null;
 	const presentationMembersSnapshot = bootstrapQuery.data
 		? resolveSpaceMembersPresentationSnapshot({
 				bootstrap: bootstrapQuery.data.members,
+				includesAgentReadiness: bootstrapQuery.data.includesAgentReadiness,
 				current: membersSnapshot,
 			})
 		: membersSnapshot;
@@ -1230,6 +1231,7 @@ export type SpaceLandingController =
 			threadsIsLoading: boolean;
 			threadSignalsIsLoading: boolean;
 			threadUnreadFocus: {
+				requestId: number;
 				rootSignalId: string;
 				signalId: string;
 			} | null;
@@ -1818,6 +1820,7 @@ export function useSpaceLandingController(input: {
 		statusRefetch: statusQuery.refetch,
 	});
 	const [threadUnreadFocus, setThreadUnreadFocus] = useState<{
+		requestId: number;
 		rootSignalId: string;
 		signalId: string;
 		spaceId: string;
@@ -1876,11 +1879,12 @@ export function useSpaceLandingController(input: {
 			signalId: string;
 			threadId?: string;
 		}) => {
-			setThreadUnreadFocus({
+			setThreadUnreadFocus((current) => ({
+				requestId: (current?.requestId ?? 0) + 1,
 				rootSignalId: target.rootSignalId,
 				signalId: target.signalId,
 				spaceId: input.spaceId,
-			});
+			}));
 			const opened = await threadController.onOpenUnreadThread({
 				rootSignalId: target.rootSignalId,
 				...(target.threadId ? { threadId: target.threadId } : {}),
@@ -2548,6 +2552,7 @@ export function useSpaceLandingController(input: {
 		threadUnreadFocus:
 			threadUnreadFocus?.spaceId === input.spaceId
 				? {
+						requestId: threadUnreadFocus.requestId,
 						rootSignalId: threadUnreadFocus.rootSignalId,
 						signalId: threadUnreadFocus.signalId,
 					}
@@ -3443,6 +3448,7 @@ function useSpaceThreadController(input: {
 	statusRefetch: () => Promise<unknown>;
 }) {
 	const [isCreatingThread, setIsCreatingThread] = useState(false);
+	const threadCreationRequestRef = useRef(0);
 	const [wakeProgressItems, setWakeProgressItems] = useState<
 		WakeProgressItem[]
 	>([]);
@@ -3596,6 +3602,7 @@ function useSpaceThreadController(input: {
 		}
 		composerSession.feedback.clear();
 		setIsCreatingThread(false);
+		threadCreationRequestRef.current += 1;
 		composerSession.send.finish();
 		setWakeProgressItems([]);
 	}, [
@@ -3674,7 +3681,7 @@ function useSpaceThreadController(input: {
 		threadSignalsErrorMessage: resolveThreadLoadError(),
 		threadSignalsIsLoading: activeThread
 			? threadSignalsQuery.isPending
-			: input.threadsLoading || threadsQuery.isFetching,
+			: isCreatingThread || input.threadsLoading || threadsQuery.isFetching,
 		threadTextareaRef: mentionAuthoring.textareaRef,
 		threads,
 		threadsError: threadsQuery.error,
@@ -3687,6 +3694,8 @@ function useSpaceThreadController(input: {
 	};
 
 	function closeThread() {
+		threadCreationRequestRef.current += 1;
+		setIsCreatingThread(false);
 		threadPanelSelection.close();
 		composerSession.feedback.clear();
 	}
@@ -3700,6 +3709,12 @@ function useSpaceThreadController(input: {
 		if (threadsQuery.isError) {
 			return threadsQuery.error.message;
 		}
+		if (isCreatingThread) {
+			return null;
+		}
+		if (threadPanelSelection.requestedRootSignalId && composerErrorMessage) {
+			return composerErrorMessage;
+		}
 		if (
 			threadPanelSelection.requestedRootSignalId &&
 			!input.threadsLoading &&
@@ -3712,6 +3727,8 @@ function useSpaceThreadController(input: {
 	}
 
 	function openThread(threadId: string) {
+		threadCreationRequestRef.current += 1;
+		setIsCreatingThread(false);
 		threadPanelSelection.open(threadId);
 		composerSession.feedback.clear();
 	}
@@ -3720,6 +3737,9 @@ function useSpaceThreadController(input: {
 		rootSignalId: string;
 		threadId?: string;
 	}): Promise<boolean> {
+		threadCreationRequestRef.current += 1;
+		setIsCreatingThread(false);
+		composerSession.feedback.clear();
 		threadPanelSelection.openRoot(threadInput.rootSignalId);
 		let threadId = threadInput.threadId;
 		if (!threadId) {
@@ -3741,8 +3761,10 @@ function useSpaceThreadController(input: {
 	}
 
 	async function createThread(threadInput: { rootSignalId: string }) {
+		const requestId = ++threadCreationRequestRef.current;
 		setIsCreatingThread(true);
 		setComposerErrorMessage(null);
+		threadPanelSelection.openRoot(threadInput.rootSignalId);
 
 		try {
 			const response = await createUnscopedWebSpaceApi({
@@ -3764,7 +3786,6 @@ function useSpaceThreadController(input: {
 					previews: current?.previews ?? threadPreviews,
 				})
 			);
-			openThread(response.thread.threadId);
 			await Promise.all([
 				threadsQuery.refetch(),
 				input.queryClient.invalidateQueries({
@@ -3777,10 +3798,14 @@ function useSpaceThreadController(input: {
 			]);
 		} catch (error) {
 			const failure = toStructuredApiClientFailure(error);
-			setComposerErrorMessage(failure.message);
+			if (requestId === threadCreationRequestRef.current) {
+				setComposerErrorMessage(failure.message);
+			}
 			toast.error(`OpenMeld could not start the thread. ${failure.message}`);
 		} finally {
-			setIsCreatingThread(false);
+			if (requestId === threadCreationRequestRef.current) {
+				setIsCreatingThread(false);
+			}
 		}
 	}
 

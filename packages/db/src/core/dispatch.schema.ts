@@ -81,8 +81,10 @@ import {
 import { openMeldDaemonForgottenDevices } from "./forgotten-device.schema.ts";
 import {
   inboxCenterAgentReadWatermarks,
+  inboxConversationNotificationPreferences,
   inboxEmailDeliveries,
   inboxItems,
+  inboxMessageNotificationDefaults,
   inboxNotificationPreferences,
   inboxSpaceThreadReadWatermarks,
 } from "./inbox.schema.ts";
@@ -1658,6 +1660,8 @@ export const coreSchema = {
   inboxEmailDeliveries,
   inboxItems,
   inboxNotificationPreferences,
+  inboxMessageNotificationDefaults,
+  inboxConversationNotificationPreferences,
   inboxSpaceThreadReadWatermarks,
   agentActivityDailyAggregates,
   agentActivityDailySessionKeys,

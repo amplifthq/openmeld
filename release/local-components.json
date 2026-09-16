@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-15T06:49:12.662Z",
+  "updatedAt": "2026-09-16T08:08:40.505Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.208",
+      "packageVersion": "0.3.211",
       "updatePolicy": "available",
-      "reason": "Existing commands, setup, Space actions, and diagnostics remain compatible; new task selection requires the cloud receivers deployed first."
+      "reason": "Existing CLI commands remain compatible with both cloud versions; new Space Task tools follow receiver deployment."
     },
     "service": {
-      "bundleHash": "525d2f7dcb9fefe8f9c0c90d538663637db11ed30f79f979888dcbf896d21a74",
-      "bundleVersion": "0.3.208",
+      "bundleHash": "41b5eba858ab7d36a0b461af609d7e41c86cda223a4b6ee2096acc527d1bd22b",
+      "bundleVersion": "0.3.211",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Core retains legacy Wake envelopes and gates Execution Context migration on capability v2; bare-mention context is rendered into existing transport fields. Existing Services can continue ordinary work safely."
+      "reason": "Existing Services safely continue current and new Wake work; required floors remain unchanged."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

@@ -494,6 +494,7 @@ import type {
   CreateSpaceDiagnosticReportResponse,
   CreateSpaceFolderBody,
   CreateSpaceFolderResponse,
+  CreateSpaceTaskBody,
   CurrentAgentProfileSessionLookupResponse,
   CurrentDeviceTargetResponse,
   CurrentLocalAgentInstallationsResponse,
@@ -554,6 +555,7 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsQuery,
   ListSpaceThreadSignalsResponse,
@@ -579,6 +581,7 @@ import type {
   MessageChannelProvider,
   MessageChannelSetupRequestBody,
   MessageChannelSetupRequestResponse,
+  MutateSpaceTaskBody,
   NotifyAgentProfileRouteCatalogChangedBody,
   NotifyAgentProfileRouteCatalogChangedResponse,
   NotifyAgentProfilesRouteCatalogChangedBody,
@@ -679,6 +682,9 @@ import type {
   SpaceMessagePinMutation,
   SpaceMessagePinsResponse,
   SpaceSignalAuthoringPolicy,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
   SpaceThreadContext,
   SpaceViewerMembershipResponse,
   StartCenterAgentMemberResearchResponse,
@@ -1408,9 +1414,15 @@ export function rpcDiscoverPeopleComputerProjects(
     });
   }
   const { deviceId, runtimeLane, ...request } = parsed.data;
-  const target = { deviceId, runtimeLane };
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).discoverProjects(env, request);
+}
+
+function buildPeopleComputerProjectControlRpc(target: PeopleComputerTarget) {
   return createLocalProjectControlRpc({
-    resolveCurrentTarget: async ({ env: targetEnv, userId }) => {
+    resolveCurrentTarget: async ({ capability, env: targetEnv, userId }) => {
       const { localRuntimes, ownerService } =
         await resolveCurrentLocalServiceContext({
           env: targetEnv,
@@ -1423,19 +1435,52 @@ export function rpcDiscoverPeopleComputerProjects(
         ownerService,
       });
       if (
-        !projectPeopleComputerControls(session).localProjectControl
-          .discoverProjects
+        session.executionCompatibility.status !== "compatible" ||
+        session.capabilities.localProjectControl?.[capability] !== true
       ) {
         throw createCoreRpcHttpError({
           status: 409,
           code: "service_update_required",
           reason:
-            "Update OpenMeld Service in this environment before checking Project folders.",
+            "Update OpenMeld Service in this environment before managing Project folders.",
         });
       }
       return target;
     },
-  }).discoverProjects(env, request);
+  });
+}
+
+export function rpcConnectPeopleComputerProjectCandidate(
+  env: CoreBindings,
+  input: ConnectCandidateInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectCandidate(env, request);
+}
+
+export function rpcConnectPeopleComputerProjectPath(
+  env: CoreBindings,
+  input: ConnectDeclaredPathInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).connectDeclaredPath(env, request);
+}
+
+export function rpcSetPeopleComputerProjectDefaultConnection(
+  env: CoreBindings,
+  input: SetDefaultConnectionInput & PeopleComputerTarget
+) {
+  const { deviceId, runtimeLane, ...request } = input;
+  return buildPeopleComputerProjectControlRpc({
+    deviceId,
+    runtimeLane,
+  }).setDefaultConnection(env, request);
 }
 
 function buildComputerFileAccessRpc(target?: PeopleComputerTarget) {
@@ -1897,6 +1942,10 @@ type SpaceRpcStub = DurableObjectStub<Space> & {
   rpcMessagePins(
     input: SpaceMessagePinsInput
   ): Promise<SpaceMessagePinsResponse>;
+  rpcListTasks(input: ListSpaceTasksInput): Promise<ListSpaceTasksResponse>;
+  rpcGetTask(input: GetSpaceTaskInput): Promise<SpaceTaskResponse>;
+  rpcCreateTask(input: CreateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
+  rpcMutateTask(input: MutateSpaceTaskInput): Promise<SpaceTaskMutationReceipt>;
   rpcGetBoard(input: GetSpaceBoardInput): Promise<SpaceBoardRoomProjection>;
   rpcGetBoardResult(
     input: GetSpaceBoardInput
@@ -2469,6 +2518,7 @@ export type CloseSpaceAgentStreamInput = {
 };
 
 export type GetSpaceBootstrapInput = ListSignalsInput & {
+  includeAgentReadiness?: boolean;
   includeAgentStreamPresence?: boolean;
 };
 
@@ -4527,7 +4577,8 @@ function requireLocalAgentInstallationSelectionStatus(
 
 export async function rpcSetCurrentAgentProfileWorkspace(
   env: CoreBindings,
-  input: SetCurrentAgentProfileWorkspaceInput
+  input: SetCurrentAgentProfileWorkspaceInput,
+  target?: PeopleComputerTarget
 ): Promise<SetCurrentAgentProfileWorkspaceResponse> {
   const routeParams =
     setCurrentAgentProfileWorkspaceRouteParamsSchema.safeParse({
@@ -4558,6 +4609,7 @@ export async function rpcSetCurrentAgentProfileWorkspace(
   const { currentTarget } = await resolveCurrentLocalAgentControlTarget({
     capability: "setProfileWorkspace",
     env,
+    target,
     unsupportedCode: "local_agent_control.profile_workspace_unsupported",
     unsupportedReason:
       "The current local OpenMeld Service does not support Project folder changes from OpenMeld Web.",
@@ -18701,7 +18753,7 @@ export async function rpcGetSpaceEntryResolution(
       : false;
   if (
     access.kind === "allowed" &&
-    access.status.accessMode === "members_only" &&
+    access.meta.accessMode === "members_only" &&
     !organizationMember &&
     !guest
   ) {
@@ -18737,6 +18789,13 @@ export async function rpcGetSpaceEntryResolution(
   });
   if (guest && response.view.state === "allowed") {
     response.view.experience = "guest";
+  }
+  if (response.view.state === "allowed" && target.signalId) {
+    const { stub } = resolveRpcSpaceStubOrThrow(env, target.spaceId);
+    response.target = await stub.rpcResolveReadTarget({
+      ...target,
+      spaceAccess,
+    });
   }
   return getSpaceEntryResolutionResponseSchema.parse(response);
 }
@@ -18792,9 +18851,12 @@ async function resolveSpaceEntryAccess(input: {
   spaceAccess: SpaceAccessContext;
   spaceId: string;
 }): Promise<SpaceEntryAccessResult> {
-  let status: GetSpaceStatusResponse;
+  let meta: SpaceMeta;
   try {
-    status = await rpcGetSpaceStatus(input.env, {
+    const { stub } = resolveRpcSpaceStubOrThrow(input.env, input.spaceId);
+    // The metadata read uses the same Space access policy as status, without
+    // reading member presentation, runtime routes, or Service health.
+    meta = await stub.rpcGetMeta({
       spaceId: input.spaceId,
       spaceAccess: input.spaceAccess,
     });
@@ -18809,6 +18871,13 @@ async function resolveSpaceEntryAccess(input: {
     }
     throw error;
   }
+  if (!meta.accessMode) {
+    throw createCoreRpcHttpError({
+      status: 503,
+      code: "space.access_unavailable",
+      reason: "The Space access mode could not be resolved.",
+    });
+  }
   const activeMember = input.context
     ? (
         await rpcGetSpaceViewerMembership(input.env, {
@@ -18818,7 +18887,15 @@ async function resolveSpaceEntryAccess(input: {
         })
       ).activeMemberProfiles.length > 0
     : false;
-  return { activeMember, kind: "allowed", status };
+  return {
+    activeMember,
+    kind: "allowed",
+    meta: {
+      name: meta.name,
+      accessMode: meta.accessMode,
+      allowGuests: meta.allowGuests === true,
+    },
+  };
 }
 
 export async function rpcGetSpaceConversationState(
@@ -18895,6 +18972,9 @@ function resolveSpaceBootstrapRpcTarget(
       ...(aroundSignalId ? { aroundSignalId } : {}),
       ...(input.includeAgentStreamPresence === true
         ? { includeAgentStreamPresence: true }
+        : {}),
+      ...(input.includeAgentReadiness === false
+        ? { includeAgentReadiness: false }
         : {}),
       ...(fromProfileIds.length > 0 ? { fromProfileIds } : {}),
       ...buildListSignalsTypeFilter(signalTypes),
@@ -19480,10 +19560,12 @@ export async function rpcResolveSpaceAttachmentForDownload(
   env: CoreBindings,
   input: ResolveSpaceAttachmentForDownloadInput
 ): Promise<SpaceAttachmentDescriptor> {
-  const access = await requireSpaceAttachmentAccess(env, input);
+  const spaceAccess = resolveRpcSpaceAccess(input);
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const meta = await stub.rpcGetMeta({ spaceId, spaceAccess });
   const payload = resolveSpaceAttachmentForDownloadPayloadSchema.safeParse({
     attachmentId: input.attachmentId,
-    spaceId: access.spaceId,
+    spaceId,
   });
   if (!payload.success) {
     throwAttachmentNotFound();
@@ -19491,9 +19573,9 @@ export async function rpcResolveSpaceAttachmentForDownload(
 
   const attachment = await readSpaceAttachmentRecord({
     attachmentId: payload.data.attachmentId,
-    db: access.db,
-    organizationId: access.organizationId,
-    spaceId: access.spaceId,
+    db: requireSpaceAttachmentDb(env),
+    organizationId: meta.organizationId,
+    spaceId,
   });
   if (!attachment) {
     throwAttachmentNotFound();
@@ -24836,22 +24918,147 @@ export type SpaceFilePinsInput = GetSpaceMetaInput & {
   mutation?: SpaceFilePinMutation;
 };
 
+export type ListSpaceTasksInput = GetSpaceMetaInput & {
+  phase?: SpaceTaskPhase;
+};
+
+export type GetSpaceTaskInput = GetSpaceMetaInput & {
+  taskId: string;
+};
+
+export type CreateSpaceTaskInput = GetSpaceMetaInput & {
+  body: CreateSpaceTaskBody;
+};
+
+export type MutateSpaceTaskInput = GetSpaceTaskInput & {
+  body: MutateSpaceTaskBody;
+};
+
 export async function rpcSpaceFilePins(
   env: CoreBindings,
   input: SpaceFilePinsInput
 ): Promise<SpaceFilePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcFilePins({ ...input, spaceId, context });
+  return await stub.rpcFilePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
 }
 
 export async function rpcSpaceMessagePins(
   env: CoreBindings,
   input: SpaceMessagePinsInput
 ): Promise<SpaceMessagePinsResponse> {
-  const context = requireRpcContext(input.context);
+  const context = input.mutation
+    ? requireRpcContext(input.context)
+    : input.context;
   const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
-  return await stub.rpcMessagePins({ ...input, spaceId, context });
+  return await stub.rpcMessagePins({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess(input),
+  });
+}
+
+export async function rpcListSpaceTasks(
+  env: CoreBindings,
+  input: ListSpaceTasksInput
+): Promise<ListSpaceTasksResponse> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcListTasks({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
+}
+
+export async function rpcGetSpaceTask(
+  env: CoreBindings,
+  input: GetSpaceTaskInput
+): Promise<SpaceTaskResponse> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = input.context
+    ? await authorizeSpaceTaskRpcContext(env, spaceId, input.context)
+    : undefined;
+  return await stub.rpcGetTask({
+    ...input,
+    spaceId,
+    context,
+    spaceAccess: resolveRpcSpaceAccess({ ...input, context }),
+  });
+}
+
+export async function rpcCreateSpaceTask(
+  env: CoreBindings,
+  input: CreateSpaceTaskInput
+): Promise<SpaceTaskMutationReceipt> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  let body = input.body;
+  const submissionId = context.agentControllerConversationId?.trim();
+  const db = wakeEvidenceDb(env);
+  if (!body.sourceSignalId && submissionId && db) {
+    const delivery = await readRemoteAgentNativeDeliveryBySubmissionId({
+      db,
+      submissionId,
+    });
+    if (
+      delivery?.conversationKind === "space" &&
+      delivery.spaceId === spaceId &&
+      delivery.profileId === context.actorContext.openMeldProfileId
+    ) {
+      body = {
+        ...body,
+        sourceSignalId: delivery.triggerMessageId,
+        threadId: body.threadId ?? delivery.threadContext?.threadId ?? null,
+      };
+    }
+  }
+  return await stub.rpcCreateTask({ ...input, body, spaceId, context });
+}
+
+export async function rpcMutateSpaceTask(
+  env: CoreBindings,
+  input: MutateSpaceTaskInput
+): Promise<SpaceTaskMutationReceipt> {
+  const { spaceId, stub } = resolveRpcSpaceStubOrThrow(env, input.spaceId);
+  const context = await authorizeSpaceTaskRpcContext(
+    env,
+    spaceId,
+    requireRpcContext(input.context)
+  );
+  return await stub.rpcMutateTask({ ...input, spaceId, context });
+}
+
+async function authorizeSpaceTaskRpcContext(
+  env: CoreBindings,
+  spaceId: string,
+  context: CoreRpcContextInput
+): Promise<CoreRpcContextInput> {
+  if (!isHostedAgentControllerRef(context.actorContext.agentControllerRef)) {
+    return context;
+  }
+  const authorization = await requireRemoteAgentToolCaller({ context, env });
+  await requireCenterAgentSpaceInActiveOrganization({
+    authorization,
+    env,
+    spaceId,
+  });
+  return authorization.context;
 }
 
 import { centerAgentSetReplyPlacementInputSchema } from "@openmeld/schemas";

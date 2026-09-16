@@ -529,7 +529,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 			onAgentReadinessInvalidated,
 			{ organizationId: "org-1", storageScope: "account-1" }
 		);
-		const { membersRefetch, statusRefetch } = renderFeed();
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -556,6 +558,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(false);
 	});
 
 	it("bounds member event bursts and follows a slow read with one fresh read", async () => {
@@ -602,7 +605,9 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		// SPACE_BOOTSTRAP_GC_TIME_MS): convergence inside the stale window is
 		// owned by this imperative frame -> refetch path, which must never be
 		// gated on react-query staleness.
-		const { membersRefetch, statusRefetch } = renderFeed();
+		const { membersRefetch, queryClient, statusRefetch } = renderFeed();
+		const entryKey = ["spaces", "entry-resolution", "space-123", "human-1"];
+		queryClient.setQueryData(entryKey, { view: { state: "allowed" } });
 		await openLatestSocket();
 
 		await act(async () => {
@@ -621,6 +626,7 @@ describe("useSpaceLandingFeed transport freshness", () => {
 		});
 		expect(statusRefetch).toHaveBeenCalledTimes(1);
 		expect(membersRefetch).toHaveBeenCalledTimes(1);
+		expect(queryClient.getQueryState(entryKey)?.isInvalidated).toBe(true);
 	});
 
 	it("refreshes Space identity without refetching members after metadata changes", async () => {
