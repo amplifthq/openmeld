@@ -1,12 +1,5 @@
 # Web Client
 
-The account avatar's top-level **Download Desktop** item appears only on Web and
-opens the public `/desktop` page. That page, the default DMG route, legacy update
-JSON and macOS updater feed read the single promoted Desktop release in R2.
-Explicit candidate selectors remain strict and never fall back to the promoted
-release. Desktop's shared renderer exposes Updates through its native bridge;
-browser Web has no updater controls.
-
 ## Agent Context
 
 - Purpose: Define the OpenMeld Web client's product responsibilities in
@@ -31,6 +24,13 @@ browser Web has no updater controls.
   client as a browser client.
 
 ## Boundary
+
+The account avatar's top-level **Download Desktop** item appears only on Web and
+opens the public `/desktop` page. That page, the default DMG route, legacy update
+JSON and macOS updater feed read the single promoted Desktop release in R2.
+Explicit candidate selectors remain strict and never fall back to the promoted
+release. Desktop's shared renderer exposes Updates through its native bridge;
+browser Web has no updater controls.
 
 ### Shared Profile and Organization actions
 
