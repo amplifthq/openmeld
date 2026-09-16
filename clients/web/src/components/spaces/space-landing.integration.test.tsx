@@ -20,6 +20,7 @@ import type {
 	AgentProfileCreationRequest,
 	AuthProfileView,
 	CreateAgentProfileCreationRequestResponse,
+	CreateSpaceThreadResponse,
 	GetSpaceStatusResponse,
 	OrganizationDirectoryResponse,
 	SignalEnvelope,
@@ -304,6 +305,9 @@ vi.mock("@tanstack/react-query", async () => {
 						}) as Parameters<typeof actual.useQuery>[0]
 			);
 			const queryMock = useQueryMock;
+			if (options.queryKey?.[0] === "message-notification-preferences") {
+				return createQueryResult({ isPending: true });
+			}
 			if (options.queryKey?.[3] === "history-navigation") {
 				return createQueryResult({
 					isSuccess: true,
@@ -330,6 +334,12 @@ vi.mock("@tanstack/react-query", async () => {
 				) as (queryKey: readonly unknown[], update: unknown) => unknown;
 				return new Proxy(mockedQueryClient, {
 					get(target, property, receiver) {
+						if (!(property in target)) {
+							const actualValue = Reflect.get(actualQueryClient, property);
+							return typeof actualValue === "function"
+								? actualValue.bind(actualQueryClient)
+								: actualValue;
+						}
 						if (property === "setQueryData") {
 							return (queryKey: readonly unknown[], update: unknown) => {
 								if (usesRealQuery(queryKey)) {
@@ -364,6 +374,12 @@ vi.mock("@tanstack/react-router", () => ({
 	useBlocker: () => ({ status: "unblocked" as const }),
 	useElementScrollRestoration: () => undefined,
 	useNavigate: () => useNavigateMock,
+	useLocation: (options?: {
+		select?: (location: { pathname: string }) => unknown;
+	}) => {
+		const location = { pathname: "/o/acme/spaces/space-123" };
+		return options?.select ? options.select(location) : location;
+	},
 	useRouterState: (input: {
 		select?: (state: { location: { pathname: string } }) => unknown;
 	}) => {
@@ -566,6 +582,7 @@ const PREPARE_TEXT = /prepare/i;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
 const RECENT_ACTIVITY_TS = Date.now();
 const TEST_FILE_EXTENSION_PATTERN = /\.[^.]+$/u;
+const THREAD_REPLY_LINK_PATTERN = /^Open reply from /;
 const MESSAGE_DETAILS_ACTION_NAME_PATTERN =
 	/^(?:Message details$|View error details:)/;
 const SPACE_MEMBERS_PANEL_OPEN_STORAGE_KEY =
@@ -10558,9 +10575,9 @@ describe("SpaceLanding", () => {
 			screen.getByRole("button", { name: "Open thread (7 replies)" })
 		).toBeTruthy();
 		expect(
-			within(screen.getByRole("link", { name: "Thread preview" })).getByText(
-				"Saved reply preview"
-			)
+			within(
+				screen.getByRole("link", { name: THREAD_REPLY_LINK_PATTERN })
+			).getByText("Saved reply preview")
 		).toBeTruthy();
 		expect(
 			screen
@@ -15944,6 +15961,98 @@ describe("SpaceLanding", () => {
 		});
 	});
 
+	it.each([
+		"stay",
+		"close",
+		"failure",
+	])("opens a new Thread before creation finishes and handles %s", async (action) => {
+		const rootSignal = createTextSignal({
+			id: "new-thread-root",
+			text: "Start a thread here.",
+		});
+		let resolveCreation!: (response: CreateSpaceThreadResponse) => void;
+		let rejectCreation!: (error: Error) => void;
+		const pending = new Promise<CreateSpaceThreadResponse>(
+			(resolve, reject) => {
+				resolveCreation = resolve;
+				rejectCreation = reject;
+			}
+		);
+		const createThread = vi.fn(() => pending);
+		createWebSpaceApiMock.mockReturnValue({ createThread });
+		const threads = createQueryResult({
+			isSuccess: true,
+			data: { threads: [], previews: [] },
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [rootSignal], nextCursor: null },
+			}),
+			threads,
+			threadSignals: createQueryResult({ isPending: true }),
+		});
+		const view = renderSpaceLanding();
+		fireEvent.click(screen.getByRole("button", { name: "Reply in thread" }));
+		const panel = screen.getByRole("complementary", { name: "Thread" });
+		expect(within(panel).getByText("Loading messages…")).toBeTruthy();
+		expect(createThread).toHaveBeenCalledTimes(1);
+		if (action === "close") {
+			fireEvent.click(
+				within(panel).getByRole("button", { name: "Close thread" })
+			);
+		}
+		if (action === "failure") {
+			await act(async () =>
+				rejectCreation(new Error("Thread creation failed."))
+			);
+			expect(
+				within(panel).getAllByText("Thread creation failed.").length
+			).toBeGreaterThan(0);
+			return;
+		}
+		const response: CreateSpaceThreadResponse = {
+			thread: {
+				threadId: "new-thread",
+				spaceId: "space-123",
+				rootSignalId: rootSignal.id,
+				createdByProfileId: DEFAULT_SPACE_PROFILE_ID,
+				createdAt: "2026-04-11T00:00:00.000Z",
+				updatedAt: "2026-04-11T00:00:00.000Z",
+			},
+			rootSignal: rootSignal as SignalEnvelope,
+			placement: {
+				threadId: "new-thread",
+				signalId: rootSignal.id,
+				placement: "root",
+				createdAt: "2026-04-11T00:00:00.000Z",
+			},
+		};
+		await act(async () => resolveCreation(response));
+		Object.assign(
+			threads,
+			createQueryResult({
+				isSuccess: true,
+				data: { threads: [response.thread], previews: [] },
+			})
+		);
+		view.rerender(
+			<SpaceLanding
+				orgSlug="acme"
+				profileId={DEFAULT_SPACE_PROFILE_ID}
+				spaceId="space-123"
+			/>
+		);
+		expect(
+			screen.queryByRole("complementary", { name: "Thread" }) !== null
+		).toBe(action === "stay");
+	});
+
 	it("adds tooltips to the main message action buttons", () => {
 		mockSpaceQueries({
 			status: createQueryResult({
@@ -16030,6 +16139,12 @@ describe("SpaceLanding", () => {
 		});
 
 		mockSpaceQueries({
+			threadSignals: createQueryResult({
+				isSuccess: true,
+				data: {
+					signals: [firstThreadReply, secondThreadReply, hiddenThreadReply],
+				},
+			}),
 			status: createQueryResult({
 				isSuccess: true,
 				data: createSpaceStatus(),
@@ -16099,14 +16214,19 @@ describe("SpaceLanding", () => {
 		expect(
 			screen.getByText("Can someone check the privacy page?")
 		).toBeTruthy();
-		const preview = screen.getByRole("link", { name: "Thread preview" });
-		expect(within(preview).getByText("Filed the issue.")).toBeTruthy();
+		const previews = screen.getAllByRole("link", {
+			name: THREAD_REPLY_LINK_PATTERN,
+		});
+		expect(previews).toHaveLength(2);
 		expect(
-			within(preview).getByText(
+			within(previews[0] as HTMLElement).getByText("Filed the issue.")
+		).toBeTruthy();
+		expect(
+			within(previews[1] as HTMLElement).getByText(
 				"Third reply that should stay inside the thread."
 			)
 		).toBeTruthy();
-		expect(within(preview).queryByText("I'll check it.")).toBeNull();
+		expect(screen.queryByText("I'll check it.")).toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Open thread (3 replies)" })
 		).toBeTruthy();
@@ -16117,6 +16237,18 @@ describe("SpaceLanding", () => {
 		// The fixed footer always mounts so keyboard and screen-reader users can
 		// reach the action without a hover-only DOM change.
 		expect(screen.getByRole("button", { name: "Open thread" })).toBeTruthy();
+		const focus = vi.spyOn(HTMLElement.prototype, "focus");
+		for (const index of [0, 1, 1]) {
+			focus.mockClear();
+			fireEvent.click(previews[index] as HTMLElement);
+			const panel = screen.getByRole("complementary", { name: "Thread" });
+			const highlighted = panel.querySelector('[data-highlighted="true"]');
+			expect(highlighted?.getAttribute("data-signal-id")).toBe(
+				index === 0 ? secondThreadReply.id : hiddenThreadReply.id
+			);
+			expect(focus.mock.instances).toContain(highlighted);
+		}
+		focus.mockRestore();
 	});
 
 	it("restores the active Thread panel across a reload until the user closes it", async () => {

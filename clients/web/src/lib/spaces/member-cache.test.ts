@@ -197,7 +197,10 @@ describe("mergeSpaceMembersSnapshot", () => {
 		expect(merged.summary.wakeableAgentCount).toBe(1);
 	});
 
-	it("seeds bootstrap members cache without thinning existing agent projection facts", () => {
+	it.each([
+		undefined,
+		false,
+	])("seeds bootstrap without thinning agent facts (readiness: %s)", (includesAgentReadiness) => {
 		const queryClient = new QueryClient();
 		const existingAgent = createAgentMember({
 			agentControllerConversationId: "conversation-123",
@@ -236,7 +239,10 @@ describe("mergeSpaceMembersSnapshot", () => {
 			);
 
 			applySpaceBootstrapSnapshotToCache({
-				bootstrap: createBootstrapSnapshot({ members: leanBootstrapMembers }),
+				bootstrap: {
+					...createBootstrapSnapshot({ members: leanBootstrapMembers }),
+					includesAgentReadiness,
+				},
 				queryClient,
 				spaceId: "space-123",
 				viewerProfileId: "viewer-profile",
@@ -256,6 +262,9 @@ describe("mergeSpaceMembersSnapshot", () => {
 			expect(cached?.agents[0]?.agentWakeAvailability?.status).toBe(
 				"available_for_wake"
 			);
+			if (includesAgentReadiness === false) {
+				expect(cached).toBe(current);
+			}
 		} finally {
 			queryClient.clear();
 		}

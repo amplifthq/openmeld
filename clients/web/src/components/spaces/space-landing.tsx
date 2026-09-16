@@ -2810,6 +2810,7 @@ function SpaceLandingSecondaryPanels({
 				currentOwnerUserId={currentOwnerUserId}
 				ephemeralActivityItems={controller.presentedWakeProgressItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
+				initialFocusRequestId={controller.threadUnreadFocus?.requestId}
 				initialFocusSignalId={
 					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
 				}

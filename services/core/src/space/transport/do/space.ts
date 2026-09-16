@@ -1828,6 +1828,7 @@ type WakeProgressTerminalFailureNotice = {
 
 type Session = SpaceWebSocketSession;
 type SpaceDispatchAccessOptions = {
+  includeAgentReadiness?: boolean;
   agentStreamId?: string;
   authoringPolicy?: SpaceSignalAuthoringPolicy;
   bootstrapTiming?: SpaceBootstrapBranchTiming;
@@ -7912,6 +7913,9 @@ export class Space extends DurableObject<CoreBindings> {
 
     return createSpaceBootstrapWithTiming({
       payload: {
+        ...(input.includeAgentReadiness === false
+          ? { includesAgentReadiness: false }
+          : {}),
         ...(activeAgentStreamPresences === undefined
           ? {}
           : { activeAgentStreamPresences }),
@@ -7986,6 +7990,7 @@ export class Space extends DurableObject<CoreBindings> {
           descriptionPrefix: "Members branch",
           metricPrefix: "openmeld_bootstrap_members",
         },
+        includeAgentReadiness: input.includeAgentReadiness,
         ...(lineageLoader ? { lineageLoader } : {}),
       }
     );
@@ -11486,7 +11491,10 @@ export class Space extends DurableObject<CoreBindings> {
     request: Request,
     options: Pick<
       SpaceDispatchAccessOptions,
-      "bootstrapTiming" | "lineageLoader" | "requireActiveActorMembership"
+      | "bootstrapTiming"
+      | "lineageLoader"
+      | "requireActiveActorMembership"
+      | "includeAgentReadiness"
     > = {}
   ): Promise<Response> {
     const resolved = this.resolveAuthenticatedSpaceAccessFromRequest(request);
@@ -11514,7 +11522,8 @@ export class Space extends DurableObject<CoreBindings> {
       return this.handleGetMembers(
         requireAuthenticatedSpaceActor(resolved.spaceAccess),
         options.bootstrapTiming,
-        options.lineageLoader
+        options.lineageLoader,
+        options.includeAgentReadiness
       );
     }
 
@@ -14147,7 +14156,8 @@ export class Space extends DurableObject<CoreBindings> {
   private async handleGetMembers(
     context: CoreRpcContextInput,
     bootstrapTiming?: SpaceBootstrapBranchTiming,
-    lineageLoader?: SpaceBootstrapLineageLoader
+    lineageLoader?: SpaceBootstrapLineageLoader,
+    includeAgentReadiness?: boolean
   ): Promise<Response> {
     const metaRecord = await this.readSpaceMetaRecord();
     if (!metaRecord) {
@@ -14158,6 +14168,7 @@ export class Space extends DurableObject<CoreBindings> {
 
     const profileFacts = await this.refreshMemberNamesFromAuth();
     const snapshot = await listSpaceMembersSnapshotUseCase({
+      includeAgentReadiness,
       profileFacts,
       sql: this.ctx.storage.sql,
       env: this.bindings,

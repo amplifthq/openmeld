@@ -1,3 +1,4 @@
+import type { SpaceApi } from "@openmeld/api-client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -5,6 +6,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
@@ -25,6 +27,14 @@ const WAKE_TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const WAKE_TARGET_PROFILE_NAME = "Production Smoke Codex — Aug 28";
 const REFERENCE_TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const REFERENCE_TARGET_PROFILE_NAME = "Review Agent";
+
+const downloadFileContent = vi.hoisted(() =>
+	vi.fn<SpaceApi["downloadFileContent"]>()
+);
+vi.mock("#/lib/spaces/api", () => ({
+	createOrganizationScopedWebSpaceApi: () => ({ downloadFileContent }),
+	createUnscopedWebSpaceApi: () => ({ downloadFileContent }),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -53,6 +63,9 @@ describe("SpaceMessageBody", () => {
 	afterEach(() => {
 		cleanup();
 		vi.useRealTimers();
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+		downloadFileContent.mockReset();
 	});
 
 	it("omits the body wrapper when the message has no visible content", () => {
@@ -1106,6 +1119,86 @@ describe("SpaceMessageBody", () => {
 
 		fireEvent.keyDown(document, { key: "Escape" });
 		expect(document.body.classList.contains("overflow-hidden")).toBe(false);
+	});
+
+	it("loads remote message images near the viewport, reuses cached bytes, and separates revisions", async () => {
+		let reveal: (() => void) | undefined;
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				constructor(callback: IntersectionObserverCallback) {
+					reveal = () =>
+						callback(
+							[{ isIntersecting: true } as IntersectionObserverEntry],
+							this as unknown as IntersectionObserver
+						);
+				}
+				observe = vi.fn();
+				disconnect = vi.fn();
+			}
+		);
+		const createUrl = vi.fn(() => "blob:remote-preview");
+		const revokeUrl = vi.fn();
+		vi.stubGlobal(
+			"URL",
+			class extends URL {
+				static createObjectURL = createUrl;
+				static revokeObjectURL = revokeUrl;
+			}
+		);
+		downloadFileContent.mockResolvedValue({
+			bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+			mimeType: "image/png",
+			revision: 1,
+		});
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const image = (revision: number) => (
+			<QueryClientProvider client={client}>
+				<SpaceMessageBody
+					item={{
+						isAgentFinalReply: false,
+						text: "",
+						spaceId: "space-123",
+						files: [
+							{
+								fileId: "remote-photo",
+								localPreviewUrl: null,
+								name: "remote.png",
+								mimeType: "image/png",
+								revision,
+								sizeBytes: 4,
+							},
+						],
+					}}
+				/>
+			</QueryClientProvider>
+		);
+		let view = render(image(1));
+		expect(screen.getByLabelText("Loading remote.png")).toBeTruthy();
+		expect(downloadFileContent).not.toHaveBeenCalled();
+		act(() => reveal?.());
+		await screen.findByRole("img", { name: "remote.png" });
+		expect(downloadFileContent).toHaveBeenCalledTimes(1);
+		view.unmount();
+		expect(revokeUrl).toHaveBeenCalledWith("blob:remote-preview");
+		view = render(image(1));
+		await screen.findByRole("img", { name: "remote.png" });
+		expect(downloadFileContent).toHaveBeenCalledTimes(1);
+		view.rerender(image(2));
+		expect(screen.queryByRole("img", { name: "remote.png" })).toBeNull();
+		expect(downloadFileContent).toHaveBeenCalledTimes(1);
+		act(() => reveal?.());
+		await waitFor(() => expect(downloadFileContent).toHaveBeenCalledTimes(2));
+		expect(downloadFileContent).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				fileId: "remote-photo",
+				revision: 2,
+				spaceId: "space-123",
+			})
+		);
+		expect(createUrl).toHaveBeenCalled();
 	});
 
 	it("keeps canonical Space image files as morphing image previews", () => {

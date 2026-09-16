@@ -346,6 +346,7 @@ export function ChatIcon(input: {
 	if (input.chat.session) {
 		return (
 			<CenterAgentChatAvatar
+				profileName={input.chat.centerAgentProfileName}
 				working={
 					input.summary?.statuses?.some(
 						(status) => status.kind === "working"
