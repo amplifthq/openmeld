@@ -2,14 +2,16 @@
 
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef } from "react";
+import { toast } from "sonner";
+import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
+import { useCenterAgentPendingMessage } from "#/hooks/use-center-agent-pending-message";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import type { CenterAgentSectionId } from "#/lib/organizations/center-agent-navigation";
 import {
-	activateCenterAgentPendingMessageScope,
+	centerAgentPendingAttachmentScope,
 	createPendingCenterAgentMessage,
-	type PendingCenterAgentMessage,
-	readCenterAgentPendingMessage,
+	isCenterAgentPendingMessageScopeActive,
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
 import { findActiveDefaultHumanProfile } from "#/lib/profiles/human-profiles";
@@ -80,6 +82,18 @@ export function CenterAgentPendingConversation(input: {
 	};
 	const ownerAccountId = input.ownerAccountId?.trim() ?? "";
 	const organizationId = input.organizationId?.trim() ?? "";
+	const preparing = useRef(false);
+	const attachments = useSpaceComposerFiles({
+		organizationSlug: input.organizationSlug,
+		profileId: defaultHumanProfile?.openMeldProfileId ?? "",
+		spaceId: input.sessionId ?? "default",
+		storageKey: centerAgentPendingAttachmentScope({
+			ownerAccountId,
+			organizationId,
+			sessionId: input.sessionId,
+		}),
+		deferUpload: true,
+	});
 	const composerDraft = useComposerDraft({
 		scope:
 			ownerAccountId && organizationId
@@ -100,24 +114,44 @@ export function CenterAgentPendingConversation(input: {
 			text,
 		}));
 	};
-	const [pendingMessage, setPendingMessage] =
-		useState<PendingCenterAgentMessage | null>(() => {
-			activateCenterAgentPendingMessageScope(queryClient, scope);
-			return readCenterAgentPendingMessage(queryClient, scope);
-		});
+	const pendingMessage = useCenterAgentPendingMessage(scope);
 
 	return (
 		<CenterAgentOptimisticConversation
+			attachments={ownerAccountId && organizationId ? attachments : undefined}
 			composerText={pendingMessage ? "" : composerText}
 			onComposerChange={setComposerText}
-			onSend={() => {
+			onSend={async () => {
 				const text = composerText.trim();
-				if (!text || pendingMessage) {
+				if (
+					!(text || attachments.files.length) ||
+					pendingMessage ||
+					preparing.current
+				) {
 					return;
 				}
-				const nextPendingMessage = createPendingCenterAgentMessage(text);
-				writeCenterAgentPendingMessage(queryClient, scope, nextPendingMessage);
-				setPendingMessage(nextPendingMessage);
+				preparing.current = true;
+				try {
+					const fileDrafts = attachments.files.length
+						? await attachments.readFileDrafts()
+						: [];
+					if (!isCenterAgentPendingMessageScopeActive(queryClient, scope)) {
+						return;
+					}
+					const nextPendingMessage = createPendingCenterAgentMessage(text);
+					nextPendingMessage.files = fileDrafts.map((draft) => draft.file);
+					nextPendingMessage.fileDrafts = fileDrafts;
+					writeCenterAgentPendingMessage(
+						queryClient,
+						scope,
+						nextPendingMessage
+					);
+				} catch (error) {
+					console.error("Could not prepare chat attachments", error);
+					toast.error("Couldn't prepare your attachments. Try sending again.");
+				} finally {
+					preparing.current = false;
+				}
 			}}
 			organizationSlug={input.organizationSlug}
 			pendingMessage={pendingMessage}

@@ -13,6 +13,7 @@ export function useSpaceComposerSession(input: {
 		profileId: string;
 		spaceId: string;
 		draftScope?: string;
+		restoreFromScopes?: readonly string[];
 	};
 }) {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);

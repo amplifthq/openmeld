@@ -1,7 +1,7 @@
 import { Button } from "@openmeld/ui/components/button";
 import { Skeleton } from "@openmeld/ui/components/skeleton";
 import { ArrowUpIcon } from "@phosphor-icons/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import {
 	PromptInput,
 	PromptInputAction,
@@ -26,6 +26,7 @@ import {
 	SpaceHeaderIdentityIcon,
 	SpaceWindowHeader,
 } from "#/components/spaces/space-header";
+import { SpaceImagePreview } from "#/components/spaces/space-image-preview";
 import {
 	resolveSpaceMessageBubblePresentationClass,
 	SPACE_MESSAGE_CONTENT_PADDING_CLASS,
@@ -160,12 +161,10 @@ export function CenterAgentOptimisticConversation(input: {
 													{input.pendingMessage.text}
 												</div>
 												{input.pendingMessage.files?.map((file, index) => (
-													<div
-														className="text-muted-foreground text-xs"
+													<PendingAttachment
+														file={file}
 														key={`${file.name}:${index}`}
-													>
-														{file.name}
-													</div>
+													/>
 												))}
 											</BubbleContent>
 										</Bubble>
@@ -251,6 +250,35 @@ export function CenterAgentOptimisticConversation(input: {
 				</footer>
 			</div>
 		</section>
+	);
+}
+
+function PendingAttachment({ file }: { file: File }) {
+	const [preview, setPreview] = useState<string | null>(null);
+	const isImage = file.type.startsWith("image/");
+	useEffect(() => {
+		if (!isImage) {
+			return;
+		}
+		const url = URL.createObjectURL(file);
+		setPreview(url);
+		return () => URL.revokeObjectURL(url);
+	}, [file, isImage]);
+	return isImage ? (
+		<div className="size-16">
+			{preview ? (
+				<SpaceImagePreview
+					altText={file.name}
+					imageSource={preview}
+					isSingle={false}
+					thumbnailClassName="size-16 rounded-xl"
+				/>
+			) : (
+				<span className="sr-only">{file.name}</span>
+			)}
+		</div>
+	) : (
+		<div className="text-muted-foreground text-xs">{file.name}</div>
 	);
 }
 

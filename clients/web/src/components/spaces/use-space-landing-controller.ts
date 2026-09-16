@@ -45,6 +45,7 @@ import {
 } from "#/lib/composer-draft-storage";
 import { updateProfileSpaceHistoryStatus } from "#/lib/onboarding/update-profile-space-history-status";
 import { upsertProfileSpaceHistory } from "#/lib/onboarding/upsert-profile-space-history";
+import { centerAgentPendingAttachmentScope } from "#/lib/organizations/center-agent-pending-message";
 import {
 	buildOrganizationSpacePath,
 	buildOrganizationSpacesPath,
@@ -1074,6 +1075,7 @@ export type SpaceLandingController =
 			composerMentionEmptyMessage?: string;
 			composerText: string;
 			mode: "loading";
+			composerFiles: ReturnType<typeof useSpaceComposerSession>["files"];
 			onComposerBlur: () => void;
 			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onComposerFocus: () => void;
@@ -1635,6 +1637,11 @@ export function useSpaceLandingController(input: {
 			organizationSlug: input.orgSlug,
 			profileId: input.profileId,
 			spaceId: input.spaceId,
+			restoreFromScopes: input.composerDraftMigrationScopes?.flatMap((scope) =>
+				scope.kind === "center_agent_pending"
+					? [centerAgentPendingAttachmentScope(scope)]
+					: []
+			),
 		},
 	});
 	const mentionAuthoring = composerSession.authoring;
@@ -2289,6 +2296,7 @@ export function useSpaceLandingController(input: {
 			composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
 			composerText: mentionAuthoring.composerText,
 			mode: "loading",
+			composerFiles: composerFilesController,
 			onComposerBlur: () => {
 				restoreColdLoadingComposerFocusRef.current = false;
 			},

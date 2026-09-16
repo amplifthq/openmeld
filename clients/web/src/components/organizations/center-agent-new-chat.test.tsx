@@ -17,6 +17,7 @@ const CONNECT_COMPUTER = /Connect my computer/;
 // here. The IndexedDB adapter has its own tests and browser smoke covers bytes.
 const fileDrafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	subscribeComposerFileDrafts: () => () => undefined,
 	saveComposerFileDraft: (draft: ComposerFileDraft) => {
 		fileDrafts.set(draft.id, draft);
 		return Promise.resolve();
@@ -25,6 +26,8 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 		Promise.resolve(
 			[...fileDrafts.values()].filter((draft) => draft.scope === scope)
 		),
+	readComposerFileDraftsByIds: async (ids: string[]) =>
+		[...fileDrafts.values()].filter((draft) => ids.includes(draft.id)),
 	removeComposerFileDraft: (id: string) => {
 		fileDrafts.delete(id);
 		return Promise.resolve();
@@ -73,13 +76,16 @@ vi.mock("#/lib/profiles/use-default-human-profile", () => ({
 }));
 vi.mock("#/components/app/use-sidebar-preferences", () => ({
 	useSidebarPreferences: () => ({
-		preferences: {
-			pinned: { sort: "manual", spaceIds: [] },
-			spaces: { sort: "recent", spaceIds: [] },
-			groups: [],
-		},
-		disabled: false,
-		save,
+		preferences: undefined,
+		disabled: true,
+		updateAsync: (update: (value: unknown) => unknown) =>
+			save(
+				update({
+					pinned: { sort: "manual", spaceIds: [] },
+					spaces: { sort: "recent", spaceIds: [] },
+					groups: [],
+				})
+			),
 	}),
 }));
 
@@ -252,7 +258,10 @@ it("opens computer setup without creating an empty chat", () => {
 	});
 });
 
-it("shows a pending message during session creation and leaves sidebar persistence off the send path", async () => {
+it.each([
+	"pending",
+	"failed",
+])("sends with unavailable sidebar preferences and %s naming", async (naming) => {
 	let finishCreation!: (value: unknown) => void;
 	createSession.mockImplementationOnce(
 		() =>
@@ -260,11 +269,15 @@ it("shows a pending message during session creation and leaves sidebar persisten
 				finishCreation = resolve;
 			})
 	);
-	save.mockReturnValue(
-		new Promise(() => {
-			/* Sidebar persistence stays pending. */
-		})
-	);
+	if (naming === "failed") {
+		save.mockRejectedValue(new Error("Sidebar unavailable"));
+	} else {
+		save.mockReturnValue(
+			new Promise(() => {
+				/* Sidebar persistence stays pending. */
+			})
+		);
+	}
 	mount();
 	fireEvent.change(
 		screen.getByRole("textbox", { name: "Message Center Agent" }),
@@ -282,6 +295,7 @@ it("shows a pending message during session creation and leaves sidebar persisten
 	});
 	await waitFor(() => expect(navigate).toHaveBeenCalled());
 	expect(createSession).toHaveBeenCalledTimes(1);
+	expect(screen.queryByRole("alert")).toBeNull();
 });
 
 it("does not navigate back after the user leaves during creation", async () => {

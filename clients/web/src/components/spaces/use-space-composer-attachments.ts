@@ -12,9 +12,11 @@ import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import {
 	type ComposerFileDraft,
 	readComposerFileDrafts,
+	readComposerFileDraftsByIds,
 	removeComposerFileDraft,
 	saveComposerFileDraft,
 	saveComposerFileDraftUpload,
+	subscribeComposerFileDrafts,
 } from "#/lib/spaces/composer-file-drafts";
 import { runSpaceComposerIdempotentRequestWithRetry } from "#/lib/spaces/errors";
 import { SPACE_COMPOSER_FILE_PUBLISH_TIMEOUT_MS } from "#/lib/spaces/request-timeouts";
@@ -26,6 +28,8 @@ type ComposerFileScope = {
 	spaceId: string;
 	draftScope?: string;
 	deferUpload?: boolean;
+	storageKey?: string;
+	restoreFromScopes?: readonly string[];
 };
 
 function createFileSession(input: ComposerFileScope) {
@@ -42,12 +46,18 @@ function createFileSession(input: ComposerFileScope) {
 	};
 }
 
+export type SpaceComposerFilesController = ReturnType<
+	typeof useSpaceComposerFiles
+>;
+
 export function useSpaceComposerFiles(input: ComposerFileScope) {
 	const [, refresh] = useReducer((version: number) => version + 1, 0);
 	const sessions = useRef(
 		new Map<string, ReturnType<typeof createFileSession>>()
 	);
-	const scopeKey = `${input.organizationSlug}:${input.profileId}:${input.spaceId}${input.draftScope ? `:${input.draftScope}` : ""}`;
+	const scopeKey =
+		input.storageKey ??
+		`${input.organizationSlug}:${input.profileId}:${input.spaceId}${input.draftScope ? `:${input.draftScope}` : ""}`;
 	// Async uploads and sends keep their original conversation's session even
 	// while the hook renders another Space or thread. Navigation never discards it.
 	const session = useMemo(() => {
@@ -262,25 +272,41 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 		]
 	);
 
+	const migrationScopesKey = JSON.stringify(input.restoreFromScopes ?? []);
 	useEffect(() => {
 		let disposed = false;
-		session.restorationTask = readComposerFileDrafts(scopeKey)
-			.then((drafts) => {
-				const pending = drafts.filter((d) => !session.activeFileIds.has(d.id));
-				if (!disposed && pending.length) {
-					return addFiles(
-						pending.map((d) => d.file),
-						pending
+		const scopes: string[] = [scopeKey, ...JSON.parse(migrationScopesKey)];
+		const restore = () => {
+			session.restorationTask = Promise.all(scopes.map(readComposerFileDrafts))
+				.then((batches) => batches.flat())
+				.then((drafts) => {
+					const pending = drafts.filter(
+						(d) => !session.activeFileIds.has(d.id)
 					);
-				}
-			})
-			.catch((error) =>
-				console.error("Could not restore attachment drafts", error)
-			);
+					if (!disposed && pending.length) {
+						return addFiles(
+							pending.map((d) => d.file),
+							pending
+						);
+					}
+				})
+				.catch((error) =>
+					console.error("Could not restore attachment drafts", error)
+				);
+		};
+		restore();
+		// A drop can finish saving after the loading composer unmounts. The ready
+		// owner must adopt that draft too, using the same file/publication identity.
+		const unsubscribe = subscribeComposerFileDrafts((scope) => {
+			if (scopes.includes(scope)) {
+				restore();
+			}
+		});
 		return () => {
 			disposed = true;
+			unsubscribe();
 		};
-	}, [scopeKey, addFiles, session]);
+	}, [scopeKey, migrationScopesKey, addFiles, session]);
 
 	const beginSubmission = useCallback(() => {
 		const submitted = session.files.filter(
@@ -394,7 +420,9 @@ export function useSpaceComposerFiles(input: ComposerFileScope) {
 				return [];
 			}
 			await Promise.all(session.uploadTasks.values());
-			const drafts = await readComposerFileDrafts(scopeKey);
+			const drafts = await readComposerFileDraftsByIds([
+				...session.activeFileIds,
+			]);
 			const selected = drafts.filter((draft) =>
 				session.activeFileIds.has(draft.id)
 			);

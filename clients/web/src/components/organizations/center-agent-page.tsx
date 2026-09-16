@@ -4,22 +4,22 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import { GearSixIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { toast } from "sonner";
 import { AppMainContent } from "#/components/app/app-main-content";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import type { SpaceView } from "#/components/spaces/space-view";
 import { useAccountAvatar } from "#/hooks/account.hooks";
+import { useCenterAgentPendingMessage } from "#/hooks/use-center-agent-pending-message";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import { resolveCenterAgentErrorMessage } from "#/lib/organizations/center-agent";
 import { EMPTY_CHAT_PREFERENCES } from "#/lib/organizations/center-agent-chat-preferences";
 import {
-	activateCenterAgentPendingMessageScope,
 	clearCenterAgentPendingMessage,
 	createPendingCenterAgentMessage,
-	type PendingCenterAgentMessage,
-	readCenterAgentPendingMessage,
+	isCenterAgentPendingMessageScopeActive,
 	writeCenterAgentPendingMessage,
 } from "#/lib/organizations/center-agent-pending-message";
 import {
@@ -33,6 +33,7 @@ import {
 } from "#/lib/organizations/organization-routes";
 import { useDefaultHumanProfile } from "#/lib/profiles/use-default-human-profile";
 import { buildStartProfilesQueryOptions } from "#/query/profiles/profiles";
+import type { SpaceComposerFilesController } from "../spaces/use-space-composer-attachments";
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
@@ -165,11 +166,7 @@ function CenterAgentDirectMessageEntry(input: {
 			text,
 		}));
 	};
-	const [pendingMessage, setPendingMessage] =
-		useState<PendingCenterAgentMessage | null>(() => {
-			activateCenterAgentPendingMessageScope(queryClient, pendingScope);
-			return readCenterAgentPendingMessage(queryClient, pendingScope);
-		});
+	const pendingMessage = useCenterAgentPendingMessage(pendingScope);
 	const [routeDataOverride, setRouteDataOverride] = useState<{
 		source: CenterAgentDirectMessageRouteData;
 		value: CenterAgentDirectMessageRouteData;
@@ -212,8 +209,10 @@ function CenterAgentDirectMessageEntry(input: {
 		directMessageRouteData.status === "error"
 			? resolveCenterAgentErrorMessage(directMessageRouteData.error, "dm_open")
 			: null;
-	const optimisticConversation = (
+	const preparing = useRef(false);
+	const optimisticConversation = (files: SpaceComposerFilesController) => (
 		<CenterAgentOptimisticConversation
+			attachments={files}
 			composerText={pendingMessage ? "" : composerText}
 			conversationTitle={
 				resolvedSessionId
@@ -221,18 +220,39 @@ function CenterAgentDirectMessageEntry(input: {
 					: undefined
 			}
 			onComposerChange={setComposerText}
-			onSend={() => {
+			onSend={async () => {
 				const text = composerText.trim();
-				if (!text || pendingMessage) {
+				if (
+					!(text || files.files.length) ||
+					pendingMessage ||
+					preparing.current
+				) {
 					return;
 				}
-				const nextPendingMessage = createPendingCenterAgentMessage(text);
-				writeCenterAgentPendingMessage(
-					queryClient,
-					pendingScope,
-					nextPendingMessage
-				);
-				setPendingMessage(nextPendingMessage);
+				preparing.current = true;
+				try {
+					const fileDrafts = files.files.length
+						? await files.readFileDrafts()
+						: [];
+					if (
+						!isCenterAgentPendingMessageScopeActive(queryClient, pendingScope)
+					) {
+						return;
+					}
+					const nextPendingMessage = createPendingCenterAgentMessage(text);
+					nextPendingMessage.files = fileDrafts.map((draft) => draft.file);
+					nextPendingMessage.fileDrafts = fileDrafts;
+					writeCenterAgentPendingMessage(
+						queryClient,
+						pendingScope,
+						nextPendingMessage
+					);
+				} catch (error) {
+					console.error("Could not prepare chat attachments", error);
+					toast.error("Couldn't prepare your attachments. Try sending again.");
+				} finally {
+					preparing.current = false;
+				}
 			}}
 			organizationSlug={input.organizationSlug}
 			pendingMessage={pendingMessage}
@@ -278,10 +298,11 @@ function CenterAgentDirectMessageEntry(input: {
 				initialSpaceView={input.initialSpaceView}
 				isCenterAgentDirectMessage
 				isPersonalContext={currentOrganization.isPersonal === true}
-				loadingFallback={optimisticConversation}
+				loadingFallback={(controller) =>
+					optimisticConversation(controller.composerFiles)
+				}
 				onInitialPendingMessageConsumed={() => {
 					clearCenterAgentPendingMessage(queryClient, pendingScope);
-					setPendingMessage(null);
 				}}
 				onSpaceViewCommitted={handleSpaceViewCommitted}
 				orgSlug={input.organizationSlug}

@@ -2,6 +2,7 @@ import "fake-indexeddb/auto";
 import { expect, it } from "vitest";
 import {
 	readComposerFileDrafts,
+	readComposerFileDraftsByIds,
 	removeComposerFileDraft,
 	saveComposerFileDraft,
 	saveComposerFileDraftUpload,
@@ -39,4 +40,24 @@ it("persists staged upload metadata without resurrecting a removed draft", async
 		{ id: "a-later-file" },
 	]);
 	await removeComposerFileDraft("a-later-file");
+});
+
+it("keeps an in-flight send's attachment identity across a scope handoff", async () => {
+	const draft = {
+		id: "handoff-file",
+		file: new File(["draft"], "handoff.txt"),
+		publishMutationId: "handoff-publication",
+	};
+	await saveComposerFileDraft({ ...draft, scope: "account:pending-chat" });
+	await saveComposerFileDraft({ ...draft, scope: "org:human:ready-chat" });
+	expect(await readComposerFileDrafts("account:pending-chat")).toEqual([]);
+	expect(await readComposerFileDraftsByIds([draft.id])).toMatchObject([
+		{
+			id: draft.id,
+			scope: "org:human:ready-chat",
+			publishMutationId: draft.publishMutationId,
+		},
+	]);
+	await removeComposerFileDraft(draft.id);
+	expect(await readComposerFileDraftsByIds([draft.id])).toEqual([]);
 });

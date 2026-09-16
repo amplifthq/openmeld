@@ -5,6 +5,7 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
@@ -100,9 +101,6 @@ export function CenterAgentNewChat({
 			if (!text && attachments.files.length === 0) {
 				return;
 			}
-			if (!sidebar.preferences || sidebar.disabled) {
-				throw new Error("Chat settings are still loading. Try again.");
-			}
 			const intent = readOrCreateChatIntent(sessionStorage, intentKey, text);
 			const intentValue = sessionStorage.getItem(intentKey);
 			setMessage({ ...intent.message, files: attachments.getSourceFiles() });
@@ -124,27 +122,36 @@ export function CenterAgentNewChat({
 			if (!mounted.current) {
 				return;
 			}
-			const chats = sidebar.preferences.chats ?? EMPTY_CHAT_PREFERENCES;
-			sidebar.save({
-				...sidebar.preferences,
-				chats: {
-					...chats,
-					titles: {
-						...chats.titles,
-						[session.spaceId]: (
-							titleDraft.content.text ||
-							text ||
-							attachments.files[0]?.fileName ||
-							"New chat"
-						).slice(0, 160),
-					},
-					groups: chats.groups.map((item) =>
-						item.id === group && !item.spaceIds.includes(session.spaceId)
-							? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
-							: item
-					),
-				},
-			});
+			sidebar
+				.updateAsync((preferences) => {
+					const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
+					return {
+						...preferences,
+						chats: {
+							...chats,
+							titles: {
+								...chats.titles,
+								[session.spaceId]: (
+									titleDraft.content.text ||
+									text ||
+									attachments.files[0]?.fileName ||
+									"New chat"
+								).slice(0, 160),
+							},
+							groups: chats.groups.map((item) =>
+								item.id === group && !item.spaceIds.includes(session.spaceId)
+									? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
+									: item
+							),
+						},
+					};
+				})
+				.catch((cause: unknown) => {
+					console.error("Could not name or group the new chat", cause);
+					toast.error(
+						"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
+					);
+				});
 			queryClient.setQueryData(
 				centerAgentDirectMessageSpaceProjectionQueryOptions({
 					enabled: true,

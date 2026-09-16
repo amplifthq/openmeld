@@ -15,9 +15,17 @@ vi.mock("#/lib/spaces/api", () => ({
 	createUnscopedWebSpaceApi: () => api,
 }));
 const drafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
+const draftListeners = vi.hoisted(() => new Set<(scope: string) => void>());
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	subscribeComposerFileDrafts: (listener: (scope: string) => void) => {
+		draftListeners.add(listener);
+		return () => draftListeners.delete(listener);
+	},
 	saveComposerFileDraft: (draft: ComposerFileDraft) => {
 		drafts.set(draft.id, draft);
+		for (const listener of draftListeners) {
+			listener(draft.scope);
+		}
 		return Promise.resolve();
 	},
 	saveComposerFileDraftUpload: (
@@ -36,6 +44,8 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 	},
 	readComposerFileDrafts: async (scope: string) =>
 		[...drafts.values()].filter((draft) => draft.scope === scope),
+	readComposerFileDraftsByIds: async (ids: string[]) =>
+		[...drafts.values()].filter((draft) => ids.includes(draft.id)),
 }));
 
 afterEach(() => {
@@ -113,6 +123,57 @@ it("hands local new-chat drafts to the Space upload owner once with their origin
 	expect(destination.result.current.files[0].publishMutationId).toBe(
 		saved[0].publishMutationId
 	);
+});
+
+it.each([
+	false,
+	true,
+])("adopts a loading draft into the ready composer, including a late save: %s", async (lateSave) => {
+	setup();
+	const local = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "",
+			spaceId: "chat",
+			storageKey: "account:pending-chat",
+			deferUpload: true,
+		})
+	);
+	const add = () =>
+		local.result.current.addFiles([
+			new File(["brief"], "brief.txt", { type: "text/plain" }),
+		]);
+	if (!lateSave) {
+		await act(add);
+	}
+	const destination = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			restoreFromScopes: ["account:pending-chat"],
+		})
+	);
+	if (lateSave) {
+		await act(add);
+	}
+	await waitFor(() => expect(destination.result.current.files).toHaveLength(1));
+	expect(destination.result.current.files[0].localId).toBe(
+		local.result.current.files[0].localId
+	);
+	await waitFor(() => expect(api.stageComposerUpload).toHaveBeenCalledTimes(1));
+	// A send started by the loading route must still read the same attachment
+	// after the ready composer has taken over its storage scope.
+	const handoff = await local.result.current.readFileDrafts();
+	expect(handoff.map((draft) => draft.id)).toEqual([
+		destination.result.current.files[0].localId,
+	]);
+	act(() =>
+		destination.result.current.removeFile(
+			destination.result.current.files[0].localId
+		)
+	);
+	expect(destination.result.current.files).toHaveLength(0);
 });
 
 it("keeps each conversation's attachments and pending upload when navigating away", async () => {

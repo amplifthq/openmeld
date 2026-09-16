@@ -143,18 +143,29 @@ preview tray, and account-scoped browser draft storage. They remain local until
 the first send creates a session; their original attachment and publication
 identities then pass to the Space upload/retry pipeline. Session creation shows
 the pending message immediately. Personal sidebar title/group persistence does
-not block message handoff. Leaving during creation preserves the draft without
+not block message handoff, including while the sidebar preference read is pending
+or failed. Naming reads the latest real preferences and revision before saving;
+its failure leaves the chat usable without retrying message creation. Leaving
+during creation preserves the draft without
 navigating back, and successful navigation only clears the draft version sent.
 The draft, route-pending, and Space-bootstrap presentations retain the same
 welcome content rail, conversation header, message primitives, and composer
 height. Sending must not remove the welcome area and then restore it when the
 canonical transcript arrives, shifting the first message between positions.
+Loading existing chats reuse the same attachment controller. Route-pending file
+drafts use account/Organization/session identity until the Space is known, then
+migrate without changing attachment or publication IDs. Late draft saves and
+queued sends remain observable by the ready route rather than being copied only
+at mount.
 
 Sidebar activity indicators resolve their destination from an authorized
 active-Wake progress read on click, without adding per-row subscriptions.
 Multiple runs use the displayed status priority and oldest start time. The
-source signal goes through existing message/Thread focus routing; a Thread ID
-is never treated as a root message ID. Repeated selection scrolls again. If the
+authorized Space bootstrap supplies reply placement: an explicit stream Thread
+root opens that Thread, `null` means main conversation, and only unknown placement
+uses the source Thread catalog. A Thread ID is never treated as a root message ID.
+Message-preview links retain their separate exact-message semantics.
+Repeated selection scrolls again. If the
 work has finished, the conversation opens with an explanatory notice; failed
 reads retain an explicit retry path. Navigation does not change execution or
 Stop authority.

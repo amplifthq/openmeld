@@ -4,6 +4,7 @@ import {
 	useQuery,
 } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -11,7 +12,13 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
+import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
+import {
+	createPendingCenterAgentMessage,
+	writeCenterAgentPendingMessage,
+} from "#/lib/organizations/center-agent-pending-message";
 import type { CenterAgentDirectMessageRouteData } from "#/lib/organizations/center-agent-route-loader";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
 import { CenterAgentPage } from "./center-agent-page";
@@ -52,10 +59,19 @@ vi.mock("#/components/app/start-flow-state", () => ({
 }));
 
 vi.mock("#/components/spaces/space-landing", () => ({
-	SpaceLanding: (props: { loadingFallback?: ReactNode }) => {
+	SpaceLanding: (props: {
+		loadingFallback?: (controller: {
+			composerFiles: ReturnType<typeof useSpaceComposerFiles>;
+		}) => ReactNode;
+	}) => {
+		const composerFiles = useSpaceComposerFiles({
+			profileId: "human-1",
+			spaceId: "space-ca-dm",
+			deferUpload: true,
+		});
 		spaceLandingSpy(props);
 		return renderSpaceLandingLoadingFallback ? (
-			props.loadingFallback
+			props.loadingFallback?.({ composerFiles })
 		) : (
 			<div data-testid="space-landing" />
 		);
@@ -451,6 +467,25 @@ describe("CenterAgentPage", () => {
 		);
 	});
 
+	it("adopts a message whose attachments finish saving after the ready route mounts", () => {
+		const { queryClient } = renderCenterAgentPage(readyRouteData());
+		const message = createPendingCenterAgentMessage(
+			"Saved during route handoff"
+		);
+		message.files = [new File(["image"], "handoff.png", { type: "image/png" })];
+		act(() => {
+			// The pending route only knew the slug; the ready route knows the ID.
+			writeCenterAgentPendingMessage(
+				queryClient,
+				{ organizationSlug: "acme" },
+				message
+			);
+		});
+		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({ initialPendingMessage: message })
+		);
+	});
+
 	it("retries a loader-reported error and opens the resolved conversation", async () => {
 		openCenterAgentDirectMessageSpaceMock.mockResolvedValueOnce(
 			readyRouteData().directMessage
@@ -495,6 +530,7 @@ function renderWithQueryClient(element: ReactElement) {
 	);
 	return {
 		...result,
+		queryClient,
 		rerender: (nextElement: ReactElement) =>
 			result.rerender(
 				<QueryClientProvider client={queryClient}>

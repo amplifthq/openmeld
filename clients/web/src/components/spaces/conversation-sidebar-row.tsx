@@ -37,9 +37,13 @@ import {
 	resolveInboxAttentionLabel,
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
-import { buildSpaceMessageFocusHref } from "#/lib/spaces/thread-navigation";
+import {
+	buildSpaceActivityFocusHref,
+	buildSpaceMessageFocusHref,
+} from "#/lib/spaces/thread-navigation";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
 import { spaceActiveWakeProgressSummaryQueryOptions } from "#/query/spaces/active-wake-progress";
+import { spaceBootstrapQueryOptions } from "#/query/spaces/bootstrap";
 import { CenterAgentChatAvatar } from "../organizations/center-agent-chat-avatar";
 import type { Chat } from "./chat-sidebar-model";
 import type {
@@ -380,10 +384,31 @@ function ConversationActivityIndicator({
 				return;
 			}
 			const target = resolveSpaceActiveWakeTarget(progress.items);
-			const destination = buildSpaceMessageFocusHref(
-				url,
-				target?.sourceSignalId
-			);
+			const bootstrap = target
+				? await queryClient.fetchQuery({
+						...spaceBootstrapQueryOptions({
+							spaceId,
+							openMeldProfileId: profileId,
+							enabled: true,
+						}),
+						staleTime: 0,
+					})
+				: null;
+			if (attempt !== navigationAttempt.current) {
+				return;
+			}
+			const destination =
+				target && bootstrap
+					? buildSpaceActivityFocusHref({
+							url,
+							progress: target,
+							threads: bootstrap.threads,
+							agentStreams: [
+								...(bootstrap.activeAgentStreams ?? []),
+								...(bootstrap.activeAgentStreamPresences ?? []),
+							],
+						})
+					: url;
 			if (!target) {
 				toast.info("This work has finished. Opening the conversation.");
 			}

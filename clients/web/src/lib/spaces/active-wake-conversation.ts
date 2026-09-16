@@ -112,6 +112,22 @@ export function buildActiveWakeConversationItems(input: {
 	}
 }
 
+export function resolveWakeReplyThreadRoot(input: {
+	progress: WakeProgressItem;
+	agentStreams?: readonly Pick<
+		SpaceConversationVisibleStreamProjection,
+		"profileId" | "dispatchId" | "triggerMessageId" | "replyThreadRootSignalId"
+	>[];
+}): string | null | undefined {
+	return input.agentStreams?.find(
+		(stream) =>
+			stream.profileId === input.progress.targetProfileId &&
+			(input.progress.dispatchId
+				? stream.dispatchId === input.progress.dispatchId
+				: stream.triggerMessageId === input.progress.sourceSignalId)
+	)?.replyThreadRootSignalId;
+}
+
 export function isWakeProgressInConversation(input: {
 	progress: WakeProgressItem;
 	source?: SpaceTimelineItem;
@@ -120,13 +136,7 @@ export function isWakeProgressInConversation(input: {
 	threadRootSignalId?: string | null;
 }): boolean {
 	const { progress } = input;
-	const placement = input.agentStreams?.find(
-		(stream) =>
-			stream.profileId === progress.targetProfileId &&
-			(stream.dispatchId === progress.dispatchId ||
-				(!progress.dispatchId &&
-					stream.triggerMessageId === progress.sourceSignalId))
-	)?.replyThreadRootSignalId;
+	const placement = resolveWakeReplyThreadRoot(input);
 	if (placement !== undefined) {
 		return placement === (input.threadId ? input.threadRootSignalId : null);
 	}

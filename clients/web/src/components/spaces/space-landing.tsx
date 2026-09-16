@@ -459,7 +459,14 @@ type SpaceLandingInput = {
 	isPersonalContext?: boolean;
 	isCenterAgentDirectMessage?: boolean;
 	isDirectMessageConversation?: boolean;
-	loadingFallback?: ReactNode;
+	loadingFallback?:
+		| ReactNode
+		| ((
+				controller: Extract<
+					SpaceLandingState["controller"],
+					{ mode: "loading" }
+				>
+		  ) => ReactNode);
 	onInitialPendingMessageConsumed?: () => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug?: string;
@@ -1419,7 +1426,9 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
 	if (controller.mode === "loading") {
 		return (
-			input.loadingFallback ?? (
+			(typeof input.loadingFallback === "function"
+				? input.loadingFallback(controller)
+				: input.loadingFallback) ?? (
 				<SpaceLandingLoadingShell
 					composer={<SpaceColdLoadingComposer controller={controller} />}
 					threadOpen={Boolean(input.initialFocusThreadRootSignalId)}

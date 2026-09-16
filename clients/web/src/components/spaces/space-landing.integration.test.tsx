@@ -48,7 +48,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	subscribeComposerFileDrafts: () => () => undefined,
 	readComposerFileDrafts: async () => [],
+	readComposerFileDraftsByIds: async () => [],
 	removeComposerFileDraft: async () => undefined,
 	saveComposerFileDraft: async () => undefined,
 	saveComposerFileDraftUpload: async () => undefined,
