@@ -50,6 +50,7 @@ const electronMock = vi.hoisted(() => {
     restore: ReturnType<typeof vi.fn>;
     options: Record<string, unknown> | undefined;
     hide: ReturnType<typeof vi.fn>;
+    on: ReturnType<typeof vi.fn>;
     setSize: ReturnType<typeof vi.fn>;
     webContents: {
       mainFrame: { url: string };
