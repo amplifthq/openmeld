@@ -214,8 +214,11 @@ export function SpaceHeader(input: {
 		null
 	);
 	const [settingsInitialSection, setSettingsInitialSection] = useState<
-		"access" | "general"
+		"access" | "general" | "members"
 	>("general");
+	const [shareInitialView, setShareInitialView] = useState<"invite" | "main">(
+		"main"
+	);
 	const [isConfirmingDraftClose, setIsConfirmingDraftClose] = useState(false);
 	const spaceName = resolveHeaderTitle(
 		input.conversationTitle,
@@ -281,13 +284,19 @@ export function SpaceHeader(input: {
 								canManageAccess={input.canManageSpaceAccess}
 								draftController={sharingDraft}
 								errorMessage={input.accessModeErrorMessage}
+								initialShareView={shareInitialView}
 								isPending={input.isAccessModePending}
 								linkJoinPolicy={input.status.linkJoinPolicy}
 								onOpenAccessSettings={() => {
 									setSettingsInitialSection("access");
 									setActiveDialog("settings");
 								}}
-								onOpenChange={(open) => handleDialogOpenChange("share", open)}
+								onOpenChange={(open) => {
+									if (open) {
+										setShareInitialView("main");
+									}
+									handleDialogOpenChange("share", open);
+								}}
 								onSetAccessMode={input.onSetAccessMode}
 								open={activeDialog === "share"}
 								openMeldProfileId={input.currentProfileId}
@@ -344,7 +353,14 @@ export function SpaceHeader(input: {
 								value: spaceName,
 							}}
 							onOpenChange={(open) => handleDialogOpenChange("settings", open)}
-							onOpenShare={() => setActiveDialog("share")}
+							onOpenInvitations={() => {
+								setShareInitialView(sharingDraft.isDirty ? "main" : "invite");
+								setActiveDialog("share");
+							}}
+							onOpenShare={() => {
+								setShareInitialView("main");
+								setActiveDialog("share");
+							}}
 							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
 							showTrigger={!input.menuItems}

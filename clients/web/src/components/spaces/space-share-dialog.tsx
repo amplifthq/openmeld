@@ -53,7 +53,7 @@ export function SpaceShareDialog(
 				size="lg"
 			>
 				<DialogHeader className="shrink-0 pr-8">
-					<DialogTitle>Share</DialogTitle>
+					<DialogTitle>Share or invite</DialogTitle>
 					<p className="line-clamp-2 pr-2 text-muted-foreground text-sm">
 						{input.spaceName}
 					</p>

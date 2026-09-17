@@ -27,7 +27,7 @@ import {
 } from "@openmeld/ui/fluid/select";
 import { ArrowLeftIcon, CopyIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 import { env } from "#/env";
 import { copyTextToClipboard } from "#/lib/clipboard";
@@ -39,12 +39,12 @@ import {
 } from "./space-access-editor";
 import { SpaceGuestAccessSection } from "./space-guest-access-section";
 import { SpaceInvitationForm } from "./space-invitations-section";
-import { SpaceOwnersSection } from "./space-owners-section";
 import { resolveSpaceLinkReading } from "./space-sharing-model";
 import { SpaceVisibilityPicker } from "./space-visibility-picker";
 import type { SpaceSharingDraftController } from "./use-space-sharing-draft";
 
 export type SpaceAccessSettingsProps = {
+	initialShareView?: "invite" | "main";
 	surface?: "settings" | "share";
 	openMeldProfileId?: string;
 	accessMode: SpaceAccessMode;
@@ -72,7 +72,9 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		null
 	);
 	const [copyFailed, setCopyFailed] = useState(false);
-	const [shareView, setShareView] = useState<"main" | "invite">("main");
+	const [shareView, setShareView] = useState<"main" | "invite">(
+		input.initialShareView ?? "main"
+	);
 	const [pendingInviteChoice, setPendingInviteChoice] = useState(false);
 	const controller = input.draftController;
 	const normalizedPassword = normalizeSpacePasswordText(controller.password);
@@ -90,6 +92,12 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		origin: resolveSpaceShareOrigin(),
 		target: { spaceId: input.spaceId },
 	});
+
+	useEffect(() => {
+		if (isShare) {
+			setShareView(input.initialShareView ?? "main");
+		}
+	}, [input.initialShareView, isShare]);
 
 	const saveAccess = async (): Promise<boolean> => {
 		if (saveDisabled || commitInFlightRef.current) {
@@ -319,18 +327,8 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-			<div className="flex shrink-0 items-center justify-between gap-3 px-5 pt-5 sm:px-6 sm:pt-6">
-				<h2 className="pr-8 font-medium text-base">Access</h2>
-				{input.onOpenShare ? (
-					<Button
-						onClick={input.onOpenShare}
-						size="sm"
-						type="button"
-						variant="outline"
-					>
-						Open Share
-					</Button>
-				) : null}
+			<div className="flex shrink-0 items-center px-5 pt-5 sm:px-6 sm:pt-6">
+				<h2 className="pr-8 font-medium text-base">Share &amp; Access</h2>
 			</div>
 			<ScrollArea
 				className="min-h-0 min-w-0 flex-1"
@@ -377,37 +375,46 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					</section>
 				) : null}
 				{warnings}
-				<SpaceOwnersSection
-					canManage={input.canManageAccess}
-					openMeldProfileId={input.openMeldProfileId}
-					spaceId={input.spaceId}
-				/>
 			</ScrollArea>
-			{input.canManageAccess ? (
-				<footer className="flex shrink-0 justify-end gap-2 border-border/60 border-t px-5 py-4 sm:px-6">
-					{controller.isDirty ? (
+			{input.canManageAccess || input.onOpenShare ? (
+				<footer className="flex shrink-0 items-center gap-2 border-border/60 border-t px-5 py-4 sm:px-6">
+					{input.onOpenShare ? (
 						<Button
-							disabled={input.isPending || isCommitting}
-							onClick={controller.reset}
+							onClick={input.onOpenShare}
 							size="sm"
 							type="button"
-							variant="ghost"
+							variant="secondary"
 						>
-							Discard changes
+							Share this Space
 						</Button>
 					) : null}
-					<Button
-						disabled={saveDisabled}
-						onClick={() => {
-							saveAccess().catch((error) =>
-								console.error("Failed to update Space access.", error)
-							);
-						}}
-						size="sm"
-						type="button"
-					>
-						{isCommitting ? "Saving…" : "Save changes"}
-					</Button>
+					<div className="ml-auto flex items-center gap-2">
+						{controller.isDirty ? (
+							<Button
+								disabled={input.isPending || isCommitting}
+								onClick={controller.reset}
+								size="sm"
+								type="button"
+								variant="ghost"
+							>
+								Discard changes
+							</Button>
+						) : null}
+						{input.canManageAccess ? (
+							<Button
+								disabled={saveDisabled}
+								onClick={() => {
+									saveAccess().catch((error) =>
+										console.error("Failed to update Space access.", error)
+									);
+								}}
+								size="sm"
+								type="button"
+							>
+								{isCommitting ? "Saving…" : "Save changes"}
+							</Button>
+						) : null}
+					</div>
 				</footer>
 			) : null}
 		</div>

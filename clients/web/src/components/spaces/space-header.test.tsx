@@ -386,13 +386,48 @@ describe("SpaceHeader", () => {
 		expect(
 			screen.queryByRole("button", { name: "Copy Space ID" })
 		).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
-		expect(screen.getByRole("heading", { name: "Access" })).toBeTruthy();
+		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
+		expect(
+			screen.getByRole("heading", { name: "Share & Access" })
+		).toBeTruthy();
 		expect(screen.getByText("Link access")).toBeTruthy();
 		expect(screen.getByText("Who can join")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Delete space" })).toBeTruthy();
+	});
+
+	it("manages members on their own settings page and reuses invitations", () => {
+		render(createSpaceHeader());
+
+		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
+		fireEvent.click(screen.getByRole("button", { name: "Members" }));
+
+		const settingsDialog = screen.getByRole("dialog", {
+			name: "Space settings",
+		});
+		expect(
+			within(settingsDialog).getByRole("heading", { name: "Members" })
+		).toBeTruthy();
+		expect(
+			within(settingsDialog).getByText(
+				"Owners manage this Space. Keep at least one owner so your team can continue using it."
+			)
+		).toBeTruthy();
+		expect(
+			settingsDialog.querySelector('[data-slot="accordion-trigger"]')
+		).toBeNull();
+
+		fireEvent.click(
+			within(settingsDialog).getByRole("button", { name: "Invite people" })
+		);
+
+		const shareDialog = screen.getByRole("dialog", {
+			name: "Share or invite",
+		});
+		expect(
+			within(shareDialog).getByRole("heading", { name: "Invite to this Space" })
+		).toBeTruthy();
 	});
 
 	it("consolidates Center Agent destinations and conversation information into one menu", async () => {
@@ -445,7 +480,8 @@ describe("SpaceHeader", () => {
 		expect(within(dialog).getByText("Space ID")).toBeTruthy();
 		expect(within(dialog).getByText("space-123")).toBeTruthy();
 		expect(within(dialog).queryByText("CLI join command")).toBeNull();
-		expect(within(dialog).queryByText("Access")).toBeNull();
+		expect(within(dialog).queryByText("Share & Access")).toBeNull();
+		expect(within(dialog).queryByText("Members")).toBeNull();
 		expect(within(dialog).queryByRole("button", { name: "Leave space" })).toBe(
 			null
 		);
@@ -476,7 +512,8 @@ describe("SpaceHeader", () => {
 
 		expect(within(dialog).getByText("Space ID")).toBeTruthy();
 		expect(within(dialog).queryByText("CLI join command")).toBeNull();
-		expect(within(dialog).queryByText("Access")).toBeNull();
+		expect(within(dialog).queryByText("Share & Access")).toBeNull();
+		expect(within(dialog).queryByText("Members")).toBeNull();
 		expect(within(dialog).queryByRole("button", { name: "Leave space" })).toBe(
 			null
 		);
@@ -510,7 +547,9 @@ describe("SpaceHeader", () => {
 				.querySelector('[data-slot="scroll-area-viewport"]')
 				?.hasAttribute("data-fade")
 		).toBe(false);
-		expect(within(dialog).getByRole("heading", { name: "Share" })).toBeTruthy();
+		expect(
+			within(dialog).getByRole("heading", { name: "Share or invite" })
+		).toBeTruthy();
 		expect(within(dialog).getByText("Design Room")).toBeTruthy();
 		expect(within(dialog).queryByLabelText("Space link")).toBeNull();
 		expect(
@@ -594,7 +633,7 @@ describe("SpaceHeader", () => {
 		render(createSpaceHeader({ onSetAccessMode }));
 
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("combobox", { name: "Joining from this link" })
@@ -662,7 +701,7 @@ describe("SpaceHeader", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const spaceInfoDialog = screen.getByRole("dialog", {
 			name: "Space settings",
 		});
@@ -679,10 +718,10 @@ describe("SpaceHeader", () => {
 			within(spaceInfoDialog).getByText(PASSWORD_REMOVAL_TEXT)
 		).toBeTruthy();
 		fireEvent.click(
-			within(spaceInfoDialog).getByRole("button", { name: "Open Share" })
+			within(spaceInfoDialog).getByRole("button", { name: "Share this Space" })
 		);
 
-		const shareDialog = screen.getByRole("dialog", { name: "Share" });
+		const shareDialog = screen.getByRole("dialog", { name: "Share or invite" });
 		expect(
 			within(shareDialog).getByText("Only invited people can join this Space.")
 		).toBeTruthy();
@@ -696,7 +735,9 @@ describe("SpaceHeader", () => {
 		fireEvent.click(
 			within(closeConfirmation).getByRole("button", { name: "Keep editing" })
 		);
-		expect(screen.getByRole("dialog", { name: "Share" })).toBeTruthy();
+		expect(
+			screen.getByRole("dialog", { name: "Share or invite" })
+		).toBeTruthy();
 	});
 
 	it("reuses the current Space password unless the owner changes it", async () => {
@@ -709,7 +750,7 @@ describe("SpaceHeader", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("combobox", { name: "Link access" })
@@ -746,7 +787,7 @@ describe("SpaceHeader", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("combobox", { name: "Link access" })
@@ -782,11 +823,11 @@ describe("SpaceHeader", () => {
 		render(createSpaceHeader({ showDeleteSpaceAction: false }));
 
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 
 		expect(
-			within(dialog).getByRole("heading", { name: "Access" })
+			within(dialog).getByRole("heading", { name: "Share & Access" })
 		).toBeTruthy();
 		expect(
 			within(dialog).getByText("Only Space owners can change access.")
@@ -850,7 +891,7 @@ describe("SpaceHeader", () => {
 		render(createSpaceHeader());
 
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Share & Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
 			within(dialog).getByRole("combobox", { name: "Joining from this link" })
