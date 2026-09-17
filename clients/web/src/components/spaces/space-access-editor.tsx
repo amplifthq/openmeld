@@ -81,7 +81,6 @@ export function SpaceAccessEditor(input: {
 			className="shrink-0"
 			disabled={input.disabled}
 			onClick={input.onInvitePeople}
-			size="sm"
 			type="button"
 			variant="secondary"
 		>
