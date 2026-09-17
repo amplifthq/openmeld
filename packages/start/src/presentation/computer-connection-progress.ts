@@ -1,6 +1,6 @@
 import type {
+  ComputerConnectionProgressObservation,
   ComputerConnectionProgressPhase,
-  DesktopComputerConnectionProgress,
 } from "@openmeld/schemas";
 
 export type ComputerConnectionProgressPresentation = {
@@ -67,7 +67,7 @@ const PHASE_COPY: Record<
 };
 
 export function presentComputerConnectionProgress(
-  progress: DesktopComputerConnectionProgress
+  progress: ComputerConnectionProgressObservation
 ): ComputerConnectionProgressPresentation {
   const copy = PHASE_COPY[progress.phase];
   const measurement = progress.measurement;
@@ -85,13 +85,32 @@ export function presentComputerConnectionProgress(
 }
 
 export function isNewerComputerConnectionProgress(
-  current: DesktopComputerConnectionProgress | null,
-  candidate: DesktopComputerConnectionProgress
+  current: ComputerConnectionProgressObservation | null,
+  candidate: ComputerConnectionProgressObservation
 ): boolean {
   return (
     current === null ||
-    current.operationId !== candidate.operationId ||
-    (current.attemptId === candidate.attemptId &&
-      candidate.sequence > current.sequence)
+    (current.operationId === candidate.operationId &&
+    current.attemptId === candidate.attemptId
+      ? candidate.sequence > current.sequence
+      : Date.parse(candidate.observedAt) > Date.parse(current.observedAt))
   );
+}
+
+export function formatComputerConnectionElapsed(
+  startedAt: string,
+  nowMs: number
+): string | null {
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((nowMs - Date.parse(startedAt)) / 1000)
+  );
+  if (elapsedSeconds < 5) {
+    return null;
+  }
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  return minutes > 0
+    ? `${minutes}m ${seconds.toString().padStart(2, "0")}s`
+    : `${seconds}s`;
 }

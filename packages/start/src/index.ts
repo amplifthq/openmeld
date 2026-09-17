@@ -2,6 +2,7 @@
 export { buildOnboardingPlan } from "./planner/onboarding-plan";
 export {
   type ComputerConnectionProgressPresentation,
+  formatComputerConnectionElapsed,
   isNewerComputerConnectionProgress,
   presentComputerConnectionProgress,
 } from "./presentation/computer-connection-progress";

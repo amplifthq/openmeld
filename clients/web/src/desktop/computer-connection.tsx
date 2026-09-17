@@ -7,6 +7,7 @@ import type {
 	PrepareSessionSnapshot,
 } from "@openmeld/schemas/types";
 import {
+	formatComputerConnectionElapsed,
 	isNewerComputerConnectionProgress,
 	presentComputerConnectionProgress,
 } from "@openmeld/start";
@@ -359,6 +360,11 @@ function ConnectionProgress({
 }: {
 	progress: DesktopComputerConnectionProgress | null;
 }) {
+	const [nowMs, setNowMs] = useState(() => Date.now());
+	useEffect(() => {
+		const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+		return () => window.clearInterval(timer);
+	}, []);
 	if (!progress) {
 		return (
 			<output className="block text-muted-foreground text-sm">
@@ -367,6 +373,7 @@ function ConnectionProgress({
 		);
 	}
 	const view = presentComputerConnectionProgress(progress);
+	const elapsed = formatComputerConnectionElapsed(progress.startedAt, nowMs);
 	return (
 		<output
 			aria-live="polite"
@@ -403,7 +410,10 @@ function ConnectionProgress({
 					}
 				/>
 			</div>
-			<p className="text-muted-foreground text-xs">{view.description}</p>
+			<p className="text-muted-foreground text-xs">
+				{view.description}
+				{elapsed ? ` ${elapsed} elapsed.` : ""}
+			</p>
 		</output>
 	);
 }

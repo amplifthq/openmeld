@@ -1,4 +1,5 @@
 import type * as zod from "zod/v4";
+import { computerConnectionProgressObservationSchema } from "../../computer-connection-progress";
 import * as z from "../../lazy-zod";
 import { openMeldProfileIdSchema } from "../daemon/profile-identity";
 import {
@@ -790,6 +791,12 @@ export const prepareDiagnosticResponseSchema = z.strictObject({
 
 export const prepareSessionStreamRoleSchema = z.enum(["web", "terminal"]);
 
+export const prepareConnectionProgressWriteSchema =
+  computerConnectionProgressObservationSchema.extend({
+    connectionEpoch: z.int().positive(),
+    prepareSessionId: PREPARE_BOUNDED_ID_SCHEMA,
+  });
+
 export const prepareSessionStreamClientFrameSchema = z.discriminatedUnion(
   "type",
   [
@@ -809,6 +816,10 @@ export const prepareSessionStreamClientFrameSchema = z.discriminatedUnion(
     z.strictObject({
       type: z.literal("terminal.step.write"),
       payload: terminalStepWriteSchema,
+    }),
+    z.strictObject({
+      type: z.literal("terminal.connection_progress.write"),
+      payload: prepareConnectionProgressWriteSchema,
     }),
     z.strictObject({
       type: z.literal("terminal.local_agent_catalog.write"),
@@ -835,6 +846,12 @@ export const prepareSessionStreamServerFrameSchema = z.discriminatedUnion(
       }),
     }),
     z.strictObject({
+      type: z.literal("server.capabilities"),
+      payload: z.strictObject({
+        connectionProgress: z.literal(1),
+      }),
+    }),
+    z.strictObject({
       type: z.literal("snapshot"),
       payload: z.strictObject({
         snapshot: prepareSessionSnapshotSchema,
@@ -844,6 +861,12 @@ export const prepareSessionStreamServerFrameSchema = z.discriminatedUnion(
       type: z.literal("snapshot_changed"),
       payload: z.strictObject({
         snapshot: prepareSessionSnapshotSchema,
+      }),
+    }),
+    z.strictObject({
+      type: z.literal("connection_progress"),
+      payload: prepareConnectionProgressWriteSchema.omit({
+        connectionEpoch: true,
       }),
     }),
     z.strictObject({

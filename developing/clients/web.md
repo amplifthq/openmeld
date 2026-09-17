@@ -4966,6 +4966,14 @@ deduplication for the new session. Choosing `Set up again` increments that fence
 before Web requests the replacement session, so the invalidation does not depend
 on a later React render or network response.
 
+While that exact Prepare Session is active, Web may render the latest structured
+connection-progress observation carried by its existing Prepare stream. Web
+must fence observations by session, operation, attempt, and sequence; a stale
+observation cannot replace a newer attempt. Measured transfer bytes may render
+a percentage, while other phases remain indeterminate. The observation never
+advances Prepare, changes its success criteria, or substitutes for its canonical
+terminal snapshot.
+
 When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
 service reinstall may report a new `deviceId`; Web still follows the session and

@@ -82,6 +82,7 @@ it("shows measured download progress without inventing an overall percentage", a
 		attemptId: "attempt-a",
 		prepareSessionId: null,
 		sequence: 1,
+		startedAt: "2026-09-17T00:00:00.000Z",
 		observedAt: "2026-09-17T00:00:00.000Z",
 		phase: "downloading",
 		state: "active",

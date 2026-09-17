@@ -6,6 +6,7 @@ import {
 } from "@openmeld/agent-runtime";
 import type { StructuredApiClientFailure } from "@openmeld/api-client";
 import {
+	type ComputerConnectionProgressObservation,
 	canonicalizeAgentControllerRef,
 	prepareSessionStreamServerFrameSchema,
 } from "@openmeld/schemas";
@@ -20,8 +21,11 @@ import type {
 	PrepareStepState,
 } from "@openmeld/schemas/types";
 import {
+	formatComputerConnectionElapsed,
 	getSetupFlowCopy,
+	isNewerComputerConnectionProgress,
 	PREPARE_SESSION_RECONNECT_GRACE_MS,
+	presentComputerConnectionProgress,
 	resolveSetupComputerActiveSummary,
 	type SetupFlowCopy,
 	type SetupFlowMode,
@@ -616,6 +620,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 					command={prepareSession.command}
 					commandPlatform={prepareSession.commandPlatform}
 					completionTarget={completionTarget}
+					connectionProgress={prepareSession.connectionProgress}
 					copyCommand={prepareSession.copyCommand}
 					copyStatus={prepareSession.copyStatus}
 					isRefreshingCommand={prepareSession.isRefreshingCommand}
@@ -810,6 +815,7 @@ function EmbeddedSetupError(input: {
 function PrepareSessionTimeline(input: {
 	onContinue?: () => void;
 	command: string | null;
+	connectionProgress: ComputerConnectionProgressObservation | null;
 	commandPlatform: WebSetupCommandPlatform;
 	completionTarget: string;
 	copyCommand: () => Promise<void>;
@@ -891,6 +897,9 @@ function PrepareSessionTimeline(input: {
 					summary={step.summary}
 					title={step.title}
 				>
+					{isCurrentPrepareUserStep(step) && input.connectionProgress ? (
+						<PrepareConnectionProgress progress={input.connectionProgress} />
+					) : null}
 					{isCurrentPrepareUserStep(step) &&
 					step.id === "connect_terminal" &&
 					shouldShowConnectTerminalCard(step.internalStep, input.snapshot) ? (
@@ -939,6 +948,55 @@ function PrepareSessionTimeline(input: {
 				</SetupTimelineStep>
 			))}
 		</SetupTimeline>
+	);
+}
+
+function PrepareConnectionProgress({
+	progress,
+}: {
+	progress: ComputerConnectionProgressObservation;
+}) {
+	const view = presentComputerConnectionProgress(progress);
+	const nowMs = useNowMs(1000);
+	const elapsed = formatComputerConnectionElapsed(progress.startedAt, nowMs);
+	return (
+		<output aria-live="polite" className="mt-3 block space-y-2 text-sm">
+			<div className="flex items-center justify-between gap-3">
+				<p className="font-medium">{view.stage}</p>
+				{view.percentage === null ? null : (
+					<span className="text-muted-foreground tabular-nums">
+						{view.percentage}%
+					</span>
+				)}
+			</div>
+			<div
+				{...(view.determinate
+					? {
+							role: "progressbar",
+							"aria-label": view.stage,
+							"aria-valuemin": 0,
+							"aria-valuemax": 100,
+							"aria-valuenow": view.percentage ?? 0,
+						}
+					: {})}
+				className="h-1.5 overflow-hidden rounded-full bg-muted"
+			>
+				<div
+					className={
+						view.determinate
+							? "h-full rounded-full bg-primary transition-[width]"
+							: "h-full w-1/3 rounded-full bg-primary motion-safe:animate-pulse"
+					}
+					style={
+						view.determinate ? { width: `${view.percentage ?? 0}%` } : undefined
+					}
+				/>
+			</div>
+			<p className="text-muted-foreground text-xs">
+				{view.description}
+				{elapsed ? ` ${elapsed} elapsed.` : ""}
+			</p>
+		</output>
 	);
 }
 
@@ -1899,6 +1957,8 @@ function usePrepareSession(input: {
 	);
 	const [webSocketStatus, setWebSocketStatus] =
 		useState<PrepareWebSocketStatus>("idle");
+	const [connectionProgress, setConnectionProgress] =
+		useState<ComputerConnectionProgressObservation | null>(null);
 	const [refreshingCommandRefreshKey, setRefreshingCommandRefreshKey] =
 		useState<string | null>(null);
 	const socketRef = useRef<WebSocket | null>(null);
@@ -2130,6 +2190,7 @@ function usePrepareSession(input: {
 
 	useEffect(() => {
 		if (activePrepareSessionId === null) {
+			setConnectionProgress(null);
 			setWebSocketStatus("idle");
 			socketRef.current = null;
 			return;
@@ -2138,9 +2199,18 @@ function usePrepareSession(input: {
 		let isCancelled = false;
 		let isReconnectCheckInFlight = false;
 		let reconnectTimer: number | null = null;
+		setConnectionProgress((current) =>
+			current?.prepareSessionId === activePrepareSessionId ? current : null
+		);
 		let socket: WebSocket | null = null;
 
 		const applyPrepareSessionSnapshot = (snapshot: PrepareSessionSnapshot) => {
+			if (
+				snapshot.lifecycleStatus !== "active" ||
+				snapshot.terminalConnection.status !== "connected"
+			) {
+				setConnectionProgress(null);
+			}
 			persistPrepareSessionPointer(
 				{
 					opaqueToken: state.opaqueToken,
@@ -2276,6 +2346,17 @@ function usePrepareSession(input: {
 				}
 				if (frame.type === "snapshot" || frame.type === "snapshot_changed") {
 					applyPrepareSessionSnapshot(frame.payload.snapshot);
+					return;
+				}
+				if (
+					frame.type === "connection_progress" &&
+					frame.payload.prepareSessionId === activePrepareSessionId
+				) {
+					setConnectionProgress((current) =>
+						isNewerComputerConnectionProgress(current, frame.payload)
+							? frame.payload
+							: current
+					);
 					return;
 				}
 				if (frame.type === "server.error") {
@@ -2589,6 +2670,7 @@ function usePrepareSession(input: {
 		command,
 		commandExpiresAt,
 		commandPlatform,
+		connectionProgress,
 		copyCommand,
 		copyStatus,
 		error: state.error,

@@ -16,6 +16,7 @@ import {
   assertCompletedPrepareSessionMatchesTerminalSelection,
   buildPrepareSessionClientHelloFrame,
   buildTerminalStep,
+  connectPrepareSessionStream,
   formatTerminalStepFailureMessage,
   isLegacyPrepareSessionClientHelloRejection,
   isPrepareSessionFrameSchemaRejection,
@@ -235,6 +236,66 @@ describe("prepare session executor", () => {
           "This OpenMeld CLI does not match the current setup protocol. Update OpenMeld, copy a fresh Agent Interface prompt, and run setup again.",
       })
     ).toBe(false);
+  });
+
+  it("sends connection progress as observation without a Prepare state write", async () => {
+    let onMessage: ((message: string) => void) | undefined;
+    const send = vi.fn();
+    vi.mocked(connectWebSocket).mockResolvedValue({
+      close: vi.fn(),
+      onClose: vi.fn(),
+      onError: vi.fn(),
+      onMessage: (handler) => {
+        onMessage = handler;
+      },
+      send,
+      terminate: vi.fn(),
+      waitUntilClosed: vi.fn().mockResolvedValue(undefined),
+    });
+    const stream = await connectPrepareSessionStream({
+      gatewayUrl: "https://gateway.openmeld.test",
+      opaqueToken: "opaque-token",
+      prepareSessionId: "prepare-1",
+    });
+    onMessage?.(
+      JSON.stringify({
+        type: "snapshot",
+        payload: {
+          snapshot: {
+            ...buildSnapshot({ connect_terminal: "active" }),
+            humanProfileId: null,
+          },
+        },
+      })
+    );
+    stream.writeConnectionProgress?.({
+      code: "prepare.session.progress.refresh_service",
+      phase: "connecting_service",
+      state: "active",
+    });
+    expect(send).toHaveBeenCalledOnce();
+    onMessage?.(
+      JSON.stringify({
+        type: "server.capabilities",
+        payload: { connectionProgress: 1 },
+      })
+    );
+    stream.writeConnectionProgress?.({
+      code: "prepare.session.progress.refresh_service",
+      detail: "Refreshing OpenMeld Service",
+      phase: "connecting_service",
+      state: "active",
+    });
+
+    expect(JSON.parse(send.mock.calls.at(-1)?.[0] as string)).toMatchObject({
+      type: "terminal.connection_progress.write",
+      payload: {
+        connectionEpoch: 1,
+        prepareSessionId: "prepare-1",
+        phase: "connecting_service",
+        state: "active",
+      },
+    });
   });
 
   it("repairs enabled local agents before reporting the setup catalog", async () => {

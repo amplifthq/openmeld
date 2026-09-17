@@ -254,6 +254,7 @@ function createConnectionProgressObserver(input: {
   prepareSessionId(): string | null;
 }) {
   const operationId = randomUUID();
+  const startedAt = new Date().toISOString();
   let sequence = 0;
   return (
     phase: DesktopComputerConnectionProgress["phase"],
@@ -271,6 +272,7 @@ function createConnectionProgressObserver(input: {
       attemptId: operationId,
       prepareSessionId: input.prepareSessionId(),
       sequence: sequence++,
+      startedAt,
       observedAt: new Date().toISOString(),
       phase,
       state: options.state ?? "active",

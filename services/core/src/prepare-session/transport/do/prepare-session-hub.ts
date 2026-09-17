@@ -45,6 +45,13 @@ const createWebSocketPair = (): AcceptableWebSocketPair => {
 };
 
 export class PrepareSessionHub extends DurableObject<CoreBindings> {
+  private readonly latestConnectionProgress = new Map<
+    string,
+    Extract<
+      PrepareSessionStreamServerFrame,
+      { type: "connection_progress" }
+    >["payload"]
+  >();
   fetch(request: Request): Promise<Response> {
     return Promise.resolve(this.handleFetch(request));
   }
@@ -134,6 +141,19 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
         ? await this.replaceActiveTerminal(server, snapshot)
         : snapshot;
     this.sendSnapshot(server, connectedSnapshot, "snapshot");
+    this.sendFrame(server, {
+      type: "server.capabilities",
+      payload: { connectionProgress: 1 },
+    });
+    if (role === "web") {
+      const progress = this.latestConnectionProgress.get(prepareSessionId);
+      if (progress) {
+        this.sendFrame(server, {
+          type: "connection_progress",
+          payload: progress,
+        });
+      }
+    }
     if (role === "terminal") {
       this.broadcastSnapshot(connectedSnapshot, server);
     }
@@ -179,6 +199,7 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
 
     if (
       (frame.type === "terminal.step.write" ||
+        frame.type === "terminal.connection_progress.write" ||
         frame.type === "terminal.local_agent_catalog.write" ||
         frame.type === "terminal.agent_selection.write") &&
       attachment.role !== "terminal"
@@ -192,6 +213,7 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
 
     if (
       (frame.type === "terminal.step.write" ||
+        frame.type === "terminal.connection_progress.write" ||
         frame.type === "terminal.local_agent_catalog.write" ||
         frame.type === "terminal.agent_selection.write") &&
       (!attachment.connectionEpoch ||
@@ -216,6 +238,23 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     }
 
     try {
+      if (frame.type === "terminal.connection_progress.write") {
+        if (frame.payload.prepareSessionId !== attachment.prepareSessionId) {
+          this.sendErrorFrame(webSocket, {
+            code: "prepare.session.identity_mismatch",
+            message: "Progress belongs to a different setup session.",
+          });
+          return;
+        }
+        const { connectionEpoch: _connectionEpoch, ...progress } =
+          frame.payload;
+        this.latestConnectionProgress.set(
+          attachment.prepareSessionId,
+          progress
+        );
+        this.broadcastConnectionProgress(attachment.prepareSessionId, progress);
+        return;
+      }
       const snapshot = await this.writeFrame(frame);
       this.broadcastSnapshot(snapshot);
     } catch (error) {
@@ -257,6 +296,7 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     newSocket: WebSocket,
     snapshot: PrepareSessionSnapshot
   ): Promise<PrepareSessionSnapshot> {
+    this.latestConnectionProgress.delete(snapshot.prepareSessionId);
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === newSocket) {
         continue;
@@ -342,6 +382,28 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
         continue;
       }
       this.sendSnapshot(socket, snapshot, "snapshot_changed");
+    }
+  }
+
+  private broadcastConnectionProgress(
+    prepareSessionId: string,
+    progress: Extract<
+      PrepareSessionStreamServerFrame,
+      { type: "connection_progress" }
+    >["payload"]
+  ): void {
+    for (const socket of this.ctx.getWebSockets()) {
+      const attachment = readPrepareSessionHubSocketAttachment(socket);
+      if (
+        attachment.prepareSessionId !== prepareSessionId ||
+        attachment.role !== "web"
+      ) {
+        continue;
+      }
+      this.sendFrame(socket, {
+        type: "connection_progress",
+        payload: progress,
+      });
     }
   }
 
