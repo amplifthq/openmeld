@@ -27,6 +27,7 @@ import {
   resolveExplicitLocalComponentPolicyDecisionErrors,
   resolveLatestReleaseTag,
   resolveReleasePolicyVerificationErrors,
+  resolveSelectedServiceReleaseFacts,
   resolveServiceRequiredFloorVerificationErrors,
   runLocalComponentsReleaseTool,
 } from "./local-components.mjs";
@@ -615,6 +616,95 @@ test("stamp --next writes the shared channel decision into the package and manif
   }
 });
 
+test("stamp retains the published Service for a CLI-only release", async () => {
+  const repoRoot = await createFixtureRepo();
+  const serviceDistRoot = join(repoRoot, "clients/openmeld-cli/dist");
+  try {
+    await writeFixtureFile(
+      repoRoot,
+      ".gitignore",
+      "clients/openmeld-cli/dist/\n"
+    );
+    const baseFacts = await collectLocalComponentFacts({
+      repoRoot,
+      requireServiceBundle: true,
+    });
+    const baseManifest = buildReleasePolicyManifest({
+      facts: baseFacts,
+      now: "2026-07-16T00:00:00.000Z",
+      policies: { cli: "available", service: "available", skills: "available" },
+      reason: "Existing installations remain compatible with this release.",
+    });
+    await writeFixtureFile(
+      repoRoot,
+      "release/local-components.json",
+      `${JSON.stringify(baseManifest, null, 2)}\n`
+    );
+    await initFixtureGitRepo(repoRoot);
+    const base = await readGitHead(repoRoot);
+    await writeFixtureFile(
+      repoRoot,
+      "clients/openmeld-cli/native/cli-only-change.txt",
+      "new CLI-only artifact\n"
+    );
+    await execGit(repoRoot, ["add", "."]);
+    await execGit(repoRoot, ["commit", "-m", "Update CLI only"]);
+
+    await runLocalComponentsReleaseTool(
+      [
+        "stamp",
+        "--repo-root",
+        repoRoot,
+        "--base",
+        base,
+        "--next",
+        "--cli",
+        "available",
+        "--cli-reason",
+        "The new CLI remains compatible with the selected Service.",
+        "--now",
+        "2026-07-17T00:00:00.000Z",
+      ],
+      {
+        buildPackagedOpenMeldCli: async () => {
+          await rm(serviceDistRoot, { force: true, recursive: true });
+          await writeFixtureFile(
+            serviceDistRoot,
+            "openmeld.js",
+            "console.log('new CLI bytes')\n"
+          );
+        },
+        readCliReleaseChannels: async () => ({
+          npmVersion: "1.2.3",
+          r2Version: "1.2.3",
+        }),
+      }
+    );
+
+    const manifest = JSON.parse(
+      await readFile(join(repoRoot, "release/local-components.json"), "utf8")
+    );
+    assert.equal(manifest.components.cli.packageVersion, "1.2.4");
+    assert.deepEqual(
+      manifest.components.service,
+      baseManifest.components.service
+    );
+    assert.equal(
+      resolveSelectedServiceReleaseFacts({
+        baseManifest,
+        facts: {
+          ...baseFacts,
+          service: { ...baseFacts.service, bundleVersion: "1.2.4" },
+        },
+        serviceTouched: false,
+      }).bundleVersion,
+      "1.2.3"
+    );
+  } finally {
+    await rm(repoRoot, { recursive: true, force: true });
+  }
+});
+
 test("stamp restores the package version and required floor when a build fails", async () => {
   const repoRoot = await createFixtureRepo();
   const packageJsonPath = join(repoRoot, "clients/openmeld-cli/package.json");
@@ -1026,6 +1116,16 @@ test("classifies release-sensitive paths narrowly", () => {
   );
   assert.equal(
     isServiceReleasePath("runtime/local-service/package.json"),
+    true
+  );
+  assert.equal(
+    isServiceReleasePath("clients/openmeld-cli/tsdown.config.ts"),
+    true
+  );
+  assert.equal(isServiceReleasePath("pnpm-lock.yaml"), true);
+  assert.equal(isServiceReleasePath("packages/protocol/src/index.ts"), true);
+  assert.equal(
+    isServiceReleasePath("runtime/local-execution/src/index.ts"),
     true
   );
   assert.equal(

@@ -5682,6 +5682,16 @@ Service projection `required` even when the latest artifact is advisory:
   public npm publish, so the inherited ATS `0.7.x` floor does not carry into
   the new line. After that marker lands on `main`, future release-line changes
   do not bypass floor monotonicity.
+
+The local update-operation schema keeps `targetVersion` as the required legacy
+aggregate target and adds optional `targetCliVersion` and
+`targetServiceVersion`. New producers set both split targets. Mixed-version
+readers fall back independently to `targetVersion` when either optional field
+is absent, so old operations remain readable while new CLI-only releases can
+name an older selected Service without manufacturing version equality. These
+fields describe one operation's expected observations; they do not create a
+second release-policy, Service-health, or Wakeability owner.
+
 - Skills policy is build-imported into Core and compared with the OpenMeld
   Service's reported `localComponents.skills.installedBundleHash`. That reported
   hash is the installed OpenMeld-managed skills artifact hash, not the per-target

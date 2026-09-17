@@ -1834,6 +1834,16 @@ bundle hashes, run a separate build after stamping, or pass `--current` to a
 stamp command. After a merge, rebase, or later local-component change, rerun the
 same stamp command against the final source before committing.
 
+The release path classifies Service ownership separately from the CLI artifact.
+When no Service-owned input changed since the selected base manifest, stamping a
+CLI-only release retains that base Service version, bundle hash, and contract
+versions. The production publisher then selects the same immutable Service raw
+and gzip artifacts and verifies them before changing the mutable channel
+manifest. Changes to Service lifecycle/runtime sources, shared Service schemas
+or runtime dependencies, the packaged-build inputs, or the lockfile remain
+Service changes and keep the stamp coupled. This conservative allowlist is the
+only release-side eligibility decision; compatibility alone is insufficient.
+
 `--next` reads npm `latest` and the R2 stable CLI manifest, selects the higher
 stable version, and increments its patch. It prints both channel facts and warns
 when they drift. Missing network, credentials, or valid channel versions fail
@@ -1915,8 +1925,10 @@ pnpm run verify:release-ready -- --current
 
 Current early-release policy:
 
-- Any CLI, Service carrier, or Skills artifact change must be stamped as
+- Any changed CLI, Service carrier, or Skills artifact must be stamped as
   `available` or `required`.
+- An eligible CLI-only release may advance the CLI while retaining the exact
+  selected base Service. It does not restamp newer CLI bytes as Service bytes.
 - Service bundle changes can be advisory unless the Service runtime contract
   changes.
 - Skills bundle changes can be advisory unless the skills contract changes.

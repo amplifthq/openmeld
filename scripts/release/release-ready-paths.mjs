@@ -31,12 +31,17 @@ const ENGINEERING_ONLY_SCHEMA_PATH_PREFIXES = [
   "packages/schemas/src/schemas/release/",
 ];
 const SERVICE_RELEASE_PATHS = new Set([
+  "clients/openmeld-cli/tsdown.config.ts",
   "clients/openmeld-cli/src/commands/service.ts",
   "clients/openmeld-cli/src/system/current-daemon-version.ts",
+  "pnpm-lock.yaml",
+  "scripts/release/build-packaged-openmeld-cli.mjs",
   "runtime/local-service/package.json",
   "runtime/local-service/tsconfig.build.json",
   "runtime/local-service/tsconfig.json",
 ]);
+const SERVICE_WORKSPACE_DEPENDENCY_PATH_RE =
+  /^(?:packages\/(?:api-client|gateway-contract|projects|protocol|space|space-mesh|utils)|runtime\/local-execution)\/(?:src\/|package\.json$)/u;
 
 export function isCliReleasePath(path) {
   const normalized = normalizeRepoPath(path);
@@ -59,6 +64,7 @@ export function isServiceReleasePath(path) {
   }
   return (
     SERVICE_RELEASE_PATHS.has(normalized) ||
+    SERVICE_WORKSPACE_DEPENDENCY_PATH_RE.test(normalized) ||
     RUNTIME_ADAPTER_RELEASE_PATH_RE.test(normalized) ||
     isCliAndServiceReleasePath(normalized) ||
     SERVICE_RELEASE_PATH_PREFIXES.some((prefix) =>
