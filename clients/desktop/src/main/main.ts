@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { DesktopInboxAttention } from "@openmeld/schemas";
 import {
   ArrowClockwiseIcon,
   DesktopIcon,
@@ -65,15 +66,17 @@ let ipcDisposer: (() => void) | null = null;
 let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let trayUnreadTitle = "";
+let trayAttention: DesktopInboxAttention | null = null;
+let trayAttentionTitle = "";
 const pilot = initializeDesktopPilot(
   () => mainWindow,
-  (count) => {
+  (attention) => {
+    trayAttention = attention;
     if (process.platform === "darwin") {
-      const title = count !== null && count > 0 ? String(count) : "";
-      trayUnreadTitle = count !== null && count > 99 ? "99+" : title;
-      tray?.setTitle(trayUnreadTitle);
+      trayAttentionTitle = formatTrayAttentionTitle(attention);
+      tray?.setTitle(trayAttentionTitle);
     }
+    updateTrayMenu();
   }
 );
 let latestServiceView: ServiceView | null = null;
@@ -351,7 +354,7 @@ function createTray(): Tray {
   const nextTray = new Tray(createTrayImage());
   tray = nextTray;
   if (process.platform === "darwin") {
-    nextTray.setTitle(trayUnreadTitle);
+    nextTray.setTitle(trayAttentionTitle);
   }
   updateTrayMenu();
   runBackgroundTask(refreshTrayStatus(), { showError: false });
@@ -628,7 +631,66 @@ function resolveTrayDesktopVersionLabel(): string {
 }
 
 function resolveTrayTooltip(): string {
-  return resolveTrayStatusLabel().replace(": ", " - ");
+  const service = resolveTrayStatusLabel().replace(": ", " - ");
+  const attention = formatTrayAttentionTooltip(trayAttention);
+  return attention ? `${service}\n${attention}` : service;
+}
+
+function formatTrayAttentionTitle(
+  attention: DesktopInboxAttention | null
+): string {
+  if (!attention) {
+    return "";
+  }
+  const important =
+    attention.unresolvedActionCount + attention.unreadUrgentUpdateCount;
+  const segments = [
+    ...(important > 0 ? [`!${formatTrayAttentionCount(important)}`] : []),
+    ...(attention.unreadMentionCount > 0
+      ? [`@${formatTrayAttentionCount(attention.unreadMentionCount)}`]
+      : []),
+  ];
+  if (segments.length > 0) {
+    return segments.join(" ");
+  }
+  return attention.ordinaryUnreadCount > 0 ? "•" : "";
+}
+
+function formatTrayAttentionTooltip(
+  attention: DesktopInboxAttention | null
+): string | null {
+  if (!attention) {
+    return null;
+  }
+  const details = [
+    ...(attention.unresolvedActionCount > 0
+      ? [
+          `${attention.unresolvedActionCount} pending ${attention.unresolvedActionCount === 1 ? "action or review" : "actions or reviews"}`,
+        ]
+      : []),
+    ...(attention.unreadUrgentUpdateCount > 0
+      ? [
+          `${attention.unreadUrgentUpdateCount} unread urgent ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
+        ]
+      : []),
+    ...(attention.unreadMentionCount > 0
+      ? [
+          `${attention.unreadMentionCount} unread ${attention.unreadMentionCount === 1 ? "mention" : "mentions"}`,
+        ]
+      : []),
+    ...(attention.ordinaryUnreadCount > 0
+      ? [
+          `${attention.ordinaryUnreadCount} other unread ${attention.ordinaryUnreadCount === 1 ? "update" : "updates"}`,
+        ]
+      : []),
+  ];
+  return details.length > 0
+    ? `Inbox - ${details.join(", ")}`
+    : "Inbox - All caught up";
+}
+
+function formatTrayAttentionCount(count: number): string {
+  return count > 99 ? "99+" : String(count);
 }
 
 function resolveSetupComputerLabel(): string {

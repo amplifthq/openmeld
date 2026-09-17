@@ -234,16 +234,18 @@ describe("InboxNotificationListener", () => {
 	});
 
 	it.each([
-		{ total: 7, error: false, expected: 7 },
-		{ total: 0, error: false, expected: 0 },
-		{ total: 7, error: true, expected: null },
-		{ total: undefined, error: false, expected: null },
-	])("projects unread $total (error=$error) and refreshes with notifications off", ({
+		{ total: 7, error: false, expected: true },
+		{ total: 0, error: false, expected: true },
+		{ total: 7, error: true, expected: false },
+		{ total: undefined, error: false, expected: false },
+	])("projects attention for unread $total (error=$error) and refreshes with notifications off", ({
 		total,
 		error,
 		expected,
 	}) => {
-		const setNotificationContext = vi.fn(async () => undefined);
+		const setNotificationContext = vi.fn(
+			async (_context: unknown) => undefined
+		);
 		let poll: (() => void) | undefined;
 		desktopPlatformMock.mockReturnValue({
 			setNotificationContext,
@@ -260,6 +262,8 @@ describe("InboxNotificationListener", () => {
 					? undefined
 					: {
 							totalUnreadCount: total,
+							ordinaryUnreadCount: total,
+							unreadMentionCount: 1,
 							unreadUrgentUpdateCount: 0,
 							unresolvedActionCount: 2,
 						},
@@ -268,14 +272,18 @@ describe("InboxNotificationListener", () => {
 			refetch: summaryRefetch,
 		});
 		const view = renderListener();
-		expect(setNotificationContext).toHaveBeenLastCalledWith(
+		const context = setNotificationContext.mock.lastCall?.[0] as
+			| { attention?: unknown }
+			| null
+			| undefined;
+		expect(context).toEqual(
 			expect.objectContaining({
 				userId: "user-123",
 				organizationId: "organization-123",
 				enabled: false,
-				unreadCount: expected,
 			})
 		);
+		expect(context?.attention !== null).toBe(expected);
 		act(() => poll?.());
 		expect(summaryRefetch).toHaveBeenCalledOnce();
 		expect(showInboxNotificationMock).not.toHaveBeenCalled();

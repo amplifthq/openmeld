@@ -570,6 +570,121 @@ describe("Inbox service", () => {
       harness.close();
     }
   });
+  it("filters muted ordinary updates only from the attention presentation", async () => {
+    const harness = createInboxHarness();
+    try {
+      const identity = {
+        organizationId: "org_one",
+        recipientUserId: "user_one",
+      };
+      const service = createInboxService({ db: harness.db, nowMs: () => 5000 });
+      const preferences = createInboxMessageNotificationPreferencesService(
+        harness.db
+      );
+      const ordinary = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        sourceKey: "muted-ordinary",
+        spaceId: "space_one",
+      });
+      const mention = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        sourceKey: "muted-mention",
+        spaceId: "space_one",
+      });
+      await harness.db
+        .prepare("UPDATE inbox_items SET kind = 'space_mention' WHERE id = ?")
+        .bind(mention.itemId)
+        .run();
+      const urgent = await seedSpaceItem(harness.db, {
+        recipientUserId: "user_one",
+        sourceKey: "muted-urgent",
+        spaceId: "space_one",
+      });
+      await harness.db
+        .prepare("UPDATE inbox_items SET importance = 'urgent' WHERE id = ?")
+        .bind(urgent.itemId)
+        .run();
+      const action = await seedItem(harness.db, {
+        ...identity,
+        sourceKey: "muted-action",
+      });
+      await service.markRead({
+        ...identity,
+        itemId: action.itemId,
+        read: true,
+      });
+      await preferences.update({
+        organizationId: identity.organizationId,
+        userId: identity.recipientUserId,
+        preference: {
+          scope: "conversation",
+          spaceId: "space_one",
+          mode: "muted",
+        },
+      });
+
+      expect((await service.list(identity)).items).toHaveLength(4);
+      expect(
+        (
+          await service.list({ ...identity, presentation: "attention" })
+        ).items.map((item) => item.id)
+      ).toEqual(
+        expect.arrayContaining([mention.itemId, urgent.itemId, action.itemId])
+      );
+      expect(
+        (await service.list({ ...identity, presentation: "attention" })).items
+      ).toHaveLength(3);
+      expect(
+        (
+          await service.list({
+            ...identity,
+            presentation: "attention",
+            view: "mentions",
+          })
+        ).items.map((item) => item.id)
+      ).toEqual([mention.itemId]);
+      await expect(service.summary(identity)).resolves.toMatchObject({
+        totalUnreadCount: 3,
+      });
+      await expect(
+        service.summary({ ...identity, presentation: "attention" })
+      ).resolves.toMatchObject({
+        ordinaryUnreadCount: 0,
+        totalUnreadCount: 2,
+        unreadMentionCount: 1,
+        unreadUrgentUpdateCount: 1,
+        unresolvedActionCount: 1,
+      });
+
+      await expect(
+        service.markAllRead({ ...identity, presentation: "attention" })
+      ).resolves.toEqual({ markedReadCount: 2 });
+      expect(
+        (await service.get({ ...identity, itemId: ordinary.itemId })).item
+          .readAt
+      ).toBeNull();
+      expect(
+        (await service.get({ ...identity, itemId: action.itemId })).item.readAt
+      ).not.toBeNull();
+      await preferences.update({
+        organizationId: identity.organizationId,
+        userId: identity.recipientUserId,
+        preference: {
+          scope: "conversation",
+          spaceId: "space_one",
+          mode: null,
+        },
+      });
+      await expect(
+        service.summary({ ...identity, presentation: "attention" })
+      ).resolves.toMatchObject({
+        ordinaryUnreadCount: 1,
+        totalUnreadCount: 1,
+      });
+    } finally {
+      harness.close();
+    }
+  });
   it.each([
     {
       itemKind: "center_agent_task",

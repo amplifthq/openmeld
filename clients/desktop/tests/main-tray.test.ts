@@ -1,17 +1,18 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { DesktopInboxAttention } from "@openmeld/schemas";
 import type { IpcMainInvokeEvent } from "electron";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
 
 const inboxTitle = vi.hoisted(() => ({
-  update: null as ((count: number | null) => void) | null,
-  initial: null as number | null,
+  update: null as ((attention: DesktopInboxAttention | null) => void) | null,
+  initial: null as DesktopInboxAttention | null,
 }));
 vi.mock("../src/main/pilot", () => ({
   initializeDesktopPilot: (
     _getWindow: unknown,
-    update: (count: number | null) => void
+    update: (attention: DesktopInboxAttention | null) => void
   ) => {
     inboxTitle.update = update;
     update(inboxTitle.initial);
@@ -347,19 +348,48 @@ beforeEach(() => {
 });
 
 describe("main tray behavior", () => {
-  it("applies unread counts received before tray creation and updates the native title", async () => {
+  it("applies categorized attention received before tray creation and updates the native title", async () => {
     setTestPlatform("darwin");
-    inboxTitle.initial = 7;
+    inboxTitle.initial = {
+      ordinaryUnreadCount: 150,
+      unreadMentionCount: 0,
+      unreadUrgentUpdateCount: 0,
+      unresolvedActionCount: 0,
+    };
     await importMain();
     const tray = electronMock.trayInstances[0];
-    expect(tray?.setTitle).toHaveBeenLastCalledWith("7");
-    for (const [count, title] of [
-      [100, "99+"],
-      [0, ""],
-      [3, "3"],
+    expect(tray?.setTitle).toHaveBeenLastCalledWith("•");
+    for (const [nextAttention, title] of [
+      [
+        {
+          ordinaryUnreadCount: 150,
+          unreadMentionCount: 1,
+          unreadUrgentUpdateCount: 1,
+          unresolvedActionCount: 2,
+        },
+        "!3 @1",
+      ],
+      [
+        {
+          ordinaryUnreadCount: 0,
+          unreadMentionCount: 100,
+          unreadUrgentUpdateCount: 0,
+          unresolvedActionCount: 0,
+        },
+        "@99+",
+      ],
+      [
+        {
+          ordinaryUnreadCount: 0,
+          unreadMentionCount: 0,
+          unreadUrgentUpdateCount: 0,
+          unresolvedActionCount: 0,
+        },
+        "",
+      ],
       [null, ""],
     ] as const) {
-      inboxTitle.update?.(count);
+      inboxTitle.update?.(nextAttention);
       expect(tray?.setTitle).toHaveBeenLastCalledWith(title);
     }
   });

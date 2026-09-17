@@ -12,6 +12,7 @@ import type {
   GetInboxItemResponse,
   InboxItem,
   InboxNotificationPreferencesResponse,
+  InboxPresentation,
   InboxSummaryResponse,
   InboxView,
   ListInboxItemsResponse,
@@ -45,6 +46,23 @@ const INBOX_SPACE_MESSAGE_FILTER = `
   source_kind = 'space_signal'
   AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
+`;
+const INBOX_ATTENTION_PRESENTATION_FILTER = `
+  NOT (
+    attention = 'update'
+    AND importance = 'normal'
+    AND kind NOT IN ('space_mention', 'space_reference')
+    AND ${INBOX_SPACE_TARGET_FILTER}
+    AND EXISTS (
+      SELECT 1
+      FROM inbox_conversation_notification_preferences AS attention_preference
+      WHERE attention_preference.user_id = inbox_items.recipient_user_id
+        AND attention_preference.organization_id = inbox_items.organization_id
+        AND attention_preference.space_id =
+          json_extract(inbox_items.source_target_json, '$.spaceId')
+        AND attention_preference.mode = 'muted'
+    )
+  )
 `;
 const INBOX_CENTER_AGENT_MESSAGE_FILTER = `
   source_kind = 'space_signal'
@@ -506,6 +524,7 @@ export function createInboxService(input: {
       cursor?: string;
       limit?: number;
       organizationId: string;
+      presentation?: InboxPresentation;
       recipientUserId: string;
       view?: InboxView;
     }): Promise<ListInboxItemsResponse> {
@@ -527,6 +546,9 @@ export function createInboxService(input: {
         listInput.organizationId,
         listInput.recipientUserId,
       ];
+      if (listInput.presentation === "attention") {
+        filters.push(INBOX_ATTENTION_PRESENTATION_FILTER);
+      }
       appendViewFilter(filters, parsedView.data);
       if (cursor) {
         filters.push("(occurred_at_ms < ? OR (occurred_at_ms = ? AND id < ?))");
@@ -579,6 +601,7 @@ export function createInboxService(input: {
 
     async markAllRead(markAllInput: {
       organizationId: string;
+      presentation?: InboxPresentation;
       recipientUserId: string;
     }): Promise<MarkAllInboxItemsReadResponse> {
       requireIdentifier(markAllInput.organizationId, "organizationId");
@@ -594,6 +617,11 @@ export function createInboxService(input: {
               AND cleared_at_ms IS NULL
               AND read_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
+              ${
+                markAllInput.presentation === "attention"
+                  ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}`
+                  : ""
+              }
           `
         )
         .bind(
@@ -711,6 +739,7 @@ export function createInboxService(input: {
 
     async summary(summaryInput: {
       organizationId: string;
+      presentation?: InboxPresentation;
       recipientUserId: string;
     }): Promise<InboxSummaryResponse> {
       requireIdentifier(summaryInput.organizationId, "organizationId");
@@ -725,17 +754,28 @@ export function createInboxService(input: {
                 WHEN attention = 'action_required' AND resolution_status = 'open'
                 THEN 1 ELSE 0 END), 0) AS action_count,
               coalesce(sum(CASE WHEN ${UNREAD_URGENT_UPDATE_FILTER}
-                THEN 1 ELSE 0 END), 0) AS urgent_update_count
+                THEN 1 ELSE 0 END), 0) AS urgent_update_count,
+              coalesce(sum(CASE WHEN ${UNREAD_MENTION_UPDATE_FILTER}
+                THEN 1 ELSE 0 END), 0) AS mention_count,
+              coalesce(sum(CASE WHEN ${ORDINARY_UNREAD_ATTENTION_FILTER}
+                THEN 1 ELSE 0 END), 0) AS ordinary_unread_count
             FROM inbox_items
             WHERE organization_id = ?
               AND recipient_user_id = ?
               AND cleared_at_ms IS NULL
               AND ${CURRENT_SOURCE_ACCESS_FILTER}
+              ${
+                summaryInput.presentation === "attention"
+                  ? `AND ${INBOX_ATTENTION_PRESENTATION_FILTER}`
+                  : ""
+              }
           `
         )
         .bind(summaryInput.organizationId, summaryInput.recipientUserId)
         .first<{
           action_count: number;
+          mention_count: number;
+          ordinary_unread_count: number;
           unread_count: number;
           urgent_update_count: number;
         }>();
@@ -744,6 +784,12 @@ export function createInboxService(input: {
         totalUnreadCount: countValue(row?.unread_count),
         unresolvedActionCount: countValue(row?.action_count),
         unreadUrgentUpdateCount: countValue(row?.urgent_update_count),
+        ...(summaryInput.presentation === "attention"
+          ? {
+              unreadMentionCount: countValue(row?.mention_count),
+              ordinaryUnreadCount: countValue(row?.ordinary_unread_count),
+            }
+          : {}),
       };
     },
 
@@ -1110,6 +1156,14 @@ function mapInboxItemRow(row: InboxItemRow): InboxItem {
 // Disjoint from open actions: an urgent action is counted once, as an action.
 const UNREAD_URGENT_UPDATE_FILTER =
   "importance = 'urgent' AND attention = 'update' AND resolution_status != 'resolved' AND read_at_ms IS NULL";
+const UNREAD_MENTION_UPDATE_FILTER =
+  "kind IN ('space_mention', 'space_reference') AND importance = 'normal' AND attention = 'update' AND read_at_ms IS NULL";
+const ORDINARY_UNREAD_ATTENTION_FILTER = `
+  read_at_ms IS NULL
+  AND NOT (attention = 'action_required' AND resolution_status = 'open')
+  AND NOT (${UNREAD_URGENT_UPDATE_FILTER})
+  AND NOT (${UNREAD_MENTION_UPDATE_FILTER})
+`;
 
 function appendViewFilter(filters: string[], view: InboxView): void {
   if (view === "unread") {
@@ -1126,13 +1180,16 @@ function appendViewFilter(filters: string[], view: InboxView): void {
       "resolution_status = 'open'",
       "kind IN ('document_review', 'organization_request')"
     );
+  } else if (view === "mentions") {
+    filters.push(UNREAD_MENTION_UPDATE_FILTER);
   } else if (view === "urgent_updates") {
     filters.push(UNREAD_URGENT_UPDATE_FILTER);
   } else if (view === "recent_updates") {
     filters.push(
       "read_at_ms IS NULL",
       "NOT (attention = 'action_required' AND resolution_status = 'open')",
-      `NOT (${UNREAD_URGENT_UPDATE_FILTER})`
+      `NOT (${UNREAD_URGENT_UPDATE_FILTER})`,
+      `NOT (${UNREAD_MENTION_UPDATE_FILTER})`
     );
   } else if (view === "updates") {
     filters.push(

@@ -9,7 +9,9 @@ import {
   buildCenterAgentInboxSummaryPath,
   buildInboxItemPath,
   buildInboxItemReadPath,
+  buildInboxMarkAllReadPath,
   buildInboxPath,
+  buildInboxSummaryPath,
   buildSpaceInboxReadThroughPath,
   buildSpaceInboxSummaryPath,
   buildSpaceInboxUnreadTargetsPath,
@@ -97,8 +99,21 @@ describe("api-client Inbox API", () => {
   });
   it("builds encoded list and item routes", () => {
     expect(
-      buildInboxPath({ cursor: "cursor value", limit: 25, view: "unread" })
-    ).toBe("/v1/inbox?cursor=cursor+value&limit=25&view=unread");
+      buildInboxPath({
+        cursor: "cursor value",
+        limit: 25,
+        presentation: "attention",
+        view: "unread",
+      })
+    ).toBe(
+      "/v1/inbox?cursor=cursor+value&limit=25&presentation=attention&view=unread"
+    );
+    expect(buildInboxSummaryPath("attention")).toBe(
+      "/v1/inbox/summary?presentation=attention"
+    );
+    expect(buildInboxMarkAllReadPath("attention")).toBe(
+      "/v1/inbox/mark-all-read?presentation=attention"
+    );
     expect(buildInboxItemReadPath("inbox/item 1")).toBe(
       "/v1/inbox/items/inbox%2Fitem%201/read"
     );
@@ -226,13 +241,17 @@ describe("api-client Inbox API", () => {
       })
     );
 
-    await expect(api.list({ view: "all" })).resolves.toMatchObject({
+    await expect(
+      api.list({ presentation: "attention", view: "all" })
+    ).resolves.toMatchObject({
       items: [{ id: ITEM.id }],
     });
     await expect(api.get({ itemId: ITEM.id })).resolves.toMatchObject({
       item: { id: ITEM.id },
     });
-    await expect(api.summary()).resolves.toMatchObject({ totalUnreadCount: 1 });
+    await expect(
+      api.summary({ presentation: "attention" })
+    ).resolves.toMatchObject({ totalUnreadCount: 1 });
     await expect(api.centerAgentSummary()).resolves.toEqual({
       organizationId: "org-1",
       unreadCount: 1,
@@ -278,7 +297,9 @@ describe("api-client Inbox API", () => {
     await expect(api.dismiss({ itemId: ITEM.id })).resolves.toEqual({
       dismissedItemId: ITEM.id,
     });
-    await expect(api.markAllRead()).resolves.toEqual({ markedReadCount: 1 });
+    await expect(
+      api.markAllRead({ presentation: "attention" })
+    ).resolves.toEqual({ markedReadCount: 1 });
     await expect(api.getPreferences()).resolves.toMatchObject({
       urgentEmailEnabled: true,
     });
@@ -286,6 +307,21 @@ describe("api-client Inbox API", () => {
       api.updatePreferences({ urgentEmailEnabled: false })
     ).resolves.toMatchObject({ urgentEmailEnabled: false });
     expect(transport).toHaveBeenCalledTimes(13);
+    expect(
+      transport.mock.calls.find(
+        ([call]) => call.operation === "inbox.list"
+      )?.[0].url
+    ).toContain("presentation=attention");
+    expect(
+      transport.mock.calls.find(
+        ([call]) => call.operation === "inbox.summary"
+      )?.[0].url
+    ).toContain("presentation=attention");
+    expect(
+      transport.mock.calls.find(
+        ([call]) => call.operation === "inbox.mark_all_read"
+      )?.[0].url
+    ).toContain("presentation=attention");
     expect(transport).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: "inbox.summary",

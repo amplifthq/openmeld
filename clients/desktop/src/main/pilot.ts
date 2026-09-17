@@ -2,6 +2,7 @@ import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  type DesktopInboxAttention,
   type DesktopInstalledTarget,
   desktopInstalledTargetSchema,
   desktopPlatformSchema,
@@ -46,7 +47,7 @@ declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | nu
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
-  setUnreadCount: (count: number | null) => void
+  setInboxAttention: (attention: DesktopInboxAttention | null) => void
 ) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
@@ -144,7 +145,7 @@ export function initializeDesktopPilot(
   });
   const notifications = createPilotNotifications({
     auth,
-    setUnreadCount,
+    setInboxAttention,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,

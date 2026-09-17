@@ -11,6 +11,7 @@ import {
   DESKTOP_CONTRACT_HEADER,
   DESKTOP_CONTRACT_VERSION,
   DESKTOP_WEB_BUILD_HEADER,
+  type DesktopInboxAttention,
   type DesktopNotificationContext,
   type DesktopNotificationReference,
   type DesktopNotificationResult,
@@ -30,7 +31,7 @@ export function createPilotNotifications(input: {
   installed: boolean;
   ensureCompatible: () => Promise<void>;
   getWindow: () => BrowserWindow | null;
-  setUnreadCount?: (count: number | null) => void;
+  setInboxAttention?: (attention: DesktopInboxAttention | null) => void;
 }) {
   let generation = 0;
   let activationRevision = 0;
@@ -65,7 +66,7 @@ export function createPilotNotifications(input: {
     generation += 1;
     contextRevision += 1;
     context = null;
-    input.setUnreadCount?.(null);
+    input.setInboxAttention?.(null);
     for (const attempt of pending.values()) {
       attempt.cancel();
     }
@@ -240,13 +241,13 @@ export function createPilotNotifications(input: {
         contextRevision += 1;
       }
       if (scopeChanged) {
-        input.setUnreadCount?.(null);
+        input.setInboxAttention?.(null);
       }
       context = next;
       refreshVisibility();
       const epoch = generation;
-      if (next?.unreadCount == null) {
-        input.setUnreadCount?.(null);
+      if (next?.attention == null) {
+        input.setInboxAttention?.(null);
         return;
       }
       let accountMatches: boolean;
@@ -254,14 +255,14 @@ export function createPilotNotifications(input: {
         accountMatches = await currentAccount(next.userId, epoch);
       } catch (error) {
         if (context === next && generation === epoch) {
-          input.setUnreadCount?.(null);
+          input.setInboxAttention?.(null);
         }
         throw error;
       }
       if (context !== next || generation !== epoch) {
         return;
       }
-      input.setUnreadCount?.(accountMatches ? next.unreadCount : null);
+      input.setInboxAttention?.(accountMatches ? next.attention : null);
     },
     async show(raw: unknown): Promise<DesktopNotificationResult> {
       const request = desktopNotificationRequestSchema.parse(raw);
