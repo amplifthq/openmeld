@@ -15,7 +15,8 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
                    "Enterprise onboarding and customer success",
                    "Search relevance experiments and evaluation",
                    "Platform reliability and incident response",
-                   "Design systems and accessibility working group"]
+                   "Design systems and accessibility working group",
+                   "Shared HTML readability"]
     headers = {"Authorization":"Bearer "+session["token"], "Content-Type":"application/json",
                "x-openmeld-profile-id":human["profile_id"],
                "x-openmeld-requested-organization-id":org["id"]}
