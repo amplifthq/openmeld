@@ -502,6 +502,15 @@ Important execution rules:
   five-minute policy. Stop, revocation, confirmed failure, and replacement-process
   reconciliation take precedence. Window expiry retains `runtime.progress_stale`
   and the existing owner-mediated late-result recovery, never automatic rerun.
+- The five-minute policy names the cause it actually found. An occupied native
+  conversation reports its occupancy once and then goes quiet, so it reaches the
+  same threshold looking like a lost computer. When the blocked work item still
+  carries `waitReason = controller_conversation_occupied`, the terminal closes as
+  `runtime.controller_conversation_occupied` instead, on the same deadline and
+  with the same retained late-result recovery. Occupancy is read from the
+  Coordinator's own admission state, never from D1. A conversation released
+  before the threshold clears that wait reason, so an ordinary stall keeps
+  `runtime.progress_stale` and its "reconnect the computer" copy.
 - After transport hibernation, accepted runtime evidence and tool/reasoning
   progress read the durable command when its transient transport entry is gone.
   This read projection does not recreate execution authority. Lease, source
@@ -1537,7 +1546,8 @@ cannot be proven remains outcome-unknown and must not be automatically rerun.
 Transport reconnect/redrive preserves the same execution identity.
 
 If RuntimeCoordinator has already closed an execution as
-`runtime.progress_stale` or `runtime.local_runtime_lost`, an exact
+`runtime.progress_stale`, `runtime.controller_conversation_occupied` or
+`runtime.local_runtime_lost`, an exact
 token-run-matching successful result may be accepted into that same dispatch
 result inbox as `late_result_available`. Core publishes one idempotent recovery
 notice that references the retained result without rerunning the original Wake.

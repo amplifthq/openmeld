@@ -472,6 +472,162 @@ describe("Agent Profile Work Coordinator", () => {
     });
   });
 
+  it("holds queued work behind an occupancy decision and lets the branch jump the queue", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 3; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: workItem(index),
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+
+    const occupied = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+    });
+
+    expect(occupied.promotedItem).toBeNull();
+    expect(occupied.coordinator.recoveryGate).toMatchObject({
+      interruptedWork: workItem(1),
+      status: "awaiting_occupancy_decision",
+    });
+    expect(
+      summarizeAgentProfileWorkCoordinator(occupied.coordinator)
+    ).toMatchObject({
+      currentWorks: [],
+      queuedWork: [workItem(2), workItem(3)],
+      status: "paused",
+    });
+
+    const authorized = authorizeAgentProfileWorkContinuation({
+      continuationClientMessageId: "client-continuation-fork-1",
+      coordinator: occupied.coordinator,
+      nowMs: 1_700_000_000_200,
+    });
+    expect(authorized.coordinator.recoveryGate).toMatchObject({
+      continuationClientMessageId: "client-continuation-fork-1",
+      status: "continuation_authorized",
+    });
+
+    const branch = acceptAgentProfileWork({
+      continuationClientMessageId: "client-continuation-fork-1",
+      coordinator: authorized.coordinator,
+      item: workItem(9),
+      nowMs: 1_700_000_000_300,
+    });
+    expect(branch.status).toBe("start");
+    expect(branch.coordinator.recoveryGate?.status).toBe(
+      "continuation_running"
+    );
+    expect(
+      summarizeAgentProfileWorkCoordinator(branch.coordinator).currentWorks
+    ).toEqual([workItem(9)]);
+  });
+
+  it("settles a second occupied Wake plainly rather than stranding it behind an open gate", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 3; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: { ...workItem(index), executionContextId: `context-${index}` },
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    const first = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+    });
+    const second = settleAgentProfileWork({
+      coordinator: first.coordinator,
+      nowMs: 1_700_000_000_101,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-2",
+    });
+
+    // An `awaiting_usage` follow-up would come back as a resume into the same
+    // occupied conversation, so the gate stays on the first Wake only.
+    expect(second.coordinator.recoveryGate).toMatchObject({
+      interruptedWork: workItem(1),
+      status: "awaiting_occupancy_decision",
+    });
+    expect(
+      second.coordinator.recoveryGate?.additionalInterruptedWork ?? []
+    ).toEqual([]);
+    expect(
+      second.coordinator.workItems.map((item) => item.dispatchId)
+    ).not.toContain("dispatch-2");
+  });
+
+  it("clears the occupancy gate when the owner skips the occupied work", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    for (let index = 1; index <= 2; index += 1) {
+      coordinator = acceptAgentProfileWork({
+        coordinator,
+        item: workItem(index),
+        nowMs: 1_700_000_000_000 + index,
+      }).coordinator;
+    }
+    const occupied = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+    });
+
+    const skipped = skipAgentProfileInterruptedWork({
+      coordinator: occupied.coordinator,
+      nowMs: 1_700_000_000_200,
+    });
+
+    expect(skipped.coordinator.recoveryGate).toBeNull();
+    expect(skipped.promotedItems.map((item) => item.dispatchId)).toEqual([
+      "dispatch-2",
+    ]);
+  });
+
+  it("keeps an occupancy decision open as attention when the execution target moved", () => {
+    let coordinator = createAgentProfileWorkCoordinator({
+      nowMs: 1_700_000_000_000,
+      targetProfileId: PROFILE_ID,
+    });
+    coordinator = acceptAgentProfileWork({
+      coordinator,
+      item: workItem(1),
+      nowMs: 1_700_000_000_001,
+    }).coordinator;
+    const occupied = settleAgentProfileWork({
+      coordinator,
+      nowMs: 1_700_000_000_100,
+      outcome: "controller_conversation_occupied",
+      targetWakeLifecycleId: "wake-1",
+    });
+
+    const attention = markAgentProfileWorkContinuationNeedsAttention({
+      coordinator: occupied.coordinator,
+      nowMs: 1_700_000_000_200,
+    });
+
+    expect(attention.changed).toBe(true);
+    expect(attention.coordinator.recoveryGate).toMatchObject({
+      interruptedWork: workItem(1),
+      status: "continuation_needs_attention",
+    });
+  });
+
   it("continues interrupted work first and requires separate approval before FIFO resumes", () => {
     let coordinator = createAgentProfileWorkCoordinator({
       nowMs: 1_700_000_000_000,

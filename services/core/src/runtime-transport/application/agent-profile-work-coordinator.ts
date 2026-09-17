@@ -21,6 +21,7 @@ export type AgentProfileWorkRecoveryGate = {
   interruptedWork: AgentProfileWorkCoordinatorItem;
   additionalInterruptedWork?: AgentProfileWorkCoordinatorItem[];
   status:
+    | "awaiting_occupancy_decision"
     | "awaiting_usage"
     | "continuation_pending"
     | "continuation_authorized"
@@ -328,7 +329,12 @@ export function removeAgentProfileWork(input: {
 export function settleAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
   nowMs: number;
-  outcome: "failed" | "stopped" | "succeeded" | "usage_exhausted";
+  outcome:
+    | "controller_conversation_occupied"
+    | "failed"
+    | "stopped"
+    | "succeeded"
+    | "usage_exhausted";
   targetWakeLifecycleId: string;
 }): {
   coordinator: AgentProfileWorkCoordinator;
@@ -399,6 +405,40 @@ export function settleAgentProfileWork(input: {
     };
   }
 
+  if (input.outcome === "controller_conversation_occupied") {
+    // The work stopped because another app owns the native conversation, so the
+    // only honest continuation is a new branch off its verified history. That is
+    // a decision the owner has to make, and it cannot be queued behind an
+    // existing gate: a second interrupted item would come back as an
+    // `awaiting_usage` resume, which would land in the same occupied thread.
+    // With a gate already open this settles plainly and the notice carries the
+    // cause instead.
+    if (!input.coordinator.recoveryGate) {
+      return {
+        coordinator: {
+          ...input.coordinator,
+          recoveryGate: {
+            continuationClientMessageId: null,
+            interruptedWork,
+            status: "awaiting_occupancy_decision",
+            updatedAtMs: input.nowMs,
+          },
+          revision: input.coordinator.revision + 1,
+          updatedAtMs: input.nowMs,
+          workItems: queuedWork,
+        },
+        promotedItem: null,
+        promotedItems: [],
+        removed: true,
+      };
+    }
+    return removeAgentProfileWork({
+      coordinator: input.coordinator,
+      nowMs: input.nowMs,
+      targetWakeLifecycleId: input.targetWakeLifecycleId,
+    });
+  }
+
   if (input.outcome === "usage_exhausted") {
     return {
       coordinator: {
@@ -466,7 +506,12 @@ export function markAgentProfileWorkContinuationNeedsAttention(input: {
   if (
     !recoveryGate ||
     (recoveryGate.status !== "continuation_pending" &&
-      recoveryGate.status !== "continuation_authorized")
+      recoveryGate.status !== "continuation_authorized" &&
+      // An occupancy decision is still a decision the owner has to make, so a
+      // moved execution target has to hand it to them as attention rather than
+      // answer that nothing is pending: the fork would otherwise be branched
+      // from a conversation the current controller does not own.
+      recoveryGate.status !== "awaiting_occupancy_decision")
   ) {
     return { coordinator: input.coordinator, changed: false };
   }
@@ -491,10 +536,11 @@ export function authorizeAgentProfileWorkContinuation(input: {
   nowMs: number;
 }): { coordinator: AgentProfileWorkCoordinator; changed: boolean } {
   const continuationClientMessageId = input.continuationClientMessageId.trim();
-  if (
-    !continuationClientMessageId ||
-    input.coordinator.recoveryGate?.status !== "continuation_pending"
-  ) {
+  const recoveryGate = input.coordinator.recoveryGate;
+  const authorizable =
+    recoveryGate?.status === "continuation_pending" ||
+    recoveryGate?.status === "awaiting_occupancy_decision";
+  if (!(continuationClientMessageId && recoveryGate && authorizable)) {
     return { coordinator: input.coordinator, changed: false };
   }
   return {
@@ -502,7 +548,7 @@ export function authorizeAgentProfileWorkContinuation(input: {
     coordinator: {
       ...input.coordinator,
       recoveryGate: {
-        ...input.coordinator.recoveryGate,
+        ...recoveryGate,
         continuationClientMessageId,
         status: "continuation_authorized",
         updatedAtMs: input.nowMs,
@@ -552,7 +598,8 @@ export function skipAgentProfileInterruptedWork(input: {
   promotedItems: AgentProfileWorkCoordinatorItem[];
 } {
   if (
-    input.coordinator.recoveryGate?.status !== "continuation_needs_attention"
+    input.coordinator.recoveryGate?.status !== "continuation_needs_attention" &&
+    input.coordinator.recoveryGate?.status !== "awaiting_occupancy_decision"
   ) {
     return {
       coordinator: input.coordinator,

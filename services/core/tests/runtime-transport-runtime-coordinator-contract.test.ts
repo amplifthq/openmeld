@@ -7629,6 +7629,274 @@ describe("runtime transport runtime coordinator transport contract", () => {
     ]);
   });
 
+  it("offers one occupancy decision and closes it whichever way the owner answers", async () => {
+    const seedOccupancyGate = (
+      storageRecords: Map<string, unknown>,
+      admissionKey: string,
+      queuedDispatchId: string | null
+    ): { interruptedTargetWakeLifecycleId: string } => {
+      const admission = storageRecords.get(admissionKey) as {
+        recoveryGate: {
+          interruptedWork: {
+            dispatchId: string;
+            targetWakeLifecycleId: string;
+          };
+        };
+        revision: number;
+        workItems: Array<{
+          dispatchId: string;
+          enqueuedAtMs: number;
+          targetWakeLifecycleId: string;
+        }>;
+      };
+      const queuedWork = admission.workItems.find(
+        (item) => item.dispatchId === queuedDispatchId
+      );
+      if (!queuedWork) {
+        throw new Error("Expected queued work behind the occupied Wake.");
+      }
+      storageRecords.set(admissionKey, {
+        ...admission,
+        recoveryGate: {
+          continuationClientMessageId: null,
+          interruptedWork: admission.recoveryGate.interruptedWork,
+          status: "awaiting_occupancy_decision",
+          updatedAtMs: Date.now(),
+        },
+        revision: admission.revision + 1,
+        updatedAtMs: Date.now(),
+        workItems: [queuedWork],
+      });
+      // The 5-minute occupancy terminal writes this alongside the gate; the
+      // fixture seeds both so the two exits are the only thing under test.
+      storageRecords.set(
+        buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+          TARGET_AGENT_PROFILE_ID
+        ),
+        buildAgentProfileWorkRecoveryInboxProjectionIntent({
+          desiredStatus: "open",
+          occurredAtMs: Date.now(),
+          stage: "resolve_occupied_conversation",
+          targetProfileId: TARGET_AGENT_PROFILE_ID,
+          targetWakeLifecycleId:
+            admission.recoveryGate.interruptedWork.targetWakeLifecycleId,
+          updatedAtMs: Date.now(),
+        })
+      );
+      return {
+        interruptedTargetWakeLifecycleId:
+          admission.recoveryGate.interruptedWork.targetWakeLifecycleId,
+      };
+    };
+
+    const forked = createHarness();
+    const forkedPrepared = await prepareRunningContinuationWithQueuedWork({
+      hub: forked.hub,
+      profileConfigurationRevision: 1,
+      queuedWorkName: "occupancy-successor",
+      sentFrames: forked.sentFrames,
+      socket: forked.socket,
+      state: forked.state,
+      storageRecords: forked.storageRecords,
+    });
+    const forkedGate = seedOccupancyGate(
+      forked.storageRecords,
+      forkedPrepared.admissionKey,
+      forkedPrepared.queuedIdentity.dispatchId
+    );
+    const forkedHub = forked.hub as unknown as {
+      rpcAuthorizeAgentProfileWorkContinuation: (input: {
+        continuationClientMessageId: string;
+        currentAgentControllerRef: string;
+        currentBindingId: string;
+        currentConfigurationRevision: number;
+        currentDefaultProjectId: string | null;
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        requireAcceptedExecutionTargetRevision: true;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+      rpcReadAgentProfileWorkRecovery: (input: {
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+
+    // The owner is asked to choose, not told to reconnect a computer.
+    await expect(
+      forkedHub.rpcReadAgentProfileWorkRecovery({
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toMatchObject({
+      action: "fork_interrupted_work",
+      interruptedDispatchId: "dispatch-1",
+      status: "available",
+    });
+    await (forked.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...forked.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({
+        resolution_status: "open",
+        title: "Choose how to continue work for Codex Agent",
+      }),
+    ]);
+
+    await expect(
+      forkedHub.rpcAuthorizeAgentProfileWorkContinuation({
+        continuationClientMessageId: "client-message-occupancy-fork",
+        currentAgentControllerRef: "builtin:codex",
+        currentBindingId: "binding-1",
+        currentConfigurationRevision: 1,
+        currentDefaultProjectId: null,
+        expectedInterruptedTargetWakeLifecycleId:
+          forkedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "authorized" });
+    expect(
+      forked.storageRecords.get(forkedPrepared.admissionKey)
+    ).toMatchObject({
+      recoveryGate: {
+        continuationClientMessageId: "client-message-occupancy-fork",
+        status: "continuation_authorized",
+      },
+    });
+    await (forked.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...forked.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
+
+    const skipped = createHarness();
+    const skippedPrepared = await prepareRunningContinuationWithQueuedWork({
+      hub: skipped.hub,
+      queuedWorkName: "occupancy-skip-successor",
+      sentFrames: skipped.sentFrames,
+      socket: skipped.socket,
+      state: skipped.state,
+      storageRecords: skipped.storageRecords,
+    });
+    const skippedGate = seedOccupancyGate(
+      skipped.storageRecords,
+      skippedPrepared.admissionKey,
+      skippedPrepared.queuedIdentity.dispatchId
+    );
+    const skippedHub = skipped.hub as unknown as {
+      rpcSkipAgentProfileInterruptedWork: (input: {
+        expectedInterruptedTargetWakeLifecycleId: string;
+        ownerUserId: string;
+        targetProfileId: string;
+      }) => Promise<unknown>;
+    };
+    await (skipped.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...skipped.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "open" }),
+    ]);
+
+    await expect(
+      skippedHub.rpcSkipAgentProfileInterruptedWork({
+        expectedInterruptedTargetWakeLifecycleId:
+          skippedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "skipped" });
+    expect(
+      skipped.storageRecords.get(skippedPrepared.admissionKey)
+    ).toMatchObject({ recoveryGate: null });
+    await (skipped.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    // The resolve has to name the stage the open item was written under, or
+    // skipping leaves the owner's decision sitting in the Inbox.
+    expect([...skipped.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({ resolution_status: "resolved" }),
+    ]);
+    expect(
+      skipped.storageRecords.get(
+        buildRuntimeCoordinatorHeadLifecycleStorageKey(
+          skippedPrepared.queuedIdentity.targetWakeLifecycleId
+        )
+      )
+    ).toMatchObject({ status: "accepted" });
+
+    // A branch cannot be taken off a conversation the current execution target
+    // does not own, so the decision has to become attention rather than answer
+    // that nothing is pending.
+    const moved = createHarness();
+    const movedPrepared = await prepareRunningContinuationWithQueuedWork({
+      hub: moved.hub,
+      profileConfigurationRevision: 1,
+      queuedWorkName: "occupancy-moved-successor",
+      sentFrames: moved.sentFrames,
+      socket: moved.socket,
+      state: moved.state,
+      storageRecords: moved.storageRecords,
+    });
+    const movedGate = seedOccupancyGate(
+      moved.storageRecords,
+      movedPrepared.admissionKey,
+      movedPrepared.queuedIdentity.dispatchId
+    );
+    // The decision has to be in the Inbox before the owner takes it, or nothing
+    // proves the stage it left gets closed.
+    await (moved.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    expect([...moved.recordingD1.interactionInboxRows.values()]).toEqual([
+      expect.objectContaining({
+        resolution_status: "open",
+        title: "Choose how to continue work for Codex Agent",
+      }),
+    ]);
+    await expect(
+      (
+        moved.hub as unknown as {
+          rpcAuthorizeAgentProfileWorkContinuation: (input: {
+            continuationClientMessageId: string;
+            currentAgentControllerRef: string;
+            currentBindingId: string;
+            currentConfigurationRevision: number;
+            currentDefaultProjectId: string | null;
+            expectedInterruptedTargetWakeLifecycleId: string;
+            ownerUserId: string;
+            requireAcceptedExecutionTargetRevision: true;
+            targetProfileId: string;
+          }) => Promise<unknown>;
+        }
+      ).rpcAuthorizeAgentProfileWorkContinuation({
+        continuationClientMessageId: "client-message-occupancy-moved",
+        currentAgentControllerRef: "builtin:claude-code",
+        currentBindingId: "binding-2",
+        currentConfigurationRevision: 2,
+        currentDefaultProjectId: null,
+        expectedInterruptedTargetWakeLifecycleId:
+          movedGate.interruptedTargetWakeLifecycleId,
+        ownerUserId: "owner-1",
+        requireAcceptedExecutionTargetRevision: true,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      })
+    ).resolves.toEqual({ status: "needs_attention" });
+    expect(moved.storageRecords.get(movedPrepared.admissionKey)).toMatchObject({
+      recoveryGate: { status: "continuation_needs_attention" },
+    });
+    await (moved.hub as unknown as { alarm: () => Promise<void> }).alarm();
+    // One intent slot per profile means the review item has to carry the close
+    // of the occupancy stage; two intents would overwrite each other and leave
+    // the owner two open items for one Wake.
+    const movedRows = [...moved.recordingD1.interactionInboxRows.values()];
+    expect(movedRows).toHaveLength(2);
+    expect(movedRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          resolution_status: "open",
+          title: "Review interrupted work for Codex Agent",
+        }),
+        expect.objectContaining({
+          resolution_status: "resolved",
+          title: "Choose how to continue work for Codex Agent",
+        }),
+      ])
+    );
+  });
+
   const prepareOccupiedWorkWithSuccessorWake = async (input: {
     hub: RuntimeTransportHub;
     sentFrames: unknown[];
@@ -19077,6 +19345,267 @@ describe("runtime transport runtime coordinator transport contract", () => {
             call.query.includes("openMeldDaemon_runtime_coordinator_executions")
         )
       ).toBe(false);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("fails an occupied native conversation with its real cause and opens an owner decision", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const {
+        hub,
+        recordingD1,
+        sentFrames,
+        socket,
+        spaceFetchRequests,
+        state,
+        storageRecords,
+      } = createHarness();
+      const executionToken = await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+      state.pendingDispatches.clear();
+
+      await (
+        hub as unknown as {
+          handleDispatchLifecycleFrame: (
+            webSocket: WebSocket,
+            payload: unknown
+          ) => Promise<void>;
+        }
+      ).handleDispatchLifecycleFrame(
+        socket,
+        buildLifecycleRequest({
+          executionTokenEcho: buildExecutionTokenEcho(executionToken),
+          lifecycleAtMs: 1_700_000_000_300,
+          phase: "running",
+          runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        })
+      );
+
+      // The Adapter reports the occupancy exactly once and then goes quiet, so
+      // the watchdog sees the same stale progress a lost computer produces.
+      // This fixture writes that one report directly.
+      const admissionKey =
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        );
+      const admission = storageRecordsAdmission(storageRecords, admissionKey);
+      storageRecords.set(admissionKey, {
+        ...admission,
+        workItems: admission.workItems.map((item) =>
+          item.dispatchId === "dispatch-1"
+            ? { ...item, waitReason: "controller_conversation_occupied" }
+            : item
+        ),
+      });
+      const occupiedTargetWakeLifecycleId =
+        admission.workItems.find((item) => item.dispatchId === "dispatch-1")
+          ?.targetWakeLifecycleId ?? null;
+      expect(occupiedTargetWakeLifecycleId).not.toBeNull();
+
+      // The computer is fine in this case, so the Service stays connected and
+      // heartbeats through the wait. Without that the watchdog would keep the
+      // longer communication-recovery grace instead of deciding at five
+      // minutes.
+      const liveSession = state.sessionsById.get("daemon-session-1");
+      if (!liveSession) {
+        throw new Error("Expected the registered daemon session.");
+      }
+      // The watchdog needs an earlier check to compare against before the
+      // stale-progress policy can decide anything.
+      for (const checkAtMs of [1_700_000_031_000, 1_700_000_061_000]) {
+        liveSession.lastHeartbeatMs = checkAtMs;
+        nowSpy.mockReturnValue(checkAtMs);
+        await (
+          hub as unknown as {
+            alarm: () => Promise<void>;
+          }
+        ).alarm();
+      }
+      liveSession.lastHeartbeatMs = 1_700_000_300_300;
+
+      recordingD1.calls.length = 0;
+      sentFrames.length = 0;
+      spaceFetchRequests.length = 0;
+      nowSpy.mockReturnValue(1_700_000_300_300);
+      await (
+        hub as unknown as {
+          alarm: () => Promise<void>;
+        }
+      ).alarm();
+
+      expect(sentFrames).toEqual([]);
+      expect(spaceFetchRequests).toHaveLength(1);
+      expect(spaceFetchRequests[0]?.body).toMatchObject({
+        data: {
+          noticeType: "terminal_failure",
+          reason: "runtime.controller_conversation_occupied",
+          reasonCode: "runtime.controller_conversation_occupied",
+          text: "Codex Agent could not use this conversation because another app has it open. Continue on a new branch of it, or skip the work.",
+        },
+      });
+      const occupiedTerminalEvent = getRuntimeCoordinatorEventCalls(
+        recordingD1.calls
+      ).find(
+        (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
+      );
+      expect(
+        JSON.parse(String(occupiedTerminalEvent?.params[7]))
+      ).toMatchObject({
+        action: "timeout_terminal",
+        controllerConversationOccupied: {
+          expiryCause: "controller_conversation_occupied",
+          progressEvidenceStaleTerminalAfterMs: 300_000,
+        },
+        reasonCode: "runtime.controller_conversation_occupied",
+        trigger: "alarm",
+      });
+      expect(storageRecords.get(admissionKey)).toMatchObject({
+        recoveryGate: {
+          interruptedWork: { dispatchId: "dispatch-1" },
+          status: "awaiting_occupancy_decision",
+        },
+      });
+      expect(
+        storageRecords.get(
+          buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+            TARGET_AGENT_PROFILE_ID
+          )
+        )
+      ).toMatchObject({
+        desiredStatus: "open",
+        stage: "resolve_occupied_conversation",
+        targetWakeLifecycleId: occupiedTargetWakeLifecycleId,
+      });
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  it("keeps a released conversation on the honest stall cause with no owner decision", async () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_700_000_000_000);
+    try {
+      const {
+        hub,
+        recordingD1,
+        sentFrames,
+        socket,
+        spaceFetchRequests,
+        state,
+        storageRecords,
+      } = createHarness();
+      const executionToken = await issueDeliveryToken({
+        hub,
+        sentFrames,
+        socket,
+        state,
+      });
+      state.pendingDispatches.clear();
+      const lifecycleHub = hub as unknown as {
+        handleDispatchLifecycleFrame: (
+          webSocket: WebSocket,
+          payload: unknown
+        ) => Promise<void>;
+      };
+      const reportOccupancy = async (
+        occupancyState: "available" | "occupied",
+        atMs: number
+      ) => {
+        nowSpy.mockReturnValue(atMs);
+        await lifecycleHub.handleDispatchLifecycleFrame(
+          socket,
+          buildLifecycleRequest({
+            agentControllerConversationOccupancy: {
+              agentControllerConversationId: "conversation-1",
+              contractVersion: 1,
+              state: occupancyState,
+            },
+            executionTokenEcho: buildExecutionTokenEcho(executionToken),
+            lifecycleAtMs: atMs,
+            phase: "running",
+            runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+          })
+        );
+      };
+      const admissionKey =
+        runtimeCoordinatorAgentProfileExecutionAdmissionStorageKeys.admission(
+          TARGET_AGENT_PROFILE_ID
+        );
+      const readHeadWorkItem = () =>
+        storageRecordsAdmission(storageRecords, admissionKey).workItems.find(
+          (item) => item.dispatchId === "dispatch-1"
+        );
+
+      await reportOccupancy("occupied", 1_700_000_000_200);
+      expect(readHeadWorkItem()).toMatchObject({
+        waitReason: "controller_conversation_occupied",
+      });
+      // Codex Desktop lets go of the thread before the deadline. The wait
+      // reason is what the terminal reads, so releasing it has to put the run
+      // back on the ordinary stall path instead of accusing another app.
+      await reportOccupancy("available", 1_700_000_000_300);
+      expect(readHeadWorkItem()).not.toHaveProperty("waitReason");
+
+      const liveSession = state.sessionsById.get("daemon-session-1");
+      if (!liveSession) {
+        throw new Error("Expected the registered daemon session.");
+      }
+      for (const checkAtMs of [1_700_000_031_000, 1_700_000_061_000]) {
+        liveSession.lastHeartbeatMs = checkAtMs;
+        nowSpy.mockReturnValue(checkAtMs);
+        await (
+          hub as unknown as {
+            alarm: () => Promise<void>;
+          }
+        ).alarm();
+      }
+      liveSession.lastHeartbeatMs = 1_700_000_300_300;
+
+      recordingD1.calls.length = 0;
+      spaceFetchRequests.length = 0;
+      nowSpy.mockReturnValue(1_700_000_300_300);
+      await (
+        hub as unknown as {
+          alarm: () => Promise<void>;
+        }
+      ).alarm();
+
+      expect(spaceFetchRequests).toHaveLength(1);
+      expect(spaceFetchRequests[0]?.body).toMatchObject({
+        data: {
+          noticeType: "terminal_failure",
+          reason: "runtime.progress_stale",
+          reasonCode: "runtime.progress_stale",
+        },
+      });
+      const staleTerminalEvent = getRuntimeCoordinatorEventCalls(
+        recordingD1.calls
+      ).find(
+        (call) => call.params[2] === "runtime_coordinator_timeout_terminal"
+      );
+      expect(JSON.parse(String(staleTerminalEvent?.params[7]))).toMatchObject({
+        action: "timeout_terminal",
+        progressStale: { expiryCause: "local_progress_stale" },
+        reasonCode: "runtime.progress_stale",
+      });
+      const releasedAdmission = storageRecords.get(admissionKey) as
+        | { recoveryGate: unknown }
+        | undefined;
+      // The stall retires the work and, with nothing queued behind it, the
+      // admission record goes too. Either way the owner is left no decision.
+      expect(releasedAdmission?.recoveryGate ?? null).toBeNull();
+      expect(
+        storageRecords.get(
+          buildAgentProfileWorkRecoveryInboxProjectionStorageKey(
+            TARGET_AGENT_PROFILE_ID
+          )
+        )
+      ).toBeUndefined();
     } finally {
       nowSpy.mockRestore();
     }

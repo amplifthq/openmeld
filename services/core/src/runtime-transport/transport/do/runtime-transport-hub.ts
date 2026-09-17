@@ -350,6 +350,7 @@ import {
   readRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarmAtMs,
   readRuntimeCoordinatorAgentProfileExecutionStateFromAdmission,
   readRuntimeCoordinatorAgentProfileOperationalContextsFromAdmission,
+  readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied,
   readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission,
   releaseRuntimeCoordinatorAgentProfileExecutionTargetMutation,
   resolveNextAgentProfileContextMigrationAlarmAtMs,
@@ -447,6 +448,7 @@ import {
   buildMissingPublicationFactsClosureDiagnostics,
   buildPreExecutionHandoffFailureResultRef,
   buildRuntimeCoordinatorCancelledExecutionRecord,
+  buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan,
   buildRuntimeCoordinatorDecisionId,
   buildRuntimeCoordinatorDeliveryExpiredTerminalPlan,
   buildRuntimeCoordinatorExecutionRecordFromAuthority,
@@ -492,6 +494,7 @@ import {
   normalizeRuntimeCoordinatorHeadWaitingBoundary,
   omitRuntimeCoordinatorHeadPublicationRetry,
   parkRuntimeCoordinatorFinalizationRetryEntry,
+  RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
   RUNTIME_COORDINATOR_DECISION_MODEL_VERSION,
   RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE,
   RUNTIME_COORDINATOR_FINALIZATION_RETRY_DELAY_MS,
@@ -1055,6 +1058,7 @@ type RuntimeCoordinatorWakeStopControlPayload =
   | OpenMeldDaemonCancelPayload
   | OpenMeldDaemonInterruptPayload;
 type RuntimeCoordinatorLostRunTerminalReasonCode =
+  | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
   | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
   | typeof RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE
   | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
@@ -1062,6 +1066,9 @@ type RuntimeCoordinatorLostRunTerminalReasonCode =
 const resolveRuntimeCoordinatorLostRunTerminalPlan = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorTerminalDecisionPlan => {
+  if (expiryCause === "controller_conversation_occupied") {
+    return buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan();
+  }
   if (expiryCause === "local_progress_stale") {
     return buildRuntimeCoordinatorProgressStaleTerminalPlan();
   }
@@ -1074,6 +1081,9 @@ const resolveRuntimeCoordinatorLostRunTerminalPlan = (
 const resolveRuntimeCoordinatorLostRunReasonCode = (
   expiryCause: RuntimeCoordinatorRunExpiryCause
 ): RuntimeCoordinatorLostRunTerminalReasonCode => {
+  if (expiryCause === "controller_conversation_occupied") {
+    return RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE;
+  }
   if (expiryCause === "local_progress_stale") {
     return RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
   }
@@ -1087,8 +1097,21 @@ const resolveRuntimeCoordinatorLostRunPublicationPresentation = (
   reasonCode: RuntimeCoordinatorLostRunTerminalReasonCode
 ): {
   blockerSlug: string;
-  noticeVariant: "delivery_expired" | "local_runtime_lost" | "progress_stale";
+  noticeVariant:
+    | "controller_conversation_occupied"
+    | "delivery_expired"
+    | "local_runtime_lost"
+    | "progress_stale";
 } => {
+  if (
+    reasonCode ===
+    RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+  ) {
+    return {
+      blockerSlug: "controller-conversation-occupied",
+      noticeVariant: "controller_conversation_occupied",
+    };
+  }
   if (reasonCode === RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE) {
     return {
       blockerSlug: "progress-stale",
@@ -16050,6 +16073,45 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     );
   }
 
+  /**
+   * Names the cause behind a stale-progress terminal.
+   *
+   * Same watchdog, different cause: an occupied native conversation produces
+   * exactly one lifecycle event and then nothing, so it reaches the stale
+   * threshold looking like a lost computer. Core still holds the occupancy flag
+   * the Adapter reported, and naming it here is what lets the Wake fail with
+   * its real reason and settle into an owner decision instead of a "reconnect
+   * the computer" dead end.
+   */
+  private async resolveRuntimeCoordinatorStaleProgressCause(input: {
+    dispatchId: string;
+    targetProfileId: string;
+  }): Promise<{
+    expiryCause: RuntimeCoordinatorRunExpiryCause;
+    reasonCode:
+      | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
+      | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
+  }> {
+    const occupied =
+      await readRuntimeCoordinatorAgentProfileWorkControllerConversationOccupied(
+        {
+          dispatchId: input.dispatchId,
+          storage: this.ctx.storage,
+          targetProfileId: input.targetProfileId,
+        }
+      );
+    return occupied
+      ? {
+          expiryCause: "controller_conversation_occupied",
+          reasonCode:
+            RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
+        }
+      : {
+          expiryCause: "local_progress_stale",
+          reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+        };
+  }
+
   private async redeliverRuntimeCoordinatorCurrentRun(input: {
     authority: RuntimeCoordinatorExecutionTokenAuthorityRecord;
     decision: RuntimeTransportRuntimeCoordinatorDecisionRequest;
@@ -16067,6 +16129,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         commandState: RuntimeCoordinatorRunCommandState;
         expiryCause: RuntimeCoordinatorRunExpiryCause;
         reasonCode:
+          | typeof RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_DELIVERY_EXPIRED_REASON_CODE
           | typeof RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE;
       }
@@ -16146,8 +16209,10 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           ok: false,
           terminal: true,
           commandState,
-          expiryCause: "local_progress_stale",
-          reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+          ...(await this.resolveRuntimeCoordinatorStaleProgressCause({
+            dispatchId: commandState.dispatchId,
+            targetProfileId: commandState.targetProfileId,
+          })),
         };
       }
       return {

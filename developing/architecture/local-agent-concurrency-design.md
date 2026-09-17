@@ -549,10 +549,47 @@ included. Reporting a cancellation for a turn that had started would hand Core
 the false premise that nothing ran, which is exactly what invites the same work
 being executed twice.
 
-This is the admission half only. Proving the old wait has stopped, creating the
-successor Wake with a verified historical boundary, and the user-facing entry
-point remain outstanding; see
+`handOffOccupiedAgentProfileWork` has no caller yet. The owner-facing recovery
+below reaches the same outcome through the continuation path that Usage recovery
+already uses, so the handoff RPC stays reachable but unused; see
 [Codex session coexistence](review/2026-09-14-codex-session-coexistence.md).
+
+### The owner's decision at the progress-stale bound
+
+A blocked wait is not endless, and it must not end in a dishonest failure. The
+existing five-minute progress-stale threshold is the bound: no new wall-clock
+deadline is introduced. At that point the run closes as
+`runtime.controller_conversation_occupied`, with copy naming the other app rather
+than the computer, and the retired head opens a recovery gate whose status is
+`awaiting_occupancy_decision`.
+
+The gate is what keeps the queue from cascading. Without it the next waiting Wake
+promotes into the same still-occupied conversation and dies the same way five
+minutes later. It is opened fail-closed: only when no gate exists, so an
+occupancy terminal never displaces a Usage or attention decision the owner is
+already holding. A second occupied Wake settles plainly rather than queueing
+behind the open gate, because a resumed follow-up would re-enter the same
+occupied conversation.
+
+The gate projects the `fork_interrupted_work` recovery action and a
+`resolve_occupied_conversation` Inbox item, which offers exactly two answers:
+
+- **Continue on a new branch.** The continuation re-posts the original message
+  with `contextSelection = { mode: "fork", sourceWakeId }`, so the successor is
+  minted from a verified history boundary of the occupied conversation. Because
+  the gate moves to `continuation_authorized`, the successor jumps the held queue
+  and reserves immediately, which is the same "must not wait for the queue it was
+  meant to escape" rule the handoff was written for. `thread/fork` creates a new
+  thread: the other app keeps the original and the two never rejoin, so the copy
+  says *another branch*, never *restored*.
+- **Skip.** The gate clears and the held queue promotes.
+
+Either answer closes the Inbox item. If the execution target moved while the
+decision was open, the branch cannot be taken off a conversation the current
+target does not own, so the gate becomes `continuation_needs_attention` and the
+review item replaces the occupancy item. Only one projection intent exists per
+Profile, so the item that opens carries the stage it supersedes; two intents
+would overwrite each other and leave the owner two open items for one Wake.
 
 ### Limits and how to change them
 
