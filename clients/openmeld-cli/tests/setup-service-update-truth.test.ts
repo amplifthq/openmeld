@@ -1,14 +1,20 @@
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   assertSetupServiceUpdateComplete,
   resolveSetupServiceUpdateTruth,
 } from "../src/commands/setup-service-update-truth";
 import { OPENMELD_VERSION } from "../src/runtime/version";
 
-const { inventory, update } = vi.hoisted(() => ({
+const { expectedServiceVersion, inventory, update } = vi.hoisted(() => ({
+  expectedServiceVersion: vi.fn(async (selectedVersion: string) =>
+    Promise.resolve(selectedVersion)
+  ),
   inventory: vi.fn(),
   update: vi.fn(),
+}));
+vi.mock("../src/local-service/lifecycle/current-daemon-version", () => ({
+  resolveCurrentDaemonExpectedVersion: expectedServiceVersion,
 }));
 vi.mock("../src/local-service/lifecycle/daemon-service-inventory", () => ({
   inspectDaemonServiceInventory: inventory,
@@ -32,6 +38,12 @@ function operation(
 }
 
 describe("setup service update truth", () => {
+  beforeEach(() => {
+    expectedServiceVersion.mockClear();
+    inventory.mockReset();
+    update.mockReset();
+  });
+
   it("uses the current Service contract, not a retained legacy install record", async () => {
     update.mockResolvedValue({
       ...operation("needs_help"),
@@ -45,6 +57,53 @@ describe("setup service update truth", () => {
     });
     await expect(assertSetupServiceUpdateComplete()).resolves.toBeUndefined();
   });
+
+  it("verifies a retained Service against the operation target", async () => {
+    const retainedServiceVersion = "0.7.99";
+    update.mockResolvedValue({
+      ...operation("updated"),
+      targetCliVersion: OPENMELD_VERSION,
+      targetServiceVersion: retainedServiceVersion,
+    });
+    inventory.mockImplementation(
+      async ({ expectedVersion }: { expectedVersion: string }) => ({
+        serviceContract: { daemonVersion: retainedServiceVersion },
+        installStatus: { state: { daemonVersion: retainedServiceVersion } },
+        runtimeStatus: { status: "running" },
+        anomalies:
+          expectedVersion === retainedServiceVersion
+            ? []
+            : ["bundle_version_mismatch"],
+      })
+    );
+
+    await expect(assertSetupServiceUpdateComplete()).resolves.toBeUndefined();
+    expect(expectedServiceVersion).toHaveBeenCalledWith(retainedServiceVersion);
+    expect(inventory).toHaveBeenCalledWith({
+      expectedVersion: retainedServiceVersion,
+      intent: "status_cleanup",
+    });
+  });
+
+  it("rejects a damaged retained Service", async () => {
+    const retainedServiceVersion = "0.7.99";
+    update.mockResolvedValue({
+      ...operation("updated"),
+      targetCliVersion: OPENMELD_VERSION,
+      targetServiceVersion: retainedServiceVersion,
+    });
+    inventory.mockResolvedValue({
+      serviceContract: { daemonVersion: retainedServiceVersion },
+      installStatus: { state: { daemonVersion: retainedServiceVersion } },
+      runtimeStatus: { status: "running" },
+      anomalies: ["bundle_version_mismatch"],
+    });
+
+    await expect(assertSetupServiceUpdateComplete()).rejects.toThrow(
+      "OpenMeld Service update could not be verified"
+    );
+  });
+
   it("does not hide an in-flight older update behind a newer CLI", () => {
     expect(
       resolveSetupServiceUpdateTruth({
@@ -55,23 +114,49 @@ describe("setup service update truth", () => {
       })
     ).toMatchObject({ status: "updating" });
   });
-  it("keeps the historical failure but accepts a verified current replacement", () => {
+  it("keeps the historical failure but accepts a verified newer replacement", () => {
+    const historicalOperation = {
+      ...operation("needs_help"),
+      targetVersion: "0.7.99",
+    };
     expect(
       resolveSetupServiceUpdateTruth({
         currentCliVersion: "0.8.0",
         installedServiceVersion: "0.8.0",
-        operation: operation("needs_help"),
+        operation: historicalOperation,
         currentServiceVerified: true,
       })
     ).toEqual({ status: "ready" });
     expect(
       resolveSetupServiceUpdateTruth({
         currentCliVersion: "0.8.0",
-        installedServiceVersion: "0.7.99",
-        operation: operation("needs_help"),
+        installedServiceVersion: "0.7.98",
+        operation: historicalOperation,
         currentServiceVerified: true,
       })
     ).toMatchObject({ status: "failed" });
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.8.0",
+        installedServiceVersion: "0.8.0",
+        operation: historicalOperation,
+        currentServiceVerified: false,
+      })
+    ).toMatchObject({ status: "failed" });
+  });
+
+  it("accepts a verified newer installation after an older completed update", () => {
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.8.0",
+        installedServiceVersion: "0.8.0",
+        operation: {
+          ...operation("updated"),
+          targetVersion: "0.7.99",
+        },
+        currentServiceVerified: true,
+      })
+    ).toEqual({ status: "ready" });
   });
   it.each([
     "waiting_for_work",

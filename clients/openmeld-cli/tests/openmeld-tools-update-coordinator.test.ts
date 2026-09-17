@@ -147,10 +147,12 @@ describe("OpenMeld Tools update coordinator", () => {
       requestedAt: NOW,
       requestSource: "web",
       targetCliVersion: "0.3.105",
-      targetServiceVersion: "0.3.104",
+      targetServiceVersion: "0.3.105",
     });
     expect(dependencies.state.lastAttempt?.operation).toMatchObject({
       phase: "updated",
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.105",
     });
   });
 
@@ -200,7 +202,7 @@ describe("OpenMeld Tools update coordinator", () => {
       requestedAt: NOW,
       requestSource: "automatic",
       targetCliVersion: "0.3.105",
-      targetServiceVersion: "0.3.104",
+      targetServiceVersion: "0.3.105",
     });
   });
 

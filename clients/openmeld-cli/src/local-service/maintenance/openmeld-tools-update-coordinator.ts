@@ -166,7 +166,7 @@ export function createOpenMeldToolsUpdateCoordinator(
       return { status: "unavailable" };
     }
     const serviceVersion =
-      assessment.serviceVersion ?? assessment.currentVersion;
+      assessment.serviceVersion ?? assessment.latestVersion;
     if (
       !(
         assessment.updateAvailable ||

@@ -16,12 +16,17 @@ const CLI_RELEASE_PATHS = new Set([
   "scripts/release/build-cli-binary.mjs",
   "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs",
 ]);
+// CLI source is part of the shared executable and is therefore a Service input
+// unless the path is an explicitly reviewed, presentation-only module that the
+// Service does not import. Keep this allowlist narrow and concrete.
+const CLI_ONLY_SERVICE_RELEASE_PATHS = new Set([
+  "clients/openmeld-cli/src/commands/agents-cards.ts",
+]);
 const RUNTIME_ADAPTER_RELEASE_PATH_RE =
   /^runtime\/adapters\/[^/]+\/(?:src\/|package\.json$)/u;
 const SERVICE_RELEASE_PATH_PREFIXES = [
-  "clients/openmeld-cli/src/config/daemon",
-  "clients/openmeld-cli/src/local-service/",
-  "clients/openmeld-cli/src/system/daemon",
+  "clients/openmeld-cli/native/",
+  "clients/openmeld-cli/src/",
   "packages/schemas/src/",
   "packages/schemas/tests/daemon/",
   "runtime/local-service/src/",
@@ -32,9 +37,9 @@ const ENGINEERING_ONLY_SCHEMA_PATH_PREFIXES = [
 ];
 const SERVICE_RELEASE_PATHS = new Set([
   "clients/openmeld-cli/tsdown.config.ts",
-  "clients/openmeld-cli/src/commands/service.ts",
-  "clients/openmeld-cli/src/system/current-daemon-version.ts",
+  "clients/openmeld-cli/scripts/build-macos-keychain-addon.mjs",
   "pnpm-lock.yaml",
+  "scripts/release/build-cli-binary.mjs",
   "scripts/release/build-packaged-openmeld-cli.mjs",
   "runtime/local-service/package.json",
   "runtime/local-service/tsconfig.build.json",
@@ -59,7 +64,10 @@ export function isSkillsReleasePath(path) {
 
 export function isServiceReleasePath(path) {
   const normalized = normalizeRepoPath(path);
-  if (isEngineeringOnlySchemaPath(normalized)) {
+  if (
+    isEngineeringOnlySchemaPath(normalized) ||
+    CLI_ONLY_SERVICE_RELEASE_PATHS.has(normalized)
+  ) {
     return false;
   }
   return (
