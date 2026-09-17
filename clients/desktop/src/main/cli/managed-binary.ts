@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  type CliBinaryDownloadProgress,
   DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
   resolveFullCliBinaryUpdatePlan,
@@ -15,7 +16,11 @@ import type { CommandDeps } from "./commands";
 /** Bootstrap only. The downloaded CLI owns managed installation and Service state. */
 export async function installManagedBinary(
   webOrigin: string,
-  deps: CommandDeps
+  deps: CommandDeps,
+  observation: {
+    onDownloadProgress?: (progress: CliBinaryDownloadProgress) => void;
+    onStage?: (stage: "downloading" | "verifying" | "installing") => void;
+  } = {}
 ) {
   if (process.platform !== "darwin" || process.arch !== "arm64") {
     throw new Error("Connecting this computer requires an Apple silicon Mac.");
@@ -47,12 +52,14 @@ export async function installManagedBinary(
   if (new URL(plan.downloadUrl).origin !== manifestUrl.origin) {
     throw new Error("OpenMeld Tools returned an unexpected download location.");
   }
+  observation.onStage?.("downloading");
   const bytes = await downloadCliBinaryUpdateArtifact({
     downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
     fetchImpl: (input, init) => fetch(input, { ...init, redirect: "error" }),
     onDeltaFallback: () => {
       /* A new installation always uses the complete artifact. */
     },
+    onProgress: observation.onDownloadProgress,
     plan,
     release,
   });
@@ -62,6 +69,7 @@ export async function installManagedBinary(
   try {
     await writeFile(artifactPath, bytes, { mode: 0o700 });
     await chmod(artifactPath, 0o700);
+    observation.onStage?.("verifying");
     await verifyCliBinaryCodeSignature({
       artifactPath,
       release,
@@ -79,6 +87,7 @@ export async function installManagedBinary(
       },
     });
     // No npm, shell, or GUI-owned Service installation. Never force a downgrade.
+    observation.onStage?.("installing");
     await exec(artifactPath, ["install-self", "--json"], {
       env: deps.env,
       timeout: 0,

@@ -1,8 +1,15 @@
-import { desktopComputerConnectionResultSchema } from "@openmeld/schemas";
+import {
+	type DesktopComputerConnectionProgress,
+	desktopComputerConnectionResultSchema,
+} from "@openmeld/schemas";
 import type {
 	CreatePrepareSessionRequest,
 	PrepareSessionSnapshot,
 } from "@openmeld/schemas/types";
+import {
+	isNewerComputerConnectionProgress,
+	presentComputerConnectionProgress,
+} from "@openmeld/start";
 import { Button } from "@openmeld/ui/components/button";
 import { SettingsAddComputerCardContent } from "@openmeld/ui/components/settings-computers";
 import { CheckIcon } from "@phosphor-icons/react";
@@ -60,7 +67,8 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	const [failed, setFailed] = useState(false);
 	const [diagnosticId, setDiagnosticId] = useState<string | null>(null);
 	const [diagnosticsPath, setDiagnosticsPath] = useState<string | null>(null);
-	const [progress, setProgress] = useState<string | null>(null);
+	const [progress, setProgress] =
+		useState<DesktopComputerConnectionProgress | null>(null);
 	const expectedAccount = session.data?.user.id;
 	const intent = setup.routeIntent;
 	const connected =
@@ -70,15 +78,28 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		!intent.connectedComputerId &&
 		connection.data?.status === "available";
 	useEffect(() => {
-		if (!pending) {
+		const desktop = getDesktopPlatform();
+		if (!desktop) {
 			return;
 		}
-		return getDesktopPlatform()?.onConnectionProgress((event) => {
-			if (event.expectedAccount === expectedAccount) {
-				setProgress(event.message);
+		const accept = (event: DesktopComputerConnectionProgress) => {
+			if (event.expectedAccount !== expectedAccount) {
+				return;
+			}
+			setProgress((current) =>
+				isNewerComputerConnectionProgress(current, event) ? event : current
+			);
+			if (event.state === "active") {
+				setOperation("connect");
+			}
+		};
+		desktop.connectionProgressCurrent().then((event) => {
+			if (event?.state === "active" && active.current) {
+				accept(event);
 			}
 		});
-	}, [pending, expectedAccount]);
+		return desktop.onConnectionProgress(accept);
+	}, [expectedAccount]);
 	const connect = async () => {
 		const desktop = getDesktopPlatform();
 		if (!(desktop && expectedAccount)) {
@@ -146,7 +167,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		setMessage(null);
 		setDiagnosticId(null);
 		setDiagnosticsPath(null);
-		setProgress("Disconnecting this Mac…");
+		setProgress(null);
 		try {
 			if (await desktop.disconnectComputer({ expectedAccount })) {
 				if (!active.current) {
@@ -314,11 +335,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 			>
 				{actionLabel}
 			</Button>
-			{pending ? (
-				<output className="block text-muted-foreground text-sm">
-					{progress ?? "Checking this Mac’s connection…"}
-				</output>
-			) : null}
+			{pending ? <ConnectionProgress progress={progress} /> : null}
 			{diagnosticId ? (
 				<details className="text-muted-foreground text-xs">
 					<summary>Connection details</summary>
@@ -334,5 +351,59 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 				</p>
 			) : null}
 		</div>
+	);
+}
+
+function ConnectionProgress({
+	progress,
+}: {
+	progress: DesktopComputerConnectionProgress | null;
+}) {
+	if (!progress) {
+		return (
+			<output className="block text-muted-foreground text-sm">
+				Checking this Mac’s connection…
+			</output>
+		);
+	}
+	const view = presentComputerConnectionProgress(progress);
+	return (
+		<output
+			aria-live="polite"
+			className="block w-full max-w-sm space-y-2 text-left"
+		>
+			<div className="flex items-center justify-between gap-3 text-sm">
+				<span className="font-medium text-foreground">{view.stage}</span>
+				{view.percentage === null ? null : (
+					<span className="text-muted-foreground tabular-nums">
+						{view.percentage}%
+					</span>
+				)}
+			</div>
+			<div
+				{...(view.determinate
+					? {
+							role: "progressbar",
+							"aria-label": view.stage,
+							"aria-valuemin": 0,
+							"aria-valuemax": 100,
+							"aria-valuenow": view.percentage ?? 0,
+						}
+					: {})}
+				className="h-1.5 overflow-hidden rounded-full bg-muted"
+			>
+				<div
+					className={
+						view.determinate
+							? "h-full rounded-full bg-primary transition-[width]"
+							: "h-full w-1/3 rounded-full bg-primary motion-safe:animate-pulse"
+					}
+					style={
+						view.determinate ? { width: `${view.percentage ?? 0}%` } : undefined
+					}
+				/>
+			</div>
+			<p className="text-muted-foreground text-xs">{view.description}</p>
+		</output>
 	);
 }

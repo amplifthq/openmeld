@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { unwatchFile, watchFile } from "node:fs";
 import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -44,8 +45,15 @@ export function createComputerConnection(input: {
       throw new Error("A computer connection is already in progress.");
     }
     pending = true;
+    let prepareSessionId: string | null = null;
+    const observe = createConnectionProgressObserver({
+      expectedAccount: intent.expectedAccount,
+      onProgress: input.onProgress,
+      prepareSessionId: () => prepareSessionId,
+    });
     try {
       const sessionRevision = input.sessionRevision?.();
+      observe("checking", "desktop.connection.checking");
       await input.ensureCompatible();
       const assertAccount = async () => {
         const session = await input.auth.session();
@@ -63,7 +71,19 @@ export function createComputerConnection(input: {
         env: deps.env,
         override: deps.openMeldBin,
       });
-      const review = await reviewComputerConnection(bin, input.webOrigin, deps);
+      const review = await reviewComputerConnection(
+        bin,
+        input.webOrigin,
+        deps,
+        observe
+      );
+      const switchingAccount = isSwitchingAccount(review.account, account.id);
+      if (switchingAccount) {
+        observe(
+          "waiting_for_confirmation",
+          "desktop.connection.waiting_for_confirmation"
+        );
+      }
       if (
         !(await approveAccountSwitch(
           review.account,
@@ -71,6 +91,11 @@ export function createComputerConnection(input: {
           input.confirmSwitch
         ))
       ) {
+        observe(
+          "waiting_for_confirmation",
+          "desktop.connection.switch_cancelled",
+          { state: "completed" }
+        );
         return { status: "cancelled" };
       }
       const canReuse = !(
@@ -84,6 +109,9 @@ export function createComputerConnection(input: {
         review.existingConnection
       ) {
         await assertAccount();
+        observe("connected", "desktop.connection.reused", {
+          state: "completed",
+        });
         return { status: "reused", connection: review.existingConnection };
       }
       const cloud = async (
@@ -124,7 +152,14 @@ export function createComputerConnection(input: {
           connectedComputerId: intent.connectedComputerId,
         })
       );
-      return await withPrepareDiagnostics(
+      prepareSessionId = prepare.snapshot.prepareSessionId;
+      observe(
+        switchingAccount ? "switching_account" : "connecting_service",
+        switchingAccount
+          ? "desktop.connection.switching_account"
+          : "desktop.connection.connecting_service"
+      );
+      const result = await withPrepareDiagnostics(
         prepare.snapshot.diagnosticCorrelationId,
         async () => {
           if (prepare.snapshot.ownerUserId !== account.id) {
@@ -163,10 +198,8 @@ export function createComputerConnection(input: {
                     if (input.sessionRevision?.() !== sessionRevision) {
                       return;
                     }
-                    input.onProgress?.({
-                      expectedAccount: account.id,
-                      ...event,
-                    });
+                    const phase = phaseForSetupEvent(event.code);
+                    observe(phase, event.code, { detail: event.message });
                   },
                 }
               ),
@@ -178,8 +211,78 @@ export function createComputerConnection(input: {
           });
         }
       );
+      observeConnectionResult(result, observe);
+      return result;
+    } catch (error) {
+      observe("needs_attention", "desktop.connection.failed", {
+        detail: error instanceof Error ? error.message : undefined,
+        state: "failed",
+      });
+      throw error;
     } finally {
       pending = false;
+    }
+  };
+}
+
+function isSwitchingAccount(
+  previous: { id: string } | null,
+  nextAccountId: string
+) {
+  return previous !== null && previous.id !== nextAccountId;
+}
+
+function observeConnectionResult(
+  result: DesktopComputerConnectionResult,
+  observe: ReturnType<typeof createConnectionProgressObserver>
+) {
+  if (result.status === "completed") {
+    observe("connected", "desktop.connection.connected", {
+      state: "completed",
+    });
+  } else if (result.status === "failed") {
+    observe("needs_attention", "desktop.connection.failed", {
+      detail: result.message,
+      state: "failed",
+    });
+  }
+}
+
+function createConnectionProgressObserver(input: {
+  expectedAccount: string;
+  onProgress?: (progress: DesktopComputerConnectionProgress) => void;
+  prepareSessionId(): string | null;
+}) {
+  const operationId = randomUUID();
+  let sequence = 0;
+  return (
+    phase: DesktopComputerConnectionProgress["phase"],
+    code: string,
+    options: {
+      detail?: string;
+      measurement?: DesktopComputerConnectionProgress["measurement"];
+      state?: DesktopComputerConnectionProgress["state"];
+    } = {}
+  ) => {
+    const progress: DesktopComputerConnectionProgress = {
+      schemaVersion: 1,
+      expectedAccount: input.expectedAccount,
+      operationId,
+      attemptId: operationId,
+      prepareSessionId: input.prepareSessionId(),
+      sequence: sequence++,
+      observedAt: new Date().toISOString(),
+      phase,
+      state: options.state ?? "active",
+      code,
+      ...(options.measurement ? { measurement: options.measurement } : {}),
+      ...(options.detail ? { detail: options.detail } : {}),
+    };
+    // Observation must never control or interrupt the connection operation.
+    try {
+      input.onProgress?.(progress);
+    } catch {
+      // The authoritative setup path continues without an observer.
     }
   };
 }
@@ -343,7 +446,14 @@ export async function readComputerConnection(bin: string, deps: CommandDeps) {
 async function reviewComputerConnection(
   bin: string,
   webOrigin: string,
-  deps: CommandDeps
+  deps: CommandDeps,
+  observe: (
+    phase: DesktopComputerConnectionProgress["phase"],
+    code: string,
+    options?: {
+      measurement?: DesktopComputerConnectionProgress["measurement"];
+    }
+  ) => void
 ) {
   try {
     return await readComputerConnection(bin, deps);
@@ -355,9 +465,38 @@ async function reviewComputerConnection(
     if (failure.code !== "ENOENT" && !unsupported) {
       throw error;
     }
-    await installManagedBinary(webOrigin, deps);
+    await installManagedBinary(webOrigin, deps, {
+      onDownloadProgress: (progress) =>
+        observe("downloading", "desktop.tools.download", {
+          measurement: {
+            unit: "bytes",
+            value: progress.receivedBytes,
+            total: progress.totalBytes,
+            transferAttempt: progress.transferAttempt,
+          },
+        }),
+      onStage: (stage) => observe(stage, `desktop.tools.${stage}`),
+    });
     return await readComputerConnection(bin, deps);
   }
+}
+
+function phaseForSetupEvent(
+  code: string
+): DesktopComputerConnectionProgress["phase"] {
+  if (code.includes("restore") || code.includes("rollback")) {
+    return "restoring";
+  }
+  if (
+    code.includes("controlled_shutdown_draining") ||
+    code.includes("stop_or_drain")
+  ) {
+    return "waiting_for_current_work";
+  }
+  if (code.includes("confirm") || code.includes("complete")) {
+    return "confirming";
+  }
+  return "connecting_service";
 }
 
 export async function runConnectionSetup(

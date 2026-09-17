@@ -22,14 +22,22 @@ const state = vi.hoisted(() => ({
 		message: "Connect this computer.",
 	}),
 	disconnect: vi.fn().mockResolvedValue(false),
+	currentProgress: vi.fn().mockResolvedValue(null),
+	progressHandler: null as ((event: unknown) => void) | null,
 	account: "account-a",
 }));
 vi.mock("./platform", () => ({
 	getDesktopPlatform: () => ({
 		connectComputer: state.connect,
 		disconnectComputer: state.disconnect,
+		connectionProgressCurrent: state.currentProgress,
 		localComputer: state.localComputer,
-		onConnectionProgress: () => () => undefined,
+		onConnectionProgress: (handler: (event: unknown) => void) => {
+			state.progressHandler = handler;
+			return () => {
+				state.progressHandler = null;
+			};
+		},
 	}),
 	openDesktopWeb: state.openWeb,
 }));
@@ -48,10 +56,48 @@ afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
 	state.account = "account-a";
+	state.currentProgress.mockResolvedValue(null);
+	state.progressHandler = null;
 	state.localComputer.mockResolvedValue({
 		status: "unavailable",
 		message: "Connect this computer.",
 	});
+});
+
+it("shows measured download progress without inventing an overall percentage", async () => {
+	state.routeIntent = {
+		kind: "account_computer_setup",
+		resetThisComputer: false,
+	};
+	state.connect.mockReturnValue(new Promise(() => undefined));
+	renderConnection(<DesktopComputerConnection />);
+	const button = screen.getByRole("button", { name: "Connect this Mac" });
+	await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+	fireEvent.click(button);
+	await waitFor(() => expect(state.progressHandler).not.toBeNull());
+	state.progressHandler?.({
+		schemaVersion: 1,
+		expectedAccount: "account-a",
+		operationId: "operation-a",
+		attemptId: "attempt-a",
+		prepareSessionId: null,
+		sequence: 1,
+		observedAt: "2026-09-17T00:00:00.000Z",
+		phase: "downloading",
+		state: "active",
+		code: "desktop.tools.download",
+		measurement: {
+			unit: "bytes",
+			value: 25,
+			total: 100,
+			transferAttempt: 1,
+		},
+	});
+	expect(await screen.findByText("Downloading OpenMeld Tools")).toBeTruthy();
+	expect(screen.getByText("25%")).toBeTruthy();
+	expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe(
+		"25"
+	);
 });
 
 it.each([

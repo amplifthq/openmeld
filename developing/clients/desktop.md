@@ -274,8 +274,9 @@ stopped by stale reviewed intent. Retry can finish credential cleanup only after
 the matching Service owner's stopped intent and verified runtime absence.
 Connect can enroll this Mac again; Forget is never required for account switching.
 
-Setup progress comes from actual CLI agent-output stages, without percentages
-or a GUI deadline. Failed setup retains its original subprocess error and any
+Setup progress comes from actual CLI agent-output stages. Percentages are shown
+only for a measured byte transfer, never for overall setup or a GUI deadline.
+Failed setup retains its original subprocess error and any
 blocked Prepare step even if the final snapshot read fails. A private temporary
 diagnostic file retains the last 100 parsed events, with bounded, redacted
 messages; raw output is removed on completion. The UI exposes its path alongside

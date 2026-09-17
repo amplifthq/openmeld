@@ -90,6 +90,7 @@ describe("Desktop computer connection admission", () => {
       cloudRequest.mockRejectedValue(new Error("Prepare requested"));
     }
     const confirmSwitch = vi.fn(async () => false);
+    const onProgress = vi.fn();
     mocks.exec.mockResolvedValue({
       stdout: JSON.stringify({
         protocol: "computer-connection-v1",
@@ -137,6 +138,7 @@ describe("Desktop computer connection admission", () => {
       installed: false,
       ensureCompatible: async () => undefined,
       confirmSwitch,
+      onProgress,
     });
     const result = connect({
       expectedAccount: "account-a",
@@ -193,6 +195,13 @@ describe("Desktop computer connection admission", () => {
       expect(mocks.install).toHaveBeenCalledOnce();
     } else {
       expect(mocks.install).not.toHaveBeenCalled();
+    }
+    if (scenario !== "unexpected_field") {
+      expect(onProgress.mock.calls[0]?.[0]).toMatchObject({
+        phase: "checking",
+        state: "active",
+        sequence: 0,
+      });
     }
   });
 });

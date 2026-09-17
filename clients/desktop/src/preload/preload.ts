@@ -165,6 +165,12 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
     ipcRenderer.invoke(PILOT_IPC.connectComputer, input),
   disconnectComputer: (input) =>
     ipcRenderer.invoke(PILOT_IPC.disconnectComputer, input),
+  connectionProgressCurrent: async () => {
+    const parsed = desktopComputerConnectionProgressSchema
+      .nullable()
+      .safeParse(await ipcRenderer.invoke(PILOT_IPC.connectionProgressCurrent));
+    return parsed.success ? parsed.data : null;
+  },
   onConnectionProgress: (handler) => {
     const listener = (_event: IpcRendererEvent, value: unknown) => {
       const parsed = desktopComputerConnectionProgressSchema.safeParse(value);

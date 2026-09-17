@@ -2,6 +2,7 @@ import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  type DesktopComputerConnectionProgress,
   type DesktopInstalledTarget,
   desktopInstalledTargetSchema,
   desktopPlatformSchema,
@@ -216,6 +217,8 @@ export function initializeDesktopPilot(
           ensureCompatible,
         }
       );
+      let latestConnectionProgress: DesktopComputerConnectionProgress | null =
+        null;
       const handlers = {
         [PILOT_IPC.platform]: () => platform,
         [PILOT_IPC.localComputer]: readLocalComputer,
@@ -224,11 +227,13 @@ export function initializeDesktopPilot(
           return auth.session();
         },
         [PILOT_IPC.signIn]: () => {
+          latestConnectionProgress = null;
           notifications.clear();
           streams.closeAll();
           return auth.signIn();
         },
         [PILOT_IPC.signOut]: () => {
+          latestConnectionProgress = null;
           notifications.clear();
           streams.closeAll();
           return auth.signOut();
@@ -254,6 +259,7 @@ export function initializeDesktopPilot(
           return result.response === 1;
         },
         onProgress: (progress) => {
+          latestConnectionProgress = progress;
           const owner = getWindow()?.webContents;
           if (owner && !owner.isDestroyed()) {
             owner.send(PILOT_IPC.connectionProgress, progress);
@@ -286,6 +292,10 @@ export function initializeDesktopPilot(
       ipcMain.handle(PILOT_IPC.connectComputer, (event, request: unknown) => {
         authorize(event);
         return connectComputer(request);
+      });
+      ipcMain.handle(PILOT_IPC.connectionProgressCurrent, (event) => {
+        authorize(event);
+        return latestConnectionProgress;
       });
       for (const [channel, handler] of Object.entries(handlers)) {
         ipcMain.handle(channel, (event) => {

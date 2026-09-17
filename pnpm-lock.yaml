@@ -105,6 +105,9 @@ importers:
       '@openmeld/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      '@openmeld/start':
+        specifier: workspace:*
+        version: link:../../packages/start
       '@openmeld/ui':
         specifier: workspace:*
         version: link:../../packages/ui
