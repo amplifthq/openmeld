@@ -1,4 +1,4 @@
-import { chmod, cp, mkdir, rename, rm } from "node:fs/promises";
+import { access, chmod, cp, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -72,6 +72,7 @@ export async function runLiveStagingComputerSmoke(options) {
       runRoot,
       sensitiveValues,
     });
+    await waitForExternalAcceptanceCheckpoint();
     process.stdout.write("[staging-computer-smoke] PASS\n");
   } catch (error) {
     runFailure = error;
@@ -90,6 +91,32 @@ export async function runLiveStagingComputerSmoke(options) {
   if (runFailure) {
     throw runFailure;
   }
+}
+
+async function waitForExternalAcceptanceCheckpoint() {
+  const marker = process.env.OPENMELD_STAGING_SMOKE_ACCEPTANCE_MARKER?.trim();
+  if (!marker) {
+    return;
+  }
+  if (!path.isAbsolute(marker)) {
+    throw new Error("The Staging smoke acceptance marker must be absolute.");
+  }
+  process.stdout.write(
+    `[staging-computer-smoke] READY Browser and Wake acceptance; create ${marker} to clean up\n`
+  );
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (Date.now() < deadline) {
+    if (
+      await access(marker)
+        .then(() => true)
+        .catch(() => false)
+    ) {
+      await rm(marker, { force: true });
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new Error("Timed out waiting for Browser and Wake acceptance.");
 }
 
 async function executeStagingComputerUpdateSmoke(input) {
