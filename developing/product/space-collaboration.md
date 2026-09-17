@@ -536,12 +536,24 @@ does not redirect an in-flight upload or submission to the new conversation.
 Removing the selection discards that upload; abandoned uploads expire after
 24 hours and Core removes expired objects.
 
+Attachment-draft storage treats its IndexedDB connection as replaceable. A
+closed or invalid handle is reopened within a bounded wait, and only transaction
+creation may retry once before any file mutation begins. Operations for one
+attachment ID remain ordered so a delayed save cannot recreate a removed draft.
+Failed removal stays visible and retryable in the same account and conversation
+scope after the Composer remounts.
+
 Send immediately stages the message with local attachment previews and frees
 the Composer, including when uploads are still running. In the background it
 waits for the captured attachment batch, publishes every upload as a canonical
 root-level Space File, and posts the immutable revision references. A failed
 attachment is never silently omitted. A failure before publication keeps the
-message unsent with an explicit recovery path. File publication and message
+message unsent with an explicit recovery path. Retry keeps the original file,
+attachment ID, selection order, expiry, and publication identity. When remote
+staging succeeded but saving that descriptor locally failed, retry persists the
+existing descriptor instead of staging another upload. A descriptor alone is
+not publication readiness: the matching local draft write must also be
+confirmed. Recovery never sends automatically. File publication and message
 publication remain separate operations.
 
 Composer image attachments use compact, edge-to-edge thumbnails on surface 3,

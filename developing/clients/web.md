@@ -181,6 +181,14 @@ Attachment restoration rejects IDs removed, cleared, or successfully consumed
 in the same file session, even when an older storage read finishes later. The
 admission rule is shared by restoration and explicit handoff; distinct late-saved
 IDs remain eligible for adoption.
+Attachment preparation reports validation, initial local persistence, remote
+staging, staged-descriptor persistence, and publication failures separately.
+Space, Thread, Center Agent pending/ready, and inline-edit composers expose the
+same attachment retry and scoped cleanup recovery. Concurrent retry gestures
+join one preparation task, and late upload results cannot restore a removed or
+consumed attachment. A new Center Agent session is not created until its local
+attachment handoff can be read; a failed handoff returns to the editable draft
+instead of leaving the pending conversation locked.
 
 Sidebar activity indicators resolve their destination from an authorized
 active-Wake progress read on click, without adding per-row subscriptions.
