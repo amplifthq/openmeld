@@ -1,4 +1,5 @@
-import { createServerFn } from "@tanstack/react-start";
+import { createMiddleware, createServerFn } from "@tanstack/react-start";
+import { setResponseHeader } from "@tanstack/react-start/server";
 import { z } from "zod/v4";
 import { getRequiredServerEnv } from "#/env";
 import type { PublicSpaceInitialData } from "./public-space-initial-read.server";
@@ -9,7 +10,15 @@ const publicSpaceInitialReadInputSchema = z.strictObject({
 	threadRootSignalId: z.string().trim().min(1).max(200).optional(),
 });
 
+const publicSpaceReadResponse = createMiddleware({ type: "function" }).server(
+	({ next }) => {
+		setResponseHeader("Cache-Control", "private, no-store");
+		return next();
+	}
+);
+
 const readPublicSpaceInitialDataJson = createServerFn({ method: "GET" })
+	.middleware([publicSpaceReadResponse])
 	.validator((input: unknown) => publicSpaceInitialReadInputSchema.parse(input))
 	.handler(async ({ data }) => {
 		const { readPublicSpaceInitialDataFromRequest } = await import(

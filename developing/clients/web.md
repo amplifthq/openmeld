@@ -3644,8 +3644,9 @@ Thread controls expose same-Space links so a reader without JavaScript can move
 through older windows, return to latest, and open Threads. Hydration reuses the
 same request-scoped query data and preserves the interactive reader. Web must
 resolve access before reading or serializing conversation content, must not
-derive policy locally, and must keep every public HTML response private and
-non-cacheable.
+derive policy locally, and must keep both public HTML and its content-bearing
+GET server-function responses private and non-cacheable, including denied
+access, invalid input, and upstream failures.
 
 Organization-scoped routes retain the App shell for permitted public reads and
 membership gates. Tenant-neutral links resolve to the Organization App route
