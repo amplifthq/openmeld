@@ -13,6 +13,13 @@ import { daemonRuntimeStateRootPath } from "../../config/daemon-state";
 import type { OpenMeldPathResolutionInput } from "../../config/paths";
 
 const TERMINAL_UPDATE_VISIBILITY_MS = 24 * 60 * 60 * 1000;
+const UPDATE_TARGETS_FILE = "service-update-targets.json";
+
+type DaemonServiceUpdateTargets = {
+  jobId: string;
+  targetCliVersion?: string;
+  targetServiceVersion?: string;
+};
 
 export const DAEMON_SERVICE_UPDATE_JOB_SCHEMA =
   OPENMELD_DAEMON_SERVICE_UPDATE_JOB_SCHEMA;
@@ -149,17 +156,24 @@ async function readDaemonServiceUpdateJob(
   if (!parsed.success) {
     throw new Error("OpenMeld Service update state is invalid.");
   }
+  let job: DaemonServiceUpdateJob;
   if (parsed.data.v === 2) {
-    return parsed.data;
+    job = parsed.data;
+  } else {
+    const { status, ...legacyJob } = parsed.data;
+    job = daemonServiceUpdateJobSchema.parse({
+      ...legacyJob,
+      v: 2,
+      schema: DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
+      phase: migrateLegacyPhase(status),
+      requestSource: "cli",
+    });
   }
-  const { status, ...legacyJob } = parsed.data;
-  return daemonServiceUpdateJobSchema.parse({
-    ...legacyJob,
-    v: 2,
-    schema: DAEMON_SERVICE_UPDATE_JOB_SCHEMA,
-    phase: migrateLegacyPhase(status),
-    requestSource: "cli",
-  });
+  const targets = await readDaemonServiceUpdateTargets(dirname(path));
+  if (targets?.jobId !== job.jobId) {
+    return job;
+  }
+  return daemonServiceUpdateJobSchema.parse({ ...job, ...targets });
 }
 
 function migrateLegacyPhase(
@@ -185,11 +199,66 @@ async function writeUpdateJobAtomically(input: {
   job: DaemonServiceUpdateJob;
   path: string;
 }): Promise<void> {
+  const { targetCliVersion, targetServiceVersion, ...compatibleJob } =
+    input.job;
+  await writeDaemonServiceUpdateTargets(dirname(input.path), {
+    jobId: input.job.jobId,
+    ...(targetCliVersion ? { targetCliVersion } : {}),
+    ...(targetServiceVersion ? { targetServiceVersion } : {}),
+  });
   const temporaryPath = `${input.path}.${String(process.pid)}.tmp`;
   await mkdir(dirname(input.path), { recursive: true });
-  await writeFile(temporaryPath, `${JSON.stringify(input.job, null, 2)}\n`, {
+  await writeFile(
+    temporaryPath,
+    `${JSON.stringify(compatibleJob, null, 2)}\n`,
+    { encoding: "utf8", mode: 0o600 }
+  );
+  await rename(temporaryPath, input.path);
+}
+
+async function readDaemonServiceUpdateTargets(
+  stateRoot: string
+): Promise<DaemonServiceUpdateTargets | null> {
+  const raw = await readFile(
+    join(stateRoot, UPDATE_TARGETS_FILE),
+    "utf8"
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  });
+  if (raw === null) {
+    return null;
+  }
+  const value = JSON.parse(raw) as Record<string, unknown>;
+  const jobId = normalizeTarget(value.jobId);
+  const targetCliVersion = normalizeTarget(value.targetCliVersion);
+  const targetServiceVersion = normalizeTarget(value.targetServiceVersion);
+  if (!jobId) {
+    return null;
+  }
+  return {
+    jobId,
+    ...(targetCliVersion ? { targetCliVersion } : {}),
+    ...(targetServiceVersion ? { targetServiceVersion } : {}),
+  };
+}
+
+async function writeDaemonServiceUpdateTargets(
+  stateRoot: string,
+  targets: DaemonServiceUpdateTargets
+): Promise<void> {
+  const path = join(stateRoot, UPDATE_TARGETS_FILE);
+  const temporaryPath = `${path}.${String(process.pid)}.tmp`;
+  await mkdir(stateRoot, { recursive: true });
+  await writeFile(temporaryPath, `${JSON.stringify(targets, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
-  await rename(temporaryPath, input.path);
+  await rename(temporaryPath, path);
+}
+
+function normalizeTarget(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }

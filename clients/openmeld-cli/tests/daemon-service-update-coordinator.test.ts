@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { daemonServiceUpdateJobSchema } from "@openmeld/schemas";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../src/local-service/lifecycle/daemon-service-bundle", () => ({
@@ -21,6 +22,7 @@ import {
   completePendingDaemonServiceUpdate,
   type DaemonServiceUpdateJob,
   daemonServiceLastUpdatePath,
+  daemonServicePendingUpdatePath,
   persistPendingDaemonServiceUpdate,
   readPendingDaemonServiceUpdate,
   resolveDaemonServiceUpdateOperation,
@@ -236,6 +238,50 @@ describe("daemon service background update coordinator", () => {
           Date.parse("2026-08-26T00:02:01.000Z")
         )
       ).resolves.toBeNull();
+    } finally {
+      await rm(homeDir, { force: true, recursive: true });
+    }
+  });
+
+  it("keeps the persisted job readable by an older strict worker while retaining split targets", async () => {
+    const homeDir = await mkdtemp(join(tmpdir(), "openmeld-update-targets-"));
+    const pathInput = {
+      env: { OPENMELD_ENV_PRESET: "dev-local" },
+      homeDir,
+    };
+    const job: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 0,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "legacy-worker-handoff",
+      phase: "waiting_for_work",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-09-17T00:00:00.000Z",
+      requestSource: "automatic",
+      targetCliVersion: "0.3.214-staging.cli",
+      targetServiceVersion: "0.3.213-staging.service",
+      targetVersion: "0.3.213-staging.service",
+      updatedAt: "2026-09-17T00:00:01.000Z",
+      urgency: "available",
+    };
+
+    try {
+      await persistPendingDaemonServiceUpdate(job, pathInput);
+      const persisted = JSON.parse(
+        await readFile(daemonServicePendingUpdatePath(pathInput), "utf8")
+      ) as Record<string, unknown>;
+      expect(persisted).not.toHaveProperty("targetCliVersion");
+      expect(persisted).not.toHaveProperty("targetServiceVersion");
+      expect(
+        daemonServiceUpdateJobSchema
+          .omit({ targetCliVersion: true, targetServiceVersion: true })
+          .safeParse(persisted).success
+      ).toBe(true);
+      await expect(readPendingDaemonServiceUpdate(pathInput)).resolves.toEqual(
+        job
+      );
     } finally {
       await rm(homeDir, { force: true, recursive: true });
     }
