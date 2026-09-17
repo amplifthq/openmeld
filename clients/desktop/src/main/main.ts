@@ -93,7 +93,6 @@ const pilot = initializeDesktopPilot(
     updateTrayMenu();
   }
 );
-let latestServiceView: ServiceView | null = null;
 let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
 
 type SyncTrayOptions = {
@@ -126,6 +125,7 @@ function createMainWindow(
   }
 
   const window = new BrowserWindow(options);
+  window.maximize();
   pilot?.observeWindow(window.webContents);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
@@ -397,9 +397,7 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const preview = trayPreviewMenuItems(trayPresentation);
   const unreadCount = trayContext?.unreadCount;
   const computer = trayContext?.computer;
-  const computerStatus =
-    computer?.statusLabel ?? resolveTrayComputerStatusLabel();
-  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
+  const computerStatus = computer?.statusLabel ?? "Checking…";
   return [
     ...preview,
     trayActionItem({
@@ -418,13 +416,8 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     }),
     trayActionItem({
       icon: "computer",
-      label: nativeMenuCapabilities.badge
-        ? "Computer"
-        : `Computer — ${computerStatus}`,
+      label: `Computer — ${computerStatus}`,
       accessibilityLabel: `Computer, ${computerStatus}`,
-      ...(nativeMenuCapabilities.badge
-        ? { badge: { type: "none" as const, content: computerStatus } }
-        : {}),
       enabled: computer?.available ?? Boolean(pilot),
       click: () => showDesktopWindow("computer"),
     }),
@@ -545,7 +538,6 @@ function syncTrayServiceView(
   view: ServiceView,
   options: SyncTrayOptions
 ): void {
-  latestServiceView = view;
   updateTrayMenu();
   if (options.showProblem && view.problem) {
     showProblem(resolveProblemTitle(view.problem), view.problem);
@@ -584,48 +576,22 @@ function resolveProblemTitle(problem: CliProblem): string {
   return "OpenMeld could not update the service.";
 }
 
-function resolveTrayStatusLabel(): string {
-  if (latestServiceView?.problem?.kind === "spawn_failed") {
-    return "OpenMeld Command-Line Tool: Not Available";
-  }
-  switch (latestServiceView?.lifecycle) {
-    case "running":
-      return "OpenMeld Service: Running";
-    case "stopped":
-      return "OpenMeld Service: Stopped";
-    case "not_installed":
-      return "OpenMeld Service: Not Installed";
-    case "unknown":
-      return "OpenMeld Service: Status Unavailable";
-    default:
-      return "OpenMeld Service: Checking Status";
-  }
-}
-
 function resolveTrayTooltip(): string {
   return APP_NAME;
 }
 
-function resolveTrayComputerStatusLabel(): string {
-  return resolveTrayStatusLabel().replace("OpenMeld Service: ", "Service ");
-}
-
-function resolveNativeMenuCapabilities(): {
-  badge: boolean;
-  sublabel: boolean;
-} {
+function resolveNativeMenuCapabilities(): { sublabel: boolean } {
   if (
     process.platform !== "darwin" ||
     typeof process.getSystemVersion !== "function"
   ) {
-    return { badge: false, sublabel: false };
+    return { sublabel: false };
   }
   const [major = 0, minor = 0] = process
     .getSystemVersion()
     .split(".")
     .map((part) => Number.parseInt(part, 10));
   return {
-    badge: major >= 14,
     sublabel: major > 14 || (major === 14 && minor >= 4),
   };
 }
@@ -755,8 +721,7 @@ function bootstrapApp(): void {
         authorizeRenderer(event);
         const window = BrowserWindow.fromWebContents(event.sender);
         if (window && !window.isDestroyed()) {
-          window.setSize(APP_WIDTH, APP_HEIGHT, true);
-          window.center();
+          window.maximize();
         }
       });
       ipcMain.handle(WINDOW_IPC.quitDesktop, (event) => {

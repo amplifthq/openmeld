@@ -80,6 +80,7 @@ const electronMock = vi.hoisted(() => {
     restore: ReturnType<typeof vi.fn>;
     options: Record<string, unknown> | undefined;
     hide: ReturnType<typeof vi.fn>;
+    maximize: ReturnType<typeof vi.fn>;
     on: ReturnType<typeof vi.fn>;
     setSize: ReturnType<typeof vi.fn>;
     webContents: {
@@ -118,6 +119,7 @@ const electronMock = vi.hoisted(() => {
     setSize = vi.fn();
     focus = vi.fn();
     hide = vi.fn();
+    maximize = vi.fn();
     loadFile = vi.fn(() => Promise.resolve());
     loadURL = vi.fn((url: string) => {
       this.webContents.mainFrame.url = url;
@@ -440,7 +442,7 @@ describe("main tray behavior", () => {
     expect(window?.focus).toHaveBeenCalled();
   });
 
-  it("creates the status window at the Desktop workspace size", async () => {
+  it("opens the Desktop window maximized within the current screen", async () => {
     await importMain();
 
     const window = electronMock.windowInstances.at(0);
@@ -451,6 +453,7 @@ describe("main tray behavior", () => {
       minWidth: 960,
       minHeight: 640,
     });
+    expect(window?.maximize).toHaveBeenCalledOnce();
   });
 
   it("applies OpenMeld identity to native app, menu, and window surfaces", async () => {
@@ -646,11 +649,11 @@ describe("main tray behavior", () => {
   function trayMenuTemplate():
     | Array<{
         accessibilityLabel?: string;
-        badge?: { content?: string; type?: string };
         click?: () => void;
         enabled?: boolean;
         icon?: unknown;
         label?: string;
+        sublabel?: string;
         type?: string;
       }>
     | undefined {
@@ -658,11 +661,11 @@ describe("main tray behavior", () => {
     return tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{
           accessibilityLabel?: string;
-          badge?: { content?: string; type?: string };
           click?: () => void;
           enabled?: boolean;
           icon?: unknown;
           label?: string;
+          sublabel?: string;
           type?: string;
         }>
       | undefined;
@@ -679,7 +682,7 @@ describe("main tray behavior", () => {
       "Loading notifications…",
       "Open inbox",
       "Open app",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -692,7 +695,7 @@ describe("main tray behavior", () => {
       "Open inbox",
       "separator",
       "Open app",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "separator",
       "Quit OpenMeld",
@@ -739,7 +742,7 @@ describe("main tray behavior", () => {
     expect(trayMenuLabels()).toEqual([
       "Open inbox",
       "Open app",
-      "Computer",
+      "Computer — Checking…",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -755,12 +758,9 @@ describe("main tray behavior", () => {
       unreadCount: 0,
     });
 
-    expect(
-      trayMenuTemplate()?.find((item) => item.label === "Computer")
-    ).toEqual(
+    expect(trayMenuItem("Computer — Checking…")).toEqual(
       expect.objectContaining({
         accessibilityLabel: "Computer, Checking…",
-        badge: { type: "none", content: "Checking…" },
       })
     );
   });
