@@ -25,6 +25,7 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect, useState } from "react";
+import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import { setCurrentOrganizationCenterAgentMemoryPolicy } from "#/lib/organizations/center-agent-memory";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -428,105 +429,110 @@ export function SetupOnboardingStep(input: { onContinue: () => void }) {
 	} = useSetupOnboardingStepController(input);
 
 	return (
-		<div className="flex flex-1 flex-col">
-			<div className="space-y-2">
-				<EnabledSettingRow
-					checked={memoryPolicyQuery.data?.organizationMemoryOptIn ?? false}
-					description="Center Agent can keep useful context from shared conversations."
-					disabled={
-						!canManageMemory ||
-						memoryPolicyQuery.isPending ||
-						memoryPolicyQuery.isError ||
-						memoryMutation.isPending
-					}
-					label={
-						isPersonalWorkspace ? "Workspace memory" : "Organization memory"
-					}
-					onCheckedChange={(checked) => memoryMutation.mutate(checked)}
-				/>
-			</div>
-
-			{documentsQuery.data?.canManage ? (
-				<OptionalSetupSection
-					added={Boolean(brief)}
-					description="Give Center Agent a short source of truth about your organization."
-					expanded={briefExpanded}
-					icon={<FileTextIcon />}
-					onExpandedChange={setBriefExpanded}
-					title="Organization brief"
-				>
-					<Textarea
-						disabled={Boolean(brief) && briefQuery.isPending}
-						maxLength={ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS}
-						onChange={(event) => setBriefDraft(event.target.value)}
-						placeholder="What does your organization do, and what is it trying to achieve?"
-						rows={4}
-						value={briefDraft}
-					/>
-					<p className="mt-2 text-right text-[11px] text-muted-foreground">
-						{briefDraft.length.toLocaleString()} /{" "}
-						{ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS.toLocaleString()}
-					</p>
-				</OptionalSetupSection>
-			) : null}
-
-			{canManageInformationProtection ? (
-				<OptionalSetupSection
-					added={Boolean(protectedInformation)}
-					description="Name information that should stay within appropriate private contexts."
-					expanded={protectionExpanded}
-					icon={<ShieldCheckIcon />}
-					onExpandedChange={setProtectionExpanded}
-					title="Information protection"
-				>
-					<Textarea
-						disabled={informationProtectionQuery.isPending}
-						maxLength={ORGANIZATION_PROTECTED_INFORMATION_MAX_CHARS}
-						onChange={(event) => setProtectionDraft(event.target.value)}
-						placeholder="Examples: customer contract pricing, unreleased Board forecasts, or acquisition plans."
-						rows={4}
-						value={protectionDraft}
-					/>
-					<div className="mt-2 flex justify-between gap-4 text-[11px] text-muted-foreground leading-5">
-						<p>Describe categories, not passwords, tokens, or records.</p>
-						<p className="shrink-0">
-							{protectionDraft.length.toLocaleString()} /{" "}
-							{ORGANIZATION_PROTECTED_INFORMATION_MAX_CHARS.toLocaleString()}
-						</p>
+		<OnboardingStepLayout
+			body={
+				<>
+					<div className="space-y-2">
+						<EnabledSettingRow
+							checked={memoryPolicyQuery.data?.organizationMemoryOptIn ?? false}
+							description="Center Agent can keep useful context from shared conversations."
+							disabled={
+								!canManageMemory ||
+								memoryPolicyQuery.isPending ||
+								memoryPolicyQuery.isError ||
+								memoryMutation.isPending
+							}
+							label={
+								isPersonalWorkspace ? "Workspace memory" : "Organization memory"
+							}
+							onCheckedChange={(checked) => memoryMutation.mutate(checked)}
+						/>
 					</div>
-				</OptionalSetupSection>
-			) : null}
 
-			{mutationError ? (
-				<p className="mt-3 text-destructive text-xs" role="alert">
-					{resolveSetupMutationError({
-						briefError: briefMutation.error,
-						mutationError,
-					})}
-				</p>
-			) : null}
+					{documentsQuery.data?.canManage ? (
+						<OptionalSetupSection
+							added={Boolean(brief)}
+							description="Give Center Agent a short source of truth about your organization."
+							expanded={briefExpanded}
+							icon={<FileTextIcon />}
+							onExpandedChange={setBriefExpanded}
+							title="Organization brief"
+						>
+							<Textarea
+								disabled={Boolean(brief) && briefQuery.isPending}
+								maxLength={ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS}
+								onChange={(event) => setBriefDraft(event.target.value)}
+								placeholder="What does your organization do, and what is it trying to achieve?"
+								rows={4}
+								value={briefDraft}
+							/>
+							<p className="mt-2 text-right text-[11px] text-muted-foreground">
+								{briefDraft.length.toLocaleString()} /{" "}
+								{ORGANIZATION_DOCUMENT_CONTENT_MAX_CHARS.toLocaleString()}
+							</p>
+						</OptionalSetupSection>
+					) : null}
 
-			<div className="mt-auto flex items-center justify-between gap-4 border-border/70 border-t pt-5">
-				<p className="text-muted-foreground text-xs">
-					Optional details save when you continue.
-				</p>
-				<Button
-					disabled={saving}
-					onClick={() => {
-						continueOnboarding().catch((error: unknown) => {
-							console.error("OpenMeld could not continue onboarding.", {
-								error,
-								organizationId: currentOrganization.id,
+					{canManageInformationProtection ? (
+						<OptionalSetupSection
+							added={Boolean(protectedInformation)}
+							description="Name information that should stay within appropriate private contexts."
+							expanded={protectionExpanded}
+							icon={<ShieldCheckIcon />}
+							onExpandedChange={setProtectionExpanded}
+							title="Information protection"
+						>
+							<Textarea
+								disabled={informationProtectionQuery.isPending}
+								maxLength={ORGANIZATION_PROTECTED_INFORMATION_MAX_CHARS}
+								onChange={(event) => setProtectionDraft(event.target.value)}
+								placeholder="Examples: customer contract pricing, unreleased Board forecasts, or acquisition plans."
+								rows={4}
+								value={protectionDraft}
+							/>
+							<div className="mt-2 flex justify-between gap-4 text-[11px] text-muted-foreground leading-5">
+								<p>Describe categories, not passwords, tokens, or records.</p>
+								<p className="shrink-0">
+									{protectionDraft.length.toLocaleString()} /{" "}
+									{ORGANIZATION_PROTECTED_INFORMATION_MAX_CHARS.toLocaleString()}
+								</p>
+							</div>
+						</OptionalSetupSection>
+					) : null}
+
+					{mutationError ? (
+						<p className="mt-3 text-destructive text-xs" role="alert">
+							{resolveSetupMutationError({
+								briefError: briefMutation.error,
+								mutationError,
+							})}
+						</p>
+					) : null}
+				</>
+			}
+			footer={
+				<div className="flex items-center justify-between gap-4 max-sm:items-end">
+					<p className="text-muted-foreground text-xs">
+						Optional details save when you continue.
+					</p>
+					<Button
+						disabled={saving}
+						onClick={() => {
+							continueOnboarding().catch((error: unknown) => {
+								console.error("OpenMeld could not continue onboarding.", {
+									error,
+									organizationId: currentOrganization.id,
+								});
 							});
-						});
-					}}
-					type="button"
-				>
-					{saving ? "Saving…" : "Continue"}
-					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-				</Button>
-			</div>
-		</div>
+						}}
+						type="button"
+					>
+						{saving ? "Saving…" : "Continue"}
+						<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
+					</Button>
+				</div>
+			}
+		/>
 	);
 }
 

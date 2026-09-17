@@ -1,6 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OnboardingShell } from "./onboarding-shell";
+import { OnboardingStepLayout } from "./onboarding-step-layout";
 
 afterEach(() => {
 	cleanup();
@@ -27,70 +28,41 @@ describe("OnboardingShell", () => {
 		expect(progress.getAttribute("aria-valuemax")).toBe("3");
 	});
 
-	it("returns the document and step panel to the top when the step changes", () => {
-		const scrollTo = vi
-			.spyOn(window, "scrollTo")
-			.mockImplementation(() => undefined);
-		const { container, rerender } = render(
-			<main>
-				<OnboardingShell
-					demo={<div>Channels demo</div>}
-					description="Channels description"
-					eyebrow="Channels"
-					step="channels"
-					steps={[
-						"organization",
-						"channels",
-						"plugins",
-						"local-agents",
-						"setup",
-						"invite",
-						"complete",
-					]}
-					title="Channels"
-				>
-					<div>Channels step</div>
-				</OnboardingShell>
-			</main>
-		);
-		const appViewport = container.querySelector("main");
-		const stepPanel = container.querySelector("section");
-		if (!(appViewport && stepPanel)) {
-			throw new Error("Expected the onboarding scroll surfaces to render.");
-		}
-		appViewport.scrollTop = 95;
-		stepPanel.scrollTop = 240;
-		scrollTo.mockClear();
-
-		rerender(
-			<main>
-				<OnboardingShell
-					demo={<div>Plugins demo</div>}
-					description="Plugins description"
-					eyebrow="Plugins"
-					step="plugins"
-					steps={[
-						"organization",
-						"channels",
-						"plugins",
-						"local-agents",
-						"setup",
-						"invite",
-						"complete",
-					]}
-					title="Plugins"
-				>
-					<div>Plugins step</div>
-				</OnboardingShell>
-			</main>
+	it("keeps the step action outside the scrolling content", () => {
+		const onContinue = vi.fn();
+		const { container } = render(
+			<OnboardingShell
+				demo={<div>Plugins demo</div>}
+				description="Plugins description"
+				eyebrow="Plugins"
+				step="plugins"
+				steps={["organization", "plugins", "local-agents", "complete"]}
+				title="Plugins"
+			>
+				<OnboardingStepLayout
+					body={<div>Long plugin list</div>}
+					footer={
+						<button onClick={onContinue} type="button">
+							Continue
+						</button>
+					}
+				/>
+			</OnboardingShell>
 		);
 
-		expect(scrollTo).toHaveBeenCalledWith({
-			behavior: "auto",
-			left: 0,
-			top: 0,
-		});
-		expect(appViewport.scrollTop).toBe(0);
-		expect(stepPanel.scrollTop).toBe(0);
+		const scrollArea = container.querySelector(
+			'[data-slot="onboarding-step-scroll-area"]'
+		);
+		const viewport = scrollArea?.querySelector(
+			'[data-slot="scroll-area-viewport"]'
+		);
+		const footer = container.querySelector(
+			'[data-slot="onboarding-step-footer"]'
+		);
+		expect(viewport?.contains(screen.getByText("Long plugin list"))).toBe(true);
+		expect(viewport?.contains(footer)).toBe(false);
+
+		fireEvent.click(screen.getByText("Continue"));
+		expect(onContinue).toHaveBeenCalledOnce();
 	});
 });
