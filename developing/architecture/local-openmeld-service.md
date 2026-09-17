@@ -2693,6 +2693,14 @@ acknowledged connection share a recovery identifier and elapsed time in the
 existing local lifecycle journal, including while offline. These are observations,
 not another recovery controller or a claim about the original cause of an outage.
 
+The daemon-stream application keepalive owns at most one unanswered PING at a
+time. Its PONG deadline is fixed when that probe is sent; a later interval that
+becomes runnable after a scheduling gap must not replace or extend the deadline.
+A current-socket PONG clears the probe, while expiry terminates only that socket
+and returns recovery to the existing Service reconnect loop. Timer delay is a
+reason to revalidate transport, not evidence that the computer slept or that a
+particular network component failed.
+
 The carrier also records a strict, account-partitioned connection-evidence
 journal under its existing runtime-state directory. It retains at most 32
 incidents, 100 events per incident and 1 MiB, pruning records older than seven

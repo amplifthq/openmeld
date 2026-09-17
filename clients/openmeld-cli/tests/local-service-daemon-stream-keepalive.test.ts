@@ -58,6 +58,23 @@ describe("createDaemonStreamKeepalive", () => {
     expect(pings).toHaveLength(1);
   });
 
+  it("does not postpone an unanswered probe when another ping becomes due", () => {
+    const onPongTimeout = vi.fn();
+    const sendPing = vi.fn(() => true);
+    const keepalive = createDaemonStreamKeepalive({
+      intervalMs: 100,
+      onPongTimeout,
+      pongTimeoutMs: 300,
+      sendPing,
+    });
+    keepalive.start();
+
+    vi.advanceTimersByTime(400);
+
+    expect(onPongTimeout).toHaveBeenCalledTimes(1);
+    expect(sendPing).toHaveBeenCalledTimes(1);
+  });
+
   it("does not time out when the pong arrives within the deadline", () => {
     const { keepalive, onPongTimeout } = createHarness();
     keepalive.start();
