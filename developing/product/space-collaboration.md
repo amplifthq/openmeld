@@ -215,6 +215,10 @@ Space remains effective until a new invitation is accepted or the person
 explicitly rejoins under a currently enabled link-join policy. Link self-join
 admits only the caller's verified Human Profile as a Space Guest, never an
 Organization member; it requires guest access to be enabled separately.
+When an owner submits the first guest invitation while guest access is off,
+Share confirms the exposure once, enables guest access, and continues that
+same invitation. It does not make the owner enable a duplicate setting before
+inviting the guest.
 
 Discover includes Organization-open Spaces and the signed-in recipient's
 pending invitations, labeled **Invited**. A private invitation exposes its
@@ -762,10 +766,11 @@ Space from the directory or its destination link, independently of external
 link access. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
-The common UI labels link reading, Organization access, and participation
-separately. External guest invitations appear separately, only to owners.
-Owners can explicitly configure public/password link access in Share or Access;
-neither Organization visibility nor enabling guests publishes a Space.
+The common UI explains link reading and joining in plain language. Share shows
+who can open the link, who can join, and a short summary of what the current
+link permits. Organization visibility remains in Access settings. Owners can
+explicitly configure public/password link access in Share or Access; neither
+Organization visibility nor enabling guests publishes a Space.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access

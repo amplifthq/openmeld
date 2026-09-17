@@ -7,7 +7,7 @@ import type {
 	SpaceLinkJoinPolicy,
 } from "@openmeld/schemas/types";
 import { buildPublicSpaceEntryUrl } from "@openmeld/space";
-import { Button, buttonVariants } from "@openmeld/ui/components/button";
+import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogDescription,
@@ -171,39 +171,42 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		(target === "access" ? input.onOpenAccessSettings : input.onOpenShare)?.();
 	};
 
-	const organizationSection = input.visibility ? (
-		<section className="grid gap-2 border-border/60 border-t pt-4">
-			<div className="flex items-center justify-between gap-4">
-				<label className="font-medium text-sm" htmlFor={generalAccessId}>
-					Organization access
-				</label>
-				<div className="w-full min-w-0 max-w-72">
-					<SpaceVisibilityPicker
-						disabled={
-							!(
-								input.canManageAccess &&
-								input.onSetVisibility &&
-								input.visibility
-							) ||
-							visibilitySave.isPending ||
-							input.isPending
-						}
-						id={generalAccessId}
-						onChange={(value) => visibilitySave.mutate(value)}
-						value={input.visibility}
-					/>
+	const organizationSection =
+		!isShare && input.visibility ? (
+			<section className="grid gap-2 border-border/60 border-t pt-4">
+				<div className="flex items-center justify-between gap-4">
+					<label className="font-medium text-sm" htmlFor={generalAccessId}>
+						Who can find this Space
+					</label>
+					<div className="w-full min-w-0 max-w-72">
+						<SpaceVisibilityPicker
+							disabled={
+								!(
+									input.canManageAccess &&
+									input.onSetVisibility &&
+									input.visibility
+								) ||
+								visibilitySave.isPending ||
+								input.isPending
+							}
+							id={generalAccessId}
+							onChange={(value) => visibilitySave.mutate(value)}
+							value={input.visibility}
+						/>
+					</div>
 				</div>
-			</div>
-			{visibilitySave.isPending ? (
-				<output className="block text-muted-foreground text-xs">Saving…</output>
-			) : null}
-			{visibilitySave.error ? (
-				<p className="text-destructive text-xs" role="alert">
-					{visibilitySave.error.message}
-				</p>
-			) : null}
-		</section>
-	) : null;
+				{visibilitySave.isPending ? (
+					<output className="block text-muted-foreground text-xs">
+						Saving…
+					</output>
+				) : null}
+				{visibilitySave.error ? (
+					<p className="text-destructive text-xs" role="alert">
+						{visibilitySave.error.message}
+					</p>
+				) : null}
+			</section>
+		) : null;
 
 	const linkSectionFooter = (
 		<div className="space-y-2 pt-1">
@@ -214,14 +217,22 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					readOnly
 					value={spaceUrl}
 				/>
-				<a
-					className={buttonVariants({ size: "sm", variant: "outline" })}
-					href={spaceUrl}
-					rel="noreferrer"
-					target="_blank"
+				<Button
+					disabled={isShare && isDirty && saveDisabled}
+					onClick={async () => {
+						if (isShare && isDirty && !(await saveAccess())) {
+							return;
+						}
+						await copyLink();
+					}}
+					size="sm"
+					type="button"
 				>
-					Open
-				</a>
+					<CopyIcon aria-hidden="true" />
+					{isShare
+						? resolveShareActionLabel({ baseline, draft, isDirty })
+						: "Copy link"}
+				</Button>
 			</div>
 			{baseline.accessMode === "members_only" &&
 			draft.accessMode !== "members_only" ? (
@@ -279,7 +290,10 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 				</div>
 			) : null}
 			{editor}
-			{organization && !organization.isPersonal && input.canManageAccess ? (
+			{!isShare &&
+			organization &&
+			!organization.isPersonal &&
+			input.canManageAccess ? (
 				<SpaceGuestAccessSection
 					openMeldProfileId={input.openMeldProfileId}
 					spaceId={input.spaceId}
@@ -343,6 +357,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						contentClassName="pr-1"
 						data-testid="space-share-dialog-scroll-area"
 						orientation="vertical"
+						scrollFade={false}
 					>
 						{body}
 					</ScrollArea>
@@ -360,33 +375,18 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						{isDirty ? (
 							<span className="text-muted-foreground text-xs">Not saved</span>
 						) : null}
-						<div className="ml-auto flex items-center gap-2">
-							{isDirty ? (
-								<Button
-									disabled={input.isPending}
-									onClick={resetDraft}
-									size="sm"
-									type="button"
-									variant="secondary"
-								>
-									Cancel
-								</Button>
-							) : null}
+						{isDirty ? (
 							<Button
-								disabled={isDirty && saveDisabled}
-								onClick={async () => {
-									if (isDirty && !(await saveAccess())) {
-										return;
-									}
-									await copyLink();
-								}}
+								className="ml-auto"
+								disabled={input.isPending}
+								onClick={resetDraft}
 								size="sm"
 								type="button"
+								variant="secondary"
 							>
-								<CopyIcon aria-hidden="true" />
-								{resolveShareActionLabel({ baseline, draft, isDirty })}
+								Cancel
 							</Button>
-						</div>
+						) : null}
 					</footer>
 				</div>
 			) : (
@@ -514,7 +514,7 @@ function SpaceAccessInvitations(input: {
 	return (
 		<section className="grid gap-2 border-border/60 border-t pt-4">
 			<div className="flex items-center justify-between gap-3">
-				<h3 className="font-medium text-sm">Invite people</h3>
+				<h3 className="font-medium text-sm">Invite</h3>
 				{input.canInviteGuests ? (
 					<Select
 						onValueChange={(value) => {

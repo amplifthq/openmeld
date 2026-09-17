@@ -1,14 +1,63 @@
 import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spaceQueryKeys } from "#/query/spaces/status";
 import { SpaceGuestAccessSection } from "./space-guest-access-section";
 
+const { requestSpaceInvitationsMock, updateMetaMock } = vi.hoisted(() => ({
+	requestSpaceInvitationsMock: vi.fn(),
+	updateMetaMock: vi.fn(),
+}));
+
+vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization: {
+			id: "org-123",
+			isPersonal: false,
+			name: "Northstar",
+			slug: "northstar",
+		},
+		currentUserId: "user-123",
+	}),
+}));
+
+vi.mock("#/query/organizations/organization-directory", () => ({
+	organizationMemberRoleQueryOptions: () => ({
+		queryFn: async () => "owner",
+		queryKey: ["organization-role", "org-123", "user-123"],
+	}),
+}));
+
+vi.mock("#/lib/spaces/api", () => ({
+	createUnscopedWebSpaceApi: () => ({ updateMeta: updateMetaMock }),
+}));
+
+vi.mock("#/lib/organizations/space-invitations", () => ({
+	requestSpaceInvitations: requestSpaceInvitationsMock,
+	SpaceInvitationRequestError: class extends Error {},
+}));
+
 describe("SpaceGuestAccessSection", () => {
+	beforeEach(() => {
+		updateMetaMock.mockReset().mockResolvedValue(undefined);
+		requestSpaceInvitationsMock.mockReset().mockImplementation((request) => {
+			if (request.action === "list") {
+				return Promise.resolve([]);
+			}
+			return Promise.resolve([]);
+		});
+	});
+
 	afterEach(cleanup);
 
-	it("waits for the owner to choose guest invitations before showing confirmation", () => {
+	it("enables guest access and continues the invitation after one confirmation", async () => {
 		const queryClient = new QueryClient({
 			defaultOptions: { queries: { retry: false } },
 		});
@@ -23,17 +72,32 @@ describe("SpaceGuestAccessSection", () => {
 			</QueryClientProvider>
 		);
 
-		expect(
-			screen.queryByRole("dialog", { name: "Allow guests in this Space?" })
-		).toBeNull();
+		fireEvent.change(await screen.findByLabelText("Email address"), {
+			target: { value: "guest@example.com" },
+		});
 
+		fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
+
+		expect(
+			screen.getByRole("dialog", { name: "Allow guest access?" })
+		).toBeTruthy();
 		fireEvent.click(
-			screen.getByRole("button", { name: "Enable guest invitations" })
+			screen.getByRole("button", { name: "Allow and invite guest" })
 		);
 
-		expect(
-			screen.getByRole("dialog", { name: "Allow guests in this Space?" })
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(updateMetaMock).toHaveBeenCalledWith({
+				allowGuests: true,
+				spaceId: "space-123",
+			});
+			expect(requestSpaceInvitationsMock).toHaveBeenCalledWith({
+				action: "create",
+				audience: "guest",
+				email: "guest@example.com",
+				organizationId: "org-123",
+				spaceId: "space-123",
+			});
+		});
 	});
 });
 

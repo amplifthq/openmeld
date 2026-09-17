@@ -3557,17 +3557,20 @@ Computer connectivity or override Core-owned Agent readiness.
 
 **Space settings** uses the shared Fluid Dialog and Settings navigation, with
 General, Access, and Advanced sections. General contains the canonical name and
-the existing global browser-notification control. Access orders Link,
-Organization, Participation, and ownership management. Share is link-first and
-shows the same reading, Organization, and effective participation facts before
-invitations. Guest invitations use one Guest/Teammate selector. Choosing Guest
-prompts Owners for confirmation when guest access is off; it does not require a
-trip to Settings. Copy link never grants access. A changed link policy stays a
-visible local draft until the owner uses Save and copy (or Enable and copy for
-first-time public reading); clipboard failure never reverses a successful save
-or claims copy success. Both surfaces reuse the same access facts and invitation
-components rather than defining separate permission rules. Pending invitations
-use progressive disclosure.
+the existing global browser-notification control. Access owns Organization
+visibility, link access, joining, guest access, and ownership management. Share
+is link-first: it shows direct **Who can access** and **Who can join** selectors,
+plus a plain-language summary of what the current link permits, before
+invitations. Organization visibility is not editable in Share. Guest
+invitations use one Guest/Teammate selector. Submitting the first Guest
+invitation while guest access is off prompts Owners for confirmation, then
+enables guest access and continues the same invitation; it does not require a
+trip to Settings or a separate enable step. Copy link never grants access. A
+changed link policy stays a visible local draft until the owner uses Save and
+copy (or Enable and copy for first-time public reading); clipboard failure
+never reverses a successful save or claims copy success. Both surfaces reuse
+the same access facts and invitation components rather than defining separate
+permission rules. Pending invitations use progressive disclosure.
 
 Share and Access open each other as controlled dialogs. An unsaved draft
 requires an explicit discard decision instead of being silently applied or
@@ -3575,8 +3578,9 @@ lost. Selecting the teammate invitation surface loads persisted invitation-link
 state; merely opening Share does not create or renew one. A single conditional
 insert checks link history: reopening reuses an active link and never recreates
 an expired or revoked one. Renew explicitly replaces a link; Revoke, Renew, and
-Copy stay right-aligned. Access presents guest access as a Switch with
-confirmation before enabling it.
+Copy stay right-aligned. Access retains the guest-access Switch so owners can
+block or restore existing guests, with confirmation before enabling it; Share
+does not duplicate that switch.
 Invitation links are read from Auth when the panel opens, scoped to the account,
 Organization, optional Space, and direct/request mode. A mutation response is
 not the only way to display an existing link. Failed reads offer retry rather

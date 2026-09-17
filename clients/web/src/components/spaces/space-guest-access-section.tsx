@@ -9,7 +9,7 @@ import {
 import { Switch } from "@openmeld/ui/components/switch";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import { SpaceInvitationForm } from "./space-invitations-section";
@@ -24,6 +24,7 @@ export function SpaceGuestAccessSection({
 	openMeldProfileId?: string;
 }) {
 	const [confirm, setConfirm] = useState(false);
+	const pendingInvitationRef = useRef<(() => void) | null>(null);
 	const switchId = useId();
 	const client = useQueryClient();
 	const status = useQuery(
@@ -35,9 +36,12 @@ export function SpaceGuestAccessSection({
 				spaceId,
 				allowGuests,
 			}),
-		onSuccess: async () => {
-			setConfirm(false);
-			await client.invalidateQueries({ queryKey: spaceQueryKeys.all });
+		onSuccess: () => {
+			client
+				.invalidateQueries({ queryKey: spaceQueryKeys.all })
+				.catch((error) => {
+					console.error("Failed to refresh Space guest access.", error);
+				});
 		},
 	});
 	return (
@@ -50,7 +54,10 @@ export function SpaceGuestAccessSection({
 				<GuestInvitationEntry
 					enabled={status.data?.allowGuests === true}
 					failed={status.isError}
-					onEnable={() => setConfirm(true)}
+					onEnable={(continueInvitation) => {
+						pendingInvitationRef.current = continueInvitation;
+						setConfirm(true);
+					}}
 					onRetry={() => status.refetch()}
 					pending={status.isPending}
 					spaceId={spaceId}
@@ -63,7 +70,7 @@ export function SpaceGuestAccessSection({
 							htmlFor={switchId}
 							id={`${switchId}-label`}
 						>
-							Allow external guests
+							Guest access
 						</label>
 						<Switch
 							aria-labelledby={`${switchId}-label`}
@@ -80,9 +87,8 @@ export function SpaceGuestAccessSection({
 						/>
 					</div>
 					<p className="text-muted-foreground text-xs/relaxed">
-						Guests sign in to access only this Space. When link access allows
-						joining, they can join from the shared link; otherwise, invite them
-						from Share.
+						Guests can access only this Space, not the organization. Invite a
+						guest from Share to turn this on automatically.
 					</p>
 					{status.data?.allowGuests && (
 						<p className="text-muted-foreground text-xs/relaxed">
@@ -115,12 +121,17 @@ export function SpaceGuestAccessSection({
 				</div>
 			)}
 			<Dialog
-				onOpenChange={setConfirm}
+				onOpenChange={(open) => {
+					setConfirm(open);
+					if (!open) {
+						pendingInvitationRef.current = null;
+					}
+				}}
 				open={confirm && status.isSuccess && !status.data.allowGuests}
 			>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Allow guests in this Space?</DialogTitle>
+						<DialogTitle>Allow guest access?</DialogTitle>
 						<DialogDescription>
 							Guests can read this Space’s history and files, post messages, and
 							use its Agents. They must sign in and won’t join your
@@ -137,8 +148,23 @@ export function SpaceGuestAccessSection({
 						<Button onClick={() => setConfirm(false)} variant="secondary">
 							Cancel
 						</Button>
-						<Button disabled={save.isPending} onClick={() => save.mutate(true)}>
-							Allow guest invitations
+						<Button
+							disabled={save.isPending}
+							onClick={async () => {
+								const continueInvitation = pendingInvitationRef.current;
+								try {
+									await save.mutateAsync(true);
+								} catch {
+									return;
+								}
+								pendingInvitationRef.current = null;
+								setConfirm(false);
+								continueInvitation?.();
+							}}
+						>
+							{surface === "share"
+								? "Allow and invite guest"
+								: "Allow guest access"}
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -152,7 +178,7 @@ function GuestInvitationEntry(input: {
 	failed: boolean;
 	enabled: boolean;
 	onRetry: () => void;
-	onEnable: () => void;
+	onEnable: (continueInvitation: () => void) => void;
 	spaceId: string;
 }) {
 	if (input.pending) {
@@ -170,23 +196,12 @@ function GuestInvitationEntry(input: {
 			</p>
 		);
 	}
-	if (input.enabled) {
-		return (
-			<SpaceInvitationForm
-				actionVariant="secondary"
-				audience="guest"
-				spaceId={input.spaceId}
-			/>
-		);
-	}
 	return (
-		<div className="flex items-center justify-between gap-2">
-			<p className="text-muted-foreground text-xs">
-				Guests join only this Space.
-			</p>
-			<Button onClick={input.onEnable} size="sm" variant="secondary">
-				Enable guest invitations
-			</Button>
-		</div>
+		<SpaceInvitationForm
+			actionVariant="secondary"
+			audience="guest"
+			onBeforeCreate={input.enabled ? undefined : input.onEnable}
+			spaceId={input.spaceId}
+		/>
 	);
 }

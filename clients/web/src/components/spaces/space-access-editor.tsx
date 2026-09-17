@@ -38,19 +38,17 @@ export const PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP =
 	"Anyone with the link can read this Space, including people outside your organization.";
 
 const READING_LABELS: Record<SpaceLinkReading, string> = {
-	restricted: "Restricted",
+	restricted: "Only invited people",
 	anyone: "Anyone with the link",
 	password: "Anyone with the password",
 };
 
 const JOINING_LABELS: Record<SpaceLinkJoining, string> = {
-	invite_only: "Invitation only",
+	invite_only: "Only invited people",
 	anyone: "Anyone with the link",
-	password: "Password required",
+	password: "Anyone with the password",
 };
 
-// The branches mirror the three explicit product dimensions in one compact editor.
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: keeping the mutually dependent controls together makes their state relationship visible.
 export function SpaceAccessEditor(input: {
 	actionVariant?: "ghost" | "secondary";
 	allowGuests?: boolean;
@@ -67,8 +65,6 @@ export function SpaceAccessEditor(input: {
 }) {
 	const passwordInputId = useId();
 	const actionVariant = input.actionVariant ?? "ghost";
-	const [showParticipationControls, setShowParticipationControls] =
-		useState(false);
 	const [isChangingPassword, setIsChangingPassword] = useState(false);
 	const reading = resolveSpaceLinkReading(input.draft);
 	const joining = resolveSpaceLinkJoining(input.draft);
@@ -87,10 +83,9 @@ export function SpaceAccessEditor(input: {
 		<div className="min-w-0 space-y-4">
 			<section className="grid gap-2">
 				<div className="space-y-0.5">
-					<h3 className="font-medium text-sm">Link access</h3>
+					<h3 className="font-medium text-sm">Who can access</h3>
 					<p className="text-muted-foreground text-xs/relaxed">
-						Controls who can read this Space from its link. Reading never joins
-						the Space.
+						Choose who can open this Space from the shared link.
 					</p>
 				</div>
 				{input.canManageAccess ? (
@@ -109,14 +104,14 @@ export function SpaceAccessEditor(input: {
 						value={reading}
 					>
 						<SelectTrigger
-							aria-label="Link access"
+							aria-label="Who can access"
 							className="w-full"
 							displayValue={READING_LABELS[reading]}
 							icon={resolveReadingIcon(reading)}
 						/>
 						<SelectContent matchTriggerWidth>
 							<SelectItem icon={LockKeyIcon} index={0} value="restricted">
-								Restricted
+								Only invited people
 							</SelectItem>
 							<SelectItem icon={UsersIcon} index={1} value="anyone">
 								Anyone with the link
@@ -177,36 +172,17 @@ export function SpaceAccessEditor(input: {
 			</section>
 			{input.organizationSection}
 
-			<section className="space-y-2 border-border/60 border-t pt-4">
-				<div className="flex items-start justify-between gap-3">
-					<div className="space-y-0.5">
-						<h3 className="font-medium text-sm">Participation</h3>
-						<p className="text-muted-foreground text-xs/relaxed">
-							{describeParticipation(reading, joining, input.allowGuests)}
-						</p>
-					</div>
-					{input.canManageAccess && reading !== "restricted" ? (
-						<Button
-							disabled={input.disabled}
-							onClick={() => setShowParticipationControls((value) => !value)}
-							size="xs"
-							type="button"
-							variant={actionVariant}
-						>
-							{showParticipationControls ? "Done" : "Change"}
-						</Button>
-					) : null}
+			<section className="grid gap-2 border-border/60 border-t pt-4">
+				<div className="space-y-0.5">
+					<h3 className="font-medium text-sm">Who can join</h3>
+					<p className="text-muted-foreground text-xs/relaxed">
+						People who join can post messages and use this Space’s Agents.
+					</p>
 				</div>
-				{showParticipationControls && reading !== "restricted" ? (
+				{input.canManageAccess ? (
 					<div className="grid gap-1">
-						<label
-							className="text-muted-foreground text-xs"
-							htmlFor={`${passwordInputId}-join`}
-						>
-							Join from link
-						</label>
 						<Select
-							disabled={input.disabled}
+							disabled={input.disabled || reading === "restricted"}
 							onValueChange={(value) => {
 								if (
 									value === "invite_only" ||
@@ -220,14 +196,14 @@ export function SpaceAccessEditor(input: {
 							value={joining}
 						>
 							<SelectTrigger
-								aria-label="Join from link"
+								aria-label="Who can join"
 								className="w-full"
 								displayValue={JOINING_LABELS[joining]}
 								id={`${passwordInputId}-join`}
 							/>
 							<SelectContent matchTriggerWidth>
 								<SelectItem index={0} value="invite_only">
-									Invitation only
+									Only invited people
 								</SelectItem>
 								{reading === "anyone" ? (
 									<SelectItem index={1} value="anyone">
@@ -235,12 +211,17 @@ export function SpaceAccessEditor(input: {
 									</SelectItem>
 								) : null}
 								<SelectItem index={2} value="password">
-									Password required
+									Anyone with the password
 								</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
-				) : null}
+				) : (
+					<p className="text-sm">{JOINING_LABELS[joining]}</p>
+				)}
+				<p className="rounded-md bg-muted/50 px-3 py-2 text-muted-foreground text-xs/relaxed">
+					{describeLinkOutcome(reading, joining, input.allowGuests)}
+				</p>
 			</section>
 
 			{input.canManageAccess ? null : (
@@ -257,24 +238,30 @@ export function SpaceAccessEditor(input: {
 	);
 }
 
-function describeParticipation(
+function describeLinkOutcome(
 	reading: SpaceLinkReading,
 	joining: SpaceLinkJoining,
 	allowGuests?: boolean
 ): string {
 	if (reading === "restricted") {
-		return "Only people who are added or invited can participate.";
+		return "This link does not grant access. Only people who are added or invited can open the Space.";
+	}
+	if (reading === "password") {
+		if (joining === "invite_only") {
+			return "People with the Space password can read this Space. Only invited people can join, post messages, and use Agents.";
+		}
+		return "People need the Space password to read and join this Space, post messages, and use Agents.";
 	}
 	if (joining === "invite_only") {
-		return "People can read from the link, but only invited people can join.";
+		return "Anyone with the link can read this Space. Only invited people can join, post messages, and use Agents.";
 	}
 	if (joining === "password") {
-		return "People need the Space password to join from the link.";
+		return "People with this link can read the Space. They need the Space password to join, post messages, and use Agents.";
 	}
 	if (allowGuests === false) {
-		return "Link joining is enabled, but external guests are currently blocked.";
+		return "Organization members can join from this link. People outside the organization need a guest invitation.";
 	}
-	return "People can join from the link when guest access allows it.";
+	return "Anyone with this link can read and join the Space, post messages, and use Agents.";
 }
 
 function resolveReadingIcon(reading: SpaceLinkReading) {

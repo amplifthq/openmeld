@@ -88,10 +88,12 @@ export function SpaceInvitationForm({
 	spaceId,
 	audience = "organization",
 	actionVariant = "ghost",
+	onBeforeCreate,
 }: {
 	spaceId: string;
 	audience?: "organization" | "guest";
 	actionVariant?: "ghost" | "secondary";
+	onBeforeCreate?: (continueInvitation: () => void) => void;
 }) {
 	const scope = useOptionalAppOrganization();
 	const organization = scope?.currentOrganization;
@@ -173,6 +175,28 @@ export function SpaceInvitationForm({
 			</div>
 		);
 	}
+	const createInvitation = () => {
+		mutation.mutate({
+			action: "create",
+			organizationId: organization.id,
+			spaceId,
+			email,
+			audience,
+		});
+	};
+	const submitInvitation = () => {
+		setSent(false);
+		if (!canInvite) {
+			proposal.mutate();
+			return;
+		}
+		if (onBeforeCreate) {
+			onBeforeCreate(createInvitation);
+			return;
+		}
+		createInvitation();
+	};
+	const submitLabel = resolveInvitationSubmitLabel(audience, canInvite);
 	return (
 		<div className="grid gap-2">
 			<p className="text-muted-foreground text-xs/relaxed">
@@ -190,18 +214,7 @@ export function SpaceInvitationForm({
 					) {
 						return;
 					}
-					setSent(false);
-					if (!canInvite) {
-						proposal.mutate();
-						return;
-					}
-					mutation.mutate({
-						action: "create",
-						organizationId: organization.id,
-						spaceId,
-						email,
-						audience,
-					});
+					submitInvitation();
 				}}
 			>
 				<label
@@ -230,7 +243,7 @@ export function SpaceInvitationForm({
 					type="submit"
 					variant="outline"
 				>
-					{canInvite ? "Send invitation" : "Request invitation"}
+					{submitLabel}
 				</Button>
 			</form>
 			{proposal.data?.[0] ? (
@@ -352,4 +365,14 @@ function invitationStatusLabel(status: string): string {
 		return "Joining — they can retry the invitation";
 	}
 	return "Waiting for acceptance";
+}
+
+function resolveInvitationSubmitLabel(
+	audience: "organization" | "guest",
+	canInvite: boolean
+): string {
+	if (!canInvite) {
+		return "Request invitation";
+	}
+	return audience === "guest" ? "Invite guest" : "Invite teammate";
 }
