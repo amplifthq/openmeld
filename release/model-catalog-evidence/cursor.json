@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "controller": "cursor",
-  "observedAt": "2026-09-05T07:30:14.149Z",
-  "fingerprint": "d7363ef6e878898cc6e060a9a85a52e9002f1cca230f10696171ec284ce24c6f",
+  "observedAt": "2026-09-16T12:43:19.619Z",
+  "fingerprint": "2157c17cb339135c2bee691045c598e018490e5df18c1d7f3f1aea30478aa427",
   "sources": [
     {
       "url": "https://cursor.com/docs/cli/reference/parameters.md",
@@ -630,6 +630,7 @@
             "tool_call": true,
             "structured_output": true,
             "temperature": false,
+            "knowledge": "2026-04-30",
             "release_date": "2026-09-04",
             "last_updated": "2026-09-04",
             "modalities": {

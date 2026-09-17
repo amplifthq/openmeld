@@ -282,7 +282,7 @@ type SpaceThreadPanelProps = {
 	isDiagnosticReportSent: (signalId: string) => boolean;
 	isCenterAgentDirectMessage?: boolean;
 	isDirectMessage?: boolean;
-	initialFocusRequestId?: number;
+	initialFocusRequestId?: number | string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	actionableAgentInteractionPlacement?: SpaceAgentInteractionPlacement;
@@ -797,7 +797,7 @@ function useThreadMessageDetailsController(input: {
 }
 
 function useThreadInitialFocus(input: {
-	initialFocusRequestId?: number;
+	initialFocusRequestId?: number | string;
 	signals: SpaceThreadPanelProps["signals"];
 	activeThread: SpaceThread | null;
 	initialFocusSignalId?: string;

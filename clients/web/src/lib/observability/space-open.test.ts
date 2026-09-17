@@ -22,12 +22,14 @@ afterEach(() => {
 });
 
 it.each([
-	"messages",
-	"empty",
-] as const)("waits for access and rendered %s plus the composer, retaining the pending attempt ID", (content) => {
+	["messages", "spaces"],
+	["empty", "spaces"],
+	["messages", "chats"],
+	["empty", "chats"],
+] as const)("waits for access and rendered %s in %s plus the composer, retaining the pending attempt ID", (content, family) => {
 	const report = vi.fn();
 	cleanup = installSpaceOpenReporting(report);
-	beginSpaceOpen("/o/private-org/spaces/private-space", "navigation");
+	beginSpaceOpen(`/o/private-org/${family}/private-space`, "navigation");
 	const id = browserDiagnosticContext().spaceOpenAttemptId;
 	observeSpaceOpen("private-space", {
 		queryStatus: "pending",
@@ -55,6 +57,7 @@ it.each([
 	expect(report).toHaveBeenLastCalledWith(
 		expect.objectContaining({
 			outcome: "resolved",
+			routeId: `/o/$orgSlug/${family}/$spaceId`,
 			spaceOpen: expect.objectContaining({
 				attemptId: id,
 				stage: "ready",

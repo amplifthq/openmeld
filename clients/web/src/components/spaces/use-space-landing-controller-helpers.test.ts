@@ -1,4 +1,7 @@
-import { AGENT_REPLY_FINAL_PURPOSE } from "@openmeld/schemas";
+import {
+	AGENT_REPLY_FINAL_PURPOSE,
+	AGENT_REPLYING_PURPOSE,
+} from "@openmeld/schemas";
 import {
 	createSpaceMemberAgentSnapshot,
 	createSpaceMemberHumanSnapshot,
@@ -46,6 +49,50 @@ vi.mock("#/lib/spaces/api", () => ({
 const createWebSpaceApiMock = vi.mocked(createUnscopedWebSpaceApi);
 
 describe("Thread conversation policy during live replies", () => {
+	it("does not retain transient working events in Thread history or its cropped preview", () => {
+		const queryClient = new QueryClient();
+		const threadContext = { threadId: "thread", rootSignalId: "root" };
+		const placement: SpaceThreadSignalPlacement = {
+			signalId: "transient",
+			threadId: "thread",
+			placement: "thread",
+			createdAt: new Date().toISOString(),
+		};
+		const signal: SignalEnvelope = {
+			v: 1,
+			id: "transient",
+			ts: Date.now(),
+			spaceId: "space",
+			type: "signal.text",
+			profile: { kind: "agent", profileId: "agent" },
+			data: {
+				text: "Working",
+				meta: {
+					transient: true,
+					purpose: AGENT_REPLYING_PURPOSE,
+					dispatchId: "A",
+					targetProfileId: "agent",
+				},
+			},
+		};
+		mergeLiveThreadSignalIntoCache({
+			queryClient,
+			spaceId: "space",
+			openMeldProfileId: "viewer",
+			placement,
+			signal,
+			threadContext,
+		});
+		expect(
+			queryClient.getQueryData(
+				spaceQueryKeys.threadSignals("space", "thread", "viewer")
+			)
+		).toBeUndefined();
+		expect(
+			queryClient.getQueryData(spaceQueryKeys.threads("space", "viewer"))
+		).toBeUndefined();
+		queryClient.clear();
+	});
 	it.each([
 		false,
 		true,
@@ -321,6 +368,30 @@ describe("listPendingWakeProgressClientMessageIds", () => {
 });
 
 describe("reconcilePolledWakeProgressItems", () => {
+	it("does not let A's late completion or an older empty request clear B on the same source", () => {
+		const a = createWakeProgressItem({
+			clientMessageId: "request",
+			dispatchId: "A",
+			sourceSignalId: "source",
+			targetProfileId: AGENT_PROFILE_ID,
+			targetLabel: "Agent",
+			phase: "running",
+			updatedAtMs: 1,
+		});
+		const b = { ...a, dispatchId: "B", updatedAtMs: 2 };
+		const replied = { ...a, phase: "replied" as const, terminal: true };
+		for (const incomingItems of [[replied], []]) {
+			expect(
+				reconcilePolledWakeProgressItems({
+					currentItems: [b],
+					incomingItems,
+					fulfilledClientMessageIds: ["request"],
+					signals: [],
+					snapshotItemsAtRequestStart: [a],
+				})
+			).toEqual([b]);
+		}
+	});
 	it("clears successful empty snapshots without clearing a failed poll", () => {
 		const completedItem = createWakeProgressItem({
 			clientMessageId: "client-message-completed",
@@ -563,7 +634,7 @@ describe("mergeActiveWakeProgressPresentation", () => {
 				signals: [],
 				summaryItems: [newerSummary],
 			})
-		).toEqual([newerSummary]);
+		).toEqual([detailed, newerSummary]);
 	});
 
 	it("clears a cached summary after its durable final reply arrives", () => {

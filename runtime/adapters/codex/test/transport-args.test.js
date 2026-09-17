@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "../../core/dist/index.js";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import { buildCodexExecArgs } from "../dist/transport/codex-cli-transport.js";
 import {
   buildCodexFileAccessBoundaryGlobalArgs,
@@ -9,6 +9,7 @@ import {
 import { buildCodexSpaceActionMcpGlobalArgs } from "../dist/transport/codex-space-action-mcp-config.js";
 
 const DANGEROUS_BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox";
+const DISPATCH_TOOL_NAMES = OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES;
 
 const countDangerousBypassFlags = (args) =>
   args.filter((arg) => arg === DANGEROUS_BYPASS_FLAG).length;
@@ -405,7 +406,7 @@ describe("Codex Space Action MCP config", () => {
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.required=true",
         "-c",
-        `mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=${JSON.stringify([...OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES])}`,
+        `mcp_servers.openmeld_internal_dispatch_space_action.enabled_tools=${JSON.stringify(DISPATCH_TOOL_NAMES)}`,
         "-c",
         "mcp_servers.openmeld_internal_dispatch_space_action.disabled_tools=[]",
         "-c",

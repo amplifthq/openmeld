@@ -29,9 +29,21 @@ export type ComposerFileDraft = {
 	upload?: SpaceComposerUploadDescriptor;
 };
 
+export type ComposerFileSelection = Pick<
+	ComposerFileDraft,
+	"id" | "file" | "publishMutationId" | "upload"
+>;
+
 let database: Promise<IDBDatabase> | undefined;
 // File batches can be added within one millisecond; preserve selection order.
 let lastCreatedAt = 0;
+const draftListeners = new Set<(scope: string) => void>();
+export function subscribeComposerFileDrafts(listener: (scope: string) => void) {
+	draftListeners.add(listener);
+	return () => {
+		draftListeners.delete(listener);
+	};
+}
 function openDatabase() {
 	database ??= new Promise<IDBDatabase>((resolve, reject) => {
 		const request = indexedDB.open("openmeld-composer-files", 1);
@@ -68,6 +80,9 @@ async function writeComposerFileDraft(
 		tx.onabort = () => reject(tx.error);
 		tx.onerror = () => reject(tx.error);
 	});
+	for (const listener of draftListeners) {
+		listener(input.scope);
+	}
 }
 
 // Update only an existing draft: a late upload completion must never recreate
@@ -116,6 +131,30 @@ export async function readComposerFileDrafts(
 		request.onsuccess = () => resolve(request.result);
 		request.onerror = () => reject(request.error);
 	});
+	return retainCurrentDrafts(drafts);
+}
+
+// An in-flight send keeps attachment IDs while its route hands storage ownership
+// to the ready conversation. Read those same files even after their scope moves.
+export async function readComposerFileDraftsByIds(
+	ids: readonly string[]
+): Promise<ComposerFileDraft[]> {
+	const db = await openDatabase();
+	const store = db.transaction("files").objectStore("files");
+	const drafts = await Promise.all(
+		ids.map(
+			(id) =>
+				new Promise<ComposerFileDraft | undefined>((resolve, reject) => {
+					const request = store.get(id);
+					request.onsuccess = () => resolve(request.result);
+					request.onerror = () => reject(request.error);
+				})
+		)
+	);
+	return retainCurrentDrafts(drafts.filter((draft) => draft !== undefined));
+}
+
+async function retainCurrentDrafts(drafts: ComposerFileDraft[]) {
 	await Promise.all(
 		drafts
 			.filter((d) => d.expiresAt <= Date.now())

@@ -787,12 +787,17 @@ web
 gateway
 auth
 core
+core-current-cli-projection
 remote-agent
 cloud
 full
 ```
 
 - The default is `web`, not `full`.
+- `core-current-cli-projection` is the hosted receiver-first Core stage. It
+  deploys the approved Core source while compiling the immutable currently
+  published CLI projection, so a future CLI/Service release is not advertised
+  before its receivers are healthy.
 - `database-auth` and `database-core` are the normal migration bundles. They
   keep the database and its owning Worker in one ordered workflow without
   redeploying the fleet.

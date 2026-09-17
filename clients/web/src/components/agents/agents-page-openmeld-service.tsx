@@ -1,10 +1,15 @@
 import { Popover } from "@base-ui/react/popover";
-import { formatLocalSetupActionLabel } from "@openmeld/schemas";
+import {
+	findOpenMeldToolsUpdateFailureCode,
+	formatLocalSetupActionLabel,
+	formatOpenMeldToolsUpdateFailureMessage,
+} from "@openmeld/schemas";
 import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
 	LocalComponentUpdateStatus,
 	LocalRuntimeComputer,
 	LocalRuntimeExecutionTarget,
+	OpenMeldToolsUpdateFailureCode,
 	OpenMeldToolsUpdateOperation,
 	OrganizationComputerOpenMeldTools,
 } from "@openmeld/schemas/types";
@@ -866,6 +871,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 			(updateOperation?.phase === "updated" && !updateTargetObserved));
 	const serviceUpdate = localComponents?.service ?? null;
 	const cliUpdate = resolveOpenMeldToolsCliUpdate(localComponents);
+	const updateFailureCode = resolveOpenMeldToolsUpdateFailureCode(cliUpdate);
 	const skillsUpdate = resolveOpenMeldToolsSkillsUpdate(localComponents);
 	const requiredServiceUpdate =
 		isOpenMeldToolsComponentUpdateRequired(serviceUpdate);
@@ -980,6 +986,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 					confirmationPending={
 						input.pendingManagedUpdate?.kind === "confirmation"
 					}
+					failureCode={updateFailureCode}
 					operation={updateOperation}
 					requestFailed={input.updateRequestFailed && updateOperation === null}
 					requesting={input.isUpdatingTools}
@@ -1644,6 +1651,7 @@ type OpenMeldToolsAction =
 
 function OpenMeldToolsUpdateFeedback(input: {
 	confirmationPending: boolean;
+	failureCode: OpenMeldToolsUpdateFailureCode | null;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
@@ -1675,6 +1683,7 @@ function OpenMeldToolsUpdateFeedback(input: {
 
 function resolveOpenMeldToolsUpdateStatus(input: {
 	confirmationPending: boolean;
+	failureCode: OpenMeldToolsUpdateFailureCode | null;
 	operation:
 		| CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 		| null;
@@ -1697,13 +1706,21 @@ function resolveOpenMeldToolsUpdateStatus(input: {
 	}
 	return input.operation
 		? formatOpenMeldToolsUpdatePhase({
+				failureCode: input.failureCode,
 				phase: input.operation.phase,
 				targetObserved: input.targetObserved,
 			})
 		: null;
 }
 
+function resolveOpenMeldToolsUpdateFailureCode(
+	cliUpdate: OpenMeldToolsCliUpdate | null
+): OpenMeldToolsUpdateFailureCode | null {
+	return findOpenMeldToolsUpdateFailureCode(cliUpdate?.reasonCodes ?? []);
+}
+
 function formatOpenMeldToolsUpdatePhase(input: {
+	failureCode: OpenMeldToolsUpdateFailureCode | null;
 	phase: NonNullable<
 		CurrentLocalRuntimeReplyReadinessResponse["localComponents"]["updateOperation"]
 	>["phase"];
@@ -1717,9 +1734,10 @@ function formatOpenMeldToolsUpdatePhase(input: {
 		case "updated":
 			return input.targetObserved ? null : "Verifying…";
 		case "restored":
-			return "Update failed. Try again.";
 		case "needs_help":
-			return "Update failed. Try again.";
+			return input.failureCode
+				? formatOpenMeldToolsUpdateFailureMessage(input.failureCode)
+				: "Update failed. Try again.";
 		default: {
 			const exhaustive: never = input.phase;
 			return exhaustive;

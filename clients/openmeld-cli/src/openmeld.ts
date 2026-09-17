@@ -1585,6 +1585,34 @@ const computerCmd = program
   .command("computer")
   .description("Inspect and name computers in OpenMeld.");
 
+computerCmd
+  .command("disconnect")
+  .description(
+    "Disconnect this computer from its reviewed account without forgetting its record."
+  )
+  .requiredOption(
+    "--connection-intent <json>",
+    "Account and exact Computer session reviewed for disconnection"
+  )
+  .action(async (opts: { connectionIntent: string }) => {
+    const view = getGlobalViewOption();
+    await runCommandWithEntryChecks({
+      routeTokens: ["computer", "disconnect"],
+      view,
+      run: async () => {
+        const { runComputerDisconnect } = await import(
+          "./commands/computer-disconnect"
+        );
+        await runComputerDisconnect(
+          computerConnectionIntentSchema.parse(
+            JSON.parse(opts.connectionIntent)
+          ),
+          view
+        );
+      },
+    });
+  });
+
 computerCmd.addHelpText(
   "after",
   buildCommandHelpExamples("Examples", [

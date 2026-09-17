@@ -17,7 +17,7 @@ import {
 import { buildAgentProfilePath } from "#/lib/profile-routes";
 
 export function buildInboxItemSourceNavigation(input: {
-	item: InboxItem;
+	item: Pick<InboxItem, "sourceTarget">;
 	orgSlug: string;
 }): { href: string; openInNewTab: boolean } {
 	const target = input.item.sourceTarget;

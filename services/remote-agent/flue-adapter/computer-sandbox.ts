@@ -34,7 +34,7 @@ import {
 } from "./agent-computer-workspace-access";
 import { createComputerCommandTool } from "./computer-command";
 import type { createAgentComputerFileHandoff } from "./computer-file-handoff";
-import { buildAgentComputerName } from "./computer-identity";
+import { resolveRemoteAgentComputerName } from "./computer-identity";
 import { getComputerSpaceFileTools } from "./computer-space-files";
 import type { AgentComputer } from "./computer-workspace";
 import { AGENT_COMPUTER_SHELL_BACKEND_ID } from "./computer-workspace";
@@ -91,12 +91,7 @@ export async function createRemoteAgentComputerCapability(input: {
 }> {
   const namespace = input.env.AGENT_COMPUTER as AgentComputerNamespace;
   const computerId = namespace.idFromName(
-    buildAgentComputerName(
-      input.context.agentProfileId,
-      input.context.conversationIdentity?.kind === "personal_agent"
-        ? (input.context.spaceId ?? "")
-        : undefined
-    )
+    resolveRemoteAgentComputerName(input.context)
   );
   const workspaceAccess = createAgentComputerWorkspaceAccess({
     computerId,

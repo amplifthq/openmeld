@@ -1,5 +1,7 @@
 import type { DesktopUpdaterState } from "@openmeld/schemas";
 import { Button } from "@openmeld/ui/components/button";
+import { SettingsRow } from "@openmeld/ui/components/settings-row";
+import { SettingsSection } from "@openmeld/ui/components/settings-section";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 import { useLayoutEffect, useState, useSyncExternalStore } from "react";
@@ -8,6 +10,7 @@ import {
 	hasClientRestartBlocker,
 	registerClientVersionRecoveryBlocker,
 } from "#/client-version-recovery";
+import { AppPageHeader } from "#/components/app/app-page-header";
 import { hasPendingCenterAgentMessages } from "#/lib/organizations/center-agent-pending-message";
 import { desktopUpdaterPresentation } from "../../../desktop/src/shared/updater-presentation";
 import { getDesktopPlatform } from "./platform";
@@ -190,29 +193,79 @@ export function DesktopUpdater() {
 	);
 }
 
-export function DesktopUpdatesSection() {
+export function DesktopUpdatesSection(input: {
+	presentation?: "notice" | "settings";
+}) {
 	const state = useDesktopUpdater();
 	if (!(getDesktopPlatform() && state)) {
 		return null;
 	}
 	const { message, action, label } = desktopUpdaterPresentation(state);
+	const actionButton = action ? (
+		<Button
+			onClick={() =>
+				getDesktopPlatform()?.updaterAction(action).catch(console.error)
+			}
+			size="sm"
+			variant="outline"
+		>
+			{label}
+		</Button>
+	) : null;
+	if (input.presentation === "settings") {
+		const availableVersion =
+			state.version && state.version !== state.currentVersion
+				? state.version
+				: null;
+		return (
+			<section aria-labelledby="desktop-updates-heading">
+				<AppPageHeader
+					description="See the installed version and check for OpenMeld Desktop updates."
+					eyebrow="Personal"
+					id="desktop-updates-heading"
+					title="Updates"
+				/>
+				<SettingsSection id="desktop-update" title="OpenMeld Desktop">
+					<SettingsRow
+						control={
+							<span className="text-foreground text-sm">
+								Version {state.currentVersion}
+							</span>
+						}
+						label="Installed version"
+					/>
+					{availableVersion ? (
+						<SettingsRow
+							control={
+								<span className="text-foreground text-sm">
+									Version {availableVersion}
+								</span>
+							}
+							label="Available version"
+						/>
+					) : null}
+					<SettingsRow
+						control={
+							<div className="flex flex-col items-start gap-3">
+								<output className="text-muted-foreground text-sm">
+									{message}
+								</output>
+								{actionButton}
+							</div>
+						}
+						label="Update status"
+						layout="stacked"
+						showDivider={false}
+					/>
+				</SettingsSection>
+			</section>
+		);
+	}
 	return (
 		<section aria-label="Updates" className="space-y-3">
 			<h2 className="font-medium">Updates</h2>
 			<output className="block text-muted-foreground text-sm">{message}</output>
-			{action ? (
-				<Button
-					onClick={() => {
-						if (action) {
-							getDesktopPlatform()?.updaterAction(action).catch(console.error);
-						}
-					}}
-					size="sm"
-					variant="outline"
-				>
-					{label}
-				</Button>
-			) : null}
+			{actionButton}
 		</section>
 	);
 }

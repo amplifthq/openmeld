@@ -452,6 +452,7 @@ type SpaceLandingInput = {
 	currentUserAvatarImageUrl?: string | null;
 	initialComposerDraft?: ComposerDraftRecord | null;
 	initialFocusInteractionId?: string;
+	initialFocusRequestId?: string;
 	initialFocusSignalId?: string;
 	initialFocusThreadRootSignalId?: string;
 	initialPendingMessage?: PendingSpaceMessage | null;
@@ -459,7 +460,14 @@ type SpaceLandingInput = {
 	isPersonalContext?: boolean;
 	isCenterAgentDirectMessage?: boolean;
 	isDirectMessageConversation?: boolean;
-	loadingFallback?: ReactNode;
+	loadingFallback?:
+		| ReactNode
+		| ((
+				controller: Extract<
+					SpaceLandingState["controller"],
+					{ mode: "loading" }
+				>
+		  ) => ReactNode);
 	onInitialPendingMessageConsumed?: () => void;
 	onSpaceViewCommitted?: (view: SpaceView) => void;
 	orgSlug?: string;
@@ -1419,9 +1427,18 @@ function SpaceLandingContent(input: SpaceLandingInput) {
 	useSpaceOpenPaint(input.spaceId, spaceOpenFailureMilestone(controller.mode));
 	if (controller.mode === "loading") {
 		return (
-			input.loadingFallback ?? (
+			(typeof input.loadingFallback === "function"
+				? input.loadingFallback(controller)
+				: input.loadingFallback) ?? (
 				<SpaceLandingLoadingShell
 					composer={<SpaceColdLoadingComposer controller={controller} />}
+					membersOpen={
+						state.isDesktopMembersPanel &&
+						state.membersOpen &&
+						!state.currentSpaceIsCenterAgentDirectMessage
+					}
+					membersPanelWidth={state.membersPanelWidth.width}
+					spaceId={input.spaceId}
 					threadOpen={Boolean(input.initialFocusThreadRootSignalId)}
 				/>
 			)
@@ -2217,6 +2234,7 @@ function SpaceLandingConversation({
 			historyErrorMessage={historyErrorMessage}
 			historyNavigation={controller.historyNavigation}
 			initialFocusInteractionId={input.initialFocusInteractionId}
+			initialFocusRequestId={input.initialFocusRequestId}
 			initialFocusSignalId={input.initialFocusSignalId}
 			initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 			isAgentRecoveryPending={controller.isAgentRecoveryPending}
@@ -2810,7 +2828,9 @@ function SpaceLandingSecondaryPanels({
 				currentOwnerUserId={currentOwnerUserId}
 				ephemeralActivityItems={controller.presentedWakeProgressItems}
 				filePreviewUrlsById={controller.threadFilePreviewUrlsById}
-				initialFocusRequestId={controller.threadUnreadFocus?.requestId}
+				initialFocusRequestId={
+					controller.threadUnreadFocus?.requestId ?? input.initialFocusRequestId
+				}
 				initialFocusSignalId={
 					controller.threadUnreadFocus?.signalId ?? input.initialFocusSignalId
 				}

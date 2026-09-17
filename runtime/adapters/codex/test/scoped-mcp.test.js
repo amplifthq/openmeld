@@ -13,7 +13,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, describe, it } from "node:test";
 import { promisify } from "node:util";
-import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "../../core/dist/index.js";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import {
   assertCodexScopedMcpInventory,
   buildCodexScopedMcpDisableArgs,

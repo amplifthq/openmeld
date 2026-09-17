@@ -845,6 +845,7 @@ describe("space-members-service", () => {
 
   it("returns member identity without consulting runtime readiness for a display bootstrap", async () => {
     const sql = new MutableSqlStorage();
+    const queries = vi.spyOn(sql, "exec");
     const profile = createAgentProfile({
       profileId: "agt_11111111-1111-4111-8111-111111111111",
       profileName: "Agent on a slow computer",
@@ -877,6 +878,11 @@ describe("space-members-service", () => {
       agentControllerRef: "builtin:codex",
     });
     expect(snapshot.agents[0]?.agentWakeAvailability).toBeUndefined();
+    expect(
+      queries.mock.calls.some(([query]) =>
+        query.includes("$.profile.agentControllerConversationId")
+      )
+    ).toBe(false);
     expect(snapshot.summary).toEqual({
       totalCount: 1,
       humanCount: 0,

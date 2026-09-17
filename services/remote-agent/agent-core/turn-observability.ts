@@ -48,6 +48,8 @@ type RemoteAgentTurnObservabilityEvent =
       observedAtMs: number;
       source: "code_mode" | "direct";
       toolName: string;
+      callNumber?: number;
+      callLimit?: number;
       type: "tool_call";
     }
   | { observedAtMs: number; type: "tool_budget_exhausted" };
@@ -306,7 +308,8 @@ function applyEvent(
             toolName,
           },
         ].slice(-RECENT_TOOL_CALL_LIMIT),
-        toolCallCount: current.toolCallCount + 1,
+        toolCallCount: event.callNumber ?? current.toolCallCount + 1,
+        toolCallLimit: event.callLimit ?? current.toolCallLimit,
       };
     }
     case "tool_budget_exhausted":
