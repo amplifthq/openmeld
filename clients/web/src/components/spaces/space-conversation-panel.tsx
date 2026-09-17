@@ -889,16 +889,7 @@ function SpaceConversationPanelContent(
 									data-space-conversation-content-width=""
 								>
 									{conversationBody}
-									{input.historyNavigation?.activeWindow?.hasAfter && (
-										<Button
-											className="mx-auto mt-4 mb-16"
-											disabled={input.historyNavigation.pending}
-											onClick={() => input.historyNavigation?.loadAfter()}
-											variant="ghost"
-										>
-											Load newer messages
-										</Button>
-									)}
+									<LoadNewerMessagesControl history={input.historyNavigation} />
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 
@@ -3561,6 +3552,55 @@ function resolveReplyItemsForMessage(input: {
 }): readonly SpaceTimelineItem[] {
 	return input.timelineItems.filter(
 		(candidate) => candidate.replyToSignalId === input.item.id
+	);
+}
+
+function isModifiedNavigationClick(event: {
+	altKey: boolean;
+	button: number;
+	ctrlKey: boolean;
+	metaKey: boolean;
+	shiftKey: boolean;
+}) {
+	return (
+		event.button !== 0 ||
+		event.altKey ||
+		event.ctrlKey ||
+		event.metaKey ||
+		event.shiftKey
+	);
+}
+
+function LoadNewerMessagesControl(input: {
+	history?: SpaceHistoryNavigationController;
+}) {
+	if (!input.history?.activeWindow?.hasAfter) {
+		return null;
+	}
+	const href = input.history.newerHref;
+	return (
+		<Button
+			className="mx-auto mt-4 mb-16"
+			disabled={input.history.pending}
+			nativeButton={!href}
+			onClick={(event) => {
+				if (href && isModifiedNavigationClick(event)) {
+					return;
+				}
+				event.preventDefault();
+				input.history?.loadAfter();
+			}}
+			render={
+				href ? (
+					<a href={href}>
+						<span className="sr-only">Load newer messages</span>
+					</a>
+				) : undefined
+			}
+			variant="ghost"
+		>
+			Load newer messages
+		</Button>
 	);
 }
 

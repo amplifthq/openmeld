@@ -119,6 +119,52 @@ describe("returning to the live Space history", () => {
 	});
 
 	it.each([
+		{ fetchedStart: 1, total: 60, expectedVisibleStart: 1, earlier: false },
+		{ fetchedStart: 1, total: 61, expectedVisibleStart: 2, earlier: true },
+		{ fetchedStart: 1, total: 70, expectedVisibleStart: 11, earlier: true },
+		{ fetchedStart: 1, total: 80, expectedVisibleStart: 21, earlier: true },
+		{ fetchedStart: 2, total: 81, expectedVisibleStart: 22, earlier: true },
+	])("keeps a normal earlier link for a $total-message recent read", ({
+		earlier,
+		expectedVisibleStart,
+		fetchedStart,
+		total,
+	}) => {
+		historyQuery.data = { entries: [], total };
+		const fetchedCount = Math.min(total, 80);
+		const fetched = Array.from({ length: fetchedCount }, (_, index) => ({
+			...message(String(index + fetchedStart)),
+			ts: index + fetchedStart,
+		}));
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				hrefForSignalId: (signalId) =>
+					`/spaces/space-short?signalId=${signalId}`,
+				liveEnvelopes: fetched,
+				profileId: "viewer",
+				spaceId: `space-short-${total}`,
+			})
+		);
+
+		expect(result.current.visibleLiveEnvelopes[0]?.id).toBe(
+			String(expectedVisibleStart)
+		);
+		expect(result.current.visibleLiveEnvelopes).toHaveLength(
+			Math.min(total, 60)
+		);
+		if (earlier) {
+			expect(result.current.earlierHref).toBe(
+				`/spaces/space-short?signalId=${expectedVisibleStart}`
+			);
+		} else {
+			expect(result.current.earlierHref).toBeUndefined();
+		}
+		expect(result.current.newerHref).toBeUndefined();
+	});
+
+	it.each([
 		"target changed",
 		"return to latest",
 	])("ignores a late history response after %s", async (action) => {

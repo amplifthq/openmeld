@@ -197,15 +197,13 @@ export function useSpaceHistoryNavigation(input: {
 		setPending(false);
 		setError(null);
 	};
-	let earlierSignal: SignalEnvelope | undefined;
-	if (activeWindow?.hasBefore) {
-		earlierSignal = activeWindow.envelopes[0];
-	} else if (
-		!activeWindow &&
-		(directory.data?.total ?? 0) > input.liveEnvelopes.length
-	) {
-		earlierSignal = visibleLiveEnvelopes[0];
-	}
+	const { earlierSignal, newerSignal } = continuationSignals({
+		activeWindow,
+		directoryTotal: directory.data?.total ?? 0,
+		fetchedCount: input.liveEnvelopes.length,
+		liveStartIndex,
+		visibleLiveEnvelopes,
+	});
 	return {
 		hrefForSignalId: input.hrefForSignalId,
 		earlierHref:
@@ -213,6 +211,10 @@ export function useSpaceHistoryNavigation(input: {
 				? input.hrefForSignalId(earlierSignal.id)
 				: undefined,
 		latestHref: input.latestHref,
+		newerHref:
+			input.hrefForSignalId && newerSignal
+				? input.hrefForSignalId(newerSignal.id)
+				: undefined,
 		visibleLiveEnvelopes,
 		hasHiddenLiveHistory: liveStartIndex > 0,
 		revealCachedBefore: (envelopes = input.liveEnvelopes) => {
@@ -280,6 +282,32 @@ type HistoryWindow = {
 	hasBefore: boolean;
 	hasAfter: boolean;
 };
+
+function continuationSignals(input: {
+	activeWindow: HistoryWindow | null;
+	directoryTotal: number;
+	fetchedCount: number;
+	liveStartIndex: number;
+	visibleLiveEnvelopes: readonly SignalEnvelope[];
+}) {
+	if (input.activeWindow) {
+		return {
+			earlierSignal: input.activeWindow.hasBefore
+				? input.activeWindow.envelopes[0]
+				: undefined,
+			newerSignal: input.activeWindow.hasAfter
+				? input.activeWindow.envelopes.at(-1)
+				: undefined,
+		};
+	}
+	return {
+		earlierSignal:
+			input.liveStartIndex > 0 || input.directoryTotal > input.fetchedCount
+				? input.visibleLiveEnvelopes[0]
+				: undefined,
+		newerSignal: undefined,
+	};
+}
 
 function initialHistoryWindow(input: {
 	anchorSignalId?: string;

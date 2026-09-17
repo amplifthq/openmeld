@@ -3002,6 +3002,7 @@ describe("SpaceConversationPanel", () => {
 			loadAfter: vi.fn(async () => false),
 			loadBefore: vi.fn(async () => false),
 			open: vi.fn(async () => true),
+			newerHref: "/spaces/space-123?signalId=sig-old",
 			pending: false,
 			retryDirectory: vi.fn(),
 			revealCachedBefore: vi.fn(),
@@ -3027,6 +3028,23 @@ describe("SpaceConversationPanel", () => {
 		expect(latestLink.dispatchEvent(click)).toBe(true);
 		expect(latest).not.toHaveBeenCalled();
 		expect(document.querySelector(".space-history-tick")?.tagName).toBe("A");
+		const newerLink = screen.getByRole("button", {
+			name: "Load newer messages",
+		});
+		expect(newerLink.tagName).toBe("A");
+		expect(newerLink.getAttribute("href")).toBe(
+			"/spaces/space-123?signalId=sig-old"
+		);
+		fireEvent.click(newerLink);
+		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
+		const modifiedClick = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+			ctrlKey: true,
+		});
+		expect(newerLink.dispatchEvent(modifiedClick)).toBe(true);
+		expect(historyNavigation.loadAfter).toHaveBeenCalledTimes(1);
 
 		cleanup();
 		renderSpaceConversationPanel({
@@ -3035,6 +3053,7 @@ describe("SpaceConversationPanel", () => {
 				earlierHref: undefined,
 				hrefForSignalId: undefined,
 				latestHref: undefined,
+				newerHref: undefined,
 			},
 			timelineItems: buildSpaceTimelineItems({
 				envelopes: [signal],
