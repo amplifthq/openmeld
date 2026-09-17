@@ -17,7 +17,7 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import { TabItem, TabPanel, Tabs, TabsList } from "@openmeld/ui/fluid/tabs";
 import { CopyIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
@@ -253,17 +253,18 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 			isCommitting ||
 			(mustSetPassword && !hasPasswordChange);
 		return (
-			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-				<TabsSubtle
-					aria-label="Share or invite"
-					className="mb-5 w-fit shrink-0"
-					idPrefix="space-share-tabs"
-					onSelect={(index) => setShareView(index === 1 ? "invite" : "link")}
-					selectedIndex={shareView === "invite" ? 1 : 0}
-				>
-					<TabsSubtleItem className="h-8" index={0} label="Share link" />
-					<TabsSubtleItem className="h-8" index={1} label="Invite people" />
-				</TabsSubtle>
+			<Tabs
+				aria-label="Share or invite"
+				className="flex min-h-0 min-w-0 flex-1 flex-col"
+				onValueChange={(value) =>
+					setShareView(value === "invite" ? "invite" : "link")
+				}
+				value={shareView}
+			>
+				<TabsList className="mb-5 w-fit shrink-0">
+					<TabItem label="Share link" value="link" />
+					<TabItem label="Invite people" value="invite" />
+				</TabsList>
 				<ScrollArea
 					className="min-h-0 min-w-0 flex-1"
 					contentClassName="space-y-4 pr-1"
@@ -271,12 +272,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					orientation="vertical"
 					scrollFade={false}
 				>
-					<div
-						aria-labelledby="space-share-tabs-tab-0"
-						hidden={shareView !== "link"}
-						id="space-share-tabs-panel-0"
-						role="tabpanel"
-					>
+					<TabPanel value="link">
 						{renderEditor("reading")}
 						{warnings}
 						{shareHasHiddenChanges ? (
@@ -313,20 +309,15 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 								<Input aria-label="Space link" readOnly value={spaceUrl} />
 							</div>
 						) : null}
-					</div>
-					<div
-						aria-labelledby="space-share-tabs-tab-1"
-						hidden={shareView !== "invite"}
-						id="space-share-tabs-panel-1"
-						role="tabpanel"
-					>
+					</TabPanel>
+					<TabPanel value="invite">
 						<InviteView
 							canInviteGuests={input.canManageAccess}
 							openMeldProfileId={input.openMeldProfileId}
 							spaceId={input.spaceId}
 							submitButtonTarget={inviteSubmitTarget}
 						/>
-					</div>
+					</TabPanel>
 				</ScrollArea>
 				{shareView === "link" ? (
 					<footer className="mt-4 flex shrink-0 items-center gap-2 border-border/60 border-t pt-4">
@@ -373,7 +364,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						<div ref={setInviteSubmitTarget} />
 					</footer>
 				)}
-			</div>
+			</Tabs>
 		);
 	}
 
