@@ -3704,12 +3704,13 @@ changing file identity.
 
 Tasks opens one responsive board with **To do**, **In progress**, and **In
 review** as the active columns. Done and Canceled stay in collapsed history
-groups instead of creating a competing list view. Cards show the requester,
-assignee, optional reviewer, completion conditions, current result, and only
-the controls the current profile can plausibly use; Core remains authoritative
-and rejects stale or unauthorized mutations. Empty state copy sends the user
-back to Messages. Direct Messages omit the tab and normalize stale `tasks` view
-state back to Messages.
+groups instead of creating a competing list view. Board cards stay compact:
+title, phase, assignee, requester, and one next-action or attention line.
+Opening a card reveals a right-side detail drawer with the brief, completion
+conditions, current result, people, and only the controls the current profile
+can plausibly use. Core remains authoritative and rejects stale or unauthorized
+mutations. Empty state copy sends the user back to Messages. Direct Messages
+omit the tab and normalize stale `tasks` view state back to Messages.
 
 Every retained text message in an eligible Space has a secondary **Add to
 Tasks** action. The created Task preserves that Signal as its source, inherits
