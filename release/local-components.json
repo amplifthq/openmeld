@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-16T08:08:40.505Z",
+  "updatedAt": "2026-09-17T07:22:28.198Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
-      "packageVersion": "0.3.211",
+      "packageVersion": "0.3.213",
       "updatePolicy": "available",
       "reason": "Existing CLI commands remain compatible with both cloud versions; new Space Task tools follow receiver deployment."
     },
     "service": {
-      "bundleHash": "41b5eba858ab7d36a0b461af609d7e41c86cda223a4b6ee2096acc527d1bd22b",
-      "bundleVersion": "0.3.211",
+      "bundleHash": "558940d44fc3d788478a67764d26ec09d912769e9d8358bda6918c410ff77225",
+      "bundleVersion": "0.3.213",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing Services safely continue current and new Wake work; required floors remain unchanged."
+      "reason": "Existing cloud and local control-plane schemas remain compatible; updated Services keep long controlled stops alive without changing completion semantics."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

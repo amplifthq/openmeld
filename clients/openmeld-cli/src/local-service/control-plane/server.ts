@@ -9,6 +9,7 @@ import {
 import { resolveDaemonControlPlaneEndpoint } from "../../config/daemon-state";
 
 const MAX_CONTROL_PLANE_REQUEST_SIZE_BYTES = 64 * 1024;
+const CONTROL_PLANE_RESPONSE_PROGRESS_INTERVAL_MS = 1000;
 
 type DaemonControlPlaneTokenSource =
   | {
@@ -43,14 +44,24 @@ export async function startLocalDaemonControlPlaneServer(
 
     const respond = (request: unknown) => {
       const requestId = readOptionalRequestId(request);
+      const progressInterval = setInterval(() => {
+        if (!socket.destroyed) {
+          socket.write(" ");
+        }
+      }, CONTROL_PLANE_RESPONSE_PROGRESS_INTERVAL_MS);
+      progressInterval.unref?.();
       buildResponse({
         getContext: input.getContext,
         request,
         requestId,
         resolveExpectedToken,
-      }).then((response) => {
-        socket.end(`${JSON.stringify(response)}\n`);
-      });
+      })
+        .then((response) => {
+          socket.end(`${JSON.stringify(response)}\n`);
+        })
+        .finally(() => {
+          clearInterval(progressInterval);
+        });
     };
 
     socket.setEncoding("utf8");

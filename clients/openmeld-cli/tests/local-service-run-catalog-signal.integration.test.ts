@@ -351,6 +351,14 @@ describe("local service run catalog signal", () => {
 
     await expect(sessionPromise).resolves.toBeUndefined();
     expect(socket.closeCount).toBe(1);
+    expect(lines.map((line) => line.code)).toEqual(
+      expect.arrayContaining([
+        "daemon.run.controlled_shutdown_started",
+        "daemon.run.controlled_shutdown_inflight_heartbeat_completed",
+        "daemon.run.controlled_shutdown_final_heartbeat_completed",
+        "daemon.run.controlled_shutdown_draining",
+      ])
+    );
   });
 
   it("terminates a half-open socket instead of hanging controlled shutdown", async () => {

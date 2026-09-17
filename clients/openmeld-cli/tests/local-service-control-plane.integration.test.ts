@@ -17,6 +17,7 @@ import {
 } from "../src/config/daemon-state";
 import {
   requestLocalConversationExecutionStatus,
+  requestLocalDaemonShutdown,
   requestLocalSyncRouteCatalog,
   sendLocalDaemonControlPlaneRequest,
 } from "../src/local-service/control-plane/client";
@@ -345,6 +346,58 @@ describe("local service control-plane", () => {
         });
       } finally {
         await server.close();
+      }
+    });
+  });
+
+  it("keeps an admitted shutdown request alive until completion evidence is available", async () => {
+    await withTempHome(async () => {
+      vi.useFakeTimers();
+      await installDaemon({
+        daemonVersion: "0.4.0",
+        source: "daemon.command.install",
+      });
+      const token = await readDaemonControlPlaneToken();
+      const admitted = Promise.withResolvers<void>();
+      const completion = Promise.withResolvers<void>();
+      const server = await startLocalDaemonControlPlaneServer({
+        expectedToken: token ?? "missing",
+        getContext: async () => ({
+          ...BASE_CONTEXT,
+          shutdownHandler: async (payload) => {
+            admitted.resolve();
+            await completion.promise;
+            return {
+              accepted: true,
+              gracePeriodMs: payload.gracePeriodMs,
+              mode: payload.mode,
+            };
+          },
+        }),
+      });
+
+      try {
+        const shutdown = requestLocalDaemonShutdown({
+          endpoint: server.endpoint,
+          payload: {
+            gracePeriodMs: 5000,
+            mode: "graceful",
+          },
+          timeoutMs: 1500,
+        });
+        await admitted.promise;
+        await vi.advanceTimersByTimeAsync(2200);
+        completion.resolve();
+
+        await expect(shutdown).resolves.toEqual({
+          accepted: true,
+          gracePeriodMs: 5000,
+          mode: "graceful",
+        });
+      } finally {
+        completion.resolve();
+        await server.close();
+        vi.useRealTimers();
       }
     });
   });

@@ -2495,8 +2495,35 @@ export async function runDaemonSocketSession(input: {
     acceptingDispatches = false;
     shutdownStopCause = stopCause;
     clearHeartbeatTimer();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_started",
+      text: "controlled shutdown was admitted; waiting for the active heartbeat to settle",
+      payload: {
+        daemonSessionId: input.daemonSessionId,
+        stopCause: shutdownStopCause,
+      },
+    });
     await waitForHeartbeatIdle();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_inflight_heartbeat_completed",
+      text: "controlled shutdown finished waiting for the active heartbeat",
+      payload: {
+        daemonSessionId: input.daemonSessionId,
+        stopCause: shutdownStopCause,
+      },
+    });
     await sendHeartbeat();
+    emitRunLine({
+      presenter: input.presenter,
+      code: "daemon.run.controlled_shutdown_final_heartbeat_completed",
+      text: "controlled shutdown completed its final heartbeat",
+      payload: {
+        daemonSessionId: input.daemonSessionId,
+        stopCause: shutdownStopCause,
+      },
+    });
     const drainState = localExecutionSlots.getDrainState();
     emitRunLine({
       presenter: input.presenter,
