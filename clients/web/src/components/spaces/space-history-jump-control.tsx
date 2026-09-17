@@ -15,56 +15,80 @@ import {
 	useMessageScrollerScrollable,
 } from "@shadcn/react/message-scroller";
 import { motion, useReducedMotion } from "motion/react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME } from "./primitives/message-scroller";
 import type { SpaceHistoryActions } from "./space-history-rail";
 
 export function SpaceHistoryJumpControl({
 	history,
-	onCatchUpUnread,
+	onPrepareCatchUpUnread,
 }: {
 	history?: SpaceHistoryActions;
-	onCatchUpUnread?: () => Promise<void>;
+	onPrepareCatchUpUnread?: () => Promise<(() => Promise<void>) | null>;
 }) {
 	const reduceMotion = useReducedMotion();
 	const { scrollToEnd } = useMessageScroller();
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
 	const [catchUpPending, setCatchUpPending] = useState(false);
 	const [catchUpError, setCatchUpError] = useState(false);
+	const operationSequence = useRef(0);
+	useEffect(() => {
+		return () => {
+			operationSequence.current += 1;
+		};
+	}, []);
 	const pending = catchUpPending || !!history?.pending;
 	const active =
-		!!history?.isHistorical || canScrollToEnd || pending || !!onCatchUpUnread;
+		!!history?.isHistorical ||
+		canScrollToEnd ||
+		pending ||
+		!!onPrepareCatchUpUnread;
 	const actionLabel = resolveLatestActionLabel({
 		catchUpError,
-		hasCatchUp: !!onCatchUpUnread,
+		hasCatchUp: !!onPrepareCatchUpUnread,
 	});
+	const navigateToLatest = async () => {
+		if (history) {
+			return await history.onLatest();
+		}
+		const behavior = onPrepareCatchUpUnread || reduceMotion ? "auto" : "smooth";
+		scrollToEnd({ behavior });
+		if (onPrepareCatchUpUnread) {
+			await waitForConversationPaint();
+		}
+		return true;
+	};
 	const handleLatest = async () => {
 		if (pending) {
 			return;
 		}
-		if (!onCatchUpUnread) {
-			if (history) {
-				await history.onLatest();
-			} else {
-				scrollToEnd({ behavior: reduceMotion ? "auto" : "smooth" });
-			}
+		if (!onPrepareCatchUpUnread) {
+			await navigateToLatest();
 			return;
 		}
 		setCatchUpError(false);
 		setCatchUpPending(true);
+		const sequence = ++operationSequence.current;
 		try {
-			if (history) {
-				await history.onLatest();
-			} else {
-				scrollToEnd({ behavior: "auto" });
-				await waitForConversationPaint();
+			const commitCatchUp = await onPrepareCatchUpUnread();
+			if (sequence !== operationSequence.current || !commitCatchUp) {
+				return;
 			}
-			await onCatchUpUnread();
+			const reachedLatest = await navigateToLatest();
+			if (sequence !== operationSequence.current || !reachedLatest) {
+				return;
+			}
+			await commitCatchUp();
 		} catch (error) {
+			if (sequence !== operationSequence.current) {
+				return;
+			}
 			console.error("Failed to catch up the Space read position.", error);
 			setCatchUpError(true);
 		} finally {
-			setCatchUpPending(false);
+			if (sequence === operationSequence.current) {
+				setCatchUpPending(false);
+			}
 		}
 	};
 	const transition = {

@@ -21,7 +21,7 @@ import type { SpaceHistoryNavigationController } from "./use-space-history-navig
 
 export type SpaceHistoryActions = {
 	onBack?: () => void;
-	onLatest: () => Promise<void>;
+	onLatest: () => Promise<boolean>;
 	isHistorical: boolean;
 	pending: boolean;
 };
@@ -58,6 +58,14 @@ export function SpaceHistoryRail(input: {
 	const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 	const jumpSequence = useRef(0);
+	const latestState = useRef({
+		controller: input.controller,
+		scrollElement: input.scrollElement,
+	});
+	latestState.current = {
+		controller: input.controller,
+		scrollElement: input.scrollElement,
+	};
 	const entries = input.controller.directory?.entries ?? [];
 	const selected = entries[activeIndex ?? 0];
 	const closePreview = () => {
@@ -206,22 +214,28 @@ export function SpaceHistoryRail(input: {
 		}, 180);
 	};
 	const latest = async () => {
-		jumpSequence.current += 1;
+		const sequence = ++jumpSequence.current;
 		setPrevious(readPosition(input.scrollElement));
 		closePreview();
 		input.controller.latest();
 		input.onFollowLatest();
 		await new Promise<void>((resolve) => {
-			requestAnimationFrame(() =>
-				requestAnimationFrame(() => {
-					input.scrollElement?.scrollTo({
-						top: input.scrollElement.scrollHeight,
-						behavior: "instant",
-					});
-					resolve();
-				})
-			);
+			requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
 		});
+		const current = latestState.current;
+		if (
+			sequence !== jumpSequence.current ||
+			current.controller.activeWindow ||
+			current.controller.pending ||
+			!current.scrollElement
+		) {
+			return false;
+		}
+		current.scrollElement.scrollTo({
+			top: current.scrollElement.scrollHeight,
+			behavior: "instant",
+		});
+		return sequence === jumpSequence.current;
 	};
 
 	return (

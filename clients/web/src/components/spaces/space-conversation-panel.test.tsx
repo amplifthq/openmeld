@@ -2938,9 +2938,10 @@ describe("SpaceConversationPanel", () => {
 	});
 
 	it("catches up unread main messages even when the short conversation is already at the latest position", async () => {
-		const onCatchUpUnread = vi.fn(async () => undefined);
+		const commitCatchUpUnread = vi.fn(async () => undefined);
+		const onPrepareCatchUpUnread = vi.fn(async () => commitCatchUpUnread);
 		renderSpaceConversationPanel({
-			onCatchUpUnread,
+			onPrepareCatchUpUnread,
 			timelineItems: [createTimelineItem({ text: "Unread short message" })],
 			unreadCount: 1,
 			unreadStateReady: true,
@@ -2962,7 +2963,8 @@ describe("SpaceConversationPanel", () => {
 
 		fireEvent.click(jumpButton);
 
-		await waitFor(() => expect(onCatchUpUnread).toHaveBeenCalledOnce());
+		await waitFor(() => expect(commitCatchUpUnread).toHaveBeenCalledOnce());
+		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
 	});
 
 	it("keeps catch-up retryable after reaching latest when the read write fails", async () => {
@@ -2970,7 +2972,9 @@ describe("SpaceConversationPanel", () => {
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
 		renderSpaceConversationPanel({
-			onCatchUpUnread: vi.fn(() => Promise.reject(new Error("offline"))),
+			onPrepareCatchUpUnread: vi.fn(
+				async () => () => Promise.reject(new Error("offline"))
+			),
 			timelineItems: [createTimelineItem({ text: "Unread short message" })],
 			unreadCount: 1,
 			unreadStateReady: true,

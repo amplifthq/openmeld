@@ -79,6 +79,7 @@ describe("useSpaceInboxReadPosition", () => {
 			useSpaceInboxReadPosition({
 				destination: "ordinary-space",
 				organizationId: "org-acme",
+				profileId: "profile-felix",
 				spaceId: "space-project",
 			})
 		);
@@ -113,6 +114,7 @@ describe("useSpaceInboxReadPosition", () => {
 			useSpaceInboxReadPosition({
 				destination: "ordinary-space",
 				organizationId: null,
+				profileId: "profile-felix",
 				spaceId: "space-project",
 			})
 		);
@@ -130,6 +132,7 @@ describe("useSpaceInboxReadPosition", () => {
 			useSpaceInboxReadPosition({
 				destination: "center-agent",
 				organizationId: "org-acme",
+				profileId: "profile-felix",
 				spaceId: "space-project",
 			})
 		);
@@ -143,7 +146,7 @@ describe("useSpaceInboxReadPosition", () => {
 		});
 	});
 
-	it("retries an explicit catch-up with the same frozen server cutoff", async () => {
+	it("freezes the server cutoff before navigation and reuses it for retry", async () => {
 		markCurrentSpaceInboxReadThroughMock
 			.mockRejectedValueOnce(new Error("offline"))
 			.mockResolvedValueOnce(undefined);
@@ -151,12 +154,25 @@ describe("useSpaceInboxReadPosition", () => {
 			useSpaceInboxReadPosition({
 				destination: "ordinary-space",
 				organizationId: "org-acme",
+				profileId: "profile-felix",
 				spaceId: "space-project",
 			})
 		);
 
-		await expect(result.current.catchUpMain()).rejects.toThrow("offline");
-		await result.current.catchUpMain();
+		const firstCommit = await result.current.prepareCatchUpMain();
+		queryClient.fetchQuery.mockResolvedValue({
+			organizationId: "org-acme",
+			spaces: [
+				{
+					latestUnreadOccurredAtMs: 200,
+					spaceId: "space-project",
+					unreadCount: 4,
+				},
+			],
+		});
+		await expect(firstCommit?.()).rejects.toThrow("offline");
+		const retryCommit = await result.current.prepareCatchUpMain();
+		await retryCommit?.();
 
 		expect(queryClient.fetchQuery).toHaveBeenCalledOnce();
 		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledTimes(2);
@@ -170,5 +186,79 @@ describe("useSpaceInboxReadPosition", () => {
 			spaceId: "space-project",
 			throughOccurredAtMs: 100,
 		});
+	});
+
+	it("does not start a prepared catch-up write after the Space scope changes", async () => {
+		const { result, rerender } = renderHook(
+			(input: { organizationId: string; profileId: string; spaceId: string }) =>
+				useSpaceInboxReadPosition({
+					destination: "ordinary-space",
+					organizationId: input.organizationId,
+					profileId: input.profileId,
+					spaceId: input.spaceId,
+				}),
+			{
+				initialProps: {
+					organizationId: "org-acme",
+					profileId: "profile-felix",
+					spaceId: "space-project",
+				},
+			}
+		);
+		const commit = await result.current.prepareCatchUpMain();
+
+		rerender({
+			organizationId: "org-acme",
+			profileId: "profile-other",
+			spaceId: "space-project",
+		});
+		await commit?.();
+
+		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
+	});
+
+	it("abandons catch-up preparation when the Space changes during the summary read", async () => {
+		let resolveSummary: ((value: unknown) => void) | undefined;
+		queryClient.fetchQuery.mockReturnValue(
+			new Promise((resolve) => {
+				resolveSummary = resolve;
+			})
+		);
+		const { result, rerender } = renderHook(
+			(input: { organizationId: string; profileId: string; spaceId: string }) =>
+				useSpaceInboxReadPosition({
+					destination: "ordinary-space",
+					organizationId: input.organizationId,
+					profileId: input.profileId,
+					spaceId: input.spaceId,
+				}),
+			{
+				initialProps: {
+					organizationId: "org-acme",
+					profileId: "profile-felix",
+					spaceId: "space-project",
+				},
+			}
+		);
+		const preparation = result.current.prepareCatchUpMain();
+
+		rerender({
+			organizationId: "org-other",
+			profileId: "profile-other",
+			spaceId: "space-other",
+		});
+		resolveSummary?.({
+			organizationId: "org-acme",
+			spaces: [
+				{
+					latestUnreadOccurredAtMs: 100,
+					spaceId: "space-project",
+					unreadCount: 3,
+				},
+			],
+		});
+
+		await expect(preparation).resolves.toBeNull();
+		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
 	});
 });

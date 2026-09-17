@@ -4519,11 +4519,13 @@ on viewport geometry. Thread targets open the exact reply instead of treating
 the root message as the destination.
 
 When the main conversation has unread targets, the existing latest-message
-control is also the explicit catch-up action. Web first mounts the live tail and
-settles its scroll position, then reads a fresh Core Space Inbox summary and
-writes the main watermark through that frozen server occurrence time. The same
-activation never advances a Thread watermark or includes messages arriving
-after its cutoff. Visible-message and explicit writes share one per-scope
+control is also the explicit catch-up action. Web first reads a fresh Core Space
+Inbox summary to freeze the accepted main-timeline cutoff, then mounts the live
+tail and settles its scroll position before writing the main watermark through
+that exact occurrence time. A superseded navigation, unmounted view, or changed
+Organization/Space identity cancels the unstarted write. The same activation
+never advances a Thread watermark or includes messages arriving after its
+cutoff, and a retry reuses the original cutoff. Visible-message and explicit writes share one per-scope
 serializer that coalesces queued higher watermarks, so an older invalidation
 cannot replace a newer optimistic projection. Failures retain the cutoff for
 retry and state that the user reached the latest messages but marking them read

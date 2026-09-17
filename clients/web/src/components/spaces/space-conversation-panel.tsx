@@ -299,7 +299,7 @@ type SpaceConversationPanelResolvedProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
-	onCatchUpUnread?: () => Promise<void>;
+	onPrepareCatchUpUnread?: () => Promise<(() => Promise<void>) | null>;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onClearComposerReplyTo: () => void;
@@ -815,7 +815,7 @@ function SpaceConversationPanelContent(
 									renderNavigation={(history) => (
 										<SpaceHistoryJumpControl
 											history={history}
-											onCatchUpUnread={input.onCatchUpUnread}
+											onPrepareCatchUpUnread={input.onPrepareCatchUpUnread}
 										/>
 									)}
 									scrollElement={conversationScrollElement}
@@ -915,7 +915,7 @@ function SpaceConversationPanelContent(
 
 							{!input.historyNavigation && (
 								<SpaceHistoryJumpControl
-									onCatchUpUnread={input.onCatchUpUnread}
+									onPrepareCatchUpUnread={input.onPrepareCatchUpUnread}
 								/>
 							)}
 						</MessageScroller>

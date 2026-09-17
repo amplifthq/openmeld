@@ -523,6 +523,7 @@ function useSpaceLandingState(input: SpaceLandingInput) {
 			isDirectMessageConversation: input.isDirectMessageConversation === true,
 		}),
 		organizationId,
+		profileId: input.profileId,
 		spaceId: input.spaceId,
 	});
 	const recovery = useLocalAgentRecoveryController({
@@ -2247,16 +2248,6 @@ function SpaceLandingConversation({
 			onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
 			onAgentRecoveryAction={handleAgentRecoveryAction}
-			onCatchUpUnread={
-				input.readingEnabled !== false &&
-				currentProfileIsActiveSpaceMember &&
-				spaceInboxReadPosition.isReady &&
-				spaceInboxReadPosition.targets.some(
-					(target) => target.threadRootSignalId === null
-				)
-					? spaceInboxReadPosition.catchUpMain
-					: undefined
-			}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
 			onComposeExpiredDeviceWait={
 				controller.status.allowedActions.includes("post_message")
@@ -2271,6 +2262,16 @@ function SpaceLandingConversation({
 			onOpenSpaceFile={openSpaceFile}
 			onOpenThread={controller.onOpenThread}
 			onOpenUnreadThread={controller.onOpenUnreadThread}
+			onPrepareCatchUpUnread={
+				input.readingEnabled !== false &&
+				currentProfileIsActiveSpaceMember &&
+				spaceInboxReadPosition.isReady &&
+				spaceInboxReadPosition.targets.some(
+					(target) => target.threadRootSignalId === null
+				)
+					? spaceInboxReadPosition.prepareCatchUpMain
+					: undefined
+			}
 			onRecoverExecution={controller.onRecoverExecution}
 			onRemoveComposerFile={controller.onRemoveComposerFile}
 			onReplyToMessage={controller.onReplyToMessage}

@@ -1,6 +1,6 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { markCurrentSpaceInboxReadThrough } from "#/lib/organizations/inbox";
 import {
 	inboxQueryKeys,
@@ -15,13 +15,13 @@ import {
 import { createSpaceInboxReadThroughCoordinator } from "./space-inbox-read-through-coordinator";
 
 export type SpaceInboxReadPosition = {
-	catchUpMain: () => Promise<void>;
 	isReady: boolean;
 	latestUnreadOccurredAtMs: number | null;
 	markReadThrough: (
 		throughOccurredAtMs: number,
 		threadRootSignalId?: string
 	) => Promise<void>;
+	prepareCatchUpMain: () => Promise<(() => Promise<void>) | null>;
 	targets: readonly SpaceInboxUnreadTarget[];
 	totalUnreadCount: number;
 };
@@ -29,6 +29,7 @@ export type SpaceInboxReadPosition = {
 export function useSpaceInboxReadPosition(input: {
 	destination: SpaceInboxUnreadDestination;
 	organizationId: string | null;
+	profileId: string;
 	spaceId: string;
 }): SpaceInboxReadPosition {
 	const queryClient = useQueryClient();
@@ -113,11 +114,22 @@ export function useSpaceInboxReadPosition(input: {
 		cutoff: number;
 		scopeKey: string;
 	} | null>(null);
-	const catchUpMain = useCallback(async () => {
+	const identityScopeKey = `${input.organizationId ?? ""}:${input.profileId}:${input.spaceId}`;
+	const activeScopeKeyRef = useRef<string | null>(null);
+	useEffect(() => {
+		activeScopeKeyRef.current = identityScopeKey;
+		retryCutoffRef.current = null;
+		return () => {
+			if (activeScopeKeyRef.current === identityScopeKey) {
+				activeScopeKeyRef.current = null;
+			}
+		};
+	}, [identityScopeKey]);
+	const prepareCatchUpMain = useCallback(async () => {
 		if (!input.organizationId) {
-			return;
+			return null;
 		}
-		const scopeKey = `${input.organizationId}:${input.spaceId}`;
+		const scopeKey = `${input.organizationId}:${input.profileId}:${input.spaceId}`;
 		let cutoff =
 			retryCutoffRef.current?.scopeKey === scopeKey
 				? retryCutoffRef.current.cutoff
@@ -129,6 +141,9 @@ export function useSpaceInboxReadPosition(input: {
 				}),
 				staleTime: 0,
 			});
+			if (scopeKey !== activeScopeKeyRef.current) {
+				return null;
+			}
 			const space = summary.spaces.find(
 				(candidate) => candidate.spaceId === input.spaceId
 			);
@@ -138,27 +153,36 @@ export function useSpaceInboxReadPosition(input: {
 						"OpenMeld couldn’t confirm which messages are unread. Try again."
 					);
 				}
-				return;
+				return null;
 			}
 			cutoff = space.latestUnreadOccurredAtMs;
 			retryCutoffRef.current = { cutoff, scopeKey };
 		}
-		await persist(cutoff);
-		if (retryCutoffRef.current?.scopeKey === scopeKey) {
-			retryCutoffRef.current = null;
-		}
+		return async () => {
+			if (scopeKey !== activeScopeKeyRef.current) {
+				return;
+			}
+			await persist(cutoff);
+			if (
+				scopeKey === activeScopeKeyRef.current &&
+				retryCutoffRef.current?.scopeKey === scopeKey
+			) {
+				retryCutoffRef.current = null;
+			}
+		};
 	}, [
 		input.organizationId,
+		input.profileId,
 		input.spaceId,
 		persist,
 		queryClient,
 		unreadTargetsQuery.data?.totalUnreadCount,
 	]);
 	return {
-		catchUpMain,
 		isReady: unreadTargetsQuery.isSuccess,
 		latestUnreadOccurredAtMs: summaryItem?.latestUnreadOccurredAtMs ?? null,
 		markReadThrough: persist,
+		prepareCatchUpMain,
 		targets: unreadTargetsQuery.data?.targets ?? [],
 		totalUnreadCount: unreadTargetsQuery.data?.totalUnreadCount ?? 0,
 	};
