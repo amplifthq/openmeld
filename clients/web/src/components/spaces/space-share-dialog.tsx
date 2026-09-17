@@ -14,7 +14,6 @@ import {
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
-import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import { ShareNetworkIcon } from "@phosphor-icons/react";
 import {
 	SpaceAccessSettings,
@@ -22,10 +21,14 @@ import {
 } from "./space-access-settings";
 
 export function SpaceShareDialog(
-	input: SpaceAccessSettingsProps & { spaceName: string }
+	input: SpaceAccessSettingsProps & {
+		onOpenChange?: (open: boolean) => void;
+		open?: boolean;
+		spaceName: string;
+	}
 ) {
 	return (
-		<Dialog>
+		<Dialog onOpenChange={input.onOpenChange} open={input.open}>
 			<Tooltip>
 				<TooltipTrigger
 					render={
@@ -50,19 +53,15 @@ export function SpaceShareDialog(
 				size="lg"
 			>
 				<DialogHeader className="shrink-0 pr-8">
-					<DialogTitle>Share {input.spaceName}</DialogTitle>
+					<DialogTitle>Share</DialogTitle>
+					<p className="line-clamp-2 pr-2 text-muted-foreground text-sm">
+						{input.spaceName}
+					</p>
 					<DialogDescription className="sr-only">
 						Invite people or share a link to this Space.
 					</DialogDescription>
 				</DialogHeader>
-				<ScrollArea
-					className="min-h-0 min-w-0 flex-1"
-					contentClassName="pr-1"
-					data-testid="space-share-dialog-scroll-area"
-					orientation="vertical"
-				>
-					<SpaceAccessSettings {...input} surface="share" />
-				</ScrollArea>
+				<SpaceAccessSettings {...input} surface="share" />
 			</DialogContent>
 		</Dialog>
 	);

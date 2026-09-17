@@ -11,6 +11,7 @@ import type {
 	SignalEnvelope,
 	SpaceAccessMode,
 	SpaceInboxUnreadTarget,
+	SpaceLinkJoinPolicy,
 	SpaceMembersSnapshot,
 	SpaceMessageFileReference,
 	SpaceThread,
@@ -1208,6 +1209,7 @@ export type SpaceLandingController =
 			onRefreshStatusAndMembers: () => Promise<void>;
 			onSetAccessMode: (input: {
 				accessMode: SpaceAccessMode;
+				linkJoinPolicy?: SpaceLinkJoinPolicy;
 				password?: string;
 			}) => Promise<void>;
 			onUpdateSpaceName: (name: string) => Promise<void>;
@@ -3294,6 +3296,7 @@ export function useSpaceLandingController(input: {
 
 	async function handleSetAccessMode(nextAccess: {
 		accessMode: SpaceAccessMode;
+		linkJoinPolicy?: SpaceLinkJoinPolicy;
 		password?: string;
 	}) {
 		setIsAccessModePending(true);
@@ -3305,6 +3308,9 @@ export function useSpaceLandingController(input: {
 			}).setAccessMode({
 				spaceId: input.spaceId,
 				accessMode: nextAccess.accessMode,
+				...(nextAccess.linkJoinPolicy === undefined
+					? {}
+					: { linkJoinPolicy: nextAccess.linkJoinPolicy }),
 				...(nextAccess.password === undefined
 					? {}
 					: { password: nextAccess.password }),

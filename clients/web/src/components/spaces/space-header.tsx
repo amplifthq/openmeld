@@ -193,6 +193,7 @@ export function SpaceHeader(input: {
 	showDeleteSpaceAction: boolean;
 	onSetAccessMode: (input: {
 		accessMode: GetSpaceStatusResponse["accessMode"];
+		linkJoinPolicy?: GetSpaceStatusResponse["linkJoinPolicy"];
 		password?: string;
 	}) => Promise<void>;
 	onUpdateSpaceName: (name: string) => Promise<void>;
@@ -200,7 +201,12 @@ export function SpaceHeader(input: {
 	spaceNameErrorMessage: string | null;
 	status: GetSpaceStatusResponse;
 }) {
-	const [spaceInformationOpen, setSpaceInformationOpen] = useState(false);
+	const [activeDialog, setActiveDialog] = useState<"settings" | "share" | null>(
+		null
+	);
+	const [settingsInitialSection, setSettingsInitialSection] = useState<
+		"access" | "general"
+	>("general");
 	const spaceName = resolveHeaderTitle(
 		input.conversationTitle,
 		input.status.name
@@ -240,11 +246,19 @@ export function SpaceHeader(input: {
 						{input.hideShareControl === true ? null : (
 							<SpaceShareDialog
 								accessMode={input.status.accessMode}
+								allowGuests={input.status.allowGuests}
 								canManageAccess={input.canManageSpaceAccess}
 								errorMessage={input.accessModeErrorMessage}
 								isPending={input.isAccessModePending}
+								linkJoinPolicy={input.status.linkJoinPolicy}
+								onOpenAccessSettings={() => {
+									setSettingsInitialSection("access");
+									setActiveDialog("settings");
+								}}
+								onOpenChange={(open) => setActiveDialog(open ? "share" : null)}
 								onSetAccessMode={input.onSetAccessMode}
 								onSetVisibility={input.onSetVisibility}
+								open={activeDialog === "share"}
 								openMeldProfileId={input.currentProfileId}
 								spaceId={input.status.spaceId}
 								spaceName={spaceName}
@@ -256,15 +270,18 @@ export function SpaceHeader(input: {
 								ariaLabel={input.menuLabel ?? "More options"}
 								items={input.menuItems}
 								onOpenConversationInformation={() => {
-									setSpaceInformationOpen(true);
+									setSettingsInitialSection("general");
+									setActiveDialog("settings");
 								}}
 							/>
 						) : null}
 						<SpaceSettingsDialog
 							access={{
+								allowGuests: input.status.allowGuests,
 								canManage: input.canManageSpaceAccess,
 								errorMessage: input.accessModeErrorMessage,
 								isPending: input.isAccessModePending,
+								linkJoinPolicy: input.status.linkJoinPolicy,
 								mode: input.status.accessMode,
 								onSetMode: input.onSetAccessMode,
 							}}
@@ -275,6 +292,7 @@ export function SpaceHeader(input: {
 								isVisible: input.showDeleteSpaceAction,
 								onDelete: input.onDeleteSpace,
 							}}
+							initialSection={settingsInitialSection}
 							isCenterAgentDirectMessage={input.isCenterAgentDirectMessage}
 							isDirectMessage={isDirectMessage}
 							leaveAction={
@@ -293,11 +311,10 @@ export function SpaceHeader(input: {
 								onSave: input.onUpdateSpaceName,
 								value: spaceName,
 							}}
-							onOpenChange={
-								input.menuItems ? setSpaceInformationOpen : undefined
-							}
+							onOpenChange={(open) => setActiveDialog(open ? "settings" : null)}
+							onOpenShare={() => setActiveDialog("share")}
 							onSetVisibility={input.onSetVisibility}
-							open={input.menuItems ? spaceInformationOpen : undefined}
+							open={activeDialog === "settings"}
 							openMeldProfileId={input.currentProfileId}
 							showTrigger={!input.menuItems}
 							spaceId={input.status.spaceId}

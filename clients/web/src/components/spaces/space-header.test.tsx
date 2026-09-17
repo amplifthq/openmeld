@@ -1,6 +1,7 @@
 import type {
 	GetSpaceStatusResponse,
 	SpaceAccessMode,
+	SpaceLinkJoinPolicy,
 } from "@openmeld/schemas/types";
 import {
 	buildPublicSpaceEntryUrl,
@@ -19,22 +20,14 @@ import {
 } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-	PUBLIC_SPACE_ACCESS_DESCRIPTION,
-	PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP,
-} from "./space-access-editor";
+import { PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP } from "./space-access-editor";
 import { SpaceHeader, SpaceWindowHeader } from "./space-header";
 import { SetupRecallButton } from "./space-onboarding-banner";
 
 const JOINED_AS_LABEL_TEXT = /Joined as/;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
-const PASSWORD_TO_JOIN_LABEL_TEXT = /Password to join/;
-const SHARE_PUBLIC_MODE_LABEL_TEXT = /Anyone can view and join/i;
-const SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT =
-	/Anyone can view, password to join/i;
 const SET_SPACE_PASSWORD_LABEL_TEXT = /Set Space password/;
 const NEW_SPACE_PASSWORD_LABEL_TEXT = /New Space password/;
-const REMOVE_PASSWORD_WARNING_TEXT = /Space password will be removed/i;
 
 const { toastMock } = vi.hoisted(() => ({
 	toastMock: Object.assign(vi.fn(), {
@@ -392,12 +385,9 @@ describe("SpaceHeader", () => {
 			screen.queryByRole("button", { name: "Copy Space ID" })
 		).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
-		fireEvent.click(screen.getByRole("button", { name: "Manage link access" }));
 		expect(screen.getByRole("heading", { name: "Access" })).toBeTruthy();
 		expect(screen.getByText("Link access")).toBeTruthy();
-		expect(
-			screen.getAllByText(PUBLIC_SPACE_ACCESS_DESCRIPTION).length
-		).toBeGreaterThan(0);
+		expect(screen.getByText("Participation")).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Advanced" }));
 		expect(screen.getByRole("button", { name: "Leave space" })).toBeTruthy();
 		expect(screen.getByRole("button", { name: "Delete space" })).toBeTruthy();
@@ -511,21 +501,41 @@ describe("SpaceHeader", () => {
 				.getByTestId("space-share-dialog-scroll-area")
 				.querySelector('[data-slot="scroll-area-viewport"]')
 		).toBeTruthy();
-		expect(within(dialog).getByText("Share Design Room")).toBeTruthy();
+		expect(within(dialog).getByRole("heading", { name: "Share" })).toBeTruthy();
+		expect(within(dialog).getByText("Design Room")).toBeTruthy();
 		expect(
 			within(dialog).getByText(
-				"Anyone with the link can read this Space. External visitors can join only when guests are allowed."
+				"People can join from the link when guest access allows it."
 			)
 		).toBeTruthy();
 		expect(within(dialog).queryByRole("radio")).toBeNull();
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Copy Space link" })
-		);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Copy link" }));
 
 		await waitFor(() => {
 			expect(clipboardWriteTextMock).toHaveBeenCalledWith(expectedShareUrl);
 			expect(toastMock.success).toHaveBeenCalledWith("Space link copied.");
 		});
+	});
+
+	it("reports a Share copy failure without claiming success", async () => {
+		clipboardWriteTextMock.mockRejectedValueOnce(
+			new Error("Permission denied")
+		);
+		render(createSpaceHeader());
+
+		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
+		fireEvent.click(
+			within(screen.getByRole("dialog")).getByRole("button", {
+				name: "Copy link",
+			})
+		);
+
+		await waitFor(() => {
+			expect(toastMock.error).toHaveBeenCalledWith(
+				"Couldn't copy the link. Try again."
+			);
+		});
+		expect(toastMock.success).not.toHaveBeenCalled();
 	});
 
 	it("warns that protected Space share links require the password", () => {
@@ -536,22 +546,24 @@ describe("SpaceHeader", () => {
 		const dialog = screen.getByRole("dialog");
 		expect(
 			within(dialog).getByText(
-				"People with the password can view and join this Space."
+				"People need the Space password to join from the link."
 			)
 		).toBeTruthy();
+		expect(
+			within(dialog).getByRole("combobox", { name: "Link access" }).textContent
+		).toContain("Anyone with the password");
 		expect(within(dialog).queryByRole("radio")).toBeNull();
 	});
 
 	it("shows the public view and password-gated join share mode", () => {
 		render(createSpaceHeader({ accessMode: "public_view_join_password" }));
 
-		expect(screen.getByText(PASSWORD_TO_JOIN_LABEL_TEXT)).toBeTruthy();
 		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 
 		const dialog = screen.getByRole("dialog");
 		expect(
 			within(dialog).getByText(
-				"Anyone with the link can read. External visitors need a password and guest access to join."
+				"People need the Space password to join from the link."
 			)
 		).toBeTruthy();
 		expect(within(dialog).queryByRole("radio")).toBeNull();
@@ -564,15 +576,11 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(within(dialog).getByRole("button", { name: "Change" }));
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
+			within(dialog).getByRole("combobox", { name: "Join from link" })
 		);
-
-		fireEvent.click(
-			within(dialog).getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
-		);
+		fireEvent.click(screen.getByRole("option", { name: "Password required" }));
 		fireEvent.change(
 			within(dialog).getByLabelText(SET_SPACE_PASSWORD_LABEL_TEXT),
 			{
@@ -586,51 +594,41 @@ describe("SpaceHeader", () => {
 		await waitFor(() => {
 			expect(onSetAccessMode).toHaveBeenCalledWith({
 				accessMode: "public_view_join_password",
+				linkJoinPolicy: "access_mode",
 				password: "abc123",
 			});
 		});
 	});
 
-	it("lets the Space owner require a password to join from Space settings", async () => {
+	it("enables public reading as invitation-only before copying", async () => {
 		const onSetAccessMode = vi.fn(async () => undefined);
-		render(createSpaceHeader({ onSetAccessMode }));
+		render(createSpaceHeader({ accessMode: "members_only", onSetAccessMode }));
 
-		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
-		fireEvent.click(screen.getByRole("button", { name: "Access" }));
+		fireEvent.click(screen.getByRole("button", { name: "Share space" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
-		);
-
-		fireEvent.click(
-			within(dialog).getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
-		);
-		fireEvent.change(
-			within(dialog).getByLabelText(SET_SPACE_PASSWORD_LABEL_TEXT),
-			{
-				target: { value: "abc123" },
-			}
+			within(dialog).getByRole("combobox", { name: "Link access" })
 		);
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Save access" })
+			screen.getByRole("option", { name: "Anyone with the link" })
+		);
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Enable and copy" })
 		);
 
 		await waitFor(() => {
 			expect(onSetAccessMode).toHaveBeenCalledWith({
-				accessMode: "public_view_join_password",
-				password: "abc123",
+				accessMode: "public",
+				linkJoinPolicy: "invite_only",
 			});
+			expect(clipboardWriteTextMock).toHaveBeenCalledOnce();
 		});
 	});
 
-	it("asks before removing the Space password when access becomes public", async () => {
-		const onSetAccessMode = vi.fn(async () => undefined);
+	it("does not discard a draft when moving from Access to Share", () => {
 		render(
 			createSpaceHeader({
 				accessMode: "public_view_join_password",
-				onSetAccessMode,
 			})
 		);
 
@@ -641,50 +639,39 @@ describe("SpaceHeader", () => {
 		});
 
 		fireEvent.click(
-			within(spaceInfoDialog).getByRole("button", {
-				name: "Manage link access",
-			})
+			within(spaceInfoDialog).getByRole("button", { name: "Change" })
 		);
 		fireEvent.click(
-			within(spaceInfoDialog).getByRole("radio", {
-				name: SHARE_PUBLIC_MODE_LABEL_TEXT,
+			within(spaceInfoDialog).getByRole("combobox", {
+				name: "Join from link",
 			})
 		);
+		fireEvent.click(screen.getByRole("option", { name: "Invitation only" }));
+		expect(within(spaceInfoDialog).getByText("Not saved")).toBeTruthy();
 		fireEvent.click(
-			within(spaceInfoDialog).getByRole("button", { name: "Save access" })
+			within(spaceInfoDialog).getByRole("button", { name: "Open Share" })
 		);
 
 		const confirmationDialog = screen.getByRole("dialog", {
-			name: "Remove the Space password?",
+			name: "Discard unsaved access changes?",
 		});
-		expect(
-			within(confirmationDialog).getByText(REMOVE_PASSWORD_WARNING_TEXT)
-		).toBeTruthy();
-		expect(onSetAccessMode).not.toHaveBeenCalled();
-
 		fireEvent.click(
 			within(confirmationDialog).getByRole("button", {
-				name: "Keep password",
+				name: "Keep editing",
 			})
 		);
-		expect(onSetAccessMode).not.toHaveBeenCalled();
-
+		expect(screen.getByRole("dialog", { name: "Space settings" })).toBeTruthy();
 		fireEvent.click(
-			within(spaceInfoDialog).getByRole("button", { name: "Save access" })
+			within(spaceInfoDialog).getByRole("button", { name: "Open Share" })
 		);
 		fireEvent.click(
 			within(
 				screen.getByRole("dialog", {
-					name: "Remove the Space password?",
+					name: "Discard unsaved access changes?",
 				})
-			).getByRole("button", { name: "Remove password" })
+			).getByRole("button", { name: "Discard and continue" })
 		);
-
-		await waitFor(() => {
-			expect(onSetAccessMode).toHaveBeenCalledWith({
-				accessMode: "public",
-			});
-		});
+		expect(screen.getByRole("dialog", { name: "Share" })).toBeTruthy();
 	});
 
 	it("reuses the current Space password unless the owner changes it", async () => {
@@ -700,17 +687,14 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
+			within(dialog).getByRole("combobox", { name: "Link access" })
 		);
-
 		fireEvent.click(
-			within(dialog).getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
+			screen.getByRole("option", { name: "Anyone with the link" })
 		);
 
 		expect(
-			within(dialog).getByText("Using current Space password.")
+			within(dialog).getByText("Using the current Space password.")
 		).toBeTruthy();
 		expect(
 			within(dialog).queryByLabelText(SET_SPACE_PASSWORD_LABEL_TEXT)
@@ -722,6 +706,7 @@ describe("SpaceHeader", () => {
 		await waitFor(() => {
 			expect(onSetAccessMode).toHaveBeenCalledWith({
 				accessMode: "public_view_join_password",
+				linkJoinPolicy: "access_mode",
 			});
 		});
 	});
@@ -739,13 +724,10 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
+			within(dialog).getByRole("combobox", { name: "Link access" })
 		);
-
 		fireEvent.click(
-			within(dialog).getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
+			screen.getByRole("option", { name: "Anyone with the link" })
 		);
 		fireEvent.click(
 			within(dialog).getByRole("button", { name: "Change password" })
@@ -763,6 +745,7 @@ describe("SpaceHeader", () => {
 		await waitFor(() => {
 			expect(onSetAccessMode).toHaveBeenCalledWith({
 				accessMode: "public_view_join_password",
+				linkJoinPolicy: "access_mode",
 				password: "newpass",
 			});
 		});
@@ -774,15 +757,12 @@ describe("SpaceHeader", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
-		);
 
 		expect(
 			within(dialog).getByRole("heading", { name: "Access" })
 		).toBeTruthy();
 		expect(
-			within(dialog).getByText("Only the Space owner can change this.")
+			within(dialog).getByText("Only Space owners can change access.")
 		).toBeTruthy();
 		expect(
 			within(dialog).queryByRole("button", { name: "Save access" })
@@ -839,34 +819,32 @@ describe("SpaceHeader", () => {
 		expect(onUpdateSpaceName).not.toHaveBeenCalled();
 	});
 
-	it("does not treat a hidden password draft as a public access change", () => {
+	it("clears an unsaved password draft when the owner cancels", () => {
 		render(createSpaceHeader());
 
 		fireEvent.click(screen.getByRole("button", { name: "Space settings" }));
 		fireEvent.click(screen.getByRole("button", { name: "Access" }));
 		const dialog = screen.getByRole("dialog");
+		fireEvent.click(within(dialog).getByRole("button", { name: "Change" }));
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Manage link access" })
+			within(dialog).getByRole("combobox", { name: "Join from link" })
 		);
-		fireEvent.click(
-			within(dialog).getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
-		);
+		fireEvent.click(screen.getByRole("option", { name: "Password required" }));
 		fireEvent.change(
 			within(dialog).getByLabelText(SET_SPACE_PASSWORD_LABEL_TEXT),
 			{
 				target: { value: "abc123" },
 			}
 		);
-		fireEvent.click(
-			within(dialog).getByRole("radio", { name: SHARE_PUBLIC_MODE_LABEL_TEXT })
-		);
+		fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
 
 		const saveButton = within(dialog).getByRole("button", {
 			name: "Save access",
 		});
 		expect((saveButton as HTMLButtonElement).disabled).toBe(true);
+		expect(within(dialog).queryByLabelText(SET_SPACE_PASSWORD_LABEL_TEXT)).toBe(
+			null
+		);
 	});
 
 	it("keeps long space information inside the dialog", () => {
@@ -1055,6 +1033,7 @@ function createSpaceHeader(
 		directMessageOwnerVisibilityLabel?: string | null;
 		onSetAccessMode?: (input: {
 			accessMode: SpaceAccessMode;
+			linkJoinPolicy?: SpaceLinkJoinPolicy;
 			password?: string;
 		}) => Promise<void>;
 		onUpdateSpaceName?: (name: string) => Promise<void>;
@@ -1065,6 +1044,7 @@ function createSpaceHeader(
 		menuItems?: ComponentProps<typeof SpaceHeader>["menuItems"];
 		membersControl?: ReactNode;
 		passwordProtected?: boolean;
+		linkJoinPolicy?: SpaceLinkJoinPolicy;
 		renderFrame?: boolean;
 		showDeleteSpaceAction?: boolean;
 		spaceId?: string;
@@ -1122,6 +1102,7 @@ function createSpaceHeader(
 						accessMode: input.accessMode,
 						memberCount: input.memberCount,
 						passwordProtected: input.passwordProtected,
+						linkJoinPolicy: input.linkJoinPolicy,
 						spaceId: input.spaceId,
 						spaceName: input.spaceName,
 						spacePurpose: input.spacePurpose,
@@ -1138,6 +1119,7 @@ function createSpaceStatus(
 		accessMode?: SpaceAccessMode;
 		memberCount?: number;
 		passwordProtected?: boolean;
+		linkJoinPolicy?: SpaceLinkJoinPolicy;
 		spaceId?: string;
 		spaceName?: string;
 		spacePurpose?: string;
@@ -1151,6 +1133,8 @@ function createSpaceStatus(
 		name: input.spaceName ?? "Design Room",
 		...(input.spacePurpose ? { spacePurpose: input.spacePurpose } : {}),
 		accessMode,
+		linkJoinPolicy: input.linkJoinPolicy ?? "access_mode",
+		allowGuests: true,
 		passwordProtected: accessMode === "protected",
 		dispatchPolicy: {
 			mode: "mention_only",

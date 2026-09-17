@@ -4,273 +4,147 @@ import {
 	normalizeSpacePasswordText,
 	spaceAccessModeUsesPassword,
 } from "@openmeld/schemas";
-import type { SpaceAccessMode } from "@openmeld/schemas/types";
+import type {
+	SpaceAccessMode,
+	SpaceLinkJoinPolicy,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-} from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
-import { RadioGroup, RadioItem } from "@openmeld/ui/fluid/radio-group";
-import { cn } from "@openmeld/ui/lib/utils";
-import { WarningIcon } from "@phosphor-icons/react";
-import { useId, useState } from "react";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+} from "@openmeld/ui/fluid/select";
+import { LockKeyIcon, PasswordIcon, UsersIcon } from "@phosphor-icons/react";
+import { type ReactNode, useId, useState } from "react";
+import {
+	resolveSpaceLinkJoining,
+	resolveSpaceLinkReading,
+	type SpaceLinkJoining,
+	type SpaceLinkReading,
+	type SpaceSharingDraft,
+	setSpaceLinkJoining,
+	setSpaceLinkReading,
+} from "./space-sharing-model";
 
 export type SpaceAccessUpdateInput = {
 	accessMode: SpaceAccessMode;
+	linkJoinPolicy?: SpaceLinkJoinPolicy;
 	password?: string;
 };
 
-export const PUBLIC_SPACE_ACCESS_JOIN_WARNING =
-	"Anyone with the link can join.";
-export const PUBLIC_SPACE_ACCESS_DESCRIPTION = `No password. ${PUBLIC_SPACE_ACCESS_JOIN_WARNING}`;
 export const PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP =
-	"Anyone with the link can view and join, including people outside your organization.";
+	"Anyone with the link can read this Space, including people outside your organization.";
 
-const SPACE_ACCESS_WARNING_TEXT_CLASS_NAME =
-	"text-amber-600 dark:text-amber-400";
+const READING_LABELS: Record<SpaceLinkReading, string> = {
+	restricted: "Restricted",
+	anyone: "Anyone with the link",
+	password: "Anyone with the password",
+};
 
-export const SPACE_ACCESS_OPTIONS: readonly {
-	description: string;
-	label: string;
-	labelClassName?: string;
-	value: SpaceAccessMode;
-}[] = [
-	{
-		description: "Only current members can view and participate.",
-		label: "Members only",
-		value: "members_only",
-	},
-	{
-		description: PUBLIC_SPACE_ACCESS_DESCRIPTION,
-		label: "Anyone can view and join",
-		labelClassName: SPACE_ACCESS_WARNING_TEXT_CLASS_NAME,
-		value: "public",
-	},
-	{
-		description: "Password to join.",
-		label: "Anyone can view, password to join",
-		value: "public_view_join_password",
-	},
-	{
-		description: "Password to view and join.",
-		label: "Password protected",
-		value: "protected",
-	},
-];
+const JOINING_LABELS: Record<SpaceLinkJoining, string> = {
+	invite_only: "Invitation only",
+	anyone: "Anyone with the link",
+	password: "Password required",
+};
 
-export function SpaceAccessModeRadioGroup(input: {
-	disabled: boolean;
-	onChange: (accessMode: SpaceAccessMode) => void;
-	value: SpaceAccessMode;
-}) {
-	const selectedIndex = SPACE_ACCESS_OPTIONS.findIndex(
-		(option) => option.value === input.value
-	);
-
-	return (
-		<RadioGroup
-			aria-disabled={input.disabled || undefined}
-			aria-label="Space access"
-			className={cn(
-				"w-full gap-1",
-				input.disabled && "pointer-events-none opacity-70"
-			)}
-			selectedIndex={selectedIndex}
-		>
-			{SPACE_ACCESS_OPTIONS.map((option, index) => {
-				const isPublicAccessOption = option.value === "public";
-				const isSelected = input.value === option.value;
-				const shouldShowPublicAccessWarning =
-					isPublicAccessOption && isSelected;
-				return (
-					<RadioItem
-						className="px-3 py-2.5"
-						cornerAdornment={
-							isPublicAccessOption ? (
-								<WarningIcon
-									aria-hidden="true"
-									className={cn(
-										"size-3.5",
-										shouldShowPublicAccessWarning
-											? SPACE_ACCESS_WARNING_TEXT_CLASS_NAME
-											: "text-muted-foreground"
-									)}
-								/>
-							) : undefined
-						}
-						description={option.description}
-						index={index}
-						key={option.value}
-						label={option.label}
-						labelClassName={
-							shouldShowPublicAccessWarning ? option.labelClassName : undefined
-						}
-						onSelect={() => {
-							if (input.disabled) {
-								return;
-							}
-							input.onChange(option.value);
-						}}
-						selected={isSelected}
-					/>
-				);
-			})}
-		</RadioGroup>
-	);
-}
-
+// The branches mirror the three explicit product dimensions in one compact editor.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: keeping the mutually dependent controls together makes their state relationship visible.
 export function SpaceAccessEditor(input: {
-	accessMode: SpaceAccessMode;
+	allowGuests?: boolean;
 	canManageAccess: boolean;
-	className?: string;
+	currentAccessMode: SpaceAccessMode;
+	disabled: boolean;
+	draft: SpaceSharingDraft;
 	errorMessage: string | null;
-	isPending: boolean;
-	onSetAccessMode: (input: SpaceAccessUpdateInput) => Promise<void>;
-	readOnlyNote?: string;
-}) {
-	return (
-		<div className={cn("min-w-0 space-y-4", input.className)}>
-			{!input.canManageAccess && (
-				<SpaceAccessSummary accessMode={input.accessMode} />
-			)}
-
-			{input.canManageAccess ? (
-				<SpaceAccessControls
-					accessMode={input.accessMode}
-					errorMessage={input.errorMessage}
-					isPending={input.isPending}
-					onSetAccessMode={input.onSetAccessMode}
-				/>
-			) : (
-				<p className="text-muted-foreground text-xs/relaxed">
-					{input.readOnlyNote ?? "Only the Space owner can change this."}
-				</p>
-			)}
-		</div>
-	);
-}
-
-function SpaceAccessSummary(input: { accessMode: SpaceAccessMode }) {
-	return (
-		<div className="space-y-1">
-			<p className="font-medium text-sm">
-				{resolveSpaceAccessTitle(input.accessMode)}
-			</p>
-			<p className="text-muted-foreground text-xs/relaxed">
-				{resolveSpaceAccessDescription(input.accessMode)}
-			</p>
-		</div>
-	);
-}
-
-function SpaceAccessControls(input: {
-	accessMode: SpaceAccessMode;
-	errorMessage: string | null;
-	isPending: boolean;
-	onSetAccessMode: (input: SpaceAccessUpdateInput) => Promise<void>;
+	organizationSection?: ReactNode;
+	onDraftChange: (draft: SpaceSharingDraft) => void;
+	onPasswordChange: (password: string) => void;
+	password: string;
 }) {
 	const passwordInputId = useId();
-	const [draftAccessMode, setDraftAccessMode] =
-		useState<SpaceAccessMode | null>(null);
-	const [password, setPassword] = useState("");
+	const [showParticipationControls, setShowParticipationControls] =
+		useState(false);
 	const [isChangingPassword, setIsChangingPassword] = useState(false);
-	const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(
-		null
+	const reading = resolveSpaceLinkReading(input.draft);
+	const joining = resolveSpaceLinkJoining(input.draft);
+	const currentModeHasPassword = spaceAccessModeUsesPassword(
+		input.currentAccessMode
 	);
-	const [
-		isRemovePasswordConfirmationOpen,
-		setIsRemovePasswordConfirmationOpen,
-	] = useState(false);
-
-	const selectedAccessMode = draftAccessMode ?? input.accessMode;
-	const normalizedPassword = normalizeSpacePasswordText(password);
-	const selectedModeNeedsPassword =
-		spaceAccessModeUsesPassword(selectedAccessMode);
-	const currentModeHasPassword = spaceAccessModeUsesPassword(input.accessMode);
-	const mustSetPassword = selectedModeNeedsPassword && !currentModeHasPassword;
-	const hasModeChange = selectedAccessMode !== input.accessMode;
-	const hasPasswordChange =
-		selectedModeNeedsPassword && normalizedPassword.length > 0;
-	const removesExistingPassword =
-		currentModeHasPassword && !selectedModeNeedsPassword;
+	const selectedModeNeedsPassword = spaceAccessModeUsesPassword(
+		input.draft.accessMode
+	);
 	const showPasswordInput =
 		selectedModeNeedsPassword &&
 		(!currentModeHasPassword || isChangingPassword);
-	const showCurrentPasswordReuse =
-		selectedModeNeedsPassword && currentModeHasPassword && !isChangingPassword;
-	const errorMessage = localErrorMessage ?? input.errorMessage;
-	const saveDisabled =
-		input.isPending ||
-		!(hasModeChange || hasPasswordChange) ||
-		(mustSetPassword && !hasPasswordChange);
-
-	const saveAccess = async (inputOptions?: {
-		confirmedPasswordRemoval?: boolean;
-	}) => {
-		if (saveDisabled) {
-			return;
-		}
-		if (removesExistingPassword && !inputOptions?.confirmedPasswordRemoval) {
-			setIsRemovePasswordConfirmationOpen(true);
-			return;
-		}
-		if (mustSetPassword && !hasPasswordChange) {
-			setLocalErrorMessage("Enter a Space password to use this access.");
-			return;
-		}
-		setLocalErrorMessage(null);
-		try {
-			await input.onSetAccessMode({
-				accessMode: selectedAccessMode,
-				...(hasPasswordChange ? { password: normalizedPassword } : {}),
-			});
-			setIsRemovePasswordConfirmationOpen(false);
-			setDraftAccessMode(null);
-			setPassword("");
-			setIsChangingPassword(false);
-		} catch (error: unknown) {
-			setLocalErrorMessage(
-				error instanceof Error
-					? error.message
-					: "OpenMeld could not update sharing."
-			);
-		}
-	};
+	const password = normalizeSpacePasswordText(input.password);
 
 	return (
-		<>
-			<div className="space-y-3">
-				<SpaceAccessModeRadioGroup
-					disabled={input.isPending}
-					onChange={(accessMode) => {
-						setDraftAccessMode(accessMode);
-						setIsChangingPassword(false);
-						setLocalErrorMessage(null);
-					}}
-					value={selectedAccessMode}
-				/>
+		<div className="min-w-0 space-y-4">
+			<section className="grid gap-2">
+				<div className="space-y-0.5">
+					<h3 className="font-medium text-sm">Link access</h3>
+					<p className="text-muted-foreground text-xs/relaxed">
+						Controls who can read this Space from its link. Reading never joins
+						the Space.
+					</p>
+				</div>
+				{input.canManageAccess ? (
+					<Select
+						disabled={input.disabled}
+						onValueChange={(value) => {
+							if (
+								value === "restricted" ||
+								value === "anyone" ||
+								value === "password"
+							) {
+								input.onDraftChange(setSpaceLinkReading(input.draft, value));
+								setIsChangingPassword(false);
+							}
+						}}
+						value={reading}
+					>
+						<SelectTrigger
+							aria-label="Link access"
+							className="w-full"
+							displayValue={READING_LABELS[reading]}
+							icon={resolveReadingIcon(reading)}
+						/>
+						<SelectContent matchTriggerWidth>
+							<SelectItem icon={LockKeyIcon} index={0} value="restricted">
+								Restricted
+							</SelectItem>
+							<SelectItem icon={UsersIcon} index={1} value="anyone">
+								Anyone with the link
+							</SelectItem>
+							<SelectItem icon={PasswordIcon} index={2} value="password">
+								Anyone with the password
+							</SelectItem>
+						</SelectContent>
+					</Select>
+				) : (
+					<p className="text-sm">{READING_LABELS[reading]}</p>
+				)}
 
-				{showCurrentPasswordReuse ? (
-					<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+				{selectedModeNeedsPassword &&
+				currentModeHasPassword &&
+				!showPasswordInput ? (
+					<div className="flex items-center justify-between gap-3">
 						<p className="text-muted-foreground text-xs">
-							Using current Space password.
+							Using the current Space password.
 						</p>
-						<Button
-							disabled={input.isPending}
-							onClick={() => {
-								setIsChangingPassword(true);
-								setLocalErrorMessage(null);
-							}}
-							size="xs"
-							type="button"
-							variant="ghost"
-						>
-							Change password
-						</Button>
+						{input.canManageAccess ? (
+							<Button
+								disabled={input.disabled}
+								onClick={() => setIsChangingPassword(true)}
+								size="xs"
+								type="button"
+								variant="ghost"
+							>
+								Change password
+							</Button>
+						) : null}
 					</div>
 				) : null}
 
@@ -283,114 +157,129 @@ function SpaceAccessControls(input: {
 						</span>
 						<Input
 							autoComplete="new-password"
-							disabled={input.isPending}
+							disabled={input.disabled}
 							id={passwordInputId}
-							onChange={(event) => {
-								setPassword(event.target.value);
-								setLocalErrorMessage(null);
-							}}
+							onChange={(event) => input.onPasswordChange(event.target.value)}
 							type="password"
-							value={password}
+							value={input.password}
 						/>
 						<span className="block text-muted-foreground text-xs/relaxed">
-							{currentModeHasPassword
-								? "Leave blank to keep it."
-								: "Sets the Space password."}
+							{currentModeHasPassword && password.length === 0
+								? "Leave blank to keep the current password."
+								: "People will enter this password before reading or joining."}
 						</span>
 					</label>
 				) : null}
+			</section>
+			{input.organizationSection}
 
-				{errorMessage ? (
-					<p className="text-destructive text-xs" role="alert">
-						{errorMessage}
-					</p>
-				) : null}
-
-				<div className="flex justify-end">
-					<Button
-						disabled={saveDisabled}
-						onClick={() => {
-							saveAccess().catch((error) => {
-								console.error("Failed to update Space access.", error);
-							});
-						}}
-						size="sm"
-						type="button"
-					>
-						{input.isPending ? "Saving..." : "Save access"}
-					</Button>
-				</div>
-			</div>
-
-			<Dialog
-				onOpenChange={setIsRemovePasswordConfirmationOpen}
-				open={isRemovePasswordConfirmationOpen}
-			>
-				<DialogContent className="bg-surface-1 sm:max-w-md">
-					<DialogHeader className="pr-8">
-						<DialogTitle>Remove the Space password?</DialogTitle>
-						<DialogDescription>
-							{selectedAccessMode === "members_only"
-								? "Only current members will be able to open this Space. The Space password will be removed."
-								: "Anyone with the link can view and join. The Space password will be removed."}
-						</DialogDescription>
-					</DialogHeader>
-					<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-						<Button
-							disabled={input.isPending}
-							onClick={() => {
-								setIsRemovePasswordConfirmationOpen(false);
-							}}
-							type="button"
-							variant="outline"
-						>
-							Keep password
-						</Button>
-						<Button
-							disabled={input.isPending}
-							onClick={() => {
-								saveAccess({ confirmedPasswordRemoval: true }).catch(
-									(error) => {
-										console.error("Failed to update Space access.", error);
-									}
-								);
-							}}
-							type="button"
-							variant="destructive"
-						>
-							Remove password
-						</Button>
+			<section className="space-y-2 border-border/60 border-t pt-4">
+				<div className="flex items-start justify-between gap-3">
+					<div className="space-y-0.5">
+						<h3 className="font-medium text-sm">Participation</h3>
+						<p className="text-muted-foreground text-xs/relaxed">
+							{describeParticipation(reading, joining, input.allowGuests)}
+						</p>
 					</div>
-				</DialogContent>
-			</Dialog>
-		</>
+					{input.canManageAccess && reading !== "restricted" ? (
+						<Button
+							disabled={input.disabled}
+							onClick={() => setShowParticipationControls((value) => !value)}
+							size="xs"
+							type="button"
+							variant="ghost"
+						>
+							{showParticipationControls ? "Done" : "Change"}
+						</Button>
+					) : null}
+				</div>
+				{showParticipationControls && reading !== "restricted" ? (
+					<div className="grid gap-1">
+						<label
+							className="text-muted-foreground text-xs"
+							htmlFor={`${passwordInputId}-join`}
+						>
+							Join from link
+						</label>
+						<Select
+							disabled={input.disabled}
+							onValueChange={(value) => {
+								if (
+									value === "invite_only" ||
+									value === "anyone" ||
+									value === "password"
+								) {
+									input.onDraftChange(setSpaceLinkJoining(input.draft, value));
+									setIsChangingPassword(false);
+								}
+							}}
+							value={joining}
+						>
+							<SelectTrigger
+								aria-label="Join from link"
+								className="w-full"
+								displayValue={JOINING_LABELS[joining]}
+								id={`${passwordInputId}-join`}
+							/>
+							<SelectContent matchTriggerWidth>
+								<SelectItem index={0} value="invite_only">
+									Invitation only
+								</SelectItem>
+								{reading === "anyone" ? (
+									<SelectItem index={1} value="anyone">
+										Anyone with the link
+									</SelectItem>
+								) : null}
+								<SelectItem index={2} value="password">
+									Password required
+								</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+				) : null}
+			</section>
+
+			{input.canManageAccess ? null : (
+				<p className="text-muted-foreground text-xs/relaxed">
+					Only Space owners can change access.
+				</p>
+			)}
+			{input.errorMessage ? (
+				<p className="text-destructive text-xs" role="alert">
+					{input.errorMessage}
+				</p>
+			) : null}
+		</div>
 	);
 }
 
-export function resolveSpaceAccessTitle(accessMode: SpaceAccessMode): string {
-	switch (accessMode) {
-		case "members_only":
-			return "Members only";
-		case "protected":
-			return "Password protected";
-		case "public_view_join_password":
-			return "Anyone can view";
-		default:
-			return "Anyone can view and join";
+function describeParticipation(
+	reading: SpaceLinkReading,
+	joining: SpaceLinkJoining,
+	allowGuests?: boolean
+): string {
+	if (reading === "restricted") {
+		return "Only people who are added or invited can participate.";
 	}
+	if (joining === "invite_only") {
+		return "People can read from the link, but only invited people can join.";
+	}
+	if (joining === "password") {
+		return "People need the Space password to join from the link.";
+	}
+	if (allowGuests === false) {
+		return "Link joining is enabled, but external guests are currently blocked.";
+	}
+	return "People can join from the link when guest access allows it.";
 }
 
-export function resolveSpaceAccessDescription(
-	accessMode: SpaceAccessMode
-): string {
-	switch (accessMode) {
-		case "members_only":
-			return "Only current members can view and participate.";
-		case "protected":
-			return "Password to view and join.";
-		case "public_view_join_password":
-			return "Password to join.";
+function resolveReadingIcon(reading: SpaceLinkReading) {
+	switch (reading) {
+		case "restricted":
+			return LockKeyIcon;
+		case "password":
+			return PasswordIcon;
 		default:
-			return "No password.";
+			return UsersIcon;
 	}
 }

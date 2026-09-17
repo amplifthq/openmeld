@@ -1,6 +1,9 @@
 "use client";
 
-import type { SpaceAccessMode } from "@openmeld/schemas/types";
+import type {
+	SpaceAccessMode,
+	SpaceLinkJoinPolicy,
+} from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { Dialog, DialogTrigger } from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
@@ -28,9 +31,11 @@ type SpaceInfoLeaveAction = {
 
 export function SpaceSettingsDialog(input: {
 	access: {
+		allowGuests?: boolean;
 		canManage: boolean;
 		errorMessage: string | null;
 		isPending: boolean;
+		linkJoinPolicy?: SpaceLinkJoinPolicy;
 		mode: SpaceAccessMode;
 		onSetMode: (input: SpaceAccessUpdateInput) => Promise<void>;
 	};
@@ -53,7 +58,9 @@ export function SpaceSettingsDialog(input: {
 		value: string;
 	};
 	onOpenChange?: (open: boolean) => void;
+	onOpenShare?: () => void;
 	open?: boolean;
+	initialSection?: "access" | "advanced" | "general";
 	showTrigger?: boolean;
 	spaceId: string;
 	visibility?: "public" | "private";
@@ -74,6 +81,12 @@ export function SpaceSettingsDialog(input: {
 	const conversationLabel = isDirectConversation ? "Chat" : "Space";
 	const open = input.open ?? internalOpen;
 	const handleOpenChange = input.onOpenChange ?? setInternalOpen;
+
+	useEffect(() => {
+		if (open && input.initialSection) {
+			setSection(input.initialSection);
+		}
+	}, [input.initialSection, open]);
 
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={open}>
@@ -165,9 +178,12 @@ export function SpaceSettingsDialog(input: {
 				{section === "access" && showSpaceAccessControls ? (
 					<SpaceAccessSettings
 						accessMode={input.access.mode}
+						allowGuests={input.access.allowGuests}
 						canManageAccess={input.access.canManage}
 						errorMessage={input.access.errorMessage}
 						isPending={input.access.isPending}
+						linkJoinPolicy={input.access.linkJoinPolicy}
+						onOpenShare={input.onOpenShare}
 						onSetAccessMode={input.access.onSetMode}
 						onSetVisibility={input.onSetVisibility}
 						openMeldProfileId={input.openMeldProfileId}
