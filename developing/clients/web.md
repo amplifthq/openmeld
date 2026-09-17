@@ -993,9 +993,13 @@ post-onboarding destination. Inbox uses the full-width inset app surface without
 an empty secondary sidebar.
 
 The full page is also reached from the permanent bottom-right Inbox launcher's
-maximize action. The compact launcher preview reads the same Core list and
-summary, uses the same structured source mapping and read mutation, and owns no
-parallel unread state.
+maximize action. The full page, compact launcher preview, and shared attention
+indicators opt into Core's mute-aware attention presentation. Muted ordinary
+updates remain raw unread history; open actions/reviews, unread urgent updates,
+and unread structured Human mentions remain presented. The notification reader
+continues to use the raw list because delivery policy is evaluated separately.
+The compact preview reads the same Core list and summary, uses the same
+structured source mapping and read mutation, and owns no parallel unread state.
 
 The page provides **All**, **Unread**, **Needs action**, and permission-gated
 **Needs review** filters, an explicit **Mark all as read** action, and a
@@ -1007,7 +1011,8 @@ accessible read/unread and **Dismiss** actions. Dismiss optimistically removes
 the row and updates unread and attention counts, restores the exact prior cache
 on failure, and never changes source state. Dismissing a directly linked item
 also clears the item selector so Web does not present its deliberate removal as
-an availability error.
+an availability error. Mark all targets the same attention presentation, so
+hidden muted ordinary updates are not silently read.
 
 The optional `?item={itemId}` deep link reads that exact recipient-authorized
 Core item by ID, places it in the canonical **All** view when it is outside the

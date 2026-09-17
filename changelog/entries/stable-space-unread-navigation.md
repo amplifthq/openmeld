@@ -1,8 +1,8 @@
 ---
 id: stable-space-unread-navigation
-title: Keep Space unread navigation stable
+title: Make unread navigation stable and muted Spaces quieter
 kind: fixed
-areas: ["spaces", "inbox", "web"]
+areas: ["spaces", "inbox", "web", "desktop"]
 audiences: ["members"]
 ---
 
@@ -14,3 +14,7 @@ The existing latest-message button can now catch up the main conversation even
 when it is short or opened in historical messages. Messages that arrive after
 the click and unread Thread replies remain unread. If saving the read position
 fails, OpenMeld keeps the same boundary and offers a clear retry.
+
+Muted Spaces now keep their unread history without filling Inbox previews or the
+Mac menu bar with ordinary updates. Mentions, urgent updates, and pending actions
+stay visible, while notification delivery continues to respect the mute.

@@ -336,7 +336,8 @@ pending work, and resolving an action removes its red attention treatment.
 Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members
-can mark an item unread and can mark all accessible Inbox items read.
+can mark an item unread and can mark all currently presented Inbox attention
+items read. Ordinary updates hidden by a conversation mute remain unread.
 The bulk **Mark all as read** button appears only with **Unread only** enabled,
 immediately to the left of that switch. A compact confirmation explains that
 the action includes items outside the current filter and clears the corresponding
@@ -399,13 +400,35 @@ intermediate visual change or an optimistic count.
 Failed summaries still expose their unavailable status. Entry activation alone
 never clears an item.
 
+The default full Inbox, compact preview, global indicators, and Desktop menu bar
+use Core's opt-in **attention presentation**. An explicit conversation mute
+hides that conversation's ordinary updates from these attention surfaces,
+including items created before the mute, without reading, dismissing, deleting,
+or changing their raw Inbox records. Open actions and reviews remain visible
+whether read or unread; unread urgent updates and unread structured Human
+mentions also remain visible. Removing the mute reveals the preserved ordinary
+history again. Notification delivery remains a separate policy and the mute
+continues to suppress every message notification from that conversation,
+including urgent updates and mentions.
+
+The raw list remains available to notification delivery and bounded diagnostic
+consumers so preference changes cannot replay historical items as newly
+delivered. Saving a conversation preference invalidates only attention lists
+and summaries; raw delivery state is unchanged. Attention summary categories
+are disjoint: open action/review, unread urgent update, unread mention, and other
+unread update. Core computes the projection over the complete accessible Inbox;
+clients never reconstruct it from a loaded page.
+
 The compact preview uses the same summary breakdown. It separately queries
-**Needs action**, **Needs review**, **Urgent updates**, and unread **Recent updates**, in that
-order, without duplicating an item across groups. The `urgent_updates` list view
+**Needs action**, **Needs review**, **Urgent updates**, **Mentions**, and unread
+**Recent updates**, in that order, without duplicating an item across groups.
+The `urgent_updates` list view
 uses the same predicate as the urgent update count, so older urgent updates
-cannot be displaced by a page of newer ordinary messages. The `recent_updates`
-view independently selects unread items outside both attention groups so a
-page of actions or urgent updates cannot starve ordinary updates either. The bounded preview
+cannot be displaced by a page of newer ordinary messages. The `mentions` view
+selects unread structured Human mentions independently of recency. The
+`recent_updates` view independently selects unread items outside all stronger
+attention groups so a page of actions, urgent updates, or mentions cannot starve
+ordinary updates either. The bounded preview
 reserves room for each group; full Inbox remains the complete list. It may say
 **All caught up** only when there are no unresolved actions and no unread items.
 
@@ -595,8 +618,10 @@ projected into that recipient's Inbox. It does not subscribe the member to
 every thread, broaden source access, backfill old messages, change message
 importance, or create email deliveries. Muting suppresses conversation message
 updates, including urgent message updates; independent action-required items
-retain their existing delivery rules. Inbox content, read state, and source
-resolution remain unchanged. **Urgent email alerts** stays an independent
+retain their existing delivery rules. Raw Inbox content, read state, and source
+resolution remain unchanged. The default attention presentation hides muted
+ordinary updates while retaining open work, unread urgent updates, and unread
+Human mentions as described above. **Urgent email alerts** stays an independent
 account setting, including for urgent items from a muted conversation.
 This includes Human Mentions and urgent terminal Wake outcome updates: neither
 bypasses a conversation's message mute. An open action-required item retains
