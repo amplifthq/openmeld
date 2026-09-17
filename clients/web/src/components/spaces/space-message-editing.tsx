@@ -107,10 +107,8 @@ export function SpaceMessageEditingScope(input: {
 	latestDraftKey.current = input.draftKey;
 	const [error, setError] = useState<string | null>(null);
 	const client = useQueryClient();
-	const api = useMemo(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input.selfProfileId }),
-		[input.selfProfileId]
-	);
+	const createMutationApi = () =>
+		createUnscopedWebSpaceApi({ openMeldProfileId: input.selfProfileId });
 
 	async function run(operation: () => Promise<void>) {
 		if (inFlight.current) {
@@ -154,7 +152,7 @@ export function SpaceMessageEditingScope(input: {
 	async function restore(item: SpaceTimelineItem) {
 		const draftKey = latestDraftKey.current;
 		await run(async () => {
-			const result = await api.mutateMessage({
+			const result = await createMutationApi().mutateMessage({
 				spaceId: item.spaceId,
 				signalId: item.id,
 				body: { action: "restore_draft" },
@@ -179,7 +177,7 @@ export function SpaceMessageEditingScope(input: {
 			let message: Message;
 			try {
 				message = (
-					await api.mutateMessage({
+					await createMutationApi().mutateMessage({
 						spaceId: item.spaceId,
 						signalId: item.id,
 						body,

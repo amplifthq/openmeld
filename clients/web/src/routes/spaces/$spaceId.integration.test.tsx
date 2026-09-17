@@ -282,6 +282,7 @@ describe("PublicSpacePage", () => {
 			["spaces", "space-123", "__public_space_viewer__", "history-navigation"],
 			await api.getHistoryNavigation({ spaceId: "space-123" })
 		);
+		const apiCreationsBeforeRender = createWebSpaceApiMock.mock.calls.length;
 
 		const html = renderToString(
 			<TestQueryClientProvider queryClient={queryClient}>
@@ -293,6 +294,9 @@ describe("PublicSpacePage", () => {
 
 		expect(body.textContent).toContain("Hello public viewer.");
 		expect(body.textContent).not.toContain("Loading the latest messages");
+		expect(createWebSpaceApiMock).toHaveBeenCalledTimes(
+			apiCreationsBeforeRender
+		);
 	});
 
 	it.each([

@@ -534,16 +534,6 @@ function useSpaceMessageTaskAction(input: {
 	const [pendingSourceSignalId, setPendingSourceSignalId] = useState<
 		string | null
 	>(null);
-	const taskApi = useMemo(
-		() =>
-			organizationSlug
-				? createOrganizationScopedWebSpaceApi({
-						organizationSlug,
-						openMeldProfileId,
-					})
-				: createUnscopedWebSpaceApi({ openMeldProfileId }),
-		[openMeldProfileId, organizationSlug]
-	);
 	const onAdd = useCallback(
 		async (item: SpaceTimelineItem, threadId: string | null) => {
 			if (disabled || !spaceId || pendingSourceSignalId) {
@@ -556,6 +546,12 @@ function useSpaceMessageTaskAction(input: {
 					compactText.length > SPACE_TASK_TITLE_MAX_CHARS
 						? `${compactText.slice(0, SPACE_TASK_TITLE_MAX_CHARS - 1).trimEnd()}…`
 						: compactText || `Follow up on ${item.actorName}'s message`;
+				const taskApi = organizationSlug
+					? createOrganizationScopedWebSpaceApi({
+							organizationSlug,
+							openMeldProfileId,
+						})
+					: createUnscopedWebSpaceApi({ openMeldProfileId });
 				await taskApi.createTask({
 					spaceId,
 					body: {
@@ -587,10 +583,11 @@ function useSpaceMessageTaskAction(input: {
 		[
 			disabled,
 			onSpaceViewChange,
+			openMeldProfileId,
+			organizationSlug,
 			pendingSourceSignalId,
 			queryClient,
 			spaceId,
-			taskApi,
 		]
 	);
 	return { onAdd: disabled ? undefined : onAdd, pendingSourceSignalId };
