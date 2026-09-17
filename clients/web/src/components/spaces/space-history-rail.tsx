@@ -279,6 +279,7 @@ export function SpaceHistoryRail(input: {
 						{entries.map((entry, index) => (
 							<HistoryTarget
 								aria-label={`${date(entry.startAt)}: ${entry.preview}`}
+								className="space-history-tick"
 								href={input.controller.hrefForSignalId?.(entry.signalId)}
 								key={entry.signalId}
 								onClick={(event) => {
