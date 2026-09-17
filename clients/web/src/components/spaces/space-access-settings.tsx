@@ -7,7 +7,7 @@ import type {
 	SpaceLinkJoinPolicy,
 } from "@openmeld/schemas/types";
 import { buildPublicSpaceEntryUrl } from "@openmeld/space";
-import { Button } from "@openmeld/ui/components/button";
+import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Dialog,
 	DialogDescription,
@@ -15,6 +15,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
+import { Input } from "@openmeld/ui/components/input";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
@@ -25,8 +26,9 @@ import {
 } from "@openmeld/ui/fluid/select";
 import { CopyIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
+import { env } from "#/env";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { spaceMembersQueryOptions } from "#/query/spaces/members";
@@ -71,6 +73,8 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	const [baseline, setBaseline] = useState(sourceDraft);
 	const [draft, setDraft] = useState(sourceDraft);
 	const [password, setPassword] = useState("");
+	const [isCommitting, setIsCommitting] = useState(false);
+	const commitInFlightRef = useRef(false);
 	const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(
 		null
 	);
@@ -85,8 +89,15 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		spaceAccessModeUsesPassword(draft.accessMode) &&
 		!spaceAccessModeUsesPassword(input.accessMode);
 	const saveDisabled =
-		input.isPending || !isDirty || (mustSetPassword && !hasPasswordChange);
+		input.isPending ||
+		isCommitting ||
+		!isDirty ||
+		(mustSetPassword && !hasPasswordChange);
 	const isShare = input.surface === "share";
+	const spaceUrl = buildPublicSpaceEntryUrl({
+		origin: resolveSpaceShareOrigin(),
+		target: { spaceId: input.spaceId },
+	});
 
 	useEffect(() => {
 		const next = createSpaceSharingDraft({
@@ -120,9 +131,11 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	};
 
 	const saveAccess = async (): Promise<boolean> => {
-		if (saveDisabled) {
+		if (saveDisabled || commitInFlightRef.current) {
 			return false;
 		}
+		commitInFlightRef.current = true;
+		setIsCommitting(true);
 		setLocalErrorMessage(null);
 		try {
 			await input.onSetAccessMode({
@@ -140,15 +153,14 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					: "OpenMeld could not update sharing."
 			);
 			return false;
+		} finally {
+			commitInFlightRef.current = false;
+			setIsCommitting(false);
 		}
 	};
 
 	const copyLink = async () => {
-		const url = buildPublicSpaceEntryUrl({
-			origin: window.location.origin,
-			target: { spaceId: input.spaceId },
-		});
-		if (await copyTextToClipboard(url)) {
+		if (await copyTextToClipboard(spaceUrl)) {
 			toast.success("Space link copied.");
 		} else {
 			toast.error("Couldn't copy the link. Try again.");
@@ -163,7 +175,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		(target === "access" ? input.onOpenAccessSettings : input.onOpenShare)?.();
 	};
 
-	const organizationSection = (
+	const organizationSection = input.visibility ? (
 		<section className="grid gap-2 border-border/60 border-t pt-4">
 			<label className="font-medium text-sm" htmlFor={generalAccessId}>
 				Organization
@@ -194,6 +206,41 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 				</p>
 			) : null}
 		</section>
+	) : null;
+
+	const linkSectionFooter = (
+		<div className="space-y-2 pt-1">
+			<div className="flex min-w-0 items-center gap-2">
+				<Input
+					aria-label="Space link"
+					className="min-w-0 flex-1 text-muted-foreground"
+					readOnly
+					value={spaceUrl}
+				/>
+				<a
+					className={buttonVariants({ size: "sm", variant: "outline" })}
+					href={spaceUrl}
+					rel="noreferrer"
+					target="_blank"
+				>
+					Open
+				</a>
+			</div>
+			{baseline.accessMode === "members_only" &&
+			draft.accessMode !== "members_only" ? (
+				<p className="text-amber-700 text-xs/relaxed dark:text-amber-300">
+					Anyone with the link will be able to read all existing and future
+					messages, Threads, files, and shared Space context.
+				</p>
+			) : null}
+			{spaceAccessModeUsesPassword(input.accessMode) &&
+			!spaceAccessModeUsesPassword(draft.accessMode) ? (
+				<p className="text-muted-foreground text-xs/relaxed">
+					Saving removes the current Space password because the new policy no
+					longer uses it.
+				</p>
+			) : null}
+		</div>
 	);
 
 	const editor = (
@@ -204,6 +251,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 			disabled={input.isPending}
 			draft={draft}
 			errorMessage={localErrorMessage ?? input.errorMessage}
+			linkSectionFooter={linkSectionFooter}
 			onDraftChange={(nextDraft) => {
 				setDraft(nextDraft);
 				setPassword("");
@@ -401,6 +449,21 @@ function resolveShareActionLabel(input: {
 		return "Enable and copy";
 	}
 	return "Save and copy";
+}
+
+function resolveSpaceShareOrigin(): string {
+	const currentUrl = new URL(window.location.href);
+	if (currentUrl.protocol === "http:" || currentUrl.protocol === "https:") {
+		return currentUrl.origin;
+	}
+	const configuredUrl = env.VITE_BETTER_AUTH_URL;
+	if (configuredUrl) {
+		const parsed = new URL(configuredUrl);
+		if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+			return parsed.origin;
+		}
+	}
+	return "https://openmeld.ai";
 }
 
 function describeOrganizationAccess(

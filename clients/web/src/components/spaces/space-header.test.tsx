@@ -26,6 +26,9 @@ import { SetupRecallButton } from "./space-onboarding-banner";
 
 const JOINED_AS_LABEL_TEXT = /Joined as/;
 const DELETE_CONFIRMATION_LABEL_TEXT = /Type DELETE to confirm/i;
+const PUBLIC_READING_EXPOSURE_TEXT =
+	/Anyone with the link will be able to read all existing and future messages/;
+const PASSWORD_REMOVAL_TEXT = /Saving removes the current Space password/;
 const SET_SPACE_PASSWORD_LABEL_TEXT = /Set Space password/;
 const NEW_SPACE_PASSWORD_LABEL_TEXT = /New Space password/;
 
@@ -504,6 +507,12 @@ describe("SpaceHeader", () => {
 		expect(within(dialog).getByRole("heading", { name: "Share" })).toBeTruthy();
 		expect(within(dialog).getByText("Design Room")).toBeTruthy();
 		expect(
+			(within(dialog).getByLabelText("Space link") as HTMLInputElement).value
+		).toBe(expectedShareUrl);
+		expect(
+			within(dialog).getByRole("link", { name: "Open" }).getAttribute("href")
+		).toBe(expectedShareUrl);
+		expect(
 			within(dialog).getByText(
 				"People can join from the link when guest access allows it."
 			)
@@ -612,11 +621,15 @@ describe("SpaceHeader", () => {
 		fireEvent.click(
 			screen.getByRole("option", { name: "Anyone with the link" })
 		);
-		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Enable and copy" })
-		);
+		expect(within(dialog).getByText(PUBLIC_READING_EXPOSURE_TEXT)).toBeTruthy();
+		const enableAndCopy = within(dialog).getByRole("button", {
+			name: "Enable and copy",
+		});
+		fireEvent.click(enableAndCopy);
+		fireEvent.click(enableAndCopy);
 
 		await waitFor(() => {
+			expect(onSetAccessMode).toHaveBeenCalledTimes(1);
 			expect(onSetAccessMode).toHaveBeenCalledWith({
 				accessMode: "public",
 				linkJoinPolicy: "invite_only",
@@ -648,6 +661,9 @@ describe("SpaceHeader", () => {
 		);
 		fireEvent.click(screen.getByRole("option", { name: "Invitation only" }));
 		expect(within(spaceInfoDialog).getByText("Not saved")).toBeTruthy();
+		expect(
+			within(spaceInfoDialog).getByText(PASSWORD_REMOVAL_TEXT)
+		).toBeTruthy();
 		fireEvent.click(
 			within(spaceInfoDialog).getByRole("button", { name: "Open Share" })
 		);

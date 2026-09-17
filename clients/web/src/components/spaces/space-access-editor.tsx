@@ -58,6 +58,7 @@ export function SpaceAccessEditor(input: {
 	disabled: boolean;
 	draft: SpaceSharingDraft;
 	errorMessage: string | null;
+	linkSectionFooter?: ReactNode;
 	organizationSection?: ReactNode;
 	onDraftChange: (draft: SpaceSharingDraft) => void;
 	onPasswordChange: (password: string) => void;
@@ -170,6 +171,7 @@ export function SpaceAccessEditor(input: {
 						</span>
 					</label>
 				) : null}
+				{input.linkSectionFooter}
 			</section>
 			{input.organizationSection}
 
