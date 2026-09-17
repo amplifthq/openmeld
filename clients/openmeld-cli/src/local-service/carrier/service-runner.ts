@@ -898,6 +898,17 @@ const runAccountBoundDaemonServiceLoop = async (
     // that file before stopping this Service, so caching it here would make the
     // running Service reject every later control request until it restarts.
     resolveExpectedToken: async () => await ensureDaemonControlPlaneToken(),
+    onRequestPhase: (event) => {
+      emitRunLine({
+        presenter: input.presenter,
+        code: `daemon.control.request_${event.phase}`,
+        text: `local Service control request ${event.phase.replaceAll("_", " ")}`,
+        payload: {
+          ...(event.command ? { command: event.command } : {}),
+          ...(event.requestId ? { requestId: event.requestId } : {}),
+        },
+      });
+    },
     getContext: async () => ({
       accountCheckedServiceControl: process.platform !== "win32",
       healthPayload: {
@@ -961,22 +972,27 @@ const runAccountBoundDaemonServiceLoop = async (
           requestActiveRouteCatalogSync,
         });
       },
-      shutdownHandler: async (payload) => {
+      shutdownHandler: async (payload, lifecycle) => {
         const admissionId = payload.accountAdmissionId;
         return await controlledShutdown.request({
           ...payload,
-          ...(admissionId
-            ? {
-                onAdmission: async (commit: () => void) =>
-                  await admitServiceAccountStop({
-                    id: admissionId,
-                    ownerUserId,
-                    deviceId,
-                    contractGeneration: daemonServiceContract?.generation ?? 0,
-                    commit,
-                  }),
-              }
-            : {}),
+          onAdmission: async (commit: () => void) => {
+            const commitAndReportAdmission = () => {
+              commit();
+              lifecycle?.onAdmitted();
+            };
+            if (admissionId) {
+              await admitServiceAccountStop({
+                id: admissionId,
+                ownerUserId,
+                deviceId,
+                contractGeneration: daemonServiceContract?.generation ?? 0,
+                commit: commitAndReportAdmission,
+              });
+              return;
+            }
+            commitAndReportAdmission();
+          },
         });
       },
       serviceUpdateReadinessHandler: () => {
