@@ -1209,11 +1209,12 @@ export type SpaceLandingController =
 			onRefreshStatusAndMembers: () => Promise<void>;
 			onSetAccessMode: (input: {
 				accessMode: SpaceAccessMode;
+				allowGuests?: boolean;
 				linkJoinPolicy?: SpaceLinkJoinPolicy;
 				password?: string;
+				visibility?: "public" | "private";
 			}) => Promise<void>;
 			onUpdateSpaceName: (name: string) => Promise<void>;
-			onSetVisibility: (visibility: "public" | "private") => Promise<void>;
 			onThreadComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onThreadMentionButtonClick: () => void;
 			onThreadSend: (options?: SpaceComposerSendOptions) => Promise<void>;
@@ -2575,22 +2576,6 @@ export function useSpaceLandingController(input: {
 			});
 		},
 		onSetAccessMode: handleSetAccessMode,
-		onSetVisibility: async (visibility) => {
-			await createUnscopedWebSpaceApi({
-				openMeldProfileId: input.profileId,
-			}).updateMeta({ spaceId: input.spaceId, visibility });
-			await Promise.all([
-				statusQuery.refetch(),
-				queryClient.invalidateQueries({ queryKey: accountSpaceQueryKeys.all }),
-				...(input.organizationId
-					? [
-							queryClient.invalidateQueries({
-								queryKey: organizationQueryKeys.spaces(input.organizationId),
-							}),
-						]
-					: []),
-			]);
-		},
 		onUpdateSpaceName: handleUpdateSpaceName,
 		onThreadComposerEditorChange: threadController.onThreadComposerEditorChange,
 		onThreadMentionButtonClick: threadController.onThreadMentionButtonClick,
@@ -3296,8 +3281,10 @@ export function useSpaceLandingController(input: {
 
 	async function handleSetAccessMode(nextAccess: {
 		accessMode: SpaceAccessMode;
+		allowGuests?: boolean;
 		linkJoinPolicy?: SpaceLinkJoinPolicy;
 		password?: string;
+		visibility?: "public" | "private";
 	}) {
 		setIsAccessModePending(true);
 		setAccessModeErrorMessage(null);
@@ -3308,12 +3295,18 @@ export function useSpaceLandingController(input: {
 			}).setAccessMode({
 				spaceId: input.spaceId,
 				accessMode: nextAccess.accessMode,
+				...(nextAccess.allowGuests === undefined
+					? {}
+					: { allowGuests: nextAccess.allowGuests }),
 				...(nextAccess.linkJoinPolicy === undefined
 					? {}
 					: { linkJoinPolicy: nextAccess.linkJoinPolicy }),
 				...(nextAccess.password === undefined
 					? {}
 					: { password: nextAccess.password }),
+				...(nextAccess.visibility === undefined
+					? {}
+					: { visibility: nextAccess.visibility }),
 			});
 
 			await Promise.all([
@@ -3321,6 +3314,11 @@ export function useSpaceLandingController(input: {
 				queryClient.invalidateQueries({
 					queryKey: accountSpaceQueryKeys.all,
 				}),
+				nextAccess.visibility !== undefined && input.organizationId
+					? queryClient.invalidateQueries({
+							queryKey: organizationQueryKeys.spaces(input.organizationId),
+						})
+					: Promise.resolve(),
 			]);
 			toast.success("Space sharing updated.");
 		} catch (error) {

@@ -68,7 +68,7 @@ describe("SpaceGuestAccessSection", () => {
 
 		render(
 			<QueryClientProvider client={queryClient}>
-				<SpaceGuestAccessSection spaceId="space-123" surface="share" />
+				<SpaceGuestAccessSection spaceId="space-123" />
 			</QueryClientProvider>
 		);
 

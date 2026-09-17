@@ -93,7 +93,11 @@ async function runUseCase(input: {
 describe("space access mode service", () => {
   it("reuses the existing Space password when join password mode is enabled", async () => {
     const { response, written } = await runUseCase({
-      body: { accessMode: "public_view_join_password" },
+      body: {
+        accessMode: "public_view_join_password",
+        allowGuests: true,
+        visibility: "public",
+      },
       meta: createMeta({
         accessMode: "protected",
         passwordProof: PASSWORD_PROOF,
@@ -107,7 +111,9 @@ describe("space access mode service", () => {
     });
     expect(written).toMatchObject({
       accessMode: "public_view_join_password",
+      allowGuests: true,
       passwordProof: PASSWORD_PROOF,
+      visibility: "public",
     });
   });
 

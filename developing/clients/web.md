@@ -3559,28 +3559,35 @@ Computer connectivity or override Core-owned Agent readiness.
 General, Access, and Advanced sections. General contains the canonical name and
 the existing global browser-notification control. Access owns Organization
 visibility, link access, joining, guest access, and ownership management. Share
-is link-first: it shows direct **Who can access** and **Who can join** selectors,
-plus a plain-language summary of what the current link permits, before
-invitations. Organization visibility is not editable in Share. Guest
-invitations use one Guest/Teammate selector. Submitting the first Guest
+is link-first: it shows one **Link access** selector and a plain-language summary
+of what recipients can do. A compact **Change** disclosure edits joining only
+when the selected reading mode allows it. The main Share view does not show a
+permanent URL field, Organization visibility, guest access, members, or the
+invitation form. **Invite people...** opens that form as a child view in the
+same dialog. Guest invitations use one Guest/Teammate selector. Submitting the first Guest
 invitation while guest access is off prompts Owners for confirmation, then
 enables guest access and continues the same invitation; it does not require a
 trip to Settings or a separate enable step. Copy link never grants access. A
-changed link policy stays a visible local draft until the owner uses Save and
-copy (or Enable and copy for first-time public reading); clipboard failure
-never reverses a successful save or claims copy success. Both surfaces reuse
+changed policy stays a visible local draft until the owner uses **Save and copy
+link** in Share or **Save changes** in Access. Share saves first and copies only
+after persistence succeeds; clipboard failure reveals the URL for manual
+recovery without reversing the successful save or claiming copy success. Both surfaces reuse
 the same access facts and invitation components rather than defining separate
 permission rules. Pending invitations use progressive disclosure.
 
-Share and Access open each other as controlled dialogs. An unsaved draft
-requires an explicit discard decision instead of being silently applied or
-lost. Selecting the teammate invitation surface loads persisted invitation-link
+Share and Access replace each other as controlled dialogs while preserving one
+unsaved draft. Closing either surface requires one explicit discard decision;
+switching between them does not prompt. Entering invitations with a dirty access
+draft offers save and continue, discard and continue, or go back. Selecting the
+teammate invitation surface loads persisted invitation-link
 state; merely opening Share does not create or renew one. A single conditional
 insert checks link history: reopening reuses an active link and never recreates
 an expired or revoked one. Renew explicitly replaces a link; Revoke, Renew, and
-Copy stay right-aligned. Access retains the guest-access Switch so owners can
-block or restore existing guests, with confirmation before enabling it; Share
-does not duplicate that switch.
+Copy stay right-aligned. Access keeps guest access in the same draft and fixed
+save footer as the other policy fields. Turning it off warns that existing
+guests are blocked rather than removed, so restoring it restores their access.
+Public reading remains available to anonymous readers and does not require guest
+access. Share does not duplicate the guest-access switch.
 Invitation links are read from Auth when the panel opens, scoped to the account,
 Organization, optional Space, and direct/request mode. A mutation response is
 not the only way to display an existing link. Failed reads offer retry rather

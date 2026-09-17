@@ -6,10 +6,9 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@openmeld/ui/components/dialog";
-import { Switch } from "@openmeld/ui/components/switch";
 import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useId, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { spaceQueryKeys, spaceStatusQueryOptions } from "#/query/spaces/status";
 import { SpaceInvitationForm } from "./space-invitations-section";
@@ -17,15 +16,12 @@ import { SpaceInvitationForm } from "./space-invitations-section";
 export function SpaceGuestAccessSection({
 	spaceId,
 	openMeldProfileId,
-	surface = "settings",
 }: {
-	surface?: "settings" | "share";
 	spaceId: string;
 	openMeldProfileId?: string;
 }) {
 	const [confirm, setConfirm] = useState(false);
 	const pendingInvitationRef = useRef<(() => void) | null>(null);
-	const switchId = useId();
 	const client = useQueryClient();
 	const status = useQuery(
 		spaceStatusQueryOptions({ spaceId, openMeldProfileId, enabled: true })
@@ -45,81 +41,18 @@ export function SpaceGuestAccessSection({
 		},
 	});
 	return (
-		<section
-			className={
-				surface === "share" ? "grid gap-2" : "border-border/60 border-t pt-4"
-			}
-		>
-			{surface === "share" ? (
-				<GuestInvitationEntry
-					enabled={status.data?.allowGuests === true}
-					failed={status.isError}
-					onEnable={(continueInvitation) => {
-						pendingInvitationRef.current = continueInvitation;
-						setConfirm(true);
-					}}
-					onRetry={() => status.refetch()}
-					pending={status.isPending}
-					spaceId={spaceId}
-				/>
-			) : (
-				<div className="grid gap-2">
-					<div className="flex items-center justify-between gap-3">
-						<label
-							className="font-medium text-sm"
-							htmlFor={switchId}
-							id={`${switchId}-label`}
-						>
-							Guest access
-						</label>
-						<Switch
-							aria-labelledby={`${switchId}-label`}
-							checked={status.data?.allowGuests === true}
-							disabled={!status.isSuccess || save.isPending}
-							id={switchId}
-							onCheckedChange={(checked) => {
-								if (checked) {
-									setConfirm(true);
-								} else {
-									save.mutate(false);
-								}
-							}}
-						/>
-					</div>
-					<p className="text-muted-foreground text-xs/relaxed">
-						Guests can access only this Space, not the organization. Invite a
-						guest from Share to turn this on automatically.
-					</p>
-					{status.data?.allowGuests && (
-						<p className="text-muted-foreground text-xs/relaxed">
-							Turning this off blocks all guests. Turning it back on restores
-							their access.
-						</p>
-					)}
-					{status.isPending && (
-						<p className="text-muted-foreground text-xs">
-							Checking guest access…
-						</p>
-					)}
-					{status.isError && (
-						<p className="text-destructive text-xs" role="alert">
-							Couldn't check guest access.{" "}
-							<Button
-								onClick={() => status.refetch()}
-								size="sm"
-								variant="ghost"
-							>
-								Try again
-							</Button>
-						</p>
-					)}
-					{save.error && (
-						<p className="text-destructive text-xs" role="alert">
-							{save.error.message}
-						</p>
-					)}
-				</div>
-			)}
+		<section className="grid gap-2">
+			<GuestInvitationEntry
+				enabled={status.data?.allowGuests === true}
+				failed={status.isError}
+				onEnable={(continueInvitation) => {
+					pendingInvitationRef.current = continueInvitation;
+					setConfirm(true);
+				}}
+				onRetry={() => status.refetch()}
+				pending={status.isPending}
+				spaceId={spaceId}
+			/>
 			<Dialog
 				onOpenChange={(open) => {
 					setConfirm(open);
@@ -162,9 +95,7 @@ export function SpaceGuestAccessSection({
 								continueInvitation?.();
 							}}
 						>
-							{surface === "share"
-								? "Allow and invite guest"
-								: "Allow guest access"}
+							Allow and invite guest
 						</Button>
 					</DialogFooter>
 				</DialogContent>

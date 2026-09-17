@@ -2240,11 +2240,15 @@ describe("http schemas", () => {
 
       const lockNewPasswordMode = setSpaceAccessModeBodySchema.safeParse({
         accessMode: "protected",
+        allowGuests: true,
         password: "  abc123  ",
+        visibility: "public",
       });
       expect(lockNewPasswordMode.success).toBe(true);
       if (lockNewPasswordMode.success) {
         expect(lockNewPasswordMode.data.password).toBe("abc123");
+        expect(lockNewPasswordMode.data.allowGuests).toBe(true);
+        expect(lockNewPasswordMode.data.visibility).toBe("public");
       }
     });
 

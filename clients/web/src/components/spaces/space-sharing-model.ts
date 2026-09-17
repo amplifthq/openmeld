@@ -8,16 +8,22 @@ export type SpaceLinkJoining = "anyone" | "invite_only" | "password";
 
 export type SpaceSharingDraft = {
 	accessMode: SpaceAccessMode;
+	allowGuests: boolean;
 	linkJoinPolicy: SpaceLinkJoinPolicy;
+	visibility: "public" | "private";
 };
 
 export function createSpaceSharingDraft(input: {
 	accessMode: SpaceAccessMode;
+	allowGuests?: boolean;
 	linkJoinPolicy?: SpaceLinkJoinPolicy;
+	visibility?: "public" | "private";
 }): SpaceSharingDraft {
 	return {
 		accessMode: input.accessMode,
+		allowGuests: input.allowGuests ?? false,
 		linkJoinPolicy: input.linkJoinPolicy ?? "access_mode",
+		visibility: input.visibility ?? "private",
 	};
 }
 
@@ -55,11 +61,16 @@ export function setSpaceLinkReading(
 ): SpaceSharingDraft {
 	switch (reading) {
 		case "restricted":
-			return { accessMode: "members_only", linkJoinPolicy: "invite_only" };
+			return {
+				...draft,
+				accessMode: "members_only",
+				linkJoinPolicy: "invite_only",
+			};
 		case "password":
 			return { ...draft, accessMode: "protected" };
 		case "anyone":
 			return {
+				...draft,
 				accessMode:
 					resolveSpaceLinkJoining(draft) === "password"
 						? "public_view_join_password"
@@ -84,6 +95,7 @@ export function setSpaceLinkJoining(
 	}
 	if (joining === "invite_only") {
 		return {
+			...draft,
 			accessMode: reading === "password" ? "protected" : "public",
 			linkJoinPolicy: "invite_only",
 		};
@@ -94,6 +106,7 @@ export function setSpaceLinkJoining(
 			reading === "password" ? "protected" : "public_view_join_password";
 	}
 	return {
+		...draft,
 		accessMode,
 		linkJoinPolicy: "access_mode",
 	};
@@ -105,6 +118,8 @@ export function spaceSharingDraftsMatch(
 ): boolean {
 	return (
 		left.accessMode === right.accessMode &&
-		left.linkJoinPolicy === right.linkJoinPolicy
+		left.allowGuests === right.allowGuests &&
+		left.linkJoinPolicy === right.linkJoinPolicy &&
+		left.visibility === right.visibility
 	);
 }

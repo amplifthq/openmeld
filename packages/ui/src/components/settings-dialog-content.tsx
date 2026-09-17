@@ -17,6 +17,7 @@ export function SettingsDialogContent({
   spacious = false,
   contentKey,
   scrollTestId,
+  contentScrollable = true,
 }: {
   title: string;
   description: string;
@@ -25,6 +26,7 @@ export function SettingsDialogContent({
   spacious?: boolean;
   contentKey?: string;
   scrollTestId?: string;
+  contentScrollable?: boolean;
 }) {
   return (
     <DialogContent
@@ -50,15 +52,25 @@ export function SettingsDialogContent({
           {navigation}
         </ScrollArea>
       </aside>
-      <ScrollArea
-        className="min-h-0 min-w-0 flex-1"
-        contentClassName="space-y-5 p-5 sm:p-6"
-        data-testid={scrollTestId}
-        key={contentKey}
-        orientation="vertical"
-      >
-        {children}
-      </ScrollArea>
+      {contentScrollable ? (
+        <ScrollArea
+          className="min-h-0 min-w-0 flex-1"
+          contentClassName="space-y-5 p-5 sm:p-6"
+          data-testid={scrollTestId}
+          key={contentKey}
+          orientation="vertical"
+        >
+          {children}
+        </ScrollArea>
+      ) : (
+        <div
+          className="flex min-h-0 min-w-0 flex-1 flex-col"
+          data-testid={scrollTestId}
+          key={contentKey}
+        >
+          {children}
+        </div>
+      )}
     </DialogContent>
   );
 }

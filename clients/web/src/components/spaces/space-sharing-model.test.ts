@@ -12,14 +12,18 @@ describe("Space sharing model", () => {
 		const draft = setSpaceLinkReading(
 			createSpaceSharingDraft({
 				accessMode: "members_only",
+				allowGuests: true,
 				linkJoinPolicy: "invite_only",
+				visibility: "public",
 			}),
 			"anyone"
 		);
 
 		expect(draft).toEqual({
 			accessMode: "public",
+			allowGuests: true,
 			linkJoinPolicy: "invite_only",
+			visibility: "public",
 		});
 		expect(resolveSpaceLinkReading(draft)).toBe("anyone");
 		expect(resolveSpaceLinkJoining(draft)).toBe("invite_only");
@@ -43,7 +47,9 @@ describe("Space sharing model", () => {
 
 		expect(draft).toEqual({
 			accessMode: "public",
+			allowGuests: false,
 			linkJoinPolicy: "invite_only",
+			visibility: "private",
 		});
 	});
 });

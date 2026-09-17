@@ -766,11 +766,14 @@ Space from the directory or its destination link, independently of external
 link access. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
-The common UI explains link reading and joining in plain language. Share shows
-who can open the link, who can join, and a short summary of what the current
-link permits. Organization visibility remains in Access settings. Owners can
-explicitly configure public/password link access in Share or Access; neither
-Organization visibility nor enabling guests publishes a Space.
+The common UI explains link reading and joining in plain language. Share starts
+with one Link access choice, conditionally reveals only the password or joining
+controls needed for that choice, and summarizes what recipients can do before
+the owner copies the link. The URL is recovery information after clipboard
+failure, not permanent form content. Organization visibility, guest access,
+membership, and ownership remain in Access settings. Owners can explicitly
+configure public/password link access in Share or Access; neither Organization
+visibility nor enabling guests publishes a Space.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access
@@ -832,10 +835,13 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
-Share and Settings compose the same link-reading, Organization, and
-participation controls from one canonical snapshot and one local draft. Members
-are collapsed, searchable, and paged in the UI. Invitation-link state comes
-from persisted server state. Anonymous readers never post or invoke Agents.
+Share and Settings compose different task-focused views from one canonical
+snapshot and one local draft. Link reading, Organization visibility, joining,
+and guest access commit together so the UI never reports a partially saved
+policy. Moving between Share and Access preserves that draft; closing either
+surface requires one explicit discard decision. Members are collapsed,
+searchable, and paged in the UI. Invitation-link state comes from persisted
+server state. Anonymous readers never post or invoke Agents.
 
 Profile participation remains explicit. Same-account access does not silently
 turn every profile under that account into a Space member. If a specific Human

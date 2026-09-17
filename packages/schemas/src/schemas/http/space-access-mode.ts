@@ -24,8 +24,10 @@ export const spaceAccessModeSchema = z.enum(SPACE_ACCESS_MODES);
 
 export const setSpaceAccessModeBodySchema = z.strictObject({
   accessMode: spaceAccessModeSchema,
+  allowGuests: z.boolean().optional(),
   linkJoinPolicy: spaceLinkJoinPolicySchema.optional(),
   password: spacePasswordSchema.optional(),
+  visibility: z.enum(["public", "private"]).optional(),
 });
 
 export const spaceAccessModeStateSchema = z.strictObject({

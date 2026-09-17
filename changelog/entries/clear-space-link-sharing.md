@@ -6,8 +6,9 @@ areas: ["spaces", "sharing"]
 audiences: ["members", "admins"]
 ---
 
-Share now puts link reading, Organization access, and participation in one clear
-flow. Owners can let anyone read a Space while keeping link joining invitation-
-only, then save and copy the link in one explicit action.
+Share now focuses on choosing how a Space link works, understanding what
+recipients can do, and copying it. The fuller Access settings keep Organization,
+guest, and member controls together, while both views preserve one draft and
+save the policy in one explicit action.
 
 Existing public and password-protected Spaces keep their current behavior.

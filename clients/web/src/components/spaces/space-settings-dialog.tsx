@@ -22,6 +22,7 @@ import type { SpaceAccessUpdateInput } from "./space-access-editor";
 import { SpaceAccessSettings } from "./space-access-settings";
 import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
+import type { SpaceSharingDraftController } from "./use-space-sharing-draft";
 
 type SpaceInfoLeaveAction = {
 	errorMessage: string | null;
@@ -29,6 +30,7 @@ type SpaceInfoLeaveAction = {
 	onLeave: () => Promise<void> | void;
 };
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the shared settings shell keeps mutually exclusive sections in one dialog.
 export function SpaceSettingsDialog(input: {
 	access: {
 		allowGuests?: boolean;
@@ -40,6 +42,7 @@ export function SpaceSettingsDialog(input: {
 		onSetMode: (input: SpaceAccessUpdateInput) => Promise<void>;
 	};
 	currentProfileName: string | null;
+	draftController: SpaceSharingDraftController;
 	openMeldProfileId?: string;
 	deleteAction: {
 		errorMessage: string | null;
@@ -64,7 +67,6 @@ export function SpaceSettingsDialog(input: {
 	showTrigger?: boolean;
 	spaceId: string;
 	visibility?: "public" | "private";
-	onSetVisibility?: (visibility: "public" | "private") => Promise<void>;
 }) {
 	const [internalOpen, setInternalOpen] = useState(false);
 	const [section, setSection] = useState("general");
@@ -112,6 +114,7 @@ export function SpaceSettingsDialog(input: {
 				</Tooltip>
 			)}
 			<SettingsDialogContent
+				contentScrollable={section !== "access"}
 				description="Manage this conversation."
 				navigation={
 					<SettingsNav
@@ -129,13 +132,15 @@ export function SpaceSettingsDialog(input: {
 				scrollTestId="space-info-dialog-scroll-area"
 				title={`${conversationLabel} settings`}
 			>
-				<h2 className="pr-8 font-medium text-base">
-					{
-						{ general: "General", access: "Access", advanced: "Advanced" }[
-							section
-						]
-					}
-				</h2>
+				{section === "access" ? null : (
+					<h2 className="pr-8 font-medium text-base">
+						{
+							{ general: "General", access: "Access", advanced: "Advanced" }[
+								section
+							]
+						}
+					</h2>
+				)}
 				{section === "advanced" && input.currentProfileName ? (
 					<SpaceInfoReadOnlyField
 						label="Joined profile"
@@ -180,12 +185,12 @@ export function SpaceSettingsDialog(input: {
 						accessMode={input.access.mode}
 						allowGuests={input.access.allowGuests}
 						canManageAccess={input.access.canManage}
+						draftController={input.draftController}
 						errorMessage={input.access.errorMessage}
 						isPending={input.access.isPending}
 						linkJoinPolicy={input.access.linkJoinPolicy}
 						onOpenShare={input.onOpenShare}
 						onSetAccessMode={input.access.onSetMode}
-						onSetVisibility={input.onSetVisibility}
 						openMeldProfileId={input.openMeldProfileId}
 						spaceId={input.spaceId}
 						visibility={input.visibility}
