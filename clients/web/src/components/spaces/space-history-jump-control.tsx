@@ -88,7 +88,9 @@ export function SpaceHistoryJumpControl({
 									<Button
 										aria-label="Jump to latest message"
 										className="rounded-full max-lg:pointer-fine:min-h-8 max-lg:pointer-fine:min-w-8"
-										onClick={() => {
+										nativeButton={!history?.latestHref}
+										onClick={(event) => {
+											event.preventDefault();
 											if (history) {
 												history.onLatest();
 											} else {
@@ -97,6 +99,15 @@ export function SpaceHistoryJumpControl({
 												});
 											}
 										}}
+										render={
+											history?.latestHref ? (
+												<a href={history.latestHref}>
+													<span className="sr-only">
+														Jump to latest message
+													</span>
+												</a>
+											) : undefined
+										}
 										size="icon"
 										variant="ghost"
 									/>

@@ -2984,6 +2984,17 @@ function ConversationBubbleContent(input: {
 				profileId={parent.selfProfileId}
 				spaceReferencesById={parent.spaceReferencesById}
 				thread={parent.threadsByRootSignalId.get(input.item.id) ?? null}
+				threadHref={
+					parent.readOnly && parent.spaceId
+						? (signalId) =>
+								`/spaces/${encodeURIComponent(parent.spaceId ?? "")}?${new URLSearchParams(
+									{
+										...(signalId ? { signalId } : {}),
+										threadRootSignalId: input.item.id,
+									}
+								)}`
+						: undefined
+				}
 				unreadCount={
 					parent.unreadTargets.filter(
 						(target) => target.threadRootSignalId === input.item.id
@@ -3561,6 +3572,7 @@ function ThreadPreview(input: {
 	onOpenThread: (threadId: string, signalId?: string) => void;
 	preview: SpaceThreadPreview | null;
 	spaceReferencesById?: SpaceMessageReferencesById;
+	threadHref?: (signalId?: string) => string;
 	thread: SpaceThread | null;
 }) {
 	const queryClient = useQueryClient();
@@ -3579,6 +3591,7 @@ function ThreadPreview(input: {
 	const unreadLabel = `${String(input.unreadCount)} unread`;
 	const countLabel = input.unreadCount > 0 ? unreadLabel : replyCountText;
 	const showCount = input.unreadCount > 0 || replyCount > 0;
+	const ThreadTarget = input.threadHref ? "a" : "button";
 	const spaceReferencesById =
 		input.spaceReferencesById ?? EMPTY_SPACE_MESSAGE_REFERENCES;
 	const prefetch = () => {
@@ -3595,20 +3608,21 @@ function ThreadPreview(input: {
 	return (
 		<div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden border-border border-t pt-2">
 			{previewItems.map((item) => (
-				// biome-ignore lint/a11y/useSemanticElements: The preview contains independently usable links and selectable text.
-				<div
+				<ThreadTarget
 					aria-label={`Open reply from ${item.actorName}: ${threadReplyPreviewText(item.text)}`}
 					className="flex w-full min-w-0 max-w-full cursor-pointer items-start gap-2 overflow-hidden pe-2 hover:underline focus-visible:outline focus-visible:outline-ring"
+					href={input.threadHref?.(item.id)}
 					key={item.id}
 					onClick={(event) => {
 						if (
 							event.target instanceof Element &&
 							event.target.closest(
 								'a,button,input,textarea,select,pre,code,[contenteditable="true"]'
-							)
+							) !== event.currentTarget
 						) {
 							return;
 						}
+						event.preventDefault();
 						if (window.getSelection()?.toString()) {
 							return;
 						}
@@ -3638,8 +3652,9 @@ function ThreadPreview(input: {
 						pointerStart.current = { x: event.clientX, y: event.clientY };
 					}}
 					onPointerEnter={prefetch}
-					role="link"
+					role={ThreadTarget === "button" ? "link" : undefined}
 					tabIndex={0}
+					type={ThreadTarget === "button" ? "button" : undefined}
 				>
 					{!item.recalledAt && (
 						<span className="max-w-[40%] shrink-0 truncate font-bold text-foreground/88 text-xs leading-5">
@@ -3659,9 +3674,9 @@ function ThreadPreview(input: {
 					>
 						{formatDirectMessageTime(item.createdAtMs)}
 					</time>
-				</div>
+				</ThreadTarget>
 			))}
-			<button
+			<ThreadTarget
 				aria-label={showCount ? `Open thread (${countLabel})` : "Open thread"}
 				className={cn(
 					"inline-flex w-fit items-center gap-1.5 text-xs leading-5 hover:text-foreground hover:underline",
@@ -3669,11 +3684,15 @@ function ThreadPreview(input: {
 						? "font-medium text-unread dark:text-blue-200"
 						: "text-muted-foreground"
 				)}
-				onClick={() => input.onOpenThread(thread.threadId)}
+				href={input.threadHref?.()}
+				onClick={(event) => {
+					event.preventDefault();
+					input.onOpenThread(thread.threadId);
+				}}
 				onFocus={prefetch}
 				onPointerEnter={prefetch}
 				title="Only threads you start or reply to count as unread. Read the thread to clear its unread replies and reactions."
-				type="button"
+				type={ThreadTarget === "button" ? "button" : undefined}
 			>
 				<ChatCircleIcon aria-hidden="true" className="size-3.5" />
 				<span>Open thread</span>
@@ -3689,7 +3708,7 @@ function ThreadPreview(input: {
 						{countLabel}
 					</span>
 				) : null}
-			</button>
+			</ThreadTarget>
 		</div>
 	);
 }

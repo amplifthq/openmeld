@@ -11,6 +11,8 @@ export function useSpaceHistoryNavigation(input: {
 	spaceId: string;
 	profileId: string;
 	anonymous?: boolean;
+	hrefForSignalId?: (signalId: string) => string;
+	latestHref?: string;
 	enabled: boolean;
 	accessRejected: boolean;
 	liveEnvelopes: readonly SignalEnvelope[];
@@ -180,6 +182,14 @@ export function useSpaceHistoryNavigation(input: {
 		setError(null);
 	};
 	return {
+		hrefForSignalId: input.hrefForSignalId,
+		earlierHref:
+			input.hrefForSignalId &&
+			visibleLiveEnvelopes[0] &&
+			(directory.data?.total ?? 0) > visibleLiveEnvelopes.length
+				? input.hrefForSignalId(visibleLiveEnvelopes[0].id)
+				: undefined,
+		latestHref: input.latestHref,
 		visibleLiveEnvelopes,
 		hasHiddenLiveHistory: liveStartIndex > 0,
 		revealCachedBefore: (envelopes = input.liveEnvelopes) => {

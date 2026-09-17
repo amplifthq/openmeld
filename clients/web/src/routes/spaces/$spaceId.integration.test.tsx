@@ -271,7 +271,7 @@ describe("PublicSpacePage", () => {
 			await api.getStatus({ spaceId: "space-123" })
 		);
 		queryClient.setQueryData(
-			["public-space", "space-123", "signals"],
+			["public-space", "space-123", "signals", "main:latest"],
 			await api.listSignalEnvelopes({ spaceId: "space-123" })
 		);
 		queryClient.setQueryData(
@@ -480,7 +480,11 @@ describe("PublicSpacePage", () => {
 		fireEvent.mouseEnter(
 			rootMessage.closest("[data-signal-id]") as HTMLElement
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		const openThreadLink = screen.getByRole("link", { name: "Open thread" });
+		expect(openThreadLink.getAttribute("href")).toBe(
+			"/spaces/space-123?threadRootSignalId=signal-center-root"
+		);
+		fireEvent.click(openThreadLink);
 
 		const threadPanel = await screen.findByLabelText("Thread");
 		expect(
@@ -591,7 +595,7 @@ describe("PublicSpacePage", () => {
 		fireEvent.mouseEnter(
 			rootMessage?.closest("[data-signal-id]") as HTMLElement
 		);
-		fireEvent.click(screen.getByRole("button", { name: "Open thread" }));
+		fireEvent.click(screen.getByRole("link", { name: "Open thread" }));
 
 		const threadPanel = await screen.findByLabelText("Thread");
 		expect(await within(threadPanel).findByText(rootText)).not.toBeNull();

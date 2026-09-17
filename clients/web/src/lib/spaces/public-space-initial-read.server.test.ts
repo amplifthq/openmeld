@@ -65,6 +65,87 @@ describe("public Space initial server read", () => {
 		expect(result.content).toBeUndefined();
 		expect(proxyRequestImpl).toHaveBeenCalledTimes(1);
 	});
+
+	it("loads an anchored window and the selected Thread for a reply link", async () => {
+		const paths: string[] = [];
+		const proxyRequestImpl = vi.fn(({ request }: { request: Request }) => {
+			const url = new URL(request.url);
+			paths.push(`${url.pathname}${url.search}`);
+			if (url.pathname.endsWith("/entry-resolution")) {
+				return Promise.resolve(
+					jsonResponse({
+						...createAllowedEntry(),
+						target: {
+							signalId: "reply-150",
+							spaceId: "space-123",
+							threadRootSignalId: "root-149",
+						},
+					})
+				);
+			}
+			if (url.pathname.endsWith("/bootstrap")) {
+				const bootstrap = createBootstrap();
+				return Promise.resolve(
+					jsonResponse({
+						...bootstrap,
+						threads: {
+							previews: [],
+							threads: [
+								{
+									createdAt: "2026-09-17T00:00:00.000Z",
+									createdByProfileId: "11111111-1111-4111-8111-111111111111",
+									rootSignalId: "root-149",
+									spaceId: "space-123",
+									threadId: "thr_11111111-1111-4111-8111-111111111111",
+									updatedAt: "2026-09-17T00:00:01.000Z",
+								},
+							],
+						},
+					})
+				);
+			}
+			if (url.pathname.endsWith("/history-navigation")) {
+				return Promise.resolve(jsonResponse({ entries: [], total: 240 }));
+			}
+			if (
+				url.pathname.endsWith(
+					"/threads/thr_11111111-1111-4111-8111-111111111111/signals"
+				)
+			) {
+				return Promise.resolve(
+					jsonResponse({
+						placements: [],
+						signals: [
+							{
+								...createBootstrap().history.signals[0],
+								id: "reply-150",
+								data: { text: "read1141-thread-reply" },
+							},
+						],
+					})
+				);
+			}
+			throw new Error(`Unexpected request: ${url.pathname}`);
+		});
+
+		const result = await readPublicSpaceInitialData({
+			gatewayUrl: "https://gateway.openmeld.test",
+			proxyRequestImpl,
+			requestHeaders: new Headers(),
+			signalId: "reply-150",
+			spaceId: "space-123",
+			threadRootSignalId: "root-149",
+			webAppUrl: "https://openmeld.test",
+		});
+
+		expect(result.threadSignals?.signals[0]?.id).toBe("reply-150");
+		expect(paths).toEqual([
+			"/v1/spaces/space-123/entry-resolution?signalId=reply-150&threadRootSignalId=root-149",
+			"/v1/spaces/space-123/bootstrap?includeAgentReadiness=false&aroundSignalId=root-149&beforeCount=30&afterCount=30",
+			"/v1/spaces/space-123/history-navigation",
+			"/v1/spaces/space-123/threads/thr_11111111-1111-4111-8111-111111111111/signals?includeWakeContinuation=conversation",
+		]);
+	});
 });
 
 function jsonResponse(value: unknown) {

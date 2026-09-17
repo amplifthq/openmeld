@@ -188,7 +188,11 @@ export const Route = createFileRoute("/spaces/$spaceId")({
 				initialData.content.status
 			);
 			context.queryClient.setQueryData(
-				publicSpaceQueryKey(params.spaceId, "signals"),
+				publicSpaceQueryKey(
+					params.spaceId,
+					"signals",
+					publicSpaceWindowKey(initialData.entryResolution.target)
+				),
 				{
 					envelopes: initialData.content.signals,
 					nextCursor: initialData.content.nextCursor,
@@ -409,7 +413,9 @@ function PublicSpaceResolvedPage(input: {
 		viewerMembershipQuery,
 	} = usePublicSpaceQueries({
 		isAuthenticated: input.isAuthenticated,
+		signalId: input.signalId,
 		spaceId: input.spaceId,
+		threadRootSignalId: input.threadRootSignalId,
 	});
 	useOpenAuthenticatedMemberSpace({
 		activeMemberCount:
@@ -454,6 +460,9 @@ function PublicSpaceResolvedPage(input: {
 		spaceId: input.spaceId,
 		profileId: PUBLIC_VIEWER_PROFILE_ID,
 		anonymous: true,
+		hrefForSignalId: (signalId) =>
+			buildPublicSpacePath(input.spaceId, { signalId }),
+		latestHref: buildPublicSpacePath(input.spaceId, {}),
 		enabled: statusQuery.isSuccess,
 		accessRejected: statusQuery.isError,
 		liveEnvelopes: signalEnvelopes,
@@ -609,7 +618,9 @@ function PublicSpaceResolvedPage(input: {
 
 function usePublicSpaceQueries(input: {
 	isAuthenticated: boolean;
+	signalId?: string;
 	spaceId: string;
+	threadRootSignalId?: string;
 }) {
 	const browserQueriesEnabled = typeof window !== "undefined";
 	const statusQuery = useQuery({
@@ -624,11 +635,22 @@ function usePublicSpaceQueries(input: {
 	});
 	const signalsQuery = useQuery({
 		enabled: browserQueriesEnabled,
-		queryKey: publicSpaceQueryKey(input.spaceId, "signals"),
+		queryKey: publicSpaceQueryKey(
+			input.spaceId,
+			"signals",
+			publicSpaceWindowKey(input)
+		),
 		queryFn: async () =>
 			await createUnscopedWebSpaceApi().listSignalEnvelopes({
 				spaceId: input.spaceId,
-				query: { limit: PUBLIC_SIGNAL_LIMIT, recent: true },
+				query:
+					input.threadRootSignalId || input.signalId
+						? {
+								aroundSignalId: input.threadRootSignalId ?? input.signalId,
+								beforeCount: 30,
+								afterCount: 30,
+							}
+						: { limit: PUBLIC_SIGNAL_LIMIT, recent: true },
 			}),
 		gcTime: baseQueryOptions.gcTime,
 		retry: shouldRetryPublicSpaceQuery,
@@ -1524,8 +1546,17 @@ function PublicSpaceErrorState(input: {
 	);
 }
 
-function publicSpaceQueryKey(spaceId: string, key: string) {
-	return ["public-space", spaceId, key] as const;
+function publicSpaceQueryKey(spaceId: string, key: string, scope?: string) {
+	return scope
+		? (["public-space", spaceId, key, scope] as const)
+		: (["public-space", spaceId, key] as const);
+}
+
+function publicSpaceWindowKey(input: {
+	signalId?: string | null;
+	threadRootSignalId?: string | null;
+}) {
+	return `${input.threadRootSignalId ?? "main"}:${input.signalId ?? "latest"}`;
 }
 
 function shouldRetryPublicSpaceQuery(
