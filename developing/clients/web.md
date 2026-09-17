@@ -4506,6 +4506,23 @@ advancing the read watermark past them, and temporary progress cannot advance it
 After that dwell,
 the existing optimistic Inbox projection updates before the server write settles;
 failed writes retain the existing rollback and reconciliation path.
+Web freezes each main or Thread **New messages** divider at the first Core
+unread target observed for that visit and uses Core's complete unread count for
+the navigation shortcut. Shortcut dismissal records the current server summary
+cutoff locally; it hides that batch without acknowledging it and does not depend
+on viewport geometry. Thread targets open the exact reply instead of treating
+the root message as the destination.
+
+When the main conversation has unread targets, the existing latest-message
+control is also the explicit catch-up action. Web first mounts the live tail and
+settles its scroll position, then reads a fresh Core Space Inbox summary and
+writes the main watermark through that frozen server occurrence time. The same
+activation never advances a Thread watermark or includes messages arriving
+after its cutoff. Visible-message and explicit writes share one per-scope
+serializer that coalesces queued higher watermarks, so an older invalidation
+cannot replace a newer optimistic projection. Failures retain the cutoff for
+retry and state that the user reached the latest messages but marking them read
+failed.
 Scroll events only check distance from the latest messages. Layout and preference
 writes happen at the endpoint change, never per animation frame. The viewport
 height changes once with a matching scroll offset to preserve the reading anchor.

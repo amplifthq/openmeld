@@ -500,18 +500,34 @@ Signal in the same conversation.
 
 Main-conversation unread navigation uses one chronological shortcut for updates
 outside the viewport, combining targets above and below. It reveals the first
-unread target and dismisses that observed navigation batch after a successful
-jump; dismissal does not write a read watermark. A new event can show the
-shortcut again. The bottom history control returns to the latest messages and
-does not repeat unread counts. There is no per-message clicking requirement.
+unread target and reports Core's complete unread count rather than the number
+of targets that current viewport geometry happens to expose. Its blue **New
+messages** divider is fixed at the first unread target observed for that Space
+visit; passive visible-message reads do not move or regroup the divider.
+Dismissing the shortcut hides the server-bounded unread batch without writing a
+read watermark, so scrolling or resizing cannot resurrect that batch and a
+later event can show a new shortcut. There is no per-message clicking
+requirement.
 
-For a thread target, this shortcut reveals and briefly highlights its root
-message in the main conversation without opening the thread panel. A thread
-with recipient-specific unread targets has a blue **Open thread** entry with
-an unread count; the count includes replies and reactions, so it is not labeled
-as a count of new replies. Explicitly opening that entry focuses its first
-unread target. Reading the main root or its preview never acknowledges hidden
-thread replies. Thread deep links from Inbox still open the exact thread.
+The bottom history control remains the single return-to-latest action and does
+not repeat unread counts. When the main conversation has unread targets, an
+explicit activation first returns historical or scrolled views to the mounted
+live tail, then advances only the main-conversation watermark through the
+server-confirmed latest unread occurrence captured for that activation. It
+works even when a short conversation is already at the bottom. New events after
+the captured cutoff remain unread, and thread watermarks remain unchanged.
+Concurrent visible-message and explicit read-through writes are serialized and
+coalesced within their main or exact-thread scope. A failed write keeps the
+same cutoff for retry and reports that navigation succeeded but marking read
+did not; there is no success toast.
+
+For a thread target, the chronological shortcut opens that exact thread and
+focuses its first unread target. The thread's blue **New messages** divider is
+also fixed for that thread visit. A thread with recipient-specific unread
+targets has a blue **Open thread** entry with an unread count; the count includes
+replies and reactions, so it is not labeled as a count of new replies. Reading
+the main root or its preview never acknowledges hidden thread replies. Thread
+deep links from Inbox still open the exact thread.
 
 This uses Slack's separation of conversation navigation, thread attention, and
 read actions as a precedent, not an identical default: Slack offers immediate
