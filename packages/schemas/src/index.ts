@@ -92,7 +92,10 @@ export {
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
   type ComputerConnectionIntent,
+  type ComputerConnectionProgressPhase,
   computerConnectionIntentSchema,
+  computerConnectionProgressMeasurementSchema,
+  computerConnectionProgressPhaseSchema,
   computerConnectionReviewSchema,
   computerSetupOutputSchema,
   type DesktopComputerConnectionProgress,
