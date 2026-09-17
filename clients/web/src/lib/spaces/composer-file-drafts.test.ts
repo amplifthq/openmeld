@@ -9,6 +9,58 @@ import {
 	saveComposerFileDraftUpload,
 } from "./composer-file-drafts";
 
+it("recovers every draft operation after the cached database handle closes", async () => {
+	let capturedDatabase: IDBDatabase | undefined;
+	const originalOpen = IDBFactory.prototype.open;
+	const open = vi.spyOn(IDBFactory.prototype, "open");
+	open.mockImplementationOnce(function openAndCapture(
+		this: IDBFactory,
+		...args: Parameters<IDBFactory["open"]>
+	) {
+		const request = originalOpen.call(this, ...args);
+		request.addEventListener("success", () => {
+			capturedDatabase = request.result;
+		});
+		return request;
+	});
+	const first = {
+		id: "closed-handle-first",
+		scope: "closed-handle-scope",
+		file: new File(["first"], "first.txt"),
+		publishMutationId: "publish-first",
+	};
+	await saveComposerFileDraft(first);
+	expect(capturedDatabase).toBeDefined();
+	capturedDatabase?.close();
+
+	const second = {
+		id: "closed-handle-second",
+		scope: first.scope,
+		file: new File(["second"], "second.txt"),
+		publishMutationId: "publish-second",
+	};
+	await saveComposerFileDraft(second);
+	await saveComposerFileDraftUpload(second.id, {
+		id: "upload-second",
+		name: second.file.name,
+		mimeType: "text/plain",
+		sizeBytes: second.file.size,
+		expiresAt: "2099-09-10T00:00:00.000Z",
+	});
+	expect(await readComposerFileDrafts(first.scope)).toMatchObject([
+		{ id: first.id },
+		{ id: second.id, upload: { id: "upload-second" } },
+	]);
+	expect(await readComposerFileDraftsByIds([second.id])).toMatchObject([
+		{ id: second.id },
+	]);
+	await removeComposerFileDraft(first.id);
+	await removeComposerFileDraft(second.id);
+	expect(await readComposerFileDrafts(first.scope)).toEqual([]);
+	expect(open).toHaveBeenCalledTimes(2);
+	open.mockRestore();
+});
+
 it("blocks restart until attachment data is durable, including after a failed transaction", async () => {
 	const input = {
 		id: "restart-file",
@@ -28,9 +80,9 @@ it("blocks restart until attachment data is durable, including after a failed tr
 		.mockImplementationOnce(() => {
 			throw new Error("Disk unavailable");
 		});
-	await expect(saveComposerFileDraft(input)).rejects.toThrow(
-		"Disk unavailable"
-	);
+	await expect(saveComposerFileDraft(input)).rejects.toMatchObject({
+		cause: expect.objectContaining({ message: "Disk unavailable" }),
+	});
 	failure.mockRestore();
 	expect(hasClientRestartBlocker()).toBe(true);
 	await removeComposerFileDraft(input.id);
