@@ -379,6 +379,8 @@ function PublicSpaceResolvedPage(input: {
 	spaceId: string;
 	threadRootSignalId?: string;
 }) {
+	const initialWindowAnchorSignalId =
+		input.threadRootSignalId ?? input.signalId;
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const generatedSpaceViewId = useId();
@@ -462,7 +464,10 @@ function PublicSpaceResolvedPage(input: {
 		anonymous: true,
 		hrefForSignalId: (signalId) =>
 			buildPublicSpacePath(input.spaceId, { signalId }),
-		latestHref: buildPublicSpacePath(input.spaceId, {}),
+		initialWindowAnchorSignalId,
+		latestHref: initialWindowAnchorSignalId
+			? buildPublicSpacePath(input.spaceId, {})
+			: undefined,
 		enabled: statusQuery.isSuccess,
 		accessRejected: statusQuery.isError,
 		liveEnvelopes: signalEnvelopes,

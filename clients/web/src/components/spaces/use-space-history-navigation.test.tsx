@@ -1,15 +1,18 @@
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { act, renderHook } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	clearSpaceConversationPositions,
 	writeSpaceConversationPosition,
 } from "#/lib/space-conversation-position";
 import { useSpaceHistoryNavigation } from "./use-space-history-navigation";
 
-vi.mock("@tanstack/react-query", () => ({
-	useQuery: () => ({ data: undefined, isPending: false, isError: false }),
+const historyQuery = vi.hoisted(() => ({
+	data: undefined as { entries: []; total: number } | undefined,
+	isError: false,
+	isPending: false,
 }));
+vi.mock("@tanstack/react-query", () => ({ useQuery: () => historyQuery }));
 
 const historyApi = vi.hoisted(() => ({ listSignalEnvelopes: vi.fn() }));
 vi.mock("#/lib/spaces/api", () => ({
@@ -20,6 +23,50 @@ vi.mock("#/lib/spaces/api", () => ({
 const message = (id: string) => ({ id }) as SignalEnvelope;
 
 describe("returning to the live Space history", () => {
+	beforeEach(() => {
+		historyQuery.data = undefined;
+	});
+
+	it("uses the anchored window boundary for no-JS earlier links", () => {
+		historyQuery.data = { entries: [], total: 240 };
+		const hrefForSignalId = (signalId: string) =>
+			`/spaces/space-a?signalId=${signalId}`;
+		const oldestWindow = Array.from({ length: 31 }, (_, index) =>
+			message(String(index + 1))
+		);
+		const { result, rerender } = renderHook(
+			({ anchorSignalId, liveEnvelopes }) =>
+				useSpaceHistoryNavigation({
+					accessRejected: false,
+					enabled: true,
+					hrefForSignalId,
+					initialWindowAnchorSignalId: anchorSignalId,
+					liveEnvelopes,
+					profileId: "viewer",
+					spaceId: "space-a",
+				}),
+			{
+				initialProps: {
+					anchorSignalId: "1",
+					liveEnvelopes: oldestWindow,
+				},
+			}
+		);
+
+		expect(result.current.activeWindow?.hasBefore).toBe(false);
+		expect(result.current.earlierHref).toBeUndefined();
+
+		const middleWindow = Array.from({ length: 61 }, (_, index) =>
+			message(String(index + 90))
+		);
+		rerender({ anchorSignalId: "120", liveEnvelopes: middleWindow });
+		expect(result.current.activeWindow?.hasBefore).toBe(true);
+		expect(result.current.earlierHref).toBe(
+			`/spaces/space-a?signalId=${result.current.activeWindow?.envelopes[0]?.id}`
+		);
+		expect(result.current.earlierHref).not.toContain("signalId=120");
+	});
+
 	it.each([
 		"target changed",
 		"return to latest",

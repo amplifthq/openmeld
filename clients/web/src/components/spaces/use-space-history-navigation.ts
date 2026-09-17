@@ -12,6 +12,7 @@ export function useSpaceHistoryNavigation(input: {
 	profileId: string;
 	anonymous?: boolean;
 	hrefForSignalId?: (signalId: string) => string;
+	initialWindowAnchorSignalId?: string;
 	latestHref?: string;
 	enabled: boolean;
 	accessRejected: boolean;
@@ -98,18 +99,31 @@ export function useSpaceHistoryNavigation(input: {
 	// Live edits and recalls also replace messages in an already-open old window.
 	// Keep its boundaries: a new live message must not pull the reader to latest.
 	const activeWindow = useMemo(() => {
-		if (window?.identity !== identity) {
+		const selectedWindow =
+			window?.identity === identity
+				? window
+				: initialHistoryWindow({
+						anchorSignalId: input.initialWindowAnchorSignalId,
+						envelopes: input.liveEnvelopes,
+						identity,
+					});
+		if (!selectedWindow) {
 			return null;
 		}
-		const ids = new Set(window.envelopes.map((item) => item.id));
+		const ids = new Set(selectedWindow.envelopes.map((item) => item.id));
 		return {
-			...window,
+			...selectedWindow,
 			envelopes: mergeSpaceTimelineEnvelopes({
-				current: window.envelopes,
+				current: selectedWindow.envelopes,
 				incoming: input.liveEnvelopes.filter((item) => ids.has(item.id)),
 			}),
 		};
-	}, [identity, window, input.liveEnvelopes]);
+	}, [
+		identity,
+		window,
+		input.initialWindowAnchorSignalId,
+		input.liveEnvelopes,
+	]);
 	const readWindow = async (
 		signalId: string,
 		direction?: "before" | "after",
@@ -181,13 +195,20 @@ export function useSpaceHistoryNavigation(input: {
 		setPending(false);
 		setError(null);
 	};
+	let earlierSignal: SignalEnvelope | undefined;
+	if (activeWindow?.hasBefore) {
+		earlierSignal = activeWindow.envelopes[0];
+	} else if (
+		!activeWindow &&
+		(directory.data?.total ?? 0) > input.liveEnvelopes.length
+	) {
+		earlierSignal = visibleLiveEnvelopes[0];
+	}
 	return {
 		hrefForSignalId: input.hrefForSignalId,
 		earlierHref:
-			input.hrefForSignalId &&
-			visibleLiveEnvelopes[0] &&
-			(directory.data?.total ?? 0) > visibleLiveEnvelopes.length
-				? input.hrefForSignalId(visibleLiveEnvelopes[0].id)
+			input.hrefForSignalId && earlierSignal
+				? input.hrefForSignalId(earlierSignal.id)
 				: undefined,
 		latestHref: input.latestHref,
 		visibleLiveEnvelopes,
@@ -257,6 +278,28 @@ type HistoryWindow = {
 	hasBefore: boolean;
 	hasAfter: boolean;
 };
+
+function initialHistoryWindow(input: {
+	anchorSignalId?: string;
+	envelopes: readonly SignalEnvelope[];
+	identity: string;
+}): HistoryWindow | null {
+	if (!input.anchorSignalId) {
+		return null;
+	}
+	const anchorIndex = input.envelopes.findIndex(
+		(item) => item.id === input.anchorSignalId
+	);
+	if (anchorIndex < 0) {
+		return null;
+	}
+	return {
+		identity: input.identity,
+		envelopes: input.envelopes,
+		hasBefore: anchorIndex >= 30,
+		hasAfter: input.envelopes.length - anchorIndex - 1 >= 30,
+	};
+}
 
 function navigationErrorMessage(failure: unknown) {
 	return failure instanceof Error

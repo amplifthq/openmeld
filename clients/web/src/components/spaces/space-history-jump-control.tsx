@@ -90,6 +90,9 @@ export function SpaceHistoryJumpControl({
 										className="rounded-full max-lg:pointer-fine:min-h-8 max-lg:pointer-fine:min-w-8"
 										nativeButton={!history?.latestHref}
 										onClick={(event) => {
+											if (history?.latestHref) {
+												return;
+											}
 											event.preventDefault();
 											if (history) {
 												history.onLatest();
