@@ -158,7 +158,7 @@ export function InboxNotificationListener(input: {
 				enabled: notificationsEnabled,
 				computer: {
 					available: Boolean(computer?.destination),
-					statusLabel: computer?.statusLabel ?? "Checking status",
+					statusLabel: computer?.statusLabel ?? "Checking…",
 				},
 				latestUnread: latestUnread
 					? {

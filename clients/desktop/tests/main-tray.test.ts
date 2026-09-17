@@ -624,6 +624,8 @@ describe("main tray behavior", () => {
 
   function trayMenuTemplate():
     | Array<{
+        accessibilityLabel?: string;
+        badge?: { content?: string; type?: string };
         click?: () => void;
         enabled?: boolean;
         icon?: unknown;
@@ -634,6 +636,8 @@ describe("main tray behavior", () => {
     const tray = electronMock.trayInstances.at(0);
     return tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{
+          accessibilityLabel?: string;
+          badge?: { content?: string; type?: string };
           click?: () => void;
           enabled?: boolean;
           icon?: unknown;
@@ -704,6 +708,38 @@ describe("main tray behavior", () => {
         String(dataUrl).includes("%23d4d4d4")
       )
     ).toBe(true);
+  });
+
+  it("omits the notification row when there is nothing new", async () => {
+    await importMain();
+
+    inboxTitle.setPresentation?.({ status: "empty" });
+
+    expect(trayMenuLabels()).toEqual([
+      "Open inbox",
+      "Open app",
+      "Computer",
+      "Settings…",
+      "Quit OpenMeld",
+    ]);
+  });
+
+  it("keeps the Computer status on the same native menu row", async () => {
+    await importMain();
+
+    inboxTitle.setContext?.({
+      computer: { available: true, statusLabel: "Checking…" },
+      unreadCount: 0,
+    });
+
+    expect(
+      trayMenuTemplate()?.find((item) => item.label === "Computer")
+    ).toEqual(
+      expect.objectContaining({
+        accessibilityLabel: "Computer, Checking…",
+        badge: { type: "none", content: "Checking…" },
+      })
+    );
   });
 
   it("renders and activates one exact unread preview", async () => {

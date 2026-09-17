@@ -393,6 +393,8 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const preview = trayPreviewMenuItems(trayPresentation);
   const unreadCount = trayContext?.unreadCount;
   const computer = trayContext?.computer;
+  const computerStatus =
+    computer?.statusLabel ?? resolveTrayComputerStatusLabel();
   return [
     ...preview,
     trayActionItem({
@@ -412,7 +414,8 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     trayActionItem({
       icon: "computer",
       label: "Computer",
-      sublabel: computer?.statusLabel ?? resolveTrayComputerStatusLabel(),
+      accessibilityLabel: `Computer, ${computerStatus}`,
+      badge: { type: "none", content: computerStatus },
       enabled: computer?.available ?? Boolean(pilot),
       click: () => showDesktopWindow("computer"),
     }),
@@ -454,8 +457,10 @@ function trayPreviewMenuItems(
       },
     ];
   }
+  if (presentation.status === "empty") {
+    return [];
+  }
   const label = {
-    empty: "No new notifications",
     loading: "Loading notifications…",
     no_unread_messages: "No unread messages",
     signed_out: "Sign in to view notifications",
