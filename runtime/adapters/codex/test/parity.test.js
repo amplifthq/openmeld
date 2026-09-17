@@ -36,6 +36,9 @@ const createRuntimeContext = (
 ) => ({
   providerRuntimeWorkingDirectory,
 });
+const READ_CODEX_DISPATCH_STOP_EVIDENCE = Symbol.for(
+  "openmeld.codex.readDispatchStopEvidence"
+);
 const createNodeScriptLaunchContract = (scriptPath) => ({
   kind: "node_script",
   nodePath: process.execPath,
@@ -503,6 +506,27 @@ test("codex Stop aborts an occupied writer wait without resuming the thread agai
     assert.equal(dispatchResult.errorCode, "runtime.turn.cancelled");
     assert.equal(dispatchCalls, 1);
     assert.deepEqual(events, ["agent_controller_conversation_occupied"]);
+    // The Stop must stay readable after the dispatch call it ended, because the
+    // handoff decides on it, and it must say whether a turn was in flight.
+    assert.equal(
+      adapter[READ_CODEX_DISPATCH_STOP_EVIDENCE](`task-stop-${control}`)
+        .turnWasRunning,
+      false
+    );
+    // A retry for a stopped task must not resume the thread: the successor that
+    // took the reservation is the only remaining claimant on that writer.
+    const retry = await adapter.dispatch({
+      agentControllerConversationId: `thread-stop-${control}`,
+      agentId: "agt-demo",
+      prompt: "continue",
+      runtimeContext: createRuntimeContext(),
+      sourceEventId: `evt-stop-${control}-retry`,
+      spaceId: "space-1",
+      taskId: `task-stop-${control}`,
+      transportMode: "codex-app-server",
+    });
+    assert.equal(retry.errorCode, "runtime.turn.cancelled");
+    assert.equal(dispatchCalls, 1);
   }
 });
 
