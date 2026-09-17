@@ -1124,7 +1124,9 @@ read time; raw rows, read state, source truth, and delivery policy are unchanged
 The `mentions` list view prevents older unread structured Human mentions from
 being displaced by recent ordinary updates. Gateway retains Space-summary
 version `2` conversation counts for old clients while version `3` adds only the
-Inbox attention fields. The UI waits for known values without a Checking badge.
+Inbox attention fields. Only `presentation=attention` removes mentions from
+`recent_updates`; unversioned legacy/raw callers retain them because those
+clients do not query the separate `mentions` view. The UI waits for known values without a Checking badge.
 Deploy compatible Gateway first, Core second, and Web last. New Gateway accepts
 old Core output; new Web reports unknown if the field is absent. The new
 `urgent_updates` and `recent_updates` preview list views are available only after Core and Gateway support them;

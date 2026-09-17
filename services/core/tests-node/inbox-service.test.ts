@@ -643,6 +643,23 @@ describe("Inbox service", () => {
           })
         ).items.map((item) => item.id)
       ).toEqual([mention.itemId]);
+      expect(
+        (
+          await service.list({
+            ...identity,
+            view: "recent_updates",
+          })
+        ).items.map((item) => item.id)
+      ).toEqual(expect.arrayContaining([ordinary.itemId, mention.itemId]));
+      expect(
+        (
+          await service.list({
+            ...identity,
+            presentation: "attention",
+            view: "recent_updates",
+          })
+        ).items.map((item) => item.id)
+      ).toEqual([]);
       await expect(service.summary(identity)).resolves.toMatchObject({
         totalUnreadCount: 3,
       });

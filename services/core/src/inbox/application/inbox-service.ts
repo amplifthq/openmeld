@@ -549,7 +549,7 @@ export function createInboxService(input: {
       if (listInput.presentation === "attention") {
         filters.push(INBOX_ATTENTION_PRESENTATION_FILTER);
       }
-      appendViewFilter(filters, parsedView.data);
+      appendViewFilter(filters, parsedView.data, listInput.presentation);
       if (cursor) {
         filters.push("(occurred_at_ms < ? OR (occurred_at_ms = ? AND id < ?))");
         bindings.push(cursor.occurredAtMs, cursor.occurredAtMs, cursor.id);
@@ -1165,7 +1165,11 @@ const ORDINARY_UNREAD_ATTENTION_FILTER = `
   AND NOT (${UNREAD_MENTION_UPDATE_FILTER})
 `;
 
-function appendViewFilter(filters: string[], view: InboxView): void {
+function appendViewFilter(
+  filters: string[],
+  view: InboxView,
+  presentation?: InboxPresentation
+): void {
   if (view === "unread") {
     filters.push("read_at_ms IS NULL");
   } else if (view === "needs_action") {
@@ -1188,9 +1192,11 @@ function appendViewFilter(filters: string[], view: InboxView): void {
     filters.push(
       "read_at_ms IS NULL",
       "NOT (attention = 'action_required' AND resolution_status = 'open')",
-      `NOT (${UNREAD_URGENT_UPDATE_FILTER})`,
-      `NOT (${UNREAD_MENTION_UPDATE_FILTER})`
+      `NOT (${UNREAD_URGENT_UPDATE_FILTER})`
     );
+    if (presentation === "attention") {
+      filters.push(`NOT (${UNREAD_MENTION_UPDATE_FILTER})`);
+    }
   } else if (view === "updates") {
     filters.push(
       "NOT (attention = 'action_required' AND resolution_status = 'open')"

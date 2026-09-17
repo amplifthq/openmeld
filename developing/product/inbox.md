@@ -428,7 +428,9 @@ cannot be displaced by a page of newer ordinary messages. The `mentions` view
 selects unread structured Human mentions independently of recency. The
 `recent_updates` view independently selects unread items outside all stronger
 attention groups so a page of actions, urgent updates, or mentions cannot starve
-ordinary updates either. The bounded preview
+ordinary updates either. That mentions exclusion applies only to the opt-in
+`presentation=attention` projection; legacy/raw `recent_updates` callers keep
+mentions because they do not query the separate group. The bounded preview
 reserves room for each group; full Inbox remains the complete list. It may say
 **All caught up** only when there are no unresolved actions and no unread items.
 
