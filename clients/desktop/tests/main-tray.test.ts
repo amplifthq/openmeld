@@ -649,6 +649,7 @@ describe("main tray behavior", () => {
   function trayMenuTemplate():
     | Array<{
         accessibilityLabel?: string;
+        badge?: { content?: string; type?: string };
         click?: () => void;
         enabled?: boolean;
         icon?: unknown;
@@ -661,6 +662,7 @@ describe("main tray behavior", () => {
     return tray?.setContextMenu.mock.calls.at(-1)?.[0] as
       | Array<{
           accessibilityLabel?: string;
+          badge?: { content?: string; type?: string };
           click?: () => void;
           enabled?: boolean;
           icon?: unknown;
@@ -682,7 +684,7 @@ describe("main tray behavior", () => {
       "Loading notifications…",
       "Open inbox",
       "Open app",
-      "Computer — Checking…",
+      "Computer",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -695,7 +697,7 @@ describe("main tray behavior", () => {
       "Open inbox",
       "separator",
       "Open app",
-      "Computer — Checking…",
+      "Computer",
       "Settings…",
       "separator",
       "Quit OpenMeld",
@@ -742,7 +744,7 @@ describe("main tray behavior", () => {
     expect(trayMenuLabels()).toEqual([
       "Open inbox",
       "Open app",
-      "Computer — Checking…",
+      "Computer",
       "Settings…",
       "Quit OpenMeld",
     ]);
@@ -758,9 +760,10 @@ describe("main tray behavior", () => {
       unreadCount: 0,
     });
 
-    expect(trayMenuItem("Computer — Checking…")).toEqual(
+    expect(trayMenuItem("Computer")).toEqual(
       expect.objectContaining({
         accessibilityLabel: "Computer, Checking…",
+        badge: { type: "none", content: "Checking…" },
       })
     );
   });

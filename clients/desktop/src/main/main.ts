@@ -398,6 +398,7 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const unreadCount = trayContext?.unreadCount;
   const computer = trayContext?.computer;
   const computerStatus = computer?.statusLabel ?? "Checking…";
+  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
   return [
     ...preview,
     trayActionItem({
@@ -416,8 +417,13 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     }),
     trayActionItem({
       icon: "computer",
-      label: `Computer — ${computerStatus}`,
+      label: nativeMenuCapabilities.badge
+        ? "Computer"
+        : `Computer — ${computerStatus}`,
       accessibilityLabel: `Computer, ${computerStatus}`,
+      ...(nativeMenuCapabilities.badge
+        ? { badge: { type: "none" as const, content: computerStatus } }
+        : {}),
       enabled: computer?.available ?? Boolean(pilot),
       click: () => showDesktopWindow("computer"),
     }),
@@ -580,18 +586,22 @@ function resolveTrayTooltip(): string {
   return APP_NAME;
 }
 
-function resolveNativeMenuCapabilities(): { sublabel: boolean } {
+function resolveNativeMenuCapabilities(): {
+  badge: boolean;
+  sublabel: boolean;
+} {
   if (
     process.platform !== "darwin" ||
     typeof process.getSystemVersion !== "function"
   ) {
-    return { sublabel: false };
+    return { badge: false, sublabel: false };
   }
   const [major = 0, minor = 0] = process
     .getSystemVersion()
     .split(".")
     .map((part) => Number.parseInt(part, 10));
   return {
+    badge: major >= 14,
     sublabel: major > 14 || (major === 14 && minor >= 4),
   };
 }
