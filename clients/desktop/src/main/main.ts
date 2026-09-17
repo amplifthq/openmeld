@@ -403,7 +403,7 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     ...preview,
     trayActionItem({
       icon: "inbox",
-      label: "Open inbox",
+      label: "Open Inbox",
       ...(unreadCount && unreadCount > 0
         ? { sublabel: `${unreadCount} unread` }
         : {}),
@@ -412,7 +412,7 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     { type: "separator" },
     trayActionItem({
       icon: "desktop",
-      label: "Open app",
+      label: "Open App",
       click: showStatusWindow,
     }),
     trayActionItem({

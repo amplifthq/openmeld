@@ -505,7 +505,7 @@ describe("main tray behavior", () => {
       | undefined;
 
     expect((menuTemplate ?? []).flatMap((item) => item.label ?? [])).toEqual(
-      expect.arrayContaining(["Open app", "Open inbox", "Settings…"])
+      expect.arrayContaining(["Open App", "Open Inbox", "Settings…"])
     );
   });
 
@@ -682,8 +682,8 @@ describe("main tray behavior", () => {
 
     expect(trayMenuLabels()).toEqual([
       "Loading notifications…",
-      "Open inbox",
-      "Open app",
+      "Open Inbox",
+      "Open App",
       "Computer",
       "Settings…",
       "Quit OpenMeld",
@@ -694,9 +694,9 @@ describe("main tray behavior", () => {
       )
     ).toEqual([
       "Loading notifications…",
-      "Open inbox",
+      "Open Inbox",
       "separator",
-      "Open app",
+      "Open App",
       "Computer",
       "Settings…",
       "separator",
@@ -742,8 +742,8 @@ describe("main tray behavior", () => {
     inboxTitle.setPresentation?.({ status: "empty" });
 
     expect(trayMenuLabels()).toEqual([
-      "Open inbox",
-      "Open app",
+      "Open Inbox",
+      "Open App",
       "Computer",
       "Settings…",
       "Quit OpenMeld",
@@ -828,7 +828,7 @@ describe("main tray behavior", () => {
     expect(inboxTitle.activate).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: "item_1" })
     );
-    expect(trayMenuItem("Open inbox")).toEqual(
+    expect(trayMenuItem("Open Inbox")).toEqual(
       expect.objectContaining({ click: expect.any(Function) })
     );
   });
