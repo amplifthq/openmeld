@@ -32,7 +32,6 @@ import {
 } from "./space-access-editor";
 import { SpaceGuestAccessSection } from "./space-guest-access-section";
 import { SpaceInvitationForm } from "./space-invitations-section";
-import { SpaceOwnersSection } from "./space-owners-section";
 import {
 	describeSpaceJoining,
 	resolveSpaceLinkJoining,
@@ -256,14 +255,14 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		return (
 			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 				<TabsSubtle
-					className="mb-4 shrink-0"
+					aria-label="Share or invite"
+					className="mb-5 w-fit shrink-0"
 					idPrefix="space-share-tabs"
 					onSelect={(index) => setShareView(index === 1 ? "invite" : "link")}
 					selectedIndex={shareView === "invite" ? 1 : 0}
-					variant="underline"
 				>
-					<TabsSubtleItem index={0} label="Share link" />
-					<TabsSubtleItem index={1} label="Invite people" />
+					<TabsSubtleItem className="h-8" index={0} label="Share link" />
+					<TabsSubtleItem className="h-8" index={1} label="Invite people" />
 				</TabsSubtle>
 				<ScrollArea
 					className="min-h-0 min-w-0 flex-1"
@@ -381,7 +380,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 			<div className="flex shrink-0 items-center px-5 pt-5 sm:px-6 sm:pt-6">
-				<h2 className="pr-8 font-medium text-base">Access</h2>
+				<h2 className="pr-8 font-medium text-base">Share &amp; Access</h2>
 			</div>
 			<ScrollArea
 				className="min-h-0 min-w-0 flex-1"
@@ -429,27 +428,6 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						) : null}
 					</section>
 				) : null}
-				<section className="grid gap-3 border-border/60 border-t pt-4">
-					<div className="flex flex-wrap items-center justify-between gap-2">
-						<h3 className="font-medium text-sm">Members</h3>
-						{input.onOpenInvitations ? (
-							<Button
-								onClick={input.onOpenInvitations}
-								size="sm"
-								type="button"
-								variant="secondary"
-							>
-								Invite people
-							</Button>
-						) : null}
-					</div>
-					<SpaceOwnersSection
-						canManage={input.canManageAccess}
-						collapsible={false}
-						openMeldProfileId={input.openMeldProfileId}
-						spaceId={input.spaceId}
-					/>
-				</section>
 				{warnings}
 			</ScrollArea>
 			{input.canManageAccess || input.onOpenShare ? (

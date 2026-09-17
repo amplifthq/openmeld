@@ -22,6 +22,7 @@ import type { SpaceAccessUpdateInput } from "./space-access-editor";
 import { SpaceAccessSettings } from "./space-access-settings";
 import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
+import { SpaceOwnersSection } from "./space-owners-section";
 import type { SpaceSharingDraftController } from "./use-space-sharing-draft";
 
 type SpaceInfoLeaveAction = {
@@ -64,7 +65,7 @@ export function SpaceSettingsDialog(input: {
 	onOpenInvitations?: () => void;
 	onOpenShare?: () => void;
 	open?: boolean;
-	initialSection?: "access" | "advanced" | "general";
+	initialSection?: "access" | "advanced" | "general" | "members";
 	showTrigger?: boolean;
 	spaceId: string;
 	visibility?: "public" | "private";
@@ -124,7 +125,10 @@ export function SpaceSettingsDialog(input: {
 							{ id: "general", title: "General" },
 							...(isDirectConversation
 								? []
-								: [{ id: "access", title: "Access" }]),
+								: [
+										{ id: "members", title: "Members" },
+										{ id: "access", title: "Share & Access" },
+									]),
 							{ id: "advanced", title: "Advanced" },
 						]}
 						onNavigate={setSection}
@@ -138,8 +142,9 @@ export function SpaceSettingsDialog(input: {
 						{
 							{
 								general: "General",
-								access: "Access",
+								access: "Share & Access",
 								advanced: "Advanced",
+								members: "Members",
 							}[section]
 						}
 					</h2>
@@ -183,6 +188,28 @@ export function SpaceSettingsDialog(input: {
 					</>
 				)}
 				{section === "general" && <SpaceInfoNotificationsSection />}
+				{section === "members" && showSpaceAccessControls ? (
+					<div className="grid gap-4">
+						{input.onOpenInvitations ? (
+							<div className="flex justify-end">
+								<Button
+									onClick={input.onOpenInvitations}
+									size="sm"
+									type="button"
+									variant="secondary"
+								>
+									Invite people to join
+								</Button>
+							</div>
+						) : null}
+						<SpaceOwnersSection
+							canManage={input.access.canManage}
+							collapsible={false}
+							openMeldProfileId={input.openMeldProfileId}
+							spaceId={input.spaceId}
+						/>
+					</div>
+				) : null}
 				{section === "access" && showSpaceAccessControls ? (
 					<SpaceAccessSettings
 						accessMode={input.access.mode}
