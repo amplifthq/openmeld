@@ -2408,6 +2408,12 @@ export type ExecuteExecutionRecoveryInput = {
 
 export type StartUsageExhaustedContinuationInput = {
   continuationClientMessageId: string;
+  /**
+   * Set only when the continuation cannot reuse the interrupted conversation.
+   * An occupied native conversation is the case: the re-post has to name the
+   * branch explicitly, because `auto` would resolve back to the same context.
+   */
+  contextSelection?: import("@openmeld/schemas/types").ExecutionContextSelection;
   interruptedClientMessageId: string;
   interruptedDispatchId: string;
   interruptedSourceSignalId: string;
@@ -5539,6 +5545,25 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       ownerUserId: request.owner.id,
       targetProfileId: request.agentProfileId,
     });
+  } else if (parsedBody.data.action === "fork_interrupted_work") {
+    const continuation = await executeAgentProfileWorkContinuation({
+      context: request.context,
+      env,
+      expectedInterruptedTargetWakeLifecycleId:
+        parsedBody.data.expectedInterruptedTargetWakeLifecycleId,
+      forkInterruptedConversation: true,
+      ownerShard,
+      ownerUserId: request.owner.id,
+      recovery,
+      targetProfileId: request.agentProfileId,
+    });
+    if (continuation === "deferred") {
+      throw createCoreRpcHttpError({
+        code: "agent_profile_work_recovery.temporarily_unavailable",
+        reason: "OpenMeld is checking this Agent’s paused work. Try again.",
+        status: 503,
+      });
+    }
   } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
       expectedInterruptedTargetWakeLifecycleId:
@@ -5748,6 +5773,8 @@ function shouldMarkUsageContinuationNeedsAttention(error: unknown): boolean {
 async function executeAgentProfileWorkContinuation(input: {
   context: CoreRpcContextInput;
   env: CoreBindings;
+  expectedInterruptedTargetWakeLifecycleId?: string;
+  forkInterruptedConversation?: boolean;
   ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
   ownerUserId: string;
   recovery: Extract<
@@ -5763,6 +5790,17 @@ async function executeAgentProfileWorkContinuation(input: {
     )
   ) {
     return "deferred";
+  }
+  if (
+    input.expectedInterruptedTargetWakeLifecycleId !== undefined &&
+    input.expectedInterruptedTargetWakeLifecycleId !==
+      input.recovery.interruptedTargetWakeLifecycleId
+  ) {
+    throw createCoreRpcHttpError({
+      code: "agent_profile_work_recovery.not_pending",
+      reason: "This recovery action is no longer needed.",
+      status: 409,
+    });
   }
   const deterministicIdentity = await buildAgentProfileWorkContinuationIdentity(
     {
@@ -5811,6 +5849,17 @@ async function executeAgentProfileWorkContinuation(input: {
   await stub.rpcStartUsageExhaustedContinuation({
     continuationClientMessageId,
     context: input.context,
+    // The interrupted Wake is the fork source: §4C resolves and verifies the
+    // boundary from the source's own history, so the branch never inherits a
+    // turn the provider had not settled.
+    ...(input.forkInterruptedConversation
+      ? {
+          contextSelection: {
+            mode: "fork" as const,
+            sourceWakeId: input.recovery.interruptedTargetWakeLifecycleId,
+          },
+        }
+      : {}),
     interruptedClientMessageId: input.recovery.interruptedClientMessageId,
     interruptedDispatchId: input.recovery.interruptedDispatchId,
     interruptedSourceSignalId: input.recovery.interruptedSourceSignalId,
