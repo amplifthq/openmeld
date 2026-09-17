@@ -11221,6 +11221,19 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       const profile = profileScopeResult.scope;
       const interruptedClientMessageId =
         interruptedHead.targetWakeLifecycleIdentity.clientMessageId;
+      for (const supersededStage of intent.supersededStages) {
+        // The decision the owner was asked to make has moved to another stage.
+        // Closing the stage it left has to happen here, because only one intent
+        // exists per profile and the source key digests the stage.
+        await resolveAgentProfileWorkRecoveryInboxItem({
+          db: targetInboxDb,
+          interruptedClientMessageId,
+          organizationId: profile.organizationId,
+          profileId: intent.targetProfileId,
+          resolvedAtMs: intent.updatedAtMs,
+          stage: supersededStage,
+        });
+      }
       if (intent.desiredStatus === "open") {
         await projectAgentProfileWorkRecoveryInboxItem({
           db: targetInboxDb,
@@ -11232,7 +11245,8 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
           profileId: intent.targetProfileId,
           profileName: profile.profileName,
           sourceTarget:
-            intent.stage === "review_interrupted_work"
+            intent.stage === "review_interrupted_work" ||
+            intent.stage === "resolve_occupied_conversation"
               ? {
                   kind: "space",
                   signalId:
