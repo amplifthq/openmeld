@@ -3616,6 +3616,7 @@ function ThreadPreview(input: {
 	thread: SpaceThread | null;
 }) {
 	const queryClient = useQueryClient();
+	const pointerStart = useRef<{ x: number; y: number } | null>(null);
 	const thread = input.thread;
 	if (!thread) {
 		return null;
@@ -3647,10 +3648,50 @@ function ThreadPreview(input: {
 	return (
 		<div className="flex w-full min-w-0 max-w-full flex-col gap-1.5 overflow-hidden border-border border-t pt-2">
 			{previewItems.map((item) => (
+				// biome-ignore lint/a11y/useSemanticElements: A native button cannot contain the reply's independent message links.
 				<div
-					className="flex w-full min-w-0 max-w-full items-start gap-2 overflow-hidden pe-2"
+					aria-label={`Open reply from ${item.actorName}: ${threadReplyPreviewText(item.text)}`}
+					className="flex w-full min-w-0 max-w-full cursor-pointer items-start gap-2 overflow-hidden pe-2 hover:underline focus-visible:outline focus-visible:outline-ring"
 					key={item.id}
+					onClick={(event) => {
+						if (
+							event.target instanceof Element &&
+							event.target.closest(
+								'a,button,input,textarea,select,pre,code,[contenteditable="true"]'
+							)
+						) {
+							return;
+						}
+						if (window.getSelection()?.toString()) {
+							return;
+						}
+						if (
+							pointerStart.current &&
+							Math.hypot(
+								event.clientX - pointerStart.current.x,
+								event.clientY - pointerStart.current.y
+							) > 5
+						) {
+							return;
+						}
+						input.onOpenThread(thread.threadId, item.id);
+					}}
+					onFocus={prefetch}
+					onKeyDown={(event) => {
+						if (event.target !== event.currentTarget) {
+							return;
+						}
+						if (event.key === "Enter" || event.key === " ") {
+							event.preventDefault();
+							input.onOpenThread(thread.threadId, item.id);
+						}
+					}}
+					onPointerDown={(event) => {
+						pointerStart.current = { x: event.clientX, y: event.clientY };
+					}}
 					onPointerEnter={prefetch}
+					role="button"
+					tabIndex={0}
 				>
 					{!item.recalledAt && (
 						<span className="max-w-[40%] shrink-0 truncate font-bold text-foreground/88 text-xs leading-5">
@@ -3668,6 +3709,13 @@ function ThreadPreview(input: {
 							aria-label={`Open reply from ${item.actorName}`}
 							className="shrink-0 text-muted-foreground/75 text-xs leading-5"
 							href={input.threadHref(item.id)}
+							onClick={(event) => {
+								if (isModifiedNavigationClick(event)) {
+									return;
+								}
+								event.preventDefault();
+								input.onOpenThread(thread.threadId, item.id);
+							}}
 						>
 							<time
 								dateTime={new Date(item.createdAtMs).toISOString()}

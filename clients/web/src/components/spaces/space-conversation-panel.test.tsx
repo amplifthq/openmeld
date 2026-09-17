@@ -49,6 +49,7 @@ type SpaceConversationPanelOverrides = Partial<
 };
 
 const FAILED_TEXT_PATTERN = /failed/i;
+const THREAD_REPLY_PREVIEW_PATTERN = /^Open reply from Felix:/;
 const UNREAD_JUMP_PATTERN = /Jump to first unread/;
 const RETRY_BUTTON_NAME_PATTERN = /retry/i;
 const REFERENCED_SPACE_ID = "c".repeat(64);
@@ -1311,26 +1312,45 @@ describe("SpaceConversationPanel", () => {
 			],
 		});
 
-		expect(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		).toBeTruthy();
-		fireEvent.click(
-			screen.getByRole("link", { name: "Open Space Launch Planning" })
-		);
-		expect(onOpenThread).not.toHaveBeenCalled();
-		const preview = screen.getByRole("button", {
-			name: "Open reply from Felix",
+		const memberSpaceLink = screen.getByRole("link", {
+			name: "Open Space Launch Planning",
 		});
+		const memberExternalLink = screen.getByRole("link", {
+			name: "https://example.com",
+		});
+		fireEvent.click(memberSpaceLink);
+		fireEvent.click(memberExternalLink);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		const preview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
 		fireEvent.click(preview);
-		expect(onOpenUnreadThread).toHaveBeenCalledTimes(1);
+		fireEvent.keyDown(preview, { key: "Enter" });
+		fireEvent.keyDown(preview, { key: " " });
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
 		expect(onOpenUnreadThread).toHaveBeenLastCalledWith({
 			threadId: thread.threadId,
 			rootSignalId: thread.rootSignalId,
 			signalId: "sig-thread-preview",
 		});
+		const selection = vi
+			.spyOn(window, "getSelection")
+			.mockReturnValue({ toString: () => "selected reply" } as Selection);
+		fireEvent.click(preview);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
+		selection.mockRestore();
+		fireEvent.pointerDown(preview, { clientX: 0, clientY: 0 });
+		fireEvent.click(preview, { clientX: 10, clientY: 0 });
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(3);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Open reply from Felix" })
+		);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(4);
+
 		cleanup();
+		onOpenThread.mockClear();
+		onOpenUnreadThread.mockClear();
 		renderSpaceConversationPanel({
 			onOpenThread,
+			onOpenUnreadThread,
 			readOnly: true,
 			spaceId: "space-123",
 			spaceReferencesById: createSpaceReferences(),
@@ -1349,6 +1369,7 @@ describe("SpaceConversationPanel", () => {
 		const replyLink = screen.getByRole("link", {
 			name: "Open reply from Felix",
 		});
+		const publicPreview = screen.getByLabelText(THREAD_REPLY_PREVIEW_PATTERN);
 		expect(publicSpaceLink.parentElement?.closest("a")).toBeNull();
 		expect(externalLink.parentElement?.closest("a")).toBeNull();
 		expect(replyLink.getAttribute("href")).toContain(
@@ -1357,6 +1378,25 @@ describe("SpaceConversationPanel", () => {
 		expect(replyLink.getAttribute("href")).toContain(
 			"signalId=sig-thread-preview"
 		);
+		fireEvent.click(publicSpaceLink);
+		fireEvent.click(externalLink);
+		expect(onOpenThread).not.toHaveBeenCalled();
+		fireEvent.click(publicPreview);
+		expect(onOpenUnreadThread).toHaveBeenLastCalledWith({
+			rootSignalId: thread.rootSignalId,
+			signalId: "sig-thread-preview",
+			threadId: thread.threadId,
+		});
+		fireEvent.click(replyLink);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
+		const modifiedReplyClick = new MouseEvent("click", {
+			bubbles: true,
+			button: 0,
+			cancelable: true,
+			metaKey: true,
+		});
+		expect(replyLink.dispatchEvent(modifiedReplyClick)).toBe(true);
+		expect(onOpenUnreadThread).toHaveBeenCalledTimes(2);
 	});
 
 	it("renders structured Wake targets as inline Agent identities in the read-only main timeline", () => {
