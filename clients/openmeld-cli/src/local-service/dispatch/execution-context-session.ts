@@ -5,7 +5,10 @@ import {
   getSessionInfo,
   getSessionMessages,
 } from "@anthropic-ai/claude-agent-sdk";
-import { forkCodexAppServerThread } from "@openmeld/adapter-codex";
+import {
+  forkCodexAppServerThread,
+  resolveCodexAppServerCompletedTurn,
+} from "@openmeld/adapter-codex";
 import type {
   AdapterComputerFileAccessBoundary,
   AdapterRuntimeEventCallback,
@@ -209,6 +212,23 @@ export async function prepareExecutionContextConversation(input: {
         input.agentControllerRef === "builtin:codex" &&
         input.launchContract
       ) {
+        // A stored completion is authoritative when it exists. The recorded
+        // turn is only a snapshot from the dispatch that produced it, though:
+        // an imported or Desktop-origin thread never went through
+        // captureExecutionContextCompletion, and a checkpoint can go stale
+        // against the source's real history. Reading the source's settled turns
+        // gives a boundary that is verified now rather than assumed, and the
+        // source stays readable even while another App Server holds its writer.
+        const completedTurnId =
+          source.completedHistoryId ??
+          (
+            await resolveCodexAppServerCompletedTurn({
+              codexTimeoutMs: 30_000,
+              codexWorkdir: sourceDirectory,
+              launchContract: input.launchContract,
+              threadId: source.nativeConversationId,
+            })
+          ).completedTurnId;
         const child = await forkCodexAppServerThread({
           computerFileAccessBoundary:
             input.computerFileAccessBoundary ?? undefined,
@@ -216,7 +236,7 @@ export async function prepareExecutionContextConversation(input: {
           codexWorkdir: sourceDirectory,
           launchContract: input.launchContract,
           sourceThreadId: source.nativeConversationId,
-          sourceCompletedTurnId: source.completedHistoryId,
+          sourceCompletedTurnId: completedTurnId,
           targetWorkingDirectory: input.workingDirectory,
           onRuntimeEvent: input.onRuntimeEvent,
           env: { OPENMELD_PROCESS_SUPERVISION_ID: input.processSupervisionId },

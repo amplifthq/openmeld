@@ -123,6 +123,7 @@ export {
   forkCodexAppServerThread,
   invokeCodexAppServerTransport,
   probeCodexAppServerAccount,
+  resolveCodexAppServerCompletedTurn,
   verifyCodexAppServerThread,
 } from "./transport/codex-app-server-transport.js";
 export {

@@ -136,6 +136,10 @@ type AppServerThreadResponse = {
   thread?: AppServerThread;
 };
 
+type AppServerThreadReadResponse = {
+  thread?: AppServerThread & { turns?: AppServerTurn[] };
+};
+
 type AppServerTurn = {
   error?: { codexErrorInfo?: unknown; message?: unknown } | null;
   id?: unknown;
@@ -578,6 +582,60 @@ export async function verifyCodexAppServerThread(input: {
       return {
         threadId: readThreadIdFromResponse(response),
       };
+    }
+  );
+}
+
+export async function resolveCodexAppServerCompletedTurn(input: {
+  codexTimeoutMs: number | null;
+  codexWorkdir: string;
+  env?: Record<string, string | undefined>;
+  launchContract: RuntimeAgentControllerLaunchContract;
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+  threadId: string;
+}): Promise<{ completedTurnId: string; threadId: string }> {
+  const threadId = normalizeOptionalText(input.threadId);
+  if (!threadId) {
+    throw new CodexAppServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message: "schema.invalid: threadId is required",
+    });
+  }
+
+  return await withCodexAppServerSession(
+    {
+      codexTimeoutMs: input.codexTimeoutMs,
+      codexWorkdir: input.codexWorkdir,
+      env: input.env,
+      launchContract: input.launchContract,
+      onRuntimeEvent: input.onRuntimeEvent,
+    },
+    async (session) => {
+      const response = await session.requestControl(
+        "thread/read",
+        {
+          includeTurns: true,
+          threadId,
+        },
+        {
+          code: "execution_context.history_unavailable",
+          operation: "thread/read",
+        }
+      );
+      const completedTurnId = readLastCompletedTurnId(response);
+      if (!completedTurnId) {
+        // No settled turn means there is no honest boundary to inherit, and a
+        // fork without one copies whatever is in flight. Refuse rather than
+        // hand back a superset the caller cannot verify.
+        throw new CodexAppServerTransportError({
+          code: "execution_context.fork_checkpoint_unavailable",
+          errorType: "config",
+          message:
+            "execution_context.fork_checkpoint_unavailable: thread/read found no completed turn on the source thread",
+        });
+      }
+      return { completedTurnId, threadId };
     }
   );
 }
@@ -2044,6 +2102,26 @@ function readThreadContextFromResponse(
     ),
     threadSource: normalizeOptionalText(response?.thread?.threadSource),
   };
+}
+
+function readLastCompletedTurnId(value: unknown): string | null {
+  const response = toRecord(value) as AppServerThreadReadResponse | null;
+  const turns = Array.isArray(response?.thread?.turns)
+    ? response.thread.turns
+    : [];
+  // The source may be mid-turn. Only a settled turn is a history boundary a
+  // fork may inherit, so scan backwards for the last completed one.
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (normalizeOptionalText(turn?.status) !== "completed") {
+      continue;
+    }
+    const turnId = normalizeOptionalText(turn?.id);
+    if (turnId) {
+      return turnId;
+    }
+  }
+  return null;
 }
 
 function readTurnStartResponse(value: unknown): AppServerTurn {

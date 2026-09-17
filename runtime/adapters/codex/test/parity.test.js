@@ -932,6 +932,16 @@ const writeFakeCodexAppServerFixture = async (fixturePath) => {
       "    write({ jsonrpc: '2.0', id: message.id, result: { thread: buildThread('thread-fork-1') } });",
       "    return;",
       "  }",
+      "  if (message.method === 'thread/read') {",
+      "    const statuses = JSON.parse(process.env.OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_READ_STATUSES ?? JSON.stringify(['completed']));",
+      "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_REJECT_THREAD_READ === '1') {",
+      "      write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'no rollout found for thread id ' + message.params.threadId } });",
+      "      return;",
+      "    }",
+      "    const turns = statuses.map((status, index) => ({ id: 'turn-read-' + (index + 1), items: [], itemsView: 'complete', status, error: null, startedAt: 1, completedAt: status === 'completed' ? 1 : null, durationMs: null }));",
+      "    write({ jsonrpc: '2.0', id: message.id, result: { thread: { ...buildThread(message.params.threadId), turns: message.params.includeTurns ? turns : [] } } });",
+      "    return;",
+      "  }",
       "  if (message.method === 'thread/name/set') {",
       "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT === 'hang') return;",
       "    if (process.env.OPENMELD_FAKE_CODEX_APP_SERVER_NAME_RESULT === 'reject') { write({ jsonrpc: '2.0', id: message.id, error: { code: -32600, message: 'Name unavailable' } }); return; }",
@@ -3852,6 +3862,87 @@ test("forkCodexAppServerThread sends the proven cutoff as lastTurnId", async () 
       lastTurnId: "turn-completed-7",
       threadId: "thread-source-1",
     });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("resolveCodexAppServerCompletedTurn reads the last settled turn as a fork boundary", async () => {
+  const { resolveCodexAppServerCompletedTurn } = await import(
+    "../dist/index.js"
+  );
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-read-"));
+  const dispatchDir = await mkdtemp(join(tmpdir(), "codex-read-cwd-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    const result = await resolveCodexAppServerCompletedTurn({
+      codexTimeoutMs: 5000,
+      codexWorkdir: dispatchDir,
+      env: {
+        OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+        // The source is mid-turn: the newest turn is not a boundary a fork may
+        // inherit, so the reader has to step back to the last completed one.
+        OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_READ_STATUSES: JSON.stringify([
+          "completed",
+          "inProgress",
+        ]),
+      },
+      launchContract: createNodeScriptLaunchContract(fixturePath),
+      threadId: "thread-source-mid-turn",
+    });
+    const readParams = (await readFakeAppServerMessages(logPath)).find(
+      (message) => message.method === "thread/read"
+    ).params;
+
+    assert.equal(result.completedTurnId, "turn-read-1");
+    assert.equal(result.threadId, "thread-source-mid-turn");
+    // Reading the source's history must not ask the provider for its writer.
+    assert.deepEqual(readParams, {
+      includeTurns: true,
+      threadId: "thread-source-mid-turn",
+    });
+  } finally {
+    await rm(fixtureDir, { force: true, recursive: true });
+    await rm(dispatchDir, { force: true, recursive: true });
+  }
+});
+
+test("resolveCodexAppServerCompletedTurn refuses a source with no settled turn", async () => {
+  const { resolveCodexAppServerCompletedTurn } = await import(
+    "../dist/index.js"
+  );
+  const fixtureDir = await mkdtemp(join(tmpdir(), "codex-app-read-empty-"));
+  const dispatchDir = await mkdtemp(join(tmpdir(), "codex-read-empty-cwd-"));
+  const logPath = join(fixtureDir, "rpc-log.jsonl");
+  const fixturePath = join(fixtureDir, "fake-codex-app-server.mjs");
+
+  await writeFakeCodexAppServerFixture(fixturePath);
+  await chmod(fixturePath, 0o755);
+
+  try {
+    await assert.rejects(
+      resolveCodexAppServerCompletedTurn({
+        codexTimeoutMs: 5000,
+        codexWorkdir: dispatchDir,
+        env: {
+          OPENMELD_FAKE_CODEX_APP_SERVER_LOG: logPath,
+          OPENMELD_FAKE_CODEX_APP_SERVER_THREAD_READ_STATUSES: JSON.stringify([
+            "inProgress",
+          ]),
+        },
+        launchContract: createNodeScriptLaunchContract(fixturePath),
+        threadId: "thread-source-all-in-flight",
+      }),
+      (error) =>
+        error?.code === "execution_context.fork_checkpoint_unavailable" &&
+        FORK_CHECKPOINT_UNAVAILABLE_RE.test(error.message)
+    );
   } finally {
     await rm(fixtureDir, { force: true, recursive: true });
     await rm(dispatchDir, { force: true, recursive: true });
