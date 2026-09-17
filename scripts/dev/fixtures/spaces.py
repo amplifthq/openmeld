@@ -77,16 +77,33 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
                     "replyToRecipient": True,
                     "threadRootSignalId": str(uuid.uuid5(uuid.NAMESPACE_URL, f"fixture-conversation:{sid}:0")),
                 })
+            inbox_item = {
+                "organization_id": org["id"],
+                "recipient_user_id": viewer["id"],
+                "kind": "space_message",
+                "attention": "update",
+                "importance": "normal",
+                "title": title,
+                "preview": preview,
+                "context_label": name,
+                "source_kind": "space_signal",
+                "source_key": ident(f"unread-source:{i}"),
+                "source_target_json": json.dumps(source_target),
+                "resolution_status": "not_applicable",
+                "occurred_at_ms": now-i*60000,
+                "created_at_ms": now,
+                "updated_at_ms": now,
+                "read_at_ms": None,
+                "cleared_at_ms": None,
+            }
             with db:
-                insert("inbox_items", id=ident(f"unread:{i}"), organization_id=org["id"],
-                       recipient_user_id=viewer["id"], kind="space_message", attention="update",
-                       importance="normal", title=title,
-                       preview=preview, context_label=name,
-                       source_kind="space_signal", source_key=ident(f"unread-source:{i}"),
-                       source_target_json=json.dumps(source_target),
-                       resolution_status="not_applicable", occurred_at_ms=now-i*60000,
-                       created_at_ms=now, updated_at_ms=now)
-                db.execute("UPDATE inbox_items SET read_at_ms=NULL,cleared_at_ms=NULL WHERE id=?", (ident(f"unread:{i}"),))
+                item_id = ident(f"unread:{i}")
+                insert("inbox_items", id=item_id, **inbox_item)
+                assignments = ",".join(f'"{column}"=?' for column in inbox_item)
+                db.execute(
+                    f'UPDATE inbox_items SET {assignments} WHERE id=?',
+                    (*inbox_item.values(), item_id),
+                )
                 if i in (0, 2, 7):
                     notification_mode = {0: "muted", 2: "all_messages", 7: "mentions_and_replies"}[i]
                     db.execute(
