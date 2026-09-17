@@ -214,7 +214,7 @@ export function SpaceHeader(input: {
 		null
 	);
 	const [settingsInitialSection, setSettingsInitialSection] = useState<
-		"access" | "general" | "members"
+		"access" | "general"
 	>("general");
 	const [shareInitialView, setShareInitialView] = useState<"invite" | "main">(
 		"main"

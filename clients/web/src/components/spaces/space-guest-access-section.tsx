@@ -17,9 +17,11 @@ import { SpaceInvitationForm } from "./space-invitations-section";
 export function SpaceGuestAccessSection({
 	spaceId,
 	openMeldProfileId,
+	submitButtonTarget,
 }: {
 	spaceId: string;
 	openMeldProfileId?: string;
+	submitButtonTarget?: HTMLElement | null;
 }) {
 	const [confirm, setConfirm] = useState(false);
 	const pendingInvitationRef = useRef<(() => void) | null>(null);
@@ -53,6 +55,7 @@ export function SpaceGuestAccessSection({
 				onRetry={() => status.refetch()}
 				pending={status.isPending}
 				spaceId={spaceId}
+				submitButtonTarget={submitButtonTarget}
 			/>
 			<Dialog
 				onOpenChange={(open) => {
@@ -124,6 +127,7 @@ function GuestInvitationEntry(input: {
 	onRetry: () => void;
 	onEnable: (continueInvitation: () => void) => void;
 	spaceId: string;
+	submitButtonTarget?: HTMLElement | null;
 }) {
 	if (input.pending) {
 		return (
@@ -146,6 +150,7 @@ function GuestInvitationEntry(input: {
 			audience="guest"
 			onBeforeCreate={input.enabled ? undefined : input.onEnable}
 			spaceId={input.spaceId}
+			submitButtonTarget={input.submitButtonTarget}
 		/>
 	);
 }

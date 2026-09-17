@@ -22,7 +22,6 @@ import type { SpaceAccessUpdateInput } from "./space-access-editor";
 import { SpaceAccessSettings } from "./space-access-settings";
 import { SpaceInfoNotificationsSection } from "./space-info-notifications-section";
 import { SpaceNameEditor } from "./space-name-editor";
-import { SpaceOwnersSection } from "./space-owners-section";
 import type { SpaceSharingDraftController } from "./use-space-sharing-draft";
 
 type SpaceInfoLeaveAction = {
@@ -65,7 +64,7 @@ export function SpaceSettingsDialog(input: {
 	onOpenInvitations?: () => void;
 	onOpenShare?: () => void;
 	open?: boolean;
-	initialSection?: "access" | "advanced" | "general" | "members";
+	initialSection?: "access" | "advanced" | "general";
 	showTrigger?: boolean;
 	spaceId: string;
 	visibility?: "public" | "private";
@@ -125,10 +124,7 @@ export function SpaceSettingsDialog(input: {
 							{ id: "general", title: "General" },
 							...(isDirectConversation
 								? []
-								: [
-										{ id: "members", title: "Members" },
-										{ id: "access", title: "Share & Access" },
-									]),
+								: [{ id: "access", title: "Access" }]),
 							{ id: "advanced", title: "Advanced" },
 						]}
 						onNavigate={setSection}
@@ -142,8 +138,7 @@ export function SpaceSettingsDialog(input: {
 						{
 							{
 								general: "General",
-								members: "Members",
-								access: "Share & Access",
+								access: "Access",
 								advanced: "Advanced",
 							}[section]
 						}
@@ -188,26 +183,6 @@ export function SpaceSettingsDialog(input: {
 					</>
 				)}
 				{section === "general" && <SpaceInfoNotificationsSection />}
-				{section === "members" && showSpaceAccessControls ? (
-					<>
-						<div className="flex justify-end">
-							<Button
-								onClick={input.onOpenInvitations}
-								size="sm"
-								type="button"
-								variant="secondary"
-							>
-								Invite people
-							</Button>
-						</div>
-						<SpaceOwnersSection
-							canManage={input.access.canManage}
-							collapsible={false}
-							openMeldProfileId={input.openMeldProfileId}
-							spaceId={input.spaceId}
-						/>
-					</>
-				) : null}
 				{section === "access" && showSpaceAccessControls ? (
 					<SpaceAccessSettings
 						accessMode={input.access.mode}
@@ -217,6 +192,7 @@ export function SpaceSettingsDialog(input: {
 						errorMessage={input.access.errorMessage}
 						isPending={input.access.isPending}
 						linkJoinPolicy={input.access.linkJoinPolicy}
+						onOpenInvitations={input.onOpenInvitations}
 						onOpenShare={input.onOpenShare}
 						onSetAccessMode={input.access.onSetMode}
 						openMeldProfileId={input.openMeldProfileId}

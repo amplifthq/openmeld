@@ -8,16 +8,8 @@ import type {
 } from "@openmeld/schemas/types";
 import { buildPublicSpaceEntryUrl } from "@openmeld/space";
 import { Button } from "@openmeld/ui/components/button";
-import {
-	Dialog,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from "@openmeld/ui/components/dialog";
 import { Input } from "@openmeld/ui/components/input";
 import { Switch } from "@openmeld/ui/components/switch";
-import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -25,7 +17,8 @@ import {
 	SelectItem,
 	SelectTrigger,
 } from "@openmeld/ui/fluid/select";
-import { ArrowLeftIcon, CopyIcon } from "@phosphor-icons/react";
+import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
+import { CopyIcon } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -39,7 +32,13 @@ import {
 } from "./space-access-editor";
 import { SpaceGuestAccessSection } from "./space-guest-access-section";
 import { SpaceInvitationForm } from "./space-invitations-section";
-import { resolveSpaceLinkReading } from "./space-sharing-model";
+import { SpaceOwnersSection } from "./space-owners-section";
+import {
+	describeSpaceJoining,
+	resolveSpaceLinkJoining,
+	resolveSpaceLinkReading,
+	setSpaceLinkReading,
+} from "./space-sharing-model";
 import { SpaceVisibilityPicker } from "./space-visibility-picker";
 import type { SpaceSharingDraftController } from "./use-space-sharing-draft";
 
@@ -55,6 +54,7 @@ export type SpaceAccessSettingsProps = {
 	isPending: boolean;
 	linkJoinPolicy?: SpaceLinkJoinPolicy;
 	onOpenAccessSettings?: () => void;
+	onOpenInvitations?: () => void;
 	onOpenShare?: () => void;
 	onSetAccessMode: (input: SpaceAccessUpdateInput) => Promise<void>;
 	spaceId: string;
@@ -72,10 +72,11 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		null
 	);
 	const [copyFailed, setCopyFailed] = useState(false);
-	const [shareView, setShareView] = useState<"main" | "invite">(
-		input.initialShareView ?? "main"
+	const [shareView, setShareView] = useState<"link" | "invite">(
+		input.initialShareView === "invite" ? "invite" : "link"
 	);
-	const [pendingInviteChoice, setPendingInviteChoice] = useState(false);
+	const [inviteSubmitTarget, setInviteSubmitTarget] =
+		useState<HTMLDivElement | null>(null);
 	const controller = input.draftController;
 	const normalizedPassword = normalizeSpacePasswordText(controller.password);
 	const hasPasswordChange = normalizedPassword.length > 0;
@@ -88,6 +89,16 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		!controller.isDirty ||
 		(mustSetPassword && !hasPasswordChange);
 	const isShare = input.surface === "share";
+	const shareHasHiddenChanges =
+		controller.draft.allowGuests !== controller.baseline.allowGuests ||
+		controller.draft.visibility !== controller.baseline.visibility ||
+		resolveSpaceLinkJoining(controller.draft) !==
+			resolveSpaceLinkJoining(controller.baseline);
+	const shareReadingIsDirty =
+		resolveSpaceLinkReading(controller.draft) !==
+			resolveSpaceLinkReading(controller.baseline) ||
+		(normalizedPassword.length > 0 &&
+			resolveSpaceLinkReading(controller.draft) === "password");
 	const spaceUrl = buildPublicSpaceEntryUrl({
 		origin: resolveSpaceShareOrigin(),
 		target: { spaceId: input.spaceId },
@@ -95,7 +106,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 
 	useEffect(() => {
 		if (isShare) {
-			setShareView(input.initialShareView ?? "main");
+			setShareView(input.initialShareView === "invite" ? "invite" : "link");
 		}
 	}, [input.initialShareView, isShare]);
 
@@ -129,6 +140,52 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 		}
 	};
 
+	const saveReadingAccess = async (): Promise<boolean> => {
+		if (
+			shareHasHiddenChanges ||
+			!shareReadingIsDirty ||
+			input.isPending ||
+			isCommitting ||
+			commitInFlightRef.current
+		) {
+			return false;
+		}
+		const readingDraft = setSpaceLinkReading(
+			controller.baseline,
+			resolveSpaceLinkReading(controller.draft)
+		);
+		const readingNeedsPassword =
+			resolveSpaceLinkReading(readingDraft) === "password" &&
+			!spaceAccessModeUsesPassword(input.accessMode);
+		if (readingNeedsPassword && !hasPasswordChange) {
+			return false;
+		}
+		commitInFlightRef.current = true;
+		setIsCommitting(true);
+		setLocalErrorMessage(null);
+		try {
+			await input.onSetAccessMode({
+				accessMode: readingDraft.accessMode,
+				allowGuests: controller.baseline.allowGuests,
+				linkJoinPolicy: readingDraft.linkJoinPolicy,
+				...(hasPasswordChange ? { password: normalizedPassword } : {}),
+				visibility: controller.baseline.visibility,
+			});
+			controller.acceptSaved(readingDraft);
+			return true;
+		} catch (error: unknown) {
+			setLocalErrorMessage(
+				error instanceof Error
+					? error.message
+					: "Unable to save sharing settings. Try again."
+			);
+			return false;
+		} finally {
+			commitInFlightRef.current = false;
+			setIsCommitting(false);
+		}
+	};
+
 	const copyLink = async () => {
 		if (await copyTextToClipboard(spaceUrl)) {
 			setCopyFailed(false);
@@ -142,14 +199,10 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	};
 
 	const openInvitations = () => {
-		if (controller.isDirty) {
-			setPendingInviteChoice(true);
-			return;
-		}
 		setShareView("invite");
 	};
 
-	const editor = (
+	const renderEditor = (section: "joining" | "reading") => (
 		<SpaceAccessEditor
 			canManageAccess={input.canManageAccess}
 			currentAccessMode={input.accessMode}
@@ -170,6 +223,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 			}}
 			organizationName={organization?.name}
 			password={controller.password}
+			section={section}
 			surface={isShare ? "share" : "settings"}
 		/>
 	);
@@ -194,143 +248,147 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 	);
 
 	if (isShare) {
+		const shareSaveDisabled =
+			shareHasHiddenChanges ||
+			input.isPending ||
+			isCommitting ||
+			(mustSetPassword && !hasPasswordChange);
 		return (
-			<>
-				<div className="flex min-h-0 min-w-0 flex-1 flex-col">
-					<ScrollArea
-						className="min-h-0 min-w-0 flex-1"
-						contentClassName="space-y-4 pr-1"
-						data-testid="space-share-dialog-scroll-area"
-						orientation="vertical"
-						scrollFade={false}
-					>
-						{shareView === "invite" ? (
-							<InviteView
-								canInviteGuests={input.canManageAccess}
-								onBack={() => setShareView("main")}
-								openMeldProfileId={input.openMeldProfileId}
-								spaceId={input.spaceId}
-							/>
-						) : (
-							<>
-								{editor}
-								{warnings}
-								{copyFailed ? (
-									<div className="block space-y-1">
-										<span className="text-muted-foreground text-xs">
-											Copy the link manually
-										</span>
-										<Input aria-label="Space link" readOnly value={spaceUrl} />
-									</div>
-								) : null}
-							</>
-						)}
-					</ScrollArea>
-					{shareView === "main" ? (
-						<footer className="mt-4 flex shrink-0 items-center gap-2 border-border/60 border-t pt-4">
-							{input.onOpenAccessSettings ? (
-								<Button
-									onClick={input.onOpenAccessSettings}
-									size="sm"
-									type="button"
-									variant="secondary"
-								>
-									Manage access
-								</Button>
-							) : null}
-							<div className="ml-auto flex items-center gap-2">
-								{controller.isDirty ? (
-									<Button
-										disabled={input.isPending || isCommitting}
-										onClick={controller.reset}
-										size="sm"
-										type="button"
-										variant="ghost"
-									>
-										Discard changes
-									</Button>
-								) : null}
-								<Button
-									disabled={controller.isDirty ? saveDisabled : false}
-									onClick={async () => {
-										if (controller.isDirty && !(await saveAccess())) {
-											return;
-										}
-										await copyLink();
-									}}
-									size="sm"
-									type="button"
-								>
-									<CopyIcon aria-hidden="true" />
-									{resolveShareActionLabel(controller.isDirty, isCommitting)}
-								</Button>
-							</div>
-						</footer>
-					) : null}
-				</div>
-
-				<Dialog
-					onOpenChange={setPendingInviteChoice}
-					open={pendingInviteChoice}
+			<div className="flex min-h-0 min-w-0 flex-1 flex-col">
+				<TabsSubtle
+					className="mb-4 shrink-0"
+					idPrefix="space-share-tabs"
+					onSelect={(index) => setShareView(index === 1 ? "invite" : "link")}
+					selectedIndex={shareView === "invite" ? 1 : 0}
+					variant="underline"
 				>
-					<DialogContent size="sm">
-						<DialogHeader>
-							<DialogTitle>Continue to invitations?</DialogTitle>
-							<DialogDescription>
-								Choose what to do with your unsaved access changes first.
-							</DialogDescription>
-						</DialogHeader>
-						{localErrorMessage ? (
-							<p className="text-destructive text-xs" role="alert">
-								{localErrorMessage}
+					<TabsSubtleItem index={0} label="Share link" />
+					<TabsSubtleItem index={1} label="Invite people" />
+				</TabsSubtle>
+				<ScrollArea
+					className="min-h-0 min-w-0 flex-1"
+					contentClassName="space-y-4 pr-1"
+					data-testid="space-share-dialog-scroll-area"
+					orientation="vertical"
+					scrollFade={false}
+				>
+					<div
+						aria-labelledby="space-share-tabs-tab-0"
+						hidden={shareView !== "link"}
+						id="space-share-tabs-panel-0"
+						role="tabpanel"
+					>
+						{renderEditor("reading")}
+						{warnings}
+						{shareHasHiddenChanges ? (
+							<p className="text-muted-foreground text-xs/relaxed">
+								Finish the pending access changes in Access settings before
+								changing link sharing.
 							</p>
 						) : null}
-						<DialogFooter className="flex-wrap">
+						{resolveSpaceLinkJoining(controller.baseline) !== "invite_only" ? (
+							<div className="flex flex-wrap items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2 text-xs">
+								<span>
+									{describeSavedJoining(
+										controller.baseline,
+										organization?.name
+									)}
+								</span>
+								{input.onOpenAccessSettings ? (
+									<Button
+										onClick={input.onOpenAccessSettings}
+										size="xs"
+										type="button"
+										variant="secondary"
+									>
+										Manage
+									</Button>
+								) : null}
+							</div>
+						) : null}
+						{copyFailed ? (
+							<div className="block space-y-1">
+								<span className="text-muted-foreground text-xs">
+									Copy the link manually
+								</span>
+								<Input aria-label="Space link" readOnly value={spaceUrl} />
+							</div>
+						) : null}
+					</div>
+					<div
+						aria-labelledby="space-share-tabs-tab-1"
+						hidden={shareView !== "invite"}
+						id="space-share-tabs-panel-1"
+						role="tabpanel"
+					>
+						<InviteView
+							canInviteGuests={input.canManageAccess}
+							openMeldProfileId={input.openMeldProfileId}
+							spaceId={input.spaceId}
+							submitButtonTarget={inviteSubmitTarget}
+						/>
+					</div>
+				</ScrollArea>
+				{shareView === "link" ? (
+					<footer className="mt-4 flex shrink-0 items-center gap-2 border-border/60 border-t pt-4">
+						{input.onOpenAccessSettings ? (
 							<Button
-								onClick={() => setPendingInviteChoice(false)}
+								onClick={input.onOpenAccessSettings}
+								size="sm"
+								type="button"
 								variant="secondary"
 							>
-								Go back
+								Manage access
 							</Button>
+						) : null}
+						<div className="ml-auto flex items-center gap-2">
+							{shareReadingIsDirty && !shareHasHiddenChanges ? (
+								<Button
+									disabled={input.isPending || isCommitting}
+									onClick={controller.reset}
+									size="sm"
+									type="button"
+									variant="ghost"
+								>
+									Discard changes
+								</Button>
+							) : null}
 							<Button
-								onClick={() => {
-									controller.reset();
-									setPendingInviteChoice(false);
-									setShareView("invite");
-								}}
-								variant="secondary"
-							>
-								Discard changes and continue
-							</Button>
-							<Button
-								disabled={saveDisabled}
+								disabled={shareReadingIsDirty ? shareSaveDisabled : false}
 								onClick={async () => {
-									if (await saveAccess()) {
-										setPendingInviteChoice(false);
-										setShareView("invite");
+									if (shareReadingIsDirty && !(await saveReadingAccess())) {
+										return;
 									}
+									await copyLink();
 								}}
+								size="sm"
+								type="button"
 							>
-								{isCommitting ? "Saving…" : "Save changes and continue"}
+								<CopyIcon aria-hidden="true" />
+								{resolveShareActionLabel(shareReadingIsDirty, isCommitting)}
 							</Button>
-						</DialogFooter>
-					</DialogContent>
-				</Dialog>
-			</>
+						</div>
+					</footer>
+				) : (
+					<footer className="mt-4 flex shrink-0 justify-end border-border/60 border-t pt-4">
+						<div ref={setInviteSubmitTarget} />
+					</footer>
+				)}
+			</div>
 		);
 	}
 
 	return (
 		<div className="flex min-h-0 min-w-0 flex-1 flex-col">
 			<div className="flex shrink-0 items-center px-5 pt-5 sm:px-6 sm:pt-6">
-				<h2 className="pr-8 font-medium text-base">Share &amp; Access</h2>
+				<h2 className="pr-8 font-medium text-base">Access</h2>
 			</div>
 			<ScrollArea
 				className="min-h-0 min-w-0 flex-1"
 				contentClassName="space-y-5 p-5 sm:p-6"
 				orientation="vertical"
 			>
-				{editor}
+				{renderEditor("reading")}
 				{input.visibility ? (
 					<OrganizationAccessSection
 						disabled={!input.canManageAccess || input.isPending || isCommitting}
@@ -342,6 +400,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						value={controller.draft.visibility}
 					/>
 				) : null}
+				{renderEditor("joining")}
 				{organization && !organization.isPersonal && input.canManageAccess ? (
 					<section className="grid gap-2 border-border/60 border-t pt-4">
 						<div className="flex items-center justify-between gap-3">
@@ -370,6 +429,27 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						) : null}
 					</section>
 				) : null}
+				<section className="grid gap-3 border-border/60 border-t pt-4">
+					<div className="flex flex-wrap items-center justify-between gap-2">
+						<h3 className="font-medium text-sm">Members</h3>
+						{input.onOpenInvitations ? (
+							<Button
+								onClick={input.onOpenInvitations}
+								size="sm"
+								type="button"
+								variant="secondary"
+							>
+								Invite people
+							</Button>
+						) : null}
+					</div>
+					<SpaceOwnersSection
+						canManage={input.canManageAccess}
+						collapsible={false}
+						openMeldProfileId={input.openMeldProfileId}
+						spaceId={input.spaceId}
+					/>
+				</section>
 				{warnings}
 			</ScrollArea>
 			{input.canManageAccess || input.onOpenShare ? (
@@ -445,22 +525,12 @@ function OrganizationAccessSection(input: {
 
 function InviteView(input: {
 	canInviteGuests: boolean;
-	onBack: () => void;
 	openMeldProfileId?: string;
 	spaceId: string;
+	submitButtonTarget?: HTMLElement | null;
 }) {
 	return (
 		<div className="space-y-4">
-			<Button
-				className="w-fit"
-				onClick={input.onBack}
-				size="sm"
-				type="button"
-				variant="ghost"
-			>
-				<ArrowLeftIcon aria-hidden="true" />
-				Back
-			</Button>
 			<div>
 				<h3 className="font-medium text-base">
 					Invite people to join this Space
@@ -479,6 +549,7 @@ function SpaceAccessInvitations(input: {
 	spaceId: string;
 	canInviteGuests: boolean;
 	openMeldProfileId?: string;
+	submitButtonTarget?: HTMLElement | null;
 }) {
 	const [audience, setAudience] = useState<"organization" | "guest">(
 		input.canInviteGuests ? "guest" : "organization"
@@ -553,15 +624,31 @@ function SpaceAccessInvitations(input: {
 				<SpaceGuestAccessSection
 					openMeldProfileId={input.openMeldProfileId}
 					spaceId={input.spaceId}
+					submitButtonTarget={input.submitButtonTarget}
 				/>
 			) : (
 				<SpaceInvitationForm
 					actionVariant="secondary"
 					spaceId={input.spaceId}
+					submitButtonTarget={input.submitButtonTarget}
 				/>
 			)}
 		</section>
 	);
+}
+
+function describeSavedJoining(
+	draft: SpaceSharingDraftController["baseline"],
+	organizationName?: string
+): string {
+	const joining = describeSpaceJoining({ draft, organizationName });
+	if (joining.label === "Anyone, including external guests") {
+		return "Anyone, including external guests, can also join from the link.";
+	}
+	if (joining.label === "Anyone with the password, including guests") {
+		return "Anyone with the password, including guests, can also join from the link.";
+	}
+	return `${joining.label} can also join from the link.`;
 }
 
 function resolveShareActionLabel(

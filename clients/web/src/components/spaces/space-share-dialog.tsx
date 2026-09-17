@@ -53,12 +53,12 @@ export function SpaceShareDialog(
 				size="lg"
 			>
 				<DialogHeader className="shrink-0 pr-8">
-					<DialogTitle>Share or invite</DialogTitle>
+					<DialogTitle>Share</DialogTitle>
 					<p className="line-clamp-2 pr-2 text-muted-foreground text-sm">
 						{input.spaceName}
 					</p>
 					<DialogDescription className="sr-only">
-						Invite people or share a link to this Space.
+						Share a link or invite people to this Space.
 					</DialogDescription>
 				</DialogHeader>
 				<SpaceAccessSettings {...input} surface="share" />

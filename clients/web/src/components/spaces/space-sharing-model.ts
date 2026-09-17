@@ -48,7 +48,10 @@ export function resolveSpaceLinkReading(
 export function resolveSpaceLinkJoining(
 	draft: SpaceSharingDraft
 ): SpaceLinkJoining {
-	if (draft.linkJoinPolicy === "invite_only") {
+	if (
+		draft.accessMode === "members_only" ||
+		draft.linkJoinPolicy === "invite_only"
+	) {
 		return "invite_only";
 	}
 	if (

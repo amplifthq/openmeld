@@ -18,7 +18,8 @@ import { DialogContent } from "@openmeld/ui/fluid/dialog";
 import { EnvelopeSimpleIcon } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { useId, useState } from "react";
+import { createPortal } from "react-dom";
 import { InvitationRequestLink } from "#/components/organizations/invitation-request-link";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { requestOrganizationJoinRequests } from "#/lib/organizations/organization-join-requests";
@@ -84,17 +85,22 @@ export function SpaceInvitationsSection({
 	);
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: invitation permissions, request fallback, and pending-invitation management intentionally remain one form lifecycle.
 export function SpaceInvitationForm({
 	spaceId,
 	audience = "organization",
 	actionVariant = "ghost",
 	onBeforeCreate,
+	submitButtonTarget,
 }: {
 	spaceId: string;
 	audience?: "organization" | "guest";
 	actionVariant?: "ghost" | "secondary";
 	onBeforeCreate?: (continueInvitation: () => void) => void;
+	submitButtonTarget?: HTMLElement | null;
 }) {
+	const generatedFormId = useId();
+	const formId = `space-invitation-${generatedFormId.replaceAll(":", "")}`;
 	const scope = useOptionalAppOrganization();
 	const organization = scope?.currentOrganization;
 	const role = useQuery(
@@ -197,13 +203,29 @@ export function SpaceInvitationForm({
 		createInvitation();
 	};
 	const submitLabel = resolveInvitationSubmitLabel(audience, canInvite);
+	const submitButton = (
+		<Button
+			disabled={
+				mutation.isPending ||
+				proposal.isPending ||
+				role.isPending ||
+				role.isError ||
+				!email.trim()
+			}
+			form={formId}
+			type="submit"
+		>
+			{submitLabel}
+		</Button>
+	);
 	return (
 		<div className="grid gap-2">
 			<p className="text-muted-foreground text-xs/relaxed">
 				{describeInvitationAudience(audience, canInvite, organization.name)}
 			</p>
 			<form
-				className="flex flex-wrap items-end gap-2"
+				className="grid gap-2"
+				id={formId}
 				onSubmit={(event) => {
 					event.preventDefault();
 					if (
@@ -232,20 +254,11 @@ export function SpaceInvitationForm({
 					type="email"
 					value={email}
 				/>
-				<Button
-					disabled={
-						mutation.isPending ||
-						proposal.isPending ||
-						role.isPending ||
-						role.isError ||
-						!email.trim()
-					}
-					type="submit"
-					variant="outline"
-				>
-					{submitLabel}
-				</Button>
+				{submitButtonTarget ? null : submitButton}
 			</form>
+			{submitButtonTarget
+				? createPortal(submitButton, submitButtonTarget)
+				: null}
 			{proposal.data?.[0] ? (
 				<output className="block text-sm">
 					Request submitted.{" "}

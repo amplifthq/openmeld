@@ -56,6 +56,7 @@ export function SpaceAccessEditor(input: {
 	onPasswordChange: (password: string) => void;
 	organizationName?: string;
 	password: string;
+	section?: "all" | "joining" | "reading";
 	surface: "settings" | "share";
 }) {
 	const passwordInputId = useId();
@@ -76,6 +77,7 @@ export function SpaceAccessEditor(input: {
 		selectedModeNeedsPassword &&
 		(!currentModeHasPassword || isChangingPassword);
 	const isShare = input.surface === "share";
+	const section = input.section ?? "all";
 	const inviteButton = input.onInvitePeople ? (
 		<Button
 			className="shrink-0"
@@ -102,7 +104,9 @@ export function SpaceAccessEditor(input: {
 			/>
 			{reading === "password" && joining === "password" ? (
 				<span className="block text-muted-foreground text-xs/relaxed">
-					The same password is used to read and join.
+					{input.surface === "share"
+						? "This also changes the password used to join."
+						: "The same password is used to read and join."}
 				</span>
 			) : null}
 		</label>
@@ -129,35 +133,37 @@ export function SpaceAccessEditor(input: {
 
 	return (
 		<div className="min-w-0 space-y-4">
-			<section className="grid gap-2">
-				<div className="space-y-0.5">
-					<h3 className="font-medium text-sm">Who can read this Space?</h3>
-					{isShare ? null : (
-						<p className="text-muted-foreground text-xs/relaxed">
-							Choose who can read this Space from its link.
-						</p>
-					)}
-				</div>
-				<div className="flex flex-wrap items-center gap-2">
-					<div className="min-w-56 flex-1">
-						<ReadingSelect
-							disabled={input.disabled || !input.canManageAccess}
-							onChange={(value) => {
-								input.onDraftChange(setSpaceLinkReading(input.draft, value));
-								setIsChangingPassword(false);
-							}}
-							value={reading}
-						/>
+			{section === "joining" ? null : (
+				<section className="grid gap-2">
+					<div className="space-y-0.5">
+						<h3 className="font-medium text-sm">Who can read this Space?</h3>
+						{isShare ? null : (
+							<p className="text-muted-foreground text-xs/relaxed">
+								Choose who can read this Space from its link.
+							</p>
+						)}
 					</div>
-					{reading === "restricted" ? inviteButton : null}
-				</div>
-				<p className="text-muted-foreground text-xs/relaxed">
-					{describeReading(reading, input.draft, input.organizationName)}
-				</p>
-				{reading === "password" ? (passwordStatus ?? passwordControl) : null}
-			</section>
+					<div className="flex flex-wrap items-center gap-2">
+						<div className="min-w-56 flex-1">
+							<ReadingSelect
+								disabled={input.disabled || !input.canManageAccess}
+								onChange={(value) => {
+									input.onDraftChange(setSpaceLinkReading(input.draft, value));
+									setIsChangingPassword(false);
+								}}
+								value={reading}
+							/>
+						</div>
+						{reading === "restricted" ? inviteButton : null}
+					</div>
+					<p className="text-muted-foreground text-xs/relaxed">
+						{describeReading(reading, input.draft, input.organizationName)}
+					</p>
+					{reading === "password" ? (passwordStatus ?? passwordControl) : null}
+				</section>
+			)}
 
-			{reading === "restricted" ? null : (
+			{input.surface === "share" || section === "reading" ? null : (
 				<section
 					className={
 						isShare ? "grid gap-2" : "grid gap-2 border-border/60 border-t pt-4"
@@ -172,7 +178,11 @@ export function SpaceAccessEditor(input: {
 					<div className="flex flex-wrap items-center gap-2">
 						<div className="min-w-56 flex-1">
 							<JoiningSelect
-								disabled={input.disabled || !input.canManageAccess}
+								disabled={
+									input.disabled ||
+									!input.canManageAccess ||
+									reading === "restricted"
+								}
 								displayValue={joiningPresentation.label}
 								draft={input.draft}
 								id={`${passwordInputId}-join`}
@@ -196,12 +206,12 @@ export function SpaceAccessEditor(input: {
 				</section>
 			)}
 
-			{input.canManageAccess ? null : (
+			{section === "joining" || input.canManageAccess ? null : (
 				<p className="text-muted-foreground text-xs/relaxed">
 					Only Space owners can change access.
 				</p>
 			)}
-			{input.errorMessage ? (
+			{section !== "joining" && input.errorMessage ? (
 				<p className="text-destructive text-xs" role="alert">
 					{input.errorMessage}
 				</p>
@@ -310,7 +320,7 @@ function describeReading(
 	if (reading === "restricted") {
 		return draft.visibility === "public" && organizationName
 			? `People at ${organizationName} can join to read.`
-			: "Invite people to join before they can read.";
+			: "Only members can read this Space.";
 	}
 	if (reading === "password") {
 		return "Visitors enter the password to read. No sign-in required.";
