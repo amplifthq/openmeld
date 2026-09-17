@@ -57,7 +57,6 @@ export function SpaceAccessEditor(input: {
 	draft: SpaceSharingDraft;
 	errorMessage: string | null;
 	onDraftChange: (draft: SpaceSharingDraft) => void;
-	onInvitePeople?: () => void;
 	onPasswordChange: (password: string) => void;
 	organizationName?: string;
 	password: string;
@@ -151,9 +150,6 @@ export function SpaceAccessEditor(input: {
 					<p className="text-sm">
 						This link only works for people who already have access.
 					</p>
-					{isShare && input.onInvitePeople ? (
-						<InvitePeopleButton onClick={input.onInvitePeople} />
-					) : null}
 				</div>
 			) : (
 				<section
@@ -207,9 +203,6 @@ export function SpaceAccessEditor(input: {
 							) : null}
 						</div>
 					) : null}
-					{isShare && input.onInvitePeople ? (
-						<InvitePeopleButton onClick={input.onInvitePeople} />
-					) : null}
 				</section>
 			)}
 
@@ -224,20 +217,6 @@ export function SpaceAccessEditor(input: {
 				</p>
 			) : null}
 		</div>
-	);
-}
-
-function InvitePeopleButton({ onClick }: { onClick: () => void }) {
-	return (
-		<Button
-			className="w-fit"
-			onClick={onClick}
-			size="sm"
-			type="button"
-			variant="ghost"
-		>
-			Invite people…
-		</Button>
 	);
 }
 

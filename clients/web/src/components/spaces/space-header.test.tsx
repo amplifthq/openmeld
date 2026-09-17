@@ -525,7 +525,7 @@ describe("SpaceHeader", () => {
 			expect(toastMock.success).toHaveBeenCalledWith("Space link copied.");
 		});
 		fireEvent.click(
-			within(dialog).getByRole("button", { name: "Invite people…" })
+			within(dialog).getByRole("button", { name: "Invite people" })
 		);
 		expect(
 			within(dialog).getByRole("heading", { name: "Invite to this Space" })

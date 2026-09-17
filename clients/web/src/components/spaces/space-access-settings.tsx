@@ -153,7 +153,6 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 				controller.setPassword("");
 				setLocalErrorMessage(null);
 			}}
-			onInvitePeople={isShare ? openInvitations : undefined}
 			onPasswordChange={(password) => {
 				controller.setPassword(password);
 				setLocalErrorMessage(null);
@@ -240,6 +239,14 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 										Discard changes
 									</Button>
 								) : null}
+								<Button
+									onClick={openInvitations}
+									size="sm"
+									type="button"
+									variant="secondary"
+								>
+									Invite people
+								</Button>
 								<Button
 									disabled={controller.isDirty ? saveDisabled : false}
 									onClick={async () => {
@@ -442,7 +449,7 @@ function InviteView(input: {
 	return (
 		<div className="space-y-4">
 			<Button
-				className="-ml-2 w-fit"
+				className="w-fit"
 				onClick={input.onBack}
 				size="sm"
 				type="button"
