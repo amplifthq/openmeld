@@ -87,7 +87,7 @@ describe("composer file draft database lifecycle", () => {
 		);
 		expect(database).toBeDefined();
 		if (eventKind === "abnormal close") {
-			forceCloseDatabase(database as IDBDatabase);
+			forceCloseDatabase(database as unknown as typeof IDBDatabase);
 		} else {
 			database?.dispatchEvent(new IDBVersionChangeEvent("versionchange"));
 		}

@@ -2,23 +2,23 @@ import type { SpaceComposerUploadDescriptor } from "@openmeld/schemas/types";
 import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { runComposerFileDraftTransaction } from "./composer-file-draft-database";
 
-let pendingWrites = 0;
-const failedWrites = new Set<string>();
-registerClientVersionRecoveryBlocker(
-	() => pendingWrites > 0 || failedWrites.size > 0
-);
-async function persistFileDraft(id: string, write: () => Promise<void>) {
-	pendingWrites++;
-	try {
-		await write();
-		failedWrites.delete(id);
-	} catch (error) {
-		failedWrites.add(id);
-		throw error;
-	} finally {
-		pendingWrites--;
-	}
-}
+const COMPOSER_FILE_DRAFT_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+type MutationKind = "draft" | "upload" | "delete";
+type WriteFailure = { error: unknown; revision: number };
+type FirstAdmission = { createdAt: number; expiresAt: number };
+type Retirement = { expiresAt: number; revision: number };
+
+export type ComposerFileDraftCleanupReason = "removed" | "sent" | "expired";
+export type ComposerFileDraftCleanup = {
+	error: unknown | null;
+	fileName: string;
+	id: string;
+	reason: ComposerFileDraftCleanupReason;
+	revision: number;
+	scope: string;
+	status: "pending" | "failed";
+};
 
 export type ComposerFileDraft = {
 	id: string;
@@ -35,53 +35,170 @@ export type ComposerFileSelection = Pick<
 	"id" | "file" | "publishMutationId" | "upload"
 >;
 
+let pendingWrites = 0;
+let nextOperationRevision = 0;
 // File batches can be added within one millisecond; preserve selection order.
 let lastCreatedAt = 0;
+const failedWrites = new Map<string, Map<MutationKind, WriteFailure>>();
+const mutationTails = new Map<string, Promise<void>>();
+const firstAdmissions = new Map<string, FirstAdmission>();
+const retirements = new Map<string, Retirement>();
+const cleanupById = new Map<string, ComposerFileDraftCleanup>();
 const draftListeners = new Set<(scope: string) => void>();
+
+registerClientVersionRecoveryBlocker(
+	() => pendingWrites > 0 || failedWrites.size > 0 || cleanupById.size > 0
+);
+
 export function subscribeComposerFileDrafts(listener: (scope: string) => void) {
 	draftListeners.add(listener);
 	return () => {
 		draftListeners.delete(listener);
 	};
 }
-async function writeComposerFileDraft(
-	input: Omit<ComposerFileDraft, "expiresAt" | "createdAt">
+
+function notifyDraftListeners(scope: string) {
+	for (const listener of draftListeners) {
+		try {
+			listener(scope);
+		} catch (error) {
+			console.error("Could not notify an attachment draft subscriber", {
+				error,
+				scope,
+			});
+		}
+	}
+}
+
+function pruneRetirements() {
+	const now = Date.now();
+	for (const [id, retirement] of retirements) {
+		if (
+			retirement.expiresAt <= now &&
+			!mutationTails.has(id) &&
+			!cleanupById.has(id)
+		) {
+			retirements.delete(id);
+		}
+	}
+}
+
+function setWriteFailure(
+	id: string,
+	kind: MutationKind,
+	revision: number,
+	error: unknown
 ) {
-	const createdAt = Math.max(Date.now(), lastCreatedAt + 1);
-	lastCreatedAt = createdAt;
+	let reasons = failedWrites.get(id);
+	if (!reasons) {
+		reasons = new Map();
+		failedWrites.set(id, reasons);
+	}
+	reasons.set(kind, { error, revision });
+}
+
+function resolveWriteFailure(id: string, kind: MutationKind, revision: number) {
+	const reasons = failedWrites.get(id);
+	const reason = reasons?.get(kind);
+	if (!reason || reason.revision > revision) {
+		return;
+	}
+	reasons?.delete(kind);
+	if (reasons?.size === 0) {
+		failedWrites.delete(id);
+	}
+}
+
+function enqueueFileMutation<T>(input: {
+	id: string;
+	kind: MutationKind;
+	run: (revision: number) => Promise<T>;
+	onCommitted?: (result: T, revision: number) => void;
+	onFailed?: (error: unknown, revision: number) => void;
+}): Promise<T> {
+	const revision = ++nextOperationRevision;
+	pendingWrites++;
+	const previous = mutationTails.get(input.id) ?? Promise.resolve();
+	const operation = previous
+		.catch(() => undefined)
+		.then(async () => {
+			try {
+				const result = await input.run(revision);
+				input.onCommitted?.(result, revision);
+				return result;
+			} catch (error) {
+				setWriteFailure(input.id, input.kind, revision, error);
+				input.onFailed?.(error, revision);
+				throw error;
+			}
+		});
+	const settledTail = operation.then(
+		() => undefined,
+		() => undefined
+	);
+	mutationTails.set(input.id, settledTail);
+	const finish = () => {
+		pendingWrites--;
+		if (mutationTails.get(input.id) === settledTail) {
+			mutationTails.delete(input.id);
+		}
+		pruneRetirements();
+	};
+	operation.then(finish, finish);
+	return operation;
+}
+
+function getFirstAdmission(id: string): FirstAdmission {
+	let admission = firstAdmissions.get(id);
+	if (!admission) {
+		const createdAt = Math.max(Date.now(), lastCreatedAt + 1);
+		lastCreatedAt = createdAt;
+		admission = {
+			createdAt,
+			expiresAt: Date.now() + COMPOSER_FILE_DRAFT_LIFETIME_MS,
+		};
+		firstAdmissions.set(id, admission);
+	}
+	return admission;
+}
+
+async function writeDraft(
+	input: Omit<ComposerFileDraft, "expiresAt" | "createdAt">,
+	admission: FirstAdmission
+) {
 	await runComposerFileDraftTransaction<void>("readwrite", (store) => {
 		const existing = store.get(input.id);
 		existing.onsuccess = () => {
 			store.put({
 				...input,
-				createdAt: existing.result?.createdAt ?? createdAt,
-				expiresAt:
-					existing.result?.expiresAt ?? Date.now() + 24 * 60 * 60 * 1000,
+				createdAt: existing.result?.createdAt ?? admission.createdAt,
+				expiresAt: existing.result?.expiresAt ?? admission.expiresAt,
 			});
 		};
 	});
-	for (const listener of draftListeners) {
-		listener(input.scope);
-	}
 }
 
-// Update only an existing draft: a late upload completion must never recreate
-// a file the user removed or already sent.
-async function writeComposerFileDraftUpload(
+async function writeUpload(
 	id: string,
 	upload: SpaceComposerUploadDescriptor
-) {
-	await runComposerFileDraftTransaction<void>("readwrite", (store) => {
-		const request = store.get(id);
-		request.onsuccess = () => {
-			if (request.result) {
+): Promise<"written" | "missing"> {
+	return await runComposerFileDraftTransaction<"written" | "missing">(
+		"readwrite",
+		(store, result) => {
+			const request = store.get(id);
+			request.onsuccess = () => {
+				if (!request.result) {
+					result.set("missing");
+					return;
+				}
 				store.put({ ...request.result, upload });
-			}
-		};
-	});
+				result.set("written");
+			};
+		}
+	);
 }
 
-async function deleteComposerFileDraft(id: string) {
+async function deleteDraft(id: string) {
 	await runComposerFileDraftTransaction<void>("readwrite", (store) => {
 		store.delete(id);
 	});
@@ -90,6 +207,7 @@ async function deleteComposerFileDraft(id: string) {
 export async function readComposerFileDrafts(
 	scope: string
 ): Promise<ComposerFileDraft[]> {
+	pruneRetirements();
 	const drafts = await runComposerFileDraftTransaction<ComposerFileDraft[]>(
 		"readonly",
 		(store, result) => {
@@ -97,7 +215,9 @@ export async function readComposerFileDrafts(
 			request.onsuccess = () => result.set(request.result);
 		}
 	);
-	return retainCurrentDrafts(drafts);
+	return retainCurrentDrafts(
+		drafts.filter((draft) => !retirements.has(draft.id))
+	);
 }
 
 // An in-flight send keeps attachment IDs while its route hands storage ownership
@@ -105,16 +225,20 @@ export async function readComposerFileDrafts(
 export async function readComposerFileDraftsByIds(
 	ids: readonly string[]
 ): Promise<ComposerFileDraft[]> {
+	pruneRetirements();
+	const readableIds = ids.filter((id) => !retirements.has(id));
 	const drafts = await runComposerFileDraftTransaction<ComposerFileDraft[]>(
 		"readonly",
 		(store, result) => {
-			const selected: (ComposerFileDraft | undefined)[] = new Array(ids.length);
-			let remaining = ids.length;
+			const selected: (ComposerFileDraft | undefined)[] = new Array(
+				readableIds.length
+			);
+			let remaining = readableIds.length;
 			if (remaining === 0) {
 				result.set([]);
 				return;
 			}
-			ids.forEach((id, index) => {
+			readableIds.forEach((id, index) => {
 				const request = store.get(id);
 				request.onsuccess = () => {
 					selected[index] = request.result;
@@ -132,25 +256,136 @@ export async function readComposerFileDraftsByIds(
 async function retainCurrentDrafts(drafts: ComposerFileDraft[]) {
 	await Promise.all(
 		drafts
-			.filter((d) => d.expiresAt <= Date.now())
-			.map((d) => removeComposerFileDraft(d.id))
+			.filter((draft) => draft.expiresAt <= Date.now())
+			.map((draft) =>
+				removeComposerFileDraft(draft.id, {
+					fileName: draft.file.name || "Untitled file",
+					reason: "expired",
+					scope: draft.scope,
+				})
+			)
 	);
 	return drafts
-		.filter((d) => d.expiresAt > Date.now())
+		.filter(
+			(draft) => draft.expiresAt > Date.now() && !retirements.has(draft.id)
+		)
 		.sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
 }
 
 export function saveComposerFileDraft(
 	input: Omit<ComposerFileDraft, "expiresAt" | "createdAt">
 ) {
-	return persistFileDraft(input.id, () => writeComposerFileDraft(input));
+	if (retirements.has(input.id)) {
+		return Promise.resolve();
+	}
+	const admission = getFirstAdmission(input.id);
+	return enqueueFileMutation({
+		id: input.id,
+		kind: "draft",
+		run: async () => await writeDraft(input, admission),
+		onCommitted: (_result, revision) => {
+			resolveWriteFailure(input.id, "draft", revision);
+			firstAdmissions.delete(input.id);
+			notifyDraftListeners(input.scope);
+		},
+	});
 }
+
 export function saveComposerFileDraftUpload(
 	id: string,
 	upload: SpaceComposerUploadDescriptor
-) {
-	return persistFileDraft(id, () => writeComposerFileDraftUpload(id, upload));
+): Promise<void> {
+	if (retirements.has(id)) {
+		return Promise.resolve();
+	}
+	return enqueueFileMutation({
+		id,
+		kind: "upload",
+		run: async () => await writeUpload(id, upload),
+		onCommitted: (outcome, revision) => {
+			if (outcome === "missing") {
+				throw new Error("The attachment draft no longer exists.");
+			}
+			resolveWriteFailure(id, "upload", revision);
+		},
+	}).then(() => undefined);
 }
-export function removeComposerFileDraft(id: string) {
-	return persistFileDraft(id, () => deleteComposerFileDraft(id));
+
+export function removeComposerFileDraft(
+	id: string,
+	cleanup?: {
+		fileName: string;
+		reason: ComposerFileDraftCleanupReason;
+		scope: string;
+	}
+): Promise<void> {
+	const revision = nextOperationRevision + 1;
+	const admission = firstAdmissions.get(id);
+	retirements.set(id, {
+		expiresAt:
+			admission?.expiresAt ?? Date.now() + COMPOSER_FILE_DRAFT_LIFETIME_MS,
+		revision,
+	});
+	if (cleanup) {
+		cleanupById.set(id, {
+			...cleanup,
+			error: null,
+			id,
+			revision,
+			status: "pending",
+		});
+		notifyDraftListeners(cleanup.scope);
+	}
+	return enqueueFileMutation({
+		id,
+		kind: "delete",
+		run: async () => await deleteDraft(id),
+		onCommitted: (_result, committedRevision) => {
+			failedWrites.delete(id);
+			firstAdmissions.delete(id);
+			const cleanupState = cleanupById.get(id);
+			if (cleanupState && cleanupState.revision <= committedRevision) {
+				cleanupById.delete(id);
+				notifyDraftListeners(cleanupState.scope);
+			}
+		},
+		onFailed: (error, failedRevision) => {
+			const cleanupState = cleanupById.get(id);
+			if (cleanupState && cleanupState.revision <= failedRevision) {
+				cleanupById.set(id, {
+					...cleanupState,
+					error,
+					revision: failedRevision,
+					status: "failed",
+				});
+				notifyDraftListeners(cleanupState.scope);
+			}
+		},
+	});
+}
+
+export function readComposerFileDraftCleanup(
+	scope: string
+): ComposerFileDraftCleanup[] {
+	pruneRetirements();
+	return [...cleanupById.values()]
+		.filter((cleanup) => cleanup.scope === scope)
+		.sort((a, b) => a.revision - b.revision);
+}
+
+export function retryComposerFileDraftCleanup(id: string): Promise<void> {
+	const cleanup = cleanupById.get(id);
+	if (!cleanup) {
+		return Promise.resolve();
+	}
+	return removeComposerFileDraft(id, {
+		fileName: cleanup.fileName,
+		reason: cleanup.reason,
+		scope: cleanup.scope,
+	});
+}
+
+export function isComposerFileDraftRetired(id: string): boolean {
+	pruneRetirements();
+	return retirements.has(id);
 }

@@ -2,9 +2,11 @@ import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
 import { hasClientRestartBlocker } from "#/client-version-recovery";
 import {
+	readComposerFileDraftCleanup,
 	readComposerFileDrafts,
 	readComposerFileDraftsByIds,
 	removeComposerFileDraft,
+	retryComposerFileDraftCleanup,
 	saveComposerFileDraft,
 	saveComposerFileDraftUpload,
 } from "./composer-file-drafts";
@@ -141,4 +143,75 @@ it("keeps an in-flight send's attachment identity across a scope handoff", async
 	]);
 	await removeComposerFileDraft(draft.id);
 	expect(await readComposerFileDraftsByIds([draft.id])).toEqual([]);
+});
+
+it("serializes a same-file save before removal and never restores the retired draft", async () => {
+	const draft = {
+		id: "ordered-removal",
+		file: new File(["ordered"], "ordered.txt"),
+		publishMutationId: "ordered-publication",
+		scope: "ordered-scope",
+	};
+	const saving = saveComposerFileDraft(draft);
+	const removing = removeComposerFileDraft(draft.id, {
+		fileName: draft.file.name,
+		reason: "removed",
+		scope: draft.scope,
+	});
+	await Promise.all([saving, removing]);
+	expect(await readComposerFileDrafts(draft.scope)).toEqual([]);
+	expect(await readComposerFileDraftsByIds([draft.id])).toEqual([]);
+	expect(readComposerFileDraftCleanup(draft.scope)).toEqual([]);
+});
+
+it("keeps failed cleanup scoped and retryable after the owner remounts", async () => {
+	const draft = {
+		id: "cleanup-retry",
+		file: new File(["cleanup"], "cleanup.txt"),
+		publishMutationId: "cleanup-publication",
+		scope: "cleanup-scope",
+	};
+	await saveComposerFileDraft(draft);
+	const failure = vi
+		.spyOn(IDBDatabase.prototype, "transaction")
+		.mockImplementationOnce(() => {
+			throw new DOMException("Storage unavailable", "UnknownError");
+		});
+	await expect(
+		removeComposerFileDraft(draft.id, {
+			fileName: draft.file.name,
+			reason: "removed",
+			scope: draft.scope,
+		})
+	).rejects.toMatchObject({ phase: "transaction" });
+	failure.mockRestore();
+	expect(readComposerFileDraftCleanup("another-scope")).toEqual([]);
+	expect(readComposerFileDraftCleanup(draft.scope)).toMatchObject([
+		{
+			fileName: draft.file.name,
+			id: draft.id,
+			reason: "removed",
+			status: "failed",
+		},
+	]);
+	expect(hasClientRestartBlocker()).toBe(true);
+	await retryComposerFileDraftCleanup(draft.id);
+	expect(readComposerFileDraftCleanup(draft.scope)).toEqual([]);
+	expect(hasClientRestartBlocker()).toBe(false);
+	expect(await readComposerFileDrafts(draft.scope)).toEqual([]);
+});
+
+it("does not treat a missing upload metadata target as successful persistence", async () => {
+	await expect(
+		saveComposerFileDraftUpload("missing-upload-draft", {
+			id: "missing-upload",
+			name: "missing.txt",
+			mimeType: "text/plain",
+			sizeBytes: 7,
+			expiresAt: "2099-09-10T00:00:00.000Z",
+		})
+	).rejects.toThrow("no longer exists");
+	expect(hasClientRestartBlocker()).toBe(true);
+	await removeComposerFileDraft("missing-upload-draft");
+	expect(hasClientRestartBlocker()).toBe(false);
 });
