@@ -67,6 +67,7 @@ import {
 } from "../src/runtime-transport/application/agent-profile-work-recovery-inbox-projection";
 import {
   prepareExecutionContextAssignment,
+  recordExecutionContextCandidate,
   recordExecutionContextCompletion,
 } from "../src/runtime-transport/application/execution-context-authority";
 import { upsertRuntimeCoordinatorAgentTaskObservationDelivery } from "../src/runtime-transport/application/runtime-coordinator-agent-task-observation-delivery";
@@ -4034,6 +4035,137 @@ describe("runtime transport runtime coordinator transport contract", () => {
         completion: undefined,
       })
     ).rejects.toThrow("result_mismatch");
+  });
+  it.each([
+    { agentControllerRef: "builtin:codex", confirmsOwnBoundary: true },
+    { agentControllerRef: "builtin:claude-code", confirmsOwnBoundary: false },
+  ])("forks $agentControllerRef from a source that never froze a completed prefix only when the harness can confirm the boundary itself", async ({
+    agentControllerRef,
+    confirmsOwnBoundary,
+  }) => {
+    const { hub, storageRecords } = createContextHarness({
+      bindingControllerRef: agentControllerRef,
+    });
+    const request = buildRuntimeCoordinatorHeadAcceptRequest({
+      dispatchId: "dispatch-occupied-source",
+      idempotencyKey: "occupied-source",
+      targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+        clientMessageId: "client-occupied-source",
+        dispatchId: "dispatch-occupied-source",
+        sourceSignalId: "signal-occupied-source",
+        spaceId: HEX_SPACE_ID,
+        targetProfileId: TARGET_AGENT_PROFILE_ID,
+      }),
+      acceptedDispatchSnapshot: {
+        ...buildAcceptedDispatchSnapshot({
+          agentControllerRef,
+          fingerprint: "8",
+        }),
+        contextRequest: {
+          required: true,
+          scope: {
+            organizationId: "org",
+            requesterProfileId: "human",
+            spaceId: HEX_SPACE_ID,
+            targetProfileId: TARGET_AGENT_PROFILE_ID,
+            threadId: null,
+          },
+          selection: { mode: "new" },
+        },
+      },
+    });
+    const accepted = (await (
+      await fetchRuntimeTransportJson(
+        hub,
+        "/runtime-coordinator/head/accept",
+        request
+      )
+    ).json()) as { executionContext: { id: string } };
+    const original = storageRecords.get(
+      buildRuntimeCoordinatorHeadLifecycleStorageKey(
+        request.targetWakeLifecycleIdentity.targetWakeLifecycleId
+      )
+    ) as RuntimeCoordinatorHeadLifecycleRecord;
+    const storage = (
+      hub as unknown as { ctx: { storage: DurableObjectStorage } }
+    ).ctx.storage;
+    await writeRuntimeCoordinatorHeadLifecycleWithAdmission({
+      blockForExecutionTargetMutation: false,
+      nowMs: Date.now(),
+      storage,
+      record: {
+        ...original,
+        executionLinkedAtMs: Date.now(),
+        runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+        status: "execution_linked",
+      },
+    });
+    // An interrupted or occupied dispatch reports the native conversation it
+    // reached without ever proving a completed prefix, so the source keeps its
+    // association and the Wake stays without a frozen checkpoint.
+    await recordExecutionContextCandidate({
+      storage,
+      headId: original.targetWakeLifecycleId,
+      dispatchId: original.primaryDispatchId,
+      runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+      contextId: accepted.executionContext.id,
+      completion: {
+        contextId: accepted.executionContext.id,
+        nativeConversationId: "native-occupied",
+        runtimeWorkspaceFingerprint: "sha256:workspace",
+      },
+    });
+    const sourceSnapshot = request.acceptedDispatchSnapshot;
+    if (!sourceSnapshot?.contextRequest) {
+      throw new Error("Expected source context request");
+    }
+    const sourceRequest = sourceSnapshot.contextRequest;
+    const forkIdentity = projectTargetWakeLifecycleIdentity({
+      clientMessageId: "client-occupied-fork",
+      dispatchId: "dispatch-occupied-fork",
+      sourceSignalId: "signal-occupied-fork",
+      spaceId: HEX_SPACE_ID,
+      targetProfileId: TARGET_AGENT_PROFILE_ID,
+    });
+    const planFork = () =>
+      storage.transaction((transaction) =>
+        prepareExecutionContextAssignment({
+          storage: transaction,
+          record: {
+            ...original,
+            primaryDispatchId: "dispatch-occupied-fork",
+            targetWakeLifecycleId: forkIdentity.targetWakeLifecycleId,
+            targetWakeLifecycleIdentity: forkIdentity,
+            acceptedDispatchSnapshot: {
+              ...sourceSnapshot,
+              contextRequest: {
+                ...sourceRequest,
+                selection: {
+                  mode: "fork",
+                  sourceWakeId: original.targetWakeLifecycleId,
+                },
+              },
+            },
+          },
+        })
+      );
+    if (!confirmsOwnBoundary) {
+      // Claude Code needs the exact boundary message named up front, so a
+      // source with no frozen prefix has no point a fork could be cut at.
+      await expect(planFork()).rejects.toThrow("fork_checkpoint_unavailable");
+      return;
+    }
+    const forkSource = (await planFork()).record.acceptedDispatchSnapshot
+      ?.executionContext?.forkSource;
+    // Core still names the exact source the fork must inherit; only the cutoff
+    // inside that history is left for read-only preparation to confirm.
+    expect(forkSource).toMatchObject({
+      contextId: accepted.executionContext.id,
+      nativeConversationId: "native-occupied",
+      runtimeWorkspaceFingerprint: "sha256:workspace",
+      sourceWakeId: original.targetWakeLifecycleId,
+    });
+    expect(forkSource?.completedHistoryId).toBeUndefined();
   });
   it.each([
     { mode: "new", agentControllerRef: "builtin:codex", access: "workspace" },

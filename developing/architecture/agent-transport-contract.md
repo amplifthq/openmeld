@@ -340,6 +340,15 @@ final repair or reconsideration turn when present. Accepted commands and their
 checkpoints remain immutable under replay. Scoped results never overwrite the
 Profile Binding's legacy native conversation.
 
+A fork whose source never froze a checkpoint still inherits the exact source
+context, Wake, native conversation, and workspace from that retained
+association; only its completed prefix is left unassigned. An interrupted or
+provider-occupied dispatch produces exactly that residue. Such a fork is
+admitted only for a harness whose retained history can name a settled boundary
+under read-only preparation, and the Service confirms and journals that exact
+cutoff before creating the child. A harness that needs its boundary identified
+up front is refused rather than forked at a guessed point.
+
 A structured `usage_exhausted` terminal outcome is the deliberate exception to
 ordinary promotion: the Coordinator retains the interrupted work identity and
 holds every later Wake. A fresh reliable Usage recovery automatically starts

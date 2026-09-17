@@ -1,14 +1,39 @@
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, realpath, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExecutionContextTask } from "@openmeld/schemas/types";
+import { buildRuntimeWorkspaceFingerprint } from "@openmeld/local-execution";
+import type {
+  ExecutionContextTask,
+  RuntimeAgentControllerLaunchContract,
+} from "@openmeld/schemas/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   captureExecutionContextCompletion,
   executionContextFileAccessBoundary,
   executionContextWorkingDirectory,
+  prepareExecutionContextConversation,
 } from "../src/local-service/dispatch/execution-context-session";
 import { runAgentSessionForkOperation } from "../src/local-service/session-control/session-fork-operation-store";
+
+const forkCodexAppServerThread = vi.fn(async () => ({
+  threadId: "child-thread",
+}));
+const resolveCodexAppServerCompletedTurn = vi.fn(async () => ({
+  completedTurnId: "settled-turn-7",
+}));
+vi.mock("@openmeld/adapter-codex", () => ({
+  forkCodexAppServerThread: (
+    ...args: Parameters<typeof forkCodexAppServerThread>
+  ) => forkCodexAppServerThread(...args),
+  resolveCodexAppServerCompletedTurn: (
+    ...args: Parameters<typeof resolveCodexAppServerCompletedTurn>
+  ) => resolveCodexAppServerCompletedTurn(...args),
+}));
+
+const launchContract: RuntimeAgentControllerLaunchContract = {
+  kind: "executable",
+  commandPath: "/usr/bin/true",
+};
 
 const context: ExecutionContextTask = {
   version: 1,
@@ -177,5 +202,102 @@ describe("Execution Context local authority", () => {
       })
     ).toMatchObject({ status: "rejected" });
     expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("confirms an unfrozen fork boundary from the source's own history and journals that exact cutoff", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-context-deferred-"));
+    roots.push(root);
+    const sourceDirectory = await realpath(root);
+    // Core assigns the source identity but no completed prefix: the occupied
+    // thread never finished a turn under OpenMeld, so only the harness can say
+    // where its settled history ends.
+    const child = await prepareExecutionContextConversation({
+      context: {
+        ...context,
+        workspace: "current",
+        forkSource: {
+          contextId: "33333333-3333-4333-8333-333333333333",
+          sourceWakeId: "wake-source",
+          nativeConversationId: "parent-thread",
+          runtimeWorkspaceFingerprint:
+            buildRuntimeWorkspaceFingerprint(sourceDirectory),
+          workspace: "current",
+        },
+      },
+      unscopedNativeConversationId: null,
+      currentWorkingDirectory: root,
+      workingDirectory: sourceDirectory,
+      existingNativeConversationId: null,
+      ledgerRootPath: root,
+      agentControllerRef: "builtin:codex",
+      launchContract,
+    });
+    expect(child).toBe("child-thread");
+    expect(resolveCodexAppServerCompletedTurn).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "parent-thread" })
+    );
+    expect(forkCodexAppServerThread).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceThreadId: "parent-thread",
+        sourceCompletedTurnId: "settled-turn-7",
+      })
+    );
+    const execute = vi.fn(async () => ({ childNativeSessionId: "other" }));
+    const journalRequest = {
+      kind: "execution_context" as const,
+      operationId: context.id,
+      sourceNativeSessionId: "parent-thread",
+      completedHistoryId: "settled-turn-7",
+      workingDirectory: sourceDirectory,
+    };
+    // The journal has to hold the boundary the fork actually used, so a lost
+    // response reconciles against that cutoff instead of a re-derived one.
+    expect(
+      await runAgentSessionForkOperation({
+        request: journalRequest,
+        execute,
+        ledgerRootPath: root,
+      })
+    ).toMatchObject({
+      status: "completed",
+      childNativeSessionId: "child-thread",
+    });
+    expect(
+      await runAgentSessionForkOperation({
+        request: { ...journalRequest, completedHistoryId: "settled-turn-8" },
+        execute,
+        ledgerRootPath: root,
+      })
+    ).toMatchObject({ status: "rejected" });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("refuses to fork a controller that cannot confirm its own boundary without a frozen checkpoint", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-context-unfrozen-"));
+    roots.push(root);
+    const sourceDirectory = await realpath(root);
+    await expect(
+      prepareExecutionContextConversation({
+        context: {
+          ...context,
+          workspace: "current",
+          forkSource: {
+            contextId: "44444444-4444-4444-8444-444444444444",
+            sourceWakeId: "wake-source",
+            nativeConversationId: "parent-session",
+            runtimeWorkspaceFingerprint:
+              buildRuntimeWorkspaceFingerprint(sourceDirectory),
+            workspace: "current",
+          },
+        },
+        unscopedNativeConversationId: null,
+        currentWorkingDirectory: root,
+        workingDirectory: sourceDirectory,
+        existingNativeConversationId: null,
+        ledgerRootPath: root,
+        agentControllerRef: "builtin:claude-code",
+      })
+    ).rejects.toThrow("fork_checkpoint_unavailable");
+    expect(forkCodexAppServerThread).not.toHaveBeenCalled();
   });
 });

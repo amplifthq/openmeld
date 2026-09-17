@@ -181,13 +181,35 @@ export async function prepareExecutionContextConversation(input: {
   ) {
     throw new Error("execution_context.fork_source_workspace_changed");
   }
+  // A frozen checkpoint is authoritative when Core assigned one. Otherwise the
+  // boundary is resolved here, before the journal opens: the source may be a
+  // thread OpenMeld never finished a turn on, and reading its settled turns
+  // names a cutoff that is verified now rather than assumed. That read takes no
+  // writer lock, so it works while another App Server holds the thread. The
+  // journal has to record the exact boundary it forked at, so a lost response
+  // is reconciled against that cutoff instead of a re-derived one.
+  const completedHistoryId =
+    source.completedHistoryId ??
+    (input.agentControllerRef === "builtin:codex" && input.launchContract
+      ? (
+          await resolveCodexAppServerCompletedTurn({
+            codexTimeoutMs: 30_000,
+            codexWorkdir: sourceDirectory,
+            launchContract: input.launchContract,
+            threadId: source.nativeConversationId,
+          })
+        ).completedTurnId
+      : undefined);
+  if (!completedHistoryId) {
+    throw new Error("execution_context.fork_checkpoint_unavailable");
+  }
   const result = await runAgentSessionForkOperation({
     ledgerRootPath: input.ledgerRootPath,
     request: {
       kind: "execution_context",
       operationId: input.context.id,
       sourceNativeSessionId: source.nativeConversationId,
-      completedHistoryId: source.completedHistoryId,
+      completedHistoryId,
       workingDirectory: input.workingDirectory,
     },
     execute: async () => {
@@ -197,14 +219,14 @@ export async function prepareExecutionContextConversation(input: {
         );
         const boundary = messages.find(
           (message) =>
-            message.uuid === source.completedHistoryId &&
+            message.uuid === completedHistoryId &&
             isCompletedAssistantMessage(message)
         );
         if (!boundary) {
           throw new Error("execution_context.fork_checkpoint_unavailable");
         }
         const child = await forkSession(source.nativeConversationId, {
-          upToMessageId: source.completedHistoryId,
+          upToMessageId: completedHistoryId,
         });
         return { childNativeSessionId: child.sessionId };
       }
@@ -212,23 +234,6 @@ export async function prepareExecutionContextConversation(input: {
         input.agentControllerRef === "builtin:codex" &&
         input.launchContract
       ) {
-        // A stored completion is authoritative when it exists. The recorded
-        // turn is only a snapshot from the dispatch that produced it, though:
-        // an imported or Desktop-origin thread never went through
-        // captureExecutionContextCompletion, and a checkpoint can go stale
-        // against the source's real history. Reading the source's settled turns
-        // gives a boundary that is verified now rather than assumed, and the
-        // source stays readable even while another App Server holds its writer.
-        const completedTurnId =
-          source.completedHistoryId ??
-          (
-            await resolveCodexAppServerCompletedTurn({
-              codexTimeoutMs: 30_000,
-              codexWorkdir: sourceDirectory,
-              launchContract: input.launchContract,
-              threadId: source.nativeConversationId,
-            })
-          ).completedTurnId;
         const child = await forkCodexAppServerThread({
           computerFileAccessBoundary:
             input.computerFileAccessBoundary ?? undefined,
@@ -236,7 +241,7 @@ export async function prepareExecutionContextConversation(input: {
           codexWorkdir: sourceDirectory,
           launchContract: input.launchContract,
           sourceThreadId: source.nativeConversationId,
-          sourceCompletedTurnId: completedTurnId,
+          sourceCompletedTurnId: completedHistoryId,
           targetWorkingDirectory: input.workingDirectory,
           onRuntimeEvent: input.onRuntimeEvent,
           env: { OPENMELD_PROCESS_SUPERVISION_ID: input.processSupervisionId },
