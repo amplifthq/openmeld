@@ -5191,7 +5191,10 @@ function createThreadPreview(threadId: string): SpaceThreadPreview {
 	};
 }
 
-function createThreadPreviewSignal(): SignalEnvelope {
+function createThreadPreviewSignal(): Extract<
+	SignalEnvelope,
+	{ type: "signal.text" }
+> {
 	return {
 		data: {
 			text: `https://example.com /spaces/${REFERENCED_SPACE_ID}`,

@@ -25,6 +25,57 @@ const message = (id: string) => ({ id }) as SignalEnvelope;
 describe("returning to the live Space history", () => {
 	beforeEach(() => {
 		historyQuery.data = undefined;
+		historyApi.listSignalEnvelopes.mockReset();
+	});
+
+	it.each([
+		"before",
+		"after",
+	] as const)("keeps the cold server window when the first %s load completes", async (direction) => {
+		const initialWindow = Array.from({ length: 61 }, (_, index) => ({
+			...message(String(index + 90)),
+			ts: index + 90,
+		}));
+		const returnedWindow =
+			direction === "before"
+				? Array.from({ length: 31 }, (_, index) => ({
+						...message(String(index + 60)),
+						ts: index + 60,
+					}))
+				: Array.from({ length: 31 }, (_, index) => ({
+						...message(String(index + 150)),
+						ts: index + 150,
+					}));
+		historyApi.listSignalEnvelopes.mockResolvedValueOnce({
+			envelopes: returnedWindow,
+		});
+		const { result } = renderHook(() =>
+			useSpaceHistoryNavigation({
+				accessRejected: false,
+				enabled: true,
+				initialWindowAnchorSignalId: "120",
+				liveEnvelopes: initialWindow,
+				profileId: "viewer",
+				spaceId: `space-cold-${direction}`,
+			})
+		);
+
+		expect(result.current.activeWindow?.envelopes).toHaveLength(61);
+		await act(async () => {
+			const loaded =
+				direction === "before"
+					? await result.current.loadBefore()
+					: await result.current.loadAfter();
+			expect(loaded).toBe(true);
+		});
+
+		const ids = result.current.activeWindow?.envelopes.map((item) => item.id);
+		expect(ids).toContain("120");
+		expect(ids).toContain(direction === "before" ? "60" : "180");
+		expect(ids).toContain(direction === "before" ? "150" : "90");
+		expect(ids).toHaveLength(91);
+		expect(result.current.activeWindow?.hasBefore).toBe(true);
+		expect(result.current.activeWindow?.hasAfter).toBe(true);
 	});
 
 	it("uses the anchored window boundary for no-JS earlier links", () => {

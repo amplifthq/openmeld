@@ -163,15 +163,17 @@ export function useSpaceHistoryNavigation(input: {
 			const anchorIndex = result.envelopes.findIndex(
 				(item) => item.id === signalId
 			);
-			setWindow((current) =>
-				mergeHistoryWindow(
-					current,
+			setWindow((current) => {
+				const currentWindow =
+					current?.identity === identity ? current : activeWindow;
+				return mergeHistoryWindow(
+					currentWindow,
 					identity,
 					result.envelopes,
 					anchorIndex,
 					direction
-				)
-			);
+				);
+			});
 			return true;
 		} catch (failure) {
 			if (isCurrentRequest()) {
