@@ -267,7 +267,14 @@ async function cleanupStagingComputerUpdateSmoke(input) {
       sensitiveValues: input.sensitiveValues,
     });
     try {
-      await rm(CANARY_HOME, { force: true, recursive: true });
+      if (input.runFailure) {
+        await rename(
+          CANARY_HOME,
+          path.join(input.runRoot, "failed-canary-home")
+        );
+      } else {
+        await rm(CANARY_HOME, { force: true, recursive: true });
+      }
     } catch (error) {
       cleanupFailures.push(error);
     }
@@ -280,7 +287,9 @@ async function cleanupStagingComputerUpdateSmoke(input) {
     }
   }
   if (cleanupFailures.length === 0) {
-    await rm(input.runRoot, { force: true, recursive: true });
+    if (!input.runFailure) {
+      await rm(input.runRoot, { force: true, recursive: true });
+    }
     pass("Previous Canary state restored");
     return null;
   }
