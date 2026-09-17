@@ -4522,10 +4522,13 @@ When the main conversation has unread targets, the existing latest-message
 control is also the explicit catch-up action. Web first reads a fresh Core Space
 Inbox summary to freeze the accepted main-timeline cutoff, then mounts the live
 tail and settles its scroll position before writing the main watermark through
-that exact occurrence time. A superseded navigation, unmounted view, or changed
-Organization/Space identity cancels the unstarted write. The same activation
-never advances a Thread watermark or includes messages arriving after its
-cutoff, and a retry reuses the original cutoff. Visible-message and explicit writes share one per-scope
+that exact occurrence time. The activation reserves its history-navigation
+revision before the summary read begins. A newer accepted history navigation,
+unmounted view, or changed Organization/Space identity abandons the activation
+before it can switch to the live tail or start the write, and discards its
+unused cutoff. The same activation never advances a Thread watermark or
+includes messages arriving after its cutoff; only an actual failed write keeps
+the original cutoff for retry. Visible-message and explicit writes share one per-scope
 serializer that coalesces queued higher watermarks, so an older invalidation
 cannot replace a newer optimistic projection. Failures retain the cutoff for
 retry and state that the user reached the latest messages but marking them read

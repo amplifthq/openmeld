@@ -170,9 +170,9 @@ describe("useSpaceInboxReadPosition", () => {
 				},
 			],
 		});
-		await expect(firstCommit?.()).rejects.toThrow("offline");
+		await expect(firstCommit?.commit()).rejects.toThrow("offline");
 		const retryCommit = await result.current.prepareCatchUpMain();
-		await retryCommit?.();
+		await retryCommit?.commit();
 
 		expect(queryClient.fetchQuery).toHaveBeenCalledOnce();
 		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledTimes(2);
@@ -186,6 +186,24 @@ describe("useSpaceInboxReadPosition", () => {
 			spaceId: "space-project",
 			throughOccurredAtMs: 100,
 		});
+	});
+
+	it("discards an abandoned cutoff instead of reusing it as a retry", async () => {
+		const { result } = renderHook(() =>
+			useSpaceInboxReadPosition({
+				destination: "ordinary-space",
+				organizationId: "org-acme",
+				profileId: "profile-felix",
+				spaceId: "space-project",
+			})
+		);
+
+		const abandoned = await result.current.prepareCatchUpMain();
+		abandoned?.abandon();
+		await result.current.prepareCatchUpMain();
+
+		expect(queryClient.fetchQuery).toHaveBeenCalledTimes(2);
+		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
 	});
 
 	it("does not start a prepared catch-up write after the Space scope changes", async () => {
@@ -212,7 +230,7 @@ describe("useSpaceInboxReadPosition", () => {
 			profileId: "profile-other",
 			spaceId: "space-project",
 		});
-		await commit?.();
+		await commit?.commit();
 
 		expect(markCurrentSpaceInboxReadThroughMock).not.toHaveBeenCalled();
 	});

@@ -540,7 +540,10 @@ explicit activation first returns historical or scrolled views to the mounted
 live tail, then advances only the main-conversation watermark through the
 server-confirmed latest unread occurrence captured for that activation. It
 works even when a short conversation is already at the bottom. New events after
-the captured cutoff remain unread, and thread watermarks remain unchanged.
+the captured cutoff remain unread, and thread watermarks remain unchanged. A
+newer history-navigation choice made while that cutoff is being prepared
+abandons the activation before it can return to latest or write; its unused
+cutoff is not retained as a retry.
 Concurrent visible-message and explicit read-through writes are serialized and
 coalesced within their main or exact-thread scope. A failed write keeps the
 same cutoff for retry and reports that navigation succeeded but marking read

@@ -17,14 +17,18 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 import { MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME } from "./primitives/message-scroller";
-import type { SpaceHistoryActions } from "./space-history-rail";
+import type {
+	SpaceHistoryActions,
+	SpaceHistoryLatestReservation,
+} from "./space-history-rail";
+import type { PreparedSpaceInboxCatchUp } from "./use-space-inbox-read-position";
 
 export function SpaceHistoryJumpControl({
 	history,
 	onPrepareCatchUpUnread,
 }: {
 	history?: SpaceHistoryActions;
-	onPrepareCatchUpUnread?: () => Promise<(() => Promise<void>) | null>;
+	onPrepareCatchUpUnread?: () => Promise<PreparedSpaceInboxCatchUp | null>;
 }) {
 	const reduceMotion = useReducedMotion();
 	const { scrollToEnd } = useMessageScroller();
@@ -49,9 +53,11 @@ export function SpaceHistoryJumpControl({
 		catchUpError,
 		hasCatchUp: !!onPrepareCatchUpUnread,
 	});
-	const navigateToLatest = async () => {
-		if (history) {
-			return await history.onLatest();
+	const navigateToLatest = async (
+		historyReservation?: SpaceHistoryLatestReservation
+	) => {
+		if (historyReservation) {
+			return await historyReservation.navigate();
 		}
 		const behavior = onPrepareCatchUpUnread || reduceMotion ? "auto" : "smooth";
 		scrollToEnd({ behavior });
@@ -64,25 +70,34 @@ export function SpaceHistoryJumpControl({
 		if (pending) {
 			return;
 		}
+		const historyReservation = history?.reserveLatest();
 		if (!onPrepareCatchUpUnread) {
-			await navigateToLatest();
+			await navigateToLatest(historyReservation);
 			return;
 		}
 		setCatchUpError(false);
 		setCatchUpPending(true);
 		const sequence = ++operationSequence.current;
+		const isOperationCurrent = () =>
+			sequence === operationSequence.current &&
+			(!historyReservation || historyReservation.isCurrent());
 		try {
-			const commitCatchUp = await onPrepareCatchUpUnread();
-			if (sequence !== operationSequence.current || !commitCatchUp) {
+			const preparedCatchUp = await onPrepareCatchUpUnread();
+			if (!preparedCatchUp) {
 				return;
 			}
-			const reachedLatest = await navigateToLatest();
-			if (sequence !== operationSequence.current || !reachedLatest) {
+			if (!isOperationCurrent()) {
+				preparedCatchUp.abandon();
 				return;
 			}
-			await commitCatchUp();
+			const reachedLatest = await navigateToLatest(historyReservation);
+			if (!(isOperationCurrent() && reachedLatest)) {
+				preparedCatchUp.abandon();
+				return;
+			}
+			await preparedCatchUp.commit();
 		} catch (error) {
-			if (sequence !== operationSequence.current) {
+			if (!isOperationCurrent()) {
 				return;
 			}
 			console.error("Failed to catch up the Space read position.", error);

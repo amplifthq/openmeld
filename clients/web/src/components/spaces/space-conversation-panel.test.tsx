@@ -59,6 +59,7 @@ const CONNECT_MY_COMPUTER_BUTTON_NAME_PATTERN = /Connect my computer/;
 const MESSAGES_FROM_DATE_MARKER_NAME_PATTERN = /Messages from/;
 const OPEN_DATE_NAVIGATION_NAME_PATTERN = /Open date navigation for/;
 const RUNNER_WORKING_NAME_PATTERN = /runner is working/u;
+const EARLIER_DECISION_PATTERN = /Earlier decision/;
 
 // The Message Details dialog fetches through `useQuery`. Every test in this
 // file except the ones that open that dialog only checks for the trigger
@@ -2939,7 +2940,10 @@ describe("SpaceConversationPanel", () => {
 
 	it("catches up unread main messages even when the short conversation is already at the latest position", async () => {
 		const commitCatchUpUnread = vi.fn(async () => undefined);
-		const onPrepareCatchUpUnread = vi.fn(async () => commitCatchUpUnread);
+		const onPrepareCatchUpUnread = vi.fn(async () => ({
+			abandon: vi.fn(),
+			commit: commitCatchUpUnread,
+		}));
 		renderSpaceConversationPanel({
 			onPrepareCatchUpUnread,
 			timelineItems: [createTimelineItem({ text: "Unread short message" })],
@@ -2972,9 +2976,10 @@ describe("SpaceConversationPanel", () => {
 			.spyOn(console, "error")
 			.mockImplementation(() => undefined);
 		renderSpaceConversationPanel({
-			onPrepareCatchUpUnread: vi.fn(
-				async () => () => Promise.reject(new Error("offline"))
-			),
+			onPrepareCatchUpUnread: vi.fn(async () => ({
+				abandon: vi.fn(),
+				commit: () => Promise.reject(new Error("offline")),
+			})),
 			timelineItems: [createTimelineItem({ text: "Unread short message" })],
 			unreadCount: 1,
 			unreadStateReady: true,
@@ -3004,6 +3009,111 @@ describe("SpaceConversationPanel", () => {
 			})
 		).toBeTruthy();
 		consoleError.mockRestore();
+	});
+
+	it("abandons catch-up when the reader navigates history during preparation", async () => {
+		vi.stubGlobal("CSS", {
+			...globalThis.CSS,
+			escape: (value: string) => value,
+		});
+		let resolvePreparation:
+			| ((prepared: {
+					abandon: () => void;
+					commit: () => Promise<void>;
+			  }) => void)
+			| undefined;
+		const abandon = vi.fn();
+		const commit = vi.fn(async () => undefined);
+		const latest = vi.fn();
+		const open = vi.fn(async () => true);
+		const onPrepareCatchUpUnread = vi.fn(
+			() =>
+				new Promise<{
+					abandon: () => void;
+					commit: () => Promise<void>;
+				}>((resolve) => {
+					resolvePreparation = resolve;
+				})
+		);
+		renderSpaceConversationPanel({
+			historyNavigation: {
+				activeWindow: null,
+				directory: {
+					entries: [
+						{
+							author: "Felix",
+							count: 1,
+							endAt: Date.UTC(2026, 4, 26),
+							endSignalId: "signal-history",
+							preview: "Earlier decision",
+							signalId: "signal-history",
+							startAt: Date.UTC(2026, 4, 26),
+						},
+					],
+					total: 61,
+				},
+				directoryError: false,
+				directoryPending: false,
+				error: null,
+				latest,
+				loadAfter: vi.fn(async () => false),
+				loadBefore: vi.fn(async () => false),
+				open,
+				pending: false,
+				retryDirectory: vi.fn(),
+				revealCachedBefore: vi.fn(),
+				visibleLiveEnvelopes: [],
+				hasHiddenLiveHistory: false,
+			},
+			onPrepareCatchUpUnread,
+			timelineItems: [createTimelineItem({ text: "Current position" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+		const conversationLog = screen.getByRole("log", {
+			name: "Conversation history",
+		});
+		const currentMessage = conversationLog.querySelector<HTMLElement>(
+			"[data-history-signal-id='signal-1']"
+		);
+		if (!currentMessage) {
+			throw new Error("Expected the current message position anchor");
+		}
+		vi.spyOn(currentMessage, "getBoundingClientRect").mockImplementation(() =>
+			createTestDomRect({ bottom: 180, height: 80, top: 100 })
+		);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: EARLIER_DECISION_PATTERN })
+		);
+		await waitFor(() => expect(open).toHaveBeenCalledWith("signal-history"));
+		const back = await screen.findByRole("button", {
+			name: "Back to previous position",
+		});
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Jump to latest and mark messages as read",
+			})
+		);
+		expect(onPrepareCatchUpUnread).toHaveBeenCalledOnce();
+
+		fireEvent.click(back);
+		await waitFor(() => expect(open).toHaveBeenCalledTimes(2));
+		expect(open).toHaveBeenNthCalledWith(2, "signal-1");
+		act(() => {
+			resolvePreparation?.({ abandon, commit });
+		});
+
+		await waitFor(() => expect(abandon).toHaveBeenCalledOnce());
+		expect(latest).not.toHaveBeenCalled();
+		expect(commit).not.toHaveBeenCalled();
 	});
 
 	it("renders profile avatars and keeps message time outside the bubble", () => {

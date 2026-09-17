@@ -224,8 +224,8 @@ import {
 } from "./space-wake-stop-control";
 import { useSpaceConversationPosition } from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
-
 import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
+import type { PreparedSpaceInboxCatchUp } from "./use-space-inbox-read-position";
 import type {
 	SpaceComposerAddressingTarget,
 	SpaceMentionPickerItem,
@@ -299,7 +299,7 @@ type SpaceConversationPanelResolvedProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
-	onPrepareCatchUpUnread?: () => Promise<(() => Promise<void>) | null>;
+	onPrepareCatchUpUnread?: () => Promise<PreparedSpaceInboxCatchUp | null>;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onClearComposerReplyTo: () => void;

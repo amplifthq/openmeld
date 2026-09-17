@@ -21,9 +21,14 @@ export type SpaceInboxReadPosition = {
 		throughOccurredAtMs: number,
 		threadRootSignalId?: string
 	) => Promise<void>;
-	prepareCatchUpMain: () => Promise<(() => Promise<void>) | null>;
+	prepareCatchUpMain: () => Promise<PreparedSpaceInboxCatchUp | null>;
 	targets: readonly SpaceInboxUnreadTarget[];
 	totalUnreadCount: number;
+};
+
+export type PreparedSpaceInboxCatchUp = {
+	abandon: () => void;
+	commit: () => Promise<void>;
 };
 
 export function useSpaceInboxReadPosition(input: {
@@ -130,11 +135,11 @@ export function useSpaceInboxReadPosition(input: {
 			return null;
 		}
 		const scopeKey = `${input.organizationId}:${input.profileId}:${input.spaceId}`;
-		let cutoff =
+		let preparedCutoff =
 			retryCutoffRef.current?.scopeKey === scopeKey
-				? retryCutoffRef.current.cutoff
+				? retryCutoffRef.current
 				: null;
-		if (cutoff === null) {
+		if (preparedCutoff === null) {
 			const summary = await queryClient.fetchQuery({
 				...spaceInboxSummaryQueryOptions({
 					organizationId: input.organizationId,
@@ -155,20 +160,31 @@ export function useSpaceInboxReadPosition(input: {
 				}
 				return null;
 			}
-			cutoff = space.latestUnreadOccurredAtMs;
-			retryCutoffRef.current = { cutoff, scopeKey };
+			preparedCutoff = {
+				cutoff: space.latestUnreadOccurredAtMs,
+				scopeKey,
+			};
+			retryCutoffRef.current = preparedCutoff;
 		}
-		return async () => {
-			if (scopeKey !== activeScopeKeyRef.current) {
-				return;
-			}
-			await persist(cutoff);
-			if (
-				scopeKey === activeScopeKeyRef.current &&
-				retryCutoffRef.current?.scopeKey === scopeKey
-			) {
-				retryCutoffRef.current = null;
-			}
+		const cutoff = preparedCutoff;
+		return {
+			abandon: () => {
+				if (retryCutoffRef.current === cutoff) {
+					retryCutoffRef.current = null;
+				}
+			},
+			commit: async () => {
+				if (scopeKey !== activeScopeKeyRef.current) {
+					return;
+				}
+				await persist(cutoff.cutoff);
+				if (
+					scopeKey === activeScopeKeyRef.current &&
+					retryCutoffRef.current === cutoff
+				) {
+					retryCutoffRef.current = null;
+				}
+			},
 		};
 	}, [
 		input.organizationId,
