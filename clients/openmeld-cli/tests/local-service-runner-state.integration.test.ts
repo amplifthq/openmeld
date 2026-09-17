@@ -50,7 +50,7 @@ function requestServiceSigterm(): void {
   if (!listener) {
     throw new Error("expected the local Service SIGTERM handler to be active");
   }
-  listener();
+  listener("SIGTERM");
 }
 
 async function stopServiceThroughSigterm(input: {
