@@ -387,11 +387,23 @@ describe("local service control-plane", () => {
           },
           timeoutMs: 1100,
         });
+        let settled = false;
+        const observedShutdown = shutdown.then(
+          (value) => {
+            settled = true;
+            return value;
+          },
+          (error: unknown) => {
+            settled = true;
+            throw error;
+          }
+        );
         await admitted.promise;
         await new Promise((resolve) => setTimeout(resolve, 1200));
+        expect(settled).toBe(false);
         completion.resolve();
 
-        await expect(shutdown).resolves.toEqual({
+        await expect(observedShutdown).resolves.toEqual({
           accepted: true,
           gracePeriodMs: 5000,
           mode: "graceful",
@@ -423,13 +435,25 @@ describe("local service control-plane", () => {
       });
 
       try {
-        await expect(
-          requestLocalDaemonShutdown({
-            endpoint: server.endpoint,
-            payload: { gracePeriodMs: 5000, mode: "graceful" },
-            timeoutMs: 100,
-          })
-        ).rejects.toMatchObject({ code: "daemon.control.timeout" });
+        const shutdown = requestLocalDaemonShutdown({
+          endpoint: server.endpoint,
+          payload: { gracePeriodMs: 5000, mode: "graceful" },
+          timeoutMs: 1500,
+        });
+        const observedShutdown = shutdown.then(
+          () => ({ status: "resolved" as const }),
+          (error: unknown) => ({ error, status: "rejected" as const })
+        );
+        const outcome = await Promise.race([
+          observedShutdown,
+          new Promise<{ status: "pending" }>((resolve) => {
+            setTimeout(() => resolve({ status: "pending" }), 2200);
+          }),
+        ]);
+        expect(outcome).toMatchObject({
+          error: { code: "daemon.control.timeout" },
+          status: "rejected",
+        });
         expect(getContext).not.toHaveBeenCalled();
       } finally {
         releaseToken.resolve(token ?? "missing");
