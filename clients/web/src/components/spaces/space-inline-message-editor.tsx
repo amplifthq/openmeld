@@ -8,6 +8,7 @@ import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { isSpaceComposerFileInProgress } from "#/lib/spaces/composer-attachment";
 import type { SpaceTimelineItem } from "#/lib/spaces/timeline";
 import {
+	SpaceComposerAttachmentRecovery,
 	SpaceComposerFileTray,
 	useSpaceComposerFileInput,
 } from "./space-composer-attachments";
@@ -327,6 +328,13 @@ function InlineEditor({
 					disabled={busy}
 					files={files.files}
 					onRemove={files.removeFile}
+					onRetry={files.retryFile}
+				/>
+				<SpaceComposerAttachmentRecovery
+					cleanup={files.cleanup}
+					onRetryCleanup={files.retryCleanup}
+					onRetryRestoration={files.retryRestoration}
+					restorationError={files.restorationError}
 				/>
 			</div>
 			{editing.actionContainer

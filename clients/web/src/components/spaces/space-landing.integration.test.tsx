@@ -50,6 +50,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	isComposerFileDraftRetired: () => false,
+	readComposerFileDraftCleanup: () => [],
+	retryComposerFileDraftCleanup: async () => undefined,
 	subscribeComposerFileDrafts: () => () => undefined,
 	readComposerFileDrafts: async () => [],
 	readComposerFileDraftsByIds: async () => [],
@@ -13777,7 +13780,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(
-			screen.getByText("Remove the failed file to continue.")
+			screen.getByText("Retry or remove the failed attachment to continue.")
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
@@ -17551,7 +17554,9 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(threadComposer, "Thread text can still be sent");
 		expect(
-			within(threadPanel).getByText("Remove the failed file to continue.")
+			within(threadPanel).getByText(
+				"Retry or remove the failed attachment to continue."
+			)
 		).toBeTruthy();
 		expect(
 			within(threadPanel).getByRole("button", { name: "Send reply" })

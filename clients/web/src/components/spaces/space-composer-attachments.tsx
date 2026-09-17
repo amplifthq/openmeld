@@ -24,6 +24,7 @@ import type { ClipboardEvent, DragEvent } from "react";
 import { useRef, useState } from "react";
 import { PromptInputAction } from "#/components/ibelick/prompt-input";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import { SpaceFileHtmlBadge } from "./space-file-html-badge";
 import { SpaceImagePreview } from "./space-image-preview";
 
@@ -161,6 +162,7 @@ export function SpaceComposerFileTray(input: {
 	disabled: boolean;
 	files: readonly SpaceComposerFile[];
 	onRemove: (localId: string) => void;
+	onRetry?: (localId: string) => void;
 }) {
 	if (input.files.length === 0) {
 		return null;
@@ -237,10 +239,89 @@ export function SpaceComposerFileTray(input: {
 									Request ID: {file.errorRequestId}
 								</p>
 							) : null}
+							<div className="mt-1 flex gap-2">
+								{file.failurePhase !== "validation" && input.onRetry ? (
+									<Button
+										disabled={input.disabled}
+										onClick={() => input.onRetry?.(file.localId)}
+										size="sm"
+										type="button"
+										variant="outline"
+									>
+										Retry
+									</Button>
+								) : null}
+								<Button
+									disabled={input.disabled}
+									onClick={() => input.onRemove(file.localId)}
+									size="sm"
+									type="button"
+									variant="ghost"
+								>
+									Remove
+								</Button>
+							</div>
 						</div>
 					) : null}
 				</div>
 			))}
 		</fieldset>
 	);
+}
+
+export function SpaceComposerAttachmentRecovery(input: {
+	cleanup: readonly ComposerFileDraftCleanup[];
+	onRetryCleanup: (id: string) => void;
+	onRetryRestoration: () => void;
+	restorationError: unknown | null;
+}) {
+	if (!input.restorationError && input.cleanup.length === 0) {
+		return null;
+	}
+	return (
+		<div className="space-y-2 px-1 pb-2 text-xs">
+			{input.restorationError ? (
+				<div className="flex items-center justify-between gap-3" role="alert">
+					<span>Couldn't restore your attachment drafts.</span>
+					<Button
+						onClick={input.onRetryRestoration}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						Retry
+					</Button>
+				</div>
+			) : null}
+			{input.cleanup.map((cleanup) => (
+				<div
+					className="flex items-center justify-between gap-3"
+					key={`${cleanup.id}:${cleanup.revision}`}
+					role={cleanup.status === "failed" ? "alert" : "status"}
+				>
+					<span>{resolveCleanupMessage(cleanup)}</span>
+					{cleanup.status === "failed" ? (
+						<Button
+							onClick={() => input.onRetryCleanup(cleanup.id)}
+							size="sm"
+							type="button"
+							variant="outline"
+						>
+							Retry cleanup
+						</Button>
+					) : null}
+				</div>
+			))}
+		</div>
+	);
+}
+
+function resolveCleanupMessage(cleanup: ComposerFileDraftCleanup): string {
+	if (cleanup.status === "pending") {
+		return "Removing attachment…";
+	}
+	if (cleanup.reason === "sent") {
+		return "Your message was sent, but its local attachment draft couldn't be cleared.";
+	}
+	return "Couldn't finish removing this attachment from this device.";
 }

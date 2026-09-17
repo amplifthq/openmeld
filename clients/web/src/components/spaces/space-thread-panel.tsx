@@ -27,6 +27,7 @@ import {
 } from "#/lib/spaces/active-wake-conversation";
 import { resolveSpaceMessageAgentInteractionItems } from "#/lib/spaces/agent-interactions";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
@@ -300,6 +301,11 @@ type SpaceThreadPanelProps = {
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onRemoveComposerFile: (localId: string) => void;
+	onRetryComposerFile?: (localId: string) => Promise<void>;
+	onRetryComposerFileCleanup?: (localId: string) => Promise<void>;
+	onRetryComposerFileRestoration?: () => void;
+	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
+	composerFileRestorationError?: unknown | null;
 	onMentionButtonClick: () => void;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onRecoverExecution?: SpaceExecutionRecoveryHandler;
@@ -1793,6 +1799,11 @@ function ThreadComposer(input: {
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onRemoveComposerFile: (localId: string) => void;
+	onRetryComposerFile?: (localId: string) => Promise<void>;
+	onRetryComposerFileCleanup?: (localId: string) => Promise<void>;
+	onRetryComposerFileRestoration?: () => void;
+	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
+	composerFileRestorationError?: unknown | null;
 	onMentionButtonClick: () => void;
 	onSend: (options?: SpaceComposerSendOptions) => Promise<void>;
 	orgSlug?: string;
@@ -1819,6 +1830,9 @@ function ThreadComposer(input: {
 				onEditorChange: input.onComposerEditorChange,
 				onMentionButtonClick: input.onMentionButtonClick,
 				onRemoveFile: input.onRemoveComposerFile,
+				onRetryFile: input.onRetryComposerFile,
+				onRetryFileCleanup: input.onRetryComposerFileCleanup,
+				onRetryFileRestoration: input.onRetryComposerFileRestoration,
 				onSubmit: submitComposer,
 			}}
 			availability={{
@@ -1833,6 +1847,8 @@ function ThreadComposer(input: {
 				addressingTargets: input.composerAddressingTargets,
 				authoredMentions: input.composerAuthoredMentions,
 				files: input.composerFiles,
+				fileCleanup: input.composerFileCleanup,
+				fileRestorationError: input.composerFileRestorationError,
 				hasAuthoredMentions: input.composerHasAuthoredMentions,
 				mentionPickerItems: input.composerMentionPickerItems,
 				mentionEmptyMessage: input.composerMentionEmptyMessage,

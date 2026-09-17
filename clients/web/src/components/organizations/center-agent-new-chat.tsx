@@ -104,7 +104,6 @@ export function CenterAgentNewChat({
 			}
 			const intent = readOrCreateChatIntent(sessionStorage, intentKey, text);
 			const intentValue = sessionStorage.getItem(intentKey);
-			setMessage({ ...intent.message, files: attachments.getSourceFiles() });
 			const fileDrafts = await attachments.readFileDrafts();
 			const pendingMessage = {
 				...intent.message,
@@ -207,7 +206,10 @@ export function CenterAgentNewChat({
 				sessionStorage.removeItem(intentKey);
 			}
 		},
-		onError: (cause) => setError(toStructuredApiClientFailure(cause).message),
+		onError: (cause) => {
+			setMessage(null);
+			setError(toStructuredApiClientFailure(cause).message);
+		},
 	});
 	const startSend = async (prompt?: string) => {
 		if (sending.current) {

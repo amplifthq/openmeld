@@ -16,22 +16,37 @@ const CONNECT_COMPUTER = /Connect my computer/;
 // jsdom File is not preserved by Node structuredClone; use the storage boundary
 // here. The IndexedDB adapter has its own tests and browser smoke covers bytes.
 const fileDrafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
+const draftStoreFailure = vi.hoisted(() => ({ read: null as Error | null }));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	isComposerFileDraftRetired: () => false,
+	readComposerFileDraftCleanup: () => [],
+	retryComposerFileDraftCleanup: async () => undefined,
 	subscribeComposerFileDrafts: () => () => undefined,
 	saveComposerFileDraft: (draft: ComposerFileDraft) => {
 		fileDrafts.set(draft.id, draft);
 		return Promise.resolve();
 	},
-	readComposerFileDrafts: (scope: string) =>
-		Promise.resolve(
+	readComposerFileDrafts: (scope: string) => {
+		if (draftStoreFailure.read) {
+			return Promise.reject(draftStoreFailure.read);
+		}
+		return Promise.resolve(
 			[...fileDrafts.values()].filter((draft) => draft.scope === scope)
-		),
-	readComposerFileDraftsByIds: async (ids: string[]) =>
-		[...fileDrafts.values()].filter((draft) => ids.includes(draft.id)),
+		);
+	},
+	readComposerFileDraftsByIds: (ids: string[]) => {
+		if (draftStoreFailure.read) {
+			return Promise.reject(draftStoreFailure.read);
+		}
+		return Promise.resolve(
+			[...fileDrafts.values()].filter((draft) => ids.includes(draft.id))
+		);
+	},
 	removeComposerFileDraft: (id: string) => {
 		fileDrafts.delete(id);
 		return Promise.resolve();
 	},
+	saveComposerFileDraftUpload: async () => undefined,
 }));
 
 const { createSession, navigate, save } = vi.hoisted(() => ({
@@ -91,6 +106,7 @@ vi.mock("#/components/app/use-sidebar-preferences", () => ({
 
 beforeEach(() => {
 	fileDrafts.clear();
+	draftStoreFailure.read = null;
 	vi.stubGlobal(
 		"URL",
 		Object.assign(URL, {
@@ -170,6 +186,41 @@ it("reuses the creation identity after an uncertain failure and submits only on 
 	);
 	expect(createSession).toHaveBeenCalledTimes(2);
 	expect(createSession.mock.calls[1]).toEqual(createSession.mock.calls[0]);
+});
+
+it("returns a failed local attachment handoff to an editable new chat", async () => {
+	mount();
+	fireEvent.change(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{ target: { value: "Keep this draft" } }
+	);
+	const file = new File(["image"], "screen.png", { type: "image/png" });
+	fireEvent.paste(
+		screen.getByRole("textbox", { name: "Message Center Agent" }),
+		{ clipboardData: { items: [{ kind: "file", getAsFile: () => file }] } }
+	);
+	await screen.findByRole("button", { name: "Remove screen.png" });
+	draftStoreFailure.read = new Error("Database connection is closing");
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() =>
+		expect(screen.getByRole("alert").textContent).toContain(
+			"Database connection is closing"
+		)
+	);
+	expect(createSession).not.toHaveBeenCalled();
+	expect(
+		(
+			screen.getByRole("textbox", {
+				name: "Message Center Agent",
+			}) as HTMLTextAreaElement
+		).value
+	).toBe("Keep this draft");
+	expect(
+		screen.getByRole("button", { name: "Send message" })
+	).not.toHaveProperty("disabled", true);
+	draftStoreFailure.read = null;
+	fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+	await waitFor(() => expect(createSession).toHaveBeenCalledOnce());
 });
 
 it("clears the sent draft even when navigation unmounts the composer", async () => {

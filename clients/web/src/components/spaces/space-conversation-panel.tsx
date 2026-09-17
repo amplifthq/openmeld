@@ -46,6 +46,7 @@ import {
 	createUnscopedWebSpaceApi,
 } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
 import { isSpaceMessageAgentWorking } from "#/lib/spaces/message-state";
 import {
@@ -319,6 +320,11 @@ type SpaceConversationPanelResolvedProps = {
 	onReplyToMessage: (item: SpaceTimelineItem) => void;
 	onComposeExpiredDeviceWait?: ComposeExpiredDeviceWait;
 	onRemoveComposerFile: (localId: string) => void;
+	onRetryComposerFile?: (localId: string) => Promise<void>;
+	onRetryComposerFileCleanup?: (localId: string) => Promise<void>;
+	onRetryComposerFileRestoration?: () => void;
+	composerFileCleanup?: readonly ComposerFileDraftCleanup[];
+	composerFileRestorationError?: unknown | null;
 	onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 	onAddMessageToTasks?: (
 		item: SpaceTimelineItem,
@@ -2009,6 +2015,9 @@ function SpaceComposerSection(input: {
 						onEditorChange: panel.onComposerEditorChange,
 						onMentionButtonClick: panel.onMentionButtonClick,
 						onRemoveFile: panel.onRemoveComposerFile,
+						onRetryFile: panel.onRetryComposerFile,
+						onRetryFileCleanup: panel.onRetryComposerFileCleanup,
+						onRetryFileRestoration: panel.onRetryComposerFileRestoration,
 						onSubmit: input.submitComposer,
 					}}
 					availability={{
@@ -2024,6 +2033,8 @@ function SpaceComposerSection(input: {
 						addressingTargets: panel.composerAddressingTargets ?? [],
 						authoredMentions: panel.composerAuthoredMentions ?? [],
 						files: panel.composerFiles,
+						fileCleanup: panel.composerFileCleanup,
+						fileRestorationError: panel.composerFileRestorationError,
 						hasAuthoredMentions: panel.composerHasAuthoredMentions,
 						mentionPickerItems: panel.composerMentionPickerItems ?? [],
 						mentionEmptyMessage: panel.composerMentionEmptyMessage,

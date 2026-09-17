@@ -54,6 +54,7 @@ import {
 } from "#/lib/profiles/agent-profile-runtime-binding";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraftCleanup } from "#/lib/spaces/composer-file-drafts";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
 import type { SpaceEphemeralActivityItem } from "#/lib/spaces/dispatch-activity";
@@ -1144,6 +1145,8 @@ export type SpaceLandingController =
 			composerMentionEmptyMessage?: string;
 			composerFiles: readonly SpaceComposerFile[];
 			composerFileLimitReached: boolean;
+			composerFileCleanup: readonly ComposerFileDraftCleanup[];
+			composerFileRestorationError: unknown | null;
 			composerBlockedWakeProfileId: string | null;
 			composerErrorMessage: string | null;
 			composerHasAuthoredMentions: boolean;
@@ -1186,6 +1189,9 @@ export type SpaceLandingController =
 			onClearComposerReplyTo: () => void;
 			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveComposerFile: (localId: string) => void;
+			onRetryComposerFile: (localId: string) => Promise<void>;
+			onRetryComposerFileCleanup: (localId: string) => Promise<void>;
+			onRetryComposerFileRestoration: () => void;
 			onConversationViewedThroughTs?: (
 				timestamp: number
 			) => Promise<void> | void;
@@ -1226,6 +1232,9 @@ export type SpaceLandingController =
 			}) => void;
 			onAddThreadComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveThreadComposerFile: (localId: string) => void;
+			onRetryThreadComposerFile: (localId: string) => Promise<void>;
+			onRetryThreadComposerFileCleanup: (localId: string) => Promise<void>;
+			onRetryThreadComposerFileRestoration: () => void;
 			onReplyToMessage: (item: SpaceTimelineItem) => void;
 			onReportMessage: (item: SpaceTimelineItem) => Promise<void>;
 			onRecoverExecution: (
@@ -1259,6 +1268,8 @@ export type SpaceLandingController =
 			threadComposerText: string;
 			threadComposerFiles: readonly SpaceComposerFile[];
 			threadComposerFileLimitReached: boolean;
+			threadComposerFileCleanup: readonly ComposerFileDraftCleanup[];
+			threadComposerFileRestorationError: unknown | null;
 			threadFilePreviewUrlsById: ReadonlyMap<string, string>;
 			threadEphemeralActivityItems: readonly SpaceEphemeralActivityItem[];
 			threads: readonly SpaceThread[];
@@ -2491,6 +2502,8 @@ export function useSpaceLandingController(input: {
 		composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
 		composerFiles: composerFilesController.files,
 		composerFileLimitReached: composerFilesController.isAtLimit,
+		composerFileCleanup: composerFilesController.cleanup,
+		composerFileRestorationError: composerFilesController.restorationError,
 		composerErrorMessage,
 		composerBlockedWakeProfileId,
 		composerHasAuthoredMentions: mentionAuthoring.hasAuthoredMentions,
@@ -2536,6 +2549,9 @@ export function useSpaceLandingController(input: {
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
+		onRetryComposerFile: composerFilesController.retryFile,
+		onRetryComposerFileCleanup: composerFilesController.retryCleanup,
+		onRetryComposerFileRestoration: composerFilesController.retryRestoration,
 		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
 			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
 			onViewedThroughTs: input.onViewedThroughTs,
@@ -2614,6 +2630,11 @@ export function useSpaceLandingController(input: {
 		},
 		onAddThreadComposerFiles: threadController.onAddThreadComposerFiles,
 		onRemoveThreadComposerFile: threadController.onRemoveThreadComposerFile,
+		onRetryThreadComposerFile: threadController.onRetryThreadComposerFile,
+		onRetryThreadComposerFileCleanup:
+			threadController.onRetryThreadComposerFileCleanup,
+		onRetryThreadComposerFileRestoration:
+			threadController.onRetryThreadComposerFileRestoration,
 		onReplyToMessage: (item: SpaceTimelineItem) => {
 			mentionAuthoring.onReplyToSignal({
 				signalId: item.id,
@@ -2646,6 +2667,9 @@ export function useSpaceLandingController(input: {
 		threadComposerFiles: threadController.threadComposerFiles,
 		threadComposerFileLimitReached:
 			threadController.threadComposerFileLimitReached,
+		threadComposerFileCleanup: threadController.threadComposerFileCleanup,
+		threadComposerFileRestorationError:
+			threadController.threadComposerFileRestorationError,
 		threadFilePreviewUrlsById: threadController.threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: filterSpaceWakeProgressItems({
 			presentation: wakeProgressPresentationQuery.data,
@@ -3777,6 +3801,10 @@ function useSpaceThreadController(input: {
 		},
 		onAddThreadComposerFiles: composerFilesController.addFiles,
 		onRemoveThreadComposerFile: composerFilesController.removeFile,
+		onRetryThreadComposerFile: composerFilesController.retryFile,
+		onRetryThreadComposerFileCleanup: composerFilesController.retryCleanup,
+		onRetryThreadComposerFileRestoration:
+			composerFilesController.retryRestoration,
 		threadComposerBlockedWakeProfileId: composerBlockedWakeProfileId,
 		threadComposerAddressingTargets: resolveComposerAddressingTargets({
 			addressingTargets: mentionAuthoring.addressingTargets,
@@ -3791,6 +3819,9 @@ function useSpaceThreadController(input: {
 		threadComposerText: mentionAuthoring.composerText,
 		threadComposerFiles: composerFilesController.files,
 		threadComposerFileLimitReached: composerFilesController.isAtLimit,
+		threadComposerFileCleanup: composerFilesController.cleanup,
+		threadComposerFileRestorationError:
+			composerFilesController.restorationError,
 		threadFilePreviewUrlsById,
 		threadEphemeralActivityItems: wakeProgressItems,
 		threadPreviews,

@@ -19,12 +19,22 @@ const draftListeners = vi.hoisted(() => new Set<(scope: string) => void>());
 const draftReadGates = vi.hoisted(
 	() => new Map<string, Promise<ComposerFileDraft[]>>()
 );
+const storageFailures = vi.hoisted(() => ({
+	draft: null as Error | null,
+	upload: null as Error | null,
+}));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	isComposerFileDraftRetired: () => false,
+	readComposerFileDraftCleanup: () => [],
+	retryComposerFileDraftCleanup: () => Promise.resolve(),
 	subscribeComposerFileDrafts: (listener: (scope: string) => void) => {
 		draftListeners.add(listener);
 		return () => draftListeners.delete(listener);
 	},
 	saveComposerFileDraft: (draft: ComposerFileDraft) => {
+		if (storageFailures.draft) {
+			return Promise.reject(storageFailures.draft);
+		}
 		drafts.set(draft.id, draft);
 		for (const listener of draftListeners) {
 			listener(draft.scope);
@@ -35,6 +45,9 @@ vi.mock("#/lib/spaces/composer-file-drafts", () => ({
 		id: string,
 		upload: ComposerFileDraft["upload"]
 	) => {
+		if (storageFailures.upload) {
+			return Promise.reject(storageFailures.upload);
+		}
 		const draft = drafts.get(id);
 		if (draft) {
 			drafts.set(id, { ...draft, upload });
@@ -57,6 +70,8 @@ afterEach(() => {
 	vi.clearAllMocks();
 	drafts.clear();
 	draftReadGates.clear();
+	storageFailures.draft = null;
+	storageFailures.upload = null;
 });
 
 function setup() {
@@ -354,6 +369,85 @@ it("restores uploaded drafts after remount, isolates threads, and remembers remo
 });
 
 describe("composer attachment submission", () => {
+	it("retains a staged descriptor until metadata persistence succeeds without staging twice", async () => {
+		const hook = setup();
+		storageFailures.upload = new Error("IndexedDB unavailable");
+		await act(async () =>
+			hook.result.current.addFiles([
+				new File(["image"], "image.bin", {
+					type: "application/octet-stream",
+				}),
+			])
+		);
+		const failed = hook.result.current.files[0];
+		expect(failed).toMatchObject({
+			failurePhase: "persist-upload",
+			status: "failed",
+			upload: { name: "image.bin" },
+		});
+		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+
+		let submitted: readonly SpaceComposerFile[] = [];
+		act(() => {
+			submitted = hook.result.current.beginSubmission();
+		});
+		await expect(
+			hook.result.current.publishReadyFiles(submitted)
+		).rejects.toThrow("wasn't sent");
+		expect(api.publishComposerUpload).not.toHaveBeenCalled();
+		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+		act(() => hook.result.current.finishSubmission(submitted));
+
+		storageFailures.upload = null;
+		await act(async () => {
+			await Promise.all([
+				hook.result.current.retryFile(failed.localId),
+				hook.result.current.retryFile(failed.localId),
+			]);
+		});
+		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(hook.result.current.files[0]).toMatchObject({
+			failurePhase: null,
+			localId: failed.localId,
+			publishMutationId: failed.publishMutationId,
+			status: "ready",
+			upload: failed.upload,
+		});
+
+		act(() => {
+			submitted = hook.result.current.beginSubmission();
+		});
+		await act(async () => {
+			await hook.result.current.publishReadyFiles(submitted);
+		});
+		expect(api.publishComposerUpload).toHaveBeenCalledTimes(1);
+	});
+
+	it("retries local draft persistence with the same selection identity", async () => {
+		const hook = setup();
+		storageFailures.draft = new Error("IndexedDB unavailable");
+		await act(async () =>
+			hook.result.current.addFiles([new File(["draft"], "draft.txt")])
+		);
+		const failed = hook.result.current.files[0];
+		expect(failed).toMatchObject({
+			errorMessage: "Couldn't save this attachment on this device. Try again.",
+			failurePhase: "persist-draft",
+			status: "failed",
+			upload: null,
+		});
+		expect(api.stageComposerUpload).not.toHaveBeenCalled();
+		storageFailures.draft = null;
+		await act(async () => hook.result.current.retryFile(failed.localId));
+		expect(hook.result.current.files[0]).toMatchObject({
+			failurePhase: null,
+			localId: failed.localId,
+			publishMutationId: failed.publishMutationId,
+			status: "ready",
+		});
+		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+	});
+
 	it("rejects oversized files before upload while keeping other attachments", async () => {
 		const hook = setup();
 		const oversized = new File(["too large"], "large.pdf");
