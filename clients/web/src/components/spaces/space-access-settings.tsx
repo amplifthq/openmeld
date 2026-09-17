@@ -222,7 +222,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 									onClick={input.onOpenAccessSettings}
 									size="sm"
 									type="button"
-									variant="ghost"
+									variant="secondary"
 								>
 									Manage access
 								</Button>

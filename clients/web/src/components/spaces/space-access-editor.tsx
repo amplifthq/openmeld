@@ -43,13 +43,12 @@ const READING_LABELS: Record<SpaceLinkReading, string> = {
 };
 
 const JOINING_LABELS: Record<SpaceLinkJoining, string> = {
-	invite_only: "By invitation",
-	anyone: "Sign in to join",
-	password: "Password required",
+	invite_only: "Only invited people",
+	anyone: "Anyone who signs in",
+	password: "Anyone with the password",
 };
 
 // The editor renders the deliberately different Share and Access disclosures from one policy draft.
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: access combinations remain explicit so their user-facing meaning stays reviewable.
 export function SpaceAccessEditor(input: {
 	canManageAccess: boolean;
 	currentAccessMode: SpaceAccessMode;
@@ -64,7 +63,6 @@ export function SpaceAccessEditor(input: {
 }) {
 	const passwordInputId = useId();
 	const [isChangingPassword, setIsChangingPassword] = useState(false);
-	const [isChangingJoining, setIsChangingJoining] = useState(false);
 	const reading = resolveSpaceLinkReading(input.draft);
 	const joining = resolveSpaceLinkJoining(input.draft);
 	const currentModeHasPassword = spaceAccessModeUsesPassword(
@@ -94,9 +92,6 @@ export function SpaceAccessEditor(input: {
 					onChange={(value) => {
 						input.onDraftChange(setSpaceLinkReading(input.draft, value));
 						setIsChangingPassword(false);
-						if (value === "restricted") {
-							setIsChangingJoining(false);
-						}
 					}}
 					value={reading}
 				/>
@@ -157,52 +152,25 @@ export function SpaceAccessEditor(input: {
 						isShare ? "grid gap-2" : "grid gap-2 border-border/60 border-t pt-4"
 					}
 				>
-					<div className="flex items-start justify-between gap-3">
-						<div className="min-w-0 space-y-0.5">
-							{isShare ? null : (
-								<h3 className="font-medium text-sm">Participation</h3>
-							)}
-							<p className={isShare ? "text-sm" : "font-medium text-xs"}>
-								{describeJoining(joining, input.draft, input.organizationName)}
-							</p>
-						</div>
-						{isShare && input.canManageAccess ? (
-							<Button
-								disabled={input.disabled}
-								onClick={() => setIsChangingJoining((value) => !value)}
-								size="xs"
-								type="button"
-								variant="ghost"
-							>
-								{isChangingJoining ? "Done" : "Change"}
-							</Button>
-						) : null}
-					</div>
-					{!isShare || isChangingJoining ? (
-						<div className="grid gap-2 rounded-md border border-border/70 p-3">
-							<label
-								className="font-medium text-xs"
-								htmlFor={`${passwordInputId}-join`}
-							>
-								Joining from this link
-							</label>
-							<JoiningSelect
-								disabled={input.disabled || !input.canManageAccess}
-								id={`${passwordInputId}-join`}
-								onChange={(value) => {
-									input.onDraftChange(setSpaceLinkJoining(input.draft, value));
-									setIsChangingPassword(false);
-								}}
-								reading={reading}
-								value={joining}
-							/>
-							{joining === "password" && reading === "anyone" ? (
-								<p className="text-muted-foreground text-xs/relaxed">
-									The Space password is required to join, but not to read.
-								</p>
-							) : null}
-						</div>
-					) : null}
+					<label
+						className="font-medium text-sm"
+						htmlFor={`${passwordInputId}-join`}
+					>
+						Who can join
+					</label>
+					<JoiningSelect
+						disabled={input.disabled || !input.canManageAccess}
+						id={`${passwordInputId}-join`}
+						onChange={(value) => {
+							input.onDraftChange(setSpaceLinkJoining(input.draft, value));
+							setIsChangingPassword(false);
+						}}
+						reading={reading}
+						value={joining}
+					/>
+					<p className="text-muted-foreground text-xs/relaxed">
+						{describeJoining(joining, input.draft, input.organizationName)}
+					</p>
 				</section>
 			)}
 
@@ -273,15 +241,15 @@ function JoiningSelect(input: {
 			/>
 			<SelectContent matchTriggerWidth>
 				<SelectItem index={0} value="invite_only">
-					By invitation
+					Only invited people
 				</SelectItem>
 				{input.reading === "anyone" ? (
 					<SelectItem index={1} value="anyone">
-						Sign in to join
+						Anyone who signs in
 					</SelectItem>
 				) : null}
 				<SelectItem index={2} value="password">
-					Password required
+					Anyone with the password
 				</SelectItem>
 			</SelectContent>
 		</Select>
@@ -321,10 +289,10 @@ function describeJoining(
 			? ` People at ${organizationName} can also find and join this Space.`
 			: "";
 	if (joining === "invite_only") {
-		return `Joining is by invitation.${exception}`;
+		return `Only invited people can join this Space.${exception}`;
 	}
 	if (joining === "password") {
-		return `A password is required to join.${exception}`;
+		return `People need the Space password to join.${exception}`;
 	}
 	if (!draft.allowGuests) {
 		return `People at ${organizationName ?? "your organization"} can sign in to join. Guests need an invitation.`;
