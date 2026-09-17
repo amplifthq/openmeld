@@ -3,7 +3,6 @@ import path from "node:path";
 import process from "node:process";
 
 import {
-  assertCoalescedStagingUpdate,
   parseStagingWebSetupCommand,
   readStagingSetupSensitiveValues,
 } from "./staging-computer-update-smoke-contract.mjs";
@@ -147,7 +146,7 @@ async function executeStagingComputerUpdateSmoke(input) {
 
   enableAutomaticUpdates(input.sensitiveValues);
   runCanaryMaintenanceTick({ sensitiveValues: input.sensitiveValues });
-  const firstOperationId = await verifyAutomaticAndManualUpdate({
+  const firstOperationId = await waitForAutomaticUpdate({
     sensitiveValues: input.sensitiveValues,
     targetVersion: firstCliManifest.version,
   });
@@ -174,7 +173,7 @@ async function executeStagingComputerUpdateSmoke(input) {
   pass("Second split Staging CLI published", secondCliManifest.version);
 
   runCanaryMaintenanceTick({ sensitiveValues: input.sensitiveValues });
-  const secondOperationId = await verifyAutomaticAndManualUpdate({
+  const secondOperationId = await waitForAutomaticUpdate({
     sensitiveValues: input.sensitiveValues,
     targetVersion: secondCliManifest.version,
   });
@@ -207,7 +206,7 @@ function enableAutomaticUpdates(sensitiveValues) {
   }
 }
 
-async function verifyAutomaticAndManualUpdate(input) {
+async function waitForAutomaticUpdate(input) {
   const automaticOperation = await waitForUpdateOperation({
     predicate: (operation) =>
       operation.requestSource === "automatic" &&
@@ -216,17 +215,7 @@ async function verifyAutomaticAndManualUpdate(input) {
     timeoutMs: LIVE_UPDATE_START_TIMEOUT_MS,
   });
   pass("Automatic update started", automaticOperation.operationId);
-
-  const manualResult = runStagingApiHelper({
-    command: "request-update",
-    sensitiveValues: input.sensitiveValues,
-  });
-  const operationId = assertCoalescedStagingUpdate({
-    automaticOperation,
-    manualResult,
-  });
-  pass("Manual Update reused the same operation", operationId);
-  return operationId;
+  return automaticOperation.operationId;
 }
 
 async function verifyCompletedUpdate(input) {

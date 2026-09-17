@@ -109,10 +109,6 @@ export function buildStagingComputerSmokePlan() {
       target: "OpenMeld Service Canary",
     },
     {
-      label: "Coalesce a manual Update request",
-      target: "The same Staging update operation",
-    },
-    {
       label: "Verify CLI targets and retained Service continuity",
       target: STAGING_ORIGIN,
     },

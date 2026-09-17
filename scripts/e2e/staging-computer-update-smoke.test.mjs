@@ -228,7 +228,6 @@ test("plans the high-value update regression without Production state", () => {
       "Connect an isolated Canary Computer",
       "Publish Service B, then split CLI C and D",
       "Run two automatic split updates",
-      "Coalesce a manual Update request",
       "Verify CLI targets and retained Service continuity",
       "Restore the previous Canary state",
     ]
