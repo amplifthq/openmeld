@@ -22,7 +22,10 @@ import {
 	buildConnectRouteSearch,
 	type ConnectRouteIntent,
 } from "#/lib/connect/connect-route";
-import { buildOrganizationSpacePath } from "#/lib/organizations/organization-routes";
+import {
+	buildOrganizationConnectPath,
+	buildOrganizationSpacePath,
+} from "#/lib/organizations/organization-routes";
 import { formatDesktopError } from "./desktop-error";
 import { getDesktopPlatform, openDesktopWeb } from "./platform";
 import { useDesktopComputerConnection } from "./use-computer-connection";
@@ -298,6 +301,10 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 	if (connection.data?.status === "unavailable" && !pending) {
 		description = connection.data.message;
 	}
+	const observeInWebPath = buildObserveConnectionProgressPath({
+		orgSlug: input.orgSlug,
+		prepareSessionId: progress?.prepareSessionId ?? null,
+	});
 	return (
 		<div className="mx-auto flex w-full max-w-lg flex-col items-center gap-4 rounded-md border border-border border-dashed px-6 py-8 text-center">
 			<SettingsAddComputerCardContent
@@ -337,6 +344,7 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 				{actionLabel}
 			</Button>
 			{pending ? <ConnectionProgress progress={progress} /> : null}
+			<ObserveConnectionProgressInWebButton path={observeInWebPath} />
 			{diagnosticId ? (
 				<details className="text-muted-foreground text-xs">
 					<summary>Connection details</summary>
@@ -353,6 +361,43 @@ function NativeComputerConnection(input: ComputerConnectionProps) {
 			) : null}
 		</div>
 	);
+}
+
+function ObserveConnectionProgressInWebButton({
+	path,
+}: {
+	path: string | null;
+}) {
+	if (!path) {
+		return null;
+	}
+	return (
+		<Button
+			onClick={() => {
+				openDesktopWeb(path).catch((error: unknown) => {
+					console.error("Could not open connection progress in Web.", error);
+				});
+			}}
+			size="sm"
+			type="button"
+			variant="ghost"
+		>
+			View connection progress in Web
+		</Button>
+	);
+}
+
+function buildObserveConnectionProgressPath(input: {
+	orgSlug?: string;
+	prepareSessionId: string | null;
+}): string | null {
+	if (!(input.orgSlug && input.prepareSessionId)) {
+		return null;
+	}
+	return buildOrganizationConnectPath({
+		orgSlug: input.orgSlug,
+		search: { observePrepareSessionId: input.prepareSessionId },
+	});
 }
 
 function ConnectionProgress({
@@ -375,12 +420,11 @@ function ConnectionProgress({
 	const view = presentComputerConnectionProgress(progress);
 	const elapsed = formatComputerConnectionElapsed(progress.startedAt, nowMs);
 	return (
-		<output
-			aria-live="polite"
-			className="block w-full max-w-sm space-y-2 text-left"
-		>
+		<div className="block w-full max-w-sm space-y-2 text-left">
 			<div className="flex items-center justify-between gap-3 text-sm">
-				<span className="font-medium text-foreground">{view.stage}</span>
+				<output aria-live="polite" className="font-medium text-foreground">
+					{view.stage}
+				</output>
 				{view.percentage === null ? null : (
 					<span className="text-muted-foreground tabular-nums">
 						{view.percentage}%
@@ -414,6 +458,6 @@ function ConnectionProgress({
 				{view.description}
 				{elapsed ? ` ${elapsed} elapsed.` : ""}
 			</p>
-		</output>
+		</div>
 	);
 }

@@ -4972,7 +4972,12 @@ must fence observations by session, operation, attempt, and sequence; a stale
 observation cannot replace a newer attempt. Measured transfer bytes may render
 a percentage, while other phases remain indeterminate. The observation never
 advances Prepare, changes its success criteria, or substitutes for its canonical
-terminal snapshot.
+terminal snapshot. Desktop may open the organization Connect route with one
+explicit non-secret Prepare Session ID so the signed-in owner can observe that
+same session; this route reads and subscribes only, and does not create another
+Prepare Session or mint setup authorization. When the observation stream is
+reconnecting, Web retains the last confirmed stage without animating it as
+fresh work.
 
 When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local

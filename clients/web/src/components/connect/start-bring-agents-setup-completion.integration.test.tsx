@@ -312,6 +312,25 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		vi.clearAllMocks();
 	});
 
+	it("observes the exact Desktop Prepare Session without creating or authorizing another", async () => {
+		const snapshot = createActiveSnapshot({
+			prepareSessionId: "prepare-desktop-1",
+			targetSpaceId: null,
+		});
+		readPrepareSessionMock.mockResolvedValueOnce({ snapshot });
+
+		renderPreparePage({ observePrepareSessionId: snapshot.prepareSessionId });
+
+		await waitFor(() =>
+			expect(readPrepareSessionMock).toHaveBeenCalledWith({
+				prepareSessionId: "prepare-desktop-1",
+			})
+		);
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+		expect(mintPrepareSessionTokenMock).not.toHaveBeenCalled();
+		expect(createComputerAuthorizationMutateAsyncMock).not.toHaveBeenCalled();
+	});
+
 	it.each([
 		"prepare.account_switch_cancelled",
 		"prepare.authorization_failed",

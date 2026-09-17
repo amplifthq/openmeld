@@ -155,6 +155,7 @@ const prepareSessionLoadRequests = new Map<
 
 export type StartBringAgentsSetupPageProps = {
 	autoReturnOnCompletion?: boolean;
+	observePrepareSessionId?: string;
 	orgSlug?: string;
 	selfRoute?: string;
 	selfRouteSearch?: ConnectRouteSearch;
@@ -496,6 +497,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 		loadGatewayUrl: bringAgentsSetup.loadGatewayUrl,
 		onFreshSessionLoaded: consumeFreshSessionRouteIntent,
 		onNavigationActionAlreadyStarted: input.onNavigationActionAlreadyStarted,
+		observePrepareSessionId: input.observePrepareSessionId ?? null,
 		preferCompletedSession:
 			bringAgentsSetup.routeIntent.kind === "account_computer_setup",
 		runtimeLane: bringAgentsSetup.runtimeLane,
@@ -898,7 +900,10 @@ function PrepareSessionTimeline(input: {
 					title={step.title}
 				>
 					{isCurrentPrepareUserStep(step) && input.connectionProgress ? (
-						<PrepareConnectionProgress progress={input.connectionProgress} />
+						<PrepareConnectionProgress
+							progress={input.connectionProgress}
+							webSocketStatus={input.webSocketStatus}
+						/>
 					) : null}
 					{isCurrentPrepareUserStep(step) &&
 					step.id === "connect_terminal" &&
@@ -953,16 +958,28 @@ function PrepareSessionTimeline(input: {
 
 function PrepareConnectionProgress({
 	progress,
+	webSocketStatus,
 }: {
 	progress: ComputerConnectionProgressObservation;
+	webSocketStatus: PrepareWebSocketStatus;
 }) {
 	const view = presentComputerConnectionProgress(progress);
 	const nowMs = useNowMs(1000);
 	const elapsed = formatComputerConnectionElapsed(progress.startedAt, nowMs);
+	const reconnecting = webSocketStatus !== "connected";
+	let activityClassName =
+		"h-full w-1/3 rounded-full bg-primary motion-safe:animate-pulse";
+	if (view.determinate) {
+		activityClassName = "h-full rounded-full bg-primary transition-[width]";
+	} else if (reconnecting) {
+		activityClassName = "h-full w-1/3 rounded-full bg-primary";
+	}
 	return (
-		<output aria-live="polite" className="mt-3 block space-y-2 text-sm">
+		<div className="mt-3 block space-y-2 text-sm">
 			<div className="flex items-center justify-between gap-3">
-				<p className="font-medium">{view.stage}</p>
+				<output aria-live="polite" className="font-medium">
+					{reconnecting ? "Reconnecting to connection progress" : view.stage}
+				</output>
 				{view.percentage === null ? null : (
 					<span className="text-muted-foreground tabular-nums">
 						{view.percentage}%
@@ -982,21 +999,19 @@ function PrepareConnectionProgress({
 				className="h-1.5 overflow-hidden rounded-full bg-muted"
 			>
 				<div
-					className={
-						view.determinate
-							? "h-full rounded-full bg-primary transition-[width]"
-							: "h-full w-1/3 rounded-full bg-primary motion-safe:animate-pulse"
-					}
+					className={activityClassName}
 					style={
 						view.determinate ? { width: `${view.percentage ?? 0}%` } : undefined
 					}
 				/>
 			</div>
 			<p className="text-muted-foreground text-xs">
-				{view.description}
+				{reconnecting
+					? `Last confirmed step: ${view.stage}. Latest status is temporarily unavailable.`
+					: view.description}
 				{elapsed ? ` ${elapsed} elapsed.` : ""}
 			</p>
-		</output>
+		</div>
 	);
 }
 
@@ -1920,6 +1935,7 @@ function usePrepareSession(input: {
 	loadGatewayUrl: () => Promise<string>;
 	onFreshSessionLoaded?: () => void;
 	onNavigationActionAlreadyStarted?: () => void;
+	observePrepareSessionId: string | null;
 	preferCompletedSession: boolean;
 	runtimeLane: string | null;
 	sourceNavigationAction?: NonNullable<
@@ -1933,6 +1949,7 @@ function usePrepareSession(input: {
 		forceFreshSession,
 		humanProfileId,
 		loadGatewayUrl,
+		observePrepareSessionId,
 		preferCompletedSession,
 		runtimeLane,
 		sourceNavigationAction,
@@ -2011,7 +2028,7 @@ function usePrepareSession(input: {
 	}, [commandRefreshKey]);
 
 	useEffect(() => {
-		if (!sessionKey) {
+		if (!(sessionKey || observePrepareSessionId)) {
 			setState({
 				error: null,
 				opaqueToken: null,
@@ -2048,20 +2065,32 @@ function usePrepareSession(input: {
 					}),
 				targetSpaceId,
 			};
-			const session = await loadPrepareSessionForInputOnce(sessionInput, {
-				forceFreshSession,
-				preferCompletedSession,
-			});
+			const session = observePrepareSessionId
+				? {
+						opaqueToken: null,
+						opaqueTokenExpiresAt: null,
+						snapshot: (
+							await readPrepareSession({
+								prepareSessionId: observePrepareSessionId,
+							})
+						).snapshot,
+					}
+				: await loadPrepareSessionForInputOnce(sessionInput, {
+						forceFreshSession,
+						preferCompletedSession,
+					});
 			if (cancelled) {
 				return;
 			}
-			persistPrepareSessionPointer(session, {
-				connectedComputerId,
-				deviceId,
-				humanProfileId,
-				runtimeLane,
-				targetSpaceId,
-			});
+			if (!observePrepareSessionId) {
+				persistPrepareSessionPointer(session, {
+					connectedComputerId,
+					deviceId,
+					humanProfileId,
+					runtimeLane,
+					targetSpaceId,
+				});
+			}
 			setState({
 				error: null,
 				opaqueToken: session.opaqueToken,
@@ -2101,6 +2130,7 @@ function usePrepareSession(input: {
 		deviceId,
 		forceFreshSession,
 		humanProfileId,
+		observePrepareSessionId,
 		preferCompletedSession,
 		runtimeLane,
 		sessionKey,

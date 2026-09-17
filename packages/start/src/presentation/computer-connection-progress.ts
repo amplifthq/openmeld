@@ -75,7 +75,12 @@ export function presentComputerConnectionProgress(
     return { ...copy, determinate: false, percentage: null };
   }
   return {
-    ...copy,
+    ...(measurement.transferAttempt > 1
+      ? {
+          stage: "Retrying the OpenMeld Tools download",
+          description: "Downloading the verified tools again for this Mac.",
+        }
+      : copy),
     determinate: true,
     percentage: Math.min(
       100,
@@ -105,7 +110,7 @@ export function formatComputerConnectionElapsed(
     0,
     Math.floor((nowMs - Date.parse(startedAt)) / 1000)
   );
-  if (elapsedSeconds < 5) {
+  if (elapsedSeconds < 10) {
     return null;
   }
   const minutes = Math.floor(elapsedSeconds / 60);

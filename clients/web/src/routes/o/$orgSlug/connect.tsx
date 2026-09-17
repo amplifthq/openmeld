@@ -141,6 +141,7 @@ function WebConnectContent(input: {
 			<BringAgentsSetupProvider routeIntent={routeIntent}>
 				<StartBringAgentsSetupPage
 					autoReturnOnCompletion={false}
+					observePrepareSessionId={search.observePrepareSessionId}
 					orgSlug={orgSlug}
 					selfRoute={buildOrganizationConnectPath({ orgSlug })}
 					selfRouteSearch={resetConsumedSearch}

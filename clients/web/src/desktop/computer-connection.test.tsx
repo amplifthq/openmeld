@@ -101,6 +101,37 @@ it("shows measured download progress without inventing an overall percentage", a
 	);
 });
 
+it("opens Web on the exact Desktop-created Prepare Session", async () => {
+	state.connect.mockReturnValue(new Promise(() => undefined));
+	renderConnection(<DesktopComputerConnection orgSlug="org-a" />);
+	const connect = screen.getByRole("button", { name: "Connect this Mac" });
+	await waitFor(() => expect(connect.hasAttribute("disabled")).toBe(false));
+	fireEvent.click(connect);
+	await waitFor(() => expect(state.progressHandler).not.toBeNull());
+	state.progressHandler?.({
+		schemaVersion: 1,
+		expectedAccount: "account-a",
+		operationId: "operation-a",
+		attemptId: "attempt-a",
+		prepareSessionId: "prepare-desktop-1",
+		sequence: 1,
+		startedAt: "2026-09-17T00:00:00.000Z",
+		observedAt: "2026-09-17T00:00:00.000Z",
+		phase: "connecting_service",
+		state: "active",
+		code: "desktop.connection.connecting_service",
+	});
+	const observe = await screen.findByRole("button", {
+		name: "View connection progress in Web",
+	});
+	fireEvent.click(observe);
+	await waitFor(() =>
+		expect(state.openWeb).toHaveBeenCalledWith(
+			"/o/org-a/connect?observePrepareSessionId=prepare-desktop-1"
+		)
+	);
+});
+
 it.each([
 	"update",
 	"space",

@@ -38,6 +38,18 @@ describe("computer connection progress presentation", () => {
         },
       })
     ).toMatchObject({ determinate: true, percentage: 25 });
+    expect(
+      presentComputerConnectionProgress({
+        ...base,
+        phase: "downloading",
+        measurement: {
+          unit: "bytes",
+          value: 10,
+          total: 100,
+          transferAttempt: 2,
+        },
+      })
+    ).toMatchObject({ stage: "Retrying the OpenMeld Tools download" });
   });
 
   it("rejects stale observations within the active attempt", () => {
@@ -69,7 +81,7 @@ describe("computer connection progress presentation", () => {
     expect(
       formatComputerConnectionElapsed(
         "2026-09-17T00:00:00.000Z",
-        Date.parse("2026-09-17T00:00:04.000Z")
+        Date.parse("2026-09-17T00:00:09.000Z")
       )
     ).toBeNull();
     expect(
