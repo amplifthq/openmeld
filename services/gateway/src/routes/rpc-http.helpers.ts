@@ -14,8 +14,7 @@ import {
   ORGANIZATION_DOCUMENT_ERROR_CODES,
   ORGANIZATION_SKILL_ERROR_CODES,
   PLUGIN_ERROR_CODES,
-  projectLegacySpaceAccessView,
-  SPACE_ACCESS_VERSION,
+  projectSpaceAccessViewForVersion,
   SPACE_ACCESS_VERSION_HEADER,
   SPACE_ADDRESSING_TARGET_INVALID_ERROR_CODE,
   SPACE_FILE_ERROR_CODES,
@@ -361,15 +360,15 @@ function projectSpaceAccessResponse(
   route: string,
   headers: Headers
 ): unknown {
-  if (headers.get(SPACE_ACCESS_VERSION_HEADER) === SPACE_ACCESS_VERSION) {
-    return value;
-  }
   switch (route) {
     case "/v1/spaces":
     case "/v1/spaces/:spaceId/meta":
     case "/v1/spaces/:spaceId/status":
     case "/v1/spaces/:spaceId/bootstrap":
-      return projectLegacySpaceAccessView(value);
+      return projectSpaceAccessViewForVersion(
+        value,
+        headers.get(SPACE_ACCESS_VERSION_HEADER)
+      );
     default:
       return value;
   }

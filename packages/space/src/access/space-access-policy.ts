@@ -1,5 +1,6 @@
 import type {
   SpaceAccessMode,
+  SpaceLinkJoinPolicy,
   SpaceOrganizationVisibility,
 } from "@openmeld/schemas/types";
 
@@ -7,6 +8,7 @@ import type {
 export function resolveSpaceAccess(input: {
   visibility: SpaceOrganizationVisibility;
   accessMode: SpaceAccessMode;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   organizationMember: boolean;
   activeMember: boolean;
   invited?: boolean;
@@ -21,6 +23,7 @@ export function resolveSpaceAccess(input: {
     input.password === "valid" &&
     (input.accessMode === "protected" ||
       input.accessMode === "public_view_join_password");
+  const linkJoinAllowed = input.linkJoinPolicy !== "invite_only";
   return {
     canDiscover:
       input.activeMember || organizationJoin || input.invited === true,
@@ -28,7 +31,6 @@ export function resolveSpaceAccess(input: {
     canJoin:
       input.activeMember ||
       organizationJoin ||
-      input.accessMode === "public" ||
-      passwordAccess,
+      (linkJoinAllowed && (input.accessMode === "public" || passwordAccess)),
   };
 }

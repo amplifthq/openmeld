@@ -13,6 +13,9 @@ export async function setSpaceAccessMode(
 ): Promise<SpaceAccessModeState> {
   const parsedBody = setSpaceAccessModeBodySchema.safeParse({
     accessMode: input.accessMode,
+    ...(input.linkJoinPolicy === undefined
+      ? {}
+      : { linkJoinPolicy: input.linkJoinPolicy }),
     ...(input.password === undefined ? {} : { password: input.password }),
   });
 

@@ -60,4 +60,25 @@ describe("shared Space access", () => {
       }).canRead
     ).toBe(false);
   });
+  it("keeps public reading while invite-only joining blocks only the link grant", () => {
+    const inviteOnly = {
+      ...internal,
+      visibility: "private",
+      organizationMember: false,
+      accessMode: "public",
+      linkJoinPolicy: "invite_only",
+    } as const;
+    expect(resolveSpaceAccess(inviteOnly)).toEqual({
+      canDiscover: false,
+      canRead: true,
+      canJoin: false,
+    });
+    expect(
+      resolveSpaceAccess({
+        ...inviteOnly,
+        organizationMember: true,
+        visibility: "public",
+      }).canJoin
+    ).toBe(true);
+  });
 });

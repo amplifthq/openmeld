@@ -4,7 +4,10 @@ import {
   SpacePasswordProofError,
 } from "../../lib/space-password-proof";
 import type { CoreRpcContextInput } from "../../rpc/methods";
-import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import {
+  resolveSpaceMetaLinkJoinPolicy,
+  type SpaceMetaRecord,
+} from "../infrastructure/sql/space-meta-repo";
 import {
   parseSetSpaceAccessModeBody,
   parseUpsertSpacePasswordBody,
@@ -138,6 +141,8 @@ export async function handleSetSpaceAccessModeUseCase(input: {
   const next: SpaceMetaRecord = {
     ...management.meta,
     accessMode: parsed.accessMode,
+    linkJoinPolicy:
+      parsed.linkJoinPolicy ?? resolveSpaceMetaLinkJoinPolicy(management.meta),
     updatedAt: now,
   };
 

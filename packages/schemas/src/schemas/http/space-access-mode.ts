@@ -8,6 +8,10 @@ export const SPACE_ACCESS_MODES = [
   "protected",
 ] as const;
 
+export const SPACE_LINK_JOIN_POLICIES = ["invite_only", "access_mode"] as const;
+
+export const spaceLinkJoinPolicySchema = z.enum(SPACE_LINK_JOIN_POLICIES);
+
 export function spaceAccessModeUsesPassword(
   accessMode: z.infer<typeof spaceAccessModeSchema>
 ): accessMode is "public_view_join_password" | "protected" {
@@ -20,6 +24,7 @@ export const spaceAccessModeSchema = z.enum(SPACE_ACCESS_MODES);
 
 export const setSpaceAccessModeBodySchema = z.strictObject({
   accessMode: spaceAccessModeSchema,
+  linkJoinPolicy: spaceLinkJoinPolicySchema.optional(),
   password: spacePasswordSchema.optional(),
 });
 

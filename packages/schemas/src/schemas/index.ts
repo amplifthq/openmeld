@@ -2024,10 +2024,12 @@ export {
 } from "./http/slack-workspace-directory";
 export {
   SPACE_ACCESS_MODES,
+  SPACE_LINK_JOIN_POLICIES,
   setSpaceAccessModeBodySchema,
   spaceAccessModeSchema,
   spaceAccessModeStateSchema,
   spaceAccessModeUsesPassword,
+  spaceLinkJoinPolicySchema,
 } from "./http/space-access-mode";
 export {
   respondToSpaceAgentInteractionBodySchema,

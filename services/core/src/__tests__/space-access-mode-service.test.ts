@@ -154,4 +154,30 @@ describe("space access mode service", () => {
     });
     expect(written?.passwordProof).toBeUndefined();
   });
+
+  it("commits public reading and invite-only joining in one access update", async () => {
+    const { response, written } = await runUseCase({
+      body: { accessMode: "public", linkJoinPolicy: "invite_only" },
+      meta: createMeta({ accessMode: "members_only" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(written).toMatchObject({
+      accessMode: "public",
+      linkJoinPolicy: "invite_only",
+    });
+  });
+
+  it("preserves an existing invite-only fence when an older writer omits it", async () => {
+    const { response, written } = await runUseCase({
+      body: { accessMode: "public" },
+      meta: {
+        ...createMeta({ accessMode: "members_only" }),
+        linkJoinPolicy: "invite_only",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(written?.linkJoinPolicy).toBe("invite_only");
+  });
 });

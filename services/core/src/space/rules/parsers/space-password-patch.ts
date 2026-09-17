@@ -5,7 +5,10 @@ import {
   spaceAccessModeUsesPassword,
   upsertSpacePasswordBodySchema,
 } from "@openmeld/schemas";
-import type { SpaceAccessMode } from "@openmeld/schemas/types";
+import type {
+  SpaceAccessMode,
+  SpaceLinkJoinPolicy,
+} from "@openmeld/schemas/types";
 import {
   parseSpaceMetaUpdatePatch,
   type SpaceMetaUpdatePatch,
@@ -186,10 +189,13 @@ export function parseUpsertSpacePasswordBody(body: unknown):
   };
 }
 
-export function parseSetSpaceAccessModeBody(
-  body: unknown
-):
-  | { ok: true; accessMode: SpaceAccessMode; password?: string }
+export function parseSetSpaceAccessModeBody(body: unknown):
+  | {
+      ok: true;
+      accessMode: SpaceAccessMode;
+      linkJoinPolicy?: SpaceLinkJoinPolicy;
+      password?: string;
+    }
   | SpaceAccessModeParserFailure {
   if (!(body && typeof body === "object") || Array.isArray(body)) {
     return {
@@ -201,6 +207,7 @@ export function parseSetSpaceAccessModeBody(
 
   const unknownFields = listUnknownObjectFields(body, [
     "accessMode",
+    "linkJoinPolicy",
     "password",
   ]);
   if (unknownFields.length > 0) {
@@ -251,6 +258,9 @@ export function parseSetSpaceAccessModeBody(
   return {
     ok: true,
     accessMode: parsed.data.accessMode,
+    ...(parsed.data.linkJoinPolicy === undefined
+      ? {}
+      : { linkJoinPolicy: parsed.data.linkJoinPolicy }),
     ...(parsed.data.password === undefined
       ? {}
       : { password: parsed.data.password }),

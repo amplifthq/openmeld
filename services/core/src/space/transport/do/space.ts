@@ -214,6 +214,7 @@ import type {
   SpaceHistoryNavigation,
   SpaceHistoryNavigationQuery,
   SpaceIdentityDirectory,
+  SpaceLinkJoinPolicy,
   SpaceLiveInvalidationFrame,
   SpaceLiveSignalFrame,
   SpaceMemberDirectory,
@@ -676,6 +677,7 @@ import {
 import {
   initializeSpaceMetaRecordIfAbsent,
   readSpaceMetaRecordFromSql,
+  resolveSpaceMetaLinkJoinPolicy,
   type SpaceMetaRecord,
   upsertSpaceMetaRecord,
 } from "../../infrastructure/sql/space-meta-repo";
@@ -2308,6 +2310,7 @@ type PatchSpaceMetaInput = {
   creator?: SpaceCreator;
   guide?: string;
   accessMode?: SpaceAccessMode;
+  linkJoinPolicy?: SpaceLinkJoinPolicy;
   organizationId?: string;
   visibility?: "public" | "private";
   password?: string;
@@ -10135,6 +10138,9 @@ export class Space extends DurableObject<CoreBindings> {
         context: input.context,
         body: {
           accessMode: input.accessMode,
+          ...(input.linkJoinPolicy === undefined
+            ? {}
+            : { linkJoinPolicy: input.linkJoinPolicy }),
           ...(input.password === undefined ? {} : { password: input.password }),
         },
       })
@@ -23589,6 +23595,7 @@ function toPublicSpaceMeta(
     ...(meta.creator ? { creator: meta.creator } : {}),
     ...(meta.guide ? { guide: meta.guide } : {}),
     accessMode: meta.accessMode,
+    linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(meta),
     passwordProtected: meta.accessMode === "protected",
     createdAt: meta.createdAt,
     updatedAt: meta.updatedAt,

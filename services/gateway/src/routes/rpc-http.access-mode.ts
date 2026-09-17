@@ -50,6 +50,9 @@ export function registerSpaceAccessModeRoute(app: Hono<HonoBindings>): void {
         return await c.var.coreRpc.setSpaceAccessMode({
           spaceId,
           accessMode: parsed.value.accessMode,
+          ...(parsed.value.linkJoinPolicy === undefined
+            ? {}
+            : { linkJoinPolicy: parsed.value.linkJoinPolicy }),
           ...(parsed.value.password === undefined
             ? {}
             : { password: parsed.value.password }),
