@@ -1071,6 +1071,7 @@ describe("SpaceConversationPanel", () => {
 			});
 		renderSpaceConversationPanel({
 			timelineItems: [createTimelineItem({ id: "signal-1" })],
+			unreadBatchOccurredAtMs: 100,
 			unreadTargets: [
 				{ occurredAtMs: 1, signalId: "signal-1", threadRootSignalId: null },
 			],
@@ -2934,6 +2935,71 @@ describe("SpaceConversationPanel", () => {
 				jumpButton.closest("[data-active]")?.getAttribute("data-active")
 			).toBe("false");
 		});
+	});
+
+	it("catches up unread main messages even when the short conversation is already at the latest position", async () => {
+		const onCatchUpUnread = vi.fn(async () => undefined);
+		renderSpaceConversationPanel({
+			onCatchUpUnread,
+			timelineItems: [createTimelineItem({ text: "Unread short message" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+
+		const jumpButton = screen.getByRole("button", {
+			name: "Jump to latest and mark messages as read",
+		});
+		expect(
+			jumpButton.closest("[data-active]")?.getAttribute("data-active")
+		).toBe("true");
+
+		fireEvent.click(jumpButton);
+
+		await waitFor(() => expect(onCatchUpUnread).toHaveBeenCalledOnce());
+	});
+
+	it("keeps catch-up retryable after reaching latest when the read write fails", async () => {
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => undefined);
+		renderSpaceConversationPanel({
+			onCatchUpUnread: vi.fn(() => Promise.reject(new Error("offline"))),
+			timelineItems: [createTimelineItem({ text: "Unread short message" })],
+			unreadCount: 1,
+			unreadStateReady: true,
+			unreadTargets: [
+				{
+					occurredAtMs: 10,
+					signalId: "signal-1",
+					threadRootSignalId: null,
+				},
+			],
+		});
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "Jump to latest and mark messages as read",
+			})
+		);
+
+		expect(
+			await screen.findByText(
+				"You’re at the latest messages, but OpenMeld couldn’t mark them as read. Try again."
+			)
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", {
+				name: "Try again to mark the latest messages as read",
+			})
+		).toBeTruthy();
+		consoleError.mockRestore();
 	});
 
 	it("renders profile avatars and keeps message time outside the bubble", () => {

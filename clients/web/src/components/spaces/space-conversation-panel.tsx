@@ -299,6 +299,7 @@ type SpaceConversationPanelResolvedProps = {
 	membersSnapshot: SpaceMembersSnapshot | null;
 	modelCatalog: ModelCatalog | null;
 	onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
+	onCatchUpUnread?: () => Promise<void>;
 	onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 	onAddPeopleOrAgents?: () => void;
 	onClearComposerReplyTo: () => void;
@@ -355,6 +356,7 @@ type SpaceConversationPanelResolvedProps = {
 	isCreatingThread: boolean;
 	timelineItems: readonly SpaceTimelineItem[];
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadBatchOccurredAtMs?: number | null;
 	unreadCount: number;
 	unreadStateReady: boolean;
 };
@@ -624,7 +626,7 @@ function SpaceConversationPanelContent(
 		composerSendBlocked,
 		composerTargetName,
 		conversationTopOverlayElement,
-		dismissedUnreadTargetKeys,
+		dismissedUnreadThroughMs,
 		entries,
 		isReadOnly,
 		loadedMainTimelineSignalIds,
@@ -638,7 +640,7 @@ function SpaceConversationPanelContent(
 		onViewMessageInGraph,
 		profilePresentationsById,
 		setConversationTopOverlayElement,
-		setDismissedUnreadTargetKeys,
+		setDismissedUnreadThroughMs,
 		setMessageDetailsItem,
 		showComposer,
 		spaceGraph,
@@ -811,7 +813,10 @@ function SpaceConversationPanelContent(
 									onJumpToMessage={onJumpToMessage}
 									onNavigateStart={releaseReadingPosition}
 									renderNavigation={(history) => (
-										<SpaceHistoryJumpControl history={history} />
+										<SpaceHistoryJumpControl
+											history={history}
+											onCatchUpUnread={input.onCatchUpUnread}
+										/>
 									)}
 									scrollElement={conversationScrollElement}
 									visible={showHistoryRail}
@@ -867,16 +872,21 @@ function SpaceConversationPanelContent(
 									afterDate={
 										<SpaceUnreadNavigationControl
 											count={input.unreadCount}
-											dismissedTargetKeys={dismissedUnreadTargetKeys}
+											dismissedThroughMs={dismissedUnreadThroughMs}
 											navigation={unreadNavigation}
-											onDismiss={() =>
-												setDismissedUnreadTargetKeys((current) =>
-													mergeUnreadTargetKeys(
-														current,
-														unreadNavigation.targets.map(unreadTargetKey)
-													)
-												)
-											}
+											onDismiss={() => {
+												const cutoff =
+													input.unreadBatchOccurredAtMs ??
+													Math.max(
+														0,
+														...(input.unreadTargets ?? []).map(
+															(target) => target.occurredAtMs
+														)
+													);
+												setDismissedUnreadThroughMs((current) =>
+													Math.max(current, cutoff)
+												);
+											}}
 											onNavigate={revealUnreadTarget}
 										/>
 									}
@@ -903,7 +913,11 @@ function SpaceConversationPanelContent(
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
 
-							{!input.historyNavigation && <SpaceHistoryJumpControl />}
+							{!input.historyNavigation && (
+								<SpaceHistoryJumpControl
+									onCatchUpUnread={input.onCatchUpUnread}
+								/>
+							)}
 						</MessageScroller>
 					</MessageScrollerProvider>
 				}
@@ -1107,9 +1121,7 @@ function useSpaceConversationPresentationController(
 	const [spaceGraphFocusRequest, setSpaceGraphFocusRequest] =
 		useState<SpaceGraphFocusRequest | null>(null);
 	const spaceGraphLayout = useSpaceGraphLayout(input.spaceId);
-	const [dismissedUnreadTargetKeys, setDismissedUnreadTargetKeys] = useState(
-		() => new Set<string>()
-	);
+	const [dismissedUnreadThroughMs, setDismissedUnreadThroughMs] = useState(0);
 	const [starterComputerSetupOpen, setStarterComputerSetupOpen] =
 		useState(false);
 	const threadSignalIds = useMemo(
@@ -1313,7 +1325,7 @@ function useSpaceConversationPresentationController(
 		composerSendBlocked,
 		composerTargetName,
 		conversationTopOverlayElement,
-		dismissedUnreadTargetKeys,
+		dismissedUnreadThroughMs,
 		entries,
 		isReadOnly,
 		loadedMainTimelineSignalIds,
@@ -1333,7 +1345,7 @@ function useSpaceConversationPresentationController(
 		profileEntriesById,
 		profilePresentationsById,
 		setConversationTopOverlayElement,
-		setDismissedUnreadTargetKeys,
+		setDismissedUnreadThroughMs,
 		setMessageDetailsItem,
 		setStarterComputerSetupOpen,
 		showComposer,
@@ -1868,13 +1880,13 @@ function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
 
 function SpaceUnreadNavigationControl(input: {
 	count: number;
-	dismissedTargetKeys: ReadonlySet<string>;
+	dismissedThroughMs: number;
 	navigation: SpaceUnreadNavigationState;
 	onDismiss: () => void;
 	onNavigate: (target: SpaceInboxUnreadTarget) => Promise<boolean>;
 }) {
 	const targets = input.navigation.targets.filter(
-		(target) => !input.dismissedTargetKeys.has(unreadTargetKey(target))
+		(target) => target.occurredAtMs > input.dismissedThroughMs
 	);
 	const firstTarget = targets[0];
 	if (!firstTarget) {
@@ -1965,17 +1977,6 @@ function resolveSpaceUnreadNavigationState(input: {
 	}
 	targets.sort((left, right) => left.occurredAtMs - right.occurredAtMs);
 	return { targets };
-}
-
-function unreadTargetKey(target: SpaceInboxUnreadTarget): string {
-	return `${target.threadRootSignalId ?? "main"}:${target.signalId}:${String(target.occurredAtMs)}`;
-}
-
-function mergeUnreadTargetKeys(
-	current: ReadonlySet<string>,
-	targetKeys: readonly string[]
-): Set<string> {
-	return new Set([...current, ...targetKeys]);
 }
 
 function SpaceConversationTopOverlay(input: {

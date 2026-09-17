@@ -12,7 +12,7 @@ const {
 	invalidateInboxFactsMock: vi.fn(),
 	markCurrentSpaceInboxReadThroughMock: vi.fn(),
 	optimisticallyMarkSpaceInboxReadThroughMock: vi.fn(),
-	queryClient: { cancelQueries: vi.fn() },
+	queryClient: { cancelQueries: vi.fn(), fetchQuery: vi.fn() },
 	rollbackMock: vi.fn(),
 }));
 
@@ -42,6 +42,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 		organization: (organizationId: string) => ["inbox", organizationId],
 	},
 	invalidateInboxFacts: invalidateInboxFactsMock,
+	spaceInboxSummaryQueryOptions: vi.fn(() => ({})),
 	spaceInboxUnreadTargetsQueryOptions: vi.fn(() => ({})),
 }));
 
@@ -53,6 +54,16 @@ vi.mock("#/query/organizations/inbox-read-through-cache", () => ({
 describe("useSpaceInboxReadPosition", () => {
 	beforeEach(() => {
 		queryClient.cancelQueries.mockReset().mockResolvedValue(undefined);
+		queryClient.fetchQuery.mockReset().mockResolvedValue({
+			organizationId: "org-acme",
+			spaces: [
+				{
+					latestUnreadOccurredAtMs: 100,
+					spaceId: "space-project",
+					unreadCount: 3,
+				},
+			],
+		});
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		markCurrentSpaceInboxReadThroughMock
 			.mockReset()
@@ -129,6 +140,35 @@ describe("useSpaceInboxReadPosition", () => {
 		expect(invalidateInboxFactsMock).toHaveBeenCalledWith({
 			organizationId: "org-acme",
 			queryClient,
+		});
+	});
+
+	it("retries an explicit catch-up with the same frozen server cutoff", async () => {
+		markCurrentSpaceInboxReadThroughMock
+			.mockRejectedValueOnce(new Error("offline"))
+			.mockResolvedValueOnce(undefined);
+		const { result } = renderHook(() =>
+			useSpaceInboxReadPosition({
+				destination: "ordinary-space",
+				organizationId: "org-acme",
+				spaceId: "space-project",
+			})
+		);
+
+		await expect(result.current.catchUpMain()).rejects.toThrow("offline");
+		await result.current.catchUpMain();
+
+		expect(queryClient.fetchQuery).toHaveBeenCalledOnce();
+		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenCalledTimes(2);
+		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenNthCalledWith(1, {
+			organizationId: "org-acme",
+			spaceId: "space-project",
+			throughOccurredAtMs: 100,
+		});
+		expect(markCurrentSpaceInboxReadThroughMock).toHaveBeenNthCalledWith(2, {
+			organizationId: "org-acme",
+			spaceId: "space-project",
+			throughOccurredAtMs: 100,
 		});
 	});
 });

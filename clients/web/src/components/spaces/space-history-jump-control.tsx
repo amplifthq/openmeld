@@ -15,25 +15,64 @@ import {
 	useMessageScrollerScrollable,
 } from "@shadcn/react/message-scroller";
 import { motion, useReducedMotion } from "motion/react";
+import { useState } from "react";
 import { MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME } from "./primitives/message-scroller";
 import type { SpaceHistoryActions } from "./space-history-rail";
 
 export function SpaceHistoryJumpControl({
 	history,
+	onCatchUpUnread,
 }: {
 	history?: SpaceHistoryActions;
+	onCatchUpUnread?: () => Promise<void>;
 }) {
 	const reduceMotion = useReducedMotion();
 	const { scrollToEnd } = useMessageScroller();
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
+	const [catchUpPending, setCatchUpPending] = useState(false);
+	const [catchUpError, setCatchUpError] = useState(false);
+	const pending = catchUpPending || !!history?.pending;
 	const active =
-		!!history?.isHistorical || canScrollToEnd || !!history?.pending;
+		!!history?.isHistorical || canScrollToEnd || pending || !!onCatchUpUnread;
+	const actionLabel = resolveLatestActionLabel({
+		catchUpError,
+		hasCatchUp: !!onCatchUpUnread,
+	});
+	const handleLatest = async () => {
+		if (pending) {
+			return;
+		}
+		if (!onCatchUpUnread) {
+			if (history) {
+				await history.onLatest();
+			} else {
+				scrollToEnd({ behavior: reduceMotion ? "auto" : "smooth" });
+			}
+			return;
+		}
+		setCatchUpError(false);
+		setCatchUpPending(true);
+		try {
+			if (history) {
+				await history.onLatest();
+			} else {
+				scrollToEnd({ behavior: "auto" });
+				await waitForConversationPaint();
+			}
+			await onCatchUpUnread();
+		} catch (error) {
+			console.error("Failed to catch up the Space read position.", error);
+			setCatchUpError(true);
+		} finally {
+			setCatchUpPending(false);
+		}
+	};
 	const transition = {
 		duration: reduceMotion ? 0 : 0.2,
 		ease: [0.23, 1, 0.32, 1] as const,
 	};
 	return (
-		<div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center">
+		<div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex flex-col items-center gap-2">
 			<div
 				className={cn(
 					MESSAGE_SCROLLER_BUTTON_MOTION_CLASS_NAME,
@@ -86,23 +125,16 @@ export function SpaceHistoryJumpControl({
 							<TooltipTrigger
 								render={
 									<Button
-										aria-label="Jump to latest message"
+										aria-label={actionLabel}
 										className="rounded-full max-lg:pointer-fine:min-h-8 max-lg:pointer-fine:min-w-8"
-										onClick={() => {
-											if (history) {
-												history.onLatest();
-											} else {
-												scrollToEnd({
-													behavior: reduceMotion ? "auto" : "smooth",
-												});
-											}
-										}}
+										disabled={pending}
+										onClick={handleLatest}
 										size="icon"
 										variant="ghost"
 									/>
 								}
 							>
-								{history?.pending ? (
+								{pending ? (
 									<SpinnerGapIcon
 										aria-hidden="true"
 										className="animate-spin motion-reduce:animate-none"
@@ -112,12 +144,39 @@ export function SpaceHistoryJumpControl({
 								)}
 							</TooltipTrigger>
 							<TooltipContent className="motion-reduce:animate-none">
-								Jump to latest message
+								{actionLabel}
 							</TooltipContent>
 						</Tooltip>
 					</motion.div>
 				</motion.div>
 			</div>
+			{catchUpError ? (
+				<div
+					className="pointer-events-auto rounded-lg bg-background px-3 py-2 text-destructive text-xs shadow-sm"
+					role="alert"
+				>
+					You’re at the latest messages, but OpenMeld couldn’t mark them as
+					read. Try again.
+				</div>
+			) : null}
 		</div>
 	);
+}
+
+async function waitForConversationPaint(): Promise<void> {
+	await new Promise<void>((resolve) => {
+		requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+	});
+}
+
+function resolveLatestActionLabel(input: {
+	catchUpError: boolean;
+	hasCatchUp: boolean;
+}): string {
+	if (!input.hasCatchUp) {
+		return "Jump to latest message";
+	}
+	return input.catchUpError
+		? "Try again to mark the latest messages as read"
+		: "Jump to latest and mark messages as read";
 }

@@ -1,19 +1,23 @@
 import type { SpaceInboxUnreadTarget } from "@openmeld/schemas/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { markCurrentSpaceInboxReadThrough } from "#/lib/organizations/inbox";
 import {
 	inboxQueryKeys,
 	invalidateInboxFacts,
+	spaceInboxSummaryQueryOptions,
 	spaceInboxUnreadTargetsQueryOptions,
 } from "#/query/organizations/inbox";
 import {
 	optimisticallyMarkSpaceInboxReadThrough,
 	type SpaceInboxUnreadDestination,
 } from "#/query/organizations/inbox-read-through-cache";
+import { createSpaceInboxReadThroughCoordinator } from "./space-inbox-read-through-coordinator";
 
 export type SpaceInboxReadPosition = {
+	catchUpMain: () => Promise<void>;
 	isReady: boolean;
+	latestUnreadOccurredAtMs: number | null;
 	markReadThrough: (
 		throughOccurredAtMs: number,
 		threadRootSignalId?: string
@@ -35,7 +39,16 @@ export function useSpaceInboxReadPosition(input: {
 			spaceId: input.spaceId,
 		})
 	);
-	const persist = useCallback(
+	const summaryQuery = useQuery(
+		spaceInboxSummaryQueryOptions({
+			enabled: input.organizationId !== null,
+			organizationId: input.organizationId ?? "",
+		})
+	);
+	const summaryItem = summaryQuery.data?.spaces?.find(
+		(space) => space.spaceId === input.spaceId
+	);
+	const persistOne = useCallback(
 		async (throughOccurredAtMs: number, threadRootSignalId?: string) => {
 			if (!(input.organizationId && throughOccurredAtMs > 0)) {
 				return;
@@ -80,8 +93,71 @@ export function useSpaceInboxReadPosition(input: {
 		},
 		[input.destination, input.organizationId, input.spaceId, queryClient]
 	);
+	const enqueuePersist = useMemo(
+		() =>
+			createSpaceInboxReadThroughCoordinator(
+				async ({ threadRootSignalId, throughOccurredAtMs }) =>
+					await persistOne(throughOccurredAtMs, threadRootSignalId)
+			),
+		[persistOne]
+	);
+	const persist = useCallback(
+		async (throughOccurredAtMs: number, threadRootSignalId?: string) =>
+			await enqueuePersist({
+				...(threadRootSignalId ? { threadRootSignalId } : {}),
+				throughOccurredAtMs,
+			}),
+		[enqueuePersist]
+	);
+	const retryCutoffRef = useRef<{
+		cutoff: number;
+		scopeKey: string;
+	} | null>(null);
+	const catchUpMain = useCallback(async () => {
+		if (!input.organizationId) {
+			return;
+		}
+		const scopeKey = `${input.organizationId}:${input.spaceId}`;
+		let cutoff =
+			retryCutoffRef.current?.scopeKey === scopeKey
+				? retryCutoffRef.current.cutoff
+				: null;
+		if (cutoff === null) {
+			const summary = await queryClient.fetchQuery({
+				...spaceInboxSummaryQueryOptions({
+					organizationId: input.organizationId,
+				}),
+				staleTime: 0,
+			});
+			const space = summary.spaces.find(
+				(candidate) => candidate.spaceId === input.spaceId
+			);
+			if (!space) {
+				if ((unreadTargetsQuery.data?.totalUnreadCount ?? 0) > 0) {
+					throw new Error(
+						"OpenMeld couldn’t confirm which messages are unread. Try again."
+					);
+				}
+				return;
+			}
+			cutoff = space.latestUnreadOccurredAtMs;
+			retryCutoffRef.current = { cutoff, scopeKey };
+		}
+		await persist(cutoff);
+		if (retryCutoffRef.current?.scopeKey === scopeKey) {
+			retryCutoffRef.current = null;
+		}
+	}, [
+		input.organizationId,
+		input.spaceId,
+		persist,
+		queryClient,
+		unreadTargetsQuery.data?.totalUnreadCount,
+	]);
 	return {
+		catchUpMain,
 		isReady: unreadTargetsQuery.isSuccess,
+		latestUnreadOccurredAtMs: summaryItem?.latestUnreadOccurredAtMs ?? null,
 		markReadThrough: persist,
 		targets: unreadTargetsQuery.data?.targets ?? [],
 		totalUnreadCount: unreadTargetsQuery.data?.totalUnreadCount ?? 0,

@@ -21,7 +21,7 @@ import type { SpaceHistoryNavigationController } from "./use-space-history-navig
 
 export type SpaceHistoryActions = {
 	onBack?: () => void;
-	onLatest: () => void;
+	onLatest: () => Promise<void>;
 	isHistorical: boolean;
 	pending: boolean;
 };
@@ -205,20 +205,23 @@ export function SpaceHistoryRail(input: {
 			setActiveIndex(null);
 		}, 180);
 	};
-	const latest = () => {
+	const latest = async () => {
 		jumpSequence.current += 1;
 		setPrevious(readPosition(input.scrollElement));
 		closePreview();
 		input.controller.latest();
 		input.onFollowLatest();
-		requestAnimationFrame(() =>
+		await new Promise<void>((resolve) => {
 			requestAnimationFrame(() =>
-				input.scrollElement?.scrollTo({
-					top: input.scrollElement.scrollHeight,
-					behavior: "instant",
+				requestAnimationFrame(() => {
+					input.scrollElement?.scrollTo({
+						top: input.scrollElement.scrollHeight,
+						behavior: "instant",
+					});
+					resolve();
 				})
-			)
-		);
+			);
+		});
 	};
 
 	return (

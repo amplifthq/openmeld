@@ -2247,6 +2247,16 @@ function SpaceLandingConversation({
 			onAddPeopleOrAgents={currentSpaceControls.onAddAgentsFromBanner}
 			onAgentInteractionResponse={controller.onAgentInteractionResponse}
 			onAgentRecoveryAction={handleAgentRecoveryAction}
+			onCatchUpUnread={
+				input.readingEnabled !== false &&
+				currentProfileIsActiveSpaceMember &&
+				spaceInboxReadPosition.isReady &&
+				spaceInboxReadPosition.targets.some(
+					(target) => target.threadRootSignalId === null
+				)
+					? spaceInboxReadPosition.catchUpMain
+					: undefined
+			}
 			onClearComposerReplyTo={controller.onClearComposerReplyTo}
 			onComposeExpiredDeviceWait={
 				controller.status.allowedActions.includes("post_message")
@@ -2347,6 +2357,7 @@ function SpaceLandingConversation({
 			threads={controller.threads}
 			threadsErrorMessage={controller.threadsErrorMessage}
 			timelineItems={controller.timelineItems}
+			unreadBatchOccurredAtMs={spaceInboxReadPosition.latestUnreadOccurredAtMs}
 			unreadCount={controller.unreadCount}
 			unreadTargets={spaceInboxReadPosition.targets}
 			viewState={{
