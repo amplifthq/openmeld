@@ -67,7 +67,7 @@ function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
       artifactPath,
     ]);
     mounted = true;
-    const app = path.join(mount, "OpenMeld Desktop.app");
+    const app = path.join(mount, "OpenMeld.app");
     inspect("codesign", ["--verify", "--deep", "--strict", app]);
     const signature = inspect("codesign", ["-dvvv", app]);
     if (
@@ -87,7 +87,7 @@ function inspectSignedCandidate(repoRoot, artifactPath, version, zipPath) {
     if (zipPath) {
       const zipRoot = path.join(temporary, "zip");
       inspect("ditto", ["-x", "-k", zipPath, zipRoot]);
-      const zipApp = path.join(zipRoot, "OpenMeld Desktop.app");
+      const zipApp = path.join(zipRoot, "OpenMeld.app");
       inspect("codesign", ["--verify", "--deep", "--strict", zipApp]);
       inspect("xcrun", ["stapler", "validate", zipApp]);
       const zipSignature = inspect("codesign", ["-dvvv", zipApp]);

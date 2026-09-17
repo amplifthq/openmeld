@@ -41,9 +41,7 @@ export async function beforeDesktopLoad(
 		});
 	}
 	if (pathname === "/logout") {
-		throw new Error(
-			"To sign out, choose Sign out of Desktop in the account menu."
-		);
+		throw new Error("To sign out, choose Sign out in the account menu.");
 	}
 	if (pathname === "/" || pathname === "/login") {
 		throw redirect({ to: "/desktop-shell", replace: true });

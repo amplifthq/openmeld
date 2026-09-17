@@ -5,7 +5,7 @@ describe("Desktop sign-in errors", () => {
 	it.each([
 		"Could not connect to OpenMeld. Check your connection and try again.",
 		"This sign-in could not be completed. Sign in with your browser again.",
-		"This version of OpenMeld Desktop is not supported by the server. Check for an app update.",
+		"This version of OpenMeld is not supported by the server. Check for an app update.",
 		"Desktop sign-in changed. Check the account and try again.",
 		"This CLI and Service do not support this action. Update OpenMeld through Web and check again.",
 		"Check your Desktop sign-in before controlling this Service.",

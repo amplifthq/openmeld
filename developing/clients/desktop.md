@@ -128,6 +128,18 @@ and stale asynchronous results clear or reject the previous count. No separate
 Inbox store, Service polling, Dock badge, or Windows behavior is introduced.
 Tray creation applies the latest observed title even if the count arrived first.
 
+The macOS menu bar menu is the compact native entry to the current Desktop
+workspace. It shows the newest eligible unread message as one preview, then
+Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. Opening the menu
+does not mark anything read. Activating the preview re-reads that exact Inbox
+item under the current account, restores the existing window, and navigates to
+the exact message or Thread reply without acknowledging unrelated unread work.
+Open app restores the renderer's existing route rather than choosing a new
+home. The menu does not expose the version, a separate Web app row, or Service
+lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
+The native menu keeps its current snapshot while open, so a refresh cannot
+retarget the row under the pointer.
+
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
 endpoints are rejected. The ordinary status/control renderer remains available
@@ -176,6 +188,11 @@ The authorized shared App Settings dialog consumes that intent through
 context. No separate Settings page or account bypass is introduced: before an
 authorized workspace mounts, the existing sign-in entry remains in control.
 Settings intents respect the updater's document interaction freeze.
+
+Visible product copy calls the application OpenMeld. The installed bundle,
+authentication client identity, data directories, and update channels retain
+their existing stable identifiers. Desktop's account menu includes Open web app;
+it opens the equivalent authorized Web route in the system browser.
 
 The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
 for shared diagnostics. It still strips cookies, credentials and unlisted headers.

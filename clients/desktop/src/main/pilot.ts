@@ -46,7 +46,13 @@ declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | nu
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
-  setUnreadCount: (count: number | null) => void
+  setUnreadCount: (count: number | null) => void,
+  setTrayPresentation?: Parameters<
+    typeof createPilotNotifications
+  >[0]["setTrayPresentation"],
+  setTrayContext?: Parameters<
+    typeof createPilotNotifications
+  >[0]["setTrayContext"]
 ) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
@@ -145,6 +151,8 @@ export function initializeDesktopPilot(
   const notifications = createPilotNotifications({
     auth,
     setUnreadCount,
+    setTrayPresentation,
+    setTrayContext,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,
@@ -161,6 +169,7 @@ export function initializeDesktopPilot(
   const diagnosticsEnabled =
     !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
+    activateNotification: notifications.activate,
     auth,
     installedTarget,
     diagnosticsEnabled,

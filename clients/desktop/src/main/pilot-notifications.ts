@@ -31,6 +31,8 @@ export function createPilotNotifications(input: {
   ensureCompatible: () => Promise<void>;
   getWindow: () => BrowserWindow | null;
   setUnreadCount?: (count: number | null) => void;
+  setTrayPresentation?: (presentation: DesktopTrayPresentation) => void;
+  setTrayContext?: (context: DesktopTrayContext | null) => void;
 }) {
   let generation = 0;
   let activationRevision = 0;
@@ -66,6 +68,8 @@ export function createPilotNotifications(input: {
     contextRevision += 1;
     context = null;
     input.setUnreadCount?.(null);
+    input.setTrayPresentation?.({ status: "signed_out" });
+    input.setTrayContext?.(null);
     for (const attempt of pending.values()) {
       attempt.cancel();
     }
@@ -223,7 +227,84 @@ export function createPilotNotifications(input: {
       }
     });
   };
+  const noCandidateStatus = (
+    next: NonNullable<DesktopNotificationContext>
+  ): Exclude<DesktopTrayPresentation, { status: "ready" }>["status"] => {
+    if (!next.latestUnreadStatus || next.latestUnreadStatus === "loading") {
+      return "loading";
+    }
+    if (next.latestUnreadStatus === "unavailable") {
+      return "unavailable";
+    }
+    return next.unreadCount && next.unreadCount > 0
+      ? "no_unread_messages"
+      : "empty";
+  };
+  const refreshTrayPresentation = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ) => {
+    if (!next.latestUnread) {
+      input.setTrayPresentation?.({ status: noCandidateStatus(next) });
+      return;
+    }
+    try {
+      const item = await readItem(next.latestUnread);
+      const spaceId = inboxMessageNotificationSpaceId(item);
+      const preferences = spaceId
+        ? await createApi(next.latestUnread).getMessageNotificationPreferences({
+            spaceId,
+          })
+        : null;
+      if (
+        context !== next ||
+        generation !== epoch ||
+        !(await currentAccount(next.userId, epoch))
+      ) {
+        return;
+      }
+      if (
+        item.readAt !== null ||
+        !spaceId ||
+        !isInboxNotificationEligible(item, preferences?.effectiveMode)
+      ) {
+        input.setTrayPresentation?.({ status: noCandidateStatus(next) });
+        return;
+      }
+      input.setTrayPresentation?.({
+        item: {
+          contextLabel: item.contextLabel,
+          occurredAt: item.occurredAt,
+          preview: item.preview,
+          reference: next.latestUnread,
+          title: item.title,
+        },
+        status: "ready",
+      });
+    } catch (error) {
+      if (context === next && generation === epoch) {
+        input.setTrayPresentation?.({ status: "unavailable" });
+      }
+      throw error;
+    }
+  };
+  const validateContextAccount = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ) => {
+    try {
+      return await currentAccount(next.userId, epoch);
+    } catch (error) {
+      if (context === next && generation === epoch) {
+        input.setUnreadCount?.(null);
+      }
+      throw error;
+    }
+  };
   return {
+    activate(reference: DesktopNotificationReference) {
+      return activate(reference, generation);
+    },
     clear,
     refreshVisibility,
     async setContext(raw: unknown) {
@@ -241,27 +322,37 @@ export function createPilotNotifications(input: {
       }
       if (scopeChanged) {
         input.setUnreadCount?.(null);
+        input.setTrayPresentation?.({ status: "loading" });
+        input.setTrayContext?.(null);
       }
       context = next;
       refreshVisibility();
       const epoch = generation;
-      if (next?.unreadCount == null) {
+      if (!next) {
+        input.setTrayPresentation?.({ status: "signed_out" });
+        input.setUnreadCount?.(null);
+        input.setTrayContext?.(null);
+        return;
+      }
+      if (next.unreadCount == null) {
+        input.setTrayPresentation?.({ status: "loading" });
         input.setUnreadCount?.(null);
         return;
       }
-      let accountMatches: boolean;
-      try {
-        accountMatches = await currentAccount(next.userId, epoch);
-      } catch (error) {
-        if (context === next && generation === epoch) {
-          input.setUnreadCount?.(null);
-        }
-        throw error;
-      }
+      const accountMatches = await validateContextAccount(next, epoch);
       if (context !== next || generation !== epoch) {
         return;
       }
       input.setUnreadCount?.(accountMatches ? next.unreadCount : null);
+      if (!accountMatches) {
+        input.setTrayPresentation?.({ status: "signed_out" });
+        return;
+      }
+      input.setTrayContext?.({
+        ...(next.computer ? { computer: next.computer } : {}),
+        unreadCount: next.unreadCount,
+      });
+      await refreshTrayPresentation(next, epoch);
     },
     async show(raw: unknown): Promise<DesktopNotificationResult> {
       const request = desktopNotificationRequestSchema.parse(raw);
@@ -328,6 +419,31 @@ export function createPilotNotifications(input: {
     },
   };
 }
+
+export type DesktopTrayPresentation =
+  | {
+      status:
+        | "empty"
+        | "loading"
+        | "no_unread_messages"
+        | "signed_out"
+        | "unavailable";
+    }
+  | {
+      item: {
+        contextLabel: string | null;
+        occurredAt: string;
+        preview: string;
+        reference: DesktopNotificationReference;
+        title: string;
+      };
+      status: "ready";
+    };
+
+export type DesktopTrayContext = {
+  computer?: NonNullable<DesktopNotificationContext>["computer"];
+  unreadCount: number | null | undefined;
+};
 
 function sameNotificationScope(
   current: DesktopNotificationContext,

@@ -6,6 +6,7 @@ import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { InboxNotificationListener } from "./inbox-notification-listener";
 
 const useInfiniteQueryMock = vi.hoisted(() => vi.fn());
+const itemsRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryRefetch = vi.hoisted(() => vi.fn(async () => undefined));
 const summaryQueryMock = vi.hoisted(() => vi.fn());
 const desktopPlatformMock = vi.hoisted(() => vi.fn());
@@ -164,6 +165,7 @@ describe("InboxNotificationListener", () => {
 		invalidateInboxFactsMock.mockReset().mockResolvedValue(undefined);
 		queryClientMock.fetchQuery.mockReset();
 		getCurrentInboxItemMock.mockReset();
+		itemsRefetch.mockClear();
 		usePathnameMock.mockReset().mockReturnValue("/o/amplift/home");
 		useInfiniteQueryMock.mockReset().mockImplementation(() => {
 			if (queryDataItems !== currentItems) {
@@ -179,7 +181,7 @@ describe("InboxNotificationListener", () => {
 					],
 				};
 			}
-			return { data: queryData };
+			return { data: queryData, refetch: itemsRefetch };
 		});
 	});
 

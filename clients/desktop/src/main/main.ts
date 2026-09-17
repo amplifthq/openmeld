@@ -1,14 +1,11 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
-  ArrowClockwiseIcon,
+  BellIcon,
   DesktopIcon,
+  DesktopTowerIcon,
   GearSixIcon,
-  GlobeIcon,
-  PlayCircleIcon,
   PowerIcon,
-  StopCircleIcon,
-  WrenchIcon,
 } from "@phosphor-icons/react/ssr";
 import {
   app,
@@ -34,6 +31,10 @@ import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
 import { initializeDesktopPilot } from "./pilot";
+import type {
+  DesktopTrayContext,
+  DesktopTrayPresentation,
+} from "./pilot-notifications";
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
@@ -45,7 +46,7 @@ const APP_WIDTH = 1040;
 const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
-const APP_NAME = "OpenMeld Desktop";
+const APP_NAME = "OpenMeld";
 const APP_ICON_PATH = join(import.meta.dirname, "../../resources/icon.png");
 const TRAY_ICON_PATH = join(
   import.meta.dirname,
@@ -66,6 +67,10 @@ let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayUnreadTitle = "";
+let trayContext: DesktopTrayContext | null = null;
+let trayMenuOpen = false;
+let trayMenuRefreshPending = false;
+let trayPresentation: DesktopTrayPresentation = { status: "loading" };
 const pilot = initializeDesktopPilot(
   () => mainWindow,
   (count) => {
@@ -74,6 +79,14 @@ const pilot = initializeDesktopPilot(
       trayUnreadTitle = count !== null && count > 99 ? "99+" : title;
       tray?.setTitle(trayUnreadTitle);
     }
+  },
+  (presentation) => {
+    trayPresentation = presentation;
+    updateTrayMenu();
+  },
+  (context) => {
+    trayContext = context;
+    updateTrayMenu();
   }
 );
 let latestServiceView: ServiceView | null = null;
@@ -81,13 +94,6 @@ let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
 
 type SyncTrayOptions = {
   showProblem: boolean;
-};
-
-type ConfirmTrayActionInput = {
-  title: string;
-  message: string;
-  detail: string;
-  confirmLabel: string;
 };
 
 function createMainWindow(
@@ -252,7 +258,7 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       submenu: [
         {
           click: () => runTrayAction(() => handlers.openWeb()),
-          label: "Open OpenMeld Web App",
+          label: "Open web app",
         },
       ],
     }
@@ -362,113 +368,100 @@ function updateTrayMenu(): void {
   if (!tray) {
     return;
   }
+  if (trayMenuOpen) {
+    trayMenuRefreshPending = true;
+    return;
+  }
   tray.setToolTip(resolveTrayTooltip());
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: resolveTrayStatusLabel(),
-        enabled: false,
-      },
-      {
-        label: resolveTrayDesktopVersionLabel(),
-        enabled: false,
-      },
-      { type: "separator" },
-      trayActionItem({
-        icon: "desktop",
-        label: "Open OpenMeld Desktop",
-        click: showStatusWindow,
-      }),
-      trayActionItem({
-        icon: "web",
-        label: "Open OpenMeld Web App",
-        click: () => {
-          runTrayAction(() => handlers.openWeb());
-        },
-      }),
-      { type: "separator" },
-      trayActionItem({
-        icon: "settings",
-        label: "Open Settings",
-        click: showSettingsWindow,
-      }),
-      { type: "separator" },
-      ...serviceMenuItems(),
-      { type: "separator" },
-      trayActionItem({
-        icon: "quit",
-        label: "Quit OpenMeld Desktop",
-        click: quitDesktop,
-      }),
-    ])
-  );
+  const menu = Menu.buildFromTemplate(createTrayMenuTemplate());
+  if ("on" in menu && typeof menu.on === "function") {
+    menu.on("menu-will-show", () => {
+      trayMenuOpen = true;
+    });
+    menu.on("menu-will-close", () => {
+      trayMenuOpen = false;
+      if (trayMenuRefreshPending) {
+        trayMenuRefreshPending = false;
+        updateTrayMenu();
+      }
+    });
+  }
+  tray.setContextMenu(menu);
 }
 
-/**
- * The service controls are binary: a running service only offers Stop (plus
- * Reconnect), a stopped service only offers Start, and a service that isn't
- * installed (or whose status / CLI can't be read) only offers Set Up. This
- * mirrors the GUI's per-state screens — we never show both Start and Stop.
- */
-function serviceMenuItems(): MenuItemConstructorOptions[] {
-  if (pilot) {
-    return [];
+function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
+  const preview = trayPreviewMenuItems(trayPresentation);
+  const unreadCount = trayContext?.unreadCount;
+  const computer = trayContext?.computer;
+  return [
+    ...preview,
+    trayActionItem({
+      icon: "inbox",
+      label: "Open inbox",
+      ...(unreadCount && unreadCount > 0
+        ? { sublabel: `${unreadCount} unread` }
+        : {}),
+      click: () => showDesktopWindow("inbox"),
+    }),
+    { type: "separator" },
+    trayActionItem({
+      icon: "desktop",
+      label: "Open app",
+      click: showStatusWindow,
+    }),
+    trayActionItem({
+      icon: "computer",
+      label: "Computer",
+      sublabel: computer?.statusLabel ?? resolveTrayComputerStatusLabel(),
+      enabled: computer?.available ?? Boolean(pilot),
+      click: () => showDesktopWindow("computer"),
+    }),
+    trayActionItem({
+      icon: "settings",
+      label: "Settings…",
+      click: showSettingsWindow,
+    }),
+    { type: "separator" },
+    trayActionItem({
+      icon: "quit",
+      label: "Quit OpenMeld",
+      click: quitDesktop,
+    }),
+  ];
+}
+
+function trayPreviewMenuItems(
+  presentation: DesktopTrayPresentation
+): MenuItemConstructorOptions[] {
+  if (presentation.status === "ready") {
+    const item = presentation.item;
+    const reference = item.reference;
+    const source = item.contextLabel
+      ? `${item.title} · ${item.contextLabel}`
+      : item.title;
+    return [
+      { label: "Latest unread", enabled: false },
+      {
+        label: `${truncateNativeMenuText(source, 70)} · ${formatRelativeTime(item.occurredAt)}`,
+        sublabel: truncateNativeMenuText(item.preview, 110),
+        toolTip: item.preview,
+        click: () => {
+          showDesktopWindow();
+          runBackgroundTask(
+            pilot?.activateNotification(reference) ?? Promise.resolve()
+          );
+        },
+      },
+    ];
   }
-  const setupItem: MenuItemConstructorOptions = {
-    icon: createTrayMenuIcon("setup"),
-    label: resolveSetupComputerLabel(),
-    click: () => runServiceTrayAction(() => handlers.setupComputer()),
-  };
-  const cliMissing = latestServiceView?.problem?.kind === "spawn_failed";
-  if (cliMissing) {
-    return [setupItem];
-  }
-  switch (latestServiceView?.lifecycle) {
-    case "running":
-      return [
-        trayActionItem({
-          icon: "reconnect",
-          label: setupItem.label ?? resolveSetupComputerLabel(),
-          click: () =>
-            runConfirmedServiceTrayAction(
-              {
-                title: "Reconnect this computer?",
-                message: "Reconnect This Computer",
-                detail:
-                  "This reruns setup for this Mac and may restart OpenMeld Service. It will not sign you out.",
-                confirmLabel: "Reconnect This Computer",
-              },
-              () => handlers.setupComputer()
-            ),
-        }),
-        trayActionItem({
-          icon: "stop",
-          label: "Stop OpenMeld Service",
-          click: () =>
-            runConfirmedServiceTrayAction(
-              {
-                title: "Stop OpenMeld Service?",
-                message: "Stop OpenMeld Service on this Mac",
-                detail:
-                  "This Mac cannot receive local Wake work until OpenMeld Service is started again.",
-                confirmLabel: "Stop OpenMeld Service",
-              },
-              () => handlers.stopService()
-            ),
-        }),
-      ];
-    case "stopped":
-      return [
-        trayActionItem({
-          icon: "start",
-          label: "Start OpenMeld Service",
-          click: () => runServiceTrayAction(() => handlers.startService()),
-        }),
-      ];
-    default:
-      // not_installed / unknown / unread — Set Up is the only safe action.
-      return [setupItem];
-  }
+  const label = {
+    empty: "No new notifications",
+    loading: "Loading notifications…",
+    no_unread_messages: "No unread messages",
+    signed_out: "Sign in to view notifications",
+    unavailable: "Notifications unavailable",
+  }[presentation.status];
+  return [{ label, enabled: false }];
 }
 
 function trayActionItem(
@@ -478,15 +471,7 @@ function trayActionItem(
   return icon ? { ...item, icon } : { ...item, icon: undefined };
 }
 
-type TrayMenuIconName =
-  | "desktop"
-  | "quit"
-  | "reconnect"
-  | "settings"
-  | "setup"
-  | "start"
-  | "stop"
-  | "web";
+type TrayMenuIconName = "computer" | "desktop" | "inbox" | "quit" | "settings";
 
 type TrayMenuIconComponent = ComponentType<{
   color?: string;
@@ -495,14 +480,11 @@ type TrayMenuIconComponent = ComponentType<{
 }>;
 
 const TRAY_MENU_ICONS = {
+  computer: DesktopTowerIcon,
   desktop: DesktopIcon,
+  inbox: BellIcon,
   quit: PowerIcon,
-  reconnect: ArrowClockwiseIcon,
   settings: GearSixIcon,
-  setup: WrenchIcon,
-  start: PlayCircleIcon,
-  stop: StopCircleIcon,
-  web: GlobeIcon,
 } satisfies Record<TrayMenuIconName, TrayMenuIconComponent>;
 
 function createTrayMenuIcon(name: TrayMenuIconName) {
@@ -520,40 +502,6 @@ function createTrayMenuIcon(name: TrayMenuIconName) {
   return nativeImage.createFromDataURL(
     `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
   );
-}
-
-function runServiceTrayAction(mutate: () => Promise<ServiceView>): void {
-  runTrayAction(async () => {
-    syncTrayServiceView(await mutate(), { showProblem: true });
-  });
-}
-
-function runConfirmedServiceTrayAction(
-  confirm: ConfirmTrayActionInput,
-  mutate: () => Promise<ServiceView>
-): void {
-  runTrayAction(async () => {
-    if (!(await confirmTrayAction(confirm))) {
-      return;
-    }
-    syncTrayServiceView(await mutate(), { showProblem: true });
-  });
-}
-
-async function confirmTrayAction(
-  input: ConfirmTrayActionInput
-): Promise<boolean> {
-  const result = await dialog.showMessageBox({
-    type: "warning",
-    title: input.title,
-    message: input.message,
-    detail: input.detail,
-    buttons: ["Cancel", input.confirmLabel],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-  });
-  return result.response === 1;
 }
 
 async function refreshTrayStatus(): Promise<void> {
@@ -587,7 +535,7 @@ function runBackgroundTask(
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    dialog.showErrorBox("OpenMeld Desktop", message);
+    dialog.showErrorBox(APP_NAME, message);
   });
 }
 
@@ -600,9 +548,9 @@ function showProblem(title: string, problem: CliProblem): void {
 
 function resolveProblemTitle(problem: CliProblem): string {
   if (problem.kind === "spawn_failed") {
-    return "OpenMeld Desktop could not find the OpenMeld command-line tool.";
+    return "OpenMeld could not find the OpenMeld command-line tool.";
   }
-  return "OpenMeld Desktop could not update the service.";
+  return "OpenMeld could not update the service.";
 }
 
 function resolveTrayStatusLabel(): string {
@@ -623,18 +571,40 @@ function resolveTrayStatusLabel(): string {
   }
 }
 
-function resolveTrayDesktopVersionLabel(): string {
-  return `OpenMeld Desktop: v${app.getVersion()}`;
-}
-
 function resolveTrayTooltip(): string {
-  return resolveTrayStatusLabel().replace(": ", " - ");
+  return APP_NAME;
 }
 
-function resolveSetupComputerLabel(): string {
-  return latestServiceView?.lifecycle === "running"
-    ? "Reconnect This Computer"
-    : "Set Up This Computer";
+function resolveTrayComputerStatusLabel(): string {
+  return resolveTrayStatusLabel().replace("OpenMeld Service: ", "Service ");
+}
+
+function truncateNativeMenuText(value: string, maxLength: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function formatRelativeTime(value: string): string {
+  const occurredAt = Date.parse(value);
+  if (!Number.isFinite(occurredAt)) {
+    return "now";
+  }
+  const elapsedMs = Math.max(0, Date.now() - occurredAt);
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) {
+    return "now";
+  }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+  return `${Math.floor(hours / 24)}d`;
 }
 
 function quitDesktop(): void {

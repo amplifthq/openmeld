@@ -32,14 +32,14 @@ export function DesktopProfiles(props: DesktopProfilesProps) {
     return (
       <ProfilesHandoffPanel
         auth={props.auth}
-        description="People are managed in OpenMeld Web for now."
+        description="People are managed in the OpenMeld web app for now."
         onOpenWeb={props.onOpenWeb}
         onSignIn={props.onSignIn}
-        rowDescription="Create and manage teammate identities in OpenMeld Web."
+        rowDescription="Create and manage teammate identities in the OpenMeld web app."
         signedOutDescription="Sign in before managing people."
         signInBusy={props.signInBusy}
         title="People"
-        webButtonLabel="Open OpenMeld Web"
+        webButtonLabel="Open web app"
       />
     );
   }
@@ -47,14 +47,14 @@ export function DesktopProfiles(props: DesktopProfilesProps) {
   return (
     <ProfilesHandoffPanel
       auth={props.auth}
-      description="Account-level Agent Profiles live on OpenMeld Web. Desktop keeps this Mac ready for local work."
+      description="Account-level Agent Profiles live in the OpenMeld web app. Desktop keeps this Mac ready for local work."
       onOpenWeb={props.onOpenWeb}
       onSignIn={props.onSignIn}
-      rowDescription="Create, rename, and review account-level Agent Profiles in OpenMeld Web."
+      rowDescription="Create, rename, and review account-level Agent Profiles in the OpenMeld web app."
       signedOutDescription="Sign in before managing Agent Profiles."
       signInBusy={props.signInBusy}
       title="Agent Profiles"
-      webButtonLabel="Open OpenMeld Web"
+      webButtonLabel="Open web app"
     />
   );
 }

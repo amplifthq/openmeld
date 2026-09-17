@@ -54,7 +54,12 @@ export type OpenMeldBridge = {
   ): () => void;
 };
 
-export type DesktopWindowDestination = "home" | "profiles" | "settings";
+export type DesktopWindowDestination =
+  | "computer"
+  | "home"
+  | "inbox"
+  | "profiles"
+  | "settings";
 
 /** Window-control channels (handled directly in main, not via DesktopHandlers). */
 export const WINDOW_IPC = {

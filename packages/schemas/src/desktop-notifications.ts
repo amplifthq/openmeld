@@ -16,6 +16,10 @@ export const desktopNotificationReferenceSchema = z.strictObject({
   organizationSlug: z.string().min(1).max(200),
   itemId: z.string().min(1),
 });
+export const desktopTrayComputerSchema = z.strictObject({
+  available: z.boolean(),
+  statusLabel: z.string().trim().min(1).max(120),
+});
 export const desktopNotificationRequestSchema =
   desktopNotificationReferenceSchema.extend({
     soundEnabled: z.boolean(),
@@ -36,6 +40,9 @@ export const desktopNotificationContextSchema = z
     userId: z.string().min(1),
     organizationId: z.string().min(1),
     enabled: z.boolean(),
+    computer: desktopTrayComputerSchema.optional(),
+    latestUnread: desktopNotificationReferenceSchema.nullable().optional(),
+    latestUnreadStatus: z.enum(["loading", "ready", "unavailable"]).optional(),
     navigationKey: z.string().max(200).optional(),
     unreadCount: z.number().int().nonnegative().safe().nullable().optional(),
     visibleConversation: inboxVisibleConversationSchema.nullable(),

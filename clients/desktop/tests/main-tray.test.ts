@@ -5,17 +5,34 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WINDOW_IPC } from "../src/shared/ipc-contract";
 
 const inboxTitle = vi.hoisted(() => ({
+  activate: vi.fn(),
+  setContext: null as ((context: unknown) => void) | null,
+  setPresentation: null as ((presentation: unknown) => void) | null,
   update: null as ((count: number | null) => void) | null,
   initial: null as number | null,
 }));
 vi.mock("../src/main/pilot", () => ({
   initializeDesktopPilot: (
     _getWindow: unknown,
-    update: (count: number | null) => void
+    update: (count: number | null) => void,
+    setPresentation: (presentation: unknown) => void,
+    setContext: (context: unknown) => void
   ) => {
     inboxTitle.update = update;
+    inboxTitle.setPresentation = setPresentation;
+    inboxTitle.setContext = setContext;
     update(inboxTitle.initial);
-    return null;
+    return {
+      activateNotification: inboxTitle.activate,
+      auth: {},
+      diagnosticsEnabled: false,
+      dispose: vi.fn(),
+      getSession: vi.fn(() => undefined),
+      install: vi.fn(),
+      installedTarget: undefined,
+      observeWindow: vi.fn(),
+      rendererUrl: "http://desktop.localhost:3200/desktop-shell",
+    };
   },
 }));
 
@@ -127,6 +144,10 @@ const electronMock = vi.hoisted(() => {
     }
   }
 
+  class MockMenu extends Array<unknown> {
+    on = vi.fn();
+  }
+
   const app = {
     dock: { setIcon: vi.fn() },
     enableSandbox: vi.fn(),
@@ -141,7 +162,11 @@ const electronMock = vi.hoisted(() => {
   };
 
   const menu = {
-    buildFromTemplate: vi.fn((template: unknown) => template),
+    buildFromTemplate: vi.fn((template: unknown[]) => {
+      const built = new MockMenu();
+      built.push(...template);
+      return built;
+    }),
     setApplicationMenu: vi.fn(),
   };
 
@@ -308,7 +333,10 @@ async function importMain(): Promise<void> {
 }
 
 beforeEach(() => {
+  inboxTitle.activate.mockReset();
   inboxTitle.initial = null;
+  inboxTitle.setContext = null;
+  inboxTitle.setPresentation = null;
   inboxTitle.update = null;
   vi.resetModules();
   restoreTestPlatform();
@@ -404,7 +432,7 @@ describe("main tray behavior", () => {
     });
   });
 
-  it("applies OpenMeld Desktop identity to native app, menu, and window surfaces", async () => {
+  it("applies OpenMeld identity to native app, menu, and window surfaces", async () => {
     setTestPlatform("darwin");
 
     await importMain();
@@ -417,10 +445,10 @@ describe("main tray behavior", () => {
       submenu?: Array<{ label?: string }>;
     }>;
 
-    expect(electronMock.app.setName).toHaveBeenCalledWith("OpenMeld Desktop");
+    expect(electronMock.app.setName).toHaveBeenCalledWith("OpenMeld");
     expect(electronMock.app.setAboutPanelOptions).toHaveBeenCalledWith(
       expect.objectContaining({
-        applicationName: "OpenMeld Desktop",
+        applicationName: "OpenMeld",
         applicationVersion: electronMock.desktopVersion,
         version: electronMock.desktopVersion,
       })
@@ -430,21 +458,17 @@ describe("main tray behavior", () => {
     );
     expect(window?.options).toMatchObject({
       icon: electronMock.appIcon,
-      title: "OpenMeld Desktop",
+      title: "OpenMeld",
     });
     expect(applicationMenu.at(0)).toEqual(
-      expect.objectContaining({ label: "OpenMeld Desktop" })
+      expect.objectContaining({ label: "OpenMeld" })
     );
     expect(applicationMenu.at(0)?.submenu?.map((item) => item.label)).toEqual(
-      expect.arrayContaining([
-        "About OpenMeld Desktop",
-        "Settings...",
-        "Quit OpenMeld Desktop",
-      ])
+      expect.arrayContaining(["About OpenMeld", "Settings...", "Quit OpenMeld"])
     );
   });
 
-  it("opens OpenMeld Desktop only from the explicit tray menu item", async () => {
+  it("opens OpenMeld only from the explicit tray menu item", async () => {
     await importMain();
 
     const tray = electronMock.trayInstances.at(0);
@@ -457,11 +481,7 @@ describe("main tray behavior", () => {
       | undefined;
 
     expect((menuTemplate ?? []).flatMap((item) => item.label ?? [])).toEqual(
-      expect.arrayContaining([
-        "Open OpenMeld Desktop",
-        "Open OpenMeld Web App",
-        "Open Settings",
-      ])
+      expect.arrayContaining(["Open app", "Open inbox", "Settings…"])
     );
   });
 
@@ -490,7 +510,7 @@ describe("main tray behavior", () => {
     }
     window.isMinimized.mockReturnValue(true);
     window.webContents.isLoadingMainFrame.mockReturnValue(true);
-    trayMenuItem("Open Settings")?.click?.();
+    trayMenuItem("Settings…")?.click?.();
     expect(window.restore).toHaveBeenCalled();
     expect(window.show).toHaveBeenCalled();
     expect(window.focus).toHaveBeenCalled();
@@ -597,7 +617,7 @@ describe("main tray behavior", () => {
   });
 
   function trayMenuLabels(): string[] {
-    return (trayMenuTemplate() ?? []).flatMap((item) =>
+    return Array.from(trayMenuTemplate() ?? []).flatMap((item) =>
       item.label ? [item.label] : []
     );
   }
@@ -627,40 +647,38 @@ describe("main tray behavior", () => {
     return trayMenuTemplate()?.find((item) => item.label === label);
   }
 
-  it("shows Desktop version information and groups tray actions", async () => {
+  it("shows the compact product menu without version, Web, or service controls", async () => {
     await importMain();
 
     expect(trayMenuLabels()).toEqual([
-      "OpenMeld Service: Running",
-      `OpenMeld Desktop: v${electronMock.desktopVersion}`,
-      "Open OpenMeld Desktop",
-      "Open OpenMeld Web App",
-      "Open Settings",
-      "Reconnect This Computer",
-      "Stop OpenMeld Service",
-      "Quit OpenMeld Desktop",
+      "Loading notifications…",
+      "Open inbox",
+      "Open app",
+      "Computer",
+      "Settings…",
+      "Quit OpenMeld",
     ]);
-
-    const menuTemplate = trayMenuTemplate();
-    expect(menuTemplate?.map((item) => item.type ?? item.label)).toEqual([
-      "OpenMeld Service: Running",
-      `OpenMeld Desktop: v${electronMock.desktopVersion}`,
+    expect(
+      Array.from(trayMenuTemplate() ?? []).map(
+        (item) => item.type ?? item.label
+      )
+    ).toEqual([
+      "Loading notifications…",
+      "Open inbox",
       "separator",
-      "Open OpenMeld Desktop",
-      "Open OpenMeld Web App",
+      "Open app",
+      "Computer",
+      "Settings…",
       "separator",
-      "Open Settings",
-      "separator",
-      "Reconnect This Computer",
-      "Stop OpenMeld Service",
-      "separator",
-      "Quit OpenMeld Desktop",
+      "Quit OpenMeld",
     ]);
-    expect(menuTemplate?.at(0)).toEqual(
-      expect.objectContaining({ enabled: false })
-    );
-    expect(menuTemplate?.at(1)).toEqual(
-      expect.objectContaining({ enabled: false })
+    expect(trayMenuLabels()).not.toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("v0."),
+        "Open web app",
+        "Start OpenMeld Service",
+        "Stop OpenMeld Service",
+      ])
     );
   });
 
@@ -671,7 +689,7 @@ describe("main tray behavior", () => {
 
     const clickableItems = trayMenuTemplate()?.filter((item) => item.click);
 
-    expect(clickableItems).toHaveLength(6);
+    expect(clickableItems).toHaveLength(5);
     for (const item of clickableItems ?? []) {
       expect(item.icon).toBeTruthy();
     }
@@ -688,128 +706,39 @@ describe("main tray behavior", () => {
     ).toBe(true);
   });
 
-  it("offers Reconnect + Stop (not Start) while the service is running", async () => {
+  it("renders and activates one exact unread preview", async () => {
     await importMain();
-
-    const labels = trayMenuLabels();
-
-    expect(labels).toEqual(
-      expect.arrayContaining([
-        "Reconnect This Computer",
-        "Stop OpenMeld Service",
-      ])
-    );
-    // Binary menu: a running service never also offers Start.
-    expect(labels).not.toContain("Start OpenMeld Service");
-    expect(labels).not.toContain("Install OpenMeld Service");
-    expect(labels.some((label) => label.endsWith("..."))).toBe(false);
-  });
-
-  it("offers only Start (not Stop) while the service is stopped", async () => {
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: true,
-      lifecycle: "stopped",
-      problem: null,
-      running: false,
-      autoStart: true,
-      cliVersion: null,
-      runtimeProjection: null,
+    inboxTitle.setContext?.({
+      computer: { available: true, statusLabel: "Connected" },
+      unreadCount: 3,
+    });
+    inboxTitle.setPresentation?.({
+      item: {
+        contextLabel: "Design review",
+        occurredAt: new Date().toISOString(),
+        preview: "Please check the latest layout.",
+        reference: {
+          itemId: "item_1",
+          organizationId: "org_1",
+          organizationSlug: "acme",
+          userId: "user_1",
+        },
+        title: "Morgan",
+      },
+      status: "ready",
     });
 
-    await importMain();
-
-    const labels = trayMenuLabels();
-
-    expect(labels).toContain("Start OpenMeld Service");
-    expect(labels).not.toContain("Stop OpenMeld Service");
-  });
-
-  it("starts OpenMeld Service from the tray without native confirmation", async () => {
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: true,
-      lifecycle: "stopped",
-      problem: null,
-      running: false,
-      autoStart: true,
-      cliVersion: null,
-      runtimeProjection: null,
-    });
-
-    await importMain();
-
-    trayMenuItem("Start OpenMeld Service")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).not.toHaveBeenCalled();
-    expect(desktopMock.handlers.startService).toHaveBeenCalledTimes(1);
-  });
-
-  it("confirms Stop OpenMeld Service before the tray stops local execution capacity", async () => {
-    await importMain();
-
-    trayMenuItem("Stop OpenMeld Service")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.objectContaining({
-        buttons: ["Cancel", "Stop OpenMeld Service"],
-        detail:
-          "This Mac cannot receive local Wake work until OpenMeld Service is started again.",
-        message: "Stop OpenMeld Service on this Mac",
-        title: "Stop OpenMeld Service?",
-      })
+    const preview = trayMenuTemplate()?.find((item) =>
+      item.label?.startsWith("Morgan · Design review ·")
     );
-    expect(desktopMock.handlers.stopService).toHaveBeenCalledTimes(1);
-  });
+    preview?.click?.();
 
-  it("does not stop OpenMeld Service from the tray when confirmation is cancelled", async () => {
-    electronMock.dialog.showMessageBox.mockResolvedValueOnce({ response: 0 });
-
-    await importMain();
-
-    trayMenuItem("Stop OpenMeld Service")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledTimes(1);
-    expect(desktopMock.handlers.stopService).not.toHaveBeenCalled();
-  });
-
-  it("confirms Reconnect This Computer before tray setup runs", async () => {
-    await importMain();
-
-    trayMenuItem("Reconnect This Computer")?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.objectContaining({
-        buttons: ["Cancel", "Reconnect This Computer"],
-        detail:
-          "This reruns setup for this Mac and may restart OpenMeld Service. It will not sign you out.",
-        message: "Reconnect This Computer",
-        title: "Reconnect this computer?",
-      })
+    expect(inboxTitle.activate).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: "item_1" })
     );
-    expect(desktopMock.handlers.setupComputer).toHaveBeenCalledTimes(1);
-  });
-
-  it("offers only Set Up while the service is not installed", async () => {
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: false,
-      lifecycle: "not_installed",
-      problem: null,
-      running: false,
-      autoStart: null,
-      cliVersion: null,
-      runtimeProjection: null,
-    });
-
-    await importMain();
-
-    const labels = trayMenuLabels();
-
-    expect(labels).toContain("Set Up This Computer");
-    expect(labels).not.toContain("Start OpenMeld Service");
-    expect(labels).not.toContain("Stop OpenMeld Service");
+    expect(trayMenuItem("Open inbox")).toEqual(
+      expect.objectContaining({ click: expect.any(Function) })
+    );
   });
 
   it("quits the desktop app from the tray menu", async () => {
@@ -821,7 +750,7 @@ describe("main tray behavior", () => {
       | Array<{ label?: string; click?: () => void }>
       | undefined;
     const quitItem = menuTemplate?.find(
-      (item) => item.label === "Quit OpenMeld Desktop"
+      (item) => item.label === "Quit OpenMeld"
     );
 
     quitItem?.click?.();
@@ -840,7 +769,7 @@ describe("main tray behavior", () => {
     await importMain();
 
     const window = electronMock.windowInstances.at(0);
-    trayMenuItem("Quit OpenMeld Desktop")?.click?.();
+    trayMenuItem("Quit OpenMeld")?.click?.();
     const willPreventUnload = window?.webContents.on.mock.calls.find(
       ([event]) => event === "will-prevent-unload"
     )?.[1] as ((event: { preventDefault: () => void }) => void) | undefined;
@@ -909,77 +838,5 @@ describe("main tray behavior", () => {
     } as unknown as IpcMainInvokeEvent);
 
     expect(electronMock.app.quit).toHaveBeenCalledTimes(1);
-  });
-
-  it("labels CLI spawn failure as command-line tool unavailable", async () => {
-    const spawnProblem = {
-      code: "desktop.spawn_failed",
-      kind: "spawn_failed",
-      message: "failed to launch openmeld: spawn openmeld ENOENT",
-      requestId: null,
-    };
-    desktopMock.handlers.getServiceStatus.mockResolvedValueOnce({
-      installed: null,
-      lifecycle: "unknown",
-      problem: spawnProblem,
-      running: null,
-      autoStart: null,
-      cliVersion: null,
-      runtimeProjection: null,
-    });
-
-    await importMain();
-
-    const tray = electronMock.trayInstances.at(0);
-    const menuTemplate = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
-      | Array<{ label?: string }>
-      | undefined;
-
-    expect(menuTemplate?.at(0)?.label).toBe(
-      "OpenMeld Command-Line Tool: Not Available"
-    );
-    expect(tray?.setToolTip).toHaveBeenLastCalledWith(
-      "OpenMeld Command-Line Tool - Not Available"
-    );
-  });
-
-  it("shows a specific dialog title for tray action spawn failures", async () => {
-    const spawnProblem = {
-      code: "desktop.spawn_failed",
-      kind: "spawn_failed",
-      message: "failed to launch openmeld: spawn openmeld ENOENT",
-      requestId: null,
-    };
-    desktopMock.handlers.setupComputer.mockResolvedValueOnce({
-      installed: null,
-      lifecycle: "unknown",
-      problem: spawnProblem,
-      running: null,
-      autoStart: null,
-      cliVersion: null,
-      runtimeProjection: null,
-    });
-
-    await importMain();
-
-    const tray = electronMock.trayInstances.at(0);
-    const menuTemplate = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
-      | Array<{ label?: string; click?: () => void }>
-      | undefined;
-    const setupItem = menuTemplate?.find(
-      (item) => item.label === "Reconnect This Computer"
-    );
-
-    setupItem?.click?.();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-
-    expect(electronMock.dialog.showErrorBox).toHaveBeenCalledWith(
-      "OpenMeld Desktop could not find the OpenMeld command-line tool.",
-      "failed to launch openmeld: spawn openmeld ENOENT"
-    );
-    expect(electronMock.dialog.showErrorBox).not.toHaveBeenCalledWith(
-      "OpenMeld Desktop could not update the service.",
-      expect.any(String)
-    );
   });
 });

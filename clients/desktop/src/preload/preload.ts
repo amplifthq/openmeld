@@ -201,5 +201,11 @@ contextBridge.exposeInMainWorld("openmeldDesktop", {
 function isDesktopWindowDestination(
   value: unknown
 ): value is DesktopWindowDestination {
-  return value === "home" || value === "profiles" || value === "settings";
+  return (
+    value === "computer" ||
+    value === "home" ||
+    value === "inbox" ||
+    value === "profiles" ||
+    value === "settings"
+  );
 }

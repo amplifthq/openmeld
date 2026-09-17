@@ -81,13 +81,13 @@ export function desktopUpdaterPresentation(state: DesktopUpdaterState): {
     }
     case "current":
       return {
-        message: "OpenMeld Desktop is up to date.",
+        message: "OpenMeld is up to date.",
         action: "check",
         label: "Check for updates",
       };
     default:
       return {
-        message: "Check for a newer version of OpenMeld Desktop.",
+        message: "Check for a newer version of OpenMeld.",
         action: "check",
         label: "Check for updates",
       };

@@ -29,13 +29,13 @@ export function readOpenMeldCliSetupProblem(
   if (!resolveNodeBin(env)) {
     return cliSetupProblem(
       "desktop.node_missing",
-      "Node.js is required before OpenMeld Desktop can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
+      "Node.js is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
     );
   }
   if (!resolveNpmBin(env)) {
     return cliSetupProblem(
       "desktop.npm_missing",
-      "npm is required before OpenMeld Desktop can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
+      "npm is required before OpenMeld can install OpenMeld CLI. Install the current Node.js LTS release, then try again."
     );
   }
 
@@ -45,7 +45,7 @@ export function readOpenMeldCliSetupProblem(
   }
   return cliSetupProblem(
     "desktop.openmeld_cli_missing",
-    "OpenMeld Desktop could not find OpenMeld CLI on this Mac."
+    "OpenMeld could not find OpenMeld CLI on this Mac."
   );
 }
 
@@ -59,7 +59,7 @@ export function installOpenMeldCli(
       installFailure(
         "spawn_failed",
         "desktop.node_missing",
-        "Node.js is required before OpenMeld Desktop can install OpenMeld CLI."
+        "Node.js is required before OpenMeld can install OpenMeld CLI."
       )
     );
   }
@@ -69,7 +69,7 @@ export function installOpenMeldCli(
       installFailure(
         "spawn_failed",
         "desktop.npm_missing",
-        "npm is required before OpenMeld Desktop can install OpenMeld CLI."
+        "npm is required before OpenMeld can install OpenMeld CLI."
       )
     );
   }
