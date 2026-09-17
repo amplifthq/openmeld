@@ -18,10 +18,16 @@ import {
   desktopNotificationRequestSchema,
   desktopNotificationTestSchema,
 } from "@openmeld/schemas";
-import type { InboxItem } from "@openmeld/schemas/types";
+import type {
+  InboxConversationNotificationMode,
+  InboxItem,
+} from "@openmeld/schemas/types";
 import { type BrowserWindow, Notification, shell } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
 import type { createPilotAuth } from "./pilot-auth";
+
+const TRAY_PREVIEW_PAGE_LIMIT = 100;
+const TRAY_PREVIEW_MAX_PAGES = 5;
 
 export function createPilotNotifications(input: {
   auth: Pick<ReturnType<typeof createPilotAuth>, "session" | "cloudRequest">;
@@ -80,7 +86,7 @@ export function createPilotNotifications(input: {
   };
   const currentAccount = async (userId: string, epoch: number) =>
     (await input.auth.session()).user?.id === userId && epoch === generation;
-  const createApi = (reference: DesktopNotificationReference) =>
+  const createApi = (scope: { organizationId: string }) =>
     createInboxApi(
       createOpenMeldApiClient({
         baseUrl: input.webOrigin,
@@ -90,8 +96,7 @@ export function createPilotNotifications(input: {
             headers: new Headers({
               origin: DESKTOP_APP_ORIGIN,
               ...Object.fromEntries(new Headers(init?.headers)),
-              [OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID]:
-                reference.organizationId,
+              [OPENMELD_HEADER_REQUESTED_ORGANIZATION_ID]: scope.organizationId,
               [input.installed
                 ? DESKTOP_CONTRACT_HEADER
                 : DESKTOP_WEB_BUILD_HEADER]: input.installed
@@ -236,48 +241,125 @@ export function createPilotNotifications(input: {
     if (next.latestUnreadStatus === "unavailable") {
       return "unavailable";
     }
+    if (
+      next.unreadCountStatus === "loading" ||
+      (!next.unreadCountStatus && next.unreadCount == null)
+    ) {
+      return "loading";
+    }
+    if (next.unreadCountStatus === "unavailable") {
+      return "unavailable";
+    }
     return next.unreadCount && next.unreadCount > 0
       ? "no_unread_messages"
       : "empty";
+  };
+  const trayContextChanged = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ) =>
+    context !== next ||
+    generation !== epoch ||
+    !(await currentAccount(next.userId, epoch));
+  const assertInboxOrganization = (
+    actualOrganizationId: string,
+    expectedOrganizationId: string
+  ) => {
+    if (actualOrganizationId !== expectedOrganizationId) {
+      throw new Error("Inbox preview organization changed.");
+    }
+  };
+  const findLatestEligibleUnread = async (
+    next: NonNullable<DesktopNotificationContext>,
+    epoch: number
+  ): Promise<
+    | { item: InboxItem; reference: DesktopNotificationReference }
+    | "context_changed"
+    | "scan_incomplete"
+    | null
+  > => {
+    if (!next.organizationSlug) {
+      return "scan_incomplete";
+    }
+    const organizationSlug = next.organizationSlug;
+    const api = createApi(next);
+    const preferenceModes = new Map<
+      string,
+      Awaited<
+        ReturnType<typeof api.getMessageNotificationPreferences>
+      >["effectiveMode"]
+    >();
+    let cursor: string | undefined;
+    for (
+      let pageNumber = 0;
+      pageNumber < TRAY_PREVIEW_MAX_PAGES;
+      pageNumber += 1
+    ) {
+      const response = await api.list({
+        ...(cursor ? { cursor } : {}),
+        limit: TRAY_PREVIEW_PAGE_LIMIT,
+        view: "unread",
+      });
+      if (await trayContextChanged(next, epoch)) {
+        return "context_changed";
+      }
+      assertInboxOrganization(response.organizationId, next.organizationId);
+      const item = await findEligibleUnreadInPage({
+        api,
+        items: response.items,
+        organizationId: next.organizationId,
+        preferenceModes,
+        userId: next.userId,
+      });
+      if (await trayContextChanged(next, epoch)) {
+        return "context_changed";
+      }
+      if (item) {
+        return {
+          item,
+          reference: {
+            itemId: item.id,
+            organizationId: next.organizationId,
+            organizationSlug,
+            userId: next.userId,
+          },
+        };
+      }
+      if (!response.nextCursor) {
+        return null;
+      }
+      cursor = response.nextCursor;
+    }
+    return "scan_incomplete";
   };
   const refreshTrayPresentation = async (
     next: NonNullable<DesktopNotificationContext>,
     epoch: number
   ) => {
-    if (!next.latestUnread) {
+    if (!next.latestUnreadStatus || next.latestUnreadStatus !== "ready") {
       input.setTrayPresentation?.({ status: noCandidateStatus(next) });
       return;
     }
     try {
-      const item = await readItem(next.latestUnread);
-      const spaceId = inboxMessageNotificationSpaceId(item);
-      const preferences = spaceId
-        ? await createApi(next.latestUnread).getMessageNotificationPreferences({
-            spaceId,
-          })
-        : null;
-      if (
-        context !== next ||
-        generation !== epoch ||
-        !(await currentAccount(next.userId, epoch))
-      ) {
+      const candidate = await findLatestEligibleUnread(next, epoch);
+      if (candidate === "context_changed") {
         return;
       }
-      if (
-        item.readAt !== null ||
-        !spaceId ||
-        !isInboxNotificationEligible(item, preferences?.effectiveMode)
-      ) {
+      if (candidate === "scan_incomplete") {
+        input.setTrayPresentation?.({ status: "unavailable" });
+        return;
+      }
+      if (!candidate) {
         input.setTrayPresentation?.({ status: noCandidateStatus(next) });
         return;
       }
       input.setTrayPresentation?.({
         item: {
-          contextLabel: item.contextLabel,
-          occurredAt: item.occurredAt,
-          preview: item.preview,
-          reference: next.latestUnread,
-          title: item.title,
+          contextLabel: candidate.item.contextLabel,
+          occurredAt: candidate.item.occurredAt,
+          preview: candidate.item.preview,
+          reference: candidate.reference,
+          title: candidate.item.title,
         },
         status: "ready",
       });
@@ -334,16 +416,17 @@ export function createPilotNotifications(input: {
         input.setTrayContext?.(null);
         return;
       }
-      if (next.unreadCount == null) {
-        input.setTrayPresentation?.({ status: "loading" });
-        input.setUnreadCount?.(null);
-        return;
-      }
       const accountMatches = await validateContextAccount(next, epoch);
       if (context !== next || generation !== epoch) {
         return;
       }
-      input.setUnreadCount?.(accountMatches ? next.unreadCount : null);
+      input.setUnreadCount?.(
+        accountMatches &&
+          next.unreadCountStatus !== "loading" &&
+          next.unreadCountStatus !== "unavailable"
+          ? (next.unreadCount ?? null)
+          : null
+      );
       if (!accountMatches) {
         input.setTrayPresentation?.({ status: "signed_out" });
         return;
@@ -444,6 +527,45 @@ export type DesktopTrayContext = {
   computer?: NonNullable<DesktopNotificationContext>["computer"];
   unreadCount: number | null | undefined;
 };
+
+async function findEligibleUnreadInPage(input: {
+  api: ReturnType<typeof createInboxApi>;
+  items: readonly InboxItem[];
+  organizationId: string;
+  preferenceModes: Map<string, InboxConversationNotificationMode>;
+  userId: string;
+}): Promise<InboxItem | null> {
+  for (const item of input.items) {
+    if (
+      item.organizationId !== input.organizationId ||
+      item.recipientUserId !== input.userId
+    ) {
+      throw new Error("Inbox preview account changed.");
+    }
+    const spaceId = inboxMessageNotificationSpaceId(item);
+    if (item.readAt !== null || !spaceId) {
+      continue;
+    }
+    let effectiveMode = input.preferenceModes.get(spaceId);
+    if (!effectiveMode) {
+      const preferences = await input.api.getMessageNotificationPreferences({
+        spaceId,
+      });
+      if (
+        preferences.organizationId !== input.organizationId ||
+        preferences.spaceId !== spaceId
+      ) {
+        throw new Error("Inbox preview preference scope changed.");
+      }
+      effectiveMode = preferences.effectiveMode;
+      input.preferenceModes.set(spaceId, effectiveMode);
+    }
+    if (isInboxNotificationEligible(item, effectiveMode)) {
+      return item;
+    }
+  }
+  return null;
+}
 
 function sameNotificationScope(
   current: DesktopNotificationContext,

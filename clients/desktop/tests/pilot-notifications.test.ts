@@ -57,24 +57,40 @@ const request = {
 
 function setup(window: BrowserWindow | null = null) {
   const setUnreadCount = vi.fn();
+  const setTrayContext = vi.fn();
+  const setTrayPresentation = vi.fn();
   const session = vi.fn(async () => ({
     user: { id: "user-a", name: "A", email: "a@example.com" },
   }));
   const cloudRequest = vi.fn<
     Parameters<typeof createPilotNotifications>[0]["auth"]["cloudRequest"]
-  >(async (path) =>
-    path.startsWith("/v1/inbox/message-notification-preferences")
-      ? Response.json({
+  >((path) => {
+    if (path.startsWith("/v1/inbox/message-notification-preferences")) {
+      return Promise.resolve(
+        Response.json({
           organizationId: "org-a",
           spaceId: "space-a",
           defaultMode: "mentions_and_replies",
           overrideMode: null,
           effectiveMode: "mentions_and_replies",
         })
-      : Response.json({ item })
-  );
+      );
+    }
+    if (path.startsWith("/v1/inbox?")) {
+      return Promise.resolve(
+        Response.json({
+          items: [item],
+          nextCursor: null,
+          organizationId: "org-a",
+        })
+      );
+    }
+    return Promise.resolve(Response.json({ item }));
+  });
   const notifications = createPilotNotifications({
     setUnreadCount,
+    setTrayContext,
+    setTrayPresentation,
     auth: { session, cloudRequest },
     webOrigin: "https://openmeld.ai",
     webBuild: "a".repeat(64),
@@ -88,7 +104,14 @@ function setup(window: BrowserWindow | null = null) {
     enabled: true,
     visibleConversation: null,
   });
-  return { notifications, session, cloudRequest, setUnreadCount };
+  return {
+    notifications,
+    session,
+    cloudRequest,
+    setUnreadCount,
+    setTrayContext,
+    setTrayPresentation,
+  };
 }
 
 it("keeps the Inbox count independent of notification permission and clears it on logout", async () => {
@@ -150,6 +173,107 @@ it("rejects a late old-account count after the native account changes", async ()
   });
   expect(setUnreadCount).toHaveBeenLastCalledWith(null);
   expect(setUnreadCount).not.toHaveBeenCalledWith(7);
+});
+
+it("skips a newer muted message and finds the next eligible unread across pages", async () => {
+  const { notifications, cloudRequest, setTrayPresentation } = setup();
+  const eligibleItem: InboxItem = {
+    ...item,
+    id: "item-b",
+    occurredAt: "2026-09-14T23:59:00.000Z",
+    sourceTarget: {
+      kind: "space",
+      spaceId: "space-b",
+      signalId: "signal-b",
+    },
+  };
+  cloudRequest.mockImplementation((path) => {
+    if (path.startsWith("/v1/inbox/message-notification-preferences")) {
+      const spaceId = new URL(path, "https://openmeld.ai").searchParams.get(
+        "spaceId"
+      );
+      return Promise.resolve(
+        Response.json({
+          organizationId: "org-a",
+          spaceId,
+          defaultMode: "mentions_and_replies",
+          overrideMode: spaceId === "space-a" ? "muted" : "all_messages",
+          effectiveMode: spaceId === "space-a" ? "muted" : "all_messages",
+        })
+      );
+    }
+    if (path === "/v1/inbox?limit=100&view=unread") {
+      return Promise.resolve(
+        Response.json({
+          items: [item],
+          nextCursor: "page-2",
+          organizationId: "org-a",
+        })
+      );
+    }
+    if (path === "/v1/inbox?cursor=page-2&limit=100&view=unread") {
+      return Promise.resolve(
+        Response.json({
+          items: [eligibleItem],
+          nextCursor: null,
+          organizationId: "org-a",
+        })
+      );
+    }
+    return Promise.resolve(Response.json({ item: eligibleItem }));
+  });
+
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    organizationSlug: "workspace",
+    enabled: false,
+    latestUnreadStatus: "ready",
+    unreadCount: 2,
+    unreadCountStatus: "ready",
+    visibleConversation: null,
+  });
+
+  expect(setTrayPresentation).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      item: expect.objectContaining({
+        reference: expect.objectContaining({ itemId: "item-b" }),
+      }),
+      status: "ready",
+    })
+  );
+});
+
+it("reports an unavailable Inbox instead of leaving the tray loading, then recovers", async () => {
+  const { notifications, setTrayPresentation } = setup();
+
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    organizationSlug: "workspace",
+    enabled: false,
+    latestUnreadStatus: "unavailable",
+    unreadCount: null,
+    unreadCountStatus: "unavailable",
+    visibleConversation: null,
+  });
+  expect(setTrayPresentation).toHaveBeenLastCalledWith({
+    status: "unavailable",
+  });
+
+  await notifications.setContext({
+    userId: "user-a",
+    organizationId: "org-a",
+    organizationSlug: "workspace",
+    enabled: false,
+    latestUnreadStatus: "ready",
+    unreadCount: 1,
+    unreadCountStatus: "ready",
+    visibleConversation: null,
+  });
+  expect(setTrayPresentation).toHaveBeenLastCalledWith(
+    expect.objectContaining({ status: "ready" })
+  );
 });
 
 beforeEach(() => {

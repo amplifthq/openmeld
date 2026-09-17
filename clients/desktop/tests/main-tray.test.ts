@@ -313,6 +313,10 @@ const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(
   process,
   "platform"
 );
+const originalSystemVersionDescriptor = Object.getOwnPropertyDescriptor(
+  process,
+  "getSystemVersion"
+);
 
 function setTestPlatform(platform: NodeJS.Platform): void {
   Object.defineProperty(process, "platform", {
@@ -325,6 +329,22 @@ function restoreTestPlatform(): void {
   if (originalPlatformDescriptor) {
     Object.defineProperty(process, "platform", originalPlatformDescriptor);
   }
+  if (originalSystemVersionDescriptor) {
+    Object.defineProperty(
+      process,
+      "getSystemVersion",
+      originalSystemVersionDescriptor
+    );
+  } else {
+    Reflect.deleteProperty(process, "getSystemVersion");
+  }
+}
+
+function setTestSystemVersion(version: string): void {
+  Object.defineProperty(process, "getSystemVersion", {
+    configurable: true,
+    value: () => version,
+  });
 }
 
 async function importMain(): Promise<void> {
@@ -340,6 +360,7 @@ beforeEach(() => {
   inboxTitle.update = null;
   vi.resetModules();
   restoreTestPlatform();
+  setTestSystemVersion("14.4");
   desktopMock.resetHandlers();
   electronMock.trayInstances.length = 0;
   electronMock.windowInstances.length = 0;
@@ -725,6 +746,8 @@ describe("main tray behavior", () => {
   });
 
   it("keeps the Computer status on the same native menu row", async () => {
+    setTestPlatform("darwin");
+    setTestSystemVersion("14.4");
     await importMain();
 
     inboxTitle.setContext?.({
@@ -740,6 +763,38 @@ describe("main tray behavior", () => {
         badge: { type: "none", content: "Checking…" },
       })
     );
+  });
+
+  it("keeps Computer status and preview text visible before macOS 14.4", async () => {
+    setTestPlatform("darwin");
+    setTestSystemVersion("13.6");
+    await importMain();
+    inboxTitle.setContext?.({
+      computer: { available: true, statusLabel: "Connected" },
+      unreadCount: 1,
+    });
+    inboxTitle.setPresentation?.({
+      item: {
+        contextLabel: "Design review",
+        occurredAt: new Date().toISOString(),
+        preview: "Please check the latest layout.",
+        reference: {
+          itemId: "item-1",
+          organizationId: "org-1",
+          organizationSlug: "acme",
+          userId: "user-1",
+        },
+        title: "Morgan",
+      },
+      status: "ready",
+    });
+
+    expect(trayMenuItem("Computer — Connected")).toBeTruthy();
+    expect(
+      trayMenuLabels().some((label) =>
+        label.includes("Please check the latest layout.")
+      )
+    ).toBe(true);
   });
 
   it("renders and activates one exact unread preview", async () => {

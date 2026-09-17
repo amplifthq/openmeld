@@ -395,6 +395,7 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
   const computer = trayContext?.computer;
   const computerStatus =
     computer?.statusLabel ?? resolveTrayComputerStatusLabel();
+  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
   return [
     ...preview,
     trayActionItem({
@@ -413,9 +414,13 @@ function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
     }),
     trayActionItem({
       icon: "computer",
-      label: "Computer",
+      label: nativeMenuCapabilities.badge
+        ? "Computer"
+        : `Computer — ${computerStatus}`,
       accessibilityLabel: `Computer, ${computerStatus}`,
-      badge: { type: "none", content: computerStatus },
+      ...(nativeMenuCapabilities.badge
+        ? { badge: { type: "none" as const, content: computerStatus } }
+        : {}),
       enabled: computer?.available ?? Boolean(pilot),
       click: () => showDesktopWindow("computer"),
     }),
@@ -442,11 +447,16 @@ function trayPreviewMenuItems(
     const source = item.contextLabel
       ? `${item.title} · ${item.contextLabel}`
       : item.title;
+    const headline = `${truncateNativeMenuText(source, 70)} · ${formatRelativeTime(item.occurredAt)}`;
+    const preview = truncateNativeMenuText(item.preview, 110);
+    const supportsSublabel = resolveNativeMenuCapabilities().sublabel;
     return [
       { label: "Latest unread", enabled: false },
       {
-        label: `${truncateNativeMenuText(source, 70)} · ${formatRelativeTime(item.occurredAt)}`,
-        sublabel: truncateNativeMenuText(item.preview, 110),
+        label: supportsSublabel
+          ? headline
+          : truncateNativeMenuText(`${headline} — ${preview}`, 150),
+        ...(supportsSublabel ? { sublabel: preview } : {}),
         toolTip: item.preview,
         click: () => {
           showDesktopWindow();
@@ -582,6 +592,26 @@ function resolveTrayTooltip(): string {
 
 function resolveTrayComputerStatusLabel(): string {
   return resolveTrayStatusLabel().replace("OpenMeld Service: ", "Service ");
+}
+
+function resolveNativeMenuCapabilities(): {
+  badge: boolean;
+  sublabel: boolean;
+} {
+  if (
+    process.platform !== "darwin" ||
+    typeof process.getSystemVersion !== "function"
+  ) {
+    return { badge: false, sublabel: false };
+  }
+  const [major = 0, minor = 0] = process
+    .getSystemVersion()
+    .split(".")
+    .map((part) => Number.parseInt(part, 10));
+  return {
+    badge: major >= 14,
+    sublabel: major > 14 || (major === 14 && minor >= 4),
+  };
 }
 
 function truncateNativeMenuText(value: string, maxLength: number): string {

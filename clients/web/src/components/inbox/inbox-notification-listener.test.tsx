@@ -236,14 +236,25 @@ describe("InboxNotificationListener", () => {
 	});
 
 	it.each([
-		{ total: 7, error: false, expected: 7 },
-		{ total: 0, error: false, expected: 0 },
-		{ total: 7, error: true, expected: null },
-		{ total: undefined, error: false, expected: null },
+		{ total: 7, error: false, expected: 7, expectedStatus: "ready" },
+		{ total: 0, error: false, expected: 0, expectedStatus: "ready" },
+		{
+			total: 7,
+			error: true,
+			expected: null,
+			expectedStatus: "unavailable",
+		},
+		{
+			total: undefined,
+			error: false,
+			expected: null,
+			expectedStatus: "loading",
+		},
 	])("projects unread $total (error=$error) and refreshes with notifications off", ({
 		total,
 		error,
 		expected,
+		expectedStatus,
 	}) => {
 		const setNotificationContext = vi.fn(async () => undefined);
 		let poll: (() => void) | undefined;
@@ -276,6 +287,7 @@ describe("InboxNotificationListener", () => {
 				organizationId: "organization-123",
 				enabled: false,
 				unreadCount: expected,
+				unreadCountStatus: expectedStatus,
 			})
 		);
 		act(() => poll?.());

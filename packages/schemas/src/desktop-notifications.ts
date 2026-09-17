@@ -39,10 +39,11 @@ export const desktopNotificationContextSchema = z
   .strictObject({
     userId: z.string().min(1),
     organizationId: z.string().min(1),
+    organizationSlug: z.string().min(1).max(200).optional(),
     enabled: z.boolean(),
     computer: desktopTrayComputerSchema.optional(),
-    latestUnread: desktopNotificationReferenceSchema.nullable().optional(),
     latestUnreadStatus: z.enum(["loading", "ready", "unavailable"]).optional(),
+    unreadCountStatus: z.enum(["loading", "ready", "unavailable"]).optional(),
     navigationKey: z.string().max(200).optional(),
     unreadCount: z.number().int().nonnegative().safe().nullable().optional(),
     visibleConversation: inboxVisibleConversationSchema.nullable(),

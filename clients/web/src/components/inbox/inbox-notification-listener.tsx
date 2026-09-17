@@ -118,6 +118,12 @@ export function InboxNotificationListener(input: {
 	const unreadCount = summaryQuery.isError
 		? null
 		: (summaryQuery.data?.totalUnreadCount ?? null);
+	let unreadCountStatus: "loading" | "ready" | "unavailable" = "loading";
+	if (summaryQuery.isError) {
+		unreadCountStatus = "unavailable";
+	} else if (summaryQuery.data) {
+		unreadCountStatus = "ready";
+	}
 	const desktop = getDesktopPlatform();
 	const itemsQuery = useInfiniteQuery({
 		...inboxItemsInfiniteQueryOptions({
@@ -132,13 +138,6 @@ export function InboxNotificationListener(input: {
 		refetchIntervalInBackground: true,
 	});
 	const feedIdentity = `${input.organizationId}:${input.organizationSlug}:${input.userId}:${notificationsEnabled}`;
-	const latestUnread =
-		itemsQuery.data?.pages
-			.flatMap((page) => page.items)
-			.find(
-				(item) =>
-					item.readAt === null && Boolean(inboxMessageNotificationSpaceId(item))
-			) ?? null;
 	let latestUnreadStatus: "loading" | "ready" | "unavailable" = "loading";
 	if (itemsQuery.isError) {
 		latestUnreadStatus = "unavailable";
@@ -155,22 +154,16 @@ export function InboxNotificationListener(input: {
 			.setNotificationContext({
 				userId: input.userId,
 				organizationId: input.organizationId,
+				organizationSlug: input.organizationSlug,
 				enabled: notificationsEnabled,
 				computer: {
 					available: Boolean(computer?.destination),
 					statusLabel: computer?.statusLabel ?? "Checking…",
 				},
-				latestUnread: latestUnread
-					? {
-							itemId: latestUnread.id,
-							organizationId: input.organizationId,
-							organizationSlug: input.organizationSlug,
-							userId: input.userId,
-						}
-					: null,
 				latestUnreadStatus,
 				navigationKey,
 				unreadCount,
+				unreadCountStatus,
 				visibleConversation,
 			})
 			.catch(reportFailure);
@@ -181,10 +174,10 @@ export function InboxNotificationListener(input: {
 		computer?.destination,
 		computer?.statusLabel,
 		desktop,
-		latestUnread,
 		latestUnreadStatus,
 		notificationsEnabled,
 		unreadCount,
+		unreadCountStatus,
 		visibleConversation,
 		navigationKey,
 	]);
