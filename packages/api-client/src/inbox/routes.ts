@@ -19,6 +19,9 @@ export function buildInboxPath(query: ListInboxItemsQuery = {}): string {
   if (query.limit !== undefined) {
     search.set("limit", String(query.limit));
   }
+  if (query.notificationPreview !== undefined) {
+    search.set("notificationPreview", query.notificationPreview);
+  }
   if (query.view !== undefined) {
     search.set("view", query.view);
   }

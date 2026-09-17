@@ -52,7 +52,10 @@ export function initializeDesktopPilot(
   >[0]["setTrayPresentation"],
   setTrayContext?: Parameters<
     typeof createPilotNotifications
-  >[0]["setTrayContext"]
+  >[0]["setTrayContext"],
+  invalidateTrayScope?: Parameters<
+    typeof createPilotNotifications
+  >[0]["invalidateTrayScope"]
 ) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
@@ -153,6 +156,7 @@ export function initializeDesktopPilot(
     setUnreadCount,
     setTrayPresentation,
     setTrayContext,
+    invalidateTrayScope,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,

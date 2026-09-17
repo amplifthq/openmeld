@@ -194,6 +194,7 @@ export const inboxItemSchema = inboxItemWireSchema.transform((item) => ({
 export const listInboxItemsQuerySchema = z.strictObject({
   cursor: z.string().trim().min(1).max(1024).optional(),
   limit: z.coerce.number().int().min(1).max(INBOX_LIST_MAX_LIMIT).optional(),
+  notificationPreview: z.literal("true").optional(),
   view: inboxViewSchema.optional(),
 });
 

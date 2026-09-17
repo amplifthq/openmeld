@@ -42,6 +42,7 @@ export const desktopNotificationContextSchema = z
     organizationSlug: z.string().min(1).max(200).optional(),
     enabled: z.boolean(),
     computer: desktopTrayComputerSchema.optional(),
+    inboxRefreshRevision: z.number().int().nonnegative().safe().optional(),
     latestUnreadStatus: z.enum(["loading", "ready", "unavailable"]).optional(),
     unreadCountStatus: z.enum(["loading", "ready", "unavailable"]).optional(),
     navigationKey: z.string().max(200).optional(),

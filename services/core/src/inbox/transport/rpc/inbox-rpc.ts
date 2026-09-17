@@ -100,6 +100,7 @@ export async function rpcListInboxItems(
         .list({
           cursor: request.cursor,
           limit: request.limit,
+          notificationPreview: request.notificationPreview === "true",
           organizationId: prepared.organizationId,
           recipientUserId: prepared.userId,
           view: request.view,

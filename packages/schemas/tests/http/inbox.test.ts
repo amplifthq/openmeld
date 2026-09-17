@@ -238,6 +238,9 @@ describe("Inbox HTTP contracts", () => {
       view: "needs_action",
     });
     expect(
+      listInboxItemsQuerySchema.parse({ notificationPreview: "true" })
+    ).toEqual({ notificationPreview: "true" });
+    expect(
       listInboxItemsQuerySchema.safeParse({ view: "mentions" }).success
     ).toBe(false);
     expect(markInboxItemReadBodySchema.safeParse({ read: true }).success).toBe(

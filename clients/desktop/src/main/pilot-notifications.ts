@@ -18,16 +18,10 @@ import {
   desktopNotificationRequestSchema,
   desktopNotificationTestSchema,
 } from "@openmeld/schemas";
-import type {
-  InboxConversationNotificationMode,
-  InboxItem,
-} from "@openmeld/schemas/types";
+import type { InboxItem } from "@openmeld/schemas/types";
 import { type BrowserWindow, Notification, shell } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
 import type { createPilotAuth } from "./pilot-auth";
-
-const TRAY_PREVIEW_PAGE_LIMIT = 100;
-const TRAY_PREVIEW_MAX_PAGES = 5;
 
 export function createPilotNotifications(input: {
   auth: Pick<ReturnType<typeof createPilotAuth>, "session" | "cloudRequest">;
@@ -39,6 +33,7 @@ export function createPilotNotifications(input: {
   setUnreadCount?: (count: number | null) => void;
   setTrayPresentation?: (presentation: DesktopTrayPresentation) => void;
   setTrayContext?: (context: DesktopTrayContext | null) => void;
+  invalidateTrayScope?: () => void;
 }) {
   let generation = 0;
   let activationRevision = 0;
@@ -73,6 +68,7 @@ export function createPilotNotifications(input: {
     generation += 1;
     contextRevision += 1;
     context = null;
+    input.invalidateTrayScope?.();
     input.setUnreadCount?.(null);
     input.setTrayPresentation?.({ status: "signed_out" });
     input.setTrayContext?.(null);
@@ -282,40 +278,18 @@ export function createPilotNotifications(input: {
       return "scan_incomplete";
     }
     const organizationSlug = next.organizationSlug;
-    const api = createApi(next);
-    const preferenceModes = new Map<
-      string,
-      Awaited<
-        ReturnType<typeof api.getMessageNotificationPreferences>
-      >["effectiveMode"]
-    >();
-    let cursor: string | undefined;
-    for (
-      let pageNumber = 0;
-      pageNumber < TRAY_PREVIEW_MAX_PAGES;
-      pageNumber += 1
-    ) {
-      const response = await api.list({
-        ...(cursor ? { cursor } : {}),
-        limit: TRAY_PREVIEW_PAGE_LIMIT,
-        view: "unread",
-      });
-      if (await trayContextChanged(next, epoch)) {
-        return "context_changed";
-      }
-      assertInboxOrganization(response.organizationId, next.organizationId);
-      const item = await findEligibleUnreadInPage({
-        api,
-        items: response.items,
-        organizationId: next.organizationId,
-        preferenceModes,
-        userId: next.userId,
-      });
-      if (await trayContextChanged(next, epoch)) {
-        return "context_changed";
-      }
-      if (item) {
-        return {
+    const response = await createApi(next).list({
+      limit: 1,
+      notificationPreview: "true",
+      view: "unread",
+    });
+    if (await trayContextChanged(next, epoch)) {
+      return "context_changed";
+    }
+    assertInboxOrganization(response.organizationId, next.organizationId);
+    const item = response.items[0];
+    return item
+      ? {
           item,
           reference: {
             itemId: item.id,
@@ -323,14 +297,8 @@ export function createPilotNotifications(input: {
             organizationSlug,
             userId: next.userId,
           },
-        };
-      }
-      if (!response.nextCursor) {
-        return null;
-      }
-      cursor = response.nextCursor;
-    }
-    return "scan_incomplete";
+        }
+      : null;
   };
   const refreshTrayPresentation = async (
     next: NonNullable<DesktopNotificationContext>,
@@ -403,6 +371,7 @@ export function createPilotNotifications(input: {
         contextRevision += 1;
       }
       if (scopeChanged) {
+        input.invalidateTrayScope?.();
         input.setUnreadCount?.(null);
         input.setTrayPresentation?.({ status: "loading" });
         input.setTrayContext?.(null);
@@ -527,45 +496,6 @@ export type DesktopTrayContext = {
   computer?: NonNullable<DesktopNotificationContext>["computer"];
   unreadCount: number | null | undefined;
 };
-
-async function findEligibleUnreadInPage(input: {
-  api: ReturnType<typeof createInboxApi>;
-  items: readonly InboxItem[];
-  organizationId: string;
-  preferenceModes: Map<string, InboxConversationNotificationMode>;
-  userId: string;
-}): Promise<InboxItem | null> {
-  for (const item of input.items) {
-    if (
-      item.organizationId !== input.organizationId ||
-      item.recipientUserId !== input.userId
-    ) {
-      throw new Error("Inbox preview account changed.");
-    }
-    const spaceId = inboxMessageNotificationSpaceId(item);
-    if (item.readAt !== null || !spaceId) {
-      continue;
-    }
-    let effectiveMode = input.preferenceModes.get(spaceId);
-    if (!effectiveMode) {
-      const preferences = await input.api.getMessageNotificationPreferences({
-        spaceId,
-      });
-      if (
-        preferences.organizationId !== input.organizationId ||
-        preferences.spaceId !== spaceId
-      ) {
-        throw new Error("Inbox preview preference scope changed.");
-      }
-      effectiveMode = preferences.effectiveMode;
-      input.preferenceModes.set(spaceId, effectiveMode);
-    }
-    if (isInboxNotificationEligible(item, effectiveMode)) {
-      return item;
-    }
-  }
-  return null;
-}
 
 function sameNotificationScope(
   current: DesktopNotificationContext,

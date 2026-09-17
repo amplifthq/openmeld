@@ -11,6 +11,56 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it("selects the latest notification-eligible unread before pagination", async () => {
+    const harness = createInboxHarness();
+    try {
+      seedSpaceIndex(harness, {
+        organizationId: "org_one",
+        spaceId: "space_two",
+      });
+      seedActiveSpaceMembership(harness, {
+        profileId: "profile_one_space_two",
+        recipientUserId: "user_one",
+        spaceId: "space_two",
+      });
+      await seedSpaceItem(harness.db, {
+        occurredAtMs: 2000,
+        recipientUserId: "user_one",
+        sourceKey: "newer_muted_message",
+        spaceId: "space_one",
+      });
+      const eligible = await seedSpaceItem(harness.db, {
+        occurredAtMs: 1000,
+        recipientUserId: "user_one",
+        sourceKey: "older_eligible_message",
+        spaceId: "space_two",
+      });
+      harness.run({
+        params: ["user_one", "org_one", "space_one", "muted"],
+        sql: "INSERT INTO inbox_conversation_notification_preferences (user_id, organization_id, space_id, mode) VALUES (?, ?, ?, ?)",
+      });
+      harness.run({
+        params: ["user_one", "org_one", "space_two", "all_messages"],
+        sql: "INSERT INTO inbox_conversation_notification_preferences (user_id, organization_id, space_id, mode) VALUES (?, ?, ?, ?)",
+      });
+
+      await expect(
+        createInboxService({ db: harness.db }).list({
+          limit: 1,
+          notificationPreview: true,
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          view: "unread",
+        })
+      ).resolves.toMatchObject({
+        items: [{ id: eligible.itemId }],
+        nextCursor: null,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("persists account defaults and personal conversation overrides without changing email or unread state", async () => {
     const harness = createInboxHarness();
     try {

@@ -97,8 +97,15 @@ describe("api-client Inbox API", () => {
   });
   it("builds encoded list and item routes", () => {
     expect(
-      buildInboxPath({ cursor: "cursor value", limit: 25, view: "unread" })
-    ).toBe("/v1/inbox?cursor=cursor+value&limit=25&view=unread");
+      buildInboxPath({
+        cursor: "cursor value",
+        limit: 25,
+        notificationPreview: "true",
+        view: "unread",
+      })
+    ).toBe(
+      "/v1/inbox?cursor=cursor+value&limit=25&notificationPreview=true&view=unread"
+    );
     expect(buildInboxItemReadPath("inbox/item 1")).toBe(
       "/v1/inbox/items/inbox%2Fitem%201/read"
     );

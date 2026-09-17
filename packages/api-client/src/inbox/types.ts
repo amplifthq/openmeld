@@ -65,6 +65,7 @@ export type InboxApi = {
     input?: InboxRequestInput & {
       cursor?: string;
       limit?: number;
+      notificationPreview?: "true";
       view?: InboxView;
     }
   ) => Promise<ListInboxItemsResponse>;

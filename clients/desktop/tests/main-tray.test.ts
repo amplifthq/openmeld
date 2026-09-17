@@ -7,6 +7,7 @@ import { WINDOW_IPC } from "../src/shared/ipc-contract";
 const inboxTitle = vi.hoisted(() => ({
   activate: vi.fn(),
   setContext: null as ((context: unknown) => void) | null,
+  invalidateScope: null as (() => void) | null,
   setPresentation: null as ((presentation: unknown) => void) | null,
   update: null as ((count: number | null) => void) | null,
   initial: null as number | null,
@@ -16,11 +17,13 @@ vi.mock("../src/main/pilot", () => ({
     _getWindow: unknown,
     update: (count: number | null) => void,
     setPresentation: (presentation: unknown) => void,
-    setContext: (context: unknown) => void
+    setContext: (context: unknown) => void,
+    invalidateScope: () => void
   ) => {
     inboxTitle.update = update;
     inboxTitle.setPresentation = setPresentation;
     inboxTitle.setContext = setContext;
+    inboxTitle.invalidateScope = invalidateScope;
     update(inboxTitle.initial);
     return {
       activateNotification: inboxTitle.activate,
@@ -69,6 +72,7 @@ const electronMock = vi.hoisted(() => {
   const trayInstances: Array<{
     image: unknown;
     on: ReturnType<typeof vi.fn>;
+    closeContextMenu: ReturnType<typeof vi.fn>;
     setContextMenu: ReturnType<typeof vi.fn>;
     setTitle: ReturnType<typeof vi.fn>;
     setToolTip: ReturnType<typeof vi.fn>;
@@ -135,6 +139,7 @@ const electronMock = vi.hoisted(() => {
 
   class MockTray {
     on = vi.fn();
+    closeContextMenu = vi.fn();
     setContextMenu = vi.fn();
     setTitle = vi.fn();
     setToolTip = vi.fn();
@@ -357,6 +362,7 @@ async function importMain(): Promise<void> {
 beforeEach(() => {
   inboxTitle.activate.mockReset();
   inboxTitle.initial = null;
+  inboxTitle.invalidateScope = null;
   inboxTitle.setContext = null;
   inboxTitle.setPresentation = null;
   inboxTitle.update = null;
@@ -678,6 +684,7 @@ describe("main tray behavior", () => {
   }
 
   it("shows the compact product menu without version, Web, or service controls", async () => {
+    setTestPlatform("darwin");
     await importMain();
 
     expect(trayMenuLabels()).toEqual([
@@ -737,6 +744,7 @@ describe("main tray behavior", () => {
   });
 
   it("omits the notification row when there is nothing new", async () => {
+    setTestPlatform("darwin");
     await importMain();
 
     inboxTitle.setPresentation?.({ status: "empty" });
@@ -799,6 +807,7 @@ describe("main tray behavior", () => {
   });
 
   it("renders and activates one exact unread preview", async () => {
+    setTestPlatform("darwin");
     await importMain();
     inboxTitle.setContext?.({
       computer: { available: true, statusLabel: "Connected" },
@@ -833,7 +842,24 @@ describe("main tray behavior", () => {
     );
   });
 
+  it("closes an open tray menu immediately when its account scope is invalidated", async () => {
+    await importMain();
+    const tray = electronMock.trayInstances.at(0);
+    const openMenu = tray?.setContextMenu.mock.calls.at(-1)?.[0] as
+      | { on: ReturnType<typeof vi.fn> }
+      | undefined;
+    const willShow = openMenu?.on.mock.calls.find(
+      ([event]) => event === "menu-will-show"
+    )?.[1] as (() => void) | undefined;
+
+    willShow?.();
+    inboxTitle.invalidateScope?.();
+
+    expect(tray?.closeContextMenu).toHaveBeenCalledOnce();
+  });
+
   it("keeps long unread previews compact and on one line", async () => {
+    setTestPlatform("darwin");
     await importMain();
     inboxTitle.setPresentation?.({
       item: {

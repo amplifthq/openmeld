@@ -128,6 +128,7 @@ vi.mock("#/query/organizations/inbox", () => ({
 
 describe("InboxNotificationListener", () => {
 	let currentItems: InboxItem[];
+	let itemsDataUpdatedAt: number;
 	let queryDataItems: InboxItem[] | null;
 	let queryData:
 		| {
@@ -154,6 +155,7 @@ describe("InboxNotificationListener", () => {
 			.mockReset()
 			.mockResolvedValue({ effectiveMode: "mentions_and_replies" });
 		currentItems = [];
+		itemsDataUpdatedAt = 1;
 		queryDataItems = null;
 		queryData = undefined;
 		pendingItemIds.clear();
@@ -181,7 +183,11 @@ describe("InboxNotificationListener", () => {
 					],
 				};
 			}
-			return { data: queryData, refetch: itemsRefetch };
+			return {
+				data: queryData,
+				dataUpdatedAt: itemsDataUpdatedAt,
+				refetch: itemsRefetch,
+			};
 		});
 	});
 
@@ -295,6 +301,41 @@ describe("InboxNotificationListener", () => {
 		expect(showInboxNotificationMock).not.toHaveBeenCalled();
 		view.unmount();
 		expect(setNotificationContext).toHaveBeenLastCalledWith(null);
+	});
+
+	it("refreshes the native preview when Inbox content changes without changing the unread count", () => {
+		const setNotificationContext = vi.fn(async () => undefined);
+		desktopPlatformMock.mockReturnValue({
+			setNotificationContext,
+			onNotificationClick: () => () => undefined,
+			onNotificationPoll: () => () => undefined,
+		});
+		summaryQueryMock.mockReturnValue({
+			data: {
+				totalUnreadCount: 5,
+				unreadUrgentUpdateCount: 0,
+				unresolvedActionCount: 0,
+			},
+			isError: false,
+			isPending: false,
+			refetch: summaryRefetch,
+		});
+		const view = renderListener();
+		const initialCalls = setNotificationContext.mock.calls.length;
+
+		itemsDataUpdatedAt = 2;
+		view.rerender(
+			<InboxNotificationListener
+				organizationId="organization-123"
+				organizationSlug="amplift"
+				userId="user-123"
+			/>
+		);
+
+		expect(setNotificationContext).toHaveBeenCalledTimes(initialCalls + 1);
+		expect(setNotificationContext).toHaveBeenLastCalledWith(
+			expect.objectContaining({ unreadCount: 5 })
+		);
 	});
 
 	it("primes existing items without notifying, then delivers a newly arrived urgent item", () => {

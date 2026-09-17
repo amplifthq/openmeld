@@ -267,7 +267,9 @@ describe("Inbox routes", () => {
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
     const requests = [
-      new Request("http://local/v1/inbox?view=needs_action&limit=25"),
+      new Request(
+        "http://local/v1/inbox?view=needs_action&limit=25&notificationPreview=true"
+      ),
       new Request("http://local/v1/inbox/summary"),
       new Request("http://local/v1/inbox/center-agent/summary"),
       jsonRequest("http://local/v1/inbox/center-agent/read-through", "POST", {
@@ -304,7 +306,11 @@ describe("Inbox routes", () => {
       200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200,
     ]);
     expect(coreRpc.listInboxItems).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 25, view: "needs_action" })
+      expect.objectContaining({
+        limit: 25,
+        notificationPreview: "true",
+        view: "needs_action",
+      })
     );
     expect(coreRpc.getInboxItem).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: "inbox-item-1" })

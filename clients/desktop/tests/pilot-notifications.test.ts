@@ -175,7 +175,7 @@ it("rejects a late old-account count after the native account changes", async ()
   expect(setUnreadCount).not.toHaveBeenCalledWith(7);
 });
 
-it("skips a newer muted message and finds the next eligible unread across pages", async () => {
+it("uses the Inbox-owned eligible preview instead of scanning unread pages", async () => {
   const { notifications, cloudRequest, setTrayPresentation } = setup();
   const eligibleItem: InboxItem = {
     ...item,
@@ -188,30 +188,10 @@ it("skips a newer muted message and finds the next eligible unread across pages"
     },
   };
   cloudRequest.mockImplementation((path) => {
-    if (path.startsWith("/v1/inbox/message-notification-preferences")) {
-      const spaceId = new URL(path, "https://openmeld.ai").searchParams.get(
-        "spaceId"
-      );
-      return Promise.resolve(
-        Response.json({
-          organizationId: "org-a",
-          spaceId,
-          defaultMode: "mentions_and_replies",
-          overrideMode: spaceId === "space-a" ? "muted" : "all_messages",
-          effectiveMode: spaceId === "space-a" ? "muted" : "all_messages",
-        })
-      );
-    }
-    if (path === "/v1/inbox?limit=100&view=unread") {
-      return Promise.resolve(
-        Response.json({
-          items: [item],
-          nextCursor: "page-2",
-          organizationId: "org-a",
-        })
-      );
-    }
-    if (path === "/v1/inbox?cursor=page-2&limit=100&view=unread") {
+    if (
+      path.startsWith("/v1/inbox?") &&
+      path.includes("notificationPreview=true")
+    ) {
       return Promise.resolve(
         Response.json({
           items: [eligibleItem],
@@ -241,6 +221,10 @@ it("skips a newer muted message and finds the next eligible unread across pages"
       }),
       status: "ready",
     })
+  );
+  expect(cloudRequest).toHaveBeenCalledWith(
+    "/v1/inbox?limit=1&notificationPreview=true&view=unread",
+    expect.any(Object)
   );
 });
 

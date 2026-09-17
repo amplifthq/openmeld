@@ -91,7 +91,8 @@ const pilot = initializeDesktopPilot(
   (context) => {
     trayContext = context;
     updateTrayMenu();
-  }
+  },
+  invalidateOpenTrayMenu
 );
 let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
 
@@ -391,6 +392,15 @@ function updateTrayMenu(): void {
     });
   }
   tray.setContextMenu(menu);
+}
+
+function invalidateOpenTrayMenu(): void {
+  if (!trayMenuOpen) {
+    return;
+  }
+  trayMenuOpen = false;
+  trayMenuRefreshPending = false;
+  tray?.closeContextMenu();
 }
 
 function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
