@@ -153,7 +153,7 @@ describe("SpaceConversationPanel", () => {
 		useQueryMock.mockReset();
 	});
 
-	it("hides the temporary message window until a saved reading position is aligned", async () => {
+	it("keeps the conversation interactive when a saved anchor is not cached", () => {
 		writeSpaceConversationPosition(
 			"human-profile-1:space-conversation:space-view-test",
 			{
@@ -161,13 +161,7 @@ describe("SpaceConversationPanel", () => {
 				offsetFromVisibleTop: 20,
 			}
 		);
-		let resolveHistory: ((restored: boolean) => void) | undefined;
-		const onLoadHistoryAround = vi.fn(
-			() =>
-				new Promise<boolean>((resolve) => {
-					resolveHistory = resolve;
-				})
-		);
+		const onLoadHistoryAround = vi.fn(async () => true);
 		const historyNavigation = {
 			activeWindow: null,
 			directory: undefined,
@@ -184,39 +178,19 @@ describe("SpaceConversationPanel", () => {
 			revealCachedBefore: vi.fn(),
 			visibleLiveEnvelopes: [],
 		};
-		const rendered = renderSpaceConversationPanel({
+		renderSpaceConversationPanel({
 			historyNavigation,
 			timelineItems: [createTimelineItem({ text: "Temporary latest message" })],
 		});
 
-		expect(screen.getByText("Restoring your reading position…")).toBeTruthy();
-		const hiddenHistory = document.querySelector<HTMLElement>(
+		expect(screen.queryByText("Restoring your reading position…")).toBeNull();
+		const history = document.querySelector<HTMLElement>(
 			"[data-scroll-restoration-id='space-conversation:space-view-test']"
 		);
-		expect(hiddenHistory?.getAttribute("aria-hidden")).toBe("true");
-		expect(hiddenHistory?.textContent).toContain("Temporary latest message");
-
-		await act(async () => resolveHistory?.(true));
-		rendered.rerender(
-			<SpaceConversationPanel
-				{...createSpaceConversationPanelProps({
-					hasEarlierHistory: false,
-					historyNavigation,
-					timelineItems: [
-						createTimelineItem({
-							id: "saved-anchor",
-							text: "Saved reading position",
-						}),
-					],
-				})}
-			/>
-		);
-
-		await waitFor(() => {
-			expect(screen.queryByText("Restoring your reading position…")).toBeNull();
-		});
-		expect(hiddenHistory?.getAttribute("aria-hidden")).toBeNull();
-		expect(screen.getByText("Saved reading position")).toBeTruthy();
+		expect(history?.getAttribute("aria-hidden")).toBeNull();
+		expect(history?.hasAttribute("inert")).toBe(false);
+		expect(history?.textContent).toContain("Temporary latest message");
+		expect(onLoadHistoryAround).not.toHaveBeenCalled();
 	});
 
 	it("returns from the retained Graph view to Messages with the draft intact", async () => {
