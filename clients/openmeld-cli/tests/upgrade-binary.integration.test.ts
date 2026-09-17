@@ -14,8 +14,10 @@ import {
   resolveCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
 } from "@openmeld/local-service/cli-binary-update-artifact";
+import { resolveOpenMeldToolsUpdateTargetVersions } from "@openmeld/schemas";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import packageJson from "../package.json";
+import type { DaemonServiceUpdateJob } from "../src/local-service/lifecycle/daemon-service-update-state";
 import { resolveOpenMeldToolsUpdateFailure } from "../src/local-service/maintenance/openmeld-tools-update-failure";
 import { withCapturedStdio, withTempHome } from "./helpers/fs";
 import { seedVersionState } from "./helpers/version";
@@ -657,6 +659,8 @@ describe("openmeld upgrade in binary distribution", () => {
 
         expect(scheduleDaemonServiceUpdateMock).toHaveBeenCalledWith(
           expect.objectContaining({
+            targetCliVersion: packageJson.version,
+            targetServiceVersion: service?.version ?? packageJson.version,
             targetVersion: service?.version ?? packageJson.version,
             urgency: "available",
           })
@@ -673,6 +677,108 @@ describe("openmeld upgrade in binary distribution", () => {
       } finally {
         process.argv[1] = originalArgvEntry ?? process.execPath;
       }
+    });
+  });
+
+  it("enriches a legacy update handoff with the CLI and selected Service targets", async () => {
+    await withTempHome(async (home) => {
+      await seedVersionState(home);
+      const manifest = buildBinaryManifest(
+        Buffer.from("legacy handoff Service artifact")
+      );
+      const selectedServiceVersion = "0.0.1";
+      vi.mocked(fetch).mockResolvedValue(
+        Response.json({
+          ...manifest,
+          channels: {
+            stable: {
+              ...manifest.channels.stable,
+              service: {
+                version: selectedServiceVersion,
+                platforms: manifest.channels.stable.platforms,
+              },
+            },
+          },
+        })
+      );
+      vi.stubEnv(
+        "OPENMELD_INTERNAL_TOOLS_UPDATE_OPERATION_ID",
+        "legacy-update-1"
+      );
+      vi.stubEnv(
+        "OPENMELD_INTERNAL_TOOLS_UPDATE_REQUESTED_AT",
+        "2026-09-17T00:00:00.000Z"
+      );
+      vi.stubEnv("OPENMELD_INTERNAL_TOOLS_UPDATE_REQUEST_SOURCE", "automatic");
+      vi.stubEnv("OPENMELD_INTERNAL_TOOLS_UPDATE_TARGET_CLI_VERSION", "");
+      vi.stubEnv("OPENMELD_INTERNAL_TOOLS_UPDATE_TARGET_SERVICE_VERSION", "");
+      resolveDaemonServiceAlignmentDecisionMock.mockReturnValueOnce({
+        status: "needs_full_alignment",
+        reasonCodes: ["bundle_strategy_legacy"],
+      });
+
+      const actualCoordinator = await vi.importActual<
+        typeof import("../src/local-service/lifecycle/daemon-service-update-coordinator")
+      >("../src/local-service/lifecycle/daemon-service-update-coordinator");
+      const persistedJobs: DaemonServiceUpdateJob[] = [];
+      scheduleDaemonServiceUpdateMock.mockImplementationOnce(
+        async (request) =>
+          await actualCoordinator.scheduleDaemonServiceUpdate(request, {
+            createJobId: () => "unexpected-new-operation-id",
+            installWorker: async () => undefined,
+            now: () => "2026-09-17T00:00:02.000Z",
+            persistPendingJob: (job) => {
+              persistedJobs.push(job);
+              return Promise.resolve();
+            },
+            prepareBundle: async ({ daemonVersion }) => ({
+              v: 2,
+              schema: "openmeld-daemon-active-bundle-v2",
+              bundleId: `${daemonVersion}-legacy-handoff`,
+              daemonVersion,
+              entryScriptRelativePath: "openmeld",
+              bundleFormat: "binary_v1",
+              sourceEntryScriptPath: `/tmp/openmeld/${daemonVersion}/openmeld`,
+              sourcePackageRootPath: `/tmp/openmeld/${daemonVersion}`,
+              sourceDistRootPath: `/tmp/openmeld/${daemonVersion}`,
+              sourceDistFingerprint: "legacy-handoff",
+              sourceKind: "package_install",
+              createdAt: "2026-09-17T00:00:01.000Z",
+              updatedAt: "2026-09-17T00:00:01.000Z",
+            }),
+            prepareWorkerCarrier: async () => undefined,
+            pruneWorkerVersions: async () => undefined,
+            readPendingJob: async () => null,
+            resolveDesiredState: async () => "background",
+            startWorker: async () => undefined,
+            withManagedInstallTransaction: async (run) => await run(),
+          })
+      );
+
+      const { runUpgrade } = await loadUpgradeModules();
+      await withCapturedStdio(async () => {
+        await runUpgrade({
+          view: "agent",
+          internalAlignService: true,
+        });
+      });
+
+      const persistedJob = persistedJobs[0];
+      expect(persistedJob).toMatchObject({
+        jobId: "legacy-update-1",
+        requestedAt: "2026-09-17T00:00:00.000Z",
+        requestSource: "automatic",
+        targetCliVersion: packageJson.version,
+        targetServiceVersion: selectedServiceVersion,
+        targetVersion: selectedServiceVersion,
+      });
+      if (!persistedJob) {
+        throw new Error("expected the legacy handoff job to be persisted");
+      }
+      expect(resolveOpenMeldToolsUpdateTargetVersions(persistedJob)).toEqual({
+        cliVersion: packageJson.version,
+        serviceVersion: selectedServiceVersion,
+      });
     });
   });
 });

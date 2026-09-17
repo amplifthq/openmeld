@@ -1073,11 +1073,14 @@ async function runInternalUpgradeServiceAlignment(input: {
     throw new UpgradeOutputHandledError(errorMessage);
   }
 
+  const updateContext = readOpenMeldToolsUpdateContextFromEnv();
   const scheduled = await scheduleDaemonServiceUpdate({
     targetVersion: daemonVersion,
     ...(binaryRelease?.version === daemonVersion ? { binaryRelease } : {}),
     urgency: await resolveServiceUpdateUrgency(),
-    ...(readOpenMeldToolsUpdateContextFromEnv() ?? {}),
+    ...(updateContext ?? {}),
+    targetCliVersion: OPENMELD_VERSION,
+    targetServiceVersion: daemonVersion,
     ...(input.cliScriptPath ? { cliScriptPath: input.cliScriptPath } : {}),
   });
   if (input.resolvedView === "human") {
