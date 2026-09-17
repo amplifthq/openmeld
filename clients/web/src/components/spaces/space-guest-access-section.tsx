@@ -23,7 +23,7 @@ export function SpaceGuestAccessSection({
 	spaceId: string;
 	openMeldProfileId?: string;
 }) {
-	const [confirm, setConfirm] = useState(surface === "share");
+	const [confirm, setConfirm] = useState(false);
 	const switchId = useId();
 	const client = useQueryClient();
 	const status = useQuery(
