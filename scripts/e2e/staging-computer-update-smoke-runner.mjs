@@ -9,6 +9,7 @@ import {
 } from "./staging-computer-update-smoke-contract.mjs";
 import {
   assertCanaryLaunchdLabelsFree,
+  assertCanaryServiceIdentityUnchanged,
   assertCliVersion,
   assertGitWorktreeClean,
   assertLiveSmokeHost,
@@ -17,9 +18,10 @@ import {
   pass,
   preserveCanaryHome,
   REPO_ROOT,
+  readCanaryServiceIdentity,
   readProtectedSetupCommand,
   readStagingManifest,
-  restartCanaryService,
+  runCanaryMaintenanceTick,
   runCommand,
   runFocusedUpdateContracts,
   runStagingApiHelper,
@@ -121,26 +123,77 @@ async function executeStagingComputerUpdateSmoke(input) {
   runCommand({
     args: ["staging:cli:publish"],
     command: "pnpm",
-    label: "publish a newer Staging CLI",
+    label: "publish the accepted Service baseline",
     sensitiveValues: input.sensitiveValues,
     timeoutMs: 30 * 60 * 1000,
   });
-  const targetManifest = await waitForNewStagingManifest(
+  const serviceManifest = await waitForNewStagingManifest(
     baselineManifest.version
   );
-  pass("New Staging CLI published", targetManifest.version);
+  pass("Service baseline published", serviceManifest.version);
+
+  runCommand({
+    args: ["staging:cli:publish", "--", "--retain-service"],
+    command: "pnpm",
+    label: "publish the first split Staging CLI",
+    sensitiveValues: input.sensitiveValues,
+    timeoutMs: 30 * 60 * 1000,
+  });
+  const firstCliManifest = await waitForNewStagingManifest(
+    serviceManifest.version
+  );
+  pass("First split Staging CLI published", firstCliManifest.version);
 
   enableAutomaticUpdates(input.sensitiveValues);
-  restartCanaryService({ sensitiveValues: input.sensitiveValues });
-  const operationId = await verifyAutomaticAndManualUpdate({
+  runCanaryMaintenanceTick({ sensitiveValues: input.sensitiveValues });
+  const firstOperationId = await verifyAutomaticAndManualUpdate({
     sensitiveValues: input.sensitiveValues,
-    targetVersion: targetManifest.version,
+    targetVersion: firstCliManifest.version,
   });
   await verifyCompletedUpdate({
-    operationId,
+    operationId: firstOperationId,
     sensitiveValues: input.sensitiveValues,
-    targetVersion: targetManifest.version,
+    targetCliVersion: firstCliManifest.version,
+    targetServiceVersion: serviceManifest.version,
   });
+
+  const retainedServiceIdentity = readCanaryServiceIdentity({
+    sensitiveValues: input.sensitiveValues,
+  });
+  runCommand({
+    args: ["staging:cli:publish", "--", "--retain-service"],
+    command: "pnpm",
+    label: "publish the second split Staging CLI",
+    sensitiveValues: input.sensitiveValues,
+    timeoutMs: 30 * 60 * 1000,
+  });
+  const secondCliManifest = await waitForNewStagingManifest(
+    firstCliManifest.version
+  );
+  pass("Second split Staging CLI published", secondCliManifest.version);
+
+  runCanaryMaintenanceTick({ sensitiveValues: input.sensitiveValues });
+  const secondOperationId = await verifyAutomaticAndManualUpdate({
+    sensitiveValues: input.sensitiveValues,
+    targetVersion: secondCliManifest.version,
+  });
+  await verifyCompletedUpdate({
+    operationId: secondOperationId,
+    sensitiveValues: input.sensitiveValues,
+    targetCliVersion: secondCliManifest.version,
+    targetServiceVersion: serviceManifest.version,
+  });
+  const finalServiceIdentity = readCanaryServiceIdentity({
+    sensitiveValues: input.sensitiveValues,
+  });
+  assertCanaryServiceIdentityUnchanged(
+    retainedServiceIdentity,
+    finalServiceIdentity
+  );
+  pass(
+    "Healthy Service retained across second CLI-only update",
+    `pid ${String(finalServiceIdentity.pid)}`
+  );
 }
 
 function enableAutomaticUpdates(sensitiveValues) {
@@ -188,18 +241,22 @@ async function verifyCompletedUpdate(input) {
     );
   }
   assertCliVersion({
-    expectedVersion: input.targetVersion,
+    expectedVersion: input.targetCliVersion,
     sensitiveValues: input.sensitiveValues,
   });
   await waitForServiceRunning({
-    expectedVersion: input.targetVersion,
+    expectedServiceVersion: input.targetServiceVersion,
+    expectedVersion: input.targetCliVersion,
     sensitiveValues: input.sensitiveValues,
   });
   await waitForCoreToReportCurrentVersion({
-    expectedVersion: input.targetVersion,
+    expectedVersion: input.targetCliVersion,
     sensitiveValues: input.sensitiveValues,
   });
-  pass("Service recovered on one final version", input.targetVersion);
+  pass(
+    "Split update reached its declared targets",
+    `${input.targetCliVersion} / ${input.targetServiceVersion}`
+  );
 }
 
 async function cleanupStagingComputerUpdateSmoke(input) {

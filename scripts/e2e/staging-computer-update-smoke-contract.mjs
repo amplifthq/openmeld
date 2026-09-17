@@ -101,11 +101,11 @@ export function buildStagingComputerSmokePlan() {
       target: "~/.openmeld-canary",
     },
     {
-      label: "Publish a newer Staging CLI",
+      label: "Publish Service B, then split CLI C and D",
       target: STAGING_MANIFEST_URL,
     },
     {
-      label: "Start one automatic update",
+      label: "Run two automatic split updates",
       target: "OpenMeld Service Canary",
     },
     {
@@ -113,7 +113,7 @@ export function buildStagingComputerSmokePlan() {
       target: "The same Staging update operation",
     },
     {
-      label: "Verify Service recovery and one final version",
+      label: "Verify CLI targets and retained Service continuity",
       target: STAGING_ORIGIN,
     },
     {

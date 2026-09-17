@@ -13,6 +13,7 @@ import {
   redactStagingSetupCommand,
 } from "./staging-computer-update-smoke-contract.mjs";
 import {
+  assertCanaryServiceIdentityUnchanged,
   findMatchingUpdateOperation,
   isCoreServiceConnected,
   readProtectedSetupCommand,
@@ -31,6 +32,7 @@ const OFFICIAL_STAGING_COMMAND_PATTERN =
   /official Staging Canary binary setup command/u;
 const SAME_OPERATION_PATTERN = /same background operation/u;
 const PRIVATE_FILE_PATTERN = /private file with mode 600/u;
+const SERVICE_CHANGED_PATTERN = /changed during a CLI-only update/u;
 
 test("accepts one explicit plan or run command", () => {
   assert.deepEqual(parseStagingComputerSmokeArgs(["plan"]), {
@@ -224,10 +226,10 @@ test("plans the high-value update regression without Production state", () => {
     [
       "Verify the Staging CLI channel",
       "Connect an isolated Canary Computer",
-      "Publish a newer Staging CLI",
-      "Start one automatic update",
+      "Publish Service B, then split CLI C and D",
+      "Run two automatic split updates",
       "Coalesce a manual Update request",
-      "Verify Service recovery and one final version",
+      "Verify CLI targets and retained Service continuity",
       "Restore the previous Canary state",
     ]
   );
@@ -237,6 +239,25 @@ test("plans the high-value update regression without Production state", () => {
   assert.equal(serialized.includes("production"), false);
   assert.equal(serialized.includes("https://staging.openmeld.ai"), true);
   assert.equal(serialized.includes("~/.openmeld-canary"), true);
+});
+
+test("requires the healthy Service process to survive the retained update", () => {
+  const identity = {
+    pid: 4321,
+    processIdentity: "Thu Sep 17 12:00:00 2026 /tmp/openmeld-service-b",
+    startedAt: "Thu Sep 17 12:00:00 2026",
+  };
+  assert.doesNotThrow(() =>
+    assertCanaryServiceIdentityUnchanged(identity, { ...identity })
+  );
+  assert.throws(
+    () =>
+      assertCanaryServiceIdentityUnchanged(identity, {
+        ...identity,
+        pid: 4322,
+      }),
+    SERVICE_CHANGED_PATTERN
+  );
 });
 
 test("requires automatic and manual requests to share one operation", () => {
