@@ -23,6 +23,7 @@ import {
 } from "@testing-library/react";
 import { type ComponentProps, type ReactNode, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeSpaceConversationPosition } from "#/lib/space-conversation-position";
 import {
 	buildSpaceTimelineItems,
 	type SpaceTimelineItem,
@@ -144,10 +145,78 @@ describe("SpaceConversationPanel", () => {
 
 	afterEach(() => {
 		cleanup();
+		sessionStorage.clear();
+		localStorage.clear();
 		Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
 		vi.useRealTimers();
 		vi.unstubAllGlobals();
 		useQueryMock.mockReset();
+	});
+
+	it("hides the temporary message window until a saved reading position is aligned", async () => {
+		writeSpaceConversationPosition(
+			"human-profile-1:space-conversation:space-view-test",
+			{
+				anchorSignalId: "saved-anchor",
+				offsetFromVisibleTop: 20,
+			}
+		);
+		let resolveHistory: ((restored: boolean) => void) | undefined;
+		const onLoadHistoryAround = vi.fn(
+			() =>
+				new Promise<boolean>((resolve) => {
+					resolveHistory = resolve;
+				})
+		);
+		const historyNavigation = {
+			activeWindow: null,
+			directory: undefined,
+			directoryError: false,
+			directoryPending: false,
+			error: null,
+			hasHiddenLiveHistory: false,
+			latest: vi.fn(),
+			loadAfter: vi.fn(async () => false),
+			loadBefore: vi.fn(async () => false),
+			open: onLoadHistoryAround,
+			pending: false,
+			retryDirectory: vi.fn(),
+			revealCachedBefore: vi.fn(),
+			visibleLiveEnvelopes: [],
+		};
+		const rendered = renderSpaceConversationPanel({
+			historyNavigation,
+			timelineItems: [createTimelineItem({ text: "Temporary latest message" })],
+		});
+
+		expect(screen.getByText("Restoring your reading position…")).toBeTruthy();
+		const hiddenHistory = document.querySelector<HTMLElement>(
+			"[data-scroll-restoration-id='space-conversation:space-view-test']"
+		);
+		expect(hiddenHistory?.getAttribute("aria-hidden")).toBe("true");
+		expect(hiddenHistory?.textContent).toContain("Temporary latest message");
+
+		await act(async () => resolveHistory?.(true));
+		rendered.rerender(
+			<SpaceConversationPanel
+				{...createSpaceConversationPanelProps({
+					hasEarlierHistory: false,
+					historyNavigation,
+					timelineItems: [
+						createTimelineItem({
+							id: "saved-anchor",
+							text: "Saved reading position",
+						}),
+					],
+				})}
+			/>
+		);
+
+		await waitFor(() => {
+			expect(screen.queryByText("Restoring your reading position…")).toBeNull();
+		});
+		expect(hiddenHistory?.getAttribute("aria-hidden")).toBeNull();
+		expect(screen.getByText("Saved reading position")).toBeTruthy();
 	});
 
 	it("returns from the retained Graph view to Messages with the draft intact", async () => {

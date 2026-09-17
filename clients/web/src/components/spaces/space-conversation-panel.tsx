@@ -222,7 +222,10 @@ import {
 	SpaceWakeStopScope,
 	shouldRenderSpaceWakeStopControl,
 } from "./space-wake-stop-control";
-import { useSpaceConversationPosition } from "./use-space-conversation-position";
+import {
+	type SpaceConversationRestorationStatus,
+	useSpaceConversationPosition,
+} from "./use-space-conversation-position";
 import { useSpaceGraphLayout } from "./use-space-graph-layout";
 import type { SpaceHistoryNavigationController } from "./use-space-history-navigation";
 import type { PreparedSpaceInboxCatchUp } from "./use-space-inbox-read-position";
@@ -687,6 +690,7 @@ function SpaceConversationPanelContent(
 	const {
 		conversationAutoScroll,
 		conversationDefaultScrollPosition,
+		conversationRestorationStatus,
 		conversationScrollElement,
 		messageScrollActionRef,
 		followLatest,
@@ -699,6 +703,7 @@ function SpaceConversationPanelContent(
 		registerConversationScrollElement,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
+		retryConversationRestoration,
 		unreadNavigation,
 	} = navigation;
 	const registerReadingScrollElement = useCallback(
@@ -720,6 +725,11 @@ function SpaceConversationPanelContent(
 		input,
 		navigation,
 		presentation,
+	});
+	const restorationPresentation = resolveConversationRestorationPresentation({
+		historyIsPending: input.historyIsPending,
+		onViewedThroughTs: input.onViewedThroughTs,
+		status: conversationRestorationStatus,
 	});
 	const submitComposer = (options?: SpaceComposerSendOptions) => {
 		if (composerSendBlocked || !canSendMessage || input.isSendingMessage) {
@@ -830,14 +840,16 @@ function SpaceConversationPanelContent(
 							</SpaceConversationTopOverlay>
 							<MessageScrollerViewport
 								aria-busy={
-									input.historyIsPending || input.isLoadingEarlierHistory
+									input.isLoadingEarlierHistory || restorationPresentation.busy
 								}
+								aria-hidden={restorationPresentation.ariaHidden}
 								aria-label="Conversation history"
 								aria-live="polite"
-								className="h-full py-4"
+								className={restorationPresentation.className}
 								data-scroll-restoration-id={buildSpaceConversationScrollRestorationId(
 									input.spaceId ?? input.spaceViewIdPrefix
 								)}
+								inert={restorationPresentation.inert}
 								onScroll={(event) => {
 									const conversationScrollElement = event.currentTarget;
 									onConversationScroll(conversationScrollElement);
@@ -861,9 +873,7 @@ function SpaceConversationPanelContent(
 							>
 								<SpaceMessageReadObserver
 									key={`${input.spaceId}:${input.selfProfileId}`}
-									onViewedThroughTs={
-										input.historyIsPending ? undefined : input.onViewedThroughTs
-									}
+									onViewedThroughTs={restorationPresentation.onViewedThroughTs}
 									unreadTargets={(input.unreadTargets ?? []).filter(
 										(target) => target.threadRootSignalId === null
 									)}
@@ -912,6 +922,10 @@ function SpaceConversationPanelContent(
 									)}
 								</MessageScrollerContent>
 							</MessageScrollerViewport>
+							<SpaceConversationRestorationOverlay
+								onRetry={retryConversationRestoration}
+								status={conversationRestorationStatus}
+							/>
 
 							{!input.historyNavigation && (
 								<SpaceHistoryJumpControl
@@ -1779,6 +1793,7 @@ function useSpaceConversationNavigationController(input: {
 
 	return {
 		conversationAutoScroll,
+		conversationRestorationStatus: conversationPosition.restorationStatus,
 		messageScrollActionRef,
 		conversationDefaultScrollPosition,
 		conversationScrollElement,
@@ -1796,8 +1811,62 @@ function useSpaceConversationNavigationController(input: {
 		onOpenThread,
 		requestUnreadMeasurement,
 		revealUnreadTarget,
+		retryConversationRestoration: conversationPosition.retryRestoration,
 		unreadNavigation,
 	};
+}
+
+function resolveConversationRestorationPresentation(input: {
+	historyIsPending: boolean;
+	onViewedThroughTs: SpaceConversationPanelResolvedProps["onViewedThroughTs"];
+	status: SpaceConversationRestorationStatus;
+}) {
+	const ready = input.status === "ready";
+	return {
+		ariaHidden: ready ? undefined : true,
+		busy: input.historyIsPending || input.status === "restoring",
+		className: cn(
+			"h-full py-4",
+			ready ? undefined : "pointer-events-none invisible select-none"
+		),
+		inert: !ready,
+		onViewedThroughTs:
+			ready && !input.historyIsPending ? input.onViewedThroughTs : undefined,
+	};
+}
+
+function SpaceConversationRestorationOverlay(input: {
+	onRetry: () => void;
+	status: SpaceConversationRestorationStatus;
+}) {
+	if (input.status === "ready") {
+		return null;
+	}
+	return (
+		<div
+			aria-live="polite"
+			className="absolute inset-0 z-20 flex items-center justify-center bg-background px-6 text-center"
+			role={input.status === "failed" ? "alert" : "status"}
+		>
+			{input.status === "failed" ? (
+				<div className="grid max-w-sm justify-items-center gap-3">
+					<p className="font-medium text-sm">
+						Couldn’t restore your reading position.
+					</p>
+					<p className="text-muted-foreground text-sm">
+						Check your connection and try again.
+					</p>
+					<Button onClick={input.onRetry} size="sm" variant="outline">
+						Try again
+					</Button>
+				</div>
+			) : (
+				<p className="text-muted-foreground text-sm">
+					Restoring your reading position…
+				</p>
+			)}
+		</div>
+	);
 }
 
 function SpacePrimaryView(input: {

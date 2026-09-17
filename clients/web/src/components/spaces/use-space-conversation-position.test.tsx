@@ -123,13 +123,13 @@ it("releases a restored reading position when the user sends and follows the lat
 	expect(result.current.autoScroll).toBe(true);
 });
 
-it("loads earlier history for an anchor outside the latest page", async () => {
+it("keeps an uncached reading position protected until its anchor is aligned", async () => {
 	const f = fixture();
 	writeSpaceConversationPosition(f.key, {
 		anchorSignalId: "message-a",
 		offsetFromVisibleTop: 20,
 	});
-	const { rerender } = renderHook(useSpaceConversationPosition, {
+	const { result, rerender } = renderHook(useSpaceConversationPosition, {
 		initialProps: {
 			...f.input,
 			hasEarlierHistory: true,
@@ -140,9 +140,52 @@ it("loads earlier history for an anchor outside the latest page", async () => {
 		await vi.advanceTimersByTimeAsync(40);
 	});
 	expect(f.input.onLoadEarlierHistory).toHaveBeenCalledOnce();
+	expect(result.current.restorationStatus).toBe("restoring");
+	f.input.viewport.scrollTop = 200;
+	act(() => {
+		result.current.onScroll(f.input.viewport);
+		vi.advanceTimersByTime(150);
+	});
+	expect(readSpaceConversationPosition(f.key)).toEqual({
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 20,
+	});
 	rerender({ ...f.input, historyVersion: 2, hasEarlierHistory: false });
 	act(() => vi.advanceTimersByTime(40));
 	expect(f.input.viewport.scrollTop).toBe(780);
+	expect(result.current.restorationStatus).toBe("ready");
+});
+
+it("reports a failed restoration and retries the saved anchor", async () => {
+	const f = fixture();
+	writeSpaceConversationPosition(f.key, {
+		anchorSignalId: "message-a",
+		offsetFromVisibleTop: 20,
+	});
+	const onLoadHistoryAround = vi
+		.fn<() => Promise<boolean>>()
+		.mockResolvedValueOnce(false)
+		.mockResolvedValueOnce(true);
+	const { result } = renderHook(useSpaceConversationPosition, {
+		initialProps: {
+			...f.input,
+			hasEarlierHistory: true,
+			messageElementsRef: { current: new Map<string, HTMLElement>() },
+			onLoadHistoryAround,
+		},
+	});
+
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(40);
+	});
+	expect(result.current.restorationStatus).toBe("failed");
+
+	act(() => result.current.retryRestoration());
+	await act(async () => {
+		await vi.advanceTimersByTimeAsync(40);
+	});
+	expect(onLoadHistoryAround).toHaveBeenCalledTimes(2);
+	expect(result.current.restorationStatus).toBe("restoring");
 });
 
 it("saves before navigation without waiting for scrollend, and keeps different Spaces independent", () => {

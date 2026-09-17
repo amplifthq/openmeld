@@ -17,6 +17,11 @@ import {
 
 const TOP_OVERLAY_HEIGHT_PROPERTY = "--space-conversation-top-overlay-height";
 
+export type SpaceConversationRestorationStatus =
+	| "restoring"
+	| "ready"
+	| "failed";
+
 export function getSpaceConversationVisibleTop(
 	viewport: HTMLDivElement
 ): number {
@@ -99,6 +104,19 @@ export function useSpaceConversationPosition(input: {
 	const shouldRestore =
 		!input.hasExplicitFocus &&
 		Boolean(rememberedPosition || initialRouterEntry);
+	const [restoration, setRestoration] = useState<{
+		attempt: number;
+		key: string;
+		status: SpaceConversationRestorationStatus;
+	}>({
+		attempt: 0,
+		key: positionKey,
+		status: shouldRestore ? "restoring" : "ready",
+	});
+	const restorationStatus =
+		restoration.key === positionKey
+			? restoration.status
+			: initialRestorationStatus(shouldRestore);
 	const saveRef = useRef<() => void>(() => undefined);
 	const releaseRef = useRef<() => void>(() => undefined);
 	const loadingRef = useRef(false);
@@ -123,8 +141,14 @@ export function useSpaceConversationPosition(input: {
 		}
 		let disposed = false;
 		let ready = false;
+		let failed = false;
 		let protectedAnchor =
 			shouldRestore && releasedKeyRef.current !== positionKey;
+		setRestoration((current) => ({
+			attempt: current.key === positionKey ? current.attempt : 0,
+			key: positionKey,
+			status: protectedAnchor ? "restoring" : "ready",
+		}));
 		const save = () => {
 			if (!ready || input.historyIsPending || protectedAnchor) {
 				return;
@@ -145,18 +169,46 @@ export function useSpaceConversationPosition(input: {
 			}
 			loadingRef.current = true;
 			loadHistory()
+				.then((restored) => {
+					if (!disposed && protectedAnchor && restored === false) {
+						failed = true;
+						setRestoration((current) =>
+							current.key === positionKey
+								? { ...current, status: "failed" }
+								: current
+						);
+					}
+				})
 				.catch((error: unknown) => {
 					console.error(
 						"Failed to load the saved Space reading position.",
 						error
 					);
+					if (!disposed && protectedAnchor) {
+						failed = true;
+						setRestoration((current) =>
+							current.key === positionKey
+								? { ...current, status: "failed" }
+								: current
+						);
+					}
 				})
 				.finally(() => {
 					loadingRef.current = false;
 				});
 		};
+		const restoreMissingAnchor = (canLoadAnchor: boolean) => {
+			if (canLoadAnchor) {
+				requestEarlierHistory();
+				return;
+			}
+			failed = true;
+			setRestoration((current) =>
+				current.key === positionKey ? { ...current, status: "failed" } : current
+			);
+		};
 		const restore = () => {
-			if (disposed || input.historyIsPending) {
+			if (disposed || input.historyIsPending || failed) {
 				return;
 			}
 			if (!protectedAnchor) {
@@ -170,9 +222,10 @@ export function useSpaceConversationPosition(input: {
 				: undefined;
 			const waitingForAnchor = Boolean(rememberedPosition && !anchor);
 			const canLoadAnchor =
-				input.hasEarlierHistory || input.isLoadingEarlierHistory;
-			if (waitingForAnchor && canLoadAnchor) {
-				requestEarlierHistory();
+				!input.historyError &&
+				(input.hasEarlierHistory || input.isLoadingEarlierHistory);
+			if (waitingForAnchor) {
+				restoreMissingAnchor(canLoadAnchor);
 				return;
 			}
 			alignReadingPosition(
@@ -182,11 +235,17 @@ export function useSpaceConversationPosition(input: {
 				ready ? undefined : initialRouterEntry?.scrollY
 			);
 			ready = true;
+			setRestoration((current) =>
+				current.key === positionKey ? { ...current, status: "ready" } : current
+			);
 		};
 		const release = () => {
 			protectedAnchor = false;
 			releasedKeyRef.current = positionKey;
 			ready = !input.historyIsPending;
+			setRestoration((current) =>
+				current.key === positionKey ? { ...current, status: "ready" } : current
+			);
 		};
 		releaseRef.current = release;
 		const onKeyDown = (event: KeyboardEvent) => {
@@ -246,6 +305,7 @@ export function useSpaceConversationPosition(input: {
 		input.historyError,
 		input.messageElementsRef,
 		positionKey,
+		restoration.attempt,
 		rememberedPosition,
 		initialRouterEntry,
 		shouldRestore,
@@ -281,8 +341,17 @@ export function useSpaceConversationPosition(input: {
 		setFollowingViewport(input.viewport);
 	}, [input.viewport]);
 	const releaseReadingPosition = useCallback(() => releaseRef.current(), []);
+	const retryRestoration = useCallback(() => {
+		setRestoration((current) => ({
+			attempt: current.key === positionKey ? current.attempt + 1 : 0,
+			key: positionKey,
+			status: "restoring",
+		}));
+	}, [positionKey]);
 	return {
 		releaseReadingPosition,
+		restorationStatus,
+		retryRestoration,
 		followLatest,
 		autoScroll:
 			!shouldRestore ||
@@ -293,6 +362,12 @@ export function useSpaceConversationPosition(input: {
 		onScroll: scheduleSave,
 		onScrollEnd: save,
 	};
+}
+
+function initialRestorationStatus(
+	shouldRestore: boolean
+): SpaceConversationRestorationStatus {
+	return shouldRestore ? "restoring" : "ready";
 }
 
 function alignReadingPosition(
