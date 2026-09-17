@@ -45,7 +45,7 @@ export function SpaceMemberInlineStatusText(input: {
 		"data-availability-phase": input.availabilityPhase ?? undefined,
 		"data-availability-reason-code": input.availabilityReasonCode ?? undefined,
 		"data-testid": input.testId,
-		title: input.tooltip,
+		"aria-description": input.tooltip,
 	};
 	const status = input.to ? (
 		<Link to={input.to} {...commonProps}>
@@ -99,7 +99,7 @@ export function SpaceAgentAvailabilityIndicator(input: {
 		"data-availability-reason-code": input.reasonCode ?? undefined,
 		"data-refreshing": input.isRefreshing ? "true" : undefined,
 		"data-testid": "space-agent-availability-indicator",
-		title: input.tooltip,
+		"aria-description": input.tooltip,
 	};
 	const indicator = input.href ? (
 		<Link

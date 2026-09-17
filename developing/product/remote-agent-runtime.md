@@ -220,8 +220,11 @@ preparation uses the admission idempotency key and still checks current identity
 binding and membership. It cannot authorize ordinary tools or read other releases;
 normal tool calls and activation recording still require an accepted delivery.
 
-Personal Apps use Organization-shared connections only, never the Agent owner's
-personal connection. Existing connector discovery, durable operation records,
+Personal Apps use permitted Organization-shared connections and may use the
+owner's personal connection when that owner enabled personal Remote Agent
+access and is the verified requester or Routine delegate. Another member's
+Wake and an Agent-to-Agent handoff never inherit the owner's private account.
+Existing connector discovery, durable operation records,
 attribution, and destructive-action confirmation remain authoritative. Actions
 requiring a represented human still require the verified current human sender;
 an Agent-to-Agent handoff must not impersonate its owner to obtain those actions.
@@ -236,6 +239,23 @@ continuity. Both roles share the same filesystem and execution implementation.
 Selected Space files, including binary files up to the existing 10 MiB limit,
 can be downloaded into the current Computer and published back through canonical
 Space Files. Published files attach their exact revision to the final reply.
+
+Center Agent final Space replies and Space Routine reports may prepare explicit
+Human Profile recipients with `openmeld_set_final_reply_mentions`. The latest
+selection replaces the earlier selection for that turn; an empty list clears it.
+The native completion callback carries `mentionTargets`, and the existing Space
+publication boundary validates active Human membership and creates normal Mention
+notifications with the final message. Preparation is not publication, and plain
+names never create notifications or Agent Wakes. Web renders explicit recipients
+even when the message prose does not contain an inline mention.
+
+Contract Impact Audit: the optional callback field is Core/Remote Agent only.
+Deploy the accepting Core before a Remote Agent build can send this field; older
+Core uses a strict callback schema and rejects unknown fields. Old Remote Agent
+callbacks remain accepted by new Core. CLI, Service, Skills, Gateway, setup,
+workstation Wake admission, and diagnostics have no new required fields or
+minimum versions from this addition. Existing Space addressing remains the
+publication and notification authority.
 No bucket credentials or another conversation's Computer are exposed.
 
 `browser_execute` uses the Agents SDK browser tools with a native Code Mode
@@ -612,6 +632,15 @@ the connected provider API.
    may be visible. The worker places an explicit shortening notice inside the
    product-wide text ceiling if a model result is larger; CardKit itself never
    silently truncates the accepted callback.
+   Signed native controls bind the current card message to the same Native
+   Delivery, connection, app, tenant, chat, and verified requester. Stop requests
+   go to the existing Remote Agent execution owner; a click never marks the
+   ledger completed or stopped. The worker's terminal callback finalizes the
+   card. Completed cards offer a collapsed follow-up form. A submission becomes
+   ordinary user input at the original frozen destination, not a business
+   approval or an authorization grant. Identical submissions on one card reuse
+   one operation identity; controls expire after 24 hours and are checked against
+   the current connection and membership. Stale or mismatched controls fail closed.
    Generated callback attachments are not delivered into Lark/Feishu in the
    first release. Core finalizes the same card or reply with an explicit
    generated-image delivery notice, removes the unsupported attachment
@@ -644,6 +673,13 @@ the connected provider API.
    keeps any longer backoff. Existing stream coalescing remains the normal
    request-rate control; `Retry-After` is explicit provider backpressure, not a
    second scheduler or publication path.
+   Remote Agent admits `message_channel` answer deltas to this existing stream
+   path, alongside Web/Space. It publishes the first text immediately, coalesces
+   subsequent provider snapshots at 350 ms, and flushes remaining text before
+   tools and terminal completion. Thinking stays private; Web-only tool parts
+   are not sent to CardKit or counted as visible progress. Slack retains its
+   own publication path. The same durable card is finalized after the result;
+   streaming is not a second response or an execution-completion signal.
    Lark-platform event ingestion is bounded to four Queue attempts. Exhaustion
    records one durable failed ingress and stops; it never resets the attempt
    count by creating a fresh copy of the same event. Replayed provider images
@@ -725,12 +761,44 @@ the connected provider API.
 
 ### Work-loop continuation
 
-A per-submission tool-call budget is a runtime safety checkpoint, not proof
-that the user's request is finished. When the Remote Agent reaches that budget,
-it persists a versioned `tool_call_budget_exhausted` checkpoint and sends Core a
-structured `continuation_required` callback. Assistant prose, including text
-such as "I stopped before testing," must never be inspected to decide whether
-work continues.
+Center and personal Remote Agents normally continue in the same Flue/Pi
+execution, using its automatic compaction and supported recovery. Crossing 64
+tool calls is not a finish, checkpoint, or request for the user to say
+"continue." A model segment ending is not proof that the assignment is done.
+
+The deployment-owned `REMOTE_AGENT_TOOL_CALL_LIMIT` defaults to 4096 admitted
+tool attempts per assignment. This is a coarse runaway backstop, not an
+experimentally optimized threshold or a cost meter. The first admitted tool
+freezes the configured positive integer for the Organization/Profile/dispatch;
+recovery, compaction, idle time, and internal submission replacement do not
+refill it. Direct tools and actual Code Mode inner calls share that counter;
+the outer Code Mode invocation also counts so script-only retries are bounded.
+Unchanged observation protection and bounded result policies still apply;
+refused unchanged observations consume attempts without repeating the read.
+Reaching the backstop durably requests failure and fences further tools and
+model rounds through the existing runtime boundary. The execution remains
+stoppable until Flue settles and retained Computer commands have confirmed
+termination. The observer and recovery reconciler share that cleanup gate;
+a stop request alone is not termination evidence. Only then does the execution
+publish an explicit incomplete outcome, with an intervening Stop taking
+precedence. It does not create another continuation, refund unknown writes,
+or allow later assistant prose to turn that failure into success.
+
+Long Computer operations retain their command keys and are followed through
+separate bounded `computer_command` polls. Code Mode's 60-second script timeout
+is not the assignment lifetime. The shared `useAgentFinish` check only feeds
+back owned pending command receipts; it neither judges arbitrary deliverable
+quality nor waits for downstream final publication. Completed receipts stop
+the feedback. Explicit stopping and command-loss handling remain authoritative.
+Cancellation reaches cancellable Code Mode inner operations and is checked
+again when each serialized operation can start. An aborted promise alone does
+not prove an accepted external effect was undone.
+
+Previously persisted `tool_call_budget_exhausted` checkpoints remain supported
+for bounded recovery. The worker execution owner retains this outcome even
+when assistant text follows, or no final text exists. Callback projection and
+reconciliation read that outcome; genuine failure or cancellation wins. This
+does not reopen deliveries already finalized by Core.
 
 Core keeps the same native delivery, conversation, Task, requester, frozen
 result surface, and model route. It durably archives the completed internal
@@ -740,18 +808,25 @@ without repeating completed work. Only a later structured completed or failed
 callback may finalize the native delivery or publish its result. A replay of an
 archived checkpoint is accepted without starting another submission.
 
-One delivery may advance through at most eight automatic work-loop
-continuations. Reaching the next checkpoint publishes one explicit
+Legacy deliveries may advance through at most eight automatic work-loop
+continuations. Reaching the next legacy checkpoint publishes one explicit
 OpenMeld-owned safe-limit failure instead of looping indefinitely. Stop,
 authorization, admission, quota, watchdog, publication fencing, and provider
 placement are rechecked through their ordinary owners for every internal
 submission. This contract applies equally to Space, Web Direct Message, Slack,
 generic Message Channel, Task, and Routine turns.
 
-The mixed-version rollout is D1 migration first, then Core as the new callback
-consumer, and Remote Agent last as the checkpoint producer. Rollback removes
-the Remote Agent producer before Core or the migration. Gateway, Web, CLI,
-OpenMeld Service, daemon, and workstation execution contracts are unchanged.
+No new migration or callback shape is introduced by continuous execution.
+The existing Core continuation consumer must remain while old checkpoints can
+be recovered. New workers accept old stored checkpoints and seed assignment
+accounting from their existing submission chain; missing or inconsistent chain
+evidence fails closed. The new private execution checkpoint, requested failure,
+and aggregate counter require retaining this worker implementation until in-flight work and
+checkpoint callbacks drain before rollback to an older worker. Do not remove
+Core's continuation consumer or its original migration during that period.
+Gateway, Web, CLI, OpenMeld Service, daemon, setup, Space actions, and workstation
+execution wire contracts are unchanged. This does not change Computer identity,
+filesystem isolation, or role-specific authorization and tool catalogs.
 
 ### Turn envelope (2026-07-09)
 
@@ -820,12 +895,27 @@ identity, or other tools advance the goal. Large tool catalogs may compact
 schemas into Code Mode, but compaction does not change the semantic owner,
 reasoning policy, tool authorization, or available inner capabilities.
 
-A provider response that completes with no content events, visible text, or
-tool call may be retried once at the provider stream boundary. The worker must
-not retry after any content or tool event has been observed, or after the
-caller cancels the turn. The delivered attempt includes token and cost usage
-from the discarded empty attempt. A second empty response follows the ordinary
-visible terminal-failure path instead of creating an unbounded retry loop.
+A provider response that completes normally without visible text or tool calls
+may be retried once at the existing provider stream boundary, using the same
+frozen model and inference context, including already committed tool results.
+Thinking-only and whitespace events may be buffered up to 256 events and 64 KiB
+of deltas. Visible text, any tool event, or exceeding that buffer commits the
+attempt to normal streaming and disables retry. Length, error, refusal, and
+cancelled completions are not empty-stop recovery candidates. A retry may start
+only within two minutes of the inference starting and before caller cancellation;
+this admission limit never interrupts an active inference. The delivered attempt
+includes token and cost usage from the discarded attempt. A second empty response
+follows the ordinary visible terminal-failure path. Recovery never restarts the
+workflow, repeats tools, or changes an explicitly selected model.
+
+Manual reply recovery uses the existing fenced Execution Recovery operation.
+Its worker request carries `replyRecovery` with the original dispatch, operation,
+and optional Space result reference. The same frozen runtime conversation and
+model route are retained. The runtime exposes no executable tools, Skills, or
+Computer sandbox for this request, and does not stream it as a new Space Wake.
+Core publishes its final answer through Space's idempotent recovery-notice owner.
+If it fails, the original failure stays visible and the exact recovery attempt
+becomes unavailable. An unknown publication outcome does not authorize replay.
 
 Action authorization is semantic, not lexical. Conversation context may
 complete arguments only inside an action the user already authorized; it cannot
@@ -1267,9 +1357,12 @@ worker sends the authenticated gateway token plus that exact
 tracked config. This is OpenMeld-operated provider configuration, not user
 BYOK.
 
-The repo-owned `center-agent` catalog exposes GLM 5.3 Flash, Grok 4.6, Grok
-4.5, and DeepSeek V4 Flash, with GLM 5.3 Flash as the OpenMeld default since
-2026-08-27. Core resolves a complete immutable route for each new turn. The
+The repo-owned `center-agent` catalog exposes curated models from OpenAI,
+Anthropic, Google, DeepSeek, xAI, and Z.ai, with GLM 5.3 Flash as the OpenMeld
+default since 2026-08-27. The exact selection and captured metadata are owned by
+[Agent Profile Model Selection](agent-model-selection.md#55-hosted-center-agent-catalog).
+These are model vendors; all hosted routes still use OpenRouter. Core resolves
+a complete immutable route for each new turn. The
 route contains the exact OpenRouter model id, friendly display name, input
 modalities, context window, output budget, reasoning level, catalog timestamp,
 preference kind, auxiliary image-understanding model, and
@@ -1636,8 +1729,11 @@ final-outcome authority.
 This additive stream rollout is consumer first: deploy Web, then Core, then the
 Remote Agent producer. New Core accepts the legacy text callback and the typed
 typed stream callback. Text WebSocket frames keep their legacy shape. Web also
-ignores any legacy thinking frame so a stale producer cannot expose private
-reasoning. Rollback removes the Remote Agent producer before Core or Web
+renders provider-emitted thinking in the same transient Thinking + Reasoning
+component used for Local Agents. Center Agent and Remote Agent conversations
+share its bounded viewport, manual scroll control, and reduced-motion behavior.
+Thinking keeps a bounded latest tail during long turns and never enters persisted
+stream state or final message metadata. Rollback removes the Remote Agent producer before Core or Web
 consumers.
 
 Workstation Local Agents may use the same downstream Space tool-part and
@@ -1816,8 +1912,14 @@ surface adopts official features where they are free**:
   callers), read bounded recent Dispatch Ledger diagnostics, create Spaces,
   create Agent Profiles, enable Agent Profiles, add active Organization members
   and Agent Profiles to Spaces, remove Agent Profiles from Spaces, update Space
-  settings, post plain Space messages, and Wake Agent Profiles in Spaces through
-  Space activation targets. For an ordinary verified-member Slack turn, Core
+  settings, post plain Space messages, manage revision-bound Space Tasks in the
+  current ordinary shared Space, and Wake Agent Profiles in Spaces through
+  Space activation targets. Space Task creation is reserved for clear delivery
+  obligations; assignment, start, submission, review, and cancellation remain
+  distinct. Task review handoffs use the existing Space Wake path and stop after
+  two automatic rework rounds for a human decision. This Task surface does not
+  replace Agent Task Handles or native-delivery execution truth. For an ordinary
+  verified-member Slack turn, Core
   may place one encrypted, event-bound search authorization in the trusted turn
   envelope. The normal Flue Agent loop decides semantically whether public
   workspace search advances the request; no keyword gate or second model
@@ -2008,14 +2110,17 @@ comparisons, labels, assignees, reviews, requested reviewers, commit statuses,
 check runs, and merge state; and GitHub Actions workflow and run diagnosis. The
 write surface can create and update Issues, comments, labels, assignees,
 branches, files, pull requests, and pull-request reviews; request or remove
-reviewers; update pull-request branches; rerun workflows; delete individual
-files; and merge pull requests. Repository deletion and release publication
-remain unavailable. File deletion and pull-request merge operations use the
-interactive two-turn destructive-confirmation contract. Every other GitHub
-write executes directly from an explicit verified-user request or an explicit
-connected Message Channel member request with `githubActor = organization`. Explicit
-Routine instructions direct ordinary writes without per-Run confirmation.
-GitHub file deletion and pull-request merge are unsupported during a Routine.
+reviewers; update pull-request branches; dispatch or rerun workflows; delete
+individual files; and merge pull requests. The read surface can also resolve a
+GitHub Release by its exact tag so the Agent can distinguish a published
+Release from a completed workflow. Repository deletion and direct release
+publication remain unavailable. File deletion and pull-request merge operations
+use the interactive two-turn destructive-confirmation contract. Every other
+GitHub write executes directly from an explicit verified-user request or an
+explicit connected Message Channel member request with
+`githubActor = organization`. Explicit Routine instructions direct ordinary
+writes without per-Run confirmation. GitHub file deletion and pull-request
+merge are unsupported during a Routine.
 
 Every dedicated GitHub tool has one required model-visible
 `githubActor = organization | requester` input. `organization` means the
@@ -2026,6 +2131,28 @@ Interactive turns choose from the concrete repository and authorship need.
 Routine turns and member research reject `requester`; they may use only
 `organization`. Remote Agent strips `githubActor` before calling OpenConnector
 because it is OpenMeld authorization input, not a provider action parameter.
+
+Workflow dispatch is a general GitHub capability, not an OpenMeld release
+endpoint. Its provider input is only repository, workflow identifier, explicit
+branch or tag `ref`, and an optional string-to-string workflow input map. The
+Agent reads the selected repository's workflow and declared inputs before
+dispatch; the connector does not require OpenMeld-only fields such as
+`release_sha`, `scope`, a component order, or a repository allowlist. Existing
+GitHub Environment protections and repository workflow validation continue to
+own release authority.
+
+The existing Core connector-action operation owns dispatch replay, connection
+identity, authorization, request signature, provider execution, and the saved
+result. With GitHub API version `2022-11-28`, OpenConnector requests
+`return_run_details` and returns the exact `workflow_run_id`, API URL, and HTML
+URL when GitHub supplies them. A successful dispatch operation means only that
+GitHub accepted the request; it does not prove workflow completion, deployment,
+health, Release publication, or product smoke. If GitHub returns the compatible
+empty response, the result records that run identity is unavailable. The Agent
+must report that uncertainty and must not dispatch again or select a latest run
+just to manufacture a correlation. Later inspection uses the existing workflow
+run and job reads and the exact returned run identity when known. This path does
+not add polling infrastructure, callbacks, or a release scheduler.
 
 #### OpenConnector access boundary
 
@@ -2093,6 +2220,17 @@ must not be presented as the remedy for either result. GitHub `Not Found` and
 authorization failures preserve the provider error while explaining that the
 repository must be included in the OpenMeld GitHub App installation and
 available to the explicitly selected GitHub identity.
+
+Workflow dispatch depends on the provider contract that returns honest run
+identity status. Update OpenConnector first. Then use the normal cloud rollout
+order so Web receives the exhaustive activity presentation before Core accepts
+the new strict speaker tool names and Remote Agent begins emitting the new
+activity keys. Old Remote Agent remains compatible with updated Web and Core;
+new Remote Agent against old Core fails closed instead of bypassing speaker
+authorization. A Web tab loaded before the Web deployment must be refreshed
+before validating these new activity rows. The change does not affect CLI,
+OpenMeld Service, daemon, Prepare, RuntimeCoordinator, or local-component
+versions.
 
 `config/openconnector/wrangler.production.jsonc` is the tracked source of truth
 for this deployment policy, Worker identity, D1 binding, R2 binding, and public

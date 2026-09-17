@@ -9,9 +9,11 @@ import {
 export function useSpaceComposerSession(input: {
 	authoring: UseSpaceMentionAuthoringInput;
 	files: {
-		organizationSlug: string;
+		organizationSlug?: string;
 		profileId: string;
 		spaceId: string;
+		draftScope?: string;
+		restoreFromScopes?: readonly string[];
 	};
 }) {
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -68,9 +70,12 @@ export function useSpaceComposerSession(input: {
 			setErrorMessage,
 		},
 		onEditorChange,
-		recordPendingSubmission: (includeFiles = true) => {
-			authoring.recordPendingSubmission();
-			return includeFiles ? files.beginSubmission() : [];
+		recordPendingSubmission: (submission?: {
+			fileIds?: readonly string[];
+			submittedAtMs?: number;
+		}) => {
+			authoring.recordPendingSubmission(submission?.submittedAtMs);
+			return files.beginSubmission(submission?.fileIds);
 		},
 		send: {
 			begin: beginSend,

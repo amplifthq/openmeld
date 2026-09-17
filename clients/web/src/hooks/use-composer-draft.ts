@@ -1,5 +1,6 @@
 import type { SetStateAction } from "react";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import {
 	buildComposerDraftStorageKey,
 	type ComposerDraftContent,
@@ -108,6 +109,20 @@ export function useComposerDraft(input: {
 		() => toComposerDraftContent(state.draft),
 		[state.draft]
 	);
+	useLayoutEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(() => {
+				if (!input.scope) {
+					return !!(
+						content.text ||
+						content.replyToSignalId ||
+						content.authoredMentions.length
+					);
+				}
+				return !writeComposerDraft(input.scope, state.draft);
+			}),
+		[input.scope, content, state.draft]
+	);
 
 	return {
 		content,
@@ -215,6 +230,7 @@ function toComposerDraftContent(
 		authoredMentions: record.authoredMentions,
 		replyToSignalId: record.replyToSignalId,
 		restoredFromSignalId: record.restoredFromSignalId,
+		threadWakeContinuationProfileId: record.threadWakeContinuationProfileId,
 		text: record.text,
 	};
 }
@@ -228,6 +244,8 @@ function areComposerDraftRecordsEqual(
 		left.text === right.text &&
 		left.replyToSignalId === right.replyToSignalId &&
 		left.restoredFromSignalId === right.restoredFromSignalId &&
+		left.threadWakeContinuationProfileId ===
+			right.threadWakeContinuationProfileId &&
 		left.authoredMentions.length === right.authoredMentions.length &&
 		left.authoredMentions.every((mention, index) => {
 			const other = right.authoredMentions[index];

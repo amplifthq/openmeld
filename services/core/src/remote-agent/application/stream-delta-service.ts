@@ -14,6 +14,7 @@ import { CORE_LOG_EVENTS } from "../../shared/observability/log-events";
 import type { RemoteAgentNativeDeliveryRecord } from "../infrastructure/d1/native-delivery-ledger-repo";
 import { publishRemoteAgentMessageChannelCardStreamDelta } from "./message-channel-card-stream-service";
 import { createConfiguredMessageChannelProviderRegistry } from "./message-channel-provider-runtime";
+import { resolveNativeDeliveryReplyPlacement } from "./reply-placement";
 import {
   type AgentStreamSpaceStub,
   buildRemoteAgentStreamId,
@@ -60,8 +61,19 @@ export async function submitRemoteAgentStreamDelta(
   }
 
   try {
+    const placement = await resolveNativeDeliveryReplyPlacement({
+      env,
+      delivery: target.delivery,
+      lock: delta.kind === "text",
+    });
     return remoteAgentStreamDeltaCallbackResponseSchema.parse(
       await target.stub.rpcApplyAgentStreamDelta({
+        ...(placement
+          ? {
+              replyThreadRootSignalId:
+                placement.threadContext?.rootSignalId ?? null,
+            }
+          : {}),
         v: 1,
         spaceId: parsed.data.spaceId,
         streamId: parsed.data.streamId,

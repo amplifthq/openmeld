@@ -191,6 +191,9 @@ export const upsertSpaceCreatorMember = (input: {
 
   const nowIso = input.nowIso ?? new Date().toISOString();
   const existing = readSpaceMemberRecord(input.sql, creator.profileId);
+  if (existing?.status === "removed") {
+    return existing;
+  }
   const next = buildNextSpaceMemberRecord({
     existing,
     existingProfileSnapshot: existing,
@@ -355,7 +358,7 @@ function buildSpaceMemberMutationItems(input: {
         generatedAt: input.nowIso,
       });
     }
-    return buildAgentMutationSnapshot({
+    return buildAgentIdentitySnapshot({
       record,
       liveProfileById,
       cursorSnapshots,
@@ -382,9 +385,6 @@ export const removeSpaceMembersUseCase = (input: {
   const alreadyAbsentMemberIds: string[] = [];
   const uniqueMemberProfileIds: string[] = [];
   const seenProfileIds = new Set<string>();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
 
   for (const memberProfileId of input.memberProfileIds) {
     if (seenProfileIds.has(memberProfileId)) {
@@ -405,13 +405,15 @@ export const removeSpaceMembersUseCase = (input: {
     const existing = readSpaceMemberRecord(input.sql, memberProfileId);
     if (
       existing?.status === "active" &&
-      (memberProfileId === creatorProfileId ||
-        existing.memberSource === "space_creator")
+      existing.profileKindSnapshot === "human" &&
+      existing.ownerUserIdSnapshot &&
+      input.metaRecord?.ownerUserIds?.includes(existing.ownerUserIdSnapshot)
     ) {
       throw new SpaceMembersUseCaseError({
         status: 400,
-        code: "space.members.creator_forbidden",
-        message: "space creator cannot be removed from this space",
+        code: "space.members.owner_forbidden",
+        message:
+          "Change this person's role to Member before removing them. Keep at least one Space owner.",
       });
     }
   }
@@ -451,16 +453,15 @@ export const leaveSpaceUseCase = (input: {
   nowIso?: string;
 }): LeaveSpaceResponse => {
   const nowIso = input.nowIso ?? new Date().toISOString();
-  const creatorProfileId = normalizeSpaceCreator(
-    input.metaRecord?.creator
-  )?.profileId;
-
-  if (input.actorProfileId === creatorProfileId) {
+  if (
+    input.actorOwnerUserId &&
+    input.metaRecord?.ownerUserIds?.includes(input.actorOwnerUserId)
+  ) {
     throw new SpaceMembersUseCaseError({
       status: 400,
-      code: "space.leave_space.creator_forbidden",
+      code: "space.leave_space.owner_forbidden",
       message:
-        "The space creator cannot leave this space. Delete the space instead when only you remain.",
+        "Change your role to Member before leaving. Add another owner first if you are the last owner.",
     });
   }
 
@@ -490,6 +491,7 @@ export const leaveSpaceUseCase = (input: {
 };
 
 export const listSpaceMembersSnapshotUseCase = async (input: {
+  includeAgentReadiness?: boolean;
   profileFacts?: AuthProfileFacts | null;
   sql: SqlStorage;
   env: CoreBindings;
@@ -543,12 +545,15 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     "derive latest signal activity",
     () => listLatestSignalActivityFromSql(input.sql)
   );
-  const latestAgentOriginFactsByProfileId = measureSpaceMembersSnapshotTiming(
-    input.timing,
-    "origin_facts",
-    "derive latest agent origin facts",
-    () => listLatestAgentOriginFactsFromSql(input.sql)
-  );
+  const latestAgentOriginFactsByProfileId =
+    input.includeAgentReadiness === false
+      ? new Map()
+      : measureSpaceMembersSnapshotTiming(
+          input.timing,
+          "origin_facts",
+          "derive latest agent origin facts",
+          () => listLatestAgentOriginFactsFromSql(input.sql)
+        );
   const liveProfileById = buildLiveProfileById(liveSessions);
   const [
     preloadedHumanAvatarByOwnerUserId,
@@ -571,33 +576,43 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       "route_batch",
       "preload agent member route evidence",
       () =>
-        preloadAgentMemberDaemonRoutes({
-          env: input.env,
-          records,
-        })
+        input.includeAgentReadiness === false
+          ? Promise.resolve(new Map())
+          : preloadAgentMemberDaemonRoutes({
+              env: input.env,
+              records,
+            })
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
       "owner_service_batch",
       "preload agent member owner service evidence",
       () =>
-        preloadAgentMemberOwnerServices({
-          env: input.env,
-          records,
-        })
+        input.includeAgentReadiness === false
+          ? Promise.resolve(new Map())
+          : preloadAgentMemberOwnerServices({
+              env: input.env,
+              records,
+            })
     ),
     measureSpaceMembersSnapshotTimingAsync(
       input.timing,
       "auth_lineage",
       "resolve viewer creator profile ids",
-      () =>
-        input.lineageLoader && input.viewerOwnerUserId && input.viewerProfileId
+      () => {
+        if (input.includeAgentReadiness === false) {
+          return Promise.resolve(undefined);
+        }
+        return input.lineageLoader &&
+          input.viewerOwnerUserId &&
+          input.viewerProfileId
           ? input.lineageLoader(input.viewerOwnerUserId)
           : resolveViewerCreatorProfileIdsByProfileId({
               authRpc: input.env.OPENMELD_AUTH_WORKER,
               viewerOwnerUserId: input.viewerOwnerUserId,
               viewerProfileId: input.viewerProfileId,
-            })
+            });
+      }
     ),
   ]);
   const generatedAt = input.nowIso ?? new Date().toISOString();
@@ -606,6 +621,7 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
   const agentSnapshotPromises: Promise<SpaceMemberAgentSnapshot>[] = [];
   const activeOrganizationId = input.metaRecord?.organizationId ?? null;
   const readinessReads = createAgentExecutionReadinessReads({
+    batchProfileReads: true,
     profileFacts: input.profileFacts,
   });
 
@@ -632,22 +648,32 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     }
 
     agentSnapshotPromises.push(
-      buildAgentSnapshot({
-        activeOrganizationId,
-        env: input.env,
-        record,
-        viewerOwnerUserId: input.viewerOwnerUserId,
-        viewerProfileId: input.viewerProfileId,
-        viewerCreatorProfileIdsByProfileId,
-        liveProfileById,
-        cursorSnapshots,
-        latestSignalActivity,
-        latestAgentOriginFactsByProfileId,
-        preloadedDaemonRouteByProfileId,
-        preloadedOwnerServiceByOwnerUserId,
-        readinessReads,
-        generatedAt,
-      })
+      input.includeAgentReadiness === false
+        ? Promise.resolve(
+            buildAgentIdentitySnapshot({
+              record,
+              liveProfileById,
+              cursorSnapshots,
+              latestSignalActivity,
+              generatedAt,
+            })
+          )
+        : buildAgentSnapshot({
+            activeOrganizationId,
+            env: input.env,
+            record,
+            viewerOwnerUserId: input.viewerOwnerUserId,
+            viewerProfileId: input.viewerProfileId,
+            viewerCreatorProfileIdsByProfileId,
+            liveProfileById,
+            cursorSnapshots,
+            latestSignalActivity,
+            latestAgentOriginFactsByProfileId,
+            preloadedDaemonRouteByProfileId,
+            preloadedOwnerServiceByOwnerUserId,
+            readinessReads,
+            generatedAt,
+          })
     );
   }
 
@@ -669,7 +695,10 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     "liveness",
     "record member liveness observations",
     () => {
-      if (Number.isFinite(livenessObservedAtMs)) {
+      if (
+        input.includeAgentReadiness !== false &&
+        Number.isFinite(livenessObservedAtMs)
+      ) {
         for (const agent of agents) {
           if (
             agent.agentWakeAvailability?.reasonCode ===
@@ -729,10 +758,14 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
       humanCount: memberSummary.sortedHumans.length,
       agentCount: memberSummary.sortedAgents.length,
       liveNowCount: memberSummary.liveNowCount,
-      wakeableAgentCount: memberSummary.wakeableAgentCount,
-      checkingAgentCount: memberSummary.checkingAgentCount,
-      offlineAgentCount: memberSummary.offlineAgentCount,
-      unavailableAgentCount: memberSummary.unavailableAgentCount,
+      ...(input.includeAgentReadiness === false
+        ? {}
+        : {
+            wakeableAgentCount: memberSummary.wakeableAgentCount,
+            checkingAgentCount: memberSummary.checkingAgentCount,
+            offlineAgentCount: memberSummary.offlineAgentCount,
+            unavailableAgentCount: memberSummary.unavailableAgentCount,
+          }),
     },
     humans: memberSummary.sortedHumans,
     agents: memberSummary.sortedAgents,
@@ -820,6 +853,7 @@ export const readSpaceStatusMembersSummaryUseCase = async (input: {
   timing?: SpaceMembersSnapshotTiming;
 }): Promise<SpaceStatusMembersSummary> => {
   const snapshot = await listSpaceMembersSnapshotUseCase({
+    includeAgentReadiness: false,
     profileFacts: input.profileFacts,
     sql: input.sql,
     spaceId: input.spaceId,
@@ -1065,7 +1099,7 @@ async function preloadHumanMemberAvatars(input: {
   return avatarByOwnerUserId;
 }
 
-function buildAgentMutationSnapshot(input: {
+function buildAgentIdentitySnapshot(input: {
   record: SpaceMemberRecord;
   liveProfileById: Map<string, Profile>;
   cursorSnapshots: Map<string, CursorMemberSnapshot>;

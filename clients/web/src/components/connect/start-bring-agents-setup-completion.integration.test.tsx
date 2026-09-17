@@ -154,6 +154,48 @@ class ControlledMockWebSocket extends MockWebSocket {
 }
 
 describe("StartBringAgentsSetupPage completion actions", () => {
+	it("completes embedded Agent recovery once without leaving the caller", async () => {
+		const onCompleted = vi.fn();
+		const snapshot = createReadySnapshot({
+			setupBootstrap: createCompletedSetupBootstrapResult(),
+			targetSpaceId: null,
+		});
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_embedded",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot,
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(
+			createSetupContext({
+				kind: "account_computer_setup",
+				resetThisComputer: true,
+				returnTo: "agent_creation",
+			})
+		);
+		const element = (
+			<TestQueryClientProvider>
+				<StartFlowStateProvider>
+					<ComputerSetupFlow
+						autoReturnOnCompletion={false}
+						onCompleted={onCompleted}
+						orgSlug="acme"
+						presentation="embedded"
+					/>
+				</StartFlowStateProvider>
+			</TestQueryClientProvider>
+		);
+		const view = render(element);
+		await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
+		expect(onCompleted).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prepareSessionId: snapshot.prepareSessionId,
+				deviceId: snapshot.deviceId,
+			})
+		);
+		view.rerender(element);
+		expect(onCompleted).toHaveBeenCalledOnce();
+		expect(navigateMock).not.toHaveBeenCalled();
+	});
 	it("does not replace targeted Agent recovery with management of another online computer", async () => {
 		useBringAgentsSetupContextMock.mockReturnValue(
 			createSetupContext(
@@ -1389,6 +1431,58 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 				"OpenMeld Service is connected. Agent availability is checked separately."
 			)
 		).toBeNull();
+	});
+
+	it("keeps the active onboarding setup through inventory refresh and Terminal completion", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const routeIntent = {
+			kind: "account_computer_setup",
+			resetThisComputer: false,
+		} as const;
+		const context = createSetupContext(routeIntent, {
+			deviceId: null,
+			runtimeLane: null,
+		});
+		createPrepareSessionMock.mockResolvedValueOnce({
+			opaqueToken: "preptok_active",
+			opaqueTokenExpiresAt: "2999-05-08T10:10:00.000Z",
+			snapshot: {
+				...createTerminalDisconnectedSnapshot(),
+				deviceId: null,
+				targetSpaceId: null,
+			},
+		});
+		useBringAgentsSetupContextMock.mockReturnValue(context);
+		const view = render(createEmbeddedOnboardingComputerSetupElement());
+		await screen.findByRole("button", { name: "Copy setup command" });
+		const socket = ControlledMockWebSocket.latest;
+		expect(socket).not.toBeNull();
+
+		useBringAgentsSetupContextMock.mockReturnValue({
+			...context,
+			currentDeviceTargetQuery: {
+				...context.currentDeviceTargetQuery,
+				isFetching: true,
+			},
+		});
+		view.rerender(createEmbeddedOnboardingComputerSetupElement());
+		expect(screen.queryByText("Checking this computer…")).toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Copy setup command" })
+		).toBeTruthy();
+		act(() => {
+			socket?.emitSnapshot(createReadySnapshot({ targetSpaceId: null }));
+		});
+		await waitFor(() => expect(context.refreshAll).toHaveBeenCalledOnce());
+		useBringAgentsSetupContextMock.mockReturnValue(context);
+		view.rerender(createEmbeddedOnboardingComputerSetupElement());
+		expect(
+			await screen.findByText(
+				"Computer connected. Local agents are syncing in the background."
+			)
+		).toBeTruthy();
+		expect(createPrepareSessionMock).toHaveBeenCalledOnce();
+		expect(readPrepareSessionMock).not.toHaveBeenCalled();
 	});
 
 	it("hands a replayed automatic setup action back to the explicit Continue gate", async () => {

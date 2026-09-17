@@ -646,6 +646,7 @@ export function registerCenterAgentRoutes(app: Hono<HonoBindings>): void {
       execute: async () =>
         await c.var.coreRpc.convertDirectMessageToSpace({
           context: buildCoreRpcContext(c),
+          includeMemberSnapshots: parsed.data.includeMemberSnapshots,
           name: parsed.data.name,
           profileIds: parsed.data.profileIds,
           spaceId: parsedSpace.value.spaceId,

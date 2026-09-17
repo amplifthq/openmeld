@@ -10,6 +10,7 @@ import type {
   RuntimeTransportMode,
 } from "@openmeld/schemas/types";
 import { normalizeGatewayBaseUrl } from "./base-url";
+import { readLegacyAgentRegistrations } from "./compatibility/legacy-agent-registrations";
 import {
   acquireLock,
   isOpenMeldLockError,
@@ -1677,12 +1678,6 @@ async function readLegacyRuntimeConfigDetailed(): Promise<{
     };
   }
 
-  if (parsed.agents !== undefined) {
-    throw new Error(
-      "runtime.config.legacy_agents_unsupported: key 'agents.registrations' is no longer supported. Use 'deviceRuntimeState.controllers' or run 'openmeld reset --yes'."
-    );
-  }
-
   return {
     config: buildRuntimeConfigFromParts({
       baseUrl: parseConfiguredBaseUrl(parsed.baseUrl),
@@ -1695,7 +1690,9 @@ async function readLegacyRuntimeConfigDetailed(): Promise<{
         parsed.openMeldToolsMaintenance
       ),
       deviceRuntimeState: parseRuntimeDeviceRuntimeState(
-        parsed.deviceRuntimeState
+        parsed.deviceRuntimeState === undefined
+          ? readLegacyAgentRegistrations(parsed.agents)
+          : parsed.deviceRuntimeState
       ),
       onboarding: parseRuntimeOnboardingConfig(parsed.onboarding),
       updatedAt:

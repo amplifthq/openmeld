@@ -2,12 +2,14 @@ import type {
 	SpaceMessageMutationBody,
 	SpaceMessageMutationResponse,
 } from "@openmeld/schemas/types";
+import type { ComposerDraftAuthoredMention } from "#/lib/composer-draft-storage";
 import type { SpaceTimelineItem } from "./timeline";
 
 export type MessageEditDraft = {
 	text: string;
 	fileIds: string[];
 	attachmentIds: string[];
+	authoredMentions?: ComposerDraftAuthoredMention[];
 };
 
 export function previewMessageMutation(
@@ -36,9 +38,21 @@ export function previewMessageMutation(
 		text: body.text.trim(),
 		editedAt: now,
 		messageRevision: body.expectedRevision + 1,
-		files: item.files?.filter(
-			(file) => body.retainedFileIds?.includes(file.fileId) ?? true
-		),
+		wakeTargetProfileIds:
+			body.messageEnvelope?.activationTargets ?? item.wakeTargetProfileIds,
+		referenceTargetProfileIds:
+			body.messageEnvelope?.referenceTargets ?? item.referenceTargetProfileIds,
+		mentionTargetProfileIds:
+			body.messageEnvelope?.mentionTargets ?? item.mentionTargetProfileIds,
+		files: [
+			...(item.files?.filter(
+				(file) => body.retainedFileIds?.includes(file.fileId) ?? true
+			) ?? []),
+			...(body.addedFiles ?? []).map((file) => ({
+				...file,
+				localPreviewUrl: null,
+			})),
+		],
 		attachments: item.attachments.filter(
 			(file) => body.retainedAttachmentIds?.includes(file.id) ?? true
 		),
@@ -52,6 +66,10 @@ export function applySavedMessage(
 	return {
 		...item,
 		text: message.data.text,
+		wakeTargetProfileIds: message.data.messageEnvelope?.activationTargets ?? [],
+		referenceTargetProfileIds:
+			message.data.messageEnvelope?.referenceTargets ?? [],
+		mentionTargetProfileIds: message.data.messageEnvelope?.mentionTargets ?? [],
 		messageRevision: message.data.meta?.messageRevision ?? 0,
 		editedAt: message.data.meta?.editedAt,
 		recalledAt: message.data.meta?.recalledAt,

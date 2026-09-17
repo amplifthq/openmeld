@@ -1,4 +1,5 @@
 import type { MouseEvent, ReactNode } from "react";
+import { TooltipHint } from "#components/tooltip";
 import { FluidNavMenu, FluidNavMenuItem } from "#fluid/nav-menu";
 import { ScrollArea } from "#fluid/scroll-area";
 import type {
@@ -49,24 +50,25 @@ function defaultRenderRailLink(
   const expanded = railMode === "expanded";
 
   return (
-    <button
-      aria-current={isActive ? "page" : undefined}
-      aria-label={expanded ? undefined : destination.label}
-      className={cn(
-        "flex rounded-md text-muted-foreground outline-none transition-colors",
-        expanded
-          ? "h-10 w-full min-w-0 items-center gap-2 px-2 text-left text-sm"
-          : "size-10 items-center justify-center",
-        "hover:text-foreground focus-visible:text-foreground",
-        isActive && "text-foreground"
-      )}
-      data-active={isActive || undefined}
-      onClick={onActivate}
-      title={destination.label}
-      type="button"
-    >
-      {children}
-    </button>
+    <TooltipHint content={destination.label}>
+      <button
+        aria-current={isActive ? "page" : undefined}
+        aria-label={expanded ? undefined : destination.label}
+        className={cn(
+          "flex rounded-md text-muted-foreground outline-none transition-colors",
+          expanded
+            ? "h-10 w-full min-w-0 items-center gap-2 px-2 text-left text-sm"
+            : "size-10 items-center justify-center",
+          "hover:text-foreground focus-visible:text-foreground",
+          isActive && "text-foreground"
+        )}
+        data-active={isActive || undefined}
+        onClick={onActivate}
+        type="button"
+      >
+        {children}
+      </button>
+    </TooltipHint>
   );
 }
 

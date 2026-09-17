@@ -22,6 +22,69 @@ import type { SignalPublishContext } from "./types";
 const DEFAULT_SPACE_LABEL = "Space";
 const DEFAULT_UPDATE_PREVIEW = "There is a new update in this Space.";
 
+export function buildSpaceReactionInboxProjectionOutboxRecord(input: {
+  actor: SpaceMemberRecord;
+  author: SpaceMemberRecord | null;
+  emoji: string;
+  nowMs: number;
+  organizationId: string;
+  signal: Extract<SignalEnvelope, { type: "signal.text" }>;
+  spaceName: string | null;
+  threadRootSignalId?: string;
+  version: number;
+}): SpaceInboxProjectionOutboxRecord | null {
+  const recipientUserId = input.author?.ownerUserIdSnapshot;
+  if (
+    !recipientUserId ||
+    input.author?.status !== "active" ||
+    input.author.profileKindSnapshot !== "human" ||
+    recipientUserId === input.actor.ownerUserIdSnapshot
+  ) {
+    return null;
+  }
+  const sourceKey = `reaction:${input.signal.id}:${input.version}`;
+  const candidate = inboxSourceCandidateSchema.parse({
+    attention: "update",
+    importance: "normal",
+    kind: "space_message",
+    occurredAtMs: input.nowMs,
+    organizationId: input.organizationId,
+    recipientUserId,
+    contextLabel: truncateInboxText(
+      input.spaceName || DEFAULT_SPACE_LABEL,
+      INBOX_CONTEXT_LABEL_MAX_CHARS
+    ),
+    title: truncateInboxText(
+      `${input.actor.profileNameSnapshot} reacted ${input.emoji} to your message`,
+      INBOX_TITLE_MAX_CHARS
+    ),
+    preview: buildPreview(input.signal),
+    sourceKind: "space_signal",
+    sourceKey,
+    sourceTarget: {
+      kind: "space",
+      spaceId: input.signal.spaceId,
+      signalId: input.signal.id,
+      ...(input.threadRootSignalId
+        ? { threadRootSignalId: input.threadRootSignalId }
+        : {}),
+    },
+  });
+  return {
+    attemptCount: 0,
+    candidates: [candidate],
+    completedAtMs: null,
+    createdAtMs: input.nowMs,
+    lastErrorCode: null,
+    nextRetryAtMs: null,
+    projectionId: sourceKey,
+    signalId: input.signal.id,
+    spaceId: input.signal.spaceId,
+    status: "pending",
+    updatedAtMs: input.nowMs,
+  };
+}
+
 export function buildSpaceInboxProjectionOutboxRecord(input: {
   activeMemberRecords: readonly SpaceMemberRecord[];
   directMessage?: boolean;
@@ -31,6 +94,7 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   signalContext?: SignalPublishContext;
   spaceName: string | null;
   threadRootAuthorUserId?: string | null;
+  threadParticipantProfileIds?: readonly string[];
   wakeRequesterUserId?: string | null;
 }): SpaceInboxProjectionOutboxRecord | null {
   if (!isFormalSpaceUpdateSignal(input.signal)) {
@@ -70,13 +134,19 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   if (!audience) {
     return null;
   }
+  // A Space membership is not a subscription to every conversation in it.
+  const threadParticipantUserIds = resolveThreadParticipantUserIds(input);
   const isTerminalWakeFailure =
     signal.type === "signal.system_notice" &&
     signal.data.noticeType === "terminal_failure";
   const focusSignalId = resolveSpaceInboxFocusSignalId(signal);
   const memberRecordsByUserId = groupRecipientMemberRecords({
     activeMemberRecords: input.activeMemberRecords,
-    allowedRecipientUserIds: audience.allowedRecipientUserIds,
+    allowedRecipientUserIds: restrictThreadAudience(
+      signal.type,
+      threadParticipantUserIds,
+      audience.allowedRecipientUserIds
+    ),
     authorUserId,
     authorHasRead:
       signal.type === "signal.text" && signal.data.meta?.authorHasRead === true,
@@ -111,12 +181,9 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
           kind: "space",
           signalId: focusSignalId,
           spaceId: signal.spaceId,
-          ...(input.signalContext?.threadContext?.rootSignalId
-            ? {
-                threadRootSignalId:
-                  input.signalContext.threadContext.rootSignalId,
-              }
-            : {}),
+          ...(isThreadRootAuthor &&
+            kind === "space_message" && { replyToRecipient: true }),
+          threadRootSignalId: input.signalContext?.threadContext?.rootSignalId,
         },
         title: buildTitle({
           actorName,
@@ -131,14 +198,17 @@ export function buildSpaceInboxProjectionOutboxRecord(input: {
   }
 
   candidates.push(
-    ...buildAgentOwnerCandidates(input, {
-      signal,
-      authorUserId,
-      actorName,
-      spaceLabel,
-      preview,
-      focusSignalId,
-    })
+    ...filterThreadRecipients(
+      buildAgentOwnerCandidates(input, {
+        signal,
+        authorUserId,
+        actorName,
+        spaceLabel,
+        preview,
+        focusSignalId,
+      }),
+      threadParticipantUserIds
+    )
   );
   if (candidates.length === 0) {
     return null;
@@ -165,6 +235,48 @@ function activeAgentOwnerIds(members: readonly SpaceMemberRecord[]): string[] {
     member.ownerUserIdSnapshot
       ? [member.ownerUserIdSnapshot]
       : []
+  );
+}
+
+function filterThreadRecipients(
+  candidates: InboxSourceCandidate[],
+  participants: ReadonlySet<string> | null
+): InboxSourceCandidate[] {
+  return participants
+    ? candidates.filter((candidate) =>
+        participants.has(candidate.recipientUserId)
+      )
+    : candidates;
+}
+
+function resolveThreadParticipantUserIds(
+  input: Parameters<typeof buildSpaceInboxProjectionOutboxRecord>[0]
+): Set<string> | null {
+  if (input.signalContext?.threadPlacement !== "thread") {
+    return null;
+  }
+  return new Set(
+    input.activeMemberRecords.flatMap((member) =>
+      member.ownerUserIdSnapshot &&
+      input.threadParticipantProfileIds?.includes(member.profileId)
+        ? [member.ownerUserIdSnapshot]
+        : []
+    )
+  );
+}
+
+function restrictThreadAudience(
+  signalType: string,
+  participants: ReadonlySet<string> | null,
+  audience: ReadonlySet<string> | null
+): ReadonlySet<string> | null {
+  if (!participants) {
+    return audience;
+  }
+  return new Set(
+    [...participants].filter(
+      (id) => signalType === "signal.text" || !audience || audience.has(id)
+    )
   );
 }
 
@@ -263,9 +375,6 @@ function resolveAudience(input: {
     const recipientUserIds = new Set(input.explicitlyTargetedRecipientUserIds);
     if (wakeRequesterUserId) {
       recipientUserIds.add(wakeRequesterUserId);
-    }
-    if (recipientUserIds.size === 0) {
-      return null;
     }
     return {
       allowedRecipientUserIds: recipientUserIds,
@@ -414,51 +523,65 @@ function buildAgentOwnerCandidates(
     preview,
     focusSignalId,
   } = context;
+  if (signal.type !== "signal.text") {
+    return [];
+  }
+  const isAgentReply = signal.profile.kind === "agent";
+  if (!(isAgentReply || (signal.profile.kind === "human" && authorUserId))) {
+    return [];
+  }
+  let title = input.directMessage
+    ? `${actorName} messaged your agent`
+    : `${actorName} posted in your agent's Space`;
+  if (isAgentReply) {
+    title = `${actorName} replied in ${spaceLabel}`;
+  }
   const candidates: InboxSourceCandidate[] = [];
   // Candidate eligibility is resolved against current Agent identity before delivery.
   // Keep ordinary recipients too; the outbox selects one item per recipient.
-  if (
-    signal.type === "signal.text" &&
-    signal.profile.kind === "human" &&
-    authorUserId
-  ) {
-    const ownerIds = new Set(activeAgentOwnerIds(input.activeMemberRecords));
+  const ownerIds = new Set(
+    activeAgentOwnerIds(
+      isAgentReply
+        ? input.activeMemberRecords.filter(
+            (member) =>
+              member.profileId ===
+              resolveFormalSpaceUpdateActorProfileId(signal)
+          )
+        : input.activeMemberRecords
+    )
+  );
+  if (authorUserId) {
     ownerIds.delete(authorUserId);
-    for (const recipientUserId of ownerIds) {
-      candidates.push(
-        inboxSourceCandidateSchema.parse({
-          attention: "update",
-          importance: "urgent",
-          kind: "space_message",
-          contextLabel: spaceLabel,
-          organizationId: input.organizationId,
-          recipientUserId,
-          sourceKey: signal.id,
-          sourceKind: "space_signal",
-          occurredAtMs: Math.max(0, signal.ts),
-          preview,
-          title: truncateInboxText(
-            input.directMessage
-              ? `${actorName} messaged your agent`
-              : `${actorName} posted in your agent's Space`,
-            INBOX_TITLE_MAX_CHARS
-          ),
-          sourceTarget: {
-            kind: "space",
-            agentOwnerActivity: true,
-            spaceId: signal.spaceId,
-            signalId: focusSignalId,
-            directMessage: input.directMessage,
-            ...(input.signalContext?.threadContext?.rootSignalId
-              ? {
-                  threadRootSignalId:
-                    input.signalContext.threadContext.rootSignalId,
-                }
-              : {}),
-          },
-        })
-      );
-    }
+  }
+  for (const recipientUserId of ownerIds) {
+    candidates.push(
+      inboxSourceCandidateSchema.parse({
+        attention: "update",
+        importance: isAgentReply ? "normal" : "urgent",
+        kind: isAgentReply ? "agent_reply" : "space_message",
+        contextLabel: spaceLabel,
+        organizationId: input.organizationId,
+        recipientUserId,
+        sourceKey: signal.id,
+        sourceKind: "space_signal",
+        occurredAtMs: Math.max(0, signal.ts),
+        preview,
+        title: truncateInboxText(title, INBOX_TITLE_MAX_CHARS),
+        sourceTarget: {
+          kind: "space",
+          agentOwnerActivity: true,
+          spaceId: signal.spaceId,
+          signalId: focusSignalId,
+          directMessage: input.directMessage,
+          ...(input.signalContext?.threadContext?.rootSignalId
+            ? {
+                threadRootSignalId:
+                  input.signalContext.threadContext.rootSignalId,
+              }
+            : {}),
+        },
+      })
+    );
   }
   return candidates;
 }

@@ -153,11 +153,15 @@ async function finalizeCard(input: {
   if (input.failureCode) {
     outcome =
       input.failureCode ===
-      RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE
+        RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE ||
+      input.failureCode === "remote_agent.execution_cancelled"
         ? "stopped"
         : "failed";
   }
   const publication = await input.target.adapter.finalizeWorkingCard({
+    replyDeliveryId: input.delivery.onBehalfOfUserId
+      ? input.delivery.deliveryId
+      : undefined,
     cardId,
     connection: input.target.connection,
     locator: input.target.locator,

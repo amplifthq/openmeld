@@ -1,22 +1,62 @@
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { createOrganizationScopedWebSpaceApi } from "#/lib/spaces/api";
+import type { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
+import type { ComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
 import { useSpaceComposerFiles } from "./use-space-composer-attachments";
 
-type SpaceApi = ReturnType<typeof createOrganizationScopedWebSpaceApi>;
+type SpaceApi = ReturnType<typeof createUnscopedWebSpaceApi>;
 const api = vi.hoisted(() => ({
 	stageComposerUpload: vi.fn<SpaceApi["stageComposerUpload"]>(),
 	publishComposerUpload: vi.fn<SpaceApi["publishComposerUpload"]>(),
 	discardComposerUpload: vi.fn<SpaceApi["discardComposerUpload"]>(),
 }));
 vi.mock("#/lib/spaces/api", () => ({
-	createOrganizationScopedWebSpaceApi: () => api,
+	createUnscopedWebSpaceApi: () => api,
+}));
+const drafts = vi.hoisted(() => new Map<string, ComposerFileDraft>());
+const draftListeners = vi.hoisted(() => new Set<(scope: string) => void>());
+const draftReadGates = vi.hoisted(
+	() => new Map<string, Promise<ComposerFileDraft[]>>()
+);
+vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	subscribeComposerFileDrafts: (listener: (scope: string) => void) => {
+		draftListeners.add(listener);
+		return () => draftListeners.delete(listener);
+	},
+	saveComposerFileDraft: (draft: ComposerFileDraft) => {
+		drafts.set(draft.id, draft);
+		for (const listener of draftListeners) {
+			listener(draft.scope);
+		}
+		return Promise.resolve();
+	},
+	saveComposerFileDraftUpload: (
+		id: string,
+		upload: ComposerFileDraft["upload"]
+	) => {
+		const draft = drafts.get(id);
+		if (draft) {
+			drafts.set(id, { ...draft, upload });
+		}
+		return Promise.resolve();
+	},
+	removeComposerFileDraft: (id: string) => {
+		drafts.delete(id);
+		return Promise.resolve();
+	},
+	readComposerFileDrafts: async (scope: string) =>
+		draftReadGates.get(scope) ??
+		[...drafts.values()].filter((draft) => draft.scope === scope),
+	readComposerFileDraftsByIds: async (ids: string[]) =>
+		[...drafts.values()].filter((draft) => ids.includes(draft.id)),
 }));
 
 afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
+	drafts.clear();
+	draftReadGates.clear();
 });
 
 function setup() {
@@ -26,18 +66,318 @@ function setup() {
 		name: input.name,
 		mimeType: input.mimeType,
 		sizeBytes: 5,
-		expiresAt: "2026-09-10T00:00:00.000Z",
+		expiresAt: "2099-09-10T00:00:00.000Z",
 	}));
-	return renderHook(() =>
-		useSpaceComposerFiles({
-			organizationSlug: "test",
-			profileId: "human-1",
-			spaceId: "space-1",
-		})
+	return renderHook(
+		({ spaceId, draftScope }) =>
+			useSpaceComposerFiles({
+				organizationSlug: "test",
+				profileId: "human-1",
+				spaceId,
+				draftScope,
+			}),
+		{
+			initialProps: {
+				spaceId: "space-1",
+				draftScope: undefined as string | undefined,
+			},
+		}
 	);
 }
 
+it("hands local new-chat drafts to the Space upload owner once with their original identities", async () => {
+	setup();
+	const local = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "new-chat",
+			deferUpload: true,
+		})
+	);
+	await act(async () => {
+		await local.result.current.addFiles([
+			new File(["brief"], "brief.txt", { type: "text/plain" }),
+		]);
+	});
+	expect(api.stageComposerUpload).not.toHaveBeenCalled();
+	const saved = await local.result.current.readFileDrafts();
+	local.unmount();
+	const destination = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "created-space",
+		})
+	);
+	await act(async () => {
+		await destination.result.current.addFiles(
+			saved.map((draft) => draft.file),
+			saved
+		);
+	});
+	await act(async () => {
+		await destination.result.current.addFiles(
+			saved.map((draft) => draft.file),
+			saved
+		);
+	});
+	expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+	expect(destination.result.current.files).toHaveLength(1);
+	expect(destination.result.current.files[0].localId).toBe(saved[0].id);
+	expect(destination.result.current.files[0].publishMutationId).toBe(
+		saved[0].publishMutationId
+	);
+});
+
+it.each([
+	false,
+	true,
+])("adopts a loading draft into the ready composer, including a late save: %s", async (lateSave) => {
+	setup();
+	const local = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "",
+			spaceId: "chat",
+			storageKey: "account:pending-chat",
+			deferUpload: true,
+		})
+	);
+	const add = () =>
+		local.result.current.addFiles([
+			new File(["brief"], "brief.txt", { type: "text/plain" }),
+		]);
+	if (!lateSave) {
+		await act(add);
+	}
+	const destination = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			restoreFromScopes: ["account:pending-chat"],
+		})
+	);
+	if (lateSave) {
+		await act(add);
+	}
+	await waitFor(() => expect(destination.result.current.files).toHaveLength(1));
+	expect(destination.result.current.files[0].localId).toBe(
+		local.result.current.files[0].localId
+	);
+	await waitFor(() => expect(api.stageComposerUpload).toHaveBeenCalledTimes(1));
+	// A send started by the loading route must still read the same attachment
+	// after the ready composer has taken over its storage scope.
+	const handoff = await local.result.current.readFileDrafts();
+	expect(handoff.map((draft) => draft.id)).toEqual([
+		destination.result.current.files[0].localId,
+	]);
+	act(() =>
+		destination.result.current.removeFile(
+			destination.result.current.files[0].localId
+		)
+	);
+	expect(destination.result.current.files).toHaveLength(0);
+});
+
+it.each([
+	"remove",
+	"consume",
+	"clear",
+	"keep",
+] as const)("does not undo %s when an older restoration finishes, and still adopts new files", async (action) => {
+	setup();
+	const hook = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			restoreFromScopes: ["loading-chat"],
+		})
+	);
+	await act(async () =>
+		hook.result.current.addFiles([new File(["first"], "first.txt")])
+	);
+	const firstId = hook.result.current.files[0].localId;
+	let release!: (drafts: ComposerFileDraft[]) => void;
+	draftReadGates.set(
+		"loading-chat",
+		new Promise((resolve) => {
+			release = resolve;
+		})
+	);
+	act(() => {
+		for (const listener of draftListeners) {
+			listener("loading-chat");
+		}
+	});
+	act(() => {
+		if (action === "remove") {
+			hook.result.current.removeFile(firstId);
+		}
+		if (action === "clear") {
+			hook.result.current.clearFiles();
+		}
+		if (action === "consume") {
+			const submitted = hook.result.current.beginSubmission();
+			hook.result.current.consumePublishedFiles([firstId]);
+			hook.result.current.finishSubmission(submitted);
+		}
+	});
+	expect(hook.result.current.files).toHaveLength(action === "keep" ? 1 : 0);
+	// A different file saved by the loading owner must still be adopted.
+	const loading = renderHook(() =>
+		useSpaceComposerFiles({
+			organizationSlug: "acme",
+			profileId: "human",
+			spaceId: "chat",
+			storageKey: "loading-chat",
+			deferUpload: true,
+		})
+	);
+	draftReadGates.delete("loading-chat");
+	await act(async () =>
+		loading.result.current.addFiles([new File(["second"], "second.txt")])
+	);
+	await act(async () => release([]));
+	expect(hook.result.current.files.map((file) => file.fileName)).toEqual(
+		action === "keep" ? ["first.txt", "second.txt"] : ["second.txt"]
+	);
+});
+
+it("keeps each conversation's attachments and pending upload when navigating away", async () => {
+	const hook = setup();
+	await act(async () =>
+		hook.result.current.addFiles([new File(["ready"], "ready.txt")])
+	);
+	let resolveUpload!: (
+		upload: Awaited<ReturnType<SpaceApi["stageComposerUpload"]>>
+	) => void;
+	api.stageComposerUpload.mockImplementationOnce(
+		() =>
+			new Promise((resolve) => {
+				resolveUpload = resolve;
+			})
+	);
+	let uploading!: Promise<void>;
+	act(() => {
+		uploading = hook.result.current.addFiles([
+			new File(["pending"], "pending.txt"),
+		]);
+	});
+	await waitFor(() => expect(resolveUpload).toBeDefined());
+	const originalIds = hook.result.current.files.map((file) => file.localId);
+	hook.rerender({ spaceId: "space-2", draftScope: undefined });
+	expect(hook.result.current.files).toEqual([]);
+	await act(async () =>
+		hook.result.current.addFiles([new File(["other"], "other.txt")])
+	);
+	await act(async () => {
+		resolveUpload({
+			id: "pending-upload",
+			name: "pending.txt",
+			mimeType: "text/plain",
+			sizeBytes: 7,
+			expiresAt: "2099-09-10T00:00:00.000Z",
+		});
+		await uploading;
+	});
+	expect(hook.result.current.files.map((file) => file.fileName)).toEqual([
+		"other.txt",
+	]);
+	hook.rerender({ spaceId: "space-1", draftScope: undefined });
+	expect(hook.result.current.files.map((file) => file.localId)).toEqual(
+		originalIds
+	);
+	expect(
+		hook.result.current.files.every((file) => file.status === "ready")
+	).toBe(true);
+	expect(api.discardComposerUpload).not.toHaveBeenCalled();
+	expect(api.stageComposerUpload).toHaveBeenCalledTimes(3);
+	// A send started in A still publishes to A after navigating to B.
+	const originalController = hook.result.current;
+	let batch!: readonly SpaceComposerFile[];
+	act(() => {
+		batch = originalController.beginSubmission();
+	});
+	hook.rerender({ spaceId: "space-2", draftScope: undefined });
+	await act(async () => {
+		const published = await originalController.publishReadyFiles(batch);
+		originalController.consumePublishedFiles(published.publishedLocalIds);
+		originalController.finishSubmission(batch);
+	});
+	expect(
+		api.publishComposerUpload.mock.calls.every(
+			([input]) => input.spaceId === "space-1"
+		)
+	).toBe(true);
+	expect(hook.result.current.files.map((file) => file.fileName)).toEqual([
+		"other.txt",
+	]);
+	hook.rerender({ spaceId: "space-1", draftScope: undefined });
+	expect(hook.result.current.files).toEqual([]);
+});
+
+it("restores uploaded drafts after remount, isolates threads, and remembers removal", async () => {
+	let hook = setup();
+	await act(async () =>
+		hook.result.current.addFiles([new File(["space"], "space.txt")])
+	);
+	hook.rerender({ spaceId: "space-1", draftScope: "thread:one" });
+	expect(hook.result.current.files).toEqual([]);
+	await act(async () =>
+		hook.result.current.addFiles([new File(["thread"], "thread.txt")])
+	);
+	hook.unmount();
+	hook = setup();
+	await waitFor(() =>
+		expect(hook.result.current.files[0]?.fileName).toBe("space.txt")
+	);
+	expect(hook.result.current.files[0]?.status).toBe("ready");
+	hook.rerender({ spaceId: "space-1", draftScope: "thread:one" });
+	await waitFor(() =>
+		expect(hook.result.current.files[0]?.fileName).toBe("thread.txt")
+	);
+	expect(api.stageComposerUpload).toHaveBeenCalledTimes(2);
+	const attachment = hook.result.current.files[0];
+	if (!attachment) {
+		throw new Error("Missing restored attachment");
+	}
+	act(() => hook.result.current.removeFile(attachment.localId));
+	hook.unmount();
+	hook = setup();
+	hook.rerender({ spaceId: "space-1", draftScope: "thread:one" });
+	await act(async () => undefined);
+	expect(hook.result.current.files).toEqual([]);
+	expect(api.discardComposerUpload).toHaveBeenCalledTimes(1);
+});
+
 describe("composer attachment submission", () => {
+	it("rejects oversized files before upload while keeping other attachments", async () => {
+		const hook = setup();
+		const oversized = new File(["too large"], "large.pdf");
+		Object.defineProperty(oversized, "size", { value: 251 * 1024 * 1024 });
+		await act(async () =>
+			hook.result.current.addFiles([
+				oversized,
+				new File(["small"], "small.txt"),
+			])
+		);
+		expect(api.stageComposerUpload).toHaveBeenCalledTimes(1);
+		expect(api.stageComposerUpload).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "small.txt" })
+		);
+		expect(hook.result.current.files[0]).toMatchObject({
+			status: "failed",
+			errorMessage: expect.stringContaining("250 MiB upload limit"),
+		});
+		expect(hook.result.current.files[0]?.errorMessage).toContain(
+			"paste a link"
+		);
+		expect(hook.result.current.files[1]?.status).toBe("ready");
+	});
+
 	it("publishes only the captured batch even when another file is added before publication", async () => {
 		const hook = setup();
 		let submitted: readonly SpaceComposerFile[] = [];
@@ -171,6 +511,7 @@ it("captures an uploading image and protects it when the next draft is cleared",
 	expect(submitted[0]?.status).toBe("uploading");
 	expect(hook.result.current.files).toEqual([]);
 	act(() => hook.result.current.clearFiles());
+	await waitFor(() => expect(api.stageComposerUpload).toHaveBeenCalled());
 	await act(async () => {
 		resolveUpload({
 			id: "upload-image",

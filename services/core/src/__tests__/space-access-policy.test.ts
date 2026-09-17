@@ -143,7 +143,7 @@ describe("space access policy", () => {
     ).toThrow("space access context does not match target space");
   });
 
-  it("authorizes a protected Space for its creator without a password", async () => {
+  it("does not restore access from historical creator attribution", async () => {
     await expect(
       authorizeProtectedSpaceAccess({
         context: requestContext,
@@ -152,7 +152,7 @@ describe("space access policy", () => {
         hasActiveMemberForOwnerUserId: () => false,
         verifySpacePasswordProof: async () => false,
       })
-    ).resolves.toEqual({ ok: true, reason: "creator_profile" });
+    ).resolves.toEqual({ ok: false, code: "space.password_required" });
   });
 
   it("uses membership proof before stale password proof for authenticated viewers", async () => {
@@ -161,11 +161,11 @@ describe("space access policy", () => {
         context: requestContext,
         meta: protectedMeta,
         readMemberByProfileId: () => null,
-        hasActiveMemberForOwnerUserId: () => false,
+        hasActiveMemberForOwnerUserId: () => true,
         spacePassword: "old-or-wrong-password",
         verifySpacePasswordProof: async () => false,
       })
-    ).resolves.toEqual({ ok: true, reason: "creator_profile" });
+    ).resolves.toEqual({ ok: true, reason: "same_owner_active_member" });
   });
 
   it("authorizes a protected Space for another profile under an account that already joined", async () => {

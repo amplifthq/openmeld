@@ -83,6 +83,10 @@ vi.mock("#/components/app/app-shell-account", () => ({
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({
+		currentOrganization,
+		organizations,
+	}),
 	useAppOrganization: () => ({
 		currentOrganization,
 		organizations,
@@ -206,7 +210,7 @@ describe("OrganizationEntryPage", () => {
 		const organizationLink = screen.getByRole("link", {
 			name: "Open Acme Labs organization",
 		});
-		expect(organizationLink.getAttribute("href")).toBe("/o/acme-labs");
+		expect(organizationLink.getAttribute("href")).toBe("/o/acme-labs/spaces");
 		expect(screen.getByText("/acme-labs")).toBeTruthy();
 		expect(screen.queryByLabelText("Organization name")).toBeNull();
 
@@ -239,7 +243,7 @@ describe("OrganizationEntryPage", () => {
 
 		await waitFor(() => {
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme-labs",
+				to: "/o/acme-labs/spaces",
 			});
 		});
 	});
@@ -366,7 +370,7 @@ describe("OrganizationEntryPage", () => {
 				queryClient: expect.any(Object),
 			});
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme-labs",
+				to: "/o/acme-labs/spaces",
 			});
 		});
 		expect(
@@ -467,7 +471,7 @@ describe("OrganizationEntryPage", () => {
 			expect(createOrganizationMock).toHaveBeenCalledTimes(1);
 			expect(navigateMock).toHaveBeenCalledTimes(2);
 			expect(navigateMock).toHaveBeenCalledWith({
-				to: "/o/acme-labs",
+				to: "/o/acme-labs/spaces",
 			});
 		});
 	});
@@ -563,7 +567,7 @@ describe("OrganizationEntryPage", () => {
 					name: "Open Acme organization",
 				})
 				.getAttribute("href")
-		).toBe("/o/acme");
+		).toBe("/o/acme/spaces");
 	});
 });
 

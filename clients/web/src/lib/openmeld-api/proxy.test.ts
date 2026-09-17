@@ -286,6 +286,7 @@ describe("OpenMeld gateway proxy", () => {
 				[OPENMELD_HEADER_SPACE_PASSWORD]: "  pw-123  ",
 				"x-openmeld-active-organization-id": "forged-authority",
 				"x-openmeld-unknown-client-contract": "forged-contract",
+				"x-openmeld-space-access-version": "1",
 				"x-openmeld-profile-id": "forged-profile",
 				"x-openmeld-requested-organization-slug": "amplift",
 				"x-forwarded-for": "203.0.113.1",
@@ -304,6 +305,7 @@ describe("OpenMeld gateway proxy", () => {
 		expect(headers.get("x-openmeld-profile-id")).toBe("forged-profile");
 		expect(headers.get("x-openmeld-active-organization-id")).toBeNull();
 		expect(headers.get("x-openmeld-unknown-client-contract")).toBeNull();
+		expect(headers.get("x-openmeld-space-access-version")).toBe("1");
 		expect(headers.get("x-openmeld-requested-organization-slug")).toBe(
 			"amplift"
 		);

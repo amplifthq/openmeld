@@ -77,6 +77,8 @@ describe("Remote Agent turn observability", () => {
         source: "code_mode",
         toolName: "openmeld_read_center_agent_turn_diagnostics",
         type: "tool_call",
+        callNumber: 65,
+        callLimit: 80,
       },
       storage,
       submissionId,
@@ -128,8 +130,8 @@ describe("Remote Agent turn observability", () => {
           preparedAtMs: base + 115,
         },
       ],
-      toolCallCount: 1,
-      toolCallLimit: 64,
+      toolCallCount: 65,
+      toolCallLimit: 80,
     });
   });
 

@@ -13,6 +13,43 @@ import {
 } from "../remote-agent/application/turn-envelope";
 
 describe("remote agent turn envelope", () => {
+  it("keeps externally shared Space results external even when an owner asks", () => {
+    const callerContext = {
+      relationship: "internal",
+      spaceRole: "owner",
+      audience: "external",
+    } as const;
+    const envelope = buildRemoteAgentTurnEnvelope({
+      sender: {
+        kind: "member",
+        id: "member-owner",
+        displayName: "Owner",
+        verified: true,
+        callerContext,
+      },
+      space: {
+        id: "guest-space",
+        name: "Design review",
+        kind: "space",
+        isCenterAgentDm: false,
+      },
+      organization: {
+        id: "organization",
+        name: "Team",
+        personal: false,
+        memberCount: 2,
+      },
+      centerAgent: {
+        profileName: "Center Agent",
+        profileHandle: "center-agent",
+      },
+    });
+    expect(envelope.sender).toMatchObject({ callerContext });
+    expect(envelope.contextScopePlan).toMatchObject({
+      interactionEnvironment: "externally_shared",
+      resultAudience: "external_conversation",
+    });
+  });
   it("resolves Core-owned context facts for a Center Agent DM turn", async () => {
     const envelope = await resolveRemoteAgentTurnEnvelope({
       author: {

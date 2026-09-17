@@ -138,6 +138,11 @@ vi.mock("#/components/welcome/welcome-first-run", () => ({
 
 vi.mock("#/lib/organizations/organization-context", () => ({
 	useAppOrganization: () => appOrganizationMock,
+	useOptionalAppOrganization: () => appOrganizationMock,
+}));
+
+vi.mock("#/lib/organizations/space-invitations", () => ({
+	requestSpaceInvitations: async () => [],
 }));
 
 vi.mock("#/lib/organizations/auth-organizations", () => ({
@@ -323,6 +328,17 @@ describe("app spaces index route", () => {
 				.getAttribute("aria-selected")
 		).toBe("true");
 		expect(screen.getByRole("tab", { name: "Discover" })).toBeTruthy();
+		expect(screen.getAllByRole("tab")).toEqual(
+			["Your Spaces", "Direct messages", "Discover"].map((name) =>
+				screen.getByRole("tab", { name })
+			)
+		);
+		fireEvent.click(screen.getByRole("tab", { name: "Direct messages" }));
+		expect(navigateMock).toHaveBeenCalledWith({
+			to: "/o/$orgSlug/spaces",
+			params: { orgSlug: "acme" },
+			search: { view: "messages" },
+		});
 		expect(screen.queryByRole("searchbox")).toBeNull();
 		expect(
 			screen.getByRole("link", { name: PLANNING_ROW }).getAttribute("href")
@@ -532,6 +548,20 @@ describe("app spaces index route", () => {
 		).toBeTruthy();
 		const pinned = screen.getByRole("heading", { name: "Pinned" });
 		expect(pinned).toBeTruthy();
+	});
+
+	it("shows a newly joined Space while the discovery snapshot is still older", async () => {
+		listStartProfilesMock.mockResolvedValue([
+			createProfile({ isDefault: true, openMeldProfileId: "selected-human" }),
+		]);
+		listOrganizationSpacesMock.mockResolvedValue(
+			createOrganizationSpacesResponse({ spaces: [] })
+		);
+		renderSpacesIndex();
+		expect(
+			await screen.findByRole("link", { name: PLANNING_ROW })
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Join Planning" })).toBeNull();
 	});
 
 	it("keeps joined Spaces openable when account-specific index facts are missing", async () => {
@@ -877,9 +907,8 @@ describe("app spaces index route", () => {
 				})
 			);
 
-		renderSpacesIndex();
+		renderSpacesIndex({ initialView: "discover" });
 
-		fireEvent.click(await screen.findByRole("tab", { name: "Discover" }));
 		fireEvent.click(
 			await screen.findByRole("button", { name: "Join Support" })
 		);
@@ -894,6 +923,9 @@ describe("app spaces index route", () => {
 			expect(navigateMock).toHaveBeenCalledWith({
 				to: "/o/acme/spaces/space-support?profileId=selected-human",
 			});
+		});
+		await waitFor(() => {
+			expect(screen.queryByRole("button", { name: "Join Support" })).toBeNull();
 		});
 	});
 
@@ -1116,6 +1148,7 @@ describe("app spaces index route", () => {
 
 function renderSpacesIndex(
 	input: {
+		initialView?: "discover";
 		orgSlug?: string;
 		queryClient?: ReturnType<typeof createTestQueryClient>;
 	} = {}
@@ -1123,7 +1156,10 @@ function renderSpacesIndex(
 	return render(
 		<TestQueryClientProvider queryClient={input.queryClient}>
 			<StartFlowStateProvider storageScope="user-123">
-				<AppSpacesIndexContent orgSlug={input.orgSlug ?? "acme"} />
+				<AppSpacesIndexContent
+					initialView={input.initialView}
+					orgSlug={input.orgSlug ?? "acme"}
+				/>
 			</StartFlowStateProvider>
 		</TestQueryClientProvider>
 	);

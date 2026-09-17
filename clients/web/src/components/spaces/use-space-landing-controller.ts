@@ -37,23 +37,22 @@ import {
 	useState,
 } from "react";
 import { toast } from "sonner";
-import {
-	type ComposerDraftRecord,
-	type ComposerDraftScope,
-	createComposerDraftRecord,
-	EMPTY_COMPOSER_DRAFT_CONTENT,
+import type {
+	ComposerDraftRecord,
+	ComposerDraftScope,
 } from "#/lib/composer-draft-storage";
 import { updateProfileSpaceHistoryStatus } from "#/lib/onboarding/update-profile-space-history-status";
 import { upsertProfileSpaceHistory } from "#/lib/onboarding/upsert-profile-space-history";
-import { buildOrganizationSpacesPath } from "#/lib/organizations/organization-routes";
+import { centerAgentPendingAttachmentScope } from "#/lib/organizations/center-agent-pending-message";
+import {
+	buildOrganizationSpacePath,
+	buildOrganizationSpacesPath,
+} from "#/lib/organizations/organization-routes";
 import {
 	ensureWebAgentProfileRuntimeBinding,
 	formatWebAgentProfileRuntimeBindingFailure,
 } from "#/lib/profiles/agent-profile-runtime-binding";
-import {
-	createOrganizationScopedWebSpaceApi,
-	createUnscopedWebSpaceApi,
-} from "#/lib/spaces/api";
+import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import type { SpaceComposerFile } from "#/lib/spaces/composer-attachment";
 import type { SpaceConversationVisibleStreamProjection } from "#/lib/spaces/conversation-stream";
 import { removeDeletedSpaceFromAccountHistory } from "#/lib/spaces/delete-space-history-cleanup";
@@ -89,8 +88,15 @@ import type {
 } from "#/lib/spaces/wake-stop-target";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
 import { resolveAppQueryPersistenceController } from "#/query/persistence/app-query-persistence";
-import { accountSpaceQueryKeys } from "#/query/spaces/account-spaces";
 import {
+	accountSpaceQueryKeys,
+	updateAccountSpaceAcceptedMessage,
+} from "#/query/spaces/account-spaces";
+import {
+	filterSpaceWakeProgressItems,
+	hasSpaceWakeProgressOutcome,
+	readSpaceWakeProgressSummaryItems,
+	recordSpaceWakeProgressEvidence,
 	setSpaceWakeProgressPresentationItems,
 	spaceActiveWakeProgressSummaryQueryOptions,
 	spaceWakeProgressPresentationQueryOptions,
@@ -133,12 +139,17 @@ import type {
 	SpaceComposerInputRef,
 } from "./space-composer-editor";
 import { requireCurrentSpaceComposerWakeAdmission } from "./space-composer-wake-admission";
+import {
+	optimisticallyRemoveSpaceFromListCaches,
+	restoreSpaceListCaches,
+} from "./space-delete-cache";
 import { useSpaceEntryConfirmation } from "./space-entry-confirmation";
 import { projectSpaceExecutionRecoveryResolution } from "./space-execution-recovery";
 import type {
 	SpaceExecutionRecoveryAttempt,
 	SpaceExecutionRecoveryResolution,
 } from "./space-execution-recovery-actions";
+import { resolveMissingSpaceMembersMessage } from "./space-members-error-copy";
 import { persistSpaceNameUpdate } from "./space-name-update";
 import {
 	completeSpaceSend,
@@ -166,6 +177,7 @@ import {
 	mergeWakeProgressItemState,
 	normalizeOptionalText,
 	pollWakeProgress,
+	readPublishedWakeTargetProfileIds,
 	readSpaceStatusName,
 	reconcileActiveWakeProgressSnapshot,
 	reconcilePolledWakeProgressItems,
@@ -195,8 +207,6 @@ import { useSpaceUnread } from "./use-space-unread";
 
 type TextSignalEnvelope = Extract<SignalEnvelope, { type: "signal.text" }>;
 
-const EMPTY_WAKE_PROGRESS_ITEMS: WakeProgressItem[] = [];
-
 type PendingOutgoingSignal = {
 	filePreviewUrlsById: ReadonlyMap<string, string>;
 	clientMessageId: string;
@@ -214,7 +224,7 @@ type PendingComposerSubmission = ReturnType<
 
 type PreparedSpaceMessageSubmission = Pick<
 	PendingComposerSubmission,
-	"messageEnvelope" | "text" | "restoredFromSignalId"
+	"messageEnvelope" | "text" | "restoredFromSignalId" | "threadWakeContinuation"
 > &
 	SpaceComposerSendOptions;
 
@@ -432,6 +442,7 @@ function resolveCenterAgentExecutionInput(input: {
 }
 
 function buildNormalMessagePostInput(input: {
+	contextSelection?: SpaceComposerSendOptions["contextSelection"];
 	deviceWait?: SpaceComposerSendOptions["deviceWait"];
 	restoredFromSignalId?: string;
 	centerAgentExecutionInput?: NonNullable<
@@ -462,6 +473,9 @@ function buildNormalMessagePostInput(input: {
 		text: input.text,
 		...(input.deviceWait ? { deviceWait: input.deviceWait } : {}),
 		timeoutMs: SPACE_MESSAGE_SEND_TIMEOUT_MS,
+		...(input.contextSelection
+			? { contextSelection: input.contextSelection }
+			: {}),
 	};
 }
 
@@ -637,6 +651,18 @@ function restoreFailedPendingSubmission(input: {
 	);
 }
 
+function resolvePendingSubmissionFiles(
+	files: ReturnType<typeof useSpaceComposerSession>["files"],
+	pending?: PendingSpaceMessage | null
+) {
+	return pending
+		? files.getSubmissionFiles({
+				ids: pending.fileDrafts?.map((draft) => draft.id),
+				sources: pending.files,
+			})
+		: undefined;
+}
+
 function createSpaceMessageSendSeed(input: {
 	composerText: string;
 	pendingMessage: PendingSpaceMessage | undefined;
@@ -663,7 +689,11 @@ function prepareSpaceMessageSendAttempt(input: {
 		composerText: input.composerText,
 		pendingMessage: input.pendingMessage,
 	});
-	if (messageSeed.text.length === 0 && !fileSubmission.hasSendableFiles) {
+	if (
+		messageSeed.text.length === 0 &&
+		!fileSubmission.hasSendableFiles &&
+		!(input.pendingMessage?.files?.length && input.composerFiles.length)
+	) {
 		return {
 			errorMessage: "Enter a message or add a file before sending.",
 			status: "blocked" as const,
@@ -684,7 +714,9 @@ function prepareMainComposerSubmission(input: {
 	pendingMessage: PendingSpaceMessage | undefined;
 }): PendingComposerSubmission {
 	if (input.messageSeed.text.length === 0) {
-		return input.mentionAuthoring.prepareFileOnlySubmission();
+		return input.mentionAuthoring.prepareFileOnlySubmission(
+			input.pendingMessage !== undefined
+		);
 	}
 	if (input.pendingMessage) {
 		return input.mentionAuthoring.preparePlainTextSubmission(
@@ -748,6 +780,7 @@ function reportComposerSendFailure(input: {
 
 function useSpaceBootstrapQueryCache(input: {
 	bootstrap: SpaceBootstrapSnapshot | null;
+	bootstrapUpdatedAt: number;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
@@ -759,11 +792,18 @@ function useSpaceBootstrapQueryCache(input: {
 
 		applySpaceBootstrapSnapshotToCache({
 			bootstrap: input.bootstrap,
+			bootstrapUpdatedAt: input.bootstrapUpdatedAt,
 			queryClient: input.queryClient,
 			spaceId: input.spaceId,
 			viewerProfileId: input.profileId,
 		});
-	}, [input.bootstrap, input.profileId, input.queryClient, input.spaceId]);
+	}, [
+		input.bootstrap,
+		input.bootstrapUpdatedAt,
+		input.profileId,
+		input.queryClient,
+		input.spaceId,
+	]);
 }
 
 export async function hardRefreshSpaceStatusAndMembers(input: {
@@ -828,7 +868,31 @@ function resolveSpaceLandingHistorySnapshot(input: {
 	});
 }
 
+function hasInitialMessageTarget(input: {
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+}): boolean {
+	return Boolean(
+		input.initialFocusSignalId || input.initialFocusThreadRootSignalId
+	);
+}
+
+function useSpaceTargetStatus(
+	input: { spaceId: string; profileId: string; hasMessageTarget: boolean },
+	entryConfirmed: boolean
+) {
+	return useQuery(
+		spaceStatusQueryOptions({
+			spaceId: input.spaceId,
+			openMeldProfileId: input.profileId,
+			// Only explicit destinations need status independently of the full bootstrap.
+			enabled: entryConfirmed && input.hasMessageTarget,
+		})
+	);
+}
+
 function useSpaceLandingBootstrapState(input: {
+	hasMessageTarget: boolean;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
 	spaceId: string;
@@ -844,17 +908,12 @@ function useSpaceLandingBootstrapState(input: {
 	);
 	useSpaceBootstrapQueryCache({
 		bootstrap: bootstrapQuery.data ?? null,
+		bootstrapUpdatedAt: bootstrapQuery.dataUpdatedAt,
 		profileId: input.profileId,
 		queryClient: input.queryClient,
 		spaceId: input.spaceId,
 	});
-	const statusQuery = useQuery(
-		spaceStatusQueryOptions({
-			spaceId: input.spaceId,
-			openMeldProfileId: input.profileId,
-			enabled: true,
-		})
-	);
+	const statusQuery = useSpaceTargetStatus(input, entryConfirmed);
 	const displaySnapshotQuery = useQuery(
 		spaceConversationDisplaySnapshotQueryOptions({
 			spaceId: input.spaceId,
@@ -872,10 +931,10 @@ function useSpaceLandingBootstrapState(input: {
 	const currentAccessRejection =
 		[statusError, bootstrapError].find(isCurrentSpaceAccessRejection) ?? null;
 	const landingError = currentAccessRejection ?? bootstrapError ?? statusError;
-	const currentStatusSnapshot =
-		entryConfirmed && currentAccessRejection === null
-			? (statusQuery.data ?? null)
-			: null;
+	const contentReadAllowed = entryConfirmed && currentAccessRejection === null;
+	const currentStatusSnapshot = contentReadAllowed
+		? (statusQuery.data ?? null)
+		: null;
 	useEffect(() => {
 		if (currentStatusSnapshot === null) {
 			return;
@@ -894,13 +953,14 @@ function useSpaceLandingBootstrapState(input: {
 		spaceMembersQueryOptions({
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
-			enabled: false,
+			enabled: true,
 		})
 	);
 	const membersSnapshot = membersQuery.data ?? null;
 	const presentationMembersSnapshot = bootstrapQuery.data
 		? resolveSpaceMembersPresentationSnapshot({
 				bootstrap: bootstrapQuery.data.members,
+				includesAgentReadiness: bootstrapQuery.data.includesAgentReadiness,
 				current: membersSnapshot,
 			})
 		: membersSnapshot;
@@ -958,6 +1018,7 @@ function useSpaceLandingBootstrapState(input: {
 		historyReady: historySnapshot !== null || historyQuery.isSuccess,
 		historySnapshot,
 		ensureEntryConfirmed: entryConfirmation.ensureConfirmed,
+		entryConfirmed: contentReadAllowed,
 		landingError,
 		membersError: membersLoadError,
 		membersErrorMessage: resolveSpaceMembersLoadErrorMessage(membersLoadError),
@@ -978,7 +1039,7 @@ function useSpaceLandingBootstrapState(input: {
 function useClearRejectedSpaceConversationCache(input: {
 	currentAccessRejection: StructuredApiClientFailure | null;
 	organizationId?: string | null;
-	organizationSlug: string;
+	organizationSlug?: string;
 	ownerAccountId: string;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -989,7 +1050,13 @@ function useClearRejectedSpaceConversationCache(input: {
 		[]
 	);
 	useEffect(() => {
-		if (!(input.currentAccessRejection && input.organizationId)) {
+		if (
+			!(
+				input.currentAccessRejection &&
+				input.organizationId &&
+				input.organizationSlug
+			)
+		) {
 			return;
 		}
 		queryPersistence
@@ -1045,6 +1112,7 @@ export type SpaceLandingController =
 			composerMentionEmptyMessage?: string;
 			composerText: string;
 			mode: "loading";
+			composerFiles: ReturnType<typeof useSpaceComposerSession>["files"];
 			onComposerBlur: () => void;
 			onComposerEditorChange: (change: SpaceComposerEditorChange) => void;
 			onComposerFocus: () => void;
@@ -1068,6 +1136,7 @@ export type SpaceLandingController =
 	  }
 	| {
 			activeThread: SpaceThread | null;
+			threadPanelOpen: boolean;
 			agentStreams: readonly SpaceConversationVisibleStreamProjection[];
 			composerAddressingTargets: readonly SpaceComposerAddressingTarget[];
 			composerAuthoredMentions: ComposerDraftRecord["authoredMentions"];
@@ -1117,7 +1186,9 @@ export type SpaceLandingController =
 			onClearComposerReplyTo: () => void;
 			onAddComposerFiles: (files: readonly File[]) => Promise<void>;
 			onRemoveComposerFile: (localId: string) => void;
-			onConversationViewingLatestChange: (isViewingLatest: boolean) => void;
+			onConversationViewedThroughTs?: (
+				timestamp: number
+			) => Promise<void> | void;
 			onJumpToDate: (date: Date) => Promise<string | null>;
 			onLoadEarlierHistory: () => Promise<void>;
 			onDeleteSpace: () => Promise<void>;
@@ -1193,11 +1264,13 @@ export type SpaceLandingController =
 			threads: readonly SpaceThread[];
 			threadPreviews: readonly SpaceThreadPreview[];
 			threadSignals: readonly SignalEnvelope[];
+			threadWakeRecommendationsEnabled: boolean;
 			threadsErrorMessage: string | null;
 			threadSignalsErrorMessage: string | null;
 			threadsIsLoading: boolean;
 			threadSignalsIsLoading: boolean;
 			threadUnreadFocus: {
+				requestId: number;
 				rootSignalId: string;
 				signalId: string;
 			} | null;
@@ -1321,13 +1394,13 @@ function showSpaceExecutionRecoveryFailureToast(input: {
 }
 
 export function useSpaceLandingController(input: {
+	initialFocusRequestId?: string;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
 	centerAgentProfileId?: string | null;
 	initialComposerDraft?: ComposerDraftRecord | null;
 	composerDraftMigrationScopes?: readonly ComposerDraftScope[];
 	initialPendingMessage?: PendingSpaceMessage | null;
-	onAgentReadinessInvalidated?: (input: {
-		agentProfileIds: readonly string[];
-	}) => Promise<void> | void;
 	onWakeFinalOutcomeFactsRefresh?: (input: {
 		agentProfileIds: readonly string[];
 		signalIds: readonly string[];
@@ -1337,7 +1410,7 @@ export function useSpaceLandingController(input: {
 	unreadStateReady?: boolean;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
 	organizationId?: string | null;
-	orgSlug: string;
+	orgSlug?: string;
 	ownerAccountId: string;
 	profileId: string;
 	spaceId: string;
@@ -1393,8 +1466,7 @@ export function useSpaceLandingController(input: {
 			openMeldProfileId: input.profileId,
 		})
 	);
-	const wakeProgressItems =
-		wakeProgressPresentationQuery.data ?? EMPTY_WAKE_PROGRESS_ITEMS;
+	const wakeProgressItems = wakeProgressPresentationQuery.data.items;
 	const setWakeProgressItems = useCallback(
 		(items: SetStateAction<WakeProgressItem[]>) => {
 			setSpaceWakeProgressPresentationItems({
@@ -1446,6 +1518,12 @@ export function useSpaceLandingController(input: {
 			signal: SignalEnvelope;
 			threadContext: SpaceThreadContext;
 		}) => {
+			recordSpaceWakeProgressEvidence({
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+				signals: [signalInput.signal],
+			});
 			setWakeProgressItems((currentItems) => {
 				const nextItems = applyWakeProgressSignals({
 					currentItems,
@@ -1473,6 +1551,7 @@ export function useSpaceLandingController(input: {
 		currentAccessRejection,
 		currentStatusConfirmationPending,
 		ensureEntryConfirmed,
+		entryConfirmed,
 		historyError,
 		historyPending,
 		historyQuery,
@@ -1490,6 +1569,7 @@ export function useSpaceLandingController(input: {
 		statusReady,
 		statusSnapshot,
 	} = useSpaceLandingBootstrapState({
+		hasMessageTarget: hasInitialMessageTarget(input),
 		profileId: input.profileId,
 		queryClient,
 		spaceId: input.spaceId,
@@ -1531,8 +1611,14 @@ export function useSpaceLandingController(input: {
 		spaceName: readSpaceStatusName(statusSnapshot ?? undefined),
 		statusReady,
 	});
+	// An older bootstrap cannot seed active streams after the progress cache
+	// (and its completion evidence) has been collected. Live frames and the
+	// ordinary authorized bootstrap refresh still restore current streams.
+	const bootstrapBelongsToProgressLifetime =
+		bootstrapQuery.dataUpdatedAt >=
+		wakeProgressPresentationQuery.data.createdAtMs;
 	const {
-		agentStreamProjections,
+		agentStreamProjections: liveAgentStreamProjections,
 		liveErrorMessage,
 		liveState,
 		mergePersistedIncoming,
@@ -1541,16 +1627,22 @@ export function useSpaceLandingController(input: {
 	} = useSpaceLandingFeed({
 		openMeldProfileId: input.profileId,
 		participationEnabled: currentProfileIsActiveSpaceMember,
-		onAgentReadinessInvalidated: input.onAgentReadinessInvalidated,
+		readinessScope: {
+			organizationId: input.organizationId,
+			storageScope: input.ownerAccountId,
+		},
 		onWakeFinalOutcomeFactsRefresh: input.onWakeFinalOutcomeFactsRefresh,
 		onThreadSignal: handleLiveThreadSignal,
 		spaceId: input.spaceId,
 		statusReady,
 		statusRefetch: statusQuery.refetch,
 		membersRefetch: membersQuery.refetch,
-		initialAgentStreamPresences:
-			bootstrapQuery.data?.activeAgentStreamPresences ?? [],
-		initialAgentStreams: bootstrapQuery.data?.activeAgentStreams ?? [],
+		initialAgentStreamPresences: bootstrapBelongsToProgressLifetime
+			? (bootstrapQuery.data?.activeAgentStreamPresences ?? [])
+			: [],
+		initialAgentStreams: bootstrapBelongsToProgressLifetime
+			? (bootstrapQuery.data?.activeAgentStreams ?? [])
+			: [],
 		history: {
 			isPending: historyPending,
 			isSuccess: historyReady,
@@ -1558,6 +1650,23 @@ export function useSpaceLandingController(input: {
 			...(historySnapshot ? { data: historySnapshot } : {}),
 		},
 	});
+	const agentStreamProjections = useMemo(
+		() =>
+			liveAgentStreamProjections.filter(
+				(stream) =>
+					!hasSpaceWakeProgressOutcome({
+						presentation: wakeProgressPresentationQuery.data,
+						item: {
+							dispatchId: stream.dispatchId,
+							targetProfileId: stream.profileId,
+							sourceSignalId: stream.triggerMessageId,
+							clientMessageId: null,
+							terminal: stream.status !== "streaming",
+						},
+					})
+			),
+		[liveAgentStreamProjections, wakeProgressPresentationQuery.data]
+	);
 	const historyNavigation = useSpaceHistoryNavigation({
 		liveEnvelopes: timelineEnvelopes,
 		spaceId: input.spaceId,
@@ -1565,36 +1674,8 @@ export function useSpaceLandingController(input: {
 		enabled: statusReady,
 		accessRejected: Boolean(currentAccessRejection),
 	});
-	// Starts false: the unread watermark must not advance until the conversation
-	// panel reports a real "scrolled to latest" measurement (a fresh open scrolls
-	// to the bottom and emits true; a deep link to an old message stays false).
-	const [isConversationViewingLatest, setIsConversationViewingLatest] =
-		useState(false);
-	// Reset that measurement synchronously (during render) whenever the
-	// conversation identity changes, so a stale "viewing latest" from a previous
-	// Space can never mark the next Space's messages read before its panel has
-	// measured. The derived value also forces false until the reset lands, so the
-	// in-flight render that triggered the reset never reports a stale measurement.
-	const conversationViewingIdentity = `${input.spaceId}::${input.profileId}`;
-	const [measuredViewingIdentity, setMeasuredViewingIdentity] = useState(
-		conversationViewingIdentity
-	);
-	if (measuredViewingIdentity !== conversationViewingIdentity) {
-		setMeasuredViewingIdentity(conversationViewingIdentity);
-		setIsConversationViewingLatest(false);
-	}
-	const isViewingLatestForCurrentConversation =
-		measuredViewingIdentity === conversationViewingIdentity &&
-		isConversationViewingLatest;
 	const unreadState = useSpaceUnread({
-		envelopes: timelineEnvelopes,
 		isReady: input.unreadStateReady === true,
-		isViewingLatest: isViewingLatestForCurrentConversation,
-		onViewedThroughTs: resolveConfirmedViewedThroughHandler({
-			isCurrentAccessConfirmed: statusReady,
-			onViewedThroughTs: input.onViewedThroughTs,
-		}),
-		spaceId: input.spaceId,
 		targets: input.unreadTargets ?? [],
 	});
 	const composerSession = useSpaceComposerSession({
@@ -1609,15 +1690,7 @@ export function useSpaceLandingController(input: {
 					}
 				: null,
 			openMeldProfileId: input.profileId,
-			initialComposerDraft: input.initialPendingMessage
-				? createComposerDraftRecord(
-						{
-							...EMPTY_COMPOSER_DRAFT_CONTENT,
-							text: input.initialPendingMessage.text,
-						},
-						input.initialPendingMessage.createdAtMs
-					)
-				: input.initialComposerDraft,
+			initialComposerDraft: input.initialComposerDraft,
 			isMembersLoading: membersLoading,
 			membersErrorMessage,
 			spaceId: input.spaceId,
@@ -1627,6 +1700,11 @@ export function useSpaceLandingController(input: {
 			organizationSlug: input.orgSlug,
 			profileId: input.profileId,
 			spaceId: input.spaceId,
+			restoreFromScopes: input.composerDraftMigrationScopes?.flatMap((scope) =>
+				scope.kind === "center_agent_pending"
+					? [centerAgentPendingAttachmentScope(scope)]
+					: []
+			),
 		},
 	});
 	const mentionAuthoring = composerSession.authoring;
@@ -1665,12 +1743,14 @@ export function useSpaceLandingController(input: {
 		}
 		stagedInitialFileMessageIdRef.current = pending.clientMessageId;
 		composerFilesController
-			.addFiles(pending.files)
-			.then(() => setPreparedInitialFileMessageId(pending.clientMessageId))
+			.addFiles(pending.files, pending.fileDrafts)
 			.catch((error: unknown) => {
 				console.error("Could not prepare the first chat attachments.", error);
 				setComposerErrorMessage("Could not attach the files. Try again.");
 			});
+		// Staging the local selection is synchronous. The existing publication
+		// pipeline owns upload waiting and retry; do not strand a queued bubble here.
+		setPreparedInitialFileMessageId(pending.clientMessageId);
 	}, [
 		input.initialPendingMessage,
 		statusReady,
@@ -1686,17 +1766,17 @@ export function useSpaceLandingController(input: {
 	);
 	useEffect(() => {
 		const pendingMessage = input.initialPendingMessage;
+		const pendingFiles =
+			resolvePendingSubmissionFiles(composerFilesController, pendingMessage) ??
+			[];
 		const canAttemptPendingMessage =
 			statusReady &&
 			(!pendingMessage?.files?.length ||
 				(preparedInitialFileMessageId === pendingMessage.clientMessageId &&
-					composerFilesController.files.every(
-						(file) => file.status === "ready"
-					))) &&
+					pendingFiles.length === pendingMessage.files.length)) &&
 			currentProfileIsActiveSpaceMember &&
 			(membersReady || membersError) &&
-			!isSendingMessage &&
-			mentionAuthoring.composerText.trim() === pendingMessage?.text.trim();
+			!isSendingMessage;
 		if (
 			!(pendingMessage && canAttemptPendingMessage) ||
 			consumedInitialPendingMessageIdRef.current ===
@@ -1715,16 +1795,21 @@ export function useSpaceLandingController(input: {
 	}, [
 		input.initialPendingMessage,
 		preparedInitialFileMessageId,
-		composerFilesController.files,
+		composerFilesController,
 		currentProfileIsActiveSpaceMember,
 		isSendingMessage,
 		membersError,
 		membersReady,
-		mentionAuthoring.composerText,
 		statusReady,
 	]);
 	const mergeConversationWakeProgressItems = useCallback(
 		(incomingItems: readonly WakeProgressItem[]) => {
+			recordSpaceWakeProgressEvidence({
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+				items: incomingItems,
+			});
 			if (incomingItems.length === 0) {
 				return;
 			}
@@ -1736,10 +1821,22 @@ export function useSpaceLandingController(input: {
 				})
 			);
 		},
-		[setWakeProgressItems, timelineEnvelopes]
+		[
+			setWakeProgressItems,
+			timelineEnvelopes,
+			queryClient,
+			input.spaceId,
+			input.profileId,
+		]
 	);
 	const mergeRecoveredWakeProgressItems = useEffectEvent(
 		(incomingItems: readonly WakeProgressItem[]) => {
+			recordSpaceWakeProgressEvidence({
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+				items: incomingItems,
+			});
 			const visibleItems = filterVisibleWakeProgressItems({
 				items: incomingItems,
 			});
@@ -1761,6 +1858,12 @@ export function useSpaceLandingController(input: {
 			incomingItems: readonly WakeProgressItem[],
 			snapshotItemsAtRequestStart: readonly WakeProgressItem[]
 		) => {
+			recordSpaceWakeProgressEvidence({
+				queryClient,
+				spaceId: input.spaceId,
+				openMeldProfileId: input.profileId,
+				items: incomingItems,
+			});
 			setWakeProgressItems((currentItems) =>
 				reconcileActiveWakeProgressSnapshot({
 					currentItems,
@@ -1786,11 +1889,14 @@ export function useSpaceLandingController(input: {
 		[setWakeProgressItems]
 	);
 	const threadController = useSpaceThreadController({
+		entryConfirmed,
+		initialFocusRequestId: input.initialFocusRequestId,
 		isMembersLoading: membersLoading,
 		membersErrorMessage,
 		membersRefetch: membersQuery.refetch,
 		membersSnapshot,
 		initialThreads: bootstrapQuery.data?.threads ?? null,
+		displayHistory: historySnapshot,
 		onWakeProgressItems: mergeConversationWakeProgressItems,
 		onWakeProgressRemoveClientMessageId:
 			removeConversationWakeProgressItemsForClientMessageId,
@@ -1802,16 +1908,57 @@ export function useSpaceLandingController(input: {
 		spaceId: input.spaceId,
 		status: statusSnapshot,
 		threadsEnabled: false,
+		initialFocusSignalId: input.initialFocusSignalId,
+		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
 		threadsLoading:
-			bootstrapQuery.isPending && bootstrapQuery.data === undefined,
+			bootstrapQuery.isFetching ||
+			(bootstrapQuery.isPending && bootstrapQuery.data === undefined),
 		statusReady,
 		statusRefetch: statusQuery.refetch,
 	});
 	const [threadUnreadFocus, setThreadUnreadFocus] = useState<{
+		requestId: number;
 		rootSignalId: string;
 		signalId: string;
 		spaceId: string;
 	} | null>(null);
+	useEffect(() => {
+		const knownRoots = new Set(
+			threadController.threads.map((thread) => thread.rootSignalId)
+		);
+		if (
+			!(
+				statusReady &&
+				agentStreamProjections.some(
+					(stream) =>
+						stream.status === "streaming" &&
+						stream.replyThreadRootSignalId &&
+						!knownRoots.has(stream.replyThreadRootSignalId)
+				)
+			)
+		) {
+			return;
+		}
+		queryClient
+			.fetchQuery({
+				...spaceThreadsQueryOptions({
+					spaceId: input.spaceId,
+					openMeldProfileId: input.profileId,
+					enabled: true,
+				}),
+				staleTime: 0,
+			})
+			.catch((error) =>
+				console.error("Could not load the reply Thread.", error)
+			);
+	}, [
+		statusReady,
+		threadController.threads,
+		agentStreamProjections,
+		queryClient,
+		input.spaceId,
+		input.profileId,
+	]);
 	const closeThread = useCallback(() => {
 		setThreadUnreadFocus(null);
 		threadController.onCloseThread();
@@ -1829,6 +1976,12 @@ export function useSpaceLandingController(input: {
 			signalId: string;
 			threadId?: string;
 		}) => {
+			setThreadUnreadFocus((current) => ({
+				requestId: (current?.requestId ?? 0) + 1,
+				rootSignalId: target.rootSignalId,
+				signalId: target.signalId,
+				spaceId: input.spaceId,
+			}));
 			const opened = await threadController.onOpenUnreadThread({
 				rootSignalId: target.rootSignalId,
 				...(target.threadId ? { threadId: target.threadId } : {}),
@@ -1836,11 +1989,6 @@ export function useSpaceLandingController(input: {
 			if (!opened) {
 				return false;
 			}
-			setThreadUnreadFocus({
-				rootSignalId: target.rootSignalId,
-				signalId: target.signalId,
-				spaceId: input.spaceId,
-			});
 			return true;
 		},
 		[input.spaceId, threadController.onOpenUnreadThread]
@@ -1928,16 +2076,31 @@ export function useSpaceLandingController(input: {
 		}
 
 		let cancelled = false;
+		const abort = new AbortController();
+		const completed = new Set<string>();
 		pollWakeProgress({
+			signal: abort.signal,
 			openMeldProfileId: input.profileId,
 			clientMessageIds,
-			onItems: (items) => {
+			onItems: (items, fulfilledClientMessageIds) => {
+				for (const id of fulfilledClientMessageIds) {
+					completed.add(id);
+				}
 				if (cancelled || items.length === 0) {
 					return;
 				}
 				mergeRecoveredWakeProgressItems(items);
 			},
-			onSettled: () => undefined,
+			onSettled: () => {
+				if (cancelled) {
+					return;
+				}
+				for (const id of clientMessageIds) {
+					if (!completed.has(id)) {
+						recoveredWakeProgressClientMessageIdsRef.current.delete(id);
+					}
+				}
+			},
 			spaceId: input.spaceId,
 		}).catch((error) => {
 			console.warn("[openmeld.web.space.wake_progress_recovery_unhandled]", {
@@ -1948,24 +2111,53 @@ export function useSpaceLandingController(input: {
 
 		return () => {
 			cancelled = true;
+			abort.abort();
+			for (const id of clientMessageIds) {
+				if (!completed.has(id)) {
+					recoveredWakeProgressClientMessageIdsRef.current.delete(id);
+				}
+			}
 		};
 	}, [input.profileId, input.spaceId, statusReady, timelineEnvelopes]);
 
+	// A durable reply resolves its Wake regardless of which conversation owns it.
+	const wakeOutcomeSignals = useMemo(
+		() => [
+			...timelineEnvelopes,
+			...threadController.threadSignals,
+			...threadController.threadPreviews.flatMap((preview) => preview.signals),
+		],
+		[
+			timelineEnvelopes,
+			threadController.threadSignals,
+			threadController.threadPreviews,
+		]
+	);
 	const presentedWakeProgressItems = useMemo(
 		() =>
-			mergeActiveWakeProgressPresentation({
-				detailedItems: wakeProgressItems,
-				signals: timelineEnvelopes,
-				summaryItems: mergeWakeProgressItemState({
-					currentItems: activeWakeProgressSummaryQuery.data?.items ?? [],
-					incomingItems: ownActiveWakeProgressQuery.data?.items ?? [],
-					signals: timelineEnvelopes,
+			filterSpaceWakeProgressItems({
+				presentation: wakeProgressPresentationQuery.data,
+				items: mergeActiveWakeProgressPresentation({
+					detailedItems: wakeProgressItems,
+					signals: wakeOutcomeSignals,
+					summaryItems: mergeWakeProgressItemState({
+						currentItems: readSpaceWakeProgressSummaryItems({
+							presentation: wakeProgressPresentationQuery.data,
+							summary: activeWakeProgressSummaryQuery.data,
+						}),
+						incomingItems: readSpaceWakeProgressSummaryItems({
+							presentation: wakeProgressPresentationQuery.data,
+							summary: ownActiveWakeProgressQuery.data,
+						}),
+						signals: wakeOutcomeSignals,
+					}),
 				}),
 			}),
 		[
-			activeWakeProgressSummaryQuery.data?.items,
-			ownActiveWakeProgressQuery.data?.items,
-			timelineEnvelopes,
+			activeWakeProgressSummaryQuery.data,
+			ownActiveWakeProgressQuery.data,
+			wakeProgressPresentationQuery.data,
+			wakeOutcomeSignals,
 			wakeProgressItems,
 		]
 	);
@@ -1977,7 +2169,7 @@ export function useSpaceLandingController(input: {
 		logEventName: "[openmeld.web.space.wake_progress_poll_unhandled]",
 		profileId: input.profileId,
 		setItems: setWakeProgressItems,
-		signals: timelineEnvelopes,
+		signals: wakeOutcomeSignals,
 		spaceId: input.spaceId,
 	});
 
@@ -2057,7 +2249,9 @@ export function useSpaceLandingController(input: {
 					next.delete(selectorKey);
 					return next;
 				});
-				throw toStructuredApiClientFailure(error);
+				const failure = toStructuredApiClientFailure(error);
+				toast.error(`OpenMeld couldn't request Stop. ${failure.message}`);
+				throw failure;
 			}
 
 			setWakeStopRequestStatusBySelectorKey((current) => {
@@ -2202,6 +2396,7 @@ export function useSpaceLandingController(input: {
 			composerMentionEmptyMessage: mentionAuthoring.mentionEmptyMessage,
 			composerText: mentionAuthoring.composerText,
 			mode: "loading",
+			composerFiles: composerFilesController,
 			onComposerBlur: () => {
 				restoreColdLoadingComposerFocusRef.current = false;
 			},
@@ -2278,10 +2473,12 @@ export function useSpaceLandingController(input: {
 	const deleteActionVisibility = resolveSpaceDeleteActionVisibility({
 		currentProfileId: input.profileId,
 		membersSnapshot,
+		ownerUserIds: statusSnapshot.ownerUserIds,
 	});
 
 	return {
 		activeThread: threadController.activeThread,
+		threadPanelOpen: threadController.threadPanelOpen,
 		agentStreams: agentStreamProjections,
 		composerAddressingTargets: resolveComposerAddressingTargets({
 			addressingTargets: mentionAuthoring.addressingTargets,
@@ -2339,7 +2536,10 @@ export function useSpaceLandingController(input: {
 		onClearComposerReplyTo: mentionAuthoring.onClearReplyTo,
 		onAddComposerFiles: composerFilesController.addFiles,
 		onRemoveComposerFile: composerFilesController.removeFile,
-		onConversationViewingLatestChange: setIsConversationViewingLatest,
+		onConversationViewedThroughTs: resolveConfirmedViewedThroughHandler({
+			isCurrentAccessConfirmed: statusReady && unreadState.isReady,
+			onViewedThroughTs: input.onViewedThroughTs,
+		}),
 		onCloseThread: closeThread,
 		onCreateThread: threadController.onCreateThread,
 		onDeleteSpace: handleDeleteSpace,
@@ -2447,10 +2647,15 @@ export function useSpaceLandingController(input: {
 		threadComposerFileLimitReached:
 			threadController.threadComposerFileLimitReached,
 		threadFilePreviewUrlsById: threadController.threadFilePreviewUrlsById,
-		threadEphemeralActivityItems: threadController.threadEphemeralActivityItems,
+		threadEphemeralActivityItems: filterSpaceWakeProgressItems({
+			presentation: wakeProgressPresentationQuery.data,
+			items: threadController.threadEphemeralActivityItems,
+		}),
 		threads: threadController.threads,
 		threadPreviews: threadController.threadPreviews,
 		threadSignals: threadController.threadSignals,
+		threadWakeRecommendationsEnabled:
+			threadController.threadWakeRecommendationsEnabled,
 		threadsErrorMessage: threadController.threadsErrorMessage,
 		threadSignalsErrorMessage: threadController.threadSignalsErrorMessage,
 		threadsIsLoading: threadController.threadsIsLoading,
@@ -2458,6 +2663,7 @@ export function useSpaceLandingController(input: {
 		threadUnreadFocus:
 			threadUnreadFocus?.spaceId === input.spaceId
 				? {
+						requestId: threadUnreadFocus.requestId,
 						rootSignalId: threadUnreadFocus.rootSignalId,
 						signalId: threadUnreadFocus.signalId,
 					}
@@ -2474,7 +2680,9 @@ export function useSpaceLandingController(input: {
 	};
 
 	async function sendMessage(options?: {
+		contextSelection?: SpaceComposerSendOptions["contextSelection"];
 		deviceWait?: SpaceComposerSendOptions["deviceWait"];
+		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		pendingMessage?: PendingSpaceMessage;
 		retrySubmission?: PendingComposerSubmission;
 		retryFiles?: readonly SpaceComposerFile[];
@@ -2483,8 +2691,13 @@ export function useSpaceLandingController(input: {
 		if (composerSendInFlightRef.current) {
 			return;
 		}
+		const pendingFiles = resolvePendingSubmissionFiles(
+			composerFilesController,
+			options?.pendingMessage
+		);
 		const sendAttempt = prepareSpaceMessageSendAttempt({
-			composerFiles: options?.retryFiles ?? composerFilesController.files,
+			composerFiles:
+				options?.retryFiles ?? pendingFiles ?? composerFilesController.files,
 			composerText: mentionAuthoring.composerText,
 			pendingMessage: options?.pendingMessage,
 		});
@@ -2504,9 +2717,6 @@ export function useSpaceLandingController(input: {
 			composerText: mentionAuthoring.composerText,
 			pendingMessage: options?.pendingMessage,
 		});
-		const isTextOnlyPendingMessage =
-			options?.pendingMessage !== undefined &&
-			!options.pendingMessage.files?.length;
 
 		historyNavigation.latest();
 		composerSession.send.begin();
@@ -2518,22 +2728,27 @@ export function useSpaceLandingController(input: {
 		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
 			const missingMembersMessage =
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions.";
-			const preparedSubmission =
-				options?.retrySubmission ??
-				applyDeviceWaitToSubmission(
-					prepareMainComposerSubmission({
-						mentionAuthoring,
-						messageSeed,
-						missingMembersMessage,
-						pendingMessage: options?.pendingMessage,
-					}),
-					options?.deviceWait
-				);
+				resolveMissingSpaceMembersMessage(membersErrorMessage);
+			const preparedSubmission: PendingComposerSubmission =
+				options?.retrySubmission ?? {
+					contextSelection: options?.contextSelection,
+					...applyDeviceWaitToSubmission(
+						prepareMainComposerSubmission({
+							mentionAuthoring,
+							messageSeed,
+							missingMembersMessage,
+							pendingMessage: options?.pendingMessage,
+						}),
+						options?.deviceWait
+					),
+				};
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				options?.retryFiles ??
-				composerSession.recordPendingSubmission(!isTextOnlyPendingMessage);
+				composerSession.recordPendingSubmission({
+					fileIds: pendingFiles?.map((file) => file.localId),
+					submittedAtMs: options?.pendingMessage?.createdAtMs,
+				});
 			markSpaceSendPending(messageSeed.clientMessageId, () => {
 				composerFilesController.consumePublishedFiles(
 					submittedFiles.map((file) => file.localId)
@@ -2548,6 +2763,7 @@ export function useSpaceLandingController(input: {
 				preparedSubmission,
 				status: statusSnapshot,
 			});
+			options?.onMessageStaged?.(messageSeed.clientMessageId);
 			composerSession.send.finish();
 			await request.ready;
 			const sendBoundary = await resolveSpaceComposerSendBoundary({
@@ -2706,10 +2922,6 @@ export function useSpaceLandingController(input: {
 			openMeldProfileId: input.profileId,
 			spaceId: input.spaceId,
 		});
-		queryClient.setQueryData(
-			spaceQueryKeys.members(input.spaceId, input.profileId),
-			currentMembersSnapshot
-		);
 		return currentMembersSnapshot;
 	}
 
@@ -2823,11 +3035,11 @@ export function useSpaceLandingController(input: {
 				pendingMessageEnvelope,
 				wakeProgressTargetProfileIds,
 			} = stagePreparedSpaceMessage(sendInput);
-			const spaceApi = createOrganizationScopedWebSpaceApi({
-				organizationSlug: input.orgSlug,
+			const spaceApi = createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			});
 			const postInput = buildNormalMessagePostInput({
+				contextSelection: sendInput.preparedSubmission.contextSelection,
 				deviceWait: sendInput.preparedSubmission.deviceWait,
 				restoredFromSignalId: sendInput.preparedSubmission.restoredFromSignalId,
 				centerAgentExecutionInput,
@@ -2850,6 +3062,7 @@ export function useSpaceLandingController(input: {
 				targetProfileIds: wakeProgressTargetProfileIds,
 			});
 			mergePersistedIncoming([signal]);
+			updateAccountSpaceAcceptedMessage(queryClient, input.profileId, signal);
 			removePendingOutgoingSignal(
 				setPendingOutgoingSignals,
 				sendInput.clientMessageId
@@ -3066,7 +3279,9 @@ export function useSpaceLandingController(input: {
 			]);
 			toast.success("You left this Space.");
 			await navigate({
-				to: buildOrganizationSpacesPath(input.orgSlug),
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
 				replace: true,
 			});
 		} catch (error) {
@@ -3158,13 +3373,31 @@ export function useSpaceLandingController(input: {
 	async function handleDeleteSpace() {
 		setIsDeletingSpace(true);
 		setDeleteSpaceErrorMessage(null);
+		let deleted = false;
+		let cacheSnapshot:
+			| Awaited<ReturnType<typeof optimisticallyRemoveSpaceFromListCaches>>
+			| undefined;
 
 		try {
+			cacheSnapshot = await optimisticallyRemoveSpaceFromListCaches({
+				organizationId: input.organizationId ?? null,
+				queryClient,
+				spaceId: input.spaceId,
+			});
+			navigate({
+				to: input.orgSlug
+					? buildOrganizationSpacesPath(input.orgSlug)
+					: "/invitations",
+				replace: true,
+			}).catch((error: unknown) =>
+				console.error("Could not open Browse Spaces.", error)
+			);
 			await createUnscopedWebSpaceApi({
 				openMeldProfileId: input.profileId,
 			}).deleteSpace({
 				spaceId: input.spaceId,
 			});
+			deleted = true;
 
 			try {
 				await removeDeletedSpaceFromAccountHistory({
@@ -3181,6 +3414,11 @@ export function useSpaceLandingController(input: {
 			}
 
 			await Promise.all([
+				input.organizationId
+					? queryClient.invalidateQueries({
+							queryKey: organizationQueryKeys.spaces(input.organizationId),
+						})
+					: Promise.resolve(),
 				queryClient.invalidateQueries({
 					queryKey: spaceQueryKeys.status(input.spaceId, input.profileId),
 				}),
@@ -3195,14 +3433,40 @@ export function useSpaceLandingController(input: {
 				}),
 			]);
 			toast.success("Space deleted.");
-			await navigate({
-				to: buildOrganizationSpacesPath(input.orgSlug),
-				replace: true,
-			});
 		} catch (error) {
+			if (deleted) {
+				toast.warning("Space deleted, but its lists could not be refreshed.");
+				console.error("Could not refresh lists after Space deletion.", error);
+				return;
+			}
 			const failure = toStructuredApiClientFailure(error);
-			setDeleteSpaceErrorMessage(resolveDeleteSpaceErrorMessage(failure));
+			const message = resolveDeleteSpaceErrorMessage(failure);
+			restoreSpaceListCaches(
+				queryClient,
+				input.organizationId ?? null,
+				cacheSnapshot
+			);
+			setDeleteSpaceErrorMessage(message);
+			toast.error(`Delete failed: ${message}`, {
+				duration: Number.POSITIVE_INFINITY,
+				closeButton: true,
+				action: {
+					label: "Open Space",
+					onClick: () => {
+						navigate({
+							to: input.orgSlug
+								? buildOrganizationSpacePath({
+										orgSlug: input.orgSlug,
+										spaceId: input.spaceId,
+										search: { profileId: input.profileId },
+									})
+								: `/spaces/${input.spaceId}`,
+						}).catch(console.error);
+					},
+				},
+			});
 		} finally {
+			cacheSnapshot?.stopKeepingRemoved();
 			setIsDeletingSpace(false);
 		}
 	}
@@ -3233,6 +3497,7 @@ export function useSpaceLandingController(input: {
 				openMeldProfileId: input.profileId,
 			});
 			const merged = mergePersistedIncoming(history.envelopes);
+			historyNavigation.revealCachedBefore(merged);
 			const nextEarliestVisibleSignalId =
 				getEarliestVisibleTimelineSignalId(merged);
 			if (nextEarliestVisibleSignalId === earliestVisibleSignalId) {
@@ -3276,6 +3541,11 @@ export function useSpaceLandingController(input: {
 }
 
 function useSpaceThreadController(input: {
+	entryConfirmed: boolean;
+	initialFocusRequestId?: string;
+	initialFocusSignalId?: string;
+	initialFocusThreadRootSignalId?: string;
+	displayHistory: SpaceHistorySnapshot | null;
 	isMembersLoading: boolean;
 	initialThreads: ListSpaceThreadsResponse | null;
 	membersErrorMessage: string | null;
@@ -3284,7 +3554,7 @@ function useSpaceThreadController(input: {
 	onWakeProgressItems: (items: readonly WakeProgressItem[]) => void;
 	onWakeProgressRemoveClientMessageId: (clientMessageId: string) => void;
 	readCurrentMembers: () => Promise<SpaceMembersSnapshot | null>;
-	organizationSlug: string;
+	organizationSlug?: string;
 	ownerAccountId: string;
 	profileId: string;
 	queryClient: ReturnType<typeof useQueryClient>;
@@ -3296,6 +3566,7 @@ function useSpaceThreadController(input: {
 	statusRefetch: () => Promise<unknown>;
 }) {
 	const [isCreatingThread, setIsCreatingThread] = useState(false);
+	const threadCreationRequestRef = useRef(0);
 	const [wakeProgressItems, setWakeProgressItems] = useState<
 		WakeProgressItem[]
 	>([]);
@@ -3303,17 +3574,57 @@ function useSpaceThreadController(input: {
 		spaceThreadsQueryOptions({
 			spaceId: input.spaceId,
 			openMeldProfileId: input.profileId,
-			enabled: input.statusReady && input.threadsEnabled,
+			enabled:
+				input.entryConfirmed &&
+				(input.threadsEnabled || hasInitialMessageTarget(input)),
 		})
 	);
-	const threadsSnapshot = threadsQuery.data ?? input.initialThreads;
-	const threads = threadsSnapshot?.threads ?? [];
-	const threadPreviews = threadsSnapshot?.previews ?? [];
+	const currentThreads = threadsQuery.data ?? input.initialThreads;
+	const threadsSnapshot =
+		currentThreads ?? input.displayHistory?.threadDisplay ?? null;
+	useLayoutEffect(() => {
+		if (!(currentThreads && input.displayHistory)) {
+			return;
+		}
+		input.queryClient.setQueryData<SpaceHistorySnapshot>(
+			spaceQueryKeys.history(input.spaceId, input.profileId),
+			(current) =>
+				current
+					? mergeSpaceHistorySnapshots({
+							current,
+							incoming: {
+								...current,
+								threadDisplay: currentThreads,
+							},
+						})
+					: current
+		);
+	}, [
+		currentThreads,
+		input.displayHistory,
+		input.queryClient,
+		input.spaceId,
+		input.profileId,
+	]);
+	const threads = useMemo(
+		() => threadsSnapshot?.threads ?? [],
+		[threadsSnapshot]
+	);
+	const threadPreviews = useMemo(
+		() => threadsSnapshot?.previews ?? [],
+		[threadsSnapshot]
+	);
 	const availableThreadIds = useMemo(
 		() => new Set(threads.map((thread) => thread.threadId)),
 		[threads]
 	);
 	const threadPanelSelection = useSpaceThreadPanelSelection({
+		initialFocusRequestId: input.initialFocusRequestId,
+		initialFocusSignalId: input.initialFocusSignalId,
+		initialFocusThreadRootSignalId: input.initialFocusThreadRootSignalId,
+		threadIdsByRootSignalId: new Map(
+			threads.map((thread) => [thread.rootSignalId, thread.threadId])
+		),
 		availableThreadIds,
 		availableThreadsReady: threadsQuery.isSuccess,
 		profileId: input.profileId,
@@ -3331,7 +3642,7 @@ function useSpaceThreadController(input: {
 			spaceId: input.spaceId,
 			threadId: activeThreadId,
 			openMeldProfileId: input.profileId,
-			enabled: input.statusReady && activeThreadId !== null,
+			enabled: input.entryConfirmed && activeThreadId !== null,
 		})
 	);
 	const composerSession = useSpaceComposerSession({
@@ -3356,6 +3667,7 @@ function useSpaceThreadController(input: {
 			organizationSlug: input.organizationSlug,
 			profileId: input.profileId,
 			spaceId: input.spaceId,
+			draftScope: `thread:${activeThreadId ?? "closed"}`,
 		},
 	});
 	const mentionAuthoring = composerSession.authoring;
@@ -3373,16 +3685,23 @@ function useSpaceThreadController(input: {
 	} = composerSession.send;
 	const activeThread =
 		threads.find((thread) => thread.threadId === activeThreadId) ?? null;
-	const persistedThreadSignals = threadSignalsQuery.data?.signals ?? [];
+	const persistedThreadSignals = useMemo(
+		() => threadSignalsQuery.data?.signals ?? [],
+		[threadSignalsQuery.data]
+	);
 	useReconcilePendingOutgoingSignals(
 		pendingOutgoingSignals,
 		persistedThreadSignals,
 		setPendingOutgoingSignals
 	);
-	const threadSignals = mergePersistedAndPendingOutgoingSignals({
-		persisted: persistedThreadSignals,
-		pending: pendingOutgoingSignals,
-	});
+	const threadSignals = useMemo(
+		() =>
+			mergePersistedAndPendingOutgoingSignals({
+				persisted: persistedThreadSignals,
+				pending: pendingOutgoingSignals,
+			}),
+		[persistedThreadSignals, pendingOutgoingSignals]
+	);
 	const threadFilePreviewUrlsById = useMemo(() => {
 		const previewUrlsById = new Map<string, string>();
 		for (const pendingSignal of pendingOutgoingSignals) {
@@ -3404,6 +3723,7 @@ function useSpaceThreadController(input: {
 		}
 		composerSession.feedback.clear();
 		setIsCreatingThread(false);
+		threadCreationRequestRef.current += 1;
 		composerSession.send.finish();
 		setWakeProgressItems([]);
 	}, [
@@ -3425,6 +3745,7 @@ function useSpaceThreadController(input: {
 
 	return {
 		activeThread,
+		threadPanelOpen: threadPanelSelection.isOpen,
 		isCreatingThread,
 		isSendingThreadMessage: isSendingMessage,
 		onCloseThread: closeThread,
@@ -3475,10 +3796,13 @@ function useSpaceThreadController(input: {
 		threadPreviews,
 		threadSignals,
 		threadSignalsError: threadSignalsQuery.error,
-		threadSignalsErrorMessage: threadSignalsQuery.isError
-			? threadSignalsQuery.error.message
-			: null,
-		threadSignalsIsLoading: threadSignalsQuery.isPending,
+		threadWakeRecommendationsEnabled:
+			threadSignalsQuery.data?.wakeContinuation?.automaticTargetProfileId ===
+			null,
+		threadSignalsErrorMessage: resolveThreadLoadError(),
+		threadSignalsIsLoading: activeThread
+			? threadSignalsQuery.isPending
+			: isCreatingThread || input.threadsLoading || threadsQuery.isFetching,
 		threadTextareaRef: mentionAuthoring.textareaRef,
 		threads,
 		threadsError: threadsQuery.error,
@@ -3491,21 +3815,53 @@ function useSpaceThreadController(input: {
 	};
 
 	function closeThread() {
+		threadCreationRequestRef.current += 1;
+		setIsCreatingThread(false);
 		threadPanelSelection.close();
 		composerSession.feedback.clear();
-		composerFilesController.clearFiles();
+	}
+
+	function resolveThreadLoadError(): string | null {
+		if (activeThread) {
+			return threadSignalsQuery.isError
+				? threadSignalsQuery.error.message
+				: null;
+		}
+		if (threadsQuery.isError) {
+			return threadsQuery.error.message;
+		}
+		if (isCreatingThread) {
+			return null;
+		}
+		if (threadPanelSelection.requestedRootSignalId && composerErrorMessage) {
+			return composerErrorMessage;
+		}
+		if (
+			threadPanelSelection.requestedRootSignalId &&
+			!input.threadsLoading &&
+			!threadsQuery.isFetching &&
+			threadsSnapshot
+		) {
+			return "This linked thread isn’t available. It may have been removed or you may no longer have access.";
+		}
+		return null;
 	}
 
 	function openThread(threadId: string) {
+		threadCreationRequestRef.current += 1;
+		setIsCreatingThread(false);
 		threadPanelSelection.open(threadId);
 		composerSession.feedback.clear();
-		composerFilesController.clearFiles();
 	}
 
 	async function openUnreadThread(threadInput: {
 		rootSignalId: string;
 		threadId?: string;
 	}): Promise<boolean> {
+		threadCreationRequestRef.current += 1;
+		setIsCreatingThread(false);
+		composerSession.feedback.clear();
+		threadPanelSelection.openRoot(threadInput.rootSignalId);
 		let threadId = threadInput.threadId;
 		if (!threadId) {
 			threadId = threads.find(
@@ -3522,13 +3878,14 @@ function useSpaceThreadController(input: {
 			return false;
 		}
 
-		openThread(threadId);
 		return true;
 	}
 
 	async function createThread(threadInput: { rootSignalId: string }) {
+		const requestId = ++threadCreationRequestRef.current;
 		setIsCreatingThread(true);
 		setComposerErrorMessage(null);
+		threadPanelSelection.openRoot(threadInput.rootSignalId);
 
 		try {
 			const response = await createUnscopedWebSpaceApi({
@@ -3538,7 +3895,18 @@ function useSpaceThreadController(input: {
 				rootSignalId: threadInput.rootSignalId,
 				clientMutationId: createClientMessageId(),
 			});
-			openThread(response.thread.threadId);
+			input.queryClient.setQueryData<ListSpaceThreadsResponse>(
+				spaceQueryKeys.threads(input.spaceId, input.profileId),
+				(current) => ({
+					threads: [
+						...(current?.threads ?? threads).filter(
+							(thread) => thread.threadId !== response.thread.threadId
+						),
+						response.thread,
+					],
+					previews: current?.previews ?? threadPreviews,
+				})
+			);
 			await Promise.all([
 				threadsQuery.refetch(),
 				input.queryClient.invalidateQueries({
@@ -3551,10 +3919,14 @@ function useSpaceThreadController(input: {
 			]);
 		} catch (error) {
 			const failure = toStructuredApiClientFailure(error);
-			setComposerErrorMessage(failure.message);
+			if (requestId === threadCreationRequestRef.current) {
+				setComposerErrorMessage(failure.message);
+			}
 			toast.error(`OpenMeld could not start the thread. ${failure.message}`);
 		} finally {
-			setIsCreatingThread(false);
+			if (requestId === threadCreationRequestRef.current) {
+				setIsCreatingThread(false);
+			}
 		}
 	}
 
@@ -3596,16 +3968,18 @@ function useSpaceThreadController(input: {
 		let publishedLocalIds: readonly string[] = [];
 		let submittedFiles: readonly SpaceComposerFile[] = [];
 		try {
-			const preparedSubmission =
-				retry?.submission ??
-				applyDeviceWaitToSubmission(
-					trimmedText.length > 0
-						? mentionAuthoring.prepareSubmission(
-								"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before using @ mentions."
-							)
-						: mentionAuthoring.prepareFileOnlySubmission(),
-					options?.deviceWait
-				);
+			const preparedSubmission: PendingComposerSubmission =
+				retry?.submission ?? {
+					contextSelection: options?.contextSelection,
+					...applyDeviceWaitToSubmission(
+						trimmedText.length > 0
+							? mentionAuthoring.prepareSubmission(
+									resolveMissingSpaceMembersMessage(input.membersErrorMessage)
+								)
+							: mentionAuthoring.prepareFileOnlySubmission(),
+						options?.deviceWait
+					),
+				};
 			pendingSubmission = preparedSubmission;
 			submittedFiles =
 				retry?.files ?? composerSession.recordPendingSubmission();
@@ -3613,6 +3987,7 @@ function useSpaceThreadController(input: {
 			await sendPreparedThreadMessage({
 				composerFiles: submittedFiles,
 				clientMessageId,
+				onMessageStaged: options?.onMessageStaged,
 				prepareFiles: async () => {
 					const publishedFiles =
 						await composerFilesController.publishReadyFiles(submittedFiles);
@@ -3763,7 +4138,7 @@ function useSpaceThreadController(input: {
 		try {
 			const preparedSubmission = mentionAuthoring.preparePlainTextSubmission(
 				trimmedText,
-				"OpenMeld couldn't load the current space members right now. Wait for members to finish loading before continuing."
+				resolveMissingSpaceMembersMessage(input.membersErrorMessage)
 			);
 			await sendPreparedThreadMessage({
 				preparedSubmission,
@@ -3797,6 +4172,7 @@ function useSpaceThreadController(input: {
 	}
 
 	async function sendPreparedThreadMessage(sendInput: {
+		onMessageStaged?: SpaceComposerSendOptions["onMessageStaged"];
 		composerFiles?: readonly SpaceComposerFile[];
 		clientMessageId?: string;
 		prepareFiles?: () => Promise<{
@@ -3818,7 +4194,7 @@ function useSpaceThreadController(input: {
 			composerFilesController.finishSubmission(files);
 		});
 		const messageCreatedAtMs = Date.now();
-		const activationTargets =
+		let activationTargets =
 			sendInput.preparedSubmission.messageEnvelope?.activationTargets ?? [];
 		const pendingSignal = createPendingOutgoingSignal({
 			composerFiles: sendInput.composerFiles,
@@ -3831,6 +4207,7 @@ function useSpaceThreadController(input: {
 			text: sendInput.preparedSubmission.text,
 		});
 		appendPendingOutgoingSignal(setPendingOutgoingSignals, pendingSignal);
+		sendInput.onMessageStaged?.(clientMessageId);
 		const sendingWakeProgressItems = buildLocalWakeProgressItems({
 			activationTargets,
 			clientMessageId,
@@ -3870,6 +4247,10 @@ function useSpaceThreadController(input: {
 			}
 			const postInput = {
 				body: {
+					contextSelection: sendInput.preparedSubmission.contextSelection,
+					...(sendInput.preparedSubmission.threadWakeContinuation
+						? { threadWakeContinuation: true as const }
+						: {}),
 					...(sendInput.preparedSubmission.deviceWait
 						? { deviceWait: sendInput.preparedSubmission.deviceWait }
 						: {}),
@@ -3899,6 +4280,12 @@ function useSpaceThreadController(input: {
 					}).postThreadSignal(postInput)
 			);
 			postedMessage = true;
+			activationTargets = readPublishedWakeTargetProfileIds(response.signal);
+			updateAccountSpaceAcceptedMessage(
+				input.queryClient,
+				input.profileId,
+				response.signal
+			);
 			completeSpaceSend(clientMessageId);
 			recordWakeDiagnosticIfNeeded({
 				clientMessageId,
@@ -3986,6 +4373,7 @@ function useWakeProgressPolling(input: {
 	signals: readonly SignalEnvelope[];
 	spaceId: string;
 }) {
+	const queryClient = useQueryClient();
 	const {
 		enabled,
 		items,
@@ -3998,6 +4386,12 @@ function useWakeProgressPolling(input: {
 	const pollAttemptsRef = useRef(new Map<string, number>());
 
 	useEffect(() => {
+		recordSpaceWakeProgressEvidence({
+			queryClient,
+			spaceId,
+			openMeldProfileId: profileId,
+			signals,
+		});
 		setItems((currentItems) => {
 			const nextItems = applyWakeProgressSignals({
 				currentItems,
@@ -4007,7 +4401,7 @@ function useWakeProgressPolling(input: {
 				? currentItems
 				: nextItems;
 		});
-	}, [setItems, signals]);
+	}, [setItems, signals, queryClient, spaceId, profileId]);
 
 	useEffect(() => {
 		const pendingClientMessageIds =
@@ -4031,6 +4425,7 @@ function useWakeProgressPolling(input: {
 		}
 		let cancelled = false;
 		let timeoutId: number | null = null;
+		const abort = new AbortController();
 		const schedulePoll = () => {
 			const delayMs = resolveWakeProgressPollDelayMs({
 				attemptCounts: pendingClientMessageIds.map(
@@ -4038,27 +4433,37 @@ function useWakeProgressPolling(input: {
 				),
 			});
 			timeoutId = window.setTimeout(() => {
+				const polledItems: WakeProgressItem[] = [];
+				const fulfilledIds: string[] = [];
 				pollWakeProgress({
+					signal: abort.signal,
 					openMeldProfileId: profileId,
 					clientMessageIds: pendingClientMessageIds,
 					onItems: (items, fulfilledClientMessageIds) => {
-						if (cancelled) {
-							return;
-						}
-						const visibleItems = filterVisibleWakeProgressItems({ items });
-						setItems((currentItems) =>
-							reconcilePolledWakeProgressItems({
-								currentItems,
-								fulfilledClientMessageIds,
-								incomingItems: visibleItems,
-								signals,
-							})
-						);
+						polledItems.push(...items);
+						fulfilledIds.push(...fulfilledClientMessageIds);
 					},
 					onSettled: () => {
 						if (cancelled) {
 							return;
 						}
+						recordSpaceWakeProgressEvidence({
+							queryClient,
+							spaceId,
+							openMeldProfileId: profileId,
+							items: polledItems,
+						});
+						// Updating items replaces this effect. Finish all bounded groups
+						// before publishing so early groups cannot starve later targets.
+						setItems((currentItems) =>
+							reconcilePolledWakeProgressItems({
+								currentItems,
+								snapshotItemsAtRequestStart: items,
+								fulfilledClientMessageIds: fulfilledIds,
+								incomingItems: polledItems,
+								signals,
+							})
+						);
 						for (const clientMessageId of pendingClientMessageIds) {
 							pollAttemptsRef.current.set(
 								clientMessageId,
@@ -4079,11 +4484,21 @@ function useWakeProgressPolling(input: {
 		schedulePoll();
 		return () => {
 			cancelled = true;
+			abort.abort();
 			if (timeoutId !== null) {
 				window.clearTimeout(timeoutId);
 			}
 		};
-	}, [enabled, items, logEventName, profileId, setItems, signals, spaceId]);
+	}, [
+		enabled,
+		items,
+		logEventName,
+		profileId,
+		setItems,
+		signals,
+		spaceId,
+		queryClient,
+	]);
 }
 
 async function refreshWakeStopAfterResponse(input: {

@@ -25,6 +25,7 @@ export const inboxViewSchema = z.enum([
   "all",
   "unread",
   "needs_action",
+  "needs_review",
   "updates",
   "urgent_updates",
   "recent_updates",
@@ -127,6 +128,7 @@ export const inboxSourceTargetSchema = z.discriminatedUnion("kind", [
     kind: z.literal("space"),
     directMessage: z.boolean().optional(),
     agentOwnerActivity: z.boolean().optional(),
+    replyToRecipient: z.boolean().optional(),
     signalId: identifierSchema.optional(),
     spaceId: identifierSchema,
     threadRootSignalId: identifierSchema.optional(),
@@ -298,6 +300,49 @@ export const updateInboxNotificationPreferencesBodySchema = z.strictObject({
   urgentEmailEnabled: z.boolean(),
 });
 
+export const inboxMessageNotificationModeSchema = z.enum([
+  "all_messages",
+  "mentions_and_replies",
+]);
+export const inboxConversationNotificationModeSchema = z.enum([
+  "all_messages",
+  "mentions_and_replies",
+  "muted",
+]);
+export const inboxMessageNotificationPreferencesQuerySchema = z.strictObject({
+  spaceId: identifierSchema.optional(),
+});
+export const inboxMessageNotificationPreferencesResponseSchema = z.strictObject(
+  {
+    organizationId: identifierSchema,
+    spaceId: identifierSchema.nullable(),
+    defaultMode: inboxMessageNotificationModeSchema,
+    overrideMode: inboxConversationNotificationModeSchema.nullable(),
+    effectiveMode: inboxConversationNotificationModeSchema,
+  }
+);
+export const updateInboxMessageNotificationPreferencesBodySchema =
+  z.discriminatedUnion("scope", [
+    z.strictObject({
+      scope: z.literal("account"),
+      mode: inboxMessageNotificationModeSchema,
+    }),
+    z.strictObject({
+      scope: z.literal("conversation"),
+      spaceId: identifierSchema,
+      mode: inboxConversationNotificationModeSchema.nullable(),
+    }),
+  ]);
+export const getInboxMessageNotificationPreferencesRpcInputSchema =
+  inboxMessageNotificationPreferencesQuerySchema.extend({
+    context: openMeldRequestContextSchema,
+  });
+export const updateInboxMessageNotificationPreferencesRpcInputSchema =
+  z.strictObject({
+    context: openMeldRequestContextSchema,
+    preference: updateInboxMessageNotificationPreferencesBodySchema,
+  });
+
 export const inboxItemRouteParamsSchema = z.strictObject({
   itemId: identifierSchema,
 });
@@ -359,6 +404,7 @@ function normalizeInboxItemWireKind(
 
 export const listInboxItemsRpcInputSchema = listInboxItemsQuerySchema.extend({
   context: openMeldRequestContextSchema,
+  includeReplyToRecipient: z.boolean().optional(),
 });
 export const getInboxSummaryRpcInputSchema = z.strictObject({
   context: openMeldRequestContextSchema,
@@ -383,6 +429,7 @@ export const markSpaceInboxReadThroughRpcInputSchema =
   });
 export const getInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend({
   context: openMeldRequestContextSchema,
+  includeReplyToRecipient: z.boolean().optional(),
 });
 export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
   {
@@ -392,6 +439,7 @@ export const dismissInboxItemRpcInputSchema = inboxItemRouteParamsSchema.extend(
 export const markInboxItemReadRpcInputSchema =
   markInboxItemReadBodySchema.extend({
     context: openMeldRequestContextSchema,
+    includeReplyToRecipient: z.boolean().optional(),
     itemId: identifierSchema,
   });
 export const markAllInboxItemsReadRpcInputSchema = z.strictObject({

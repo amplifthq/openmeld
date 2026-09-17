@@ -37,6 +37,7 @@ import {
 } from "../../remote-agent/application/native-delivery-service";
 import { resolveSpaceStub } from "../../rpc/space-ref";
 import { emitSpaceSystemNoticeSignal } from "../../rpc/space-signal-emitter";
+import { DELETED_AGENT_PROFILE_WAKE_STOP_REASON } from "../../runtime-transport/application/deleted-agent-profile-wake-cancellation";
 import {
   RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
   resolveRuntimeCoordinatorHeadWaitingDecision,
@@ -80,7 +81,9 @@ import {
   decideRuntimeTransportRuntimeCoordinatorExecution,
   readRuntimeTransportRuntimeCoordinatorHeadLifecycleTrace,
   recordRuntimeTransportRuntimeCoordinatorHeadNoExecution,
+  recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop,
   recordRuntimeTransportRuntimeCoordinatorHeadWaiting,
+  requestRuntimeTransportRuntimeCoordinatorWakeStop,
 } from "../infrastructure/runtime-transport/runtime-coordinator-client";
 import { lookupRuntimeTransportRoute } from "../infrastructure/runtime-transport/runtime-transport-client";
 import { resolveRuntimeTransportOwnerShard } from "../infrastructure/runtime-transport/runtime-transport-shard";
@@ -1403,7 +1406,8 @@ const settleFreshHeadAdmissionWithoutDelivery = async (input: {
   }
   if (
     input.headAcceptance.status === "queue_full" ||
-    input.headAcceptance.status === "recovery_needs_attention"
+    input.headAcceptance.status === "recovery_needs_attention" ||
+    input.headAcceptance.status === "context_rejected"
   ) {
     return {
       controllerWaitPromise: null,
@@ -1609,8 +1613,10 @@ const handlePreAgentStoppedBeforeDeliveryIfNeeded = async (input: {
 };
 
 type RuntimeCoordinatorHeadAcceptanceOutcome =
+  | { status: "context_rejected"; reasonCode: string; errorMessage: string }
   | {
       acceptedDispatchSnapshot?: OpenMeldDaemonAcceptedDispatchSnapshot;
+      executionContext?: OpenMeldDaemonDispatchQueueMessage["executionContext"];
       status: "proceed";
     }
   | { status: "profile_queue_waiting" }
@@ -1655,11 +1661,24 @@ const resolveRuntimeCoordinatorAcceptedDispatch = (input: {
       ? applyAcceptedDispatchSnapshotToMessage({
           message: input.message,
           snapshot,
+          ...(input.headAcceptance.status === "proceed"
+            ? { executionContext: input.headAcceptance.executionContext }
+            : {}),
         })
       : input.message,
     snapshot,
   };
 };
+
+function requiresExecutionContext(
+  message: OpenMeldDaemonDispatchQueueMessage,
+  runtimeKind: string | null | undefined
+): boolean {
+  return Boolean(
+    message.contextSelection ||
+      (runtimeKind === "openmeld_service" && message.threadContext)
+  );
+}
 
 const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   db: D1Database;
@@ -1672,6 +1691,18 @@ const settleRuntimeCoordinatorHeadAdmissionResponse = async (input: {
   targetWakeLifecycleId: string;
 }): Promise<RuntimeCoordinatorHeadAcceptanceOutcome | null> => {
   const { response } = input;
+  if (
+    !response.ok &&
+    response.status === "conflict" &&
+    response.reasonCode.startsWith("execution_context.")
+  ) {
+    return {
+      status: "context_rejected",
+      reasonCode: response.reasonCode,
+      errorMessage:
+        "This task's background could not be verified. Choose a task from this conversation to continue or fork, or start a new task.",
+    };
+  }
   if (!response.ok && response.status === "retry_later") {
     await markDispatchStatus({
       attemptId: input.executionAttemptId,
@@ -1945,6 +1976,17 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     openMeldServiceRuntimeId: input.openMeldServiceRuntimeId,
     runtimeKind: input.runtimeKind,
   });
+  if (
+    requiresExecutionContext(input.dispatchMessage, input.runtimeKind) &&
+    !acceptedDispatchSnapshot?.contextRequest
+  ) {
+    return {
+      status: "context_rejected",
+      reasonCode: "execution_context.scope_unavailable",
+      errorMessage:
+        "This Agent cannot start an independent task with the current connection and conversation. Reconnect the local Agent and try again.",
+    };
+  }
   const response = await acceptRuntimeTransportRuntimeCoordinatorHead({
     env: input.env,
     ownerUserId: input.targetOwnerUserId,
@@ -2152,6 +2194,9 @@ const acceptRuntimeCoordinatorHeadBeforeFreshExecution = async (input: {
     ...(response.acceptedDispatchSnapshot
       ? { acceptedDispatchSnapshot: response.acceptedDispatchSnapshot }
       : {}),
+    ...("executionContext" in response && response.executionContext
+      ? { executionContext: response.executionContext }
+      : {}),
     status: "proceed",
   };
 };
@@ -2243,7 +2288,8 @@ const handlePreflightNoExecutionWithRuntimeCoordinatorHeadIfNeeded =
       }
       if (
         headAcceptance.status === "queue_full" ||
-        headAcceptance.status === "recovery_needs_attention"
+        headAcceptance.status === "recovery_needs_attention" ||
+        headAcceptance.status === "context_rejected"
       ) {
         return {
           handled: true,
@@ -2840,6 +2886,75 @@ const handleDedupedDispatchClaim = async (input: {
   };
 };
 
+// Deletion cannot resolve a live binding owner. Use the Core-recorded owner
+// only to address the existing cancellation authority, never to run work.
+const stopDeletedProfileRedelivery = async (input: {
+  dispatchMessage: OpenMeldDaemonDispatchQueueMessage;
+  env: CoreBindings;
+  message: QueueBatchMessage;
+  ownerUserId: string;
+  queueAttempt: number;
+}): Promise<{ shouldAck: boolean }> => {
+  const dispatch = input.dispatchMessage;
+  const stopped =
+    await recordRuntimeTransportRuntimeCoordinatorHeadPreAgentStop({
+      env: input.env,
+      ownerUserId: input.ownerUserId,
+      preAgentStop: {
+        v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+        ownerUserId: input.ownerUserId,
+        dispatchId: dispatch.dispatchId,
+        idempotencyKey: dispatch.idempotencyKey,
+        reason: DELETED_AGENT_PROFILE_WAKE_STOP_REASON,
+        targetProfileName: dispatch.targetProfileNameSnapshot ?? undefined,
+        targetProfileMentionLabel: dispatch.targetProfileMentionLabel,
+        targetWakeLifecycleIdentity: projectTargetWakeLifecycleIdentity({
+          clientMessageId: dispatch.sourceClientMessageId ?? null,
+          dispatchId: dispatch.dispatchId,
+          sourceSignalId: dispatch.sourceEventId,
+          spaceId: dispatch.spaceId,
+          targetProfileId: dispatch.targetProfileId,
+        }),
+      },
+    });
+  if (
+    stopped.ok ||
+    stopped.reasonCode ===
+      "runtime_coordinator.pre_agent_stop_after_publication_intent"
+  ) {
+    return { shouldAck: true };
+  }
+  if (
+    stopped.status === "execution_linked" &&
+    stopped.runtimeCoordinatorExecutionId
+  ) {
+    const cancellation =
+      await requestRuntimeTransportRuntimeCoordinatorWakeStop({
+        env: input.env,
+        ownerUserId: input.ownerUserId,
+        wakeStop: {
+          v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+          ownerUserId: input.ownerUserId,
+          runtimeCoordinatorExecutionId: stopped.runtimeCoordinatorExecutionId,
+          dispatchId: stopped.primaryDispatchId ?? dispatch.dispatchId,
+          spaceId: dispatch.spaceId,
+          sourceClientMessageId: dispatch.sourceClientMessageId ?? null,
+          targetProfileId: dispatch.targetProfileId,
+          reason: DELETED_AGENT_PROFILE_WAKE_STOP_REASON,
+        },
+      });
+    if (cancellation.ok || cancellation.status === "not_stoppable") {
+      return { shouldAck: true };
+    }
+  }
+  retryQueueMessageWithBackoff(
+    input.message,
+    input.queueAttempt,
+    stopped.reasonCode
+  );
+  return { shouldAck: false };
+};
+
 const triggerRuntimeCoordinatorQueueDecision = async (input: {
   claimState: Extract<
     Awaited<ReturnType<typeof claimDispatchAttempt>>,
@@ -2860,6 +2975,16 @@ const triggerRuntimeCoordinatorQueueDecision = async (input: {
     env: input.env,
     message: input.dispatchMessage,
   }).catch(() => null);
+  if (
+    preflightCheck?.ok === false &&
+    preflightCheck.targetProfileIdentityVerdict === "not_found" &&
+    decisionRequest.ownerUserId
+  ) {
+    return await stopDeletedProfileRedelivery({
+      ...input,
+      ownerUserId: decisionRequest.ownerUserId,
+    });
+  }
   const ownerUserId = normalizeOptionalText(
     preflightCheck?.ok
       ? preflightCheck.effectiveTargetBindingSnapshot.ownerUserId
@@ -3849,7 +3974,8 @@ const handlePreExecutionHeadLifecycleFailureIfNeeded = async (input: {
   }
   if (
     headAcceptance.status === "queue_full" ||
-    headAcceptance.status === "recovery_needs_attention"
+    headAcceptance.status === "recovery_needs_attention" ||
+    headAcceptance.status === "context_rejected"
   ) {
     return {
       handled: true,

@@ -1,12 +1,5 @@
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	within,
-} from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { PUBLIC_SPACE_ACCESS_DESCRIPTION } from "../spaces/space-access-editor";
 import {
 	WelcomeSpaceScreen,
 	type WelcomeSpaceScreenProps,
@@ -16,12 +9,9 @@ const CREATE_CHOICE = /Create a Space/;
 const JOIN_CHOICE = /Join a Space/;
 const CONNECT_COMPUTER_CHOICE = /Connect Computer/;
 const CREATE_SUBMIT = /^Create$/;
-const MEMBERS_ONLY_MODE_LABEL_TEXT = /Members only/;
-const PUBLIC_VISIBILITY_LABEL = /Public/;
-const SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT = /Anyone can view, password to join/;
-const SHARE_PROTECTED_MODE_LABEL_TEXT = /Password protected/;
 const JOIN_ERROR_COPY = /Couldn't load your spaces/;
 const NO_MATCH_COPY = /No spaces match/;
+const EVERYONE_OPTION = /Everyone/;
 
 beforeAll(() => {
 	// jsdom lacks matchMedia; the Fluid ScrollArea's touch-primary hook needs it.
@@ -74,6 +64,16 @@ function renderScreen(overrides: Partial<WelcomeSpaceScreenProps> = {}) {
 }
 
 describe("WelcomeSpaceScreen", () => {
+	it.each([
+		"loading",
+		"error",
+		"ready",
+	] as const)("opens Discover while account Spaces are %s", (joinableStatus) => {
+		const onDiscover = vi.fn();
+		renderScreen({ onDiscover, joinableStatus, joinableSpaces: [] });
+		fireEvent.click(screen.getByRole("button", { name: JOIN_CHOICE }));
+		expect(onDiscover).toHaveBeenCalledOnce();
+	});
 	it("offers create and join as the two choices, form hidden until chosen", () => {
 		renderScreen({
 			joinableSpaces: [{ spaceId: "space-1", name: "Existing room" }],
@@ -155,28 +155,13 @@ describe("WelcomeSpaceScreen", () => {
 		renderScreen({ onCreate });
 
 		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
-		const directoryListingGroup = screen.getByRole("radiogroup", {
-			name: "Organization directory listing",
-		});
-		expect(directoryListingGroup).toBeTruthy();
 		expect(
-			screen
-				.getByRole("radio", { name: "Private" })
-				.getAttribute("aria-checked")
-		).toBe("true");
+			screen.getByRole("combobox", { name: "Who can join this Space" })
+				.textContent
+		).toBe("Only invited people");
 		expect(
-			screen
-				.getByRole("radio", { name: "Public in organization" })
-				.getAttribute("aria-checked")
-		).toBe("false");
-		const membersOnlyAccessRadio = screen.getByRole("radio", {
-			name: MEMBERS_ONLY_MODE_LABEL_TEXT,
-		});
-		const publicAccessRadio = screen.getByRole("radio", {
-			name: "Anyone can view and join",
-		});
-		expect(membersOnlyAccessRadio.getAttribute("aria-checked")).toBe("true");
-		expect(publicAccessRadio.getAttribute("aria-checked")).toBe("false");
+			screen.queryByRole("radiogroup", { name: "Space access" })
+		).toBeNull();
 		expect(screen.queryByLabelText("Set Space password")).toBeNull();
 		fireEvent.change(screen.getByPlaceholderText("Design review"), {
 			target: { value: "Private room" },
@@ -190,44 +175,15 @@ describe("WelcomeSpaceScreen", () => {
 		});
 	});
 
-	it("warns when public link access is explicitly selected", () => {
-		renderScreen();
-
-		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
-		const publicAccessRadio = screen.getByRole("radio", {
-			name: "Anyone can view and join",
-		});
-		fireEvent.click(publicAccessRadio);
-		const publicAccessLabels = within(publicAccessRadio).getAllByText(
-			"Anyone can view and join"
-		);
-		expect(
-			publicAccessLabels.some((label) =>
-				label.className.includes("text-amber-600")
-			)
-		).toBe(true);
-		const warningIconContainer = publicAccessRadio.querySelector(
-			".absolute.top-2\\.5.right-2\\.5"
-		);
-		expect(warningIconContainer).toBeTruthy();
-		expect(warningIconContainer?.querySelector("svg")).toBeTruthy();
-		const publicAccessDescription = screen.getByText(
-			PUBLIC_SPACE_ACCESS_DESCRIPTION
-		);
-		expect(publicAccessDescription.className).toContain(
-			"text-muted-foreground"
-		);
-		expect(publicAccessDescription.className).not.toContain("text-amber-600");
-	});
-
 	it("creates a public organization Space when Public visibility is selected", () => {
 		const onCreate = vi.fn();
 		renderScreen({ onCreate });
 
 		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
 		fireEvent.click(
-			screen.getByRole("radio", { name: PUBLIC_VISIBILITY_LABEL })
+			screen.getByRole("combobox", { name: "Who can join this Space" })
 		);
+		fireEvent.click(screen.getByRole("option", { name: EVERYONE_OPTION }));
 		fireEvent.change(screen.getByPlaceholderText("Design review"), {
 			target: { value: "Team room" },
 		});
@@ -269,13 +225,15 @@ describe("WelcomeSpaceScreen", () => {
 		expect(onCreate).toHaveBeenCalledTimes(2);
 	});
 
-	it("shows only Link access when creating a Space in a solo context", () => {
+	it("keeps a personal Space private without link access choices", () => {
 		const onCreate = vi.fn();
 		renderScreen({ contextKind: "personal", onCreate });
 
 		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
 		expect(screen.queryByText("Organization directory listing")).toBeNull();
-		expect(screen.getByText("Link access")).toBeTruthy();
+		expect(
+			screen.queryByRole("combobox", { name: "Who can join this Space" })
+		).toBeNull();
 		fireEvent.change(screen.getByPlaceholderText("Design review"), {
 			target: { value: "Solo room" },
 		});
@@ -284,88 +242,6 @@ describe("WelcomeSpaceScreen", () => {
 		expect(onCreate).toHaveBeenCalledWith({
 			accessMode: "members_only",
 			name: "Solo room",
-			visibility: "private",
-		});
-	});
-
-	it("mutes the public Space warning when public access is not selected", () => {
-		renderScreen();
-
-		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
-		const publicAccessRadio = screen.getByRole("radio", {
-			name: "Anyone can view and join",
-		});
-		fireEvent.click(
-			screen.getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
-		);
-
-		const publicAccessLabels = within(publicAccessRadio).getAllByText(
-			"Anyone can view and join"
-		);
-		expect(
-			publicAccessLabels.every(
-				(label) => !label.className.includes("text-amber-600")
-			)
-		).toBe(true);
-		expect(publicAccessRadio.querySelector("svg")?.className.baseVal).toContain(
-			"text-muted-foreground"
-		);
-	});
-
-	it("requires a Space password for password-gated join on create", () => {
-		const onCreate = vi.fn();
-		renderScreen({ onCreate });
-
-		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
-		fireEvent.change(screen.getByPlaceholderText("Design review"), {
-			target: { value: "Design review" },
-		});
-		fireEvent.click(
-			screen.getByRole("radio", {
-				name: SHARE_JOIN_PASSWORD_MODE_LABEL_TEXT,
-			})
-		);
-
-		const createButton = screen.getByRole("button", { name: CREATE_SUBMIT });
-		expect((createButton as HTMLButtonElement).disabled).toBe(true);
-
-		fireEvent.change(screen.getByLabelText("Set Space password"), {
-			target: { value: "hunter2" },
-		});
-		fireEvent.click(createButton);
-
-		expect(onCreate).toHaveBeenCalledWith({
-			accessMode: "public_view_join_password",
-			name: "Design review",
-			password: "hunter2",
-			visibility: "private",
-		});
-	});
-
-	it("creates a password-protected Space", () => {
-		const onCreate = vi.fn();
-		renderScreen({ onCreate });
-
-		fireEvent.click(screen.getByRole("button", { name: CREATE_CHOICE }));
-		fireEvent.change(screen.getByPlaceholderText("Design review"), {
-			target: { value: "Protected room" },
-		});
-		fireEvent.click(
-			screen.getByRole("radio", {
-				name: SHARE_PROTECTED_MODE_LABEL_TEXT,
-			})
-		);
-		fireEvent.change(screen.getByLabelText("Set Space password"), {
-			target: { value: "hunter2" },
-		});
-		fireEvent.click(screen.getByRole("button", { name: CREATE_SUBMIT }));
-
-		expect(onCreate).toHaveBeenCalledWith({
-			accessMode: "protected",
-			name: "Protected room",
-			password: "hunter2",
 			visibility: "private",
 		});
 	});

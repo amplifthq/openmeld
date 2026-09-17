@@ -3,6 +3,7 @@ import type {
   CenterAgentConnectorActionExecutionConnection,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import {
   array,
   boolean,
@@ -18,9 +19,12 @@ import {
   optional,
   picklist,
   pipe,
+  record,
   string,
   trim,
+  union,
 } from "valibot";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import type {
   RemoteAgentCoreWorkerBinding,
   RemoteAgentStorage,
@@ -29,7 +33,6 @@ import {
   readRemoteAgentCallbackContext,
   recordRemoteAgentNavigationTarget,
 } from "./callback-context";
-import { digestCanonicalJson } from "./canonical-json";
 import {
   readConnectorActionOperation,
   recordConnectorActionOperation,
@@ -109,6 +112,7 @@ export const REMOTE_AGENT_GITHUB_READ_TOOL_NAMES = [
   "github_list_workflow_runs",
   "github_get_workflow_run",
   "github_list_workflow_run_jobs",
+  "github_get_release_by_tag",
 ] as const;
 
 const REMOTE_AGENT_GITHUB_WRITE_TOOL_NAMES = [
@@ -131,6 +135,7 @@ const REMOTE_AGENT_GITHUB_WRITE_TOOL_NAMES = [
   "github_update_issue",
   "github_update_pull_request",
   "github_update_pull_request_branch",
+  "github_dispatch_workflow",
   "github_rerun_workflow",
   "github_merge_pull_request",
 ] as const;
@@ -146,12 +151,6 @@ export type RemoteAgentGitHubToolName =
 export type RemoteAgentGitHubToolDefinition =
   RemoteAgentToolDefinition<RemoteAgentGitHubToolName>;
 type GitHubActor = (typeof GITHUB_ACTORS)[number];
-
-export type RemoteAgentConnectorExecutionConfig = {
-  baseUrl?: string;
-  fetch?: typeof fetch;
-  runtimeToken?: string;
-};
 
 const nonEmptyStringSchema = pipe(string(), minLength(1));
 const positiveIntegerSchema = pipe(number(), integer(), minValue(1));
@@ -188,6 +187,7 @@ const workflowRunFields = {
   ...repositoryFields,
   runId: positiveIntegerSchema,
 };
+const workflowIdSchema = union([positiveIntegerSchema, nonEmptyStringSchema]);
 const writeConfirmationField = {
   writeConfirmationToken: optional(nonEmptyStringSchema),
 };
@@ -262,6 +262,7 @@ type GitHubActionId =
   | "github.create_pull_request_review_comment"
   | "github.create_ref"
   | "github.delete_file"
+  | "github.dispatch_workflow"
   | "github.get_branch"
   | "github.get_commit"
   | "github.get_commit_statuses"
@@ -270,6 +271,7 @@ type GitHubActionId =
   | "github.get_issue"
   | "github.get_pull_request"
   | "github.get_repository"
+  | "github.get_release_by_tag"
   | "github.get_workflow_run"
   | "github.list_branches"
   | "github.list_check_runs_for_ref"
@@ -328,7 +330,7 @@ type GitHubIssueBatchManifest = {
 };
 
 export function getRemoteAgentGitHubToolDefinitions(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -696,6 +698,17 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
       inputConfig: input,
       name: "github_list_workflow_run_jobs",
     }),
+    githubToolDefinition({
+      actionId: "github.get_release_by_tag",
+      description:
+        "Get the GitHub Release with one exact tag. Use this when the repository workflow is expected to publish a GitHub Release; a Release record does not prove that an unrelated workflow run created it.",
+      input: object({
+        ...repositoryFields,
+        tag: nonEmptyStringSchema,
+      }),
+      inputConfig: input,
+      name: "github_get_release_by_tag",
+    }),
     githubIssueBatchToolDefinition(input),
     githubToolDefinition({
       actionId: "github.create_issue",
@@ -996,6 +1009,22 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
         `update the branch for ${repositoryLabel(payload)}#${String(payload.pullNumber)} with its base branch`,
     }),
     githubToolDefinition({
+      actionId: "github.dispatch_workflow",
+      description: githubWriteToolDescription(
+        "Request a new run for a GitHub Actions workflow that supports workflow_dispatch. Read the repository workflow and its declared inputs first. Pass an explicit branch or tag ref; do not assume main or substitute a bare commit SHA. A completed tool result means the dispatch operation completed, not that the workflow, deployment, or release succeeded. When the provider returns an exact workflow_run_id, inspect that same run later; when its run identity is unavailable, report that uncertainty and do not dispatch again just to obtain an id."
+      ),
+      input: object({
+        inputs: optional(record(nonEmptyStringSchema, string())),
+        ...repositoryFields,
+        ref: nonEmptyStringSchema,
+        workflowId: workflowIdSchema,
+      }),
+      inputConfig: input,
+      name: "github_dispatch_workflow",
+      writeDisclosure: (payload) =>
+        `dispatch workflow ${String(payload.workflowId)} on ${String(payload.ref)} in ${repositoryLabel(payload)}`,
+    }),
+    githubToolDefinition({
       actionId: "github.rerun_workflow",
       description: githubWriteToolDescription(
         "Re-run all jobs in a GitHub Actions workflow run, optionally with debug logging enabled."
@@ -1031,7 +1060,7 @@ export function getRemoteAgentGitHubToolDefinitions(input: {
 }
 
 function githubIssueBatchToolDefinition(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -1134,7 +1163,7 @@ function resolveGitHubIssueBatchBlockedReasons(
 }
 
 async function executeGitHubIssueBatch(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1227,7 +1256,7 @@ async function executeGitHubIssueBatch(input: {
 
 async function executeGitHubIssueBatchManifest(input: {
   attribution: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   manifest: GitHubIssueBatchManifest;
   manifestKey: string;
@@ -1272,7 +1301,7 @@ async function executeGitHubIssueBatchManifest(input: {
 }
 
 async function executeGitHubIssueBatchItem(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   index: number;
   item: GitHubIssueBatchManifest["items"][number];
@@ -1329,6 +1358,7 @@ async function executeGitHubIssueBatchItem(input: {
 
   await recordGitHubConnectorActionAudit({
     actionId: "github.create_issue",
+    connectionName: input.manifest.connectionName,
     coreWorker: input.coreWorker,
     operationId: auditOperationId,
     outcome: "attempted",
@@ -1486,7 +1516,7 @@ function githubToolDefinition(input: {
   description: string | { writeSummary: string };
   input: RemoteAgentToolInputSchema;
   inputConfig: {
-    connectorExecution?: RemoteAgentConnectorExecutionConfig;
+    connectorExecution?: ConnectorExecutionConfig;
     coreWorker: RemoteAgentCoreWorkerBinding;
     storage: RemoteAgentStorage;
     submissionId: string;
@@ -1637,7 +1667,7 @@ function buildGitHubActionAttributionFromExecutionConnection(
 
 async function executeGitHubAction(input: {
   actionId: GitHubActionId;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   payload: Record<string, unknown>;
   storage: RemoteAgentStorage;
@@ -1745,7 +1775,7 @@ async function executeGitHubAction(input: {
 async function executeIdempotentGitHubWrite(input: {
   actionId: GitHubActionId;
   actionInput: Record<string, unknown>;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   githubActor: GitHubActor;
   operationId: string;
@@ -2585,6 +2615,7 @@ function describeGitHubWriteIdentity(input: {
 }
 
 async function recordGitHubConnectorActionAudit(input: {
+  connectionName?: string;
   actionId: GitHubActionId;
   coreWorker: RemoteAgentCoreWorkerBinding;
   operationId: string;
@@ -2604,6 +2635,7 @@ async function recordGitHubConnectorActionAudit(input: {
     "centerAgentRecordConnectorActionAudit",
     {
       actionId: input.actionId,
+      connectionName: input.connectionName,
       context: input.toolContext.context,
       operationId: input.operationId,
       outcome: input.outcome,
@@ -2729,7 +2761,7 @@ function githubIssueBatchManifestMatches(
 }
 
 async function findGitHubIssueByOperationMarker(input: {
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   connectionName: string;
   marker: string;
   owner: string;
@@ -2787,7 +2819,7 @@ function resolveUnavailableGitHubConnectionMessage(input: {
       : "Your GitHub";
   const action = input.hasNavigationAction
     ? "Use the Open GitHub access action below"
-    : "Open Center Agent → Plugins → GitHub for this workspace";
+    : "Open Plugins → GitHub for this workspace";
   return `${accessName} is not ready. It may be disconnected or authorization may still be pending. ${action}, check ${accessName}, and try again. OpenMeld did not use a different GitHub identity.`;
 }
 
@@ -2959,7 +2991,7 @@ function resolveOpenConnectorGitHubActionError(input: {
     input.errorCode === "authorization_failed" ||
     (input.errorCode === "invalid_input" && normalizedMessage === "not found")
   ) {
-    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Plugins → GitHub and the installation's repository access.`;
+    return `${baseMessage} GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Plugins → GitHub and the installation's repository access.`;
   }
 
   return baseMessage;

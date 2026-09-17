@@ -131,10 +131,11 @@ async function stopRemoteAgentNativeDeliveryWithOutcome(input: {
   return { cancellation, delivery: current };
 }
 
-async function requestRemoteAgentWorkerCancellation(input: {
+export async function requestRemoteAgentWorkerCancellation(input: {
   delivery: RemoteAgentNativeDeliveryRecord;
   env: CoreBindings;
   submissionId: string;
+  reason?: string;
 }): Promise<RemoteAgentWorkerCancellationResponse> {
   const worker = input.env.OPENMELD_REMOTE_AGENT_WORKER;
   if (!worker?.cancelExecution) {
@@ -147,7 +148,7 @@ async function requestRemoteAgentWorkerCancellation(input: {
       ...resolveRemoteAgentCancellationConversationIdentity(input.delivery),
       idempotencyKey: input.delivery.idempotencyKey,
       organizationId: input.delivery.organizationId,
-      reason: "Parent task was stopped.",
+      reason: input.reason ?? "Parent task was stopped.",
       spaceId: input.delivery.spaceId,
       submissionId: input.submissionId,
       v: 1,

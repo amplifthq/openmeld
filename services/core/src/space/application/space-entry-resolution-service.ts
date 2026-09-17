@@ -4,12 +4,13 @@ import type {
   SpaceEntrySafeContext,
   SpaceEntryTarget,
 } from "@openmeld/schemas/types";
+import { resolveSpaceAccess } from "@openmeld/space";
 
 export type SpaceEntryAccessResult =
   | {
       kind: "allowed";
       activeMember: boolean;
-      status: GetSpaceStatusResponse;
+      meta: Pick<GetSpaceStatusResponse, "name" | "accessMode" | "allowGuests">;
     }
   | {
       kind: "denied";
@@ -34,21 +35,51 @@ export function buildSpaceEntryResolution(input: {
   organizationMember: boolean;
   target: SpaceEntryTarget;
 }): GetSpaceEntryResolutionResponse {
+  const canJoinOrganizationSpace = resolveSpaceAccess({
+    visibility: input.indexed.visibility,
+    accessMode: "members_only",
+    organizationMember: input.organizationMember,
+    activeMember: false,
+    password: "missing",
+  }).canJoin;
   if (input.access.kind === "allowed") {
+    let participation = resolveAllowedParticipation(input.access);
+    if (canJoinOrganizationSpace && !input.access.activeMember) {
+      participation = { state: "self_join_available" };
+    }
+    if (
+      !(input.organizationMember || input.access.activeMember) &&
+      input.access.meta.allowGuests !== true
+    ) {
+      participation = { state: "owner_add_required" };
+    }
     const memberExperience =
       input.access.activeMember ||
-      input.access.status.accessMode === "members_only";
+      input.access.meta.accessMode === "members_only";
     return {
       target: input.target,
       view: {
         state: "allowed",
         experience: memberExperience ? "member" : "public",
       },
-      participation: resolveAllowedParticipation(input.access),
+      participation,
       safeContext: buildSafeContext({
         indexed: input.indexed,
         organizationMember: input.organizationMember,
-        publicSpaceName: input.access.status.name,
+        publicSpaceName: input.access.meta.name,
+      }),
+      recovery: null,
+    };
+  }
+
+  if (canJoinOrganizationSpace) {
+    return {
+      target: input.target,
+      view: { state: "membership_required" },
+      participation: { state: "self_join_available" },
+      safeContext: buildSafeContext({
+        indexed: input.indexed,
+        organizationMember: true,
       }),
       recovery: null,
     };
@@ -114,10 +145,10 @@ function resolveAllowedParticipation(
   if (access.activeMember) {
     return { state: "active_member" };
   }
-  if (access.status.accessMode === "public_view_join_password") {
+  if (access.meta.accessMode === "public_view_join_password") {
     return { state: "password_required" };
   }
-  if (access.status.accessMode === "members_only") {
+  if (access.meta.accessMode === "members_only") {
     return { state: "owner_add_required" };
   }
   return { state: "self_join_available" };

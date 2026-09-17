@@ -173,3 +173,19 @@ export const deleteProfileResponseSchema = z.strictObject({
   ok: z.literal(true),
   profile: authProfileViewSchema,
 });
+
+export const createdAgentProfileActionResponseSchema =
+  createAgentProfileResponseSchema.refine(
+    (value) => value.profile.profileKind === "agent",
+    "Expected an Agent Profile."
+  );
+export const createdHumanProfileActionResponseSchema =
+  createHumanProfileResponseSchema.refine(
+    (value) => value.profile.profileKind === "human",
+    "Expected a Human Profile."
+  );
+export const deletedAgentProfileActionResponseSchema =
+  deleteProfileResponseSchema.refine(
+    (value) => value.profile.profileKind === "agent",
+    "Expected an Agent Profile."
+  );

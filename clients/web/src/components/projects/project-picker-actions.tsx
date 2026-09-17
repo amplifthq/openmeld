@@ -118,19 +118,6 @@ export function ProjectPickerActions(input: {
 	return (
 		<>
 			<div className="flex flex-wrap items-center gap-2">
-				<Button
-					disabled={input.disabled}
-					onClick={() => {
-						setForm("create");
-						setError(null);
-						setDuplicate(null);
-						operation.current = null;
-					}}
-					size="sm"
-					variant="ghost"
-				>
-					Create project
-				</Button>
 				{selected ? (
 					<Button
 						disabled={input.disabled}
@@ -141,6 +128,20 @@ export function ProjectPickerActions(input: {
 						Project details
 					</Button>
 				) : null}
+				<Button
+					className="ml-auto"
+					disabled={input.disabled}
+					onClick={() => {
+						setForm("create");
+						setError(null);
+						setDuplicate(null);
+						operation.current = null;
+					}}
+					size="sm"
+					variant="default"
+				>
+					Create project
+				</Button>
 			</div>
 			{form ? (
 				<ProjectFormDialog

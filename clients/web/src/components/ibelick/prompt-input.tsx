@@ -68,6 +68,10 @@ function PromptInput({
 		}
 
 		const target = event.target;
+		// Portaled previews bubble through React but are not part of this surface.
+		if (!(target instanceof Node && event.currentTarget.contains(target))) {
+			return;
+		}
 		if (
 			target instanceof Element &&
 			target.closest(PROMPT_INTERACTIVE_SELECTOR)

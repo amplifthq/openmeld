@@ -7,6 +7,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
 import {
 	Select,
@@ -21,7 +22,10 @@ import { AgentProfileControllerAvatar } from "#/components/agents/agent-profile-
 import { DitherProfileAvatar } from "#/components/profiles/dither-profile-avatar";
 import { SidebarConversationTime } from "#/components/spaces/sidebar-conversation-time";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
-import { organizationProfileDirectoryQueryOptions } from "#/query/organizations/organization-directory";
+import {
+	organizationAgentRuntimeOverviewQueryOptions,
+	organizationProfileDirectoryQueryOptions,
+} from "#/query/organizations/organization-directory";
 import { accountSpaceItemsQueryOptions } from "#/query/spaces/account-spaces";
 import {
 	type AgentConversation,
@@ -45,21 +49,57 @@ export function AgentConversationsSection({
 	}
 	return (
 		<OwnedAgentConversations
-			member={member}
+			agents={member.agentProfiles}
 			organizationId={currentOrganization.id}
 			orgSlug={currentOrganization.slug}
+			viewerProfileId={member.id}
+		/>
+	);
+}
+
+export function AgentProfileConversationsSection(input: {
+	agent: AgentConversation["agents"][number];
+	viewerProfileId: string;
+}) {
+	const { currentOrganization } = useAppOrganization();
+	return (
+		<OwnedAgentConversations
+			agents={[input.agent]}
+			organizationId={currentOrganization.id}
+			orgSlug={currentOrganization.slug}
+			singleAgent
+			viewerProfileId={input.viewerProfileId}
 		/>
 	);
 }
 
 function OwnedAgentConversations(input: {
-	member: DirectoryHumanProfileRow;
+	agents: AgentConversation["agents"];
+	viewerProfileId: string;
+	singleAgent?: boolean;
 	organizationId: string;
 	orgSlug: string;
 }) {
+	const runtime = useQuery(
+		organizationAgentRuntimeOverviewQueryOptions({
+			enabled: true,
+			organizationId: input.organizationId,
+		})
+	);
+	const currentSpacesByAgent = new Map(
+		runtime.data?.agentProfiles.flatMap((agent) => {
+			const activity = agent.operationalContext;
+			return activity?.status === "working" && activity.currentWorkLocation
+				? [[agent.profileId, activity.currentWorkLocation.spaceId] as const]
+				: [];
+		})
+	);
 	const [agentId, setAgentId] = useState("all");
 	const query = useQuery(
-		accountSpaceItemsQueryOptions({ enabled: true, profileId: input.member.id })
+		accountSpaceItemsQueryOptions({
+			enabled: true,
+			profileId: input.viewerProfileId,
+		})
 	);
 	const directory = useQuery(
 		organizationProfileDirectoryQueryOptions({
@@ -76,7 +116,7 @@ function OwnedAgentConversations(input: {
 	const conversations = query.data
 		? selectAgentConversations({
 				sections: query.data,
-				agents: input.member.agentProfiles,
+				agents: input.agents,
 				organizationId: input.organizationId,
 			})
 		: [];
@@ -90,7 +130,7 @@ function OwnedAgentConversations(input: {
 		<section aria-label="Agent conversations" className="min-w-0 space-y-3">
 			<div className="flex items-center justify-between gap-3">
 				<h2 className="text-muted-foreground text-xs">Agent conversations</h2>
-				{input.member.agentProfiles.length > 1 ? (
+				{!input.singleAgent && input.agents.length > 1 ? (
 					<Select
 						onValueChange={(value) => setAgentId(value ?? "all")}
 						value={agentId}
@@ -101,16 +141,14 @@ function OwnedAgentConversations(input: {
 							displayValue={
 								agentId === "all"
 									? "All Agents"
-									: input.member.agentProfiles.find(
-											(agent) => agent.id === agentId
-										)?.name
+									: input.agents.find((agent) => agent.id === agentId)?.name
 							}
 						/>
 						<SelectContent>
 							<SelectItem index={0} value="all">
 								All Agents
 							</SelectItem>
-							{input.member.agentProfiles.map((agent, index) => (
+							{input.agents.map((agent, index) => (
 								<SelectItem index={index + 1} key={agent.id} value={agent.id}>
 									{agent.name}
 								</SelectItem>
@@ -134,7 +172,7 @@ function OwnedAgentConversations(input: {
 			) : null}
 			{query.isSuccess && visible.length === 0 ? (
 				<p className="rounded-md border border-border/60 px-4 py-5 text-muted-foreground text-sm">
-					{agentId === "all"
+					{!input.singleAgent && agentId === "all"
 						? "Conversations with your Agents will appear here."
 						: "No conversations with this Agent yet."}
 				</p>
@@ -151,9 +189,11 @@ function OwnedAgentConversations(input: {
 						<TableHeader>
 							<TableRow>
 								<TableHead>Conversation</TableHead>
-								<TableHead className="w-[30%]">Agent</TableHead>
+								{input.singleAgent ? null : (
+									<TableHead className="w-[30%]">Agent</TableHead>
+								)}
 								<TableHead className="hidden w-24 text-right sm:table-cell">
-									Updated
+									Last message
 								</TableHead>
 							</TableRow>
 						</TableHeader>
@@ -162,10 +202,16 @@ function OwnedAgentConversations(input: {
 								<AgentConversationRow
 									avatarUrls={avatarUrls}
 									conversation={conversation}
-									humanProfileId={input.member.id}
+									humanProfileId={input.viewerProfileId}
 									index={index}
+									isCurrentTask={conversation.agents.some(
+										(agent) =>
+											currentSpacesByAgent.get(agent.id) ===
+											conversation.space.spaceId
+									)}
 									key={conversation.space.spaceId}
 									orgSlug={input.orgSlug}
+									showAgent={!input.singleAgent}
 								/>
 							))}
 						</TableBody>
@@ -177,6 +223,8 @@ function OwnedAgentConversations(input: {
 }
 
 function AgentConversationRow(input: {
+	isCurrentTask: boolean;
+	showAgent: boolean;
 	avatarUrls: ReadonlyMap<string | undefined, string | null>;
 	conversation: AgentConversation;
 	humanProfileId: string;
@@ -197,6 +245,9 @@ function AgentConversationRow(input: {
 					{...link}
 				>
 					<span className="block truncate font-medium">{space.spaceName}</span>
+					{input.isCurrentTask ? (
+						<span className="mt-1 block text-primary text-xs">Active task</span>
+					) : null}
 					{people.length > 0 ? (
 						<span className="mt-1 flex min-w-0 items-center gap-1.5 text-muted-foreground text-xs">
 							<span className="flex shrink-0 -space-x-1">
@@ -227,23 +278,23 @@ function AgentConversationRow(input: {
 					</span>
 				</Link>
 			</TableCell>
-			<TableCell className="whitespace-normal align-top">
-				{agents.map((agent) => (
-					<span
-						className="flex min-w-0 items-center gap-1.5"
-						key={agent.id}
-						title={agent.name}
-					>
-						<AgentProfileControllerAvatar
-							agentControllerRef={agent.agentControllerRef}
-							profileId={agent.id}
-							profileName={agent.name}
-							size={18}
-						/>
-						<span className="truncate text-xs">{agent.name}</span>
-					</span>
-				))}
-			</TableCell>
+			{input.showAgent ? (
+				<TableCell className="whitespace-normal align-top">
+					{agents.map((agent) => (
+						<TooltipHint content={agent.name} key={agent.id}>
+							<span className="flex min-w-0 items-center gap-1.5">
+								<AgentProfileControllerAvatar
+									agentControllerRef={agent.agentControllerRef}
+									profileId={agent.id}
+									profileName={agent.name}
+									size={18}
+								/>
+								<span className="truncate text-xs">{agent.name}</span>
+							</span>
+						</TooltipHint>
+					))}
+				</TableCell>
+			) : null}
 			<TableCell className="hidden text-right sm:table-cell">
 				{space.messagePreview ? (
 					<SidebarConversationTime timestamp={space.messagePreview.timestamp} />

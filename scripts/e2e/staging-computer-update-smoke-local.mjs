@@ -207,6 +207,18 @@ export function restartCanaryService(input) {
     sensitiveValues: input.sensitiveValues,
     timeoutMs: 2 * 60 * 1000,
   });
+  // Advance the existing hourly OS maintenance schedule after startup settles.
+  // The worker still discovers the release itself and owns the automatic job;
+  // this avoids depending on a RunAtLoad check racing the startup lock.
+  runCommand({
+    args: [
+      "kickstart",
+      `gui/${String(process.getuid())}/${CANARY_UPDATE_LABEL}`,
+    ],
+    command: "launchctl",
+    label: "run the scheduled Canary maintenance tick",
+    sensitiveValues: input.sensitiveValues,
+  });
 }
 
 export function assertCliVersion(input) {
@@ -284,8 +296,12 @@ export async function waitForUpdateOperation(input) {
   return await waitForValue({
     label: "OpenMeld Tools update operation",
     timeoutMs: input.timeoutMs,
-    read: readCurrentUpdateOperation,
-    accept: (operation) => Boolean(operation && input.predicate(operation)),
+    read: async () =>
+      findMatchingUpdateOperation(
+        await readCurrentUpdateOperations(),
+        input.predicate
+      ),
+    accept: (operation) => Boolean(operation),
   });
 }
 
@@ -379,35 +395,45 @@ export function pass(label, detail) {
   );
 }
 
-async function readCurrentUpdateOperation() {
+async function readCurrentUpdateOperations() {
   const candidates = [
     ["service-update.json", "service"],
     ["tools-update.json", "tools"],
     ["service-update-last.json", "service"],
     ["tools-update-last.json", "tools"],
   ];
-  for (const [filename, kind] of candidates) {
-    const state = await readJsonIfPresent(
-      path.join(UPDATE_STATE_ROOT, filename)
-    );
+  const states = await Promise.all(
+    candidates.map(async ([filename, kind]) => ({
+      kind,
+      state: await readJsonIfPresent(path.join(UPDATE_STATE_ROOT, filename)),
+    }))
+  );
+  return states.flatMap(({ kind, state }) => {
     if (!state) {
-      continue;
+      return [];
     }
     if (kind === "service") {
-      return {
-        errorMessage: state.errorMessage ?? null,
-        operationId: state.jobId,
-        phase: state.phase,
-        requestSource: state.requestSource,
-        targetVersion: state.targetVersion,
-      };
+      return [
+        {
+          errorMessage: state.errorMessage ?? null,
+          operationId: state.jobId,
+          phase: state.phase,
+          requestSource: state.requestSource,
+          targetVersion: state.targetVersion,
+        },
+      ];
     }
-    return {
-      errorMessage: state.errorMessage ?? null,
-      ...state.operation,
-    };
-  }
-  return null;
+    return [
+      {
+        errorMessage: state.errorMessage ?? null,
+        ...state.operation,
+      },
+    ];
+  });
+}
+
+export function findMatchingUpdateOperation(operations, predicate) {
+  return operations.find(predicate) ?? null;
 }
 
 async function readJsonIfPresent(filePath) {

@@ -31,6 +31,10 @@ type CenterAgentListOrganizationMembersResponseSchema =
 type CenterAgentListOrganizationMembersToolRpcInputSchema =
   typeof import("../../schemas/http/organization-directory")["centerAgentListOrganizationMembersToolRpcInputSchema"];
 
+export type OrganizationProfileDirectoryReadOptions = z.infer<
+  typeof import("../../schemas/http/organization-directory")["organizationProfileDirectoryReadOptionsSchema"]
+>;
+
 export type OrganizationDirectoryHumanProfile =
   z.infer<OrganizationDirectoryHumanProfileSchema>;
 export type OrganizationDirectoryMember =

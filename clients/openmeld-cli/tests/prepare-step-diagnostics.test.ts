@@ -1,5 +1,5 @@
 import { prepareStepDiagnosticsBundleSchema } from "@openmeld/schemas";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   collectPrepareStepDiagnostics,
   OPENMELD_NO_DIAGNOSTICS_ENV,
@@ -73,6 +73,14 @@ function buildSources(
 }
 
 describe("collectPrepareStepDiagnostics", () => {
+  beforeEach(() => {
+    // Source fixtures represent events already present at collection time.
+    // Advancing wall time inside an async source put them outside the window.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-12T12:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("preserves a native status through wrapped errors without uploading exception content", async () => {
     const serialized = await collectPrepareStepDiagnostics({
       stepId: "connect_terminal",

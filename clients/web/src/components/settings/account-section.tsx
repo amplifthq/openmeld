@@ -12,6 +12,8 @@ import { SessionsManagementCard } from "#/components/account/sessions-management
 import { UserAvatarCard } from "#/components/account/user-avatar-card";
 import { UserNameCard } from "#/components/account/user-name-card";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { DesktopAccountActions } from "#/desktop/desktop-account-actions";
+import { getDesktopPlatform } from "#/desktop/platform";
 
 /**
  * The Account leaf of the unified Settings destination — "who I am to the cloud":
@@ -26,6 +28,7 @@ import { AppPageHeader } from "#/components/app/app-page-header";
  * data-layer change, no liveness/availability/Wake/readiness semantics.
  */
 export function AccountSection() {
+	const desktop = getDesktopPlatform();
 	return (
 		<>
 			<AppPageHeader
@@ -39,18 +42,24 @@ export function AccountSection() {
 					<UserNameCard />
 				</SettingsAccountProfileSection>
 
-				<SettingsAccountCliAccessSection>
-					<OneTimeTokenCard />
-				</SettingsAccountCliAccessSection>
+				{desktop ? (
+					<DesktopAccountActions />
+				) : (
+					<>
+						<SettingsAccountCliAccessSection>
+							<OneTimeTokenCard />
+						</SettingsAccountCliAccessSection>
 
-				<SettingsAccountSecuritySection>
-					<ProvidersManagementCard />
-					<PasswordChangeCard />
-				</SettingsAccountSecuritySection>
+						<SettingsAccountSecuritySection>
+							<ProvidersManagementCard />
+							<PasswordChangeCard />
+						</SettingsAccountSecuritySection>
 
-				<SettingsAccountSessionsSection>
-					<SessionsManagementCard />
-				</SettingsAccountSessionsSection>
+						<SettingsAccountSessionsSection>
+							<SessionsManagementCard />
+						</SettingsAccountSessionsSection>
+					</>
+				)}
 			</SettingsAccountRoot>
 		</>
 	);

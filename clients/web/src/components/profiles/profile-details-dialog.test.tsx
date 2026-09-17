@@ -40,14 +40,6 @@ describe("HumanProfileDetailsPopover", () => {
 			buildProfileDirectory()
 		);
 		queryClient.setQueryData(
-			organizationQueryKeys.agentRuntimeOverview("org-acme"),
-			{
-				agentProfiles: [],
-				generatedAt: "2026-09-05T00:00:00.000Z",
-				organizationId: "org-acme",
-			}
-		);
-		queryClient.setQueryData(
 			organizationQueryKeys.computers("org-acme"),
 			buildComputers()
 		);
@@ -94,6 +86,11 @@ describe("HumanProfileDetailsPopover", () => {
 			dialog.queryByRole("link", { name: "Open Monica Agent 1" })
 		).toBeNull();
 		expect(dialog.getByText("View all")).toBeTruthy();
+		expect(
+			queryClient.getQueryState(
+				organizationQueryKeys.agentRuntimeOverview("org-acme")
+			)
+		).toBeUndefined();
 	});
 
 	it("omits the entire Agents footer when the person has no Agents", () => {
@@ -103,14 +100,6 @@ describe("HumanProfileDetailsPopover", () => {
 		queryClient.setQueryData(
 			organizationQueryKeys.profileDirectory("org-acme"),
 			{ ...buildProfileDirectory(), agentProfiles: [] }
-		);
-		queryClient.setQueryData(
-			organizationQueryKeys.agentRuntimeOverview("org-acme"),
-			{
-				agentProfiles: [],
-				generatedAt: "2026-09-05T00:00:00.000Z",
-				organizationId: "org-acme",
-			}
 		);
 		queryClient.setQueryData(
 			organizationQueryKeys.computers("org-acme"),

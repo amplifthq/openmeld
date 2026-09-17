@@ -54,6 +54,9 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
   Record<CommandEntryName, CommandCheckRequirements>
 > = Object.freeze({
   root: buildCommandChecks(OPTIONAL_CLI_UPDATE),
+  "plugins.list": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
+  "plugins.actions": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
+  "plugins.call": buildCommandChecks(OPTIONAL_CLI_UPDATE, REQUIRED_SIGN_IN),
   view: buildCommandChecks(OPTIONAL_CLI_UPDATE),
   start: buildCommandChecks(
     REQUIRED_DISCLAIMER,
@@ -347,6 +350,9 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
+  // Disconnect validates the reviewed account itself. Entry checks must not
+  // sign in, repair, update, or start anything before that admission.
+  "computer.disconnect": buildCommandChecks(),
   "computer.current": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
@@ -727,6 +733,11 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,
     AUTO_FIX_LOCAL_RUNTIME,
+    REQUIRED_SIGN_IN
+  ),
+  "profile.execution-mode": buildCommandChecks(
+    REQUIRED_DISCLAIMER,
+    OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
   "profile.update": buildCommandChecks(

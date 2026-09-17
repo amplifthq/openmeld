@@ -2042,14 +2042,39 @@ describe("shared drizzle migration history integrity", () => {
   it("stores every connector service in the shared contract", () => {
     const database = new DatabaseSync(":memory:");
     try {
-      applyMigrationFiles(database, listSqlMigrationFiles());
+      const migrationFiles = listSqlMigrationFiles();
+      const channelMigration = migrationFiles.filter((file) =>
+        file.startsWith("0168_")
+      );
+      expect(channelMigration).toHaveLength(1);
+      applyMigrationFiles(
+        database,
+        migrationFiles.filter((file) => !file.startsWith("0168_"))
+      );
       database.exec("PRAGMA foreign_keys = ON");
       database.exec(`
         INSERT INTO users (id, name, email)
         VALUES ('connector-owner', 'Connector Owner', 'connector@example.com');
         INSERT INTO organizations (id, name, slug, created_at)
         VALUES ('connector-org', 'Connector Org', 'connector-org', 1);
+        INSERT INTO connector_connections
+          (connection_name, organization_id, user_id, service, status, created_at_ms, updated_at_ms)
+        VALUES ('existing_github', 'connector-org', 'connector-owner', 'github', 'pending', 1, 1);
+        INSERT INTO github_app_installation_states
+          (state_digest, organization_id, user_id, actor_profile_id, target_connection_name, status, expires_at_ms, created_at_ms, updated_at_ms)
+        VALUES ('existing-state', 'connector-org', 'connector-owner', 'profile', 'existing_github', 'installing', 1000, 1, 1);
       `);
+      database.exec("BEGIN");
+      applyMigrationFiles(database, channelMigration);
+      database.exec("COMMIT");
+      expect(
+        database
+          .prepare(
+            "SELECT target_connection_name FROM github_app_installation_states WHERE state_digest = 'existing-state'"
+          )
+          .get()
+      ).toEqual({ target_connection_name: "existing_github" });
+      expect(database.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 
       const insert = database.prepare(`
         INSERT INTO connector_connections (
@@ -2071,7 +2096,7 @@ describe("shared drizzle migration history integrity", () => {
       expect(
         database
           .prepare(
-            "SELECT service FROM connector_connections ORDER BY service ASC"
+            "SELECT service FROM connector_connections WHERE scope = 'shared' ORDER BY service ASC"
           )
           .all()
           .map((row) => row.service)
@@ -2694,6 +2719,7 @@ describe("shared drizzle migration history integrity", () => {
         "id",
         "organization_id",
         "name",
+        "agent_profile_id",
         "instructions",
         "authorized_actions_json",
         "external_action_policy",
@@ -2702,19 +2728,20 @@ describe("shared drizzle migration history integrity", () => {
         "timezone",
         "run_at_ms",
         "destination_kind",
+        "message_channel_destination_json",
         "target_space_id",
         "slack_team_id",
         "slack_channel_id",
         "slack_thread_ts",
         "slack_conversation_id",
         "slack_thread_label",
+        "creation_attribution_json",
         "status",
         "next_due_at",
         "created_by_user_id",
         "updated_by_user_id",
         "created_at_ms",
         "updated_at_ms",
-        "creation_attribution_json",
       ]);
       expect(listTableIndexes(database, "routines")).toEqual(
         expect.arrayContaining([
@@ -2747,6 +2774,8 @@ describe("shared drizzle migration history integrity", () => {
         "slack_conversation_id_snapshot",
         "slack_thread_label_snapshot",
         "continuation_delegation_id",
+        "agent_profile_id_snapshot",
+        "message_channel_destination_json_snapshot",
       ]);
       expect(listTableIndexes(database, "routine_runs")).toEqual(
         expect.arrayContaining([

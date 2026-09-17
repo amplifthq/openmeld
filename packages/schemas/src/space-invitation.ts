@@ -11,11 +11,13 @@ export const spaceInvitationRequestSchema = z.discriminatedUnion("action", [
     organizationId: id,
     spaceId: id,
     email: z.string().trim().toLowerCase().pipe(z.email()),
+    audience: z.enum(["organization", "guest"]).optional(),
   }),
   z.strictObject({
     action: z.literal("list"),
     organizationId: id,
     spaceId: id,
+    audience: z.enum(["organization", "guest"]).optional(),
   }),
   z.strictObject({ action: z.literal("pending") }),
   z.strictObject({ action: z.literal("preview"), invitationId: id }),
@@ -32,6 +34,7 @@ export const spaceInvitationSchema = z.strictObject({
   spaceName: z.string(),
   inviterName: z.string(),
   email: z.email(),
+  audience: z.enum(["organization", "guest"]).optional(),
   status: z.enum(["pending", "accepting", "accepted", "revoked", "expired"]),
   expiresAt: z.number().int(),
 });
@@ -99,6 +102,8 @@ export type SpaceInvitationWorker = {
 export const spaceInvitationAccessInputSchema = z.strictObject({
   spaceId: id,
   context: openMeldRequestContextSchema,
+  audience: z.enum(["organization", "guest"]).optional(),
+  intent: z.enum(["invite", "manage"]).optional(),
 });
 export const spaceInvitationGrantInputSchema =
   spaceInvitationAccessInputSchema.extend({

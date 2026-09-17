@@ -35,6 +35,7 @@ import {
 	type SpaceMemberDirectoryDisplay,
 	spaceMemberDirectoryDisplayQueryOptions,
 } from "#/query/spaces/member-directory-display";
+import { createSpaceComposerDeviceWait } from "./space-composer-device-wait";
 import type {
 	SpaceComposerEditorChange,
 	SpaceComposerInputRef,
@@ -49,6 +50,7 @@ export type SpaceComposerSelection = {
 };
 
 export type SpaceMentionPickerItem = {
+	agentMember?: SpaceMembersSnapshot["agents"][number];
 	memberEntry: SpaceMemberDirectoryEntry;
 	kind: "target";
 	suggestion: SpaceMentionSuggestion;
@@ -60,6 +62,7 @@ export type SpaceReplyToSignalInput = {
 };
 
 export type SpaceComposerAddressingTarget = {
+	agentControllerRef?: string | null;
 	agentWakeAvailability?: import("@openmeld/schemas/types").SpaceMemberAgentSnapshot["agentWakeAvailability"];
 	deviceWaitTarget?: import("@openmeld/schemas/types").WakeDeviceWaitTarget;
 	runtimeDeviceDisplayName?: string | null;
@@ -363,8 +366,7 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 			}
 			const mention: SpaceComposerAuthoredMentionInTextOrder = {
 				profileId: target.profileId,
-				relation:
-					target.wakeAvailability.status === "ready" ? "wake" : "reference",
+				relation: "wake",
 				text: `@${target.profileName}`,
 			};
 			const text = `${mention.text} Please carry out the request in the referenced message.`;
@@ -394,11 +396,15 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				text: composerText,
 			}),
 		}),
-		prepareFileOnlySubmission: (): PreparedSpaceComposerSubmission & {
+		prepareFileOnlySubmission: (
+			detached = false
+		): PreparedSpaceComposerSubmission & {
 			restoredFromSignalId?: string;
 		} => ({
-			restoredFromSignalId: composerDraft.content.restoredFromSignalId,
-			...prepareSpaceFileOnlySubmission({ replyTo }),
+			restoredFromSignalId: detached
+				? undefined
+				: composerDraft.content.restoredFromSignalId,
+			...prepareSpaceFileOnlySubmission({ replyTo: detached ? null : replyTo }),
 		}),
 		preparePlainTextSubmission: (
 			text: string,
@@ -411,7 +417,13 @@ export function useSpaceMentionAuthoring(input: UseSpaceMentionAuthoringInput) {
 				snapshot: input.snapshot,
 				text,
 			}),
-		recordPendingSubmission: () => {
+		recordPendingSubmission: (submittedAtMs?: number) => {
+			if (
+				submittedAtMs !== undefined &&
+				composerDraft.record.updatedAtMs > submittedAtMs
+			) {
+				return;
+			}
 			currentComposerHasDraftRef.current = false;
 			resetComposerState();
 		},
@@ -508,6 +520,9 @@ export function buildSpaceMentionTargetItems(input: {
 			}
 			return {
 				item: {
+					agentMember: input.snapshot.agents.find(
+						(agent) => agent.profileId === suggestion.profileId
+					),
 					kind: "target" as const,
 					memberEntry,
 					suggestion,
@@ -556,12 +571,14 @@ export function buildSpaceMentionTargetItems(input: {
 }
 
 export function resolveDefaultSpaceComposerMentionRelation(
-	suggestion: SpaceMentionSuggestion
+	suggestion: SpaceMentionSuggestion,
+	agentMember?: SpaceMentionPickerItem["agentMember"]
 ): MessageMentionType | null {
 	if (suggestion.profileKind === "agent") {
 		if (
 			suggestion.allowedRelations.wake &&
 			(suggestion.wakeAvailability.status === "ready" ||
+				Boolean(agentMember && createSpaceComposerDeviceWait(agentMember)) ||
 				suggestion.wakeAvailability.status === "preparing" ||
 				suggestion.wakeAvailability.reasonCodes.length === 0)
 		) {
@@ -627,6 +644,7 @@ export function buildSpaceComposerAddressingTargets(input: {
 			(candidate) => candidate.profileId === target.profileId
 		);
 		targetByProfileId.set(mention.profileId, {
+			agentControllerRef: member?.agentControllerRef,
 			agentWakeAvailability: member?.agentWakeAvailability,
 			deviceWaitTarget: member?.deviceWaitTarget,
 			runtimeDeviceDisplayName: target.runtimeDeviceDisplayName,
@@ -787,6 +805,7 @@ function resolveReplyComposerText(input: {
 }
 
 function resolveReplyWakeMention(input: {
+	allowUnavailable?: boolean;
 	snapshot: SpaceMembersSnapshot | null;
 	wakeTargetProfileId: string | null;
 }): SpaceComposerAuthoredMentionInTextOrder | null {
@@ -797,7 +816,10 @@ function resolveReplyWakeMention(input: {
 	const target = createSpaceTargetCatalog(input.snapshot).byProfileId.get(
 		input.wakeTargetProfileId
 	);
-	if (target?.profileKind !== "agent" || !target.allowedRelations.wake) {
+	if (
+		target?.profileKind !== "agent" ||
+		!(input.allowUnavailable || target.allowedRelations.wake)
+	) {
 		return null;
 	}
 

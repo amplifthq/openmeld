@@ -2,11 +2,7 @@ import { RUNTIME_EXECUTION_IDENTITY_MODEL_VERSION } from "@openmeld/schemas";
 import type { RuntimeTransportDispatchRuntimeEvidenceRequest } from "@openmeld/schemas/types";
 import { describe, expect, it } from "vitest";
 import { validateDaemonDispatchRuntimeEvidence } from "../src/runtime-transport/application/daemon-runtime-evidence";
-import {
-  createRuntimeTransportMutableState,
-  type PendingDispatchState,
-  type RuntimeTransportMutableState,
-} from "../src/runtime-transport/application/runtime-transport-state";
+import type { PendingDispatchState } from "../src/runtime-transport/application/runtime-transport-state";
 
 const baseEvidence: RuntimeTransportDispatchRuntimeEvidenceRequest = {
   v: 1,
@@ -39,11 +35,10 @@ const baseEvidence: RuntimeTransportDispatchRuntimeEvidenceRequest = {
   targetProfileId: "agent-profile-1",
 };
 
-function putPendingDispatch(
-  state: RuntimeTransportMutableState,
+function buildPendingDispatch(
   overrides: Partial<PendingDispatchState> = {}
-): void {
-  state.pendingDispatches.set("dispatch-1::attempt-1", {
+): PendingDispatchState {
+  return {
     acceptedLocalAtMs: null,
     attemptId: "attempt-1",
     completedLocalAtMs: null,
@@ -70,42 +65,33 @@ function putPendingDispatch(
     sourceClientMessageId:
       overrides.sourceClientMessageId ?? "client-message-1",
     sourceSignalId: overrides.sourceSignalId ?? "signal-1",
-  });
+  };
 }
 
 describe("daemon runtime evidence validation", () => {
   it("accepts evidence for the pending dispatch lease", () => {
-    const state = createRuntimeTransportMutableState();
-    putPendingDispatch(state);
-
     expect(
       validateDaemonDispatchRuntimeEvidence({
         evidence: baseEvidence,
-        state,
+        pending: buildPendingDispatch(),
       })
     ).toEqual({ ok: true });
   });
 
   it("rejects evidence for a stale daemon lease", () => {
-    const state = createRuntimeTransportMutableState();
-    putPendingDispatch(state, { leaseEpoch: 3 });
-
     expect(
       validateDaemonDispatchRuntimeEvidence({
         evidence: baseEvidence,
-        state,
+        pending: buildPendingDispatch({ leaseEpoch: 3 }),
       })
     ).toEqual({ ok: false, reasonCode: "daemon.session.stale_lease" });
   });
 
   it("rejects evidence that does not match the pending dispatch identity", () => {
-    const state = createRuntimeTransportMutableState();
-    putPendingDispatch(state, { taskId: "different-task" });
-
     expect(
       validateDaemonDispatchRuntimeEvidence({
         evidence: baseEvidence,
-        state,
+        pending: buildPendingDispatch({ taskId: "different-task" }),
       })
     ).toEqual({ ok: false, reasonCode: "schema.invalid" });
   });

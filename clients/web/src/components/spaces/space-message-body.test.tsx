@@ -1,3 +1,4 @@
+import type { SpaceApi } from "@openmeld/api-client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
 	act,
@@ -5,6 +6,7 @@ import {
 	fireEvent,
 	render,
 	screen,
+	waitFor,
 	within,
 } from "@testing-library/react";
 import { MotionConfig } from "framer-motion";
@@ -25,6 +27,14 @@ const WAKE_TARGET_PROFILE_ID = "agt_22222222-2222-4222-8222-222222222222";
 const WAKE_TARGET_PROFILE_NAME = "Production Smoke Codex — Aug 28";
 const REFERENCE_TARGET_PROFILE_ID = "agt_33333333-3333-4333-8333-333333333333";
 const REFERENCE_TARGET_PROFILE_NAME = "Review Agent";
+
+const downloadFileContent = vi.hoisted(() =>
+	vi.fn<SpaceApi["downloadFileContent"]>()
+);
+vi.mock("#/lib/spaces/api", () => ({
+	createOrganizationScopedWebSpaceApi: () => ({ downloadFileContent }),
+	createUnscopedWebSpaceApi: () => ({ downloadFileContent }),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
 	Link: ({
@@ -53,6 +63,9 @@ describe("SpaceMessageBody", () => {
 	afterEach(() => {
 		cleanup();
 		vi.useRealTimers();
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+		downloadFileContent.mockReset();
 	});
 
 	it("omits the body wrapper when the message has no visible content", () => {
@@ -90,7 +103,7 @@ describe("SpaceMessageBody", () => {
 		expect(screen.queryByText(INTERNAL_ACTION_CATALOG_PATTERN)).toBeNull();
 	});
 
-	it("keeps human-authored Markdown syntax as plain text", () => {
+	it("recognizes links in human messages while preserving other Markdown as plain text", () => {
 		render(
 			<SpaceMessageBody
 				item={{
@@ -100,23 +113,40 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(
-			screen.getByText("**bold** and [Docs](https://example.com/docs)")
-		).toBeTruthy();
-		expect(screen.queryByRole("link", { name: "Docs" })).toBeNull();
+		expect(screen.getByText("**bold** and", { exact: false })).toBeTruthy();
+		const link = screen.getByRole("link", { name: "Docs" });
+		expect(link.getAttribute("href")).toBe("https://example.com/docs");
+		expect(link.getAttribute("target")).toBe("_blank");
+		expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+	});
+
+	it("makes bare links clickable without treating code or dangerous schemes as links", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					isAgentFinalReply: false,
+					text: "See https://example.com. `https://code.example.com` [bad](javascript:alert(1))",
+				}}
+			/>
+		);
+		expect(screen.getAllByRole("link")).toHaveLength(1);
+		expect(screen.getByRole("link").getAttribute("href")).toBe(
+			"https://example.com/"
+		);
 	});
 
 	it.each([
-		false,
-		true,
-	])("preserves a Human mention token without Agent actions (Markdown: %s)", (isAgentFinalReply) => {
+		[false, "@MingYoo hello"],
+		[true, "@MingYoo hello"],
+		[true, "The issue is resolved."],
+	] as const)("preserves a Human mention token without Agent actions (Markdown: %s, text: %s)", (isAgentFinalReply, text) => {
 		const profileId = "11111111-1111-4111-8111-111111111111";
 		const onOpenProfile = vi.fn();
 		render(
 			<SpaceMessageBody
 				item={{
 					isAgentFinalReply,
-					text: "@MingYoo hello",
+					text,
 					mentionTargetProfileIds: [profileId],
 				}}
 				onOpenProfile={onOpenProfile}
@@ -139,10 +169,29 @@ describe("SpaceMessageBody", () => {
 		);
 		const token = screen.getByRole("button", { name: "Open MingYoo profile" });
 		expect(within(token).getByText("MingYoo")).toBeTruthy();
-		expect(within(token).queryByText("Reference")).toBeNull();
+		expect(within(token).queryByText("Mention only")).toBeNull();
 		expect(within(token).queryByText("Wake")).toBeNull();
 		fireEvent.click(token);
 		expect(onOpenProfile).toHaveBeenCalledWith(profileId);
+	});
+	it("shows the explicit Wake recipient when Agent prose omits its name", () => {
+		render(
+			<SpaceMessageBody
+				item={{
+					actorProfileKind: "agent",
+					text: "Please review this change.",
+					wakeTargetProfileIds: [WAKE_TARGET_PROFILE_ID],
+				}}
+				onOpenProfile={vi.fn()}
+				profilePresentationsById={createWakeTargetProfilePresentations()}
+			/>
+		);
+		expect(
+			screen.getAllByRole("button", {
+				name: `Open ${WAKE_TARGET_PROFILE_NAME} profile (Wake)`,
+			})
+		).toHaveLength(1);
+		expect(screen.getByText("Please review this change.")).toBeTruthy();
 	});
 
 	it("renders a structured Wake target as a compact clickable Agent token", () => {
@@ -235,9 +284,9 @@ describe("SpaceMessageBody", () => {
 		);
 
 		const referenceButton = screen.getByRole("button", {
-			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Reference)`,
+			name: `Open ${REFERENCE_TARGET_PROFILE_NAME} profile (Mention only)`,
 		});
-		expect(within(referenceButton).getByText("Reference")).toBeTruthy();
+		expect(within(referenceButton).getByText("Mention only")).toBeTruthy();
 		fireEvent.click(referenceButton);
 		expect(onOpenProfile).toHaveBeenCalledWith(REFERENCE_TARGET_PROFILE_ID);
 	});
@@ -265,7 +314,7 @@ describe("SpaceMessageBody", () => {
 			})
 		).toBeTruthy();
 		expect(
-			screen.getByText("Reference", {
+			screen.getByText("Mention only", {
 				selector: '[data-slot="space-message-profile-mention"] span',
 			})
 		).toBeTruthy();
@@ -505,7 +554,14 @@ describe("SpaceMessageBody", () => {
 			/>
 		);
 
-		expect(screen.queryByRole("link")).toBeNull();
+		expect(
+			screen.queryByRole("link", { name: "Open Space Launch Planning" })
+		).toBeNull();
+		expect(
+			screen
+				.getAllByRole("link")
+				.every((link) => link.getAttribute("href")?.startsWith("https://"))
+		).toBe(true);
 		expect(view.container.textContent).toContain(unresolvedPath);
 		expect(view.container.textContent).toContain(tooShortPath);
 		expect(view.container.textContent).toContain(tooLongPath);
@@ -1049,10 +1105,11 @@ describe("SpaceMessageBody", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Open photo.jpg" }));
 
-		expect(screen.getByRole("dialog")).toBeTruthy();
 		expect(
-			screen.getAllByRole("img", { name: "photo.jpg" }).length
-		).toBeGreaterThan(1);
+			within(screen.getByRole("dialog", { name: "photo.jpg" }))
+				.getByRole("img", { name: "photo.jpg" })
+				.getAttribute("src")
+		).toBe("blob:photo-preview");
 		const originalLink = screen.getByRole("link", { name: "Open original" });
 		expect(originalLink.getAttribute("href")).toBe(
 			"/v1/spaces/space-123/attachments/attachment-photo?__openmeld_organization_slug=acme"
@@ -1062,6 +1119,86 @@ describe("SpaceMessageBody", () => {
 
 		fireEvent.keyDown(document, { key: "Escape" });
 		expect(document.body.classList.contains("overflow-hidden")).toBe(false);
+	});
+
+	it("loads remote message images near the viewport, reuses cached bytes, and separates revisions", async () => {
+		let reveal: (() => void) | undefined;
+		vi.stubGlobal(
+			"IntersectionObserver",
+			class {
+				constructor(callback: IntersectionObserverCallback) {
+					reveal = () =>
+						callback(
+							[{ isIntersecting: true } as IntersectionObserverEntry],
+							this as unknown as IntersectionObserver
+						);
+				}
+				observe = vi.fn();
+				disconnect = vi.fn();
+			}
+		);
+		const createUrl = vi.fn(() => "blob:remote-preview");
+		const revokeUrl = vi.fn();
+		vi.stubGlobal(
+			"URL",
+			class extends URL {
+				static createObjectURL = createUrl;
+				static revokeObjectURL = revokeUrl;
+			}
+		);
+		downloadFileContent.mockResolvedValue({
+			bytes: new Uint8Array([137, 80, 78, 71]).buffer,
+			mimeType: "image/png",
+			revision: 1,
+		});
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		const image = (revision: number) => (
+			<QueryClientProvider client={client}>
+				<SpaceMessageBody
+					item={{
+						isAgentFinalReply: false,
+						text: "",
+						spaceId: "space-123",
+						files: [
+							{
+								fileId: "remote-photo",
+								localPreviewUrl: null,
+								name: "remote.png",
+								mimeType: "image/png",
+								revision,
+								sizeBytes: 4,
+							},
+						],
+					}}
+				/>
+			</QueryClientProvider>
+		);
+		let view = render(image(1));
+		expect(screen.getByLabelText("Loading remote.png")).toBeTruthy();
+		expect(downloadFileContent).not.toHaveBeenCalled();
+		act(() => reveal?.());
+		await screen.findByRole("img", { name: "remote.png" });
+		expect(downloadFileContent).toHaveBeenCalledTimes(1);
+		view.unmount();
+		expect(revokeUrl).toHaveBeenCalledWith("blob:remote-preview");
+		view = render(image(1));
+		await screen.findByRole("img", { name: "remote.png" });
+		expect(downloadFileContent).toHaveBeenCalledTimes(1);
+		view.rerender(image(2));
+		expect(screen.queryByRole("img", { name: "remote.png" })).toBeNull();
+		expect(downloadFileContent).toHaveBeenCalledTimes(1);
+		act(() => reveal?.());
+		await waitFor(() => expect(downloadFileContent).toHaveBeenCalledTimes(2));
+		expect(downloadFileContent).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				fileId: "remote-photo",
+				revision: 2,
+				spaceId: "space-123",
+			})
+		);
+		expect(createUrl).toHaveBeenCalled();
 	});
 
 	it("keeps canonical Space image files as morphing image previews", () => {

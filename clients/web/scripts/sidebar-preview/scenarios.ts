@@ -5,7 +5,8 @@ import {
 import type { ComponentProps } from "react";
 import type { AgentProfileSidebarItemComponent } from "../../src/components/agents/agent-profile-sidebar-item";
 import type { HumanProfileItem } from "../../src/components/directory/human-profile-item";
-import type { SpaceSidebarMenuItem } from "../../src/components/spaces/space-sidebar-menu-item";
+import type { SpaceSidebarActiveWakeSummary } from "../../src/components/spaces/space-active-wake-presentation";
+import type { AccountSpaceItem } from "../../src/lib/spaces/account-spaces";
 import {
 	WAKE_PROGRESS_STATUS_PRIORITY,
 	type WakeProgressStatusKind,
@@ -17,10 +18,13 @@ import capturedReadiness from "./readiness.local.json";
 const readiness =
 	getAgentExecutionReadinessResponseSchema.parse(capturedReadiness);
 const now = Date.parse("2026-09-06T00:00:00Z");
-type SpaceScenario = Omit<
-	ComponentProps<typeof SpaceSidebarMenuItem>,
-	"index" | "isActive" | "onOpenSpace" | "onTogglePinned"
->;
+type SpaceScenario = {
+	item: AccountSpaceItem;
+	routePath: string;
+	unreadCount: number;
+	isPinPending: boolean;
+	activeWakeSummary?: SpaceSidebarActiveWakeSummary;
+};
 const statusLabels: Record<WakeProgressStatusKind, string> = {
 	starting: "Starting Wake",
 	sent: "Wake sent",

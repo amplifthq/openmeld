@@ -15,6 +15,7 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { TestQueryClientProvider } from "#/test-support/query-client";
 import {
 	OpenMeldServiceCard,
 	type OpenMeldServiceCardOwnerProps,
@@ -952,6 +953,78 @@ describe("OpenMeldServiceCard", () => {
 		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
 	});
 
+	it.each([
+		"restored",
+		"needs_help",
+	] as const)("shows the fixed safe message for the terminal %s failure reason", (phase) => {
+		const failureMessage =
+			"The update download stopped making progress. Check this computer's connection and try again.";
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.7.99",
+						latestPackageVersion: "0.8.0",
+						reasonCodes: [
+							"cli.package_update_available",
+							"cli.update.download_stalled",
+							"cli.update.failed",
+						],
+						requiredCommandContractVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					maintenance: {
+						automaticUpdatesEnabled: true,
+						status: "ready",
+					},
+					service: {
+						installedVersion: "0.7.99",
+						latestVersion: "0.8.0",
+						reasonCodes: ["service.update_available"],
+						requiredVersion: null,
+						status: "update_available",
+						updatePolicy: "available",
+						wakeBlocked: false,
+					},
+					updateOperation: buildUpdateOperation({ phase }),
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText(failureMessage)).toBeTruthy();
+		expect(screen.queryByText("Update failed. Try again.")).toBeNull();
+		expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
+		expect(screen.getByRole("link", { name: "Update manually" })).toBeTruthy();
+	});
+
+	it("does not surface an update failure reason before the operation is terminal", () => {
+		const readiness = buildCurrentLocalRuntimeReplyReadiness({
+			maintenance: {
+				automaticUpdatesEnabled: true,
+				status: "ready",
+			},
+			updateOperation: buildUpdateOperation({ phase: "updating" }),
+		});
+		readiness.localComponents.cli.reasonCodes = ["cli.update.download_stalled"];
+
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: readiness,
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.getByText("Updating…")).toBeTruthy();
+		expect(
+			screen.queryByText(
+				"The update download stopped making progress. Check this computer's connection and try again."
+			)
+		).toBeNull();
+	});
+
 	it("stops polling after repeated refresh failures and keeps both recovery actions", async () => {
 		vi.useFakeTimers();
 		const consoleErrorMock = vi
@@ -1791,7 +1864,9 @@ function renderOpenMeldServiceCard(input: {
 	isReconcilingStatus?: boolean;
 	replyReadiness: ComputerReplyReadiness;
 }) {
-	return render(buildOpenMeldServiceCard(input));
+	return render(buildOpenMeldServiceCard(input), {
+		wrapper: TestQueryClientProvider,
+	});
 }
 
 function buildOpenMeldServiceCard(input: {

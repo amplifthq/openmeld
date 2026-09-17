@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { requestJsonMock, openMeldAuthClientMock } = vi.hoisted(() => ({
 	requestJsonMock: vi.fn(),
 	openMeldAuthClientMock: {
-		getSession: vi.fn(),
 		multiSession: {
 			listDeviceSessions: vi.fn(),
 			revoke: vi.fn(),
@@ -26,7 +25,6 @@ import {
 	createComputerAuthorizationGrant,
 	generateOneTimeToken,
 	getAccountAvatar,
-	getSession,
 	listDeviceSessions,
 	removeAccountAvatar,
 	revokeDeviceSession,
@@ -37,7 +35,6 @@ import {
 
 describe("auth-query", () => {
 	beforeEach(() => {
-		openMeldAuthClientMock.getSession.mockReset();
 		openMeldAuthClientMock.multiSession.listDeviceSessions.mockReset();
 		openMeldAuthClientMock.multiSession.revoke.mockReset();
 		openMeldAuthClientMock.multiSession.setActive.mockReset();
@@ -46,39 +43,6 @@ describe("auth-query", () => {
 
 	afterEach(() => {
 		vi.restoreAllMocks();
-	});
-
-	it("preserves plain-object SDK responses when reading the session", async () => {
-		const session = {
-			session: { id: "session-1" },
-			user: { id: "user-1", email: "mira@example.com" },
-		};
-		openMeldAuthClientMock.getSession.mockResolvedValue(session);
-
-		await expect(getSession()).resolves.toEqual(session);
-		expect(openMeldAuthClientMock.getSession).toHaveBeenCalledWith({
-			query: { disableCookieCache: true },
-		});
-	});
-
-	it("returns null when the SDK rejects with an unauthorized session error", async () => {
-		openMeldAuthClientMock.getSession.mockRejectedValue({
-			message: "Unauthorized",
-			status: 401,
-			statusText: "Unauthorized",
-		});
-
-		await expect(getSession()).resolves.toBeNull();
-	});
-
-	it("rethrows rejected non-401 session errors", async () => {
-		openMeldAuthClientMock.getSession.mockRejectedValue({
-			message: "Backend blew up",
-			status: 500,
-			statusText: "Internal Server Error",
-		});
-
-		await expect(getSession()).rejects.toThrow("Backend blew up");
 	});
 
 	it("lists, switches, and revokes browser account sessions", async () => {

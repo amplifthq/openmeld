@@ -15,11 +15,14 @@ import type {
 	ReactNode,
 } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { GlobalInboxLauncher } from "./global-inbox-launcher";
+import { OrganizationInboxRecentItems } from "./organization-inbox-preview";
 
 const getCurrentInboxSummaryMock = vi.hoisted(() => vi.fn());
 const listCurrentInboxItemsMock = vi.hoisted(() => vi.fn());
 const markCurrentInboxItemReadMock = vi.hoisted(() => vi.fn());
+const navigateMock = vi.hoisted(() => vi.fn());
 const useOptionalAppOrganizationMock = vi.hoisted(() => vi.fn());
 const NEW_SPACE_MESSAGE_NAME_PATTERN = /New Space message/;
 const OPEN_INBOX_PREVIEW_NAME_PATTERN = /^Open Inbox/;
@@ -35,17 +38,11 @@ vi.mock("@tanstack/react-router", () => ({
 		onClick?: (event: ReactMouseEvent<HTMLAnchorElement>) => void;
 		to: string;
 	} & AnchorHTMLAttributes<HTMLAnchorElement>) => (
-		<a
-			href={to}
-			onClick={(event) => {
-				event.preventDefault();
-				onClick?.(event);
-			}}
-			{...props}
-		>
+		<a href={to} onClick={onClick} {...props}>
 			{children}
 		</a>
 	),
+	useNavigate: () => navigateMock,
 }));
 
 vi.mock("#/lib/organizations/organization-context", () => ({
@@ -69,6 +66,7 @@ vi.mock("#/lib/organizations/inbox", () => ({
 
 describe("GlobalInboxLauncher", () => {
 	beforeEach(() => {
+		navigateMock.mockReset().mockResolvedValue(undefined);
 		useOptionalAppOrganizationMock.mockReset().mockReturnValue({
 			currentOrganization: {
 				id: "organization-123",
@@ -84,7 +82,7 @@ describe("GlobalInboxLauncher", () => {
 		});
 		listCurrentInboxItemsMock.mockReset().mockImplementation(async (input) => ({
 			items:
-				input.view === "urgent_updates"
+				input.view === "urgent_updates" || input.view === "needs_review"
 					? []
 					: [
 							input.view === "needs_action"
@@ -121,12 +119,41 @@ describe("GlobalInboxLauncher", () => {
 		expect(rendered.container.childElementCount).toBe(0);
 		expect(getCurrentInboxSummaryMock).not.toHaveBeenCalled();
 	});
+	it("keeps read records visible in the Desk recent-items view", async () => {
+		listCurrentInboxItemsMock.mockResolvedValue({
+			items: [{ ...createInboxItem(), readAt: "2026-08-04T03:00:00.000Z" }],
+			nextCursor: null,
+			organizationId: "organization-123",
+		});
+		const client = new QueryClient({
+			defaultOptions: { queries: { retry: false } },
+		});
+		render(
+			<QueryClientProvider client={client}>
+				<TooltipProvider>
+					<OrganizationInboxRecentItems
+						currentOrganization={
+							useOptionalAppOrganizationMock().currentOrganization
+						}
+					/>
+				</TooltipProvider>
+			</QueryClientProvider>
+		);
+		expect(
+			await screen.findByRole("link", { name: NEW_SPACE_MESSAGE_NAME_PATTERN })
+		).toBeTruthy();
+		expect(listCurrentInboxItemsMock).toHaveBeenCalledWith(
+			expect.objectContaining({ view: "all" })
+		);
+		expect(markCurrentInboxItemReadMock).not.toHaveBeenCalled();
+		client.clear();
+	});
 
 	it("opens a compact Inbox preview and exposes the full Inbox", async () => {
 		renderLauncher();
 
 		const trigger = await screen.findByRole("button", {
-			name: "Open Inbox, 2 items need action",
+			name: "Open Inbox, 2 pending items",
 		});
 		const attentionIndicator = trigger.querySelector(
 			'span[aria-hidden="true"]'
@@ -136,7 +163,7 @@ describe("GlobalInboxLauncher", () => {
 		expect(trigger.className).toContain("hover:bg-muted");
 		expect(trigger.className).toContain("motion-reduce:transition-none");
 		expect(trigger.className).not.toContain("bg-[var(--app-canvas)]");
-		expect(attentionIndicator).toBeNull();
+		expect(attentionIndicator?.className).toContain("bg-destructive");
 		expect(trigger.className).toContain("text-destructive");
 		expect(screen.queryByRole("link", { name: "Inbox" })).toBeNull();
 		fireEvent.click(trigger);
@@ -144,7 +171,7 @@ describe("GlobalInboxLauncher", () => {
 		expect(
 			await screen.findByRole("dialog", { name: "Inbox preview" })
 		).toBeTruthy();
-		expect(screen.getByRole("status").textContent).toBe("2 items need action");
+		expect(screen.getByRole("status").textContent).toBe("2 pending items");
 		expect(
 			screen.getByRole("link", { name: "Open full Inbox" }).getAttribute("href")
 		).toBe("/o/amplift/inbox");
@@ -189,7 +216,7 @@ describe("GlobalInboxLauncher", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 
@@ -240,12 +267,12 @@ describe("GlobalInboxLauncher", () => {
 
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 6 items need action",
+				name: "Open Inbox, 6 pending items",
 			})
 		);
 
 		expect((await screen.findByRole("status")).textContent).toBe(
-			"6 items need action"
+			"6 pending items"
 		);
 		expect(screen.queryByText("All caught up")).toBeNull();
 		await waitFor(() => {
@@ -316,7 +343,7 @@ describe("GlobalInboxLauncher", () => {
 		});
 		renderLauncher();
 		const trigger = await screen.findByRole("button", {
-			name: "Open Inbox, 2 items need action, 3 unread urgent updates",
+			name: "Open Inbox, 2 pending items, 3 unread urgent updates",
 		});
 		expect(trigger.className).toContain("text-destructive");
 		expect(trigger.textContent).toBe("Inbox");
@@ -327,7 +354,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 
@@ -350,7 +377,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 
@@ -364,7 +391,7 @@ describe("GlobalInboxLauncher", () => {
 		renderLauncher();
 		fireEvent.click(
 			await screen.findByRole("button", {
-				name: "Open Inbox, 2 items need action",
+				name: "Open Inbox, 2 pending items",
 			})
 		);
 
@@ -380,6 +407,10 @@ describe("GlobalInboxLauncher", () => {
 				organizationId: "organization-123",
 				read: true,
 			});
+		});
+		expect(navigateMock).toHaveBeenCalledExactlyOnceWith({
+			state: requestInboxSourceFocus,
+			to: "/o/amplift/spaces/space-123?focusSignalId=signal-123",
 		});
 	});
 });

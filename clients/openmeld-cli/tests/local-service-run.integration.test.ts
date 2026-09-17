@@ -1429,7 +1429,10 @@ describe("openmeld service run command", () => {
         });
       });
 
-      expect(result).toBe("failed_with_card");
+      expect(result).toMatchObject({
+        outcome: "failed_with_card",
+        errorMessage: "OpenMeld Service couldn't start after the repair.",
+      });
       expect(stdout).toContain("OpenMeld Service couldn't start");
       expect(stdout).toContain(
         "OpenMeld Service couldn't start after the repair."
@@ -3028,6 +3031,7 @@ describe("openmeld service run command", () => {
       install: installMock,
       uninstall: uninstallMock,
       start: startMock,
+      waitUntilAbsent: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
       status: vi.fn(async () => ({
         installed: true,
@@ -3096,6 +3100,7 @@ describe("openmeld service run command", () => {
       install: installMock,
       uninstall: uninstallMock,
       start: startMock,
+      waitUntilAbsent: vi.fn(async () => undefined),
       stop: vi.fn(async () => undefined),
       status: vi.fn(async () => ({
         installed: true,
@@ -3466,6 +3471,47 @@ describe("openmeld service run command", () => {
     } finally {
       process.exitCode = previousExitCode;
     }
+  });
+
+  it("returns the manager failure to silent background-start callers", async () => {
+    runtimeContext = { resolvedView: "agent", interactive: false };
+    getObservedDaemonRuntimeStatusMock.mockResolvedValue(
+      NOT_RUNNING_RUNTIME_STATUS
+    );
+    resolveDaemonServiceManagerMock.mockResolvedValue({
+      controller: "launchd",
+      install: vi.fn(async () => undefined),
+      uninstall: vi.fn(async () => undefined),
+      start: vi.fn().mockRejectedValue(
+        Object.assign(new Error("Operation not permitted"), {
+          code: "EPERM",
+        })
+      ),
+      stop: vi.fn(async () => undefined),
+      status: vi.fn(async () => ({
+        installed: true,
+        running: false,
+        enabled: true,
+      })),
+    });
+    inspectDaemonServiceInventoryMock.mockResolvedValue(
+      createAlignedBackgroundInventory({
+        runtimeStatus: NOT_RUNNING_RUNTIME_STATUS,
+        serviceManagerStatus: {
+          installed: true,
+          running: false,
+          enabled: true,
+        },
+      })
+    );
+    const { result } = await withCapturedStdio(() =>
+      runDaemonBackgroundStartForDecision({ view: "agent" })
+    );
+    expect(result).toMatchObject({
+      outcome: "failed_with_card",
+      errorMessage: expect.stringContaining("Operation not permitted"),
+      localMachineIssue: { code: "local_machine.permission.denied" },
+    });
   });
 
   it("does not report started while launchd status has not caught up", async () => {

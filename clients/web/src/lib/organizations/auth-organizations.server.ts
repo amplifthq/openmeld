@@ -1,5 +1,5 @@
+import { normalizeOrganizationList } from "@openmeld/schemas";
 import { getRequestHeaders } from "@tanstack/react-start/server";
-import { normalizeOrganizationList } from "./organization-list";
 import type { OrganizationSummary } from "./organization-types";
 
 type FetchAuthOrganizationsInput = {

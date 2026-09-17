@@ -1,6 +1,11 @@
 import { REMOTE_AGENT_RUNTIME_EVIDENCE_REASON_CODES } from "@openmeld/schemas";
 import { describe, expect, it } from "vitest";
 import {
+  createRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext,
+  recordRemoteAgentWorkLoopCheckpoint,
+} from "../agent-core/callback-context";
+import {
   assertRemoteAgentExecutionCanContinue,
   buildRemoteAgentExecutionStateKey,
   completeRemoteAgentExecutionState,
@@ -15,6 +20,76 @@ import { createSubmitTurnRequest } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 describe("remote agent execution state", () => {
+  it.each([
+    "completed",
+    "failed",
+    "aborted",
+  ] as const)("recovers a legacy checkpoint without overriding authoritative %s", async (status) => {
+    const storage = new InMemoryDurableObjectStorage();
+    const request = createSubmitTurnRequest();
+    const identity = {
+      idempotencyKey: request.idempotencyKey,
+      organizationId: request.organizationId,
+      spaceId: request.spaceId,
+      submissionId: "legacy-checkpoint",
+      v: 1 as const,
+    };
+    const context = createRemoteAgentCallbackContext({
+      request,
+      nowMs: 100,
+      ack: {
+        accepted: true,
+        createdAt: 100,
+        idempotencyKey: request.idempotencyKey,
+        requestId: identity.submissionId,
+        status: "pending",
+        submissionId: identity.submissionId,
+      },
+    });
+    await putRemoteAgentCallbackContext(storage, context);
+    await initializeRemoteAgentExecutionState({
+      acceptedAtMs: 100,
+      identity,
+      storage,
+    });
+    await recordRemoteAgentWorkLoopCheckpoint({
+      storage,
+      submissionId: identity.submissionId,
+      checkpoint: {
+        v: 1,
+        reason: "tool_call_budget_exhausted",
+        toolCallLimit: 64,
+      },
+    });
+    const execution = await completeRemoteAgentExecutionState({
+      identity,
+      nowMs: 200,
+      storage,
+      ...(status === "completed"
+        ? { status, completedText: "I stopped before testing." }
+        : { status }),
+    });
+    const expected = status === "completed" ? "checkpoint" : status;
+    expect(
+      await resolveRemoteAgentTerminalExecutionOutcome({
+        execution,
+        identity,
+        nowMs: 300,
+        storage,
+      })
+    ).toMatchObject({ status: expected, completedText: null });
+    // Recovery must now use the owner's fact even if the callback projection
+    // has to be reconstructed after a restart.
+    await putRemoteAgentCallbackContext(storage, context);
+    expect(
+      await resolveRemoteAgentTerminalExecutionOutcome({
+        execution,
+        identity,
+        nowMs: 400,
+        storage,
+      })
+    ).toMatchObject({ status: expected, completedText: null });
+  });
   it("keeps accepted execution alive from durable progress instead of a total deadline", async () => {
     const storage = new InMemoryDurableObjectStorage();
     const request = createSubmitTurnRequest();

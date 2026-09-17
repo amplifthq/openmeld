@@ -127,6 +127,7 @@ const TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["openmeld_read_space_file", "space.files.read"],
   ["openmeld_save_space_file", "space.files.update"],
   ["openmeld_manage_space_files", "space.files.update"],
+  ["openmeld_manage_space_tasks", "space.tasks.manage"],
   ["openmeld_remember_for_organization", "organization.memory.update"],
   [
     "openmeld_set_organization_working_language",
@@ -185,6 +186,7 @@ const GITHUB_TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
   ["github_get_issue", "github.issues.read"],
   ["github_get_pull_request", "github.pull_requests.read"],
   ["github_get_repository", "github.repository.read"],
+  ["github_get_release_by_tag", "github.releases.read"],
   ["github_get_workflow_run", "github.workflows.read"],
   ["github_list_branches", "github.branches.read"],
   ["github_list_check_runs_for_ref", "github.checks.read"],
@@ -215,6 +217,7 @@ const GITHUB_TOOL_WORK_BY_NAME = new Map<string, AgentWorkActivityKey>([
     "github_request_pull_request_reviewers",
     "github.pull_request.reviewers.update",
   ],
+  ["github_dispatch_workflow", "github.workflow.dispatch"],
   ["github_rerun_workflow", "github.workflow.rerun"],
   ["github_search_code", "github.code.search"],
   ["github_search_commits", "github.commits.search"],

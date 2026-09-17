@@ -5,7 +5,12 @@ import type {
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { recordCurrentOrganizationWebActivity } from "#/lib/organizations/organization-member-activity";
+import {
+	memberPresenceQueryKey,
+	recordCurrentOrganizationMemberPresence,
+} from "#/lib/organizations/organization-member-presence";
 import { organizationQueryKeys } from "#/query/organizations/organization-directory";
+import { startWebMemberPresenceSession } from "./web-member-presence-session";
 
 const WEB_MEMBER_ACTIVITY_INTERVAL_MS = 5 * 60_000;
 
@@ -16,6 +21,7 @@ export function WebMemberActivityReporter(input: {
 }) {
 	const queryClient = useQueryClient();
 	const lastSuccessfulReportAtRef = useRef<number | null>(null);
+	const requestActivityRef = useRef<() => void>(() => undefined);
 
 	useEffect(() => {
 		let disposed = false;
@@ -96,26 +102,47 @@ export function WebMemberActivityReporter(input: {
 			});
 		};
 
-		const reportWhenVisible = () => {
-			if (document.visibilityState !== "hidden") {
-				requestReport();
-			}
-		};
-
+		requestActivityRef.current = requestReport;
+		// A Space visit has its own history, but navigation keeps the same
+		// Organization presence session alive.
 		requestReport();
-		const intervalId = window.setInterval(
-			reportWhenVisible,
-			WEB_MEMBER_ACTIVITY_INTERVAL_MS
-		);
-		window.addEventListener("focus", reportWhenVisible);
-		document.addEventListener("visibilitychange", reportWhenVisible);
 		return () => {
 			disposed = true;
-			window.clearInterval(intervalId);
-			window.removeEventListener("focus", reportWhenVisible);
-			document.removeEventListener("visibilitychange", reportWhenVisible);
+			requestActivityRef.current = () => undefined;
 		};
 	}, [input.currentUserId, input.organizationId, input.spaceId, queryClient]);
+
+	useEffect(() => {
+		let disposed = false;
+		const stopPresence = startWebMemberPresenceSession((body) => {
+			if (body.interaction) {
+				requestActivityRef.current();
+			}
+			recordCurrentOrganizationMemberPresence(input.organizationId, body)
+				.then((result) => {
+					if (
+						result.organizationId !== input.organizationId ||
+						result.userId !== input.currentUserId
+					) {
+						throw new Error("Member presence resolved for another user.");
+					}
+					if (!disposed) {
+						return queryClient.invalidateQueries({
+							queryKey: memberPresenceQueryKey(input.organizationId),
+						});
+					}
+				})
+				.catch((error: unknown) =>
+					console.warn("[openmeld.web.member_presence.record_failed]", {
+						error: error instanceof Error ? error.message : String(error),
+					})
+				);
+		});
+		return () => {
+			disposed = true;
+			stopPresence();
+		};
+	}, [input.currentUserId, input.organizationId, queryClient]);
 
 	return null;
 }

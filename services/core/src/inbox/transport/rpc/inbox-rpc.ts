@@ -5,10 +5,12 @@ import {
   getCenterAgentInboxSummaryRpcInputSchema,
   getInboxItemResponseSchema,
   getInboxItemRpcInputSchema,
+  getInboxMessageNotificationPreferencesRpcInputSchema,
   getInboxNotificationPreferencesRpcInputSchema,
   getInboxSummaryRpcInputSchema,
   getSpaceInboxSummaryRpcInputSchema,
   getSpaceInboxUnreadTargetsRpcInputSchema,
+  inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
   listInboxItemsResponseSchema,
@@ -23,6 +25,7 @@ import {
   markSpaceInboxReadThroughRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
+  updateInboxMessageNotificationPreferencesRpcInputSchema,
   updateInboxNotificationPreferencesRpcInputSchema,
 } from "@openmeld/schemas";
 import type {
@@ -32,10 +35,12 @@ import type {
   GetCenterAgentInboxSummaryRpcInput,
   GetInboxItemResponse,
   GetInboxItemRpcInput,
+  GetInboxMessageNotificationPreferencesRpcInput,
   GetInboxNotificationPreferencesRpcInput,
   GetInboxSummaryRpcInput,
   GetSpaceInboxSummaryRpcInput,
   GetSpaceInboxUnreadTargetsRpcInput,
+  InboxItem,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
   ListInboxItemsResponse,
@@ -50,11 +55,14 @@ import type {
   MarkSpaceInboxReadThroughRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
+  UpdateInboxMessageNotificationPreferencesRpcInput,
   UpdateInboxNotificationPreferencesRpcInput,
 } from "@openmeld/schemas/types";
 import { type CoreBindings, inboxDb } from "../../../lib/bindings";
+import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
+import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
 import {
   createInboxService,
   InboxServiceError,
@@ -84,16 +92,27 @@ export async function rpcListInboxItems(
 ): Promise<ListInboxItemsResponse> {
   const request = parseRequest(listInboxItemsRpcInputSchema, input);
   const prepared = await prepareRequest(env, request.context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     listInboxItemsResponseSchema,
     await runService(() =>
-      prepared.service.list({
-        cursor: request.cursor,
-        limit: request.limit,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-        view: request.view,
-      })
+      prepared.service
+        .list({
+          cursor: request.cursor,
+          limit: request.limit,
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+          view: request.view,
+        })
+        .then((response) => ({
+          ...response,
+          items: response.items.map((item) =>
+            projectReplyToRecipientForReceiver(
+              item,
+              request.includeReplyToRecipient
+            )
+          ),
+        }))
     )
   );
 }
@@ -104,14 +123,22 @@ export async function rpcGetInboxItem(
 ): Promise<GetInboxItemResponse> {
   const request = parseRequest(getInboxItemRpcInputSchema, input);
   const prepared = await prepareRequest(env, request.context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     getInboxItemResponseSchema,
     await runService(() =>
-      prepared.service.get({
-        itemId: request.itemId,
-        organizationId: prepared.organizationId,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .get({
+          itemId: request.itemId,
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) => ({
+          item: projectReplyToRecipientForReceiver(
+            response.item,
+            request.includeReplyToRecipient
+          ),
+        }))
     )
   );
 }
@@ -122,6 +149,7 @@ export async function rpcGetInboxSummary(
 ): Promise<InboxSummaryResponse> {
   const request = parseRequest(getInboxSummaryRpcInputSchema, input);
   const prepared = await prepareRequest(env, request.context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
   return parseResponse(
     inboxSummaryResponseSchema,
     await runService(() =>
@@ -238,12 +266,19 @@ export async function rpcMarkInboxItemRead(
   return parseResponse(
     markInboxItemReadResponseSchema,
     await runService(() =>
-      prepared.service.markRead({
-        itemId: request.itemId,
-        organizationId: prepared.organizationId,
-        read: request.read,
-        recipientUserId: prepared.userId,
-      })
+      prepared.service
+        .markRead({
+          itemId: request.itemId,
+          organizationId: prepared.organizationId,
+          read: request.read,
+          recipientUserId: prepared.userId,
+        })
+        .then((response) => ({
+          item: projectReplyToRecipientForReceiver(
+            response.item,
+            request.includeReplyToRecipient
+          ),
+        }))
     )
   );
 }
@@ -302,6 +337,62 @@ export async function rpcUpdateInboxNotificationPreferences(
   );
 }
 
+export async function rpcGetInboxMessageNotificationPreferences(
+  env: CoreBindings,
+  input: GetInboxMessageNotificationPreferencesRpcInput
+) {
+  const request = parseRequest(
+    getInboxMessageNotificationPreferencesRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    inboxMessageNotificationPreferencesResponseSchema,
+    await runService(() =>
+      createInboxMessageNotificationPreferencesService(prepared.db).get({
+        userId: prepared.userId,
+        organizationId: prepared.organizationId,
+        spaceId: request.spaceId,
+      })
+    )
+  );
+}
+
+export async function rpcUpdateInboxMessageNotificationPreferences(
+  env: CoreBindings,
+  input: UpdateInboxMessageNotificationPreferencesRpcInput
+) {
+  const request = parseRequest(
+    updateInboxMessageNotificationPreferencesRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, request.context);
+  return parseResponse(
+    inboxMessageNotificationPreferencesResponseSchema,
+    await runService(() =>
+      createInboxMessageNotificationPreferencesService(prepared.db).update({
+        userId: prepared.userId,
+        organizationId: prepared.organizationId,
+        preference: request.preference,
+      })
+    )
+  );
+}
+
+/** Older Gateway receivers have a strict target parser. Keep their RPC shape
+ * unchanged even after Core starts persisting recipient-specific reply facts. */
+function projectReplyToRecipientForReceiver(
+  item: InboxItem,
+  includeReplyToRecipient?: boolean
+): InboxItem {
+  if (includeReplyToRecipient === true || item.sourceTarget.kind !== "space") {
+    return item;
+  }
+  const { replyToRecipient: _replyToRecipient, ...sourceTarget } =
+    item.sourceTarget;
+  return { ...item, sourceTarget };
+}
+
 async function prepareRequest(
   env: CoreBindings,
   context: ListInboxItemsRpcInput["context"]
@@ -326,10 +417,11 @@ async function prepareRequest(
     });
   }
   return {
+    db,
     organizationId: membership.organizationId,
     service: createInboxService({
       db,
-      canManageAuthorizationUpdates:
+      canManageOrganization:
         membership.role === "owner" || membership.role === "admin",
     }),
     userId: membership.userId,

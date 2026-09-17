@@ -40,6 +40,7 @@ type RuntimeCoordinatorExecutionRow = {
 
 export type RuntimeCoordinatorExecutionWakeProgressSelector = {
   createdAtMs: number;
+  runningAtMs: number | null;
   dispatchId: string;
   latestDispatchAttemptStatus: string | null;
   runtimeCoordinatorExecutionId: string;
@@ -54,6 +55,7 @@ export type RuntimeCoordinatorExecutionWakeProgressSelector = {
 
 type RuntimeCoordinatorExecutionWakeProgressSelectorRow = {
   created_at_ms?: unknown;
+  running_at_ms?: unknown;
   dispatch_id?: unknown;
   latest_dispatch_attempt_status?: unknown;
   latest_occupancy_payload_json?: unknown;
@@ -112,6 +114,42 @@ const LOCKED_TERMINAL_STATUSES = new Set<RuntimeCoordinatorExecutionStatus>([
   "failed_terminal",
   "reply_published",
 ]);
+
+// Historical discovery only. Delivery retries and token/connection diagnostics
+// do not advance activity; these rows never determine current execution state.
+export async function readRuntimeCoordinatorTaskActivity(input: {
+  db: D1Database;
+  authorizedProfileIds: readonly string[];
+  sinceMs: number;
+}): Promise<Map<string, number>> {
+  const activity = new Map<string, number>();
+  for (
+    let offset = 0;
+    offset < input.authorizedProfileIds.length;
+    offset += 80
+  ) {
+    const ids = input.authorizedProfileIds.slice(offset, offset + 80);
+    const rows = await input.db
+      .prepare(`
+      SELECT target_profile_id AS profileId,
+        MAX(MAX(created_at_ms, CASE WHEN status IN (
+          'accepted_local', 'running', 'completed_local', 'result_received',
+          'result_accepted', 'reply_published', 'cancelled', 'failed_terminal'
+        ) THEN updated_at_ms ELSE created_at_ms END)) AS lastTaskActivityAtMs
+      FROM openMeldDaemon_runtime_coordinator_executions
+      WHERE target_profile_id IN (${ids.map(() => "?").join(",")})
+        AND updated_at_ms >= ?
+      GROUP BY target_profile_id
+      HAVING lastTaskActivityAtMs >= ?
+    `)
+      .bind(...ids, input.sinceMs, input.sinceMs)
+      .all<{ profileId: string; lastTaskActivityAtMs: number }>();
+    for (const row of rows.results) {
+      activity.set(row.profileId, row.lastTaskActivityAtMs);
+    }
+  }
+  return activity;
+}
 
 const ACTIVE_WAKE_PROGRESS_STATUSES: readonly RuntimeCoordinatorExecutionStatus[] =
   [
@@ -418,14 +456,25 @@ export const writeRuntimeCoordinatorExecutionEventFromParts = async (input: {
   runtimeCoordinatorExecutionId: string;
   statusAfter?: RuntimeCoordinatorExecutionStatus | null;
 }): Promise<void> => {
+  const legacyEventId = buildRuntimeCoordinatorExecutionEventId(input);
+  // Preserve every previously valid identity across replay and rolling deploys.
+  // Oversized identities never passed the event schema and cannot exist in D1.
+  const eventId =
+    legacyEventId.length <= 512
+      ? legacyEventId
+      : `rce_event_sha256:${Array.from(
+          new Uint8Array(
+            await crypto.subtle.digest(
+              "SHA-256",
+              new TextEncoder().encode(legacyEventId)
+            )
+          ),
+          (byte) => byte.toString(16).padStart(2, "0")
+        ).join("")}`;
   await writeRuntimeCoordinatorExecutionEvent({
     db: input.db,
     event: {
-      eventId: buildRuntimeCoordinatorExecutionEventId({
-        eventType: input.eventType,
-        idempotencyKey: input.idempotencyKey,
-        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
-      }),
+      eventId,
       eventType: input.eventType,
       idempotencyKey: input.idempotencyKey,
       observedAtMs: input.observedAtMs,
@@ -583,6 +632,37 @@ export const listActiveRuntimeCoordinatorExecutionProjectionsBySpace =
     return rows.results.map(mapRuntimeCoordinatorExecutionRow);
   };
 
+// Read the coordinator's preserved phase start, not a heartbeat observation or
+// execution creation time. Older evidence without this fact has no timer.
+const RUNNING_AT_MS_SQL = `
+  SELECT MIN(json_extract(payload_json, '$.runningAtMs'))
+  FROM openMeldDaemon_runtime_coordinator_execution_events
+  WHERE runtime_coordinator_execution_id = executions.runtime_coordinator_execution_id
+    AND event_type = 'lifecycle_running'
+    AND json_type(payload_json, '$.runningAtMs') = 'integer'
+    AND json_extract(payload_json, '$.runningAtMs') >= 0
+`;
+
+export const readRuntimeCoordinatorExecutionRunningAtMs = async (input: {
+  db: D1Database;
+  runtimeCoordinatorExecutionId: string;
+}): Promise<number | null> => {
+  const row = await input.db
+    .prepare(`
+    SELECT (${RUNNING_AT_MS_SQL}) AS running_at_ms
+    FROM openMeldDaemon_runtime_coordinator_executions AS executions
+    WHERE executions.runtime_coordinator_execution_id = ?
+  `)
+    .bind(input.runtimeCoordinatorExecutionId)
+    .first<{ running_at_ms: number | null }>();
+  return readRunningTimestamp(row?.running_at_ms);
+};
+
+const readRunningTimestamp = (value: unknown): number | null =>
+  typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : null;
+
 export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
   async (input: {
     db: D1Database;
@@ -591,6 +671,7 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
     sourceProfileId?: string;
     spaceId: string;
     targetProfileId?: string;
+    includeTiming?: boolean;
   }): Promise<RuntimeCoordinatorExecutionWakeProgressSelector[]> => {
     const limit = Math.max(1, Math.min(50, Math.trunc(input.limit ?? 25)));
     const targetProfileId = input.targetProfileId?.trim() || null;
@@ -640,6 +721,7 @@ export const listActiveRuntimeCoordinatorExecutionWakeProgressSelectorsBySpace =
           executions.source_client_message_id,
           executions.status,
           executions.created_at_ms,
+          ${input.includeTiming ? `(${RUNNING_AT_MS_SQL})` : "NULL"} AS running_at_ms,
           executions.updated_at_ms,
           ledger.source_event_id,
           latest_attempt.status AS latest_dispatch_attempt_status,
@@ -989,6 +1071,7 @@ const mapRuntimeCoordinatorExecutionWakeProgressSelectorRow = (
   return [
     {
       createdAtMs,
+      runningAtMs: readRunningTimestamp(row.running_at_ms),
       dispatchId,
       latestDispatchAttemptStatus:
         typeof row.latest_dispatch_attempt_status === "string" &&

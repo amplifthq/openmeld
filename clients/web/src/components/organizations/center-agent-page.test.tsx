@@ -4,6 +4,7 @@ import {
 	useQuery,
 } from "@tanstack/react-query";
 import {
+	act,
 	cleanup,
 	fireEvent,
 	render,
@@ -11,10 +12,21 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
+import "fake-indexeddb/auto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
+import { readComposerDraft } from "#/lib/composer-draft-storage";
+import {
+	createPendingCenterAgentMessage,
+	readCenterAgentPendingMessage,
+	writeCenterAgentPendingMessage,
+} from "#/lib/organizations/center-agent-pending-message";
 import type { CenterAgentDirectMessageRouteData } from "#/lib/organizations/center-agent-route-loader";
+import { parseCenterAgentRouteSearch } from "#/lib/organizations/center-agent-route-search";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { Route as CenterAgentChatRoute } from "#/routes/o/$orgSlug/_center-agent/chats.center-agent";
 import { CenterAgentPage } from "./center-agent-page";
+import { CenterAgentPendingConversation } from "./center-agent-route-pending";
 
 const navigateSpy = vi.hoisted(() => vi.fn());
 const openCenterAgentDirectMessageSpaceMock = vi.hoisted(() => vi.fn());
@@ -52,10 +64,19 @@ vi.mock("#/components/app/start-flow-state", () => ({
 }));
 
 vi.mock("#/components/spaces/space-landing", () => ({
-	SpaceLanding: (props: { loadingFallback?: ReactNode }) => {
+	SpaceLanding: (props: {
+		loadingFallback?: (controller: {
+			composerFiles: ReturnType<typeof useSpaceComposerFiles>;
+		}) => ReactNode;
+	}) => {
+		const composerFiles = useSpaceComposerFiles({
+			profileId: "human-1",
+			spaceId: "space-ca-dm",
+			deferUpload: true,
+		});
 		spaceLandingSpy(props);
 		return renderSpaceLandingLoadingFallback ? (
-			props.loadingFallback
+			props.loadingFallback?.({ composerFiles })
 		) : (
 			<div data-testid="space-landing" />
 		);
@@ -72,10 +93,22 @@ vi.mock("@tanstack/react-router", async () => {
 			<a href={to}>{children}</a>
 		),
 		useNavigate: () => navigateSpy,
+		useLocation: (input?: {
+			select?: (location: { state: Record<string, never> }) => unknown;
+		}) => {
+			const location = { state: {} };
+			return input?.select ? input.select(location) : location;
+		},
+		useRouterState: ({
+			select,
+		}: {
+			select: (state: { location: { searchStr: string } }) => unknown;
+		}) => select({ location: { searchStr: "" } }),
 	};
 });
 
 vi.mock("#/lib/organizations/organization-context", () => ({
+	useOptionalAppOrganization: () => ({ currentOrganization }),
 	useAppOrganization: () => ({ currentOrganization }),
 }));
 
@@ -123,6 +156,7 @@ describe("CenterAgentPage", () => {
 
 	afterEach(() => {
 		cleanup();
+		vi.restoreAllMocks();
 		vi.clearAllMocks();
 	});
 
@@ -259,12 +293,105 @@ describe("CenterAgentPage", () => {
 		expect(navigateSpy).not.toHaveBeenCalled();
 	});
 
+	it.each([
+		"bootstrap",
+		"route",
+	])("claims a %s submission immediately while file persistence is delayed", async (loadingPhase) => {
+		const storage = await import("#/lib/spaces/composer-file-drafts");
+		renderSpaceLandingLoadingFallback = true;
+		const clock = vi.spyOn(Date, "now").mockReturnValue(1000);
+		const file = new File(["first"], "first.txt", { type: "text/plain" });
+		let releaseSave: () => void = () => undefined;
+		const gate = new Promise<void>((resolve) => {
+			releaseSave = resolve;
+		});
+		const save = storage.saveComposerFileDraft;
+		const saveSpy = vi
+			.spyOn(storage, "saveComposerFileDraft")
+			.mockImplementation(async (draft) => {
+				await gate;
+				await save(draft);
+			});
+		const { queryClient } =
+			loadingPhase === "bootstrap"
+				? renderCenterAgentPage(readyRouteData())
+				: renderWithQueryClient(
+						<CenterAgentPendingConversation
+							organizationId="org-acme"
+							organizationSlug="acme"
+							ownerAccountId="user-1"
+						/>
+					);
+		const composer = screen.getByRole("textbox", {
+			name: "Message Center Agent",
+		});
+		fireEvent.change(composer, { target: { value: "First message" } });
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: { files: [file] },
+		});
+		await waitFor(() => expect(saveSpy).toHaveBeenCalledTimes(1));
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		const readPending = () =>
+			readCenterAgentPendingMessage(queryClient, { organizationSlug: "acme" });
+		const pending = readPending();
+		expect(pending).toMatchObject({
+			text: "First message",
+			createdAtMs: 1000,
+			files: [file],
+			fileDrafts: [{ id: saveSpy.mock.calls[0][0].id }],
+		});
+		expect(composer).toHaveProperty("disabled", true);
+		expect(
+			readComposerDraft({
+				kind: "center_agent_pending",
+				ownerAccountId: "user-1",
+				organizationId: "org-acme",
+			})?.text
+		).toBe("First message");
+		expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+		clock.mockReturnValue(3000);
+		await act(async () => {
+			releaseSave();
+			await gate;
+		});
+		expect(readPending()).toBe(pending);
+	});
+
 	it("hands an Inbox reply target to the Center Agent conversation", () => {
-		renderCenterAgentPage(readyRouteData(), "signal-from-inbox");
+		renderCenterAgentPage(
+			readyRouteData(),
+			"signal-from-inbox",
+			"focus-request-1"
+		);
 
 		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
 			expect.objectContaining({
+				initialFocusRequestId: "focus-request-1",
 				initialFocusSignalId: "signal-from-inbox",
+			})
+		);
+	});
+
+	it("forwards an activity Thread root through the actual Center Agent route and page", () => {
+		const search = parseCenterAgentRouteSearch({
+			session: "saved-chat",
+			focusSignalId: "root-1",
+			focusThreadRootSignalId: "root-1",
+		});
+		vi.spyOn(CenterAgentChatRoute, "useSearch").mockReturnValue(search);
+		vi.spyOn(CenterAgentChatRoute, "useLoaderData").mockReturnValue(
+			readyRouteData({ spaceId: "saved-chat" })
+		);
+		const ChatRoute = CenterAgentChatRoute.options.component;
+		if (!ChatRoute) {
+			throw new Error("Chat route component is missing");
+		}
+		renderWithQueryClient(<ChatRoute />);
+		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				spaceId: "saved-chat",
+				initialFocusSignalId: "root-1",
+				initialFocusThreadRootSignalId: "root-1",
 			})
 		);
 	});
@@ -282,7 +409,7 @@ describe("CenterAgentPage", () => {
 			screen
 				.getByRole("link", { name: "Open Center Agent settings" })
 				.getAttribute("href")
-		).toBe("/o/acme/center-agent/settings");
+		).toBe("/o/acme/settings/center-agent");
 	});
 
 	it("clears connect-required state after switching away and back", () => {
@@ -445,6 +572,25 @@ describe("CenterAgentPage", () => {
 		);
 	});
 
+	it("adopts a message whose attachments finish saving after the ready route mounts", () => {
+		const { queryClient } = renderCenterAgentPage(readyRouteData());
+		const message = createPendingCenterAgentMessage(
+			"Saved during route handoff"
+		);
+		message.files = [new File(["image"], "handoff.png", { type: "image/png" })];
+		act(() => {
+			// The pending route only knew the slug; the ready route knows the ID.
+			writeCenterAgentPendingMessage(
+				queryClient,
+				{ organizationSlug: "acme" },
+				message
+			);
+		});
+		expect(spaceLandingSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({ initialPendingMessage: message })
+		);
+	});
+
 	it("retries a loader-reported error and opens the resolved conversation", async () => {
 		openCenterAgentDirectMessageSpaceMock.mockResolvedValueOnce(
 			readyRouteData().directMessage
@@ -467,11 +613,13 @@ describe("CenterAgentPage", () => {
 
 function renderCenterAgentPage(
 	directMessageRouteData: CenterAgentDirectMessageRouteData,
-	initialFocusSignalId?: string
+	initialFocusSignalId?: string,
+	initialFocusRequestId?: string
 ) {
 	return renderWithQueryClient(
 		<CenterAgentPage
 			directMessageRouteData={directMessageRouteData}
+			initialFocusRequestId={initialFocusRequestId}
 			initialFocusSignalId={initialFocusSignalId}
 		/>
 	);
@@ -489,6 +637,7 @@ function renderWithQueryClient(element: ReactElement) {
 	);
 	return {
 		...result,
+		queryClient,
 		rerender: (nextElement: ReactElement) =>
 			result.rerender(
 				<QueryClientProvider client={queryClient}>

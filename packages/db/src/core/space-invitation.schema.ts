@@ -18,6 +18,9 @@ export const spaceInvitations = sqliteTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     spaceId: text("space_id").notNull(),
     email: text("email").notNull(),
+    audience: text("audience", { enum: ["organization", "guest"] })
+      .notNull()
+      .default("organization"),
     inviterUserId: text("inviter_user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),

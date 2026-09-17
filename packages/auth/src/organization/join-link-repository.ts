@@ -4,7 +4,7 @@ import {
   organizations,
 } from "@openmeld/db/auth";
 import type { InferSelectModel } from "drizzle-orm";
-import { and, eq, isNull, lte } from "drizzle-orm";
+import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import type { createD1Db } from "../db";
 
 export type OrganizationJoinLinkRecord = InferSelectModel<
@@ -42,6 +42,7 @@ export type OrganizationJoinLinkRepository = {
     organizationId: string
   ) => Promise<OrganizationJoinLinkOrganizationRecord | null>;
   ensureActive: (input: {
+    initialOnly?: boolean;
     mode: "direct" | "request";
     expiresAt: Date;
     spaceId?: string;
@@ -49,7 +50,7 @@ export type OrganizationJoinLinkRepository = {
     id: string;
     organizationId: string;
     token: string;
-  }) => Promise<OrganizationJoinLinkRecord>;
+  }) => Promise<OrganizationJoinLinkRecord | null>;
   resetActive: (input: {
     mode: "direct" | "request";
     expiresAt: Date;
@@ -154,6 +155,32 @@ export function createDrizzleOrganizationJoinLinkRepository(
       return rows[0] ?? null;
     },
     async ensureActive(input) {
+      if (input.initialOnly) {
+        // The history check and insertion are one statement: opening Share
+        // cannot undo a revocation, even when another request races it.
+        await db.run(sql`INSERT OR IGNORE INTO organization_join_links
+          (id, organization_id, space_id, mode, token, role, created_by, expires_at)
+          SELECT ${input.id}, ${input.organizationId}, ${input.spaceId ?? null},
+            ${input.mode}, ${input.token}, 'member', ${input.createdBy}, ${input.expiresAt.getTime()}
+          WHERE NOT EXISTS (SELECT 1 FROM organization_join_links
+            WHERE organization_id = ${input.organizationId}
+              AND space_id IS ${input.spaceId ?? null} AND mode = ${input.mode})`);
+        const rows = await db
+          .select()
+          .from(organizationJoinLinks)
+          .where(
+            and(
+              eq(organizationJoinLinks.organizationId, input.organizationId),
+              eq(organizationJoinLinks.mode, input.mode),
+              input.spaceId
+                ? eq(organizationJoinLinks.spaceId, input.spaceId)
+                : isNull(organizationJoinLinks.spaceId),
+              isNull(organizationJoinLinks.revokedAt)
+            )
+          )
+          .limit(1);
+        return rows[0] ?? null;
+      }
       const [, createdRows, activeRows] = await db.batch([
         db
           .update(organizationJoinLinks)

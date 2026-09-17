@@ -1,9 +1,6 @@
 import type { OpenMeldRequestContext } from "@openmeld/schemas/types";
+import { isSpaceOwner } from "@openmeld/space";
 import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
-import {
-  normalizeSpaceCreatorOwnerUserId,
-  normalizeSpaceCreatorProfileId,
-} from "../rules/access/space-creator-identity";
 
 type SpacePublicationModeAuthorizationFailureCode =
   | "space.password_invalid"
@@ -71,51 +68,20 @@ export async function authorizeSpacePublicationModeChange(input: {
 
   return { ok: true };
 }
-
 function authorizePublicationModeOwner(input: {
   context: OpenMeldRequestContext;
   meta: SpaceMetaRecord;
 }): SpacePublicationModeAuthorizationResult {
-  const creatorProfileId = normalizeSpaceCreatorProfileId(input.meta.creator);
-  if (!creatorProfileId) {
-    return {
-      code: "space.publication_mode.owner_required",
-      message:
-        "Space publication mode can only be changed when the Space creator is known.",
-      ok: false,
-      status: 403,
-    };
-  }
-
-  if (input.meta.creator?.kind === "agent") {
-    const creatorOwnerUserId = normalizeSpaceCreatorOwnerUserId(
-      input.meta.creator
-    );
-    if (
-      input.context.actorContext.profileKind === "human" &&
-      creatorOwnerUserId &&
-      input.context.actorContext.ownerUserId === creatorOwnerUserId
-    ) {
-      return { ok: true };
-    }
-
-    return {
-      code: "space.publication_mode.owner_required",
-      message:
-        "Agent-created Spaces require the owner human to change publication mode.",
-      ok: false,
-      status: 403,
-    };
-  }
-
-  if (input.context.actorContext.openMeldProfileId !== creatorProfileId) {
-    return {
-      code: "space.publication_mode.owner_required",
-      message: "Space publication mode can only be changed by the Space owner.",
-      ok: false,
-      status: 403,
-    };
-  }
-
-  return { ok: true };
+  return isSpaceOwner({
+    ownerUserIds: input.meta.ownerUserIds ?? [],
+    actorOwnerUserId: input.context.actorContext.ownerUserId,
+    actorKind: input.context.actorContext.profileKind,
+  })
+    ? { ok: true }
+    : {
+        code: "space.publication_mode.owner_required",
+        message: "Only a Space owner can change publication mode.",
+        ok: false,
+        status: 403,
+      };
 }

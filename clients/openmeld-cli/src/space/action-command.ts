@@ -13,6 +13,7 @@ import {
   type DispatchSpaceActionContext,
   type DispatchSpaceActionRecord,
   type DispatchSpaceActionSendTargetReference,
+  readDispatchSpaceActionContextForReceiptFromEnv,
   readDispatchSpaceActionContextFromEnv,
   writeDispatchSpaceActionRecord,
 } from "../runtime/dispatch-space-action-context";
@@ -78,7 +79,13 @@ export function recordDispatchSpaceReply(input: {
     referenceTargetCount: input.referenceTargets?.length ?? 0,
     wakeTargetCount: input.wakeTargets?.length ?? 0,
   });
-  const context = readDispatchSpaceActionContextFromEnv();
+  const filePaths = input.filePaths ?? [];
+  // Uploading a file is a new effect. Expired contexts may recover an exact
+  // already-recorded action, but never perform an upload to reconstruct one.
+  const context =
+    filePaths.length > 0
+      ? readDispatchSpaceActionContextFromEnv()
+      : readDispatchSpaceActionContextForReceiptFromEnv();
   timing.emit("context_ready", context);
   assertAllowedAction(context, "post_message");
   const text = normalizeRequiredText(input.text, "Reply message is required.");
@@ -94,7 +101,6 @@ export function recordDispatchSpaceReply(input: {
     mentionTargetCount: targetIds.mentionTargets.length,
     referenceTargetCount: targetIds.referenceTargets.length,
   });
-  const filePaths = input.filePaths ?? [];
   if (filePaths.length === 0) {
     return writeSpaceActionReplyRecord({
       context,
@@ -219,7 +225,7 @@ export function runSpaceActionWake(input: {
   messageParts: readonly string[];
   target: string;
 }): void {
-  const context = readDispatchSpaceActionContextFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv();
   assertAllowedAction(context, "post_message");
   const text = normalizeRequiredJoinedText(
     input.messageParts,
@@ -262,7 +268,7 @@ export function recordDispatchSpaceStatus(input: {
   status: string;
   text: string;
 }): DispatchSpaceActionRecord {
-  const context = readDispatchSpaceActionContextFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv();
   assertAllowedAction(context, "post_status");
   const status = normalizeStatus(input.status);
   const text = normalizeRequiredText(input.text, "Status text is required.");
@@ -282,7 +288,7 @@ export function runSpaceActionSilent(input: { reason?: string | null }): void {
 export function recordDispatchSpaceSilent(input: {
   reason?: string | null;
 }): DispatchSpaceActionRecord {
-  const context = readDispatchSpaceActionContextFromEnv();
+  const context = readDispatchSpaceActionContextForReceiptFromEnv();
   assertAllowedAction(context, "stay_silent");
   const reason = normalizeRequiredText(
     input.reason,

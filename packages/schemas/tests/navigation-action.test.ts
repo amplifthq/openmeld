@@ -19,7 +19,7 @@ describe("buildOpenMeldNavigationAction", () => {
     ).toBe("https://openmeld.ai/o/amplift");
     expect(
       buildOrganizationPluginPath({ orgSlug: "amplift", service: "github" })
-    ).toBe("/o/amplift/center-agent/plugins/github");
+    ).toBe("/o/amplift/plugins/github");
     expect(
       buildOrganizationSpacePath({
         orgSlug: "amplift",

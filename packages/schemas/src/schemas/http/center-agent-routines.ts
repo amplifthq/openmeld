@@ -3,6 +3,7 @@ import * as z from "../../lazy-zod";
 import { openMeldRequestContextSchema } from "../daemon/profile-identity";
 import { CENTER_AGENT_INTERACTION_CLIENT_MAX_CHARS } from "../protocol/center-agent-interaction-source";
 import { MAX_PROFILE_NAME_LENGTH } from "../protocol/constants";
+import { messageChannelConversationLocatorSchema } from "../runtime/message-channel";
 import { centerAgentVerifiedMemberToolSpeakerSchema } from "./center-agent-speaker";
 import { spaceNameSchema } from "./space-name";
 
@@ -32,6 +33,7 @@ export const CENTER_AGENT_ROUTINE_ERROR_CODES = [
   "routine.target_space_org_mismatch",
   "routine.target_space_publication_unavailable",
   "routine.slack_thread_unavailable",
+  "routine.message_channel_unavailable",
   "routine.total_limit_reached",
 ] as const;
 
@@ -54,6 +56,7 @@ export const CENTER_AGENT_ROUTINE_TARGET_SPACE_KINDS = [
 export const CENTER_AGENT_ROUTINE_DESTINATION_KINDS = [
   "space",
   "slack_thread",
+  "message_channel",
 ] as const;
 export const CENTER_AGENT_ROUTINE_AUTHORIZED_ACTIONS = [
   "organization_documents.save_approved_knowledge",
@@ -143,6 +146,9 @@ const routineScheduleShape = {
 };
 
 const routineDestinationShape = {
+  messageChannelLocator: messageChannelConversationLocatorSchema
+    .nullable()
+    .optional(),
   destinationKind: centerAgentRoutineDestinationKindSchema.default("space"),
   slackChannelId: nullableTrimmedTextSchema(256).default(null),
   slackConversationId: nullableTrimmedTextSchema(512).default(null),
@@ -374,6 +380,9 @@ export const centerAgentRoutineRouteParamsSchema = z.strictObject(
 );
 
 const routineUpdateShape = {
+  messageChannelLocator: messageChannelConversationLocatorSchema
+    .nullable()
+    .optional(),
   authorizedActions: centerAgentRoutineAuthorizedActionsSchema.optional(),
   externalActionPolicy: centerAgentRoutineExternalActionPolicySchema.optional(),
   cronExpression: z
@@ -580,6 +589,7 @@ export const centerAgentResumeRoutineToolRpcInputSchema = z.strictObject({
 });
 
 function hasRoutineUpdate(value: {
+  messageChannelLocator?: unknown;
   authorizedActions?: string[];
   cronExpression?: string | null;
   destinationKind?: string;
@@ -597,6 +607,7 @@ function hasRoutineUpdate(value: {
   timezone?: string | null;
 }): boolean {
   return (
+    value.messageChannelLocator !== undefined ||
     value.authorizedActions !== undefined ||
     value.cronExpression !== undefined ||
     value.destinationKind !== undefined ||
@@ -619,6 +630,9 @@ function validateRoutineScheduleAndDestination(
   value: {
     cronExpression: string | null;
     destinationKind: (typeof CENTER_AGENT_ROUTINE_DESTINATION_KINDS)[number];
+    messageChannelLocator?: zod.infer<
+      typeof messageChannelConversationLocatorSchema
+    > | null;
     runAtMs: number | null;
     scheduleKind: "cron" | "once";
     slackChannelId: string | null;
@@ -652,13 +666,14 @@ function validateRoutineScheduleAndDestination(
 
   const spaceDestinationComplete = Boolean(
     value.targetSpaceId &&
+      !value.messageChannelLocator &&
       !value.slackTeamId &&
       !value.slackChannelId &&
       !value.slackThreadTs &&
       !value.slackConversationId
   );
   const slackDestinationComplete = Boolean(
-    !value.targetSpaceId &&
+    !(value.targetSpaceId || value.messageChannelLocator) &&
       value.slackTeamId &&
       value.slackChannelId &&
       value.slackThreadTs &&
@@ -666,12 +681,22 @@ function validateRoutineScheduleAndDestination(
   );
   if (
     (value.destinationKind === "space" && !spaceDestinationComplete) ||
-    (value.destinationKind === "slack_thread" && !slackDestinationComplete)
+    (value.destinationKind === "slack_thread" && !slackDestinationComplete) ||
+    (value.destinationKind === "message_channel" &&
+      !(
+        value.messageChannelLocator &&
+        value.messageChannelLocator.provider !== "slack" &&
+        !value.targetSpaceId &&
+        !value.slackTeamId &&
+        !value.slackChannelId &&
+        !value.slackThreadTs &&
+        !value.slackConversationId
+      ))
   ) {
     context.addIssue({
       code: "custom",
       message:
-        "A Space destination requires targetSpaceId; a Slack thread destination requires the durable Slack thread locator.",
+        "Choose a Space, a Slack thread, or a Feishu or Lark conversation with its complete destination.",
       path: ["destinationKind"],
     });
   }

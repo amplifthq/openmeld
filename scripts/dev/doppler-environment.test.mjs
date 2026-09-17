@@ -74,15 +74,15 @@ test("exposes one newcomer-friendly command set", () => {
   );
   assert.equal(
     packageJson.scripts["dev:worktree"],
-    "node scripts/dev/doppler-environment.mjs run -- pnpm dev:isolated:no-sandbox"
+    "node scripts/dev/doppler-environment.mjs worktree --no-sandbox"
   );
   assert.equal(
     packageJson.scripts["dev:web:worktree"],
-    "node scripts/dev/doppler-environment.mjs run -- pnpm dev:web:isolated"
+    "node scripts/dev/doppler-environment.mjs web:worktree"
   );
   assert.equal(
     packageJson.scripts["dev:worktree:sandbox"],
-    "node scripts/dev/doppler-environment.mjs run -- pnpm dev:isolated"
+    "node scripts/dev/doppler-environment.mjs worktree"
   );
   assert.equal(packageJson.scripts["env:run"], undefined);
 });
@@ -390,25 +390,28 @@ test("maps the stable OpenMeld release token name only at the staging command bo
 });
 
 test("routes a component runtime through the scoped Doppler entrypoint", () => {
-  assert.deepEqual(
-    buildDopplerComponentCommand("remote-agent", [
-      "pnpm",
-      "run",
-      "dev:isolated:runtime",
-    ]),
+  const command = buildDopplerComponentCommand(
+    "remote-agent",
+    ["pnpm", "run", "dev:isolated:runtime"],
     {
-      args: [
-        DOPPLER_ENVIRONMENT_SCRIPT,
-        "component",
-        "remote-agent",
-        "--",
-        "pnpm",
-        "run",
-        "dev:isolated:runtime",
-      ],
-      executable: process.execPath,
+      BETTER_AUTH_OPENMELD_SECRET: "must-not-reach-remote-agent",
+      PATH: "/fixture",
     }
   );
+  assert.equal(command.executable, "doppler");
+  assert.ok(command.args.includes("--forward-signals=true"));
+  assert.ok(command.args.includes("openmeld-remote-agent"));
+  assert.deepEqual(command.args.slice(-7), [
+    process.execPath,
+    DOPPLER_ENVIRONMENT_SCRIPT,
+    "__run-component",
+    "remote-agent",
+    "pnpm",
+    "run",
+    "dev:isolated:runtime",
+  ]);
+  assert.equal(command.env.BETTER_AUTH_OPENMELD_SECRET, undefined);
+  assert.equal(command.env.PATH, "/fixture");
 });
 
 test("injects one component without leaking ambient secrets from another", () => {

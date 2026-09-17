@@ -3,6 +3,7 @@ import {
 	isActiveWakeProgressItem,
 	type SpaceMemberDirectoryEntry,
 } from "@openmeld/space";
+import type { SpaceConversationVisibleStreamProjection } from "./conversation-stream";
 import type { SpaceTimelineItem } from "./timeline";
 import { buildSpaceWakeOutcomeIndex } from "./wake-stop-target";
 
@@ -12,6 +13,8 @@ export function buildActiveWakeConversationItems(input: {
 	profileEntriesById: ReadonlyMap<string, SpaceMemberDirectoryEntry>;
 	spaceId: string | undefined;
 	threadId: string | null;
+	threadRootSignalId?: string | null;
+	agentStreams?: readonly SpaceConversationVisibleStreamProjection[];
 	timelineItems: readonly SpaceTimelineItem[];
 }): readonly SpaceTimelineItem[] {
 	const history = input.timelineItems.filter(
@@ -36,17 +39,13 @@ export function buildActiveWakeConversationItems(input: {
 		const source =
 			sourcesById.get(progress.sourceSignalId ?? "") ??
 			sourcesByClientId.get(progress.clientMessageId ?? "");
-		// A loaded source proves the scope for optimistic/older snapshots without sourceContext.
-		if (
-			progress.sourceContext
-				? progress.sourceContext.threadId !== input.threadId
-				: !source
-		) {
+		if (!isWakeProgressInConversation({ ...input, progress, source })) {
 			continue;
 		}
 		if (
 			source &&
 			outcomes.hasVisibleOutcomeForSourceTarget({
+				dispatchId: progress.dispatchId,
 				sourceItem: source,
 				targetProfileId: progress.targetProfileId,
 			})
@@ -54,12 +53,17 @@ export function buildActiveWakeConversationItems(input: {
 			continue;
 		}
 		const sourceId = source?.id ?? progress.sourceSignalId ?? undefined;
-		if (hasPublishedReply(history, sourceId, progress.targetProfileId)) {
+		if (hasPublishedReply(history, sourceId, progress)) {
 			continue;
 		}
 		const stream = streams.find(
 			(item) =>
-				!claimedStreams.has(item.id) &&
+				!(
+					claimedStreams.has(item.id) ||
+					(item.wakeDispatchId &&
+						progress.dispatchId &&
+						item.wakeDispatchId !== progress.dispatchId)
+				) &&
 				sourceId &&
 				item.replyToSignalId === sourceId &&
 				item.actorProfileId === progress.targetProfileId
@@ -114,10 +118,44 @@ export function buildActiveWakeConversationItems(input: {
 	}
 }
 
+export function resolveWakeReplyThreadRoot(input: {
+	progress: WakeProgressItem;
+	agentStreams?: readonly Pick<
+		SpaceConversationVisibleStreamProjection,
+		"profileId" | "dispatchId" | "triggerMessageId" | "replyThreadRootSignalId"
+	>[];
+}): string | null | undefined {
+	return input.agentStreams?.find(
+		(stream) =>
+			stream.profileId === input.progress.targetProfileId &&
+			(input.progress.dispatchId
+				? stream.dispatchId === input.progress.dispatchId
+				: stream.triggerMessageId === input.progress.sourceSignalId)
+	)?.replyThreadRootSignalId;
+}
+
+export function isWakeProgressInConversation(input: {
+	progress: WakeProgressItem;
+	source?: SpaceTimelineItem;
+	agentStreams?: readonly SpaceConversationVisibleStreamProjection[];
+	threadId: string | null;
+	threadRootSignalId?: string | null;
+}): boolean {
+	const { progress } = input;
+	const placement = resolveWakeReplyThreadRoot(input);
+	if (placement !== undefined) {
+		return placement === (input.threadId ? input.threadRootSignalId : null);
+	}
+	if (progress.sourceContext) {
+		return progress.sourceContext.threadId === input.threadId;
+	}
+	return Boolean(input.source && input.source.id !== input.threadRootSignalId);
+}
+
 function hasPublishedReply(
 	history: readonly SpaceTimelineItem[],
 	sourceId: string | undefined,
-	targetProfileId: string
+	progress: WakeProgressItem
 ): boolean {
 	return Boolean(
 		sourceId &&
@@ -125,7 +163,13 @@ function hasPublishedReply(
 				(item) =>
 					item.replyToSignalId === sourceId &&
 					item.actorProfileKind === "agent" &&
-					item.actorProfileId === targetProfileId
+					item.actorProfileId === progress.targetProfileId &&
+					(item.isAgentFinalReply || item.wakeDispatchId) &&
+					!(
+						item.wakeDispatchId &&
+						progress.dispatchId &&
+						item.wakeDispatchId !== progress.dispatchId
+					)
 			)
 	);
 }
@@ -169,6 +213,7 @@ function createActiveWakePlaceholder(input: {
 	const { progress, source, sourceId, agent } = input;
 	const spaceId = input.spaceId ?? source?.spaceId;
 	const identity =
+		progress.dispatchId ??
 		progress.clientMessageId ??
 		progress.sourceSignalId ??
 		progress.runtimeCoordinatorExecutionId ??

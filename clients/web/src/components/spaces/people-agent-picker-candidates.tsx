@@ -21,6 +21,7 @@ export function SpaceAddMembersCandidates(input: {
 	searchActive: boolean;
 	includeAgentOwners?: boolean;
 	selectedProfileIds: ReadonlySet<string>;
+	selectionScope?: "space" | "desk";
 }) {
 	const [collapsedGroupIds, setCollapsedGroupIds] = useState<
 		ReadonlySet<string>
@@ -49,6 +50,7 @@ export function SpaceAddMembersCandidates(input: {
 				label="Organization"
 				onToggle={input.onToggle}
 				selectedProfileIds={input.selectedProfileIds}
+				selectionScope={input.selectionScope}
 			/>
 			{input.candidateGroups.personGroups.length > 0 ? (
 				<section aria-labelledby="space-add-members-people-heading">
@@ -81,6 +83,7 @@ export function SpaceAddMembersCandidates(input: {
 									}}
 									onToggle={input.onToggle}
 									selectedProfileIds={input.selectedProfileIds}
+									selectionScope={input.selectionScope}
 								/>
 							);
 						})}
@@ -98,6 +101,7 @@ function SpaceAddMembersPersonGroupView(input: {
 	onExpandedChange: (expanded: boolean) => void;
 	onToggle: (profileId: string) => void;
 	selectedProfileIds: ReadonlySet<string>;
+	selectionScope?: "space" | "desk";
 }) {
 	const selectedAgentCount = input.group.agentCandidates.filter(
 		(candidate) =>
@@ -105,8 +109,12 @@ function SpaceAddMembersPersonGroupView(input: {
 			input.selectedProfileIds.has(candidate.profileId)
 	).length;
 	let humanDescription = resolvePersonActivityLabel(input.group.lastActiveAt);
-	if (input.group.humanAlreadyMember) {
-		humanDescription = "In this Space";
+	if (
+		input.group.humanAlreadyMember ||
+		input.group.humanCandidate?.alreadyMember
+	) {
+		humanDescription =
+			input.selectionScope === "desk" ? "On your Desk" : "In this Space";
 	} else if (input.includeAgentOwners && selectedAgentCount > 0) {
 		humanDescription = `Joins with ${selectedAgentCount === 1 ? "selected Agent" : `${String(selectedAgentCount)} selected Agents`}`;
 	}
@@ -180,6 +188,7 @@ function SpaceAddMembersPersonGroupView(input: {
 						candidates={input.group.agentCandidates}
 						onToggle={input.onToggle}
 						selectedProfileIds={input.selectedProfileIds}
+						selectionScope={input.selectionScope}
 					/>
 				</div>
 			) : null}
@@ -228,6 +237,7 @@ function SpaceAddMembersCandidateGroup(input: {
 	label?: string;
 	onToggle: (profileId: string) => void;
 	selectedProfileIds: ReadonlySet<string>;
+	selectionScope?: "space" | "desk";
 }) {
 	if (input.candidates.length === 0) {
 		return null;
@@ -235,13 +245,18 @@ function SpaceAddMembersCandidateGroup(input: {
 	const headingId = input.label
 		? `space-add-members-group-${input.label.toLowerCase()}`
 		: undefined;
+	let nextSelectableIndex = 0;
+	const rows = input.candidates.map((candidate) => ({
+		candidate,
+		selectableIndex: candidate.alreadyMember ? null : nextSelectableIndex++,
+	}));
 	const checkedIndices = new Set<number>();
-	for (const [index, candidate] of input.candidates.entries()) {
+	for (const row of rows) {
 		if (
-			candidate.alreadyMember ||
-			input.selectedProfileIds.has(candidate.profileId)
+			row.selectableIndex !== null &&
+			input.selectedProfileIds.has(row.candidate.profileId)
 		) {
-			checkedIndices.add(index);
+			checkedIndices.add(row.selectableIndex);
 		}
 	}
 
@@ -260,42 +275,82 @@ function SpaceAddMembersCandidateGroup(input: {
 				checkedIndices={checkedIndices}
 				className="w-full"
 			>
-				{input.candidates.map((candidate, index) => (
-					<CheckboxItem
-						adornment={
-							<SpaceProfileIcon
-								agentControllerRef={candidate.agentControllerRef ?? null}
-								avatarImageUrl={candidate.avatarImageUrl}
-								isCenterAgent={candidate.isCenterAgent}
-								profileId={candidate.profileId}
-								profileKind={candidate.profileKind}
-								profileName={candidate.profileName}
-							/>
-						}
-						checked={
-							candidate.alreadyMember ||
-							input.selectedProfileIds.has(candidate.profileId)
-						}
-						description={resolveAgentCandidateDescription(candidate)}
-						disabled={candidate.alreadyMember}
-						index={index}
-						key={candidate.profileId}
-						label={candidate.profileName}
-						labelAdornment={
-							candidate.isCenterAgent ? (
-								<Badge className="h-4 px-1.5 text-[10px]" variant="secondary">
-									Remote
-								</Badge>
-							) : (
-								<RemoteAgentIndicator
+				{rows.map(({ candidate, selectableIndex }) =>
+					selectableIndex === null ? (
+						<SpaceAlreadyAddedMemberRow
+							candidate={candidate}
+							key={candidate.profileId}
+							selectionScope={input.selectionScope}
+						/>
+					) : (
+						<CheckboxItem
+							adornment={
+								<SpaceProfileIcon
 									agentControllerRef={candidate.agentControllerRef ?? null}
+									avatarImageUrl={candidate.avatarImageUrl}
+									isCenterAgent={candidate.isCenterAgent}
+									profileId={candidate.profileId}
+									profileKind={candidate.profileKind}
+									profileName={candidate.profileName}
 								/>
-							)
-						}
-						onToggle={() => input.onToggle(candidate.profileId)}
-					/>
-				))}
+							}
+							checked={input.selectedProfileIds.has(candidate.profileId)}
+							description={resolveAgentCandidateDescription(candidate)}
+							index={selectableIndex}
+							key={candidate.profileId}
+							label={candidate.profileName}
+							labelAdornment={
+								<SpaceAddMembersCandidateAdornment candidate={candidate} />
+							}
+							onToggle={() => input.onToggle(candidate.profileId)}
+						/>
+					)
+				)}
 			</CheckboxGroup>
 		</div>
+	);
+}
+
+function SpaceAlreadyAddedMemberRow(input: {
+	candidate: SpaceAddMembersCandidateSummary;
+	selectionScope?: "space" | "desk";
+}) {
+	return (
+		<div className="relative z-10 flex min-h-11 items-start gap-2.5 px-3 py-1.5">
+			<span aria-hidden="true" className="h-[15px] w-[15px] shrink-0" />
+			<span className="mt-0.5 flex shrink-0">
+				<SpaceProfileIcon
+					agentControllerRef={input.candidate.agentControllerRef ?? null}
+					avatarImageUrl={input.candidate.avatarImageUrl}
+					isCenterAgent={input.candidate.isCenterAgent}
+					profileId={input.candidate.profileId}
+					profileKind={input.candidate.profileKind}
+					profileName={input.candidate.profileName}
+				/>
+			</span>
+			<span className="grid min-w-0 flex-1 gap-1">
+				<span className="flex min-w-0 items-center gap-1.5 text-[13px] text-muted-foreground">
+					<span className="truncate">{input.candidate.profileName}</span>
+					<SpaceAddMembersCandidateAdornment candidate={input.candidate} />
+				</span>
+				<span className="text-muted-foreground text-xs leading-5">
+					{input.selectionScope === "desk" ? "On your Desk" : "In this Space"}
+				</span>
+			</span>
+		</div>
+	);
+}
+
+function SpaceAddMembersCandidateAdornment(input: {
+	candidate: SpaceAddMembersCandidateSummary;
+}) {
+	return input.candidate.isCenterAgent ? (
+		<Badge className="h-4 px-1.5 text-[10px]" variant="secondary">
+			Remote
+		</Badge>
+	) : (
+		<RemoteAgentIndicator
+			agentControllerRef={input.candidate.agentControllerRef ?? null}
+		/>
 	);
 }

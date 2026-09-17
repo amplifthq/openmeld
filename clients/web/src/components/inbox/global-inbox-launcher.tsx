@@ -5,6 +5,7 @@ import { Button, buttonVariants } from "@openmeld/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
+	TooltipHint,
 	TooltipTrigger,
 } from "@openmeld/ui/components/tooltip";
 import { ScrollArea } from "@openmeld/ui/fluid/scroll-area";
@@ -13,6 +14,7 @@ import { cn } from "@openmeld/ui/lib/utils";
 import { ArrowsOutSimpleIcon, TrayIcon } from "@phosphor-icons/react";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
+import { resolveInboxIndicatorClassName } from "#/lib/inbox/attention";
 import { useOptionalAppOrganization } from "#/lib/organizations/organization-context";
 import { buildOrganizationInboxPath } from "#/lib/organizations/organization-routes";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
@@ -51,25 +53,35 @@ function OrganizationGlobalInboxLauncher(input: {
 
 	return (
 		<Popover.Root modal={false} onOpenChange={setOpen} open={open}>
-			<Popover.Trigger
-				render={
-					<Button
-						aria-label={`Open ${attention.label}`}
-						className={cn(
-							"pointer-events-auto min-w-0 border-0 bg-transparent px-2 text-muted-foreground shadow-none transition-colors duration-100 hover:bg-muted hover:text-foreground aria-expanded:bg-transparent motion-reduce:transition-none dark:bg-transparent dark:aria-expanded:bg-transparent dark:hover:bg-muted/50",
-							attention.tone &&
-								resolveStatusToneAttentionItemClassName(attention.tone)
-						)}
-						size="sm"
-						title={attention.label}
-						type="button"
-						variant="ghost"
-					/>
-				}
-			>
-				<TrayIcon aria-hidden="true" className="size-3.5" />
-				<span>Inbox</span>
-			</Popover.Trigger>
+			<TooltipHint content={attention.label}>
+				<Popover.Trigger
+					render={
+						<Button
+							aria-label={`Open ${attention.label}`}
+							className={cn(
+								"pointer-events-auto min-w-0 border-0 bg-transparent px-2 text-muted-foreground shadow-none transition-colors duration-100 hover:bg-muted hover:text-foreground aria-expanded:bg-transparent motion-reduce:transition-none dark:bg-transparent dark:aria-expanded:bg-transparent dark:hover:bg-muted/50",
+								attention.tone &&
+									resolveStatusToneAttentionItemClassName(attention.tone)
+							)}
+							size="sm"
+							type="button"
+							variant="ghost"
+						/>
+					}
+				>
+					<TrayIcon aria-hidden="true" className="size-3.5" />
+					<span>Inbox</span>
+					{attention.indicatorTone ? (
+						<span
+							aria-hidden="true"
+							className={cn(
+								"status-dot",
+								resolveInboxIndicatorClassName(attention.tone)
+							)}
+						/>
+					) : null}
+				</Popover.Trigger>
+			</TooltipHint>
 
 			<Popover.Portal>
 				<Popover.Positioner

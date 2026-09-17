@@ -57,6 +57,7 @@ import {
   normalizeOptionalText,
   warnDaemonEvent,
 } from "../local-service/core/logger";
+import { resolveCurrentDaemonExpectedVersion } from "../local-service/lifecycle/current-daemon-version";
 import {
   emitDaemonLifecycleEvent,
   runDaemonServiceManagerAction,
@@ -109,6 +110,7 @@ import {
 } from "../local-service/lifecycle/daemon-service-lifecycle";
 import {
   type DaemonServiceManager,
+  isDaemonServiceJobSpawnPending,
   resolveDaemonServiceManager,
 } from "../local-service/lifecycle/daemon-service-manager";
 import {
@@ -253,9 +255,11 @@ import {
   normalizeDaemonRunReason,
 } from "./service-run-result";
 import {
+  buildDaemonBackgroundStartFailure,
   buildSystemServiceStartupFailureDiagnostics,
   buildSystemServiceStartupFailureMessage,
   buildSystemServiceStartupFailureReport,
+  type DaemonBackgroundStartFailure,
   resolveSystemServiceStartupFailureVerdict,
   type SystemServiceStartupFailureVerdict,
   type SystemServiceStartupRecoveryOutcome,
@@ -353,6 +357,7 @@ const DAEMON_MENU_COMMANDS = [
 ] as const;
 
 type DaemonRunInput = DaemonBaseInput & {
+  accountAdmissionId?: string;
   deviceId?: string;
   heartbeatMs?: number;
   profile?: string;
@@ -546,7 +551,8 @@ export async function runDaemonInstall(
     code: "daemon.install.installing",
     text: "Installing OpenMeld Service...",
   });
-  const requestedVersion = options.daemonVersion ?? OPENMELD_VERSION;
+  const requestedVersion =
+    options.daemonVersion ?? (await resolveCurrentDaemonExpectedVersion());
   const downgradeBlock = await resolveDaemonDowngradeBlock({
     requestedVersion,
   });
@@ -867,7 +873,12 @@ export async function runDaemonReinstall(
           profile: input.profile,
           runtime,
           displayAction,
-          resolved: resolveDaemonReinstallOptions(options),
+          resolved: resolveDaemonReinstallOptions({
+            ...options,
+            daemonVersion:
+              options.daemonVersion ??
+              (await resolveCurrentDaemonExpectedVersion()),
+          }),
         });
         outcome = await attachDaemonReinstallEvidence({
           outcome,
@@ -1294,8 +1305,12 @@ async function runDaemonAfterReinstallStartWithRetry(input: {
         attempt < REINSTALL_START_RETRY_ATTEMPTS &&
         !(
           result.ok === false &&
-          result.startFailureVerdict?.localMachineIssue?.recoveryPolicy ===
-            "user_action"
+          (result.startFailureVerdict?.localMachineIssue?.recoveryPolicy ===
+            "user_action" ||
+            (result.startFailureVerdict?.jobDiagnostics &&
+              isDaemonServiceJobSpawnPending(
+                result.startFailureVerdict.jobDiagnostics
+              )))
         )
       ) {
         process.exitCode = previousExitCode;
@@ -1400,7 +1415,7 @@ function isDaemonInventoryRunningAndAligned(
 }
 
 function resolveDaemonReinstallOptions(
-  options: DaemonReinstallInternalOptions
+  options: DaemonReinstallInternalOptions & { daemonVersion: string }
 ): {
   drainWaitMs: number;
   daemonVersion: string;
@@ -1417,7 +1432,7 @@ function resolveDaemonReinstallOptions(
   resolveUpdateUrgency: typeof resolveServiceUpdateUrgency;
   scheduleServiceUpdate: typeof scheduleDaemonServiceUpdate;
 } {
-  const daemonVersion = options.daemonVersion ?? OPENMELD_VERSION;
+  const daemonVersion = options.daemonVersion;
   return {
     drainWaitMs: options.drainWaitMs ?? REINSTALL_DRAIN_WAIT_MS,
     daemonVersion,
@@ -2388,7 +2403,8 @@ async function runDaemonRunInteractivePreflightBeforeModePrompt(input: {
 }
 
 export async function runDaemonStop(
-  input: DaemonStopInput
+  input: DaemonStopInput,
+  internal: { completedControlledShutdownOwnerPid?: number } = {}
 ): Promise<SharedDaemonStopResult> {
   const runtime = await resolveRuntimeContext({
     view: input.view,
@@ -2419,6 +2435,8 @@ export async function runDaemonStop(
             await uninstallDaemonServiceUpdateWorker();
           }
           const stopped = await executeDaemonStopCommand({
+            completedControlledShutdownOwnerPid:
+              internal.completedControlledShutdownOwnerPid,
             force: input.force,
             presenter,
             profile: input.profile,
@@ -2564,12 +2582,15 @@ export async function runDaemonAutostart(
 }
 
 async function executeDaemonStopCommand(input: {
+  completedControlledShutdownOwnerPid?: number;
   force?: boolean;
   presenter: ReturnType<typeof createPresenter>;
   profile?: string;
   runtime: RuntimeContext;
 }): Promise<SharedDaemonStopResult> {
   const stopResult = await stopCurrentLaneDaemonService({
+    completedControlledShutdownOwnerPid:
+      input.completedControlledShutdownOwnerPid,
     force: input.force,
     mode: "interactive",
     runtime: input.runtime,
@@ -2756,7 +2777,7 @@ export async function runDaemonRun(
   if (!input.mode && canUseInteractivePrompts(runtime)) {
     const preflightResult =
       await runDaemonRunInteractivePreflightBeforeModePrompt({
-        daemonVersion: OPENMELD_VERSION,
+        daemonVersion: await resolveCurrentDaemonExpectedVersion(),
         input,
         presenter,
         runtime,
@@ -2788,7 +2809,10 @@ export async function runDaemonRun(
   }
 
   return await executeResolvedDaemonRun({
-    daemonVersion: OPENMELD_VERSION,
+    daemonVersion:
+      mode === "foreground"
+        ? OPENMELD_VERSION
+        : await resolveCurrentDaemonExpectedVersion(),
     input,
     mode,
     options,
@@ -2955,7 +2979,7 @@ export async function runDaemonBackgroundStartForDecision(input: {
   serviceProgress?: DaemonServiceProgressReporter;
   suppressStartSpinner?: boolean;
 }): Promise<
-  "started" | "failed_with_card" | "deferred_with_card" | "cancelled"
+  "started" | DaemonBackgroundStartFailure | "deferred_with_card" | "cancelled"
 > {
   const repairResult =
     await maybeRunDaemonRepairBeforeBackgroundStartDecision(input);
@@ -2985,13 +3009,19 @@ export async function runDaemonBackgroundStartForDecision(input: {
     process.exitCode = previousExitCode;
     return "cancelled";
   }
-  return "failed_with_card";
+  return buildDaemonBackgroundStartFailure(
+    result.ok ? null : (result.startFailureVerdict ?? null)
+  );
 }
 
 async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
   view?: string;
 }): Promise<
-  "started" | "failed_with_card" | "deferred_with_card" | "cancelled" | null
+  | "started"
+  | DaemonBackgroundStartFailure
+  | "deferred_with_card"
+  | "cancelled"
+  | null
 > {
   const runtime = await resolveRuntimeContext({
     view: input.view,
@@ -3007,7 +3037,7 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
   }
 
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: OPENMELD_VERSION,
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
     intendedMode: "background",
   }).catch(() => null);
   if (!(inventory && shouldBlockDaemonRunFromInventory(inventory))) {
@@ -3045,7 +3075,11 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
     if (reinstallResult.result === "cancelled") {
       return "cancelled";
     }
-    return "failed_with_card";
+    return buildDaemonBackgroundStartFailure(
+      "startFailureVerdict" in reinstallResult
+        ? (reinstallResult.startFailureVerdict ?? null)
+        : null
+    );
   } catch (error) {
     renderDaemonStartNeedsAttentionCard({
       presenter,
@@ -3053,7 +3087,10 @@ async function maybeRunDaemonRepairBeforeBackgroundStartDecision(input: {
       summary: buildDaemonReinstallUnexpectedStartSummary(error),
       nextStep: buildDaemonReinstallUnexpectedStartNextStep(),
     });
-    return "failed_with_card";
+    return {
+      outcome: "failed_with_card",
+      errorMessage: buildDaemonReinstallUnexpectedStartSummary(error),
+    };
   }
 }
 
@@ -4781,7 +4818,7 @@ type DaemonDetachedLaunchInput = Omit<DaemonRunInput, "profile"> & {
   mode: DaemonRunMode;
 };
 
-async function runDaemonServiceDetached(
+export async function runDaemonServiceDetached(
   input: DaemonDetachedLaunchInput
 ): Promise<DaemonRunResult> {
   const startFailureLogCursor = await captureDaemonStartFailureLogCursor();
@@ -4871,7 +4908,7 @@ type DetachedDaemonServiceLaunchTarget = {
 
 async function resolveDetachedDaemonServiceLaunchTarget(): Promise<DetachedDaemonServiceLaunchTarget> {
   const entryPath = await resolveAlignedDaemonActiveBundleEntryPath({
-    expectedVersion: OPENMELD_VERSION,
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
   });
   if (entryPath) {
     if (isBinaryDistribution()) {
@@ -4890,6 +4927,9 @@ function buildDetachedDaemonLaunchSpec(input: DaemonDetachedLaunchInput): {
 } {
   const detachedMode = input.mode === "background" ? "foreground" : input.mode;
   const sharedArgs = [
+    ...(input.accountAdmissionId
+      ? ["--account-admission-id", input.accountAdmissionId]
+      : []),
     ...(input.openMeldProfileId ? ["--profile", input.openMeldProfileId] : []),
     ...(input.deviceId ? ["--device-id", input.deviceId] : []),
     ...(typeof input.heartbeatMs === "number"

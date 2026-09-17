@@ -248,9 +248,10 @@ The stored definition includes:
 - `scheduleKind = once | cron`; a one-time Routine stores `runAtMs`, while a
   recurring Routine stores one five-field schedule expression and one explicit
   IANA `timezone`
-- `destinationKind = space | slack_thread`; a Space destination stores
+- `destinationKind = space | slack_thread | message_channel`; a Space destination stores
   `targetSpaceId`, while a Slack destination stores the durable team, channel,
-  thread, and OpenMeld conversation locators
+  thread, and OpenMeld conversation locators. A Message Channel destination stores
+  the typed Feishu/Lark connection, app, tenant, chat, root message, and thread locator.
 - a bounded structured `authorizedActions` grant for unattended capabilities
   that require more than free-text instructions; the default is no grants
 - `enabled`, `paused`, or terminal `completed` status
@@ -270,11 +271,17 @@ as `completed`, `failed`, or `skipped`.
 The destination is required and never server-selected. A Web or CLI caller must
 explicitly select a same-organization eligible Space. In an interactive Center
 Agent conversation, `current_conversation` explicitly selects the current
-OpenMeld Space or current Slack thread; Core never derives this from a later
+OpenMeld Space, current Slack thread, or current Feishu/Lark conversation; Core never derives this from a later
 message or a mutable channel name. A Slack destination freezes its team id,
 channel id, root thread timestamp, canonical conversation id, and a
 presentation-only label. A Center Agent DM may appear in the Core-owned
 eligible-target projection, but it is still selected explicitly.
+
+Feishu/Lark current-chat selection requires a Core-issued turn locator and its
+source Native Delivery, attributed to the same active member and Organization.
+The model cannot invent another chat as a Routine target. Connection ownership
+and readiness are rechecked at mutation and admission. Each Run snapshots the
+typed locator; definition edits never redirect an already claimed Run.
 
 One claimed Run must use its frozen destination snapshot for worker
 submission, successful result publication, failure publication, and recovery.
@@ -549,7 +556,8 @@ A Routine Run uses the Remote Agent native-delivery exception. It does not
 create a user Wake, enter RuntimeCoordinator, or fabricate a source Space
 message. The native delivery ledger links the delivery to `routineRunId` and
 records the frozen result surface: `conversationKind = "space"` for OpenMeld
-Space delivery or `conversationKind = "slack"` with the Slack thread locator.
+Space delivery, `conversationKind = "slack"` with the Slack thread locator, or
+`conversationKind = "message_channel"` with the frozen Feishu/Lark locator.
 Exactly one is the user-visible result surface.
 
 Each occurrence causes one initial Center Agent execution. It may also cause
@@ -621,7 +629,8 @@ the delegation without pretending that the member is currently speaking.
 `delegatedBy.ownerUserId` must equal `sender.createdByUserId`; a missing or
 different delegated identity is an invalid Routine envelope, not shared-only
 authority.
-The trigger also carries the Run's frozen Space or Slack-thread destination.
+The trigger also carries the Run's frozen Space, Slack-thread, or Feishu/Lark
+Message Channel destination.
 This is the only source for resolving `current_conversation` inside a Routine;
 the worker must not reinterpret a Slack conversation id as a Space id.
 The worker submit root keeps the designated Center Agent as `author` and sets

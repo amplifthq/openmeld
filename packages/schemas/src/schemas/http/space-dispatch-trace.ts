@@ -7,6 +7,7 @@ import {
   runtimeCoordinatorExecutionEventSchema,
   runtimeCoordinatorExecutionRecordSchema,
 } from "../daemon/runtime-coordinator-execution";
+import { serviceConnectionTraceDiagnosticsSchema } from "../daemon/service-connection-evidence";
 import { openMeldDaemonTaskResultProjectFailureContextSchema } from "../daemon/task-result";
 import {
   MAX_PROFILE_NAME_LENGTH,
@@ -952,6 +953,8 @@ export const spaceDispatchTraceResponseSchema = z
   .strictObject({
     correlation: observabilityWakeCorrelationSchema,
     query: spaceDispatchTraceQuerySchema,
+    serviceConnectionDiagnostics:
+      serviceConnectionTraceDiagnosticsSchema.optional(),
     remoteAgentRuntimeDiagnostics:
       remoteAgentWorkerRuntimeDiagnosticsResponseSchema.optional(),
     trace: z.union([spaceDispatchTraceSnapshotSchema, z.null()]),
@@ -2040,7 +2043,12 @@ function resolveRuntimeCoordinatorHeadLifecycleRootCause(
   };
 }
 
-function resolveRuntimeCoordinatorHeadStatusRootCause(status: string): string {
+export function resolveRuntimeCoordinatorHeadStatusRootCause(
+  status: string
+): string {
+  if (status === "queued") {
+    return "runtime_coordinator.head_queued";
+  }
   if (status === "accepted") {
     return "runtime_coordinator.head_accepted";
   }

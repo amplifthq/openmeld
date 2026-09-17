@@ -7,6 +7,11 @@ import {
 import type { AnyRouter } from "@tanstack/react-router";
 import { WEB_ERROR_BUILD } from "./application-error";
 import { WEB_PERFORMANCE_POLICY } from "./performance-policy";
+import {
+	beginSpaceOpen,
+	browserDiagnosticContext,
+	installSpaceOpenReporting,
+} from "./space-open";
 
 type Navigation = {
 	href: string;
@@ -103,7 +108,8 @@ export function installPerformanceReporting(router: AnyRouter): () => void {
 	let windowStart = performance.now();
 	let sent = 0;
 	const interactionIds = new Set<number>();
-	const pageSessionId = crypto.randomUUID();
+	const pageSessionId = browserDiagnosticContext().pageSessionId;
+	const spaceSent = { normal: 0, slow: 0, failure: 0, user: 0 };
 	const routeId = () => router.state.matches.at(-1)?.routeId ?? null;
 	const refreshPolicy = () => {
 		if (performance.now() - policyReadAt < 300_000) {
@@ -136,18 +142,29 @@ export function installPerformanceReporting(router: AnyRouter): () => void {
 		>,
 		targetRouteId: string | null = routeId()
 	) => {
-		if (!policy.enabled || document.visibilityState !== "visible") {
+		if (
+			!policy.enabled ||
+			(report.kind !== "space_open" && document.visibilityState !== "visible")
+		) {
 			return;
 		}
 		if (performance.now() - windowStart >= 3_600_000) {
 			windowStart = performance.now();
 			sent = 0;
+			for (const key of Object.keys(spaceSent) as (keyof typeof spaceSent)[]) {
+				spaceSent[key] = 0;
+			}
 			interactionIds.clear();
 		}
-		if (sent >= policy.maxReportsPerHour) {
+		const bucket = report.spaceOpen?.sampling;
+		if ((bucket ? spaceSent[bucket] : sent) >= policy.maxReportsPerHour) {
 			return;
 		}
-		sent++;
+		if (bucket) {
+			spaceSent[bucket]++;
+		} else {
+			sent++;
+		}
 		fetch(WEB_PERFORMANCE_PATH, {
 			method: "POST",
 			credentials: "omit",
@@ -204,8 +221,26 @@ export function installPerformanceReporting(router: AnyRouter): () => void {
 			nav.routeId
 		);
 	};
+	const disposeSpaceOpen = installSpaceOpenReporting(({ routeId, ...report }) =>
+		send(
+			{
+				...report,
+				kind: "space_open",
+				thresholdMs: policy.navigationThresholdMs,
+				loadMs: null,
+				longTaskCount: null,
+				longTaskTotalMs: null,
+				longestTaskMs: null,
+				requestCount: null,
+				longestRequestMs: null,
+				requestGroups: [],
+			},
+			routeId
+		)
+	);
 	const disposers = [
 		router.subscribe("onBeforeNavigate", (event) => {
+			beginSpaceOpen(event.toLocation.pathname, "navigation");
 			if (active) {
 				clearTimeout(active.timer);
 				reportNavigation(active, "superseded");
@@ -283,11 +318,11 @@ export function installPerformanceReporting(router: AnyRouter): () => void {
 			durationMs: entry.duration,
 			thresholdMs: policy.interactionThresholdMs,
 			loadMs: null,
-			longTaskCount: 0,
-			longTaskTotalMs: 0,
-			longestTaskMs: 0,
-			requestCount: 0,
-			longestRequestMs: 0,
+			longTaskCount: null,
+			longTaskTotalMs: null,
+			longestTaskMs: null,
+			requestCount: null,
+			longestRequestMs: null,
 			requestGroups: [],
 		});
 	};
@@ -315,6 +350,7 @@ export function installPerformanceReporting(router: AnyRouter): () => void {
 	}
 	refreshPolicy();
 	return () => {
+		disposeSpaceOpen();
 		for (const dispose of disposers) {
 			dispose();
 		}

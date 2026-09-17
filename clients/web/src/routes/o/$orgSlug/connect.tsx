@@ -1,4 +1,5 @@
 import { buttonVariants } from "@openmeld/ui/components/button";
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { ArrowLeftIcon } from "@phosphor-icons/react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMemo } from "react";
@@ -59,6 +60,14 @@ export function AppConnectContent(input: {
 	orgSlug: string;
 	search: ConnectRouteSearch;
 }) {
+	return <WebConnectContent {...input} />;
+}
+
+function WebConnectContent(input: {
+	initialOuterSidebarState?: SidebarPersistedState;
+	orgSlug: string;
+	search: ConnectRouteSearch;
+}) {
 	const { orgSlug, search } = input;
 	const isCreatingAgent = search.returnTo === "agent_creation";
 	const profileHomeRoutes = buildProfileHomeRoutes(orgSlug);
@@ -109,22 +118,26 @@ export function AppConnectContent(input: {
 				input.initialOuterSidebarState ?? APP_SIDEBAR_DEFAULT_STATES.outer
 			}
 		>
-			<Link
-				aria-label={isCreatingAgent ? "Back to creating Agent" : "Back"}
-				className={buttonVariants({
-					size: isCreatingAgent ? "sm" : "icon-sm",
-					variant: "ghost",
-				})}
-				title={
+			<TooltipHint
+				content={
 					search.returnTo === "agent_creation"
 						? "Back to creating Agent"
 						: "Back"
 				}
-				to={backTo}
 			>
-				<ArrowLeftIcon aria-hidden="true" />
-				{isCreatingAgent ? "Back to creating Agent" : null}
-			</Link>
+				<Link
+					aria-label={isCreatingAgent ? "Back to creating Agent" : "Back"}
+					className={buttonVariants({
+						className: "w-fit self-start justify-self-start",
+						size: isCreatingAgent ? "sm" : "icon-sm",
+						variant: "ghost",
+					})}
+					to={backTo}
+				>
+					<ArrowLeftIcon aria-hidden="true" />
+					{isCreatingAgent ? "Back to creating Agent" : null}
+				</Link>
+			</TooltipHint>
 			<BringAgentsSetupProvider routeIntent={routeIntent}>
 				<StartBringAgentsSetupPage
 					autoReturnOnCompletion={false}

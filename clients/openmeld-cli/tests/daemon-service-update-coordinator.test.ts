@@ -43,6 +43,34 @@ const PREPARED_BUNDLE = {
 };
 
 describe("daemon service background update coordinator", () => {
+  it("does not reinstall a completed update retained for setup continuation", async () => {
+    const pending: DaemonServiceUpdateJob = {
+      v: 2,
+      schema: "openmeld-daemon-service-update-job-v2",
+      attempts: 1,
+      desiredState: "background",
+      errorMessage: null,
+      jobId: "completed-update",
+      phase: "updated",
+      preparedBundle: PREPARED_BUNDLE,
+      requestedAt: "2026-09-12T00:00:00.000Z",
+      requestSource: "cli",
+      targetVersion: PREPARED_BUNDLE.daemonVersion,
+      updatedAt: "2026-09-12T00:00:10.000Z",
+      urgency: "available",
+    };
+    const runLifecycle = vi.fn();
+    const persistPendingJob = vi.fn();
+    await expect(
+      runPendingDaemonServiceUpdate({
+        readPendingJob: async () => pending,
+        runLifecycle,
+        persistPendingJob,
+      })
+    ).resolves.toEqual(pending);
+    expect(runLifecycle).not.toHaveBeenCalled();
+    expect(persistPendingJob).not.toHaveBeenCalled();
+  });
   it.each([
     "daemon.control.contract_mismatch",
     "daemon.control.endpoint_missing",

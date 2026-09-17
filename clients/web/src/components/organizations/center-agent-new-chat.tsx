@@ -2,15 +2,11 @@ import {
 	createCenterAgentApi,
 	toStructuredApiClientFailure,
 } from "@openmeld/api-client";
-import {
-	SPACE_FILE_MAX_SIZE_BYTES,
-	SPACE_MESSAGE_FILE_MAX_COUNT,
-} from "@openmeld/schemas";
-import { Button } from "@openmeld/ui/components/button";
-import { PlusIcon, XIcon } from "@phosphor-icons/react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
-import { useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import { useStartFlowState } from "#/components/app/start-flow-state";
 import { useSidebarPreferences } from "#/components/app/use-sidebar-preferences";
 import { CenterAgentDirectMessageIntro } from "#/components/spaces/center-agent-direct-message-intro";
@@ -19,9 +15,11 @@ import {
 	SpaceWindowHeader,
 } from "#/components/spaces/space-header";
 import type { SpaceView } from "#/components/spaces/space-view";
+import { useSpaceComposerFiles } from "#/components/spaces/use-space-composer-attachments";
 import { useComposerDraft } from "#/hooks/use-composer-draft";
 import {
 	type ComposerDraftScope,
+	readComposerDraft,
 	removeComposerDraft,
 } from "#/lib/composer-draft-storage";
 import { buildConnectComputerPath } from "#/lib/connect/connect-route";
@@ -43,6 +41,12 @@ import {
 import { CenterAgentOptimisticConversation } from "./center-agent-optimistic-conversation";
 import { ChatTitleEditor } from "./chat-title-editor";
 
+function clearSentDraft(scope: ComposerDraftScope, updatedAtMs: number) {
+	if (readComposerDraft(scope)?.updatedAtMs === updatedAtMs) {
+		removeComposerDraft(scope);
+	}
+}
+
 /** Opening this composer is local; only an intentional first send creates a chat. */
 export function CenterAgentNewChat({
 	group,
@@ -60,12 +64,25 @@ export function CenterAgentNewChat({
 		defaultHumanProfile?.openMeldProfileId ?? "",
 		organization.id
 	);
-	const message = useRef<ReturnType<
+	const [message, setMessage] = useState<ReturnType<
 		typeof createPendingCenterAgentMessage
 	> | null>(null);
+	const sending = useRef(false);
 	const [error, setError] = useState<string | null>(null);
-	const [files, setFiles] = useState<File[]>([]);
-	const fileInput = useRef<HTMLInputElement>(null);
+	const attachments = useSpaceComposerFiles({
+		organizationSlug: organization.slug,
+		profileId: defaultHumanProfile?.openMeldProfileId ?? storageScope ?? "",
+		spaceId: "new-chat-draft",
+		draftScope: storageScope,
+		deferUpload: true,
+	});
+	const mounted = useRef(true);
+	useEffect(() => {
+		mounted.current = true;
+		return () => {
+			mounted.current = false;
+		};
+	}, []);
 	const intentKey = `openmeld.chat-intent:${storageScope}:${organization.id}`;
 	const draftScope: ComposerDraftScope | null = storageScope
 		? {
@@ -82,17 +99,19 @@ export function CenterAgentNewChat({
 	const send = useMutation({
 		mutationFn: async (starterPrompt?: string) => {
 			const text = (starterPrompt ?? draft.content.text).trim();
-			if (!text && files.length === 0) {
+			if (!text && attachments.files.length === 0) {
 				return;
 			}
-			if (!sidebar.preferences || sidebar.disabled) {
-				throw new Error("Chat settings are still loading. Try again.");
-			}
 			const intent = readOrCreateChatIntent(sessionStorage, intentKey, text);
-			message.current = {
+			const intentValue = sessionStorage.getItem(intentKey);
+			setMessage({ ...intent.message, files: attachments.getSourceFiles() });
+			const fileDrafts = await attachments.readFileDrafts();
+			const pendingMessage = {
 				...intent.message,
-				...(files.length ? { files } : {}),
+				files: fileDrafts.map((draft) => draft.file),
+				fileDrafts,
 			};
+			setMessage(pendingMessage);
 			const api = createCenterAgentApi(
 				createOrganizationScopedWebOpenMeldApiFoundation({
 					organizationId: organization.id,
@@ -101,27 +120,39 @@ export function CenterAgentNewChat({
 			const session = await api.createSession({
 				creationId: intent.creationId,
 			});
-			const chats = sidebar.preferences.chats ?? EMPTY_CHAT_PREFERENCES;
-			await sidebar.saveAsync({
-				...sidebar.preferences,
-				chats: {
-					...chats,
-					titles: {
-						...chats.titles,
-						[session.spaceId]: (
-							titleDraft.content.text ||
-							text ||
-							files[0]?.name ||
-							"New chat"
-						).slice(0, 160),
-					},
-					groups: chats.groups.map((item) =>
-						item.id === group && !item.spaceIds.includes(session.spaceId)
-							? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
-							: item
-					),
-				},
-			});
+			if (!mounted.current) {
+				return;
+			}
+			sidebar
+				.updateAsync((preferences) => {
+					const chats = preferences.chats ?? EMPTY_CHAT_PREFERENCES;
+					return {
+						...preferences,
+						chats: {
+							...chats,
+							titles: {
+								...chats.titles,
+								[session.spaceId]: (
+									titleDraft.content.text ||
+									text ||
+									attachments.files[0]?.fileName ||
+									"New chat"
+								).slice(0, 160),
+							},
+							groups: chats.groups.map((item) =>
+								item.id === group && !item.spaceIds.includes(session.spaceId)
+									? { ...item, spaceIds: [...item.spaceIds, session.spaceId] }
+									: item
+							),
+						},
+					};
+				})
+				.catch((cause: unknown) => {
+					console.error("Could not name or group the new chat", cause);
+					toast.error(
+						"Your chat is open, but its name and group couldn't be saved. You can update them in the sidebar."
+					);
+				});
 			queryClient.setQueryData(
 				centerAgentDirectMessageSpaceProjectionQueryOptions({
 					enabled: true,
@@ -148,7 +179,7 @@ export function CenterAgentNewChat({
 					organizationSlug: organization.slug,
 					sessionId: session.spaceId,
 				},
-				message.current
+				pendingMessage
 			);
 			queryClient.invalidateQueries({
 				queryKey: [
@@ -166,13 +197,39 @@ export function CenterAgentNewChat({
 			});
 			// Navigation unmounts this composer; clearing React state would not persist.
 			if (draftScope) {
-				removeComposerDraft(draftScope);
-				removeComposerDraft({ ...draftScope, sessionId: "new-chat-title" });
+				clearSentDraft(draftScope, draft.record.updatedAtMs);
+				clearSentDraft(
+					{ ...draftScope, sessionId: "new-chat-title" },
+					titleDraft.record.updatedAtMs
+				);
 			}
-			sessionStorage.removeItem(intentKey);
+			if (sessionStorage.getItem(intentKey) === intentValue) {
+				sessionStorage.removeItem(intentKey);
+			}
 		},
 		onError: (cause) => setError(toStructuredApiClientFailure(cause).message),
 	});
+	const startSend = async (prompt?: string) => {
+		if (sending.current) {
+			return;
+		}
+		sending.current = true;
+		setError(null);
+		try {
+			await send.mutateAsync(prompt);
+		} catch {
+			/* The mutation reports the failure inline and retains the draft. */
+		} finally {
+			sending.current = false;
+		}
+	};
+	useLayoutEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(
+				() => attachments.files.length > 0 || send.isPending
+			),
+		[attachments.files.length, send.isPending]
+	);
 	return (
 		<div className="flex min-h-0 w-full flex-1 flex-col">
 			{error && (
@@ -181,67 +238,15 @@ export function CenterAgentNewChat({
 				</p>
 			)}
 			<CenterAgentOptimisticConversation
-				composerAccessory={
-					<div className="flex flex-wrap items-center gap-1">
-						<input
-							aria-label="Choose files to send"
-							className="hidden"
-							multiple
-							onChange={(event) => {
-								const selected = Array.from(event.target.files ?? []);
-								if (
-									files.length + selected.length >
-										SPACE_MESSAGE_FILE_MAX_COUNT ||
-									selected.some((file) => file.size > SPACE_FILE_MAX_SIZE_BYTES)
-								) {
-									setError(
-										`Choose up to ${SPACE_MESSAGE_FILE_MAX_COUNT} files, each 10 MiB or smaller.`
-									);
-								} else {
-									setFiles((current) => [...current, ...selected]);
-									setError(null);
-								}
-								event.target.value = "";
-							}}
-							ref={fileInput}
-							type="file"
-						/>
-						<Button
-							aria-label="Add files"
-							disabled={send.isPending}
-							onClick={() => fileInput.current?.click()}
-							size="icon-sm"
-							variant="ghost"
-						>
-							<PlusIcon />
-						</Button>
-						{files.map((file, index) => (
-							<Button
-								aria-label={`Remove ${file.name}`}
-								disabled={send.isPending}
-								key={`${file.name}:${file.lastModified}:${index}`}
-								onClick={() =>
-									setFiles((current) =>
-										current.filter((_, position) => position !== index)
-									)
-								}
-								size="sm"
-								variant="ghost"
-							>
-								<span className="max-w-36 truncate">{file.name}</span>
-								<XIcon className="size-3" />
-							</Button>
-						))}
-					</div>
-				}
-				composerText={draft.content.text}
+				attachments={attachments}
+				composerText={send.isPending ? "" : draft.content.text}
 				empty
 				emptyContent={
 					view === "messages" ? (
 						<CenterAgentDirectMessageIntro
 							disabled={send.isPending}
 							isPersonalContext={organization.isPersonal === true}
-							onSelectStarterAction={(prompt) => send.mutateAsync(prompt)}
+							onSelectStarterAction={startSend}
 							onStartComputerSetup={() => {
 								navigate({
 									to: buildConnectComputerPath({
@@ -261,7 +266,6 @@ export function CenterAgentNewChat({
 						</div>
 					)
 				}
-				hasAttachments={files.length > 0}
 				header={
 					<SpaceWindowHeader
 						actions={
@@ -271,7 +275,7 @@ export function CenterAgentNewChat({
 						navigation={
 							<CenterAgentHeaderTabs
 								activeSectionId="chat"
-								activeSpaceView={view}
+								activeSpaceView={view === "tasks" ? "messages" : view}
 								idPrefix="new-chat-view"
 								onSpaceViewChange={(nextView) => {
 									navigate({
@@ -302,17 +306,21 @@ export function CenterAgentNewChat({
 				}
 				onComposerChange={(text) => {
 					if (!send.isPending) {
-						message.current = null;
+						setMessage(null);
 						draft.setContent((current) => ({ ...current, text }));
 					}
 				}}
 				onSend={() => {
-					if (!send.isPending && (draft.content.text.trim() || files.length)) {
+					if (
+						!send.isPending &&
+						(draft.content.text.trim() || attachments.files.length)
+					) {
 						setError(null);
-						send.mutate();
+						startSend();
 					}
 				}}
-				pendingMessage={send.isPending ? message.current : null}
+				pendingMessage={send.isPending ? message : null}
+				selfProfile={defaultHumanProfile}
 			/>
 		</div>
 	);

@@ -51,7 +51,9 @@ export function SpaceWakeStopScope(input: {
 			{input.children}
 			{selection ? (
 				<SpaceWakeStopDialog
-					onClose={() => setSelection(null)}
+					onClose={() =>
+						setSelection((current) => (current === selection ? null : current))
+					}
 					progressItems={input.progressItems ?? []}
 					selection={selection}
 					stopRequestStatusBySelectorKey={input.stopRequestStatusBySelectorKey}
@@ -186,14 +188,7 @@ function SpaceWakeStopDialog(input: {
 		}
 	};
 	return (
-		<Dialog
-			onOpenChange={(open) => {
-				if (pendingSelectorKeys.size === 0) {
-					setOpen(open);
-				}
-			}}
-			open={true}
-		>
+		<Dialog onOpenChange={setOpen} open={true}>
 			<DialogContent>
 				{dialogTargets.length > 1 ? (
 					<MultiTargetWakeStopDialog
@@ -460,18 +455,21 @@ function SingleTargetWakeStopDialog(input: {
 		pendingSelectorKeys: input.pendingSelectorKeys,
 		target: input.target,
 	});
-	const description = input.target.isWaitingForDevice
+	const description = input.target.isWaitingToStart
 		? `Cancel this waiting task for ${targetLabel}. If it has just started, OpenMeld will request a stop instead.`
 		: `OpenMeld will stop this Wake for ${targetLabel}. If the agent has already started, confirmation may take a moment.`;
-	const actionLabel = input.target.isWaitingForDevice
+	const actionLabel = input.target.isWaitingToStart
 		? "Cancel waiting"
 		: "Stop Wake";
+	const dismissLabel = input.target.isWaitingToStart
+		? "Keep waiting"
+		: "Keep Running";
 
 	return (
 		<>
 			<DialogHeader>
 				<DialogTitle>
-					{input.target.isWaitingForDevice
+					{input.target.isWaitingToStart
 						? "Cancel waiting?"
 						: "Stop this Wake?"}
 				</DialogTitle>
@@ -484,7 +482,9 @@ function SingleTargetWakeStopDialog(input: {
 			) : null}
 			<DialogFooter>
 				<DialogClose render={<Button type="button" variant="outline" />}>
-					{input.target.isWaitingForDevice ? "Keep waiting" : "Keep Running"}
+					{isPending || input.target.status === "stopping"
+						? "Close"
+						: dismissLabel}
 				</DialogClose>
 				<Button
 					disabled={isPending || !input.target.canStop}
@@ -596,7 +596,7 @@ function MultiTargetWakeStopDialog(input: {
 			) : null}
 			<DialogFooter>
 				<DialogClose render={<Button type="button" variant="outline" />}>
-					Keep Running
+					Close
 				</DialogClose>
 				{canStopTargets.length > 1 ? (
 					<Button
@@ -700,7 +700,7 @@ function resolveWakeStopControlLabel(input: {
 }): string {
 	if (
 		input.targets.length === 1 &&
-		input.targets[0]?.isWaitingForDevice &&
+		input.targets[0]?.isWaitingToStart &&
 		input.status === "active"
 	) {
 		return `Cancel waiting for ${input.targetLabel}`;
@@ -747,7 +747,7 @@ function resolveWakeStopButtonText(input: {
 	if (input.targets.some((target) => target.status === "retry_later")) {
 		return "Retry Stop";
 	}
-	if (input.targets.length === 1 && input.targets[0]?.isWaitingForDevice) {
+	if (input.targets.length === 1 && input.targets[0]?.isWaitingToStart) {
 		return "Cancel waiting";
 	}
 	return "Stop";

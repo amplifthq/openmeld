@@ -10,13 +10,13 @@ import type {
   RemoteAgentStorage,
 } from "../agent-core/callback-context";
 import type { RemoteAgentExternalToolEnv } from "../agent-core/external-tools";
-import type { RemoteAgentConnectorExecutionConfig } from "../agent-core/github-tools";
 import type { RemoteAgentImagePreparer } from "../agent-core/image-understanding";
 import {
   getPersonalRemoteAgentTools,
   isPersonalRemoteAgentProductTool,
 } from "../agent-core/personal-remote-agent-tools";
 import type { RemoteAgentToolDefinition } from "../agent-core/tool-definition";
+import { resolveRemoteAgentToolCallLimit } from "../agent-core/tool-progress";
 import {
   getRemoteAgentOpenMeldToolDefinitions,
   type RemoteAgentComputerFileHandoff,
@@ -24,6 +24,7 @@ import {
   type RemoteAgentMemberProfileReportComputerFiles,
 } from "../agent-core/tools";
 import { recordRemoteAgentTurnObservabilityBestEffort } from "../agent-core/turn-observability";
+import type { ConnectorExecutionConfig } from "../connectors/open-connector-runtime";
 import { createRemoteAgentCapabilityDiscoveryDefinitions } from "./capability-discovery";
 import {
   createRemoteAgentCodeModeFlueTool,
@@ -35,12 +36,14 @@ import {
 } from "./tool-execution";
 
 export async function getRemoteAgentFlueTools(input: {
+  callLimit?: number;
+  replyRecovery?: boolean;
   personalAgent?: boolean;
   sharedSpaceContextEnabled?: boolean;
   agentActivityReadEnabled?: boolean;
   codeModeRuntime?: RemoteAgentCodeModeRuntime;
   computerFileHandoff?: RemoteAgentComputerFileHandoff;
-  connectorExecution?: RemoteAgentConnectorExecutionConfig;
+  connectorExecution?: ConnectorExecutionConfig;
   coreWorker: RemoteAgentCoreWorkerBinding;
   env?: RemoteAgentExternalToolEnv;
   feedbackSubmission?: RemoteAgentFeedbackSubmissionConfig;
@@ -53,6 +56,12 @@ export async function getRemoteAgentFlueTools(input: {
   submissionId: string;
   turnEnvelope?: RemoteAgentTurnEnvelope | null;
 }) {
+  if (input.replyRecovery) {
+    return [];
+  }
+  const callLimit =
+    input.callLimit ??
+    resolveRemoteAgentToolCallLimit(input.env?.REMOTE_AGENT_TOOL_CALL_LIMIT);
   const unverifiedMember =
     input.turnEnvelope?.sender.kind === "member" &&
     !input.turnEnvelope.sender.verified;
@@ -110,6 +119,7 @@ export async function getRemoteAgentFlueTools(input: {
   const directTools = [...definitions, ...capabilityDiscoveryDefinitions].map(
     (definition) =>
       toFlueTool({
+        callLimit,
         definition,
         storage: input.storage,
         submissionId: input.submissionId,
@@ -119,6 +129,7 @@ export async function getRemoteAgentFlueTools(input: {
     throw new Error("Remote Agent Code Mode Worker Loader is unavailable.");
   }
   const codeModeTool = await createRemoteAgentCodeModeFlueTool({
+    callLimit,
     coreWorker: input.coreWorker,
     definitions,
     env: input.env,
@@ -131,6 +142,7 @@ export async function getRemoteAgentFlueTools(input: {
 }
 
 function toFlueTool(input: {
+  callLimit?: number;
   definition: RemoteAgentToolDefinition;
   storage: RemoteAgentStorage;
   submissionId: string;
@@ -145,6 +157,7 @@ function toFlueTool(input: {
         output: toBoundedRemoteAgentToolResult({
           toolName: definition.name,
           value: await executeRemoteAgentToolDefinition({
+            callLimit: input.callLimit,
             definition,
             signal,
             source: "direct",

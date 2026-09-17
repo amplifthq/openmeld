@@ -1,3 +1,4 @@
+import { TooltipHint } from "@openmeld/ui/components/tooltip";
 import { cn } from "@openmeld/ui/lib/utils";
 
 const GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
@@ -12,26 +13,30 @@ export function CenterTruncatedText(input: {
 	const [start, end] = splitTextAtCenter(input.text);
 
 	return (
-		<span
-			className={cn("flex min-w-0 max-w-full overflow-hidden", input.className)}
-			data-slot="center-truncated-text"
-			title={input.title}
-		>
+		<TooltipHint content={input.title}>
 			<span
-				className="min-w-0 shrink overflow-hidden text-ellipsis whitespace-pre"
-				data-slot="center-truncated-text-start"
+				className={cn(
+					"flex min-w-0 max-w-full overflow-hidden",
+					input.className
+				)}
+				data-slot="center-truncated-text"
 			>
-				{start}
+				<span
+					className="min-w-0 shrink overflow-hidden text-ellipsis whitespace-pre"
+					data-slot="center-truncated-text-start"
+				>
+					{start}
+				</span>
+				<span
+					className="min-w-0 shrink overflow-hidden whitespace-pre text-right [direction:rtl]"
+					data-slot="center-truncated-text-end"
+				>
+					<bdi className="inline-block min-w-max" dir="ltr">
+						{end}
+					</bdi>
+				</span>
 			</span>
-			<span
-				className="min-w-0 shrink overflow-hidden whitespace-pre text-right [direction:rtl]"
-				data-slot="center-truncated-text-end"
-			>
-				<bdi className="inline-block min-w-max" dir="ltr">
-					{end}
-				</bdi>
-			</span>
-		</span>
+		</TooltipHint>
 	);
 }
 

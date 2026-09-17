@@ -191,8 +191,22 @@ export const normalizedMessageChannelCardActionEventSchema = z.strictObject({
   senderId: providerIdSchema,
   ...messageChannelConversationEventShape,
   actionName: nonEmptyStringSchema.max(128),
-  actionValue: nonEmptyStringSchema.max(2000).nullable(),
+  actionValue: nonEmptyStringSchema.max(8192).nullable(),
 });
+
+export const messageChannelCardControlSchema = z.discriminatedUnion("action", [
+  z.strictObject({
+    v: z.literal(1),
+    action: z.literal("stop"),
+    deliveryId: providerIdSchema,
+  }),
+  z.strictObject({
+    v: z.literal(1),
+    action: z.literal("reply"),
+    deliveryId: providerIdSchema,
+    text: z.string().trim().min(1).max(1000),
+  }),
+]);
 
 export const normalizedMessageChannelBotAddedEventSchema = z.strictObject({
   kind: z.literal("bot_added"),

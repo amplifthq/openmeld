@@ -1,8 +1,9 @@
+import { AGENT_PROFILE_WORK_CONCURRENCY_LIMIT } from "@openmeld/agent-runtime";
 import {
   createLocalExecutionSlots,
   type LocalExecutionSlotDropEvent,
 } from "@openmeld/local-service";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 type LocalExecutionSlots = ReturnType<typeof createLocalExecutionSlots>;
 type LocalExecutionSlotTaskInput = Omit<
@@ -40,6 +41,69 @@ function requestTask(
 }
 
 describe("local execution slots", () => {
+  it("runs five independent contexts, holds their slots until native completion, and queues conflicting local work", async () => {
+    const started: string[] = [];
+    const queue = createLocalExecutionSlots({
+      limits: {
+        globalConcurrency: 8,
+        contextConcurrency: AGENT_PROFILE_WORK_CONCURRENCY_LIMIT,
+        queueMax: 50,
+      },
+      onTaskStarted: (event) => {
+        started.push(event.taskId);
+      },
+    });
+    const completions = [
+      createDeferred(),
+      createDeferred(),
+      createDeferred(),
+      createDeferred(),
+      createDeferred(),
+      createDeferred(),
+      createDeferred(),
+    ] as const;
+    for (const [index, completion] of completions.entries()) {
+      requestTask(queue, {
+        adapterId: "codex",
+        controllerKey: "builtin:codex",
+        dispatchId: `dispatch-${index}`,
+        attemptId: `attempt-${index}`,
+        profileId: "profile-1",
+        spaceId: "space-1",
+        taskId: `task-${index}`,
+        targetLabel: "@agent",
+        transportMode: "codex-app-server",
+        localExecutionLaneKey: `context-${index}`,
+        resourceScope: index === 6 ? "exclusive" : "isolated",
+        run: async () => {
+          await completion.promise;
+          return undefined;
+        },
+      });
+    }
+    expect(started).toEqual(["task-0", "task-1", "task-2", "task-3", "task-4"]);
+    completions[1].resolve();
+    await vi.waitFor(() =>
+      expect(started).toEqual([
+        "task-0",
+        "task-1",
+        "task-2",
+        "task-3",
+        "task-4",
+        "task-5",
+      ])
+    );
+    completions[0].resolve();
+    completions[2].resolve();
+    completions[3].resolve();
+    completions[4].resolve();
+    await Promise.resolve();
+    expect(started).not.toContain("task-6");
+    completions[5].resolve();
+    await vi.waitFor(() => expect(started).toContain("task-6"));
+    completions[6].resolve();
+    await queue.drain();
+  });
   it("runs an agent controller operation only while that adapter is idle", async () => {
     const queue = createLocalExecutionSlots({
       limits: {

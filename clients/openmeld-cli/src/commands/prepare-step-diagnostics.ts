@@ -339,7 +339,7 @@ async function collectDiagnosticsSource<T>(input: {
 
 async function readInventoryAnomalyCodes(): Promise<string[]> {
   const inventory = await inspectDaemonServiceInventory({
-    expectedVersion: resolveCurrentDaemonExpectedVersion(),
+    expectedVersion: await resolveCurrentDaemonExpectedVersion(),
   });
   return inventory.anomalies.map((anomaly) => anomaly.code);
 }

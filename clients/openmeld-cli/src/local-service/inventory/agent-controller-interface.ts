@@ -47,6 +47,7 @@ import {
   resolveAgentControllerCommandFingerprint,
 } from "./agent-controller-interface-keeper";
 import { probeOpenCodeReadiness } from "./opencode-readiness-probe";
+import { withProbeWorkingDirectory } from "./probe-working-directory";
 import { resolveLaunchContractCommandPath } from "./runtime-provider-usage-limits";
 
 const PROBE_TIMEOUT_MS = 8000;
@@ -69,10 +70,15 @@ type AgentControllerInterfaceProbeOutcome = {
   snapshot: AgentControllerInterfaceSnapshot;
 };
 
-type AgentControllerInterfaceSnapshotResolver = (input: {
+type InventoryProbeInput = {
   baseSnapshot: AgentControllerInterfaceSnapshot;
   launchContract: RuntimeAgentControllerLaunchContract;
-}) => Promise<AgentControllerInterfaceProbeOutcome>;
+  workingDirectory: string;
+};
+
+type AgentControllerInterfaceSnapshotResolver = (
+  input: InventoryProbeInput
+) => Promise<AgentControllerInterfaceProbeOutcome>;
 
 const CONTROLLER_INTERFACE_SNAPSHOT_RESOLVERS: Record<
   string,
@@ -96,11 +102,14 @@ export async function probeAgentControllerUsageObservationAuth(input: {
   // Claude's passive SDK rate-limit event carries no stable account identity.
   // Reuse its native, non-task ACI auth command solely to bind the observation;
   // the auth snapshot never becomes part of a Usage Limit item.
-  const authProbe = await runLaunchContractCommand({
-    allowNonZeroExit: true,
-    args: ["auth", "status"],
-    launchContract: input.launchContract,
-  });
+  const authProbe = await withProbeWorkingDirectory((workingDirectory) =>
+    runLaunchContractCommand({
+      workingDirectory,
+      allowNonZeroExit: true,
+      args: ["auth", "status"],
+      launchContract: input.launchContract,
+    })
+  );
   return resolveClaudeAuthSnapshot(authProbe);
 }
 
@@ -192,10 +201,14 @@ export async function resolveAgentControllerInterfaceSnapshot(input: {
     }
   }
 
-  const outcome = await snapshotResolver({
-    baseSnapshot,
-    launchContract: input.state.launchContract,
-  });
+  const launchContract = input.state.launchContract;
+  const outcome = await withProbeWorkingDirectory((workingDirectory) =>
+    snapshotResolver({
+      baseSnapshot,
+      launchContract,
+      workingDirectory,
+    })
+  );
   const commandFingerprintAfterProbe =
     await resolveAgentControllerCommandFingerprint({
       commandPath,
@@ -545,11 +558,13 @@ function parseSemverCore(value: string): [number, number, number] | null {
   return [Number(major), Number(minor), Number(patch)];
 }
 
-async function resolveCodexInterfaceSnapshot(input: {
-  baseSnapshot: AgentControllerInterfaceSnapshot;
-  launchContract: RuntimeAgentControllerLaunchContract;
-}): Promise<AgentControllerInterfaceProbeOutcome> {
-  const appServerProbe = await probeCodexAppServer(input.launchContract);
+async function resolveCodexInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
+  const appServerProbe = await probeCodexAppServer(
+    input.launchContract,
+    input.workingDirectory
+  );
   if (appServerProbe.ok) {
     const version = appServerProbe.version ?? input.baseSnapshot.version;
     return {
@@ -574,6 +589,7 @@ async function resolveCodexInterfaceSnapshot(input: {
   }
 
   const versionProbe = await runLaunchContractCommand({
+    workingDirectory: input.workingDirectory,
     args: ["--version"],
     launchContract: input.launchContract,
   });
@@ -600,16 +616,17 @@ async function resolveCodexInterfaceSnapshot(input: {
   };
 }
 
-async function resolveClaudeCodeInterfaceSnapshot(input: {
-  baseSnapshot: AgentControllerInterfaceSnapshot;
-  launchContract: RuntimeAgentControllerLaunchContract;
-}): Promise<AgentControllerInterfaceProbeOutcome> {
+async function resolveClaudeCodeInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
   const [versionProbe, authProbe] = await Promise.all([
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       args: ["--version"],
       launchContract: input.launchContract,
     }),
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       allowNonZeroExit: true,
       args: ["auth", "status", "--json"],
       launchContract: input.launchContract,
@@ -646,16 +663,17 @@ async function resolveClaudeCodeInterfaceSnapshot(input: {
   };
 }
 
-async function resolveCursorInterfaceSnapshot(input: {
-  baseSnapshot: AgentControllerInterfaceSnapshot;
-  launchContract: RuntimeAgentControllerLaunchContract;
-}): Promise<AgentControllerInterfaceProbeOutcome> {
+async function resolveCursorInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
   const [versionProbe, authProbe] = await Promise.all([
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       args: ["--version"],
       launchContract: input.launchContract,
     }),
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       allowNonZeroExit: true,
       args: ["status", "--format", "json"],
       launchContract: input.launchContract,
@@ -690,18 +708,18 @@ async function resolveCursorInterfaceSnapshot(input: {
   };
 }
 
-async function resolveGrokBuildInterfaceSnapshot(input: {
-  baseSnapshot: AgentControllerInterfaceSnapshot;
-  launchContract: RuntimeAgentControllerLaunchContract;
-}): Promise<AgentControllerInterfaceProbeOutcome> {
+async function resolveGrokBuildInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
   const [versionProbe, interfaceProbe] = await Promise.all([
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       args: ["--no-auto-update", "version"],
       launchContract: input.launchContract,
     }),
     probeGrokBuildAcpInterface({
       grokBuildTimeoutMs: PROBE_TIMEOUT_MS,
-      grokBuildWorkdir: process.cwd(),
+      grokBuildWorkdir: input.workingDirectory,
       launchContract: input.launchContract,
     }).then(
       (result) => ({ ok: true as const, result }),
@@ -760,16 +778,17 @@ async function resolveGrokBuildInterfaceSnapshot(input: {
   };
 }
 
-async function resolveOpenClawInterfaceSnapshot(input: {
-  baseSnapshot: AgentControllerInterfaceSnapshot;
-  launchContract: RuntimeAgentControllerLaunchContract;
-}): Promise<AgentControllerInterfaceProbeOutcome> {
+async function resolveOpenClawInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
   const [versionProbe, authProbe] = await Promise.all([
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       args: ["--version"],
       launchContract: input.launchContract,
     }),
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       allowNonZeroExit: true,
       args: ["models", "status", "--check", "--json"],
       launchContract: input.launchContract,
@@ -806,16 +825,17 @@ async function resolveOpenClawInterfaceSnapshot(input: {
   };
 }
 
-async function resolveOpenCodeInterfaceSnapshot(input: {
-  baseSnapshot: AgentControllerInterfaceSnapshot;
-  launchContract: RuntimeAgentControllerLaunchContract;
-}): Promise<AgentControllerInterfaceProbeOutcome> {
+async function resolveOpenCodeInterfaceSnapshot(
+  input: InventoryProbeInput
+): Promise<AgentControllerInterfaceProbeOutcome> {
   const [versionProbe, readinessProbe] = await Promise.all([
     runLaunchContractCommand({
+      workingDirectory: input.workingDirectory,
       args: ["--version"],
       launchContract: input.launchContract,
     }),
     probeOpenCodeReadiness({
+      workingDirectory: input.workingDirectory,
       launchContract: input.launchContract,
       timeoutMs: PROBE_TIMEOUT_MS,
     }),
@@ -860,6 +880,7 @@ type CommandProbeResult =
     };
 
 function runLaunchContractCommand(input: {
+  workingDirectory: string;
   allowNonZeroExit?: boolean;
   args: string[];
   launchContract: RuntimeAgentControllerLaunchContract;
@@ -870,6 +891,7 @@ function runLaunchContractCommand(input: {
     launchContract: input.launchContract,
   });
   return runCommand({
+    workingDirectory: input.workingDirectory,
     allowNonZeroExit: input.allowNonZeroExit,
     args: invocation.args,
     bin: invocation.bin,
@@ -879,6 +901,7 @@ function runLaunchContractCommand(input: {
 }
 
 function runCommand(input: {
+  workingDirectory: string;
   allowNonZeroExit?: boolean;
   args: string[];
   bin: string;
@@ -887,7 +910,7 @@ function runCommand(input: {
 }): Promise<CommandProbeResult> {
   return new Promise((resolve) => {
     const child = spawn(input.bin, input.args, {
-      cwd: process.cwd(),
+      cwd: input.workingDirectory,
       env: process.env,
       shell: input.shell ?? false,
       stdio: ["ignore", "pipe", "pipe"],
@@ -984,7 +1007,8 @@ type CodexAppServerProbeResult =
     };
 
 function probeCodexAppServer(
-  launchContract: RuntimeAgentControllerLaunchContract
+  launchContract: RuntimeAgentControllerLaunchContract,
+  workingDirectory: string
 ): Promise<CodexAppServerProbeResult> {
   const invocation = buildCliLaunchInvocation({
     args: ["app-server", "--listen", "stdio://"],
@@ -993,7 +1017,7 @@ function probeCodexAppServer(
 
   return new Promise((resolve) => {
     const child = spawn(invocation.bin, invocation.args, {
-      cwd: process.cwd(),
+      cwd: workingDirectory,
       env: process.env,
       shell: invocation.shell ?? false,
       stdio: ["pipe", "pipe", "pipe"],
@@ -1093,6 +1117,7 @@ function probeCodexAppServer(
     });
 
     runCodexAppServerProbeRequests({
+      workingDirectory,
       clearProbeTimeout: () => {
         clearTimeout(timeout);
       },
@@ -1110,6 +1135,7 @@ function probeCodexAppServer(
 }
 
 async function runCodexAppServerProbeRequests(input: {
+  workingDirectory: string;
   clearProbeTimeout: () => void;
   finish: (result: CodexAppServerProbeResult) => void;
   notify: (method: string, params: unknown) => void;
@@ -1125,7 +1151,7 @@ async function runCodexAppServerProbeRequests(input: {
   input.notify("initialized", {});
   // Fire auxiliary inventory first so it overlaps the account read.
   const skillsPromise = input
-    .request("skills/list", { cwds: [process.cwd()] })
+    .request("skills/list", { cwds: [input.workingDirectory] })
     .catch(() => null);
   const modelsPromise = requestAllCodexModels(input.request).catch(() => []);
   const usageLimitsPromise = input

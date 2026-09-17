@@ -24,7 +24,10 @@
     "fix": "biome check --write --no-errors-on-unmatched ./"
   },
   "dependencies": {
-    "@openmeld/schemas": "workspace:*"
+    "@openmeld/schemas": "workspace:*",
+    "mdast-util-from-markdown": "^2.0.3",
+    "mdast-util-gfm": "^3.1.0",
+    "micromark-extension-gfm": "^3.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",

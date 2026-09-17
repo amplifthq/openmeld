@@ -806,6 +806,7 @@ describe("cli --json output envelope contract", () => {
       "daemon.uninstall",
       "daemon.reinstall",
       "daemon.status",
+      "service.control_capabilities",
       "daemon.stop",
       "daemon.autostart",
       "agents.detect",

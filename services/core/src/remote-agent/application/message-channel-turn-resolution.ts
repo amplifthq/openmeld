@@ -264,6 +264,10 @@ export function buildMessageChannelTurnEnvelope(input: {
     RemoteAgentTurnEnvelope["trigger"],
     { source: "message_channel" }
   >["resources"];
+  routineLocator?: Extract<
+    RemoteAgentTurnEnvelope["trigger"],
+    { source: "message_channel" }
+  >["routineLocator"];
   isDirectMessage: boolean;
   participant: MessageChannelTurnParticipant;
   provider: LarkPlatformMessageChannelProvider;
@@ -343,6 +347,7 @@ export function buildMessageChannelTurnEnvelope(input: {
     },
     trigger: {
       source: "message_channel",
+      ...(input.routineLocator ? { routineLocator: input.routineLocator } : {}),
       provider: input.provider,
       connectionId: input.connectionId,
       conversationId: input.conversationId,

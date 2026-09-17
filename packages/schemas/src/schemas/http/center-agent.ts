@@ -204,6 +204,7 @@ export const centerAgentConnectorActionAuditOutcomeSchema = z.enum([
 ]);
 
 export const centerAgentRecordConnectorActionAuditBodySchema = z.strictObject({
+  connectionName: connectorConnectionNameSchema.optional(),
   actionId: trimmedNonEmptyStringSchema.max(160),
   operationId: trimmedNonEmptyStringSchema.max(256),
   outcome: centerAgentConnectorActionAuditOutcomeSchema,
@@ -296,6 +297,7 @@ export const centerAgentReadConnectorActionOperationResponseSchema =
 export const centerAgentRecordConnectorActionOperationBodySchema = z
   .strictObject({
     actionId: trimmedNonEmptyStringSchema.max(160),
+    effect: z.enum(["read", "write", "destructive", "unspecified"]).optional(),
     connectionName: connectorConnectionNameSchema,
     operationId: trimmedNonEmptyStringSchema.max(256),
     outcome: centerAgentConnectorActionAuditOutcomeSchema,

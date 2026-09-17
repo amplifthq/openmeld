@@ -86,7 +86,6 @@ export async function runDaemonStartupPreflight(input: {
     expectedVersion: input.expectedVersion,
     intendedMode: "background",
     intent: "startup_check",
-    cliScriptPath: input.cliScriptPath,
   });
   const initialDecision = resolveDaemonServiceAlignmentDecision({
     inventory: initialInventory,
@@ -338,7 +337,6 @@ async function waitForDaemonStartupAlignmentSettlement(input: {
       expectedVersion: input.expectedVersion,
       intendedMode: "background",
       intent: "startup_check",
-      cliScriptPath: input.cliScriptPath,
     }).catch(() => null);
     if (!inventory) {
       await sleep(input.pollMs);

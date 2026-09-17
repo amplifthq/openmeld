@@ -5,8 +5,7 @@ import { AppGlobalControls } from "#/components/app/app-global-controls";
 import { AppOuterRail } from "#/components/app/app-outer-rail";
 import { useAppShellAccount } from "#/components/app/app-shell-account";
 import { AppSurfaceLayout } from "#/components/app/app-surface-layout";
-import { AppSpacesSidebar } from "#/components/spaces/app-spaces-sidebar";
-import { ChatsSidebar } from "#/components/spaces/chats-sidebar";
+import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
 import { SpaceWakeProgressVisibleProjectionProvider } from "#/components/spaces/space-wake-progress-visible-projection";
 import type {
 	InnerSidebarPreferenceKey,
@@ -25,13 +24,9 @@ export function SpaceWindowShell(input: {
 	const account = useAppShellAccount();
 	return (
 		<SpaceWindowFrame
-			outerRail={
-				<AppOuterRail
-					account={account}
-					contextualNavigation={input.sidebar}
-					initialState={input.initialOuterSidebarState}
-				/>
-			}
+			initialSidebarState={input.initialOuterSidebarState}
+			navigation={input.sidebar}
+			outerRail={<AppOuterRail account={account} />}
 		>
 			{input.children}
 		</SpaceWindowFrame>
@@ -41,11 +36,16 @@ export function SpaceWindowShell(input: {
 export function SpaceWindowFrame(input: {
 	children: ReactNode;
 	outerRail: ReactNode;
+	navigation?: ReactNode;
+	initialSidebarState?: SidebarPersistedState;
 }) {
 	return (
 		<AppSurfaceLayout
 			frameSlotName="space-window-frame"
 			globalControls={<AppGlobalControls />}
+			initialModuleSidebarState={input.initialSidebarState}
+			moduleNavigation={input.navigation}
+			moduleNavigationLabel="Spaces"
 			outerRail={input.outerRail}
 			testId="space-window-frame"
 		>
@@ -87,8 +87,7 @@ export function AppSpaceShell(input: AppSpaceShellProps) {
 				initialSidebarState={input.initialSidebarState}
 				sidebar={
 					input.showSpacesSidebar === false ? undefined : (
-						<AppSpacesSidebar
-							browseSpacesActive={input.browseSpacesActive}
+						<ConversationsSidebar
 							currentProfileId={input.currentProfileId}
 							currentSpaceId={input.currentSpaceId}
 						/>
@@ -114,9 +113,14 @@ export function AppDirectMessageShell(input: {
 		<SpaceWindowShell
 			initialOuterSidebarState={input.initialOuterSidebarState}
 			initialSidebarState={input.initialSidebarState}
-			sidebar={<ChatsSidebar currentSpaceId={input.currentSpaceId} />}
+			sidebar={
+				<ConversationsSidebar
+					currentProfileId={input.currentProfileId}
+					currentSpaceId={input.currentSpaceId}
+				/>
+			}
 			sidebarPreferenceKey="direct-messages"
-			sidebarSeparatorLabel="Resize the Chats sidebar"
+			sidebarSeparatorLabel="Resize the conversations sidebar"
 		>
 			{input.children}
 		</SpaceWindowShell>

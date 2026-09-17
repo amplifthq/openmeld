@@ -215,6 +215,7 @@ const withDispatchPlannerTestDefaults = (
 ): object => {
   return {
     ownerCreatorProfileIdsByOwnerUserId: new Map(),
+    readFilePins: () => ({ pins: [] }),
     readSpaceMetaRecord: vi.fn(() => ({
       organizationId: "org-space-1",
     })),
@@ -432,24 +433,14 @@ const rpcPostTransientSignal = (
   }
 ).rpcPostTransientSignal;
 
-const broadcastLiveMessage = (
+const deliverAuthorizedLiveMessage = (
   Space.prototype as unknown as {
-    broadcast(
-      this: {
-        sessions: Map<
-          unknown,
-          {
-            profile?: SignalEnvelope["profile"];
-            blocked?: SpaceQueuedWebSocketMessage[];
-            helloAccepted: boolean;
-            supportsLiveSignalHistory: boolean;
-          }
-        >;
-      },
+    deliverAuthorizedLiveMessage(
+      this: unknown,
       message: SignalEnvelope | SpaceLiveSignalFrame
-    ): void;
+    ): Promise<void>;
   }
-).broadcast;
+).deliverAuthorizedLiveMessage;
 
 const encodeLiveMessageForSession = (
   Space.prototype as unknown as {
@@ -818,6 +809,7 @@ const readDispatchLedgerEvidence = (
 const syncSpaceBackgroundAlarm = (
   Space.prototype as unknown as {
     syncSpaceBackgroundAlarm(this: {
+      env: { OPENMELD_SPACE_ATTACHMENTS?: R2Bucket };
       ctx: {
         storage: {
           sql: SqlStorage;
@@ -940,6 +932,7 @@ const createDispatchRulesSqlStub = (
     }[];
     failOnLegacyDispatchPolicyQuery?: boolean;
     spaceMemberRows?: Record<string, unknown>[];
+    recentSignals?: SignalEnvelope[];
   }
 ) => {
   const mentionAliasRows = options?.mentionAliasRows ?? [];
@@ -948,6 +941,22 @@ const createDispatchRulesSqlStub = (
   return {
     exec: vi.fn((query: string, ...params: unknown[]) => {
       const normalizedQuery = query.replace(/\s+/g, " ").trim();
+      if (
+        normalizedQuery.includes(
+          "SELECT id, ts, payload_json FROM space_signals"
+        )
+      ) {
+        return {
+          toArray: () =>
+            (options?.recentSignals ?? [])
+              .toSorted((a, b) => b.ts - a.ts)
+              .map((signal) => ({
+                id: signal.id,
+                ts: signal.ts,
+                payload_json: JSON.stringify(signal),
+              })),
+        };
+      }
       if (
         options?.failOnLegacyDispatchPolicyQuery === true &&
         normalizedQuery.includes("space_dispatch_policies")
@@ -1065,7 +1074,7 @@ const createMessageEnvelope = (input: {
 });
 
 describe("space signal consistency matrix", () => {
-  it("queues pre-hello live signal frames unencoded until session capabilities are known", () => {
+  it("queues pre-hello live signal frames unencoded until session capabilities are known", async () => {
     const session = createPendingSpaceWebSocketSession({
       blocked: [],
     });
@@ -1077,8 +1086,9 @@ describe("space signal consistency matrix", () => {
       },
     };
 
-    broadcastLiveMessage.call(
+    await deliverAuthorizedLiveMessage.call(
       {
+        authorizeLiveSession: async () => true,
         sessions: new Map([[{}, session]]),
       },
       frame
@@ -1088,7 +1098,7 @@ describe("space signal consistency matrix", () => {
     expect(session.blocked?.[0]).toBe(frame);
   });
 
-  it("omits live history metadata from thread frames sent to non-capable sessions", () => {
+  it("omits live history metadata from thread frames sent to non-capable sessions", async () => {
     const viewerProfile: SignalEnvelope["profile"] = {
       kind: "human",
       profileId: "hum_viewer",
@@ -1125,8 +1135,9 @@ describe("space signal consistency matrix", () => {
       },
     };
 
-    broadcastLiveMessage.call(
+    await deliverAuthorizedLiveMessage.call(
       {
+        authorizeLiveSession: async () => true,
         sessions: new Map([
           [legacySocket, legacySession],
           [modernSocket, modernSession],
@@ -1363,6 +1374,75 @@ describe("space signal consistency matrix", () => {
       )
     ).rejects.toThrow("signal.text payload is invalid");
     expect(buildTextSignalSpy).not.toHaveBeenCalled();
+  });
+
+  it("carries the latest preceding request through the SQL history order on a bare Wake", () => {
+    const targetProfileId = "agt_22222222-2222-4222-8222-222222222222";
+    const profile = {
+      kind: "human" as const,
+      profileId: "human-1",
+      profileName: "Casey",
+    };
+    const source: SignalEnvelope = {
+      v: 1,
+      id: "bare-wake",
+      spaceId: "space-1",
+      ts: 100,
+      profile,
+      type: "signal.text",
+      data: {
+        text: "@Agent A",
+        messageEnvelope: createMessageEnvelope({
+          text: "@Agent A",
+          activationTargets: [targetProfileId],
+        }),
+      },
+    };
+    const history: SignalEnvelope[] = Array.from(
+      { length: 25 },
+      (_, index) => ({
+        ...source,
+        id: `previous-${index}`,
+        ts: index + 1,
+        data: {
+          text:
+            index === 24 ? "Read the latest attachment" : "An older request",
+        },
+      })
+    );
+    const records = prepareDispatchOutboxRecordsForSignal.call(
+      {
+        ctx: {
+          storage: {
+            sql: createDispatchRulesSqlStub(1, {
+              recentSignals: history,
+              spaceMemberRows: [
+                createDispatchRulesSpaceMemberRow({
+                  profileId: targetProfileId,
+                  profileName: "Agent A",
+                }),
+              ],
+            }),
+          },
+        },
+      },
+      source
+    );
+    expect(records).toHaveLength(1);
+    const record = records[0];
+    if (!record) {
+      throw new Error("Expected the bare Wake to produce a dispatch");
+    }
+    const payload = JSON.parse(
+      record.payloadJson
+    ) as OpenMeldDaemonDispatchQueueMessage;
+    expect(
+      payload.sourceSignalSnapshot?.contextMessages?.map(
+        ({ signalId, text }) => ({ signalId, text })
+      )
+    ).toEqual([
+      { signalId: "previous-24", text: "Read the latest attachment" },
+    ]);
   });
 
   it("dispatches unique activationTargets from messageEnvelope", () => {
@@ -1728,6 +1808,10 @@ describe("space signal consistency matrix", () => {
 
     const records = prepareDispatchOutboxRecordsForSignal.call(
       {
+        readSignalById: (id: string) =>
+          id === threadContext.rootSignalId
+            ? { ...makeSignal("signal.text"), id }
+            : null,
         ctx: {
           storage: {
             sql: createDispatchRulesSqlStub(1, {
@@ -2603,6 +2687,40 @@ describe("space signal consistency matrix", () => {
     );
 
     expect(rebuilt.enqueuedAtMs).toBe(1_700_000_015_000);
+  });
+
+  it("distinguishes an ordinary thread Wake from explicit context selection", async () => {
+    const message = createDispatchMessageFixture("thread-context-selection");
+    message.controllerSnapshot = {
+      ...message.controllerSnapshot,
+      agentControllerRef: "builtin:cursor",
+      bindingId: "binding-thread-context",
+      configurationRevision: 1,
+    };
+    message.sourceSignalSnapshot = {
+      profileId: "human-requester",
+      profileKind: "human",
+      text: "Continue the discussion",
+    };
+    message.threadContext = { threadId: "thread-1", rootSignalId: "root-1" };
+    for (const contextSelection of [
+      undefined,
+      { mode: "auto" as const },
+      { mode: "new" as const },
+      { mode: "resume" as const, sourceWakeId: "source-wake" },
+      { mode: "fork" as const, sourceWakeId: "source-wake" },
+    ]) {
+      const snapshot = await buildAcceptedDispatchSnapshot({
+        message: { ...message, contextSelection },
+        openMeldServiceRuntimeId: "runtime-thread-context",
+        runtimeKind: "openmeld_service",
+      });
+      expect(snapshot?.contextRequest).toMatchObject({
+        required: contextSelection !== undefined,
+        scope: { requesterProfileId: "human-requester", threadId: "thread-1" },
+        selection: contextSelection ?? { mode: "auto" },
+      });
+    }
   });
 
   it("keeps the accepted Wake payload fingerprint stable across transport redrive metadata", async () => {
@@ -3620,6 +3738,7 @@ describe("space signal consistency matrix", () => {
     const deleteAlarm = vi.fn().mockResolvedValue(undefined);
 
     await syncSpaceBackgroundAlarm.call({
+      env: {},
       ctx: {
         storage: {
           sql,
@@ -3691,7 +3810,10 @@ describe("space signal consistency matrix", () => {
       durableObjectId: "do-1",
       lastPostCleanupAtMs: 0,
       prepareDispatchOutboxPlanForSignal(signal: SignalEnvelope) {
-        return prepareDispatchOutboxPlanForSignal.call(this, signal);
+        return prepareDispatchOutboxPlanForSignal.call(
+          withDispatchPlannerTestDefaults(this, signal),
+          signal
+        );
       },
       collectInsertedDispatchMessages(
         preparedOutboxRecords: DispatchOutboxRecord[],
@@ -4118,6 +4240,7 @@ describe("space signal consistency matrix", () => {
     await webSocketMessage.call(
       {
         sessions,
+        authorizeLiveSession: async () => true,
         buildTextSignal: buildTextSignalSpy,
         mergePublishedAuthorProfile: async (
           profile: SignalEnvelope["profile"]
@@ -4167,6 +4290,7 @@ describe("space signal consistency matrix", () => {
     await webSocketMessage.call(
       {
         sessions,
+        authorizeLiveSession: async () => true,
         buildTextSignal: (
           profile: SignalEnvelope["profile"],
           text: string

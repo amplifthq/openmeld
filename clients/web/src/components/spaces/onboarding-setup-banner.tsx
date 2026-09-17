@@ -2,7 +2,10 @@ import type { OnboardingPlan } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import { ProgressiveBlur } from "@openmeld/ui/components/progressive-blur";
 import { FluidCardGroup, FluidCardItem } from "@openmeld/ui/fluid/card";
-import { cardPickerCardClassName } from "@openmeld/ui/lib/card-picker-contract";
+import {
+	ADD_CARD_PICKER_CLASS_NAME,
+	cardPickerCardClassName,
+} from "@openmeld/ui/lib/card-picker-contract";
 import { resolveStatusToneIconClassName } from "@openmeld/ui/lib/status-tone";
 import { cn } from "@openmeld/ui/lib/utils";
 import {
@@ -169,7 +172,8 @@ export function OnboardingSetupEmptyStateActions(
 	);
 }
 
-function EmptyStateSetupActionCard(input: {
+export function EmptyStateSetupActionCard(input: {
+	presentation?: "centered";
 	description: string;
 	icon: ReactNode;
 	itemId: string;
@@ -179,6 +183,33 @@ function EmptyStateSetupActionCard(input: {
 	const accessibleId = useId();
 	const descriptionId = `${accessibleId}-description`;
 	const titleId = `${accessibleId}-title`;
+	if (input.presentation === "centered") {
+		return (
+			<button
+				aria-describedby={descriptionId}
+				aria-labelledby={titleId}
+				className={cn(
+					ADD_CARD_PICKER_CLASS_NAME,
+					"min-h-44 cursor-pointer border-muted-foreground/40 hover:border-muted-foreground/70"
+				)}
+				onClick={input.onClick}
+				type="button"
+			>
+				<span className="grid size-10 place-items-center rounded-md border border-border text-muted-foreground">
+					{input.icon}
+				</span>
+				<span className="font-medium text-base" id={titleId}>
+					{input.title}
+				</span>
+				<span
+					className="max-w-sm text-muted-foreground text-sm"
+					id={descriptionId}
+				>
+					{input.description}
+				</span>
+			</button>
+		);
+	}
 
 	return (
 		<FluidCardItem className="bg-transparent" itemId={input.itemId}>

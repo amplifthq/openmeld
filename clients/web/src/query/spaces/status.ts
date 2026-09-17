@@ -130,6 +130,7 @@ export async function readSpaceStatus(input: {
 				: { openMeldProfileId: input.openMeldProfileId }),
 		}).getStatus({
 			spaceId: input.spaceId,
+			timeoutMs: 15_000,
 			...(input.spacePassword === undefined
 				? {}
 				: { spacePassword: input.spacePassword }),
@@ -156,6 +157,9 @@ export function spaceStatusQueryOptions(input: {
 				signal,
 			}),
 		enabled: input.enabled,
+		// Composer admission awaits this read. Offline must settle as a failure,
+		// rather than leaving an optimistic message waiting on a paused query.
+		networkMode: "always",
 		gcTime: ROUTE_REVISIT_GC_TIME_MS,
 		retry: shouldRetrySpaceQuery,
 		staleTime: SPACE_INITIAL_SNAPSHOT_STALE_TIME_MS,

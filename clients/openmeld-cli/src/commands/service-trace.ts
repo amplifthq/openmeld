@@ -11,6 +11,7 @@ import {
   observabilityWakeTraceSelectorSchema,
   projectObservabilityWakeCorrelation,
   projectSpaceDispatchTraceFinalVisibleOutcome,
+  resolveRuntimeCoordinatorHeadStatusRootCause,
   resolveSpaceDispatchTraceRootCause,
 } from "@openmeld/schemas";
 import type {
@@ -109,15 +110,19 @@ type ServiceTraceLookupDiagnostic = {
   reasonCode: ServiceTraceLookupReasonCode;
   selector: ObservabilityWakeTraceSelector | null;
 };
-type ServiceTraceAgentWaitingBoundary = {
-  deadlineAt: string;
-  softDeadlineAt: string;
-  userRecoveryAction:
-    | "start_or_restart_openmeld_service"
-    | "wait_for_wake_route_report";
-  waitingFor: "openmeld_service_route_connection" | "wake_route_report";
-  waitingSince: string;
-};
+type ServiceTraceAgentWaitingBoundary = Pick<
+  NonNullable<
+    Extract<
+      NonNullable<DispatchTraceSnapshot>["runtimeCoordinatorHeadLifecycle"],
+      { readStatus: "found" }
+    >["waitingBoundary"]
+  >,
+  | "deadlineAt"
+  | "softDeadlineAt"
+  | "userRecoveryAction"
+  | "waitingFor"
+  | "waitingSince"
+>;
 type ServiceTraceAgentSummary = {
   currentState: string;
   delivered: boolean;
@@ -128,6 +133,16 @@ type ServiceTraceAgentSummary = {
   deliveryDestination?: string;
   runtimeFamily?: "hosted_center_agent";
   waitingBoundary?: ServiceTraceAgentWaitingBoundary;
+};
+const WAITING_BOUNDARY_NEXT_ACTION: Record<
+  ServiceTraceAgentWaitingBoundary["userRecoveryAction"],
+  string
+> = {
+  check_status: "check status, then rerun trace with the same selector",
+  start_or_restart_openmeld_service:
+    "start or restart OpenMeld Service, then rerun trace with the same selector",
+  wait_for_wake_route_report:
+    "wait for the Wake route report, then rerun trace with the same selector",
 };
 type ServiceTracePresenter = ReturnType<typeof createPresenter>;
 const SERVICE_TRACE_USE_CURRENT_PROFILE = "continue";
@@ -235,6 +250,12 @@ export async function runServiceTrace(
     : null;
 
   const payload = {
+    ...(traceResponse.serviceConnectionDiagnostics
+      ? {
+          serviceConnectionDiagnostics:
+            traceResponse.serviceConnectionDiagnostics,
+        }
+      : {}),
     correlation: traceResponse.correlation,
     query: traceResponse.query,
     remoteAgentRuntimeDiagnostics:
@@ -2504,9 +2525,7 @@ function buildAgentTraceCompactSummary(input: {
       currentState: headLifecycle.status,
       delivered: false,
       nextAction:
-        waitingBoundary.userRecoveryAction === "wait_for_wake_route_report"
-          ? "wait for the Wake route report, then rerun trace with the same selector"
-          : "start or restart OpenMeld Service, then rerun trace with the same selector",
+        WAITING_BOUNDARY_NEXT_ACTION[waitingBoundary.userRecoveryAction],
       reasonCode: waitingBoundary.reasonCode,
       visibleOutcome: finalVisibleOutcome.status,
       waitingBoundary: {
@@ -2580,6 +2599,24 @@ function buildAgentTraceCompactSummary(input: {
       currentState: runtimeCoordinatorExecutionStatus,
       delivered: false,
       nextAction: resolveAgentTraceNextAction(trace),
+      reasonCode: resolveTraceRootCause(trace),
+      visibleOutcome: finalVisibleOutcome.status,
+    };
+  }
+
+  if (
+    finalVisibleOutcome.status === "not_applicable" &&
+    !trace.runtimeCoordinatorExecution &&
+    headLifecycle?.readStatus === "found" &&
+    headLifecycle.status === "queued" &&
+    !headLifecycle.runtimeCoordinatorExecutionId
+  ) {
+    return {
+      ...nativeDeliveryEvidence,
+      currentState: headLifecycle.status,
+      delivered: false,
+      nextAction:
+        "wait for the Agent's execution slot, then rerun trace with the same selector",
       reasonCode: resolveTraceRootCause(trace),
       visibleOutcome: finalVisibleOutcome.status,
     };
@@ -2690,19 +2727,6 @@ function resolveTraceRootCause(
   trace: NonNullable<DispatchTraceSnapshot>
 ): string {
   return resolveSpaceDispatchTraceRootCause(trace);
-}
-
-function resolveRuntimeCoordinatorHeadStatusRootCause(status: string): string {
-  if (status === "accepted") {
-    return "runtime_coordinator.head_accepted";
-  }
-  if (status === "execution_linked") {
-    return "runtime_coordinator.head_execution_linked";
-  }
-  if (status === "waiting") {
-    return "runtime_coordinator.head_waiting";
-  }
-  return "runtime_coordinator.head_publication_intent_ready";
 }
 
 const PRE_EXECUTION_NO_EXECUTION_EVIDENCE_REASON_CODES = new Set([

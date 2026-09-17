@@ -55,6 +55,7 @@ export function buildCliManifest(input) {
       stable: {
         version: input.version,
         minRequiredCliVersion: input.minRequiredCliVersion,
+        ...(input.service ? { service: input.service } : {}),
         platforms: {
           [input.platform]: {
             url: `${input.downloadBaseUrl}/${input.artifactName}`,
@@ -147,6 +148,7 @@ export async function uploadCliBinary(input = {}) {
     outDir: input.outDir,
     platform,
     version: input.version,
+    service: input.service,
   });
   const built = await prepareVerifiedCliBinary({
     built: compiled,
@@ -182,6 +184,7 @@ export async function uploadCliBinary(input = {}) {
     sizeBytes: built.sizeBytes,
     teamIdentifier: built.notarization.teamId,
     version: built.version,
+    service: input.service,
   });
   const manifestPath = path.join(path.dirname(built.outFile), "manifest.json");
   writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");

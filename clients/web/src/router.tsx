@@ -1,5 +1,6 @@
 import { createRouter as createTanStackRouter } from "@tanstack/react-router";
 import { setupRouterSsrQueryIntegration } from "@tanstack/react-router-ssr-query";
+import { resetClientVersionRecovery } from "./client-version-recovery";
 import { resolveAppQueryClient } from "./integrations/tanstack-query/query-client";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
@@ -42,6 +43,9 @@ export function getRouter(options?: { isServer?: boolean }) {
 	});
 
 	if (typeof window !== "undefined" && options?.isServer !== true) {
+		// Back and ordinary links remain exits from a failed recovery surface.
+		// Keep the same-tab attempt marker; navigating is not permission to loop.
+		router.subscribe("onBeforeNavigate", resetClientVersionRecovery);
 		installPerformanceReporting(router);
 		setApplicationErrorRouteReader(
 			() => router.state.matches.at(-1)?.routeId ?? null

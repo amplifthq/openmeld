@@ -1,5 +1,5 @@
-import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DAEMON_LOCAL_STATE_EPOCH } from "../src/local-service/state/local-state-version";
 
 const {
   collectSkillsReadinessSnapshotMock,
@@ -109,7 +109,7 @@ describe("start-local owner implementation", () => {
     readDaemonRuntimeContractMetaMock.mockResolvedValue({
       schema: "daemon.runtime.contract.meta",
       v: 1,
-      contractEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+      contractEpoch: DAEMON_LOCAL_STATE_EPOCH,
       updatedAt: "2026-05-08T00:00:00.000Z",
     });
     readCurrentObservedDaemonRuntimeStatusMock.mockResolvedValue(null);
@@ -380,8 +380,8 @@ describe("start-local owner implementation", () => {
         installedVersion: "0.2.9",
         expectedVersion: "0.2.9",
         executionCompatibility: {
-          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-          observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          expectedEpoch: DAEMON_LOCAL_STATE_EPOCH,
+          observedEpoch: DAEMON_LOCAL_STATE_EPOCH,
           reasonCode: "daemon.runtime_contract.compatible",
           status: "compatible",
           updatedAt: "2026-05-08T00:00:00.000Z",
@@ -435,8 +435,8 @@ describe("start-local owner implementation", () => {
         installedVersion: "0.2.8",
         expectedVersion: "0.2.9",
         executionCompatibility: {
-          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
-          observedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          expectedEpoch: DAEMON_LOCAL_STATE_EPOCH,
+          observedEpoch: DAEMON_LOCAL_STATE_EPOCH,
           reasonCode: "daemon.runtime_contract.compatible",
           status: "compatible",
           updatedAt: "2026-05-08T00:00:00.000Z",
@@ -520,7 +520,7 @@ describe("start-local owner implementation", () => {
         installedVersion: null,
         expectedVersion: "0.2.9",
         executionCompatibility: {
-          expectedEpoch: CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+          expectedEpoch: DAEMON_LOCAL_STATE_EPOCH,
           observedEpoch: null,
           reasonCode: "daemon.runtime_contract.not_observed",
           status: "compatible",

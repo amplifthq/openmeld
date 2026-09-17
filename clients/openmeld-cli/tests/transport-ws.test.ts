@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { connectWebSocket } from "../src/transport/ws";
+import { connectWebSocket, normalizeWebSocketError } from "../src/transport/ws";
 
 const servers: Server[] = [];
 
@@ -82,6 +82,52 @@ describe("connectWebSocket", () => {
 
     expect(message).not.toContain("[bun]");
     expect(message).toContain("Unexpected server response: 500");
+  });
+
+  it("preserves standard errors and their fields", () => {
+    const error = Object.assign(new Error("socket refused"), {
+      code: "ECONNREFUSED",
+    });
+
+    expect(normalizeWebSocketError(error)).toBe(error);
+    expect(normalizeWebSocketError(error)).toMatchObject({
+      code: "ECONNREFUSED",
+      message: "socket refused",
+    });
+  });
+
+  it.each([
+    {
+      expected: "TLS handshake failed",
+      input: { message: " TLS handshake failed " },
+      label: "event message",
+    },
+    {
+      expected: "connection reset by peer",
+      input: { error: "connection reset by peer" },
+      label: "nested string error",
+    },
+    {
+      expected: "socket closed during handshake",
+      input: { error: { message: "socket closed during handshake" } },
+      label: "nested error-like message",
+    },
+  ])("extracts a useful $label", ({ expected, input }) => {
+    expect(normalizeWebSocketError(input).message).toBe(expected);
+  });
+
+  it("preserves a nested standard error from an error event", () => {
+    const nested = Object.assign(new Error("upgrade failed"), {
+      status: 503,
+    });
+
+    expect(normalizeWebSocketError({ error: nested })).toBe(nested);
+  });
+
+  it("uses a readable fallback when an error event has no details", () => {
+    expect(normalizeWebSocketError({ type: "error" }).message).toBe(
+      "WebSocket connection failed without additional details."
+    );
   });
 });
 

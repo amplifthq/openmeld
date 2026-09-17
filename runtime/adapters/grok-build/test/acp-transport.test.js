@@ -78,6 +78,10 @@ async function createFixture() {
       }
 
       function finishPrompt() {
+        for (const thoughtSession of ["unrelated-session", sessionId]) {
+          send({ method: "session/update", params: { sessionId: thoughtSession,
+            update: { sessionUpdate: "agent_thought_chunk", content: {type: "text", text: "Checking the request"} } } });
+        }
         send({
           method: "session/update",
           params: {
@@ -332,6 +336,7 @@ function invokeFixture(fixture, input = {}) {
     },
     onInteractionRequest: input.onInteractionRequest,
     onActiveTurn: input.onActiveTurn,
+    onRuntimeEvent: input.onRuntimeEvent,
     prompt: "Say hello",
     sessionId: input.sessionId,
     taskId: "task-grok",
@@ -364,9 +369,15 @@ async function waitForTranscriptMethod(path, method) {
 
 test("Grok Build ACP authenticates headlessly, selects exact model and effort, and closes the session", async () => {
   const fixture = await createFixture();
+  const reasoning = [];
   try {
     const result = await invokeFixture(fixture, {
       conversationPolicy: { model: "grok-4.5", reasoningLevel: "medium" },
+      onRuntimeEvent: (event) => {
+        if (event.phase === "reasoning") {
+          reasoning.push(event.text);
+        }
+      },
       env: {
         OPENMELD_SPACE_ACTION_CONTEXT_PATH: "/tmp/action/context.json",
         OPENMELD_SPACE_ACTION_TOOL_COMMAND_PATH: "/tmp/action/bin/openmeld",
@@ -374,6 +385,7 @@ test("Grok Build ACP authenticates headlessly, selects exact model and effort, a
       },
     });
     assert.equal(result.output, "Hello from Grok");
+    assert.deepEqual(reasoning, ["Checking the request"]);
     assert.equal(result.sessionId, SESSION_ID);
     assert.equal(result.diagnostics.modelNegotiation.sourceState, "consistent");
 

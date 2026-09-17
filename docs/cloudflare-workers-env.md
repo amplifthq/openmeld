@@ -94,6 +94,7 @@ Workers, and verifies the public entry points. See
   - `BETTER_AUTH_URL`
   - `VITE_BETTER_AUTH_URL`
   - `VITE_APP_TITLE`
+  - `AUTH_DESKTOP_DEVELOPMENT_TARGET` (empty normally; `disposable` only on an isolated local backend shared with Auth)
 - `.dev.vars` / `.dev.vars.prod`
   - `WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET`
 - Cloudflare production secrets
@@ -110,6 +111,7 @@ Workers, and verifies the public entry points. See
   - `BETTER_AUTH_URL`
   - `WEB_APP_URL`
   - `AUTH_WORKER_NODE_ENV`
+  - `AUTH_DESKTOP_DEVELOPMENT_TARGET` (empty normally; `private` or `disposable` in development only; nonempty production values are rejected)
   - `AUTH_DEVICE_ALLOWED_CLIENT_IDS`
   - `OPENMELD_ADDITIONAL_HUMAN_PROFILE_CREATION_ENABLED`
   - `AUTH_BRAND_NAME`
@@ -218,6 +220,7 @@ Workers, and verifies the public entry points. See
   - `OPENMELD_REMOTE_AGENT_AI_GATEWAY_ID`
   - `OPENMELD_REMOTE_AGENT_OPENROUTER_BYOK_ALIAS`
   - `OPENMELD_REMOTE_AGENT_OPENROUTER_MODEL_ID`
+  - `REMOTE_AGENT_TOOL_CALL_LIMIT` (positive integer; assignment safety backstop)
   - `OPENMELD_AGENT_ACTIVITY_READ_TOOL_ENABLED`
   - `OPENMELD_AGENT_ACTIVITY_DIGEST_MODEL_ID`
   - `OPENMELD_FEEDBACK_SUBMIT_BASE_URL`

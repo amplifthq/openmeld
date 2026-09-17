@@ -2,6 +2,7 @@ import {
   centerAgentConnectorConnectionSelectionSchema,
   openConnectorRuntimeActionSuccessEnvelopeSchema,
 } from "@openmeld/schemas";
+import { digestCanonicalJson } from "@openmeld/utils";
 import { safeParse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -10,7 +11,6 @@ import {
   type RemoteAgentCoreWorkerBinding,
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
-import { digestCanonicalJson } from "../agent-core/canonical-json";
 import {
   getRemoteAgentGitHubToolDefinitions as buildRemoteAgentGitHubToolDefinitions,
   REMOTE_AGENT_GITHUB_READ_TOOL_NAMES,
@@ -99,6 +99,7 @@ describe("Remote Agent GitHub tools", () => {
       "github_list_workflow_runs",
       "github_get_workflow_run",
       "github_list_workflow_run_jobs",
+      "github_get_release_by_tag",
       "github_create_issue_batch",
       "github_create_issue",
       "github_create_issue_comment",
@@ -118,6 +119,7 @@ describe("Remote Agent GitHub tools", () => {
       "github_update_issue",
       "github_update_pull_request",
       "github_update_pull_request_branch",
+      "github_dispatch_workflow",
       "github_rerun_workflow",
       "github_merge_pull_request",
     ]);
@@ -206,6 +208,41 @@ describe("Remote Agent GitHub tools", () => {
         }
       ).success
     ).toBe(true);
+    const dispatchWorkflowTool = tools.find(
+      (tool) => tool.name === "github_dispatch_workflow"
+    );
+    expect(
+      safeParse(dispatchWorkflowTool?.input as never, {
+        githubActor: "organization",
+        operationId: "dispatch-acme-build",
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: "build.yml",
+      }).success
+    ).toBe(true);
+    expect(
+      safeParse(dispatchWorkflowTool?.input as never, {
+        githubActor: "organization",
+        inputs: { dryRun: "false" },
+        operationId: "dispatch-acme-build",
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: 42,
+      }).success
+    ).toBe(true);
+    expect(
+      safeParse(dispatchWorkflowTool?.input as never, {
+        githubActor: "organization",
+        inputs: { dryRun: false },
+        operationId: "dispatch-acme-build",
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: "build.yml",
+      }).success
+    ).toBe(false);
     expect(pullRequestDescription).toContain(
       "reuse the same operationId only when retrying this exact write"
     );
@@ -800,7 +837,7 @@ describe("Remote Agent GitHub tools", () => {
         repo: "openmeld",
       })
     ).rejects.toThrow(
-      "GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Center Agent → Plugins → GitHub and the installation's repository access."
+      "GitHub could not find or access this resource. It may not exist, or the repository may not be included in the GitHub App installation. Review Plugins → GitHub and the installation's repository access."
     );
   });
 
@@ -923,6 +960,11 @@ describe("Remote Agent GitHub tools", () => {
       actionId: "github.list_repository_workflows",
       input: { owner: "openmeld", repo: "app" },
       name: "github_list_repository_workflows" as RemoteAgentGitHubToolName,
+    },
+    {
+      actionId: "github.get_release_by_tag",
+      input: { owner: "openmeld", repo: "app", tag: "v1.2.3" },
+      name: "github_get_release_by_tag" as RemoteAgentGitHubToolName,
     },
   ])("forwards $name to $actionId", async ({ actionId, input, name }) => {
     const request = createSubmitTurnRequest();
@@ -1451,7 +1493,7 @@ describe("Remote Agent GitHub tools", () => {
     await expect(
       executeTool(tools, "github_get_current_user", {})
     ).rejects.toThrow(
-      "Open Center Agent → Plugins → GitHub for this workspace, check Your GitHub, and try again."
+      "Open Plugins → GitHub for this workspace, check Your GitHub, and try again."
     );
   });
 
@@ -2307,6 +2349,19 @@ describe("Remote Agent GitHub tools", () => {
       name: "github_update_pull_request_branch" as RemoteAgentGitHubToolName,
       requiredMessage:
         "I'll update the branch for openmeld/app#42 with its base branch as Mira.",
+    },
+    {
+      actionId: "github.dispatch_workflow",
+      input: {
+        inputs: { dryRun: "false" },
+        owner: "acme",
+        ref: "release",
+        repo: "widget",
+        workflowId: "build.yml",
+      },
+      name: "github_dispatch_workflow" as RemoteAgentGitHubToolName,
+      requiredMessage:
+        "I'll dispatch workflow build.yml on release in acme/widget as Mira.",
     },
     {
       actionId: "github.rerun_workflow",

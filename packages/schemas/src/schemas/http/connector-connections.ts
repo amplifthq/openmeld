@@ -1,6 +1,8 @@
 import * as z from "../../lazy-zod";
 
 export const CENTER_AGENT_APP_CONNECTOR_SERVICES = [
+  "feishu",
+  "lark",
   "gmail",
   "googlecalendar",
   "googledrive",
@@ -276,6 +278,14 @@ export const connectorConnectionReconcileInputSchema = z.strictObject({
 });
 
 export const centerAgentConnectorConnectionSelectionSchema = z.strictObject({
+  permission: z.enum(["read", "write"]).optional(),
   connection: connectorConnectionSchema.nullable(),
   selection: z.enum(["requester", "shared"]).nullable(),
+});
+
+export const centerAgentResolveConnectorConnectionBodySchema = z.strictObject({
+  connectionPreference: connectorConnectionPreferenceSchema.optional(),
+  includeAccessPolicy: z.literal(true).optional(),
+  requesterUserId: z.string().nullable(),
+  service: connectorServiceSchema,
 });

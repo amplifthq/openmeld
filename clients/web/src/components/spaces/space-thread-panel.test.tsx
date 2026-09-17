@@ -196,60 +196,51 @@ describe("SpaceThreadPanel", () => {
 		);
 	});
 
-	it("marks only the open thread read after its latest message stays visible", async () => {
+	it("reads the visible reply only in the open Thread scope", async () => {
 		vi.useFakeTimers();
+		const originalHitTest = document.elementFromPoint;
+		Object.defineProperty(document, "elementFromPoint", {
+			configurable: true,
+			value: () =>
+				document.querySelector('[data-message-row-id="sig-thread-1"]'),
+		});
+		const geometry = vi
+			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
+			.mockImplementation(function (this: HTMLElement) {
+				return this.dataset.messageRowId
+					? new DOMRect(0, 150, 500, 1600)
+					: new DOMRect(0, 100, 500, 400);
+			});
 		const onViewedThroughTs = vi.fn().mockResolvedValue(undefined);
 		const latestTs = Date.UTC(2026, 4, 27, 10, 0, 9);
-		renderThreadPanel({
-			onViewedThroughTs,
-			signals: [createTextSignal({ ts: latestTs })],
-		});
-
-		await act(async () => {
-			vi.advanceTimersByTime(800);
-			await Promise.resolve();
-		});
-		expect(onViewedThroughTs).toHaveBeenCalledWith(latestTs);
-	});
-
-	it("returns thread reads to the normal debounce after a retry succeeds", async () => {
-		vi.useFakeTimers();
-		const warning = vi
-			.spyOn(console, "warn")
-			.mockImplementation(() => undefined);
-		const onViewedThroughTs = vi
-			.fn()
-			.mockRejectedValueOnce(new Error("offline"))
-			.mockResolvedValue(undefined);
-		const firstTs = Date.UTC(2026, 4, 27, 10, 0, 9);
-		const secondTs = firstTs + 1000;
-		const view = renderThreadPanel({
-			onViewedThroughTs,
-			signals: [createTextSignal({ ts: firstTs })],
-		});
-
-		await act(async () => {
-			vi.advanceTimersByTime(800);
-			await Promise.resolve();
-		});
-		await act(async () => {
-			vi.advanceTimersByTime(1000);
-			await Promise.resolve();
-		});
-		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
-
-		view.rerenderThreadPanel({
-			onViewedThroughTs,
-			signals: [createTextSignal({ ts: secondTs })],
-		});
-		await act(async () => vi.advanceTimersByTime(799));
-		expect(onViewedThroughTs).toHaveBeenCalledTimes(2);
-		await act(async () => {
-			vi.advanceTimersByTime(1);
-			await Promise.resolve();
-		});
-		expect(onViewedThroughTs).toHaveBeenLastCalledWith(secondTs);
-		warning.mockRestore();
+		try {
+			renderThreadPanel({
+				onViewedThroughTs,
+				signals: [createTextSignal({ ts: latestTs })],
+				unreadTargets: [
+					{
+						signalId: "sig-thread-1",
+						occurredAtMs: latestTs,
+						threadRootSignalId: "sig-root",
+					},
+					{
+						signalId: "main-unseen",
+						occurredAtMs: latestTs - 1,
+						threadRootSignalId: null,
+					},
+				],
+			});
+			await act(async () => vi.advanceTimersByTimeAsync(149));
+			expect(onViewedThroughTs).not.toHaveBeenCalled();
+			await act(async () => vi.advanceTimersByTimeAsync(1));
+			expect(onViewedThroughTs).toHaveBeenCalledExactlyOnceWith(latestTs);
+		} finally {
+			geometry.mockRestore();
+			Object.defineProperty(document, "elementFromPoint", {
+				configurable: true,
+				value: originalHitTest,
+			});
+		}
 	});
 
 	it("keeps the Thread composer actions flush and aligned while sending", () => {
@@ -893,7 +884,7 @@ describe("SpaceThreadPanel", () => {
 			.closest("[data-message-row-id='sig-thread-wake']");
 		expect(
 			sourceMessage?.querySelector("[data-slot='message-footer']")?.className
-		).toContain("self-end");
+		).toContain("justify-end");
 
 		rerenderThreadPanel({
 			selfProfileId: "human-profile-1",
@@ -1000,7 +991,7 @@ describe("SpaceThreadPanel", () => {
 			onSend,
 		});
 
-		expect(screen.getByText("1 file ready to send")).toBeTruthy();
+		expect(screen.queryByText("1 file ready to send")).toBeNull();
 		const sendButton = screen.getByRole("button", { name: "Send reply" });
 		expect(sendButton.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(sendButton);
@@ -1008,7 +999,7 @@ describe("SpaceThreadPanel", () => {
 		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
 	});
 
-	it("sends a thread reply while excluding a failed file", async () => {
+	it("preserves a thread reply until a failed file is removed", () => {
 		const onSend = vi.fn(async () => undefined);
 		renderThreadPanel({
 			composerFiles: [createFailedComposerFile()],
@@ -1017,12 +1008,12 @@ describe("SpaceThreadPanel", () => {
 		});
 
 		expect(
-			screen.getByText("1 file couldn't be uploaded and won't be sent.")
+			screen.getByText("Remove the failed file to continue.")
 		).toBeTruthy();
 		const sendButton = screen.getByRole("button", { name: "Send reply" });
-		expect(sendButton).toHaveProperty("disabled", false);
+		expect(sendButton).toHaveProperty("disabled", true);
 		fireEvent.click(sendButton);
-		await waitFor(() => expect(onSend).toHaveBeenCalledOnce());
+		expect(onSend).not.toHaveBeenCalled();
 	});
 
 	it("keeps a recently completed root Wake terminal when its thread omits the top-level reply", () => {

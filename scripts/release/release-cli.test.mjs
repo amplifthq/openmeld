@@ -683,7 +683,7 @@ test("preserves a failed stage error and prints the canonical resume command", a
           },
         },
         cwd: repoRoot,
-        env: {},
+        env: { PATH: process.env.PATH },
         withBinary: true,
       }),
       (error) => {
@@ -773,7 +773,7 @@ test("stops before binary, npm, tag, and Core when the Queue gate fails", async 
           publishCliReleaseTag: () => sideEffects.push("tag"),
         },
         cwd: repoRoot,
-        env: {},
+        env: { PATH: process.env.PATH },
         withBinary: true,
       }),
       (error) => {
@@ -1306,7 +1306,9 @@ test("stops before every release mutation when the stable CLI channel is ahead",
   }
 });
 
-test("resumes a newer CLI target without probing artifacts from an older manifest", async () => {
+// biome-ignore lint/style/noDoneCallback: Node's test context restores timers; this is not a completion callback.
+test("resumes a newer CLI target after slow command probes without reading old artifacts", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
   const artifactRequests = [];
   const target = {
     coreTag: "openmeld-release-target",
@@ -1316,7 +1318,10 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
 
   const result = await probeCliReleaseStages({
     adapters: {
-      fetch: (url, options) => {
+      fetch: async (url, options) => {
+        // HTTP progress resumes only after synchronous subprocesses yield.
+        await Promise.resolve();
+        options?.signal?.throwIfAborted();
         if (options?.method) {
           artifactRequests.push({ method: options.method, url: String(url) });
           return Promise.reject(
@@ -1330,6 +1335,7 @@ test("resumes a newer CLI target without probing artifacts from an older manifes
         );
       },
       runCommand: ({ args, command }) => {
+        context.mock.timers.tick(11_000);
         const key = [command, ...args].join(" ");
         if (key.startsWith("npm view")) {
           return { status: 1, stderr: "npm error code E404", stdout: "" };

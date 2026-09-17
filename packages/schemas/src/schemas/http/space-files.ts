@@ -1,7 +1,9 @@
 import * as eagerZod from "zod/v4";
 import * as z from "../../lazy-zod";
 
-export const SPACE_FILE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+export const SPACE_FILE_MAX_SIZE_BYTES = 250 * 1024 * 1024;
+const CONTENT_DIGEST_PATTERN = /^[a-f0-9]{64}$/u;
+export const SPACE_FILE_RAW_UPLOAD_MAX_BYTES = 10 * 1024 * 1024;
 export const SPACE_FILE_MAX_TEXT_EDIT_SIZE_BYTES = 1024 * 1024;
 export const SPACE_FILE_MAX_NAME_LENGTH = 255;
 export const SPACE_FILE_MAX_FOLDER_DEPTH = 20;
@@ -94,6 +96,21 @@ export async function buildSpaceFileRevisionIdForMutation(input: {
   parentId?: string | null;
 }): Promise<string> {
   const contentDigest = await sha256Hex(input.bytes);
+  return await buildSpaceFileRevisionIdFromDigest({ ...input, contentDigest });
+}
+
+export async function buildSpaceFileRevisionIdFromDigest(input: {
+  baseRevision: number | null;
+  contentDigest: string;
+  clientMutationId: string;
+  mimeType: string;
+  name?: string;
+  parentId?: string | null;
+}): Promise<string> {
+  const contentDigest = z
+    .string()
+    .regex(CONTENT_DIGEST_PATTERN)
+    .parse(input.contentDigest);
   const revisionIdentity = JSON.stringify({
     baseRevision: spaceFileBaseRevisionSchema.parse(input.baseRevision),
     contentDigest,

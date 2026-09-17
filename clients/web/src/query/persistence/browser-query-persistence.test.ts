@@ -5,7 +5,12 @@ import {
 import type { SignalEnvelope } from "@openmeld/schemas/types";
 import { dehydrate, QueryClient } from "@tanstack/react-query";
 import { IDBKeyRange, indexedDB } from "fake-indexeddb";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import {
+	beginSpaceOpen,
+	installSpaceOpenReporting,
+	markSpaceOpen,
+} from "#/lib/observability/space-open";
 import { computerFileAccessQueryKeys } from "#/query/connect/computer-file-access";
 import { createCurrentComputerToolbarDisplaySnapshot } from "#/query/connect/current-computer-toolbar-display-snapshot";
 import { centerAgentQueryKeys } from "#/query/organizations/center-agent";
@@ -239,7 +244,50 @@ describe("BrowserQueryPersistenceController", () => {
 			openMeldProfileId: "profile-a",
 		});
 		const history = {
-			envelopes: [createTextSignal("signal-a", "space-a", "profile-a")],
+			threadDisplay: {
+				threads: [
+					{
+						threadId: "thr_11111111-1111-4111-8111-111111111111",
+						spaceId: "space-a",
+						rootSignalId: "signal-a",
+						createdByProfileId: "11111111-1111-4111-8111-111111111111",
+						createdAt: "2026-08-11T00:00:00.000Z",
+						updatedAt: "2026-08-11T00:00:00.000Z",
+					},
+				],
+				previews: [
+					{
+						threadId: "thr_11111111-1111-4111-8111-111111111111",
+						replyCount: 3,
+						signals: [createTextSignal("reply-a", "space-a", "profile-a")],
+						placements: [],
+					},
+				],
+			},
+			envelopes: [
+				{
+					...createTextSignal("signal-a", "space-a", "profile-a"),
+					reactions: {
+						version: 2,
+						groups: [
+							{
+								emoji: "👍",
+								label: "thumbs up",
+								count: 1,
+								reactedByMe: true,
+								actors: [
+									{
+										profileId: "profile-a",
+										displayName: "Alex",
+										profileKind: "human" as const,
+									},
+								],
+								actorsHasMore: false,
+							},
+						],
+					},
+				},
+			],
 			nextCursor: "before-signal-a",
 		};
 		const displaySnapshot = {
@@ -353,6 +401,9 @@ describe("BrowserQueryPersistenceController", () => {
 		sourceController.deactivate();
 
 		const restoredQueryClient = createQueryClient();
+		const openingReports = vi.fn();
+		onTestFinished(installSpaceOpenReporting(openingReports));
+		beginSpaceOpen("/spaces/space-a", "navigation");
 		const restoredController = createBrowserQueryPersistenceController({
 			diagnostics: { record: vi.fn() },
 			restoreBudgetMs: 100,
@@ -387,6 +438,12 @@ describe("BrowserQueryPersistenceController", () => {
 				"profile-a",
 			])
 		).toEqual(displaySnapshot);
+		markSpaceOpen("space-a", "denied");
+		expect(openingReports).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				spaceOpen: expect.objectContaining({ cache: "restored" }),
+			})
+		);
 		expect(
 			restoredQueryClient.getQueryData(
 				spaceQueryKeys.memberDirectoryDisplay("space-a", "profile-a")

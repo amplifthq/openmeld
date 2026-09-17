@@ -1,30 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-type OrganizationApiMock = {
-	acceptInvitation?: ReturnType<typeof vi.fn>;
-	cancelInvitation?: ReturnType<typeof vi.fn>;
-	create?: ReturnType<typeof vi.fn>;
-	delete?: ReturnType<typeof vi.fn>;
-	listInvitations?: ReturnType<typeof vi.fn>;
-	listUserInvitations?: ReturnType<typeof vi.fn>;
-	removeMember?: ReturnType<typeof vi.fn>;
-	update?: ReturnType<typeof vi.fn>;
-	updateMemberRole?: ReturnType<typeof vi.fn>;
-};
-
-type AuthClientMock = {
-	organization?: OrganizationApiMock;
-};
-
-const { openMeldAuthClientMock } = vi.hoisted(() => ({
-	openMeldAuthClientMock: {} as AuthClientMock,
-}));
-
-vi.mock("#/lib/auth-client", () => ({
-	openMeldAuthClient: openMeldAuthClientMock,
-}));
-
-import { getAuthErrorCode } from "#/lib/auth-errors";
+import { OrganizationRequestError } from "#/lib/auth-business";
 import {
 	acceptOrganizationInvitation,
 	acceptOrganizationJoinLink,
@@ -34,7 +9,6 @@ import {
 	getOrganizationJoinLink,
 	listCurrentUserOrganizationInvitations,
 	listOrganizationInvitations,
-	OrganizationRequestError,
 	previewOrganizationJoinLink,
 	removeOrganizationMember,
 	resetOrganizationJoinLink,
@@ -43,263 +17,117 @@ import {
 	updateOrganizationMemberRole,
 } from "./auth-organizations";
 
-describe("auth organization client helpers", () => {
+describe("shared organization business client", () => {
 	const fetchMock = vi.fn<typeof fetch>();
-
 	beforeEach(() => {
 		fetchMock.mockReset();
 		vi.stubGlobal("fetch", fetchMock);
-		openMeldAuthClientMock.organization = {};
+		vi.stubGlobal("window", { location: { origin: "http://localhost:3000" } });
 	});
-
-	afterEach(() => {
-		vi.unstubAllGlobals();
-	});
-
-	it("reads the organization id from Better Auth's accept invitation response", async () => {
-		const acceptInvitation = vi.fn().mockResolvedValue({
-			data: {
-				invitation: {
-					id: "inv-123",
-					organizationId: "org-acme",
-				},
-				member: {
-					id: "member-123",
-				},
-			},
-		});
-		openMeldAuthClientMock.organization = { acceptInvitation };
-
+	afterEach(() => vi.unstubAllGlobals());
+	it("returns only the shared accepted membership and created organization", async () => {
+		fetchMock
+			.mockResolvedValueOnce(Response.json({ organizationId: "org-acme" }))
+			.mockResolvedValueOnce(
+				Response.json({
+					id: "org-acme",
+					name: "Acme",
+					slug: "acme-abcdef",
+					logo: null,
+					isPersonal: false,
+				})
+			);
 		await expect(
 			acceptOrganizationInvitation({ invitationId: "inv-123" })
 		).resolves.toEqual({ organizationId: "org-acme" });
-		expect(acceptInvitation).toHaveBeenCalledWith({ invitationId: "inv-123" });
-	});
-
-	it("asks Auth to create an organization URL and normalizes the result", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					id: "org-acme",
-					name: "Acme Labs",
-					slug: "acme-labs-k7m3qx",
-				}),
-				{
-					headers: { "content-type": "application/json" },
-					status: 200,
-				}
-			)
-		);
-
-		await expect(createOrganization({ name: "Acme Labs" })).resolves.toEqual({
+		await expect(createOrganization({ name: "Acme" })).resolves.toMatchObject({
 			id: "org-acme",
 			isPersonal: false,
-			logo: null,
-			name: "Acme Labs",
-			slug: "acme-labs-k7m3qx",
 		});
-		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/auth/organization/create",
-			expect.objectContaining({
-				body: JSON.stringify({ name: "Acme Labs" }),
-				method: "POST",
-			})
+		expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+			"http://localhost:3000/v1/organizations/accept-invitation",
+			"http://localhost:3000/v1/organizations",
+		]);
+	});
+	it("keeps nullable invitation fields and requires user invitation organization identity", async () => {
+		const invitation = {
+			id: "inv-123",
+			email: "member@example.com",
+			expiresAt: null,
+			organizationId: null,
+			role: null,
+			status: null,
+		};
+		fetchMock
+			.mockResolvedValueOnce(Response.json([invitation]))
+			.mockResolvedValueOnce(
+				Response.json([
+					{
+						...invitation,
+						organizationId: "org-acme",
+						organizationName: "Acme",
+						createdAt: null,
+						inviterId: null,
+					},
+				])
+			);
+		await expect(
+			listOrganizationInvitations({ organizationId: "org-acme" })
+		).resolves.toEqual([invitation]);
+		await expect(
+			listCurrentUserOrganizationInvitations()
+		).resolves.toMatchObject([{ organizationId: "org-acme", createdAt: null }]);
+		fetchMock.mockResolvedValueOnce(Response.json([invitation]));
+		await expect(listCurrentUserOrganizationInvitations()).rejects.toThrow(
+			"invalid business response"
 		);
 	});
-
-	it("uses Better Auth organization management methods with documented input shapes", async () => {
-		const update = vi.fn().mockResolvedValue({ data: {} });
-		const updateMemberRole = vi.fn().mockResolvedValue({ data: {} });
-		const cancelInvitation = vi.fn().mockResolvedValue({ data: {} });
-		const deleteOrganizationApi = vi.fn().mockResolvedValue({ data: {} });
-		const removeMember = vi.fn().mockResolvedValue({ data: {} });
-		openMeldAuthClientMock.organization = {
-			cancelInvitation,
-			delete: deleteOrganizationApi,
-			removeMember,
-			update,
-			updateMemberRole,
-		};
-
+	it("uses only fixed business operations for settings mutations", async () => {
+		fetchMock.mockImplementation(async () => Response.json({ ok: true }));
 		await updateOrganization({
-			data: { name: "Acme Labs", slug: "acme-labs" },
 			organizationId: "org-acme",
+			data: { name: "Acme" },
 		});
+		await deleteOrganization({ organizationId: "org-acme" });
 		await updateOrganizationMemberRole({
-			memberId: "member-123",
 			organizationId: "org-acme",
-			role: "admin",
+			memberId: "member-1",
+			role: "member",
 		});
 		await removeOrganizationMember({
-			memberIdOrEmail: "member-123",
 			organizationId: "org-acme",
+			memberIdOrEmail: "member-1",
 		});
-		await cancelOrganizationInvitation({ invitationId: "inv-123" });
-		await deleteOrganization({ organizationId: "org-acme" });
-
-		expect(update).toHaveBeenCalledWith({
-			data: { name: "Acme Labs", slug: "acme-labs" },
-			organizationId: "org-acme",
-		});
-		expect(updateMemberRole).toHaveBeenCalledWith({
-			memberId: "member-123",
-			organizationId: "org-acme",
-			role: "admin",
-		});
-		expect(removeMember).toHaveBeenCalledWith({
-			memberIdOrEmail: "member-123",
-			organizationId: "org-acme",
-		});
-		expect(cancelInvitation).toHaveBeenCalledWith({
-			invitationId: "inv-123",
-		});
-		expect(deleteOrganizationApi).toHaveBeenCalledWith({
-			organizationId: "org-acme",
-		});
-	});
-
-	it("loads organization invitations through the GET auth endpoint", async () => {
-		const listInvitations = vi
-			.fn()
-			.mockRejectedValue(new Error("Dynamic client listInvitations used"));
-		openMeldAuthClientMock.organization = { listInvitations };
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					invitations: [
-						{
-							email: "teammate@example.com",
-							expiresAt: "2026-08-01T00:00:00.000Z",
-							id: "inv-123",
-							organizationId: "org-acme",
-							role: "member",
-							status: "pending",
-						},
-					],
-				}),
-				{
-					status: 200,
-					headers: { "content-type": "application/json" },
-				}
+		expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(
+			["update", "delete", "update-member-role", "remove-member"].map(
+				(operation) => `http://localhost:3000/v1/organizations/${operation}`
 			)
 		);
-
-		await expect(
-			listOrganizationInvitations({ organizationId: "org-acme" })
-		).resolves.toEqual([
-			{
-				email: "teammate@example.com",
-				expiresAt: "2026-08-01T00:00:00.000Z",
-				id: "inv-123",
-				organizationId: "org-acme",
-				role: "member",
-				status: "pending",
-			},
-		]);
-
-		expect(listInvitations).not.toHaveBeenCalled();
-		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/auth/organization/list-invitations?organizationId=org-acme",
-			expect.objectContaining({
-				credentials: "include",
-				method: "GET",
-			})
-		);
 	});
-
-	it("lists the current user's pending organization invitations", async () => {
-		const listUserInvitations = vi.fn().mockResolvedValue({
-			data: [
-				{
-					createdAt: new Date("2026-07-29T00:00:00.000Z"),
-					email: "felix@example.com",
-					expiresAt: new Date("2026-08-01T00:00:00.000Z"),
-					id: "inv-user-1",
-					inviterId: "user-admin",
-					organizationId: "org-acme",
-					organizationName: "Acme",
-					role: "member",
-					status: "pending",
-				},
-			],
+	it.each([
+		acceptOrganizationInvitation,
+		cancelOrganizationInvitation,
+	])("preserves owner error code, status and message", async (action) => {
+		fetchMock.mockResolvedValueOnce(
+			Response.json(
+				{ code: "INVITATION_EXPIRED", message: "Invitation has expired." },
+				{ status: 403 }
+			)
+		);
+		await expect(action({ invitationId: "inv-123" })).rejects.toMatchObject({
+			code: "INVITATION_EXPIRED",
+			status: 403,
+			message: "Invitation has expired.",
 		});
-		openMeldAuthClientMock.organization = { listUserInvitations };
-
-		await expect(listCurrentUserOrganizationInvitations()).resolves.toEqual([
-			{
-				createdAt: "2026-07-29T00:00:00.000Z",
-				email: "felix@example.com",
-				expiresAt: "2026-08-01T00:00:00.000Z",
-				id: "inv-user-1",
-				inviterId: "user-admin",
-				organizationId: "org-acme",
-				organizationName: "Acme",
-				role: "member",
-				status: "pending",
-			},
-		]);
-		expect(listUserInvitations).toHaveBeenCalledWith();
-		expect(fetchMock).not.toHaveBeenCalled();
 	});
-
-	it("preserves auth server messages from the invitation fallback endpoint", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					error: {
-						code: "AUTH_UNAUTHENTICATED",
-						message: "Not authenticated",
-					},
-				}),
-				{
-					status: 400,
-					statusText: "Bad Request",
-					headers: { "content-type": "application/json" },
-				}
-			)
+	it("fails on malformed output rather than converting it to membership", async () => {
+		fetchMock.mockResolvedValueOnce(
+			Response.json({ member: { id: "member-1" } })
 		);
-
 		await expect(
-			listOrganizationInvitations({ organizationId: "org-acme" })
-		).rejects.toThrow("Not authenticated");
+			acceptOrganizationInvitation({ invitationId: "inv-123" })
+		).rejects.toBeInstanceOf(OrganizationRequestError);
 	});
-
-	it("reports malformed invitation fallback responses as invalid auth responses", async () => {
-		fetchMock.mockResolvedValue(
-			new Response("{bad json", {
-				status: 200,
-				statusText: "OK",
-				headers: { "content-type": "application/json" },
-			})
-		);
-
-		await expect(
-			listOrganizationInvitations({ organizationId: "org-acme" })
-		).rejects.toThrow("Failed to fetch invitations.");
-	});
-
-	it("preserves auth server messages from the cancel invitation fallback endpoint", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					error: {
-						code: "INVITATION_NOT_FOUND",
-						message: "Invitation was already canceled.",
-					},
-				}),
-				{
-					status: 400,
-					statusText: "Bad Request",
-					headers: { "content-type": "application/json" },
-				}
-			)
-		);
-
-		await expect(
-			cancelOrganizationInvitation({ invitationId: "inv-123" })
-		).rejects.toThrow("Invitation was already canceled.");
-	});
-
 	it("previews a public organization join link through the auth endpoint", async () => {
 		const token = `joinlink_${"a".repeat(64)}`;
 		fetchMock.mockResolvedValue(
@@ -324,7 +152,7 @@ describe("auth organization client helpers", () => {
 			organizationSlug: "acme-research",
 		});
 		expect(fetchMock).toHaveBeenCalledWith(
-			`/api/auth/organization/join-link/preview?token=${token}&responseVersion=3`,
+			`http://localhost:3000/v1/organization-join-link/preview?token=${token}&responseVersion=3`,
 			expect.objectContaining({ credentials: "include", method: "GET" })
 		);
 	});
@@ -357,7 +185,7 @@ describe("auth organization client helpers", () => {
 			role: "member",
 		});
 		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/auth/organization/join-link/accept",
+			"http://localhost:3000/v1/organization-join-link/accept",
 			expect.objectContaining({
 				body: JSON.stringify({ token }),
 				credentials: "include",
@@ -407,7 +235,8 @@ describe("auth organization client helpers", () => {
 			revokeOrganizationJoinLink({ organizationId: "org-acme" })
 		).resolves.toBe(true);
 
-		const path = "/api/auth/organization/join-link?organizationId=org-acme";
+		const path =
+			"http://localhost:3000/v1/organization-join-link?organizationId=org-acme";
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			1,
 			`${path}&responseVersion=3`,
@@ -420,79 +249,8 @@ describe("auth organization client helpers", () => {
 		);
 		expect(fetchMock).toHaveBeenNthCalledWith(
 			3,
-			path,
+			`${path}&responseVersion=3`,
 			expect.objectContaining({ credentials: "include", method: "DELETE" })
-		);
-	});
-});
-
-describe("organization request error code passthrough", () => {
-	const fetchMock = vi.fn<typeof fetch>();
-
-	beforeEach(() => {
-		fetchMock.mockReset();
-		vi.stubGlobal("fetch", fetchMock);
-		openMeldAuthClientMock.organization = {};
-	});
-
-	afterEach(() => {
-		vi.unstubAllGlobals();
-	});
-
-	it("preserves the Better Auth error code from the dynamic client accept path", async () => {
-		const acceptInvitation = vi.fn().mockResolvedValue({
-			error: {
-				code: "YOU_ARE_NOT_THE_RECIPIENT_OF_THE_INVITATION",
-				message: "You are not the recipient of the invitation.",
-				status: 403,
-			},
-		});
-		openMeldAuthClientMock.organization = { acceptInvitation };
-
-		const error = await acceptOrganizationInvitation({
-			invitationId: "inv-123",
-		}).then(
-			() => null,
-			(caught: unknown) => caught
-		);
-
-		expect(error).toBeInstanceOf(OrganizationRequestError);
-		expect(getAuthErrorCode(error)).toBe(
-			"YOU_ARE_NOT_THE_RECIPIENT_OF_THE_INVITATION"
-		);
-		expect((error as OrganizationRequestError).message).toBe(
-			"You are not the recipient of the invitation."
-		);
-		expect((error as OrganizationRequestError).status).toBe(403);
-	});
-
-	it("preserves the Better Auth error code from the fallback fetch accept path", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					error: {
-						code: "EMAIL_VERIFICATION_REQUIRED_BEFORE_ACCEPTING_OR_REJECTING_INVITATION",
-						message: "Verify your email before accepting the invitation.",
-					},
-				}),
-				{
-					status: 403,
-					statusText: "Forbidden",
-					headers: { "content-type": "application/json" },
-				}
-			)
-		);
-
-		const error = await acceptOrganizationInvitation({
-			invitationId: "inv-123",
-		}).then(
-			() => null,
-			(caught: unknown) => caught
-		);
-
-		expect(error).toBeInstanceOf(OrganizationRequestError);
-		expect(getAuthErrorCode(error)).toBe(
-			"EMAIL_VERIFICATION_REQUIRED_BEFORE_ACCEPTING_OR_REJECTING_INVITATION"
 		);
 	});
 });

@@ -526,6 +526,110 @@ describe("Lark-platform Webhook verification", () => {
     }
   });
 
+  it("routes a non-form button by its callback value without requiring a form name", async () => {
+    const harness = createSqliteD1Harness();
+    applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: null,
+      provider: "lark",
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    try {
+      // Card JSON 2.0 ordinary buttons use behaviors[].value; name is form-only.
+      const payload = structuredClone(
+        CARD_ACTION_FIXTURE
+      ) as typeof CARD_ACTION_FIXTURE & { event: Record<string, unknown> };
+      payload.event.action = {
+        tag: "button",
+        value: {
+          openmeld_action: "control",
+          v: 1,
+          action: "stop",
+          deliveryId: "delivery",
+        },
+      };
+      const result = await verifyLarkPlatformWebhook({
+        db: harness.db,
+        env: buildEnv({ larkEnabled: true }),
+        input: {
+          connectionId: "connection_lark_test",
+          gatewayRequestId: "ordinary-button",
+          headers: { nonce: null, signature: null, timestamp: null },
+          provider: "lark",
+          rawBody: JSON.stringify(payload),
+          receivedAtMs: 1_710_000_004_100,
+          surface: "callbacks",
+        },
+      });
+      expect(result).toMatchObject({
+        status: "enqueue",
+        envelope: {
+          event: {
+            actionName: "openmeld.center_agent.control",
+            actionValue: JSON.stringify({
+              v: 1,
+              action: "stop",
+              deliveryId: "delivery",
+            }),
+          },
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("preserves a maximum-length form reply when JSON escaping expands it", async () => {
+    const harness = createSqliteD1Harness();
+    applyConnectionMigration(harness);
+    await seedConnection(harness, {
+      encryptKey: null,
+      provider: "lark",
+      verificationToken: VERIFICATION_TOKEN,
+    });
+    try {
+      const text = '"'.repeat(1000);
+      const payload = structuredClone(
+        CARD_ACTION_FIXTURE
+      ) as typeof CARD_ACTION_FIXTURE & { event: Record<string, unknown> };
+      payload.event.action = {
+        tag: "button",
+        name: "openmeld.center_agent.control",
+        value: { v: 1, action: "reply", deliveryId: "delivery" },
+        form_value: { follow_up: text },
+      };
+      const result = await verifyLarkPlatformWebhook({
+        db: harness.db,
+        env: buildEnv({ larkEnabled: true }),
+        input: {
+          connectionId: "connection_lark_test",
+          gatewayRequestId: "escaped-form",
+          headers: { nonce: null, signature: null, timestamp: null },
+          provider: "lark",
+          rawBody: JSON.stringify(payload),
+          receivedAtMs: 1_710_000_004_100,
+          surface: "callbacks",
+        },
+      });
+      expect(result).toMatchObject({
+        status: "enqueue",
+        envelope: {
+          event: {
+            actionName: "openmeld.center_agent.control",
+            actionValue: JSON.stringify({
+              v: 1,
+              action: "reply",
+              deliveryId: "delivery",
+              text,
+            }),
+          },
+        },
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("verifies and normalizes a supported card action callback", async () => {
     const harness = createSqliteD1Harness();
     applyConnectionMigration(harness);

@@ -7,12 +7,26 @@ import {
   resolveIsolatedDevLaunchOptions,
   resolveIsolatedDevPresentation,
   resolveIsolatedWebDopplerCommand,
+  resolveIsolatedWebScript,
 } from "./dev-isolated.mjs";
 import { buildInjectedEnvironment } from "./doppler-environment.mjs";
 
 const DOPPLER_ENVIRONMENT_SCRIPT = fileURLToPath(
   new URL("./doppler-environment.mjs", import.meta.url)
 );
+
+test("uses compiled Web preview only for the explicit Desktop pilot", () => {
+  assert.equal(resolveIsolatedWebScript({}), "dev:isolated");
+  assert.equal(
+    resolveIsolatedWebScript({ OPENMELD_DESKTOP_PILOT: "1" }),
+    "desktop:pilot"
+  );
+  const command = resolveIsolatedWebDopplerCommand(
+    { OPENMELD_DEV_ENVIRONMENT_SOURCE: "doppler", OPENMELD_DESKTOP_PILOT: "1" },
+    "pnpm-test"
+  );
+  assert.equal(command.args.at(-1), "desktop:pilot");
+});
 
 test("presents the shared Doppler workflow with newcomer-facing commands", () => {
   assert.deepEqual(
@@ -69,26 +83,22 @@ test("sets a clear expectation for the first Web page compilation", () => {
 });
 
 test("enters Doppler at the Web process boundary", () => {
-  assert.deepEqual(
-    resolveIsolatedWebDopplerCommand(
-      { OPENMELD_DEV_ENVIRONMENT_SOURCE: "doppler" },
-      "pnpm-test"
-    ),
-    {
-      args: [
-        DOPPLER_ENVIRONMENT_SCRIPT,
-        "component",
-        "web",
-        "--",
-        "pnpm-test",
-        "--filter",
-        "openmeld-web",
-        "run",
-        "dev:isolated",
-      ],
-      executable: process.execPath,
-    }
+  const command = resolveIsolatedWebDopplerCommand(
+    { OPENMELD_DEV_ENVIRONMENT_SOURCE: "doppler" },
+    "pnpm-test"
   );
+  assert.equal(command.executable, "doppler");
+  assert.ok(command.args.includes("openmeld-web"));
+  assert.deepEqual(command.args.slice(-8), [
+    DOPPLER_ENVIRONMENT_SCRIPT,
+    "__run-component",
+    "web",
+    "pnpm-test",
+    "--filter",
+    "openmeld-web",
+    "run",
+    "dev:isolated",
+  ]);
   assert.equal(
     resolveIsolatedWebDopplerCommand(
       {
@@ -109,23 +119,13 @@ test("does not trust an ambient Web component marker after supervisor scrubbing"
     WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET: "ambient-web-secret",
   });
 
-  assert.deepEqual(
-    resolveIsolatedWebDopplerCommand(supervisorEnvironment, "pnpm-test"),
-    {
-      args: [
-        DOPPLER_ENVIRONMENT_SCRIPT,
-        "component",
-        "web",
-        "--",
-        "pnpm-test",
-        "--filter",
-        "openmeld-web",
-        "run",
-        "dev:isolated",
-      ],
-      executable: process.execPath,
-    }
+  const command = resolveIsolatedWebDopplerCommand(
+    supervisorEnvironment,
+    "pnpm-test"
   );
+  assert.equal(command.executable, "doppler");
+  assert.equal(command.env.WEB_OPENMELD_SPACE_ACCESS_COOKIE_SECRET, undefined);
+  assert.ok(command.args.includes("__run-component"));
 });
 
 test("uses the complete Remote Agent capability set by default", () => {

@@ -6,6 +6,26 @@ import {
 } from "../src/center-agent-context-policy";
 
 describe("Center Agent context policy", () => {
+  it("does not promote an external Space caller when later identity verification succeeds", () => {
+    const envelope = createEnvelope({
+      interactionEnvironment: "externally_shared",
+      source: "slack",
+    });
+    if (envelope.sender.kind !== "member") {
+      throw new Error("Expected member fixture");
+    }
+    envelope.sender.callerContext = {
+      relationship: "external",
+      spaceRole: "member",
+      audience: "external",
+    };
+    expect(resolveCenterAgentContextScopePlan(envelope)).toMatchObject({
+      requesterIdentity: "external_participant",
+      organizationDocuments: "never_available",
+      organizationMemory: "never_available",
+      organizationSkills: "never_available",
+    });
+  });
   it("keeps the same verified requester continuity while changing disclosure for a shared channel", () => {
     const privatePolicy = resolveCenterAgentContextScopePlan(
       createEnvelope({

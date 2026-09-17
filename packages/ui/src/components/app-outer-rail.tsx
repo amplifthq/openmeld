@@ -19,7 +19,12 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "#components/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "#components/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipHint,
+  TooltipTrigger,
+} from "#components/tooltip";
 import { FluidNavMenu, FluidNavMenuItem } from "#fluid/nav-menu";
 import { cn } from "#lib/utils";
 
@@ -389,16 +394,17 @@ function AppRailLink({
           title: collapsed ? destination.label : undefined,
         })
       ) : (
-        <button
-          aria-current={active ? "page" : undefined}
-          aria-label={collapsed ? destination.label : undefined}
-          className={className}
-          onClick={onActivate}
-          title={collapsed ? destination.label : undefined}
-          type="button"
-        >
-          {children}
-        </button>
+        <TooltipHint content={collapsed ? destination.label : undefined}>
+          <button
+            aria-current={active ? "page" : undefined}
+            aria-label={collapsed ? destination.label : undefined}
+            className={className}
+            onClick={onActivate}
+            type="button"
+          >
+            {children}
+          </button>
+        </TooltipHint>
       )}
     </FluidNavMenuItem>
   );
@@ -449,16 +455,17 @@ function AccountRailLink({
   }
 
   return (
-    <button
-      aria-current={active ? "page" : undefined}
-      aria-label={collapsed ? "Account settings" : undefined}
-      className={className}
-      onClick={handleClick}
-      title={collapsed ? "Account settings" : undefined}
-      type="button"
-    >
-      {children}
-    </button>
+    <TooltipHint content={collapsed ? "Account settings" : undefined}>
+      <button
+        aria-current={active ? "page" : undefined}
+        aria-label={collapsed ? "Account settings" : undefined}
+        className={className}
+        onClick={handleClick}
+        type="button"
+      >
+        {children}
+      </button>
+    </TooltipHint>
   );
 }
 

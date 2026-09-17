@@ -245,6 +245,7 @@ export async function publishLarkPlatformReply(input: {
 }
 
 export async function createLarkPlatformStreamingCard(input: {
+  stopDeliveryId?: string;
   appId: string;
   appSecret: string;
   fetchImpl?: typeof fetch;
@@ -272,7 +273,12 @@ export async function createLarkPlatformStreamingCard(input: {
   try {
     response = await fetchImpl(`${apiHost}/open-apis/cardkit/v1/cards`, {
       body: JSON.stringify({
-        data: JSON.stringify(buildLarkPlatformStreamingCard(input.initialText)),
+        data: JSON.stringify(
+          buildLarkPlatformStreamingCard(
+            input.initialText,
+            input.stopDeliveryId
+          )
+        ),
         type: "card_json",
       }),
       headers: {
@@ -421,6 +427,7 @@ export async function updateLarkPlatformStreamingCardContent(input: {
 }
 
 export async function finalizeLarkPlatformStreamingCard(input: {
+  replyDeliveryId?: string;
   appId: string;
   appSecret: string;
   cardId: string;
@@ -440,7 +447,11 @@ export async function finalizeLarkPlatformStreamingCard(input: {
     body: {
       card: {
         data: JSON.stringify(
-          buildLarkPlatformTerminalCard(input.text, input.outcome)
+          buildLarkPlatformTerminalCard(
+            input.text,
+            input.outcome,
+            input.replyDeliveryId
+          )
         ),
         type: "card_json",
       },
@@ -828,7 +839,10 @@ function validateCardMutationInput(
   return null;
 }
 
-function buildLarkPlatformStreamingCard(text: string): JsonObject {
+function buildLarkPlatformStreamingCard(
+  text: string,
+  stopDeliveryId?: string
+): JsonObject {
   return {
     body: {
       elements: [
@@ -837,12 +851,34 @@ function buildLarkPlatformStreamingCard(text: string): JsonObject {
           element_id: LARK_PLATFORM_STREAMING_CARD_ELEMENT_ID,
           tag: "markdown",
         },
+        ...(stopDeliveryId
+          ? [
+              {
+                tag: "button",
+                element_id: "stop_response",
+                name: "openmeld.center_agent.control",
+                text: { tag: "plain_text", content: "Stop response" },
+                type: "default",
+                behaviors: [
+                  {
+                    type: "callback",
+                    value: {
+                      openmeld_action: "control",
+                      v: 1,
+                      action: "stop",
+                      deliveryId: stopDeliveryId,
+                    },
+                  },
+                ],
+              },
+            ]
+          : []),
       ],
     },
     config: {
       streaming_config: {
-        print_frequency_ms: { default: 70 },
-        print_step: { default: 1 },
+        print_frequency_ms: { default: 30 },
+        print_step: { default: 3 },
         print_strategy: "fast",
       },
       streaming_mode: true,
@@ -854,7 +890,8 @@ function buildLarkPlatformStreamingCard(text: string): JsonObject {
 
 function buildLarkPlatformTerminalCard(
   text: string,
-  outcome: "completed" | "failed" | "stopped" | "continued"
+  outcome: "completed" | "failed" | "stopped" | "continued",
+  replyDeliveryId?: string
 ): JsonObject {
   const label = {
     completed: "Response complete",
@@ -874,6 +911,9 @@ function buildLarkPlatformTerminalCard(
           element_id: LARK_PLATFORM_STREAMING_CARD_ELEMENT_ID,
           tag: "markdown",
         },
+        ...(replyDeliveryId && outcome === "completed"
+          ? [buildLarkPlatformFollowUpForm(replyDeliveryId)]
+          : []),
       ],
     },
     config: {
@@ -885,6 +925,45 @@ function buildLarkPlatformTerminalCard(
       },
     },
     schema: "2.0",
+  };
+}
+
+function buildLarkPlatformFollowUpForm(deliveryId: string): JsonObject {
+  return {
+    tag: "form",
+    name: "follow_up_form",
+    elements: [
+      {
+        tag: "collapsible_panel",
+        expanded: false,
+        header: { title: { tag: "plain_text", content: "Follow up" } },
+        elements: [
+          {
+            tag: "input",
+            name: "follow_up",
+            required: true,
+            max_length: 1000,
+            placeholder: {
+              tag: "plain_text",
+              content: "Ask a follow-up or describe the next step",
+            },
+          },
+          {
+            tag: "button",
+            name: "openmeld.center_agent.control",
+            form_action_type: "submit",
+            type: "default",
+            text: { tag: "plain_text", content: "Send follow-up" },
+            behaviors: [
+              {
+                type: "callback",
+                value: { v: 1, action: "reply", deliveryId },
+              },
+            ],
+          },
+        ],
+      },
+    ],
   };
 }
 

@@ -51,7 +51,7 @@ describe("SpaceMemberRow", () => {
 
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.getAttribute("aria-label")).toBe("Live");
-		expect(indicator.getAttribute("title")).toBe("Live agent");
+		expect(indicator.getAttribute("aria-description")).toBe("Live agent");
 		expect(screen.queryByText("Live")).toBeNull();
 		expect(screen.queryByText("Available for Wake")).toBeNull();
 		expect(screen.queryByText("Connected to Office Mac")).toBeNull();
@@ -74,7 +74,9 @@ describe("SpaceMemberRow", () => {
 
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Available");
-		expect(indicator.getAttribute("title")).toBe("Available for Wake");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(indicatorDot?.className).toContain("bg-emerald-");
 		expect(
 			agentName.closest("button")?.parentElement?.contains(indicator)
@@ -108,7 +110,7 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.getAttribute("aria-label")).toBe("Sign-in needed");
 		expect(indicatorDot?.className).toContain("bg-amber-");
 		expect(indicatorDot?.className).not.toContain("bg-emerald-");
-		expect(indicator.getAttribute("title")).toBe(
+		expect(indicator.getAttribute("aria-description")).toBe(
 			"Codex is not signed in. Run codex login in a terminal on this computer."
 		);
 		expect(screen.queryByText("Sign-in needed")).toBeNull();
@@ -134,7 +136,7 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Wrong workspace");
-		expect(indicator.getAttribute("title")).toBe(
+		expect(indicator.getAttribute("aria-description")).toBe(
 			"This Agent Profile belongs to another workspace"
 		);
 		expect(getAgentAvailabilityIndicatorDot().className).toContain("bg-amber-");
@@ -517,7 +519,9 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.getAttribute("data-availability-action")).toBe(
 			"update_service"
 		);
-		expect(indicator.getAttribute("title")).toBe("Update OpenMeld Service");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Update OpenMeld Service"
+		);
 		expect(screen.queryByRole("link", { name: "Update" })).toBeNull();
 		expect(
 			screen.getByText("Controlled by Office Mac Codex · Owned by Mira")
@@ -567,7 +571,9 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Checking");
-		expect(indicator.getAttribute("title")).toBe("Checking Wake availability");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Checking Wake availability"
+		);
 		expect(
 			screen.getByText("OpenMeld is checking this agent's local connection.")
 		).toBeTruthy();
@@ -592,7 +598,9 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Unavailable");
-		expect(indicator.getAttribute("title")).toBe("Connect local agent");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Connect local agent"
+		);
 		expect(
 			screen.getByText("Connect a local agent before this agent can reply.")
 		).toBeTruthy();
@@ -624,7 +632,7 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.getAttribute("data-availability-reason-code")).toBe(
 			"agent_profile_binding.controller_conversation_conflict"
 		);
-		expect(indicator.getAttribute("title")).toBe(
+		expect(indicator.getAttribute("aria-description")).toBe(
 			"Duplicate reply conversation"
 		);
 		expect(screen.queryByText("Connect local agent")).toBeNull();
@@ -718,7 +726,7 @@ describe("SpaceMemberRow", () => {
 		expect(selfStatus.className).not.toContain("bg-");
 		const liveStatus = screen.getByTestId("space-member-presence-status");
 		expect(liveStatus.textContent).toBe("Live");
-		expect(liveStatus.getAttribute("title")).toBe("Live person");
+		expect(liveStatus.getAttribute("aria-description")).toBe("Live person");
 		expect(liveStatus.className).toContain("before:content-['·']");
 		expect(liveStatus.className).toContain("text-emerald-");
 		expect(liveStatus.className).not.toContain("border");
@@ -749,7 +757,7 @@ describe("SpaceMemberRow", () => {
 		expect(organizationActivity).toBe("40 minutes ago");
 		expect(screen.getByText("Here 8h ago")).toBeTruthy();
 		const spaceActivity = screen.getByLabelText("Here 8h ago");
-		expect(spaceActivity.getAttribute("title")).toBe(
+		expect(spaceActivity.getAttribute("aria-description")).toBe(
 			"Last activity in this Space"
 		);
 		expect(screen.queryByText("Seen 8h ago")).toBeNull();
@@ -877,7 +885,7 @@ describe("SpaceMemberRow", () => {
 
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.getAttribute("aria-label")).toBe("Waiting");
-		expect(indicator.getAttribute("title")).toBe(
+		expect(indicator.getAttribute("aria-description")).toBe(
 			"Wake waiting for this computer to reconnect"
 		);
 		expect(
@@ -894,7 +902,9 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Checking");
-		expect(indicator.getAttribute("title")).toBe("Checking Wake availability");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Checking Wake availability"
+		);
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(getAgentAvailabilityIndicatorDot().className).toContain("bg-sky-");
 		expect(screen.queryByText("Service not connected")).toBeNull();
@@ -925,7 +935,7 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Working");
-		expect(indicator.getAttribute("title")).toBe("Wake in progress");
+		expect(indicator.getAttribute("aria-description")).toBe("Wake in progress");
 		expect(indicator.getAttribute("data-refreshing")).toBe("true");
 		expect(screen.queryByText("Connect local agent")).toBeNull();
 		expect(
@@ -1013,7 +1023,9 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Available");
-		expect(indicator.getAttribute("title")).toBe("Available for Wake");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Available for Wake"
+		);
 		expect(indicator.getAttribute("data-refreshing")).toBeNull();
 		expect(screen.queryByText("Checking")).toBeNull();
 		expect(
@@ -1053,7 +1065,7 @@ describe("SpaceMemberRow", () => {
 		expect(
 			screen
 				.getByTestId("space-agent-availability-indicator")
-				.getAttribute("title")
+				.getAttribute("aria-description")
 		).toBe("Codex’s computer is disconnected");
 		expect(screen.queryByText("OpenMeld Service is not connected")).toBeNull();
 	});
@@ -1075,7 +1087,7 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Unavailable");
-		expect(indicator.getAttribute("title")).toBe(copy);
+		expect(indicator.getAttribute("aria-description")).toBe(copy);
 		expect(screen.queryByText(copy)).toBeNull();
 		expect(screen.queryByText("Turned off")).toBeNull();
 		expect(
@@ -1104,7 +1116,7 @@ describe("SpaceMemberRow", () => {
 		const indicator = getAgentAvailabilityIndicator();
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Unavailable");
-		expect(indicator.getAttribute("title")).toBe(copy);
+		expect(indicator.getAttribute("aria-description")).toBe(copy);
 		expect(screen.queryByText(copy)).toBeNull();
 		expect(screen.queryByText("Claude Code subscription needed")).toBeNull();
 		expect(
@@ -1235,7 +1247,9 @@ describe("SpaceMemberRow", () => {
 		expect(indicator.textContent).toBe("");
 		expect(indicator.getAttribute("aria-label")).toBe("Checking");
 		expect(getAgentAvailabilityIndicatorDot().className).toContain("bg-sky-");
-		expect(indicator.getAttribute("title")).toBe("Checking Wake availability");
+		expect(indicator.getAttribute("aria-description")).toBe(
+			"Checking Wake availability"
+		);
 		expect(
 			screen.getByText("OpenMeld is checking this agent's local connection.")
 		).toBeTruthy();

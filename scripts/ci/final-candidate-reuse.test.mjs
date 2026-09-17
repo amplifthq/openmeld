@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-
+import { createFinalCandidatePlan } from "./final-candidate-policy.mjs";
 import {
   buildTurboTaskPlanCommand,
   computeReusableCheckFingerprint,
@@ -14,8 +14,15 @@ const HEAD_SHA = "3".repeat(40);
 const TREE_SHA = "4".repeat(40);
 const FINGERPRINT = "a".repeat(64);
 const CHECK = {
-  command: ["pnpm", "run", "verify:pr"],
-  id: "affected-checks-and-unit-tests",
+  command: [
+    "node",
+    "scripts/dev/turbo-affected.mjs",
+    "test",
+    "--",
+    "--concurrency=2",
+    "--log-order=stream",
+  ],
+  id: "affected-unit-tests",
   reason: "Unit tests prove the affected workspaces.",
 };
 const INTEGRATION_CHECK = {
@@ -33,14 +40,17 @@ const INTEGRATION_CHECK = {
 
 test("only deterministic affected task families are eligible for reuse", () => {
   assert.deepEqual(resolveReusableTaskPlans(CHECK.id), [
-    { changedOnly: true, task: "check", turboArgs: ["--concurrency=2"] },
-    { changedOnly: true, task: "test", turboArgs: ["--concurrency=2"] },
+    {
+      changedOnly: false,
+      task: "test",
+      turboArgs: ["--concurrency=2", "--log-order=stream"],
+    },
   ]);
   assert.deepEqual(resolveReusableTaskPlans(INTEGRATION_CHECK.id), [
     {
       changedOnly: false,
       task: "test:integration",
-      turboArgs: ["--concurrency=1", "--output-logs=errors-only"],
+      turboArgs: ["--concurrency=1", "--log-order=stream"],
     },
   ]);
   assert.equal(resolveReusableTaskPlans("database-contract"), null);
@@ -223,7 +233,8 @@ test("an unrelated base advance reuses integration evidence but changed integrat
     currentPlan: createCurrentPlan(INTEGRATION_CHECK),
     evidenceCandidates: [evidence],
     isAncestor: (ancestor, descendant) =>
-      ancestor === BASE_SHA && descendant === NEW_BASE_SHA,
+      (ancestor === BASE_SHA && descendant === NEW_BASE_SHA) ||
+      ancestor === descendant,
     pullRequestNumber: 415,
     repository: "amplifthq/openmeld",
   };
@@ -333,7 +344,8 @@ test("a current candidate reuses only matching successful evidence from an ances
     evidenceCandidates: [evidence],
     inputFingerprint: FINGERPRINT,
     isAncestor: (ancestor, descendant) =>
-      ancestor === BASE_SHA && descendant === NEW_BASE_SHA,
+      (ancestor === BASE_SHA && descendant === NEW_BASE_SHA) ||
+      ancestor === descendant,
     pullRequestNumber: 415,
     repository: "amplifthq/openmeld",
   });
@@ -380,12 +392,65 @@ function createCurrentPlan(check = CHECK) {
   return {
     baseSha: NEW_BASE_SHA,
     branchName: "codex/people-followup",
+    candidateKind: "pull-request",
     changedPaths: ["clients/web/src/app.tsx"],
     confidence: "standard",
     controlTrust: "current-main",
+    headSha: HEAD_SHA,
     selectedChecks: [check],
   };
 }
+
+test("reuse describes exactly the affected tasks executed by the current plan", () => {
+  const plan = createFinalCandidatePlan({
+    baseSha: BASE_SHA,
+    headSha: HEAD_SHA,
+    treeSha: TREE_SHA,
+    changedPaths: ["packages/agent-runtime/src/index.ts"],
+  });
+  for (const check of plan.selectedChecks.filter((entry) =>
+    entry.id.startsWith("affected-")
+  )) {
+    const [taskPlan] = resolveReusableTaskPlans(check.id);
+    assert.equal(taskPlan.changedOnly, false);
+    assert.deepEqual(
+      buildTurboTaskPlanCommand(taskPlan)
+        .slice(1)
+        .filter((arg) => arg !== "--dry=json"),
+      check.command.slice(1)
+    );
+  }
+});
+
+test("adding documentation can reuse unchanged task inputs but a rewritten head cannot", () => {
+  const input = {
+    check: CHECK,
+    currentPlan: {
+      ...createCurrentPlan(),
+      changedPaths: ["clients/web/src/app.tsx", "developing/README.md"],
+    },
+    evidenceCandidates: [createEvidence()],
+    inputFingerprint: FINGERPRINT,
+    isAncestor: () => true,
+    pullRequestNumber: 415,
+    repository: "amplifthq/openmeld",
+  };
+  assert.notEqual(selectReusableCheckEvidence(input), null);
+  assert.equal(
+    selectReusableCheckEvidence({
+      ...input,
+      isAncestor: (ancestor) => ancestor !== HEAD_SHA,
+    }),
+    null
+  );
+  assert.equal(
+    selectReusableCheckEvidence({
+      ...input,
+      currentPlan: { ...input.currentPlan, candidateKind: "merge-group" },
+    }),
+    null
+  );
+});
 
 function createEvidence({
   check = CHECK,

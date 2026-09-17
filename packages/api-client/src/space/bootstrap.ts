@@ -1,5 +1,6 @@
 import { spaceBootstrapResponseSchema } from "@openmeld/schemas";
 import type { OpenMeldApiClientFoundation } from "../client";
+import { currentSpaceAccessHeaders } from "./access-version";
 import { currentSpaceAddressingHeaders } from "./addressing-contract";
 import { buildSpaceBootstrapPath } from "./routes";
 import { buildSpaceSignalsReadSearchParams } from "./signals";
@@ -8,6 +9,7 @@ import type { SpaceRequestInput, SpaceSignalsReadQuery } from "./types";
 export async function getSpaceBootstrap(
   client: OpenMeldApiClientFoundation,
   input: SpaceRequestInput & {
+    includeAgentReadiness?: boolean;
     historyQuery?: SpaceSignalsReadQuery;
     includeAgentStreamPresence?: boolean;
   }
@@ -16,10 +18,14 @@ export async function getSpaceBootstrap(
     url: buildSpaceBootstrapReadPath(
       input.spaceId,
       input.historyQuery,
-      input.includeAgentStreamPresence
+      input.includeAgentStreamPresence,
+      input.includeAgentReadiness
     ),
     operation: "space.bootstrap.read",
-    headers: currentSpaceAddressingHeaders(),
+    headers: {
+      ...currentSpaceAddressingHeaders(),
+      ...currentSpaceAccessHeaders(),
+    },
     requestContext: input.requestContext,
     signal: input.signal,
     timeoutMs: input.timeoutMs,
@@ -34,7 +40,8 @@ export async function getSpaceBootstrap(
 export function buildSpaceBootstrapReadPath(
   spaceId: string,
   historyQuery?: SpaceSignalsReadQuery,
-  includeAgentStreamPresence?: boolean
+  includeAgentStreamPresence?: boolean,
+  includeAgentReadiness?: boolean
 ): string {
   const url = new URL(
     buildSpaceBootstrapPath(spaceId),
@@ -45,6 +52,9 @@ export function buildSpaceBootstrapReadPath(
   }
   if (includeAgentStreamPresence === true) {
     url.searchParams.set("includeAgentStreamPresence", "true");
+  }
+  if (includeAgentReadiness === false) {
+    url.searchParams.set("includeAgentReadiness", "false");
   }
   return `${url.pathname}${url.search}`;
 }

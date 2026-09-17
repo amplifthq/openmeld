@@ -161,16 +161,94 @@ export function SpaceExecutionRecoveryButton(input: {
 			cancelled = true;
 		};
 	}, [recoveryDispatchId, recoveryResultRef, recoveryTargetProfileId]);
-	if (inspectionFailed || resolution === null) {
+	useEffect(() => {
+		if (resolution?.status !== "in_progress") {
+			return;
+		}
+		let cancelled = false;
+		const timer = setTimeout(() => {
+			inspectRecovery({
+				dispatchId: recoveryDispatchId,
+				resultRef: recoveryResultRef,
+				targetProfileId: recoveryTargetProfileId,
+			})
+				.then((next) => {
+					if (!cancelled) {
+						setResolution(next);
+					}
+				})
+				.catch(() => {
+					if (!cancelled) {
+						setInspectionFailed(true);
+					}
+				});
+		}, 2000);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	}, [
+		resolution,
+		recoveryDispatchId,
+		recoveryResultRef,
+		recoveryTargetProfileId,
+	]);
+	if (resolution === null) {
 		return null;
+	}
+	if (inspectionFailed || resolution.status === "outcome_unknown") {
+		return (
+			<div className="flex flex-col items-start gap-1.5 text-xs">
+				<p className="text-muted-foreground">
+					Couldn't confirm whether your reply is ready. Your message is saved.
+				</p>
+				<Button
+					disabled={isPending}
+					onClick={async () => {
+						if (pendingRef.current) {
+							return;
+						}
+						pendingRef.current = true;
+						setIsPending(true);
+						try {
+							const next = await input.onRecoverExecution({
+								...input.request,
+								action: null,
+								operationId: null,
+							});
+							setResolution(next);
+							setInspectionFailed(false);
+						} catch {
+							setInspectionFailed(true);
+						} finally {
+							pendingRef.current = false;
+							setIsPending(false);
+						}
+					}}
+					size="sm"
+					variant="outline"
+				>
+					{isPending ? "Checking…" : "Check status"}
+				</Button>
+			</div>
+		);
 	}
 	if (resolution.status !== "available") {
-		return resolution.status === "unavailable"
-			? (input.unavailableFallback ?? null)
-			: null;
-	}
-	if (resolution.action === null) {
-		return null;
+		if (resolution.status === "in_progress") {
+			return (
+				<output className="text-muted-foreground text-xs">
+					Preparing your reply…
+				</output>
+			);
+		}
+		return resolution.status === "unavailable" ? (
+			<>
+				{resolution.warning ? (
+					<p className="text-muted-foreground text-xs">{resolution.warning}</p>
+				) : null}
+				{input.unavailableFallback ?? null}
+			</>
+		) : null;
 	}
 	if (resolution.action === "retry_as_new_execution") {
 		return null;
@@ -278,9 +356,6 @@ function resolveSpaceExecutionRecoveryButtonLabel(input: {
 	}
 	if (input.didFail) {
 		return "Recovery failed. Try again";
-	}
-	if (input.resolution?.action === "resume_controller_conversation") {
-		return "Recover reply";
 	}
 	return input.resolution?.label ?? null;
 }

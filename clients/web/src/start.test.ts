@@ -1,9 +1,47 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+	DESKTOP_APP_ORIGIN,
+	DESKTOP_WEB_BUILD_HEADER,
+} from "@openmeld/schemas";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startInstance } from "./start";
 
-afterEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+	vi.stubGlobal("__OPENMELD_DESKTOP_PILOT__", false);
+	vi.stubGlobal("__OPENMELD_DESKTOP_WEB_BUILD__", "test-build");
+});
+
+afterEach(() => {
+	vi.restoreAllMocks();
+	vi.unstubAllGlobals();
+});
 
 describe("Start error middleware", () => {
+	it("rejects mismatched Desktop builds before a write reaches its handler", async () => {
+		vi.stubGlobal("__OPENMELD_DESKTOP_PILOT__", true);
+		vi.stubGlobal("__OPENMELD_DESKTOP_WEB_BUILD__", "current-build");
+		const options = await startInstance.getOptions();
+		const gate = options.requestMiddleware?.[0].options.server;
+		if (!gate) {
+			throw new Error("Missing request middleware");
+		}
+		const next = vi.fn();
+		const denied = await gate({
+			request: new Request("https://openmeld.ai/v1/spaces", {
+				method: "POST",
+				headers: {
+					origin: DESKTOP_APP_ORIGIN,
+					[DESKTOP_WEB_BUILD_HEADER]: "old-build",
+				},
+			}),
+			pathname: "/v1/spaces",
+			context: undefined,
+			handlerType: "router",
+			next,
+		});
+		expect(denied).toBeInstanceOf(Response);
+		expect((denied as Response).status).toBe(409);
+		expect(next).not.toHaveBeenCalled();
+	});
 	it("retains server-function CSRF protection without blocking ordinary navigation", async () => {
 		const options = await startInstance.getOptions();
 		const csrf = options.requestMiddleware?.[1].options.server;

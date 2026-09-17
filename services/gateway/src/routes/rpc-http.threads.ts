@@ -117,6 +117,7 @@ function handleListThreadSignals(c: Context<HonoBindings>): Promise<Response> {
   }
   const { spaceId, threadId } = parsed;
   const parsedQuery = listSpaceThreadSignalsQuerySchema.safeParse({
+    includeWakeContinuation: c.req.query("includeWakeContinuation"),
     afterSignalId: c.req.query("afterSignalId"),
     limit: c.req.query("limit"),
   });

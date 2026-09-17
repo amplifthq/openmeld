@@ -1,4 +1,5 @@
 import {
+  SPACE_MESSAGE_FILE_MAX_COUNT,
   sanitizeSignalTextPreview,
   signalTextEnvelopeSchema,
 } from "@openmeld/schemas";
@@ -11,17 +12,71 @@ import { readSignalEntryById } from "./space-signal-repo";
 
 type TextMessage = Extract<SignalEnvelope, { type: "signal.text" }>;
 
+function editedMessageEnvelope(
+  current: TextMessage,
+  body: Extract<SpaceMessageMutationBody, { action: "edit" }>
+) {
+  const previous = current.data.messageEnvelope;
+  if (!body.text.trim()) {
+    if (previous?.activationTargets.length) {
+      fail(
+        409,
+        "space.message.wake_already_requested",
+        "Keep the original Wake token, or recall this message."
+      );
+    }
+    return undefined;
+  }
+  if (!body.messageEnvelope) {
+    return previous
+      ? { ...previous, text: body.text.trim() || previous.text }
+      : undefined;
+  }
+  const oldWake = previous?.activationTargets ?? [];
+  const nextWake = body.messageEnvelope.activationTargets;
+  if (
+    oldWake.length &&
+    (oldWake.length !== nextWake.length ||
+      oldWake.some((id) => !nextWake.includes(id)))
+  ) {
+    fail(
+      409,
+      "space.message.wake_already_requested",
+      "This message already started Agent work. Editing cannot start it again or change its Wake targets."
+    );
+  }
+  return {
+    ...previous,
+    text: body.text.trim(),
+    activationTargets: nextWake,
+    referenceTargets: body.messageEnvelope.referenceTargets,
+    mentionTargets: body.messageEnvelope.mentionTargets ?? [],
+  };
+}
+
 function editMessage(
   current: TextMessage,
   body: Extract<SpaceMessageMutationBody, { action: "edit" }>,
   nowMs: number
 ): TextMessage {
   const text = body.text.trim();
-  const files = retainContent(
+  const retainedFiles = retainContent(
     current.data.files,
     body.retainedFileIds,
     (file) => file.fileId
   );
+  const files = [...(retainedFiles ?? []), ...(body.addedFiles ?? [])];
+  if (
+    files.length > SPACE_MESSAGE_FILE_MAX_COUNT ||
+    new Set(files.map((file) => file.fileId)).size !== files.length
+  ) {
+    fail(
+      400,
+      "space.message.invalid_attachment",
+      "Choose up to ten different files."
+    );
+  }
+  const messageEnvelope = editedMessageEnvelope(current, body);
   const attachments = retainContent(
     current.data.attachments,
     body.retainedAttachmentIds,
@@ -36,12 +91,14 @@ function editMessage(
   }
   if (
     text === current.data.text &&
-    JSON.stringify(files) === JSON.stringify(current.data.files) &&
-    JSON.stringify(attachments) === JSON.stringify(current.data.attachments)
+    JSON.stringify(files) === JSON.stringify(current.data.files ?? []) &&
+    JSON.stringify(attachments) === JSON.stringify(current.data.attachments) &&
+    JSON.stringify(messageEnvelope) ===
+      JSON.stringify(current.data.messageEnvelope)
   ) {
     return current;
   }
-  const { messageEnvelope, ...data } = current.data;
+  const { messageEnvelope: _previousEnvelope, ...data } = current.data;
   return {
     ...current,
     data: {
@@ -49,9 +106,7 @@ function editMessage(
       text,
       ...(files ? { files } : {}),
       ...(attachments ? { attachments } : {}),
-      ...(messageEnvelope && text
-        ? { messageEnvelope: { ...messageEnvelope, text } }
-        : {}),
+      ...(messageEnvelope ? { messageEnvelope } : {}),
       meta: {
         ...current.data.meta,
         messageRevision: (current.data.meta?.messageRevision ?? 0) + 1,
@@ -184,6 +239,7 @@ export function mutateSpaceMessage(input: {
   actorKind: string;
   body: SpaceMessageMutationBody;
   nowMs: number;
+  onEdit?: (message: TextMessage, previous: TextMessage) => void;
 }): { message: TextMessage; changed: boolean } {
   const { sql, body } = input;
   const entry = readSignalEntryById(sql, input.signalId);
@@ -259,6 +315,7 @@ export function mutateSpaceMessage(input: {
     if (message === current) {
       return { message: current, changed: false };
     }
+    input.onEdit?.(message, current);
   }
   signalTextEnvelopeSchema.parse(message);
   sql.exec(

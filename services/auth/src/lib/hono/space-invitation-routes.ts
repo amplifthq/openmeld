@@ -112,7 +112,7 @@ async function acceptSpaceInvitation(
   if (invitation.status === "accepted") {
     return c.json(claimed.result);
   }
-  if (!claimed.organizationMember) {
+  if (!claimed.organizationMember && invitation.audience !== "guest") {
     if (!claimed.organizationInvitationId) {
       return c.json(
         {
@@ -197,37 +197,41 @@ export async function sendSpaceInvitation(
   if (invitation.status !== "pending" && invitation.status !== "accepting") {
     return c.json(result.result);
   }
-  // Native Better Auth remains the only Organization invitation writer.
-  const existing = await c.env.OPENMELD_DB.prepare(
-    "SELECT id FROM invitations WHERE organization_id = ? AND lower(email) = ? AND status = 'pending' LIMIT 1"
-  )
-    .bind(invitation.organizationId, invitation.email)
-    .first();
-  const response = await native(
-    "invite-member",
-    {
-      email: invitation.email,
-      organizationId: invitation.organizationId,
-      role: "member",
-      resend: true,
-    },
-    invitation.id,
-    !existing
-  );
-  if (!response.ok) {
-    const nativeError = (await response.json().catch(() => null)) as {
-      code?: string;
-    } | null;
-    if (nativeError?.code !== "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION") {
-      return c.json(
-        {
-          ok: false,
-          code: "space.invitation.send_failed",
-          message:
-            "The invitation could not be sent. You can retry from Pending invitations.",
-        },
-        409
-      );
+  if (invitation.audience !== "guest") {
+    // Native Better Auth remains the only Organization invitation writer.
+    const existing = await c.env.OPENMELD_DB.prepare(
+      "SELECT id FROM invitations WHERE organization_id = ? AND lower(email) = ? AND status = 'pending' LIMIT 1"
+    )
+      .bind(invitation.organizationId, invitation.email)
+      .first();
+    const response = await native(
+      "invite-member",
+      {
+        email: invitation.email,
+        organizationId: invitation.organizationId,
+        role: "member",
+        resend: true,
+      },
+      invitation.id,
+      !existing
+    );
+    if (!response.ok) {
+      const nativeError = (await response.json().catch(() => null)) as {
+        code?: string;
+      } | null;
+      if (
+        nativeError?.code !== "USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION"
+      ) {
+        return c.json(
+          {
+            ok: false,
+            code: "space.invitation.send_failed",
+            message:
+              "The invitation could not be sent. You can retry from Pending invitations.",
+          },
+          409
+        );
+      }
     }
   }
   try {
@@ -291,13 +295,14 @@ async function sendInvitationEmail(
   const url = new URL("/accept-space-invitation", webUrl);
   url.searchParams.set("invitationId", invitation.id);
   const brandName = env.AUTH_BRAND_NAME ?? "OpenMeld";
-  const content = buildSpaceInvitationEmailContent({
+  const content = await buildSpaceInvitationEmailContent({
     brandName,
     organizationName: invitation.organizationName,
     spaceName: invitation.spaceName,
     inviterName: invitation.inviterName,
     expiresAt: new Date(invitation.expiresAt),
     invitationUrl: url.toString(),
+    audience: invitation.audience,
   });
   await sendCloudflareEmail(env.AUTH_EMAIL, {
     from: env.AUTH_FROM_EMAIL ?? "OpenMeld <noreply@openmeld.ai>",

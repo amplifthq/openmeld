@@ -128,7 +128,35 @@ function resolveCanonicalRepairSessionId(input: {
   return normalizeOptionalText(input.sessionId);
 }
 
+async function observeClaudeReasoning(
+  message: SDKMessage,
+  messageId: string,
+  onRuntimeEvent?: AdapterRuntimeEventCallback
+): Promise<string> {
+  if (message.type !== "stream_event") {
+    return messageId;
+  }
+  const event = message.event;
+  if (event.type === "message_start") {
+    return event.message.id;
+  }
+  if (
+    event.type === "content_block_delta" &&
+    event.delta.type === "thinking_delta"
+  ) {
+    await onRuntimeEvent?.({
+      phase: "reasoning",
+      blockId: `${messageId}:${event.index}`,
+      text: event.delta.thinking,
+      mode: "append",
+      tsMs: Date.now(),
+    });
+  }
+  return messageId;
+}
+
 export async function invokeClaudeAgentSdkTransport(input: {
+  executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
   launchContract: RuntimeAgentControllerLaunchContract;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeTimeoutMs: number | null;
@@ -195,6 +223,8 @@ export async function invokeClaudeAgentSdkTransport(input: {
     const createQuery = input.createQuery ?? createDefaultClaudeAgentSdkQuery;
     queryRuntime = createQuery({
       options: buildClaudeAgentSdkOptions({
+        executionContext: input.executionContext,
+        onRuntimeEvent: input.onRuntimeEvent,
         abortController,
         agentControllerPermissionMode: input.agentControllerPermissionMode,
         claudeWorkdir: input.claudeWorkdir,
@@ -229,7 +259,13 @@ export async function invokeClaudeAgentSdkTransport(input: {
       });
     }
 
+    let reasoningMessageId = "";
     for await (const message of queryRuntime) {
+      reasoningMessageId = await observeClaudeReasoning(
+        message,
+        reasoningMessageId,
+        input.onRuntimeEvent
+      );
       await emitClaudeCodeUsageLimits({
         message,
         onRuntimeEvent: input.onRuntimeEvent,
@@ -548,6 +584,8 @@ export async function resolveClaudeAgentSdkExecutable(input: {
 }
 
 function buildClaudeAgentSdkOptions(input: {
+  executionContext?: import("@openmeld/adapter-core").AdapterDispatchRequest["executionContext"];
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
   abortController: AbortController;
   agentControllerPermissionMode?: AgentControllerPermissionMode;
   claudeWorkdir: string;
@@ -564,6 +602,12 @@ function buildClaudeAgentSdkOptions(input: {
   streamingMode?: AdapterStreamingMode;
 }): ClaudeAgentOptions {
   const spaceActionMcpServer = resolveDispatchSpaceActionMcpServer(input.env);
+  if (
+    input.executionContext &&
+    input.executionContext.access !== "space_context"
+  ) {
+    throw new Error("execution_context.file_access_unsupported");
+  }
   const permissionMode = resolveClaudePermissionMode({
     agentControllerPermissionMode: input.agentControllerPermissionMode,
     executionMode: input.executionMode,
@@ -586,6 +630,7 @@ function buildClaudeAgentSdkOptions(input: {
       ...(input.env ?? {}),
     },
     includePartialMessages:
+      input.onRuntimeEvent !== undefined ||
       input.streamingMode === "stream" ||
       input.onInteractionRequest !== undefined,
     pathToClaudeCodeExecutable: input.pathToClaudeCodeExecutable,
@@ -633,6 +678,19 @@ function buildClaudeAgentSdkOptions(input: {
         }
       : {}),
   };
+
+  if (input.executionContext) {
+    options.tools = [];
+    options.strictMcpConfig = true;
+    options.settingSources = ["user"];
+    options.settings = { disableAllHooks: true };
+    options.additionalDirectories = [];
+    options.allowedTools = spaceActionMcpServer
+      ? buildDispatchSpaceActionMcpToolIds("__").map(
+          (toolId) => `mcp__${toolId}`
+        )
+      : [];
+  }
 
   const sessionId = normalizeOptionalText(input.sessionId);
   if (sessionId) {

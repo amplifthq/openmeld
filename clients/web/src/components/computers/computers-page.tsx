@@ -16,6 +16,9 @@ import {
 import { useLocalAgentRecoveryController } from "#/components/agents/use-local-agent-recovery-controller";
 import { APP_INLINE_BACK_LINK_CLASS_NAME } from "#/components/app/app-inline-navigation";
 import { AppPageHeader } from "#/components/app/app-page-header";
+import { getDesktopPlatform } from "#/desktop/platform";
+import { useDesktopComputerConnection } from "#/desktop/use-computer-connection";
+import { buildConnectComputerPath } from "#/lib/connect/connect-route";
 import { resolveConnectedLocalRuntime } from "#/lib/connect/connected-runtime";
 import { useAppOrganization } from "#/lib/organizations/organization-context";
 import {
@@ -29,12 +32,56 @@ import {
 import { OrganizationComputerDetail } from "./organization-computer-card";
 import {
 	formatOrganizationComputerPlatform,
+	matchOrganizationComputerRoute,
 	type OrganizationComputer,
 	type OrganizationComputerGroup,
 	resolveOrganizationComputerGroups,
 } from "./organization-computers";
 
 const COMPUTERS_SERVICE_STATUS_REFETCH_INTERVAL_MS = 10_000;
+
+function desktopConnectionAction(orgSlug: string, profileId: string | null) {
+	return getDesktopPlatform() ? (
+		<DesktopConnectComputerAction orgSlug={orgSlug} profileId={profileId} />
+	) : null;
+}
+
+function DesktopConnectComputerAction({
+	orgSlug,
+	profileId,
+}: {
+	orgSlug: string;
+	profileId?: string | null;
+}) {
+	const connection = useDesktopComputerConnection();
+	const label =
+		connection.data?.status === "available"
+			? "Disconnect this Mac"
+			: "Connect this Mac";
+	let status = connection.data?.status === "available" ? "Connected" : null;
+	if (connection.isError) {
+		status = "Connection unconfirmed";
+	}
+	if (!getDesktopPlatform()) {
+		return null;
+	}
+	return (
+		<div className="flex items-center gap-2">
+			{status ? (
+				<span className="text-muted-foreground text-sm">{status}</span>
+			) : null}
+			<Link
+				className={buttonVariants({ size: "sm", variant: "outline" })}
+				to={buildConnectComputerPath({
+					orgSlug,
+					profileId: profileId ?? undefined,
+				})}
+			>
+				{connection.isPending ? "Checking connection…" : label}
+			</Link>
+		</div>
+	);
+}
 
 type ComputerProjectionQueryState = {
 	isFetchedAfterMount: boolean;
@@ -140,9 +187,9 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	const computerResolutionIsPending =
 		selectedDeviceId !== null &&
 		selectedComputer === null &&
-		selectedOrganizationComputer === null &&
-		(recovery.localRuntimesQuery.isPending ||
-			organizationProjectionNeedsFreshEvidence);
+		(organizationProjectionNeedsFreshEvidence ||
+			(selectedOrganizationComputer === null &&
+				recovery.localRuntimesQuery.isPending));
 	const canResolvePreferredDeviceRoute =
 		preferredDeviceId !== null &&
 		devices.some((device) => device.deviceId === preferredDeviceId);
@@ -197,6 +244,7 @@ export function ComputersPage(input: { routeState: ComputersRouteState }) {
 	return (
 		<>
 			<AppPageHeader
+				action={desktopConnectionAction(orgSlug, ownerProfileId)}
 				description={sectionDescription}
 				eyebrow="Run agents locally"
 				id="computers-heading"
@@ -334,7 +382,17 @@ function ComputersPageBody(input: {
 		);
 	}
 	if (input.selectedDeviceId !== null) {
-		return <ComputerNotFoundState orgSlug={input.orgSlug} />;
+		return (
+			<ComputerNotFoundState
+				ambiguous={
+					matchOrganizationComputerRoute(
+						input.computerGroups,
+						input.selectedDeviceId
+					).length > 1
+				}
+				orgSlug={input.orgSlug}
+			/>
+		);
 	}
 	return <SelectedComputerLoading />;
 }
@@ -424,11 +482,11 @@ function resolveSelectedOrganizationComputer(input: {
 	if (input.selectedComputer || input.selectedDeviceId === null) {
 		return null;
 	}
-	return (
-		input.computerGroups
-			.flatMap((group) => group.computers)
-			.find((computer) => computer.routeId === input.selectedDeviceId) ?? null
+	const matches = matchOrganizationComputerRoute(
+		input.computerGroups,
+		input.selectedDeviceId
 	);
+	return matches.length === 1 ? (matches[0] ?? null) : null;
 }
 
 function resolveComputersSectionTitle(input: {
@@ -542,15 +600,16 @@ function ComputerResolutionErrorState(input: {
 	);
 }
 
-function ComputerNotFoundState(input: { orgSlug: string }) {
+function ComputerNotFoundState(input: { orgSlug: string; ambiguous: boolean }) {
 	return (
 		<div
 			className="border border-border/70 bg-card/35 px-4 py-5"
 			data-testid="computer-not-found-state"
 		>
 			<p className="max-w-xl text-muted-foreground text-sm">
-				This computer is no longer available. Return to People to choose another
-				computer from its owner's profile.
+				{input.ambiguous
+					? "This older link matches computers under more than one account. Open the owner's profile in People and select the computer again."
+					: "This computer is no longer available. Return to People to choose another computer from its owner's profile."}
 			</p>
 			<Link
 				className={cn(

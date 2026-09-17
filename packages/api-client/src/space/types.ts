@@ -9,6 +9,7 @@ import type {
   CreateSpaceFolderBody,
   CreateSpaceFolderResponse,
   CreateSpaceResponse,
+  CreateSpaceTaskBody,
   CreateSpaceThreadBody,
   CreateSpaceThreadResponse,
   DeleteSpaceResponse,
@@ -29,9 +30,11 @@ import type {
   ListSpaceFileRevisionsResponse,
   ListSpaceFilesQuery,
   ListSpaceFilesResponse,
+  ListSpaceTasksResponse,
   ListSpaceThreadEventsResponse,
   ListSpaceThreadSignalsResponse,
   ListSpaceThreadsResponse,
+  MutateSpaceTaskBody,
   OpenMeldRequestContext,
   PatchSpaceMetaBody,
   PostNormalMessageBody,
@@ -58,6 +61,9 @@ import type {
   SpaceMemberDirectory,
   SpaceMembersSnapshot,
   SpaceMeta,
+  SpaceTaskMutationReceipt,
+  SpaceTaskPhase,
+  SpaceTaskResponse,
   SpaceViewerMembershipResponse,
   TrashSpaceFileEntryResponse,
   UpdateSpaceFileEntryBody,
@@ -191,6 +197,12 @@ export type SpaceApi = {
       revision: number;
     }
   ) => Promise<SpaceFileDescriptor>;
+  fileUpdateSettings: (
+    input: SpaceRequestInput & {
+      fileId: string;
+      command: import("@openmeld/schemas/types").SpaceFileUpdateSettingsCommand;
+    }
+  ) => Promise<import("@openmeld/schemas/types").SpaceFileUpdateSettings>;
   uploadFile: (
     input: SpaceRequestInput & {
       bytes: SpaceFileContentBytes;
@@ -198,6 +210,7 @@ export type SpaceApi = {
       mimeType: string;
       name: string;
       parentId?: string | null;
+      onProgress?: (uploadedBytes: number, totalBytes: number) => void;
     }
   ) => Promise<SpaceFileDescriptor>;
   stageComposerUpload: (
@@ -206,6 +219,7 @@ export type SpaceApi = {
       mimeType: string;
       name: string;
       uploadId: string;
+      onProgress?: (uploadedBytes: number, totalBytes: number) => void;
     }
   ) => Promise<SpaceComposerUploadDescriptor>;
   publishComposerUpload: (
@@ -229,6 +243,11 @@ export type SpaceApi = {
   downloadFileContent: (
     input: SpaceRequestInput & { fileId: string; revision?: number }
   ) => Promise<SpaceFileContent>;
+  streamFileContent: (
+    input: SpaceRequestInput & { fileId: string; revision?: number }
+  ) => Promise<
+    Omit<SpaceFileContent, "bytes"> & { bytes: ReadableStream<Uint8Array> }
+  >;
   removeMembers: (
     input: RemoveSpaceMembersInput
   ) => Promise<RemoveSpaceMembersResponse>;
@@ -239,6 +258,7 @@ export type SpaceApi = {
   leaveSpace: (input: SpaceRequestInput) => Promise<LeaveSpaceResponse>;
   getBootstrap: (
     input: SpaceRequestInput & {
+      includeAgentReadiness?: boolean;
       historyQuery?: SpaceSignalsReadQuery;
       includeAgentStreamPresence?: boolean;
     }
@@ -335,6 +355,9 @@ export type SpaceApi = {
       signalId: string;
     }
   ) => Promise<GetSpaceMessageDetailsResponse>;
+  getLinkPreviews: (
+    input: SpaceRequestInput & { signalId: string }
+  ) => Promise<import("@openmeld/schemas").GetSpaceLinkPreviewsResponse>;
   createDiagnosticReport: (
     input: SpaceRequestInput & {
       body: CreateSpaceDiagnosticReportBodyFromSchemas;
@@ -350,6 +373,7 @@ export type SpaceApi = {
     input: SpaceRequestInput & {
       text: PostNormalMessageBody["text"];
       deviceWait?: PostNormalMessageBody["deviceWait"];
+      contextSelection?: PostNormalMessageBody["contextSelection"];
       attachments?: PostNormalMessageBody["attachments"];
       files?: PostNormalMessageBody["files"];
       messageEnvelope?: PostNormalMessageBody["messageEnvelope"];
@@ -369,6 +393,7 @@ export type SpaceApi = {
   ) => Promise<ListSpaceThreadEventsResponse>;
   listThreadSignals: (
     input: SpaceRequestInput & {
+      includeWakeContinuation?: true | "conversation";
       afterSignalId?: string;
       limit?: number;
       threadId: string;
@@ -380,6 +405,21 @@ export type SpaceApi = {
       body: PostSpaceThreadSignalBody;
     }
   ) => Promise<PostSpaceThreadSignalResponse>;
+  listTasks: (
+    input: SpaceRequestInput & { phase?: SpaceTaskPhase }
+  ) => Promise<ListSpaceTasksResponse>;
+  getTask: (
+    input: SpaceRequestInput & { taskId: string }
+  ) => Promise<SpaceTaskResponse>;
+  createTask: (
+    input: SpaceRequestInput & { body: CreateSpaceTaskBody }
+  ) => Promise<SpaceTaskMutationReceipt>;
+  mutateTask: (
+    input: SpaceRequestInput & {
+      taskId: string;
+      body: MutateSpaceTaskBody;
+    }
+  ) => Promise<SpaceTaskMutationReceipt>;
 };
 
 export type CreateSpaceApi = (client: OpenMeldApiClientFoundation) => SpaceApi;

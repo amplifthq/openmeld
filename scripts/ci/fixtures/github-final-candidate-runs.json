@@ -1,0 +1,17 @@
+{
+  "capturedAt": "2026-09-12",
+  "response": {
+    "total_count": 1,
+    "workflow_runs": [
+      {
+        "head_branch": "codex/dev-registry-lock-recovery",
+        "head_sha": "57f1eb08ff18f77dffd2f9e243c01e061805f3b2",
+        "id": 34684818793,
+        "pull_requests": [{ "number": 962 }],
+        "run_attempt": 1,
+        "status": "completed"
+      }
+    ]
+  },
+  "source": "GET /repos/amplifthq/openmeld/actions/workflows/final-candidate.yml/runs?head_sha=57f1eb08ff18f77dffd2f9e243c01e061805f3b2"
+}

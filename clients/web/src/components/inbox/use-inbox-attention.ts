@@ -14,6 +14,8 @@ export function resolveInboxAttention(input: {
 			tone: null,
 			label: "Inbox",
 			status: null,
+			indicatorTone: null,
+			tabLabel: null,
 		} as const;
 	}
 	const summary = input.summary;
@@ -23,15 +25,20 @@ export function resolveInboxAttention(input: {
 			tone: null,
 			label: "Inbox, attention status unavailable",
 			status: "Couldn’t check for updates",
+			indicatorTone: null,
+			tabLabel: "Inbox unavailable",
 		} as const;
 	}
 	const actions = summary.unresolvedActionCount;
 	const urgent = summary.unreadUrgentUpdateCount;
 	const count = actions + urgent;
 	const tone = resolveInboxAttentionTone(summary);
+	const indicatorTone =
+		tone ?? (summary.totalUnreadCount > 0 ? "unread" : null);
+	const tabLabel = resolveInboxTabLabel(indicatorTone, summary);
 	const details = [
 		...(actions > 0
-			? [`${actions} ${actions === 1 ? "item needs" : "items need"} action`]
+			? [`${actions} pending ${actions === 1 ? "item" : "items"}`]
 			: []),
 		...(urgent > 0
 			? [`${urgent} unread urgent ${urgent === 1 ? "update" : "updates"}`]
@@ -47,11 +54,32 @@ export function resolveInboxAttention(input: {
 		tone,
 		label: `Inbox, ${status}`,
 		status,
+		indicatorTone,
+		tabLabel,
 	} as const;
 }
 
-export function useInboxAttention(organizationId: string) {
-	const summaryQuery = useQuery(inboxSummaryQueryOptions({ organizationId }));
+function resolveInboxTabLabel(
+	tone: "danger" | "warning" | "unread" | null,
+	summary: InboxSummaryResponse
+): string | null {
+	switch (tone) {
+		case "danger":
+			return `Needs action (${summary.unresolvedActionCount})`;
+		case "warning":
+			return `Urgent updates (${summary.unreadUrgentUpdateCount})`;
+		case "unread":
+			return `${summary.totalUnreadCount} unread`;
+		default:
+			return null;
+	}
+}
+
+export function useInboxAttention(organizationId: string, background = false) {
+	const summaryQuery = useQuery({
+		...inboxSummaryQueryOptions({ organizationId }),
+		refetchIntervalInBackground: background,
+	});
 	return resolveInboxAttention({
 		summary: summaryQuery.data,
 		unavailable: summaryQuery.isError,

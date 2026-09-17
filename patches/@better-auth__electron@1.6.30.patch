@@ -1,0 +1,22 @@
+diff --git a/dist/client.mjs b/dist/client.mjs
+index dc036f2c67c6486409f635e977e3faac16907829..0ee0fd4fb947cde6dfb3ed8a6c5cd60fc2b80de9 100644
+--- a/dist/client.mjs
++++ b/dist/client.mjs
+@@ -615,7 +615,7 @@ const electronClient = (options) => {
+ 				};
+ 			},
+ 			hooks: {
+-				onSuccess: async (context) => {
++				onResponse: async (context) => {
+ 					const setCookie = context.response.headers.get("set-cookie");
+ 					if (setCookie) {
+ 						if (hasBetterAuthCookies(setCookie, opts.cookiePrefix)) {
+@@ -627,6 +627,8 @@ const electronClient = (options) => {
+ 							} else setEncrypted(cookieName, toSetCookie);
+ 						}
+ 					}
++				},
++				onSuccess: async (context) => {
+ 					if (context.request.url.toString().includes("/get-session") && !opts.disableCache) {
+ 						const data = context.data;
+ 						setEncrypted(localCacheName, JSON.stringify(data));

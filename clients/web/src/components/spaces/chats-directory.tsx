@@ -12,7 +12,6 @@ import {
 	TableHeader,
 	TableRow,
 } from "@openmeld/ui/components/table";
-import { TabsSubtle, TabsSubtleItem } from "@openmeld/ui/fluid/tabs-subtle";
 import {
 	ChatCircleTextIcon,
 	FunnelSimpleIcon,
@@ -33,17 +32,18 @@ import {
 	resolveInboxIndicatorClassName,
 } from "#/lib/inbox/attention";
 import { useNowMs } from "#/lib/spaces/use-now-ms";
-import { ChatIcon, resolvePreviewText } from "./chat-sidebar-row";
+import { ChatArchiveButton } from "./chat-archive-button";
+import { ChatIcon, resolvePreviewText } from "./conversation-sidebar-row";
 import { NewChatDialog } from "./new-chat-dialog";
 import { SidebarConversationTime } from "./sidebar-conversation-time";
 import { SpaceWindowHeader } from "./space-header";
+import { SpacesDirectoryNavigation } from "./spaces-directory-navigation";
 import { useChatFilters } from "./use-chat-filters";
 import { useChats } from "./use-chats";
 
 export function ChatsDirectory() {
 	const [creating, setCreating] = useState(false);
 	const [searchOpen, setSearchOpen] = useState(false);
-	const [tab, setTab] = useState(0);
 	const [search, setSearch] = useState("");
 	const filter = useChatFilters(() => setSearchOpen(true));
 	const model = useChats({
@@ -120,7 +120,7 @@ export function ChatsDirectory() {
 			size="sm"
 		>
 			<PlusIcon />
-			New chat
+			New message
 		</Button>
 	);
 	return (
@@ -132,37 +132,22 @@ export function ChatsDirectory() {
 					leadingControl={
 						<ChatCircleTextIcon className="size-4 text-muted-foreground" />
 					}
-					navigation={
-						<TabsSubtle
-							aria-label="Chats view"
-							className="h-full shrink-0 gap-5"
-							idPrefix="chats-directory"
-							onSelect={setTab}
-							selectedIndex={tab}
-							variant="underline"
-						>
-							<TabsSubtleItem
-								index={0}
-								label="Your Chats"
-								labelClassName="text-sm"
-							/>
-						</TabsSubtle>
-					}
+					navigation={<SpacesDirectoryNavigation view="messages" />}
 					renderFrame={false}
-					title="Chats"
+					title="Spaces"
 				/>
 			}
 			scroll
 		>
 			<div
-				aria-labelledby="chats-directory-tab-0"
-				id="chats-directory-panel-0"
+				aria-labelledby="spaces-directory-tab-1"
+				id="spaces-directory-panel-1"
 				role="tabpanel"
 			>
 				<div className="flex h-16 shrink-0 items-center justify-end gap-3">
 					<div className="flex h-11 min-w-0 items-center justify-end gap-1">
 						<DirectorySearch
-							label="Search chats"
+							label="Search direct messages"
 							onChange={setSearch}
 							onOpenChange={setSearchOpen}
 							open={searchOpen}
@@ -172,7 +157,7 @@ export function ChatsDirectory() {
 							<DropdownMenuTrigger
 								render={
 									<Button
-										aria-label="Filter chats"
+										aria-label="Filter direct messages"
 										size="icon-sm"
 										variant="ghost"
 									/>
@@ -186,7 +171,11 @@ export function ChatsDirectory() {
 						</DropdownMenu>
 						{!grouped &&
 							sectionActions(
-								{ id: "chats", name: "Chats", ...model.preferences.spaces },
+								{
+									id: "chats",
+									name: "Direct messages",
+									...model.preferences.spaces,
+								},
 								true
 							)}
 					</div>
@@ -202,11 +191,15 @@ export function ChatsDirectory() {
 						}}
 						variant="outline"
 					>
-						Could not load chats. Retry
+						Could not load direct messages. Retry
 					</Button>
 				)}
 				{pending && sections.length === 0 && (
-					<SidebarListSkeleton label="Loading chats" rowCount={4} showPreview />
+					<SidebarListSkeleton
+						label="Loading direct messages"
+						rowCount={4}
+						showPreview
+					/>
 				)}
 				{!(pending || failed || model.sessions.hasNextPage) &&
 					sections.length === 0 && (
@@ -330,31 +323,39 @@ export function ChatsDirectory() {
 												) : null}
 											</TableCell>
 											<TableCell>
-												<DirectoryRowActions
-													disabled={
-														model.store.disabled ||
-														model.pin.arePinActionsPending
-													}
-													groupId={
-														model.preferences.groups.find((group) =>
-															group.spaceIds.includes(chat.spaceId)
-														)?.id ?? "chats"
-													}
-													groups={[
-														{ id: "chats", name: "Chats" },
-														...model.preferences.groups,
-													]}
-													name={model.title(chat)}
-													onMove={(groupId) =>
-														model.move(groupId, chat.spaceId)
-													}
-													onTogglePinned={() =>
-														section.id === "pinned"
-															? model.unpin(chat.spaceId)
-															: model.move("pinned", chat.spaceId)
-													}
-													pinned={section.id === "pinned"}
-												/>
+												<div className="flex items-center">
+													<span className="opacity-0 group-focus-within/directory-row:opacity-100 group-hover/directory-row:opacity-100 [@media(hover:none)]:opacity-100">
+														<ChatArchiveButton
+															profileId={model.profileId}
+															spaceId={chat.spaceId}
+														/>
+													</span>
+													<DirectoryRowActions
+														disabled={
+															model.store.disabled ||
+															model.pin.arePinActionsPending
+														}
+														groupId={
+															model.preferences.groups.find((group) =>
+																group.spaceIds.includes(chat.spaceId)
+															)?.id ?? "chats"
+														}
+														groups={[
+															{ id: "chats", name: "Direct messages" },
+															...model.preferences.groups,
+														]}
+														name={model.title(chat)}
+														onMove={(groupId) =>
+															model.move(groupId, chat.spaceId)
+														}
+														onTogglePinned={() =>
+															section.id === "pinned"
+																? model.unpin(chat.spaceId)
+																: model.move("pinned", chat.spaceId)
+														}
+														pinned={section.id === "pinned"}
+													/>
+												</div>
 											</TableCell>
 										</TableRow>
 									);

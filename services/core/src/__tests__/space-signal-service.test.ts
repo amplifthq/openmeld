@@ -1009,6 +1009,7 @@ function createActiveWakeProgressSql(input: {
 }
 
 type WakeProgressExecutionRow = {
+  runningAtMs?: number;
   acceptedAtMs?: number;
   callbackReceivedAtMs?: number | null;
   createdAtMs?: number;
@@ -1090,6 +1091,7 @@ function createWakeEvidenceDb(
               )
               .map((execution, index) => ({
                 dispatch_id: execution.dispatchId,
+                running_at_ms: execution.runningAtMs ?? null,
                 latest_dispatch_attempt_status:
                   execution.latestAttemptStatus ?? null,
                 latest_occupancy_payload_json:
@@ -5469,6 +5471,7 @@ describe("space signal service", () => {
         {
           createdAtMs: Date.UTC(2026, 2, 4, 0, 1, 0),
           dispatchId: "dispatch-summary-1",
+          runningAtMs: Date.UTC(2026, 2, 4, 0, 10, 0),
           executionStatus: "running",
           sourceClientMessageId: "client-message-summary-1",
           sourceEventId: "signal-summary-1",
@@ -5489,7 +5492,7 @@ describe("space signal service", () => {
         dispatchId: "dispatch-summary-1",
         phase: "running",
         sourceSignalId: "signal-summary-1",
-        startedAtMs: Date.UTC(2026, 2, 4, 0, 1, 0),
+        startedAtMs: Date.UTC(2026, 2, 4, 0, 10, 0),
         targetProfileId: "agent-summary-1",
         terminal: false,
       }),

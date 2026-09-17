@@ -3,8 +3,8 @@ import type {
   OpenMeldRequestContext,
   RemoteAgentTurnEnvelope,
 } from "@openmeld/schemas/types";
+import { digestCanonicalJson } from "@openmeld/utils";
 import type { RemoteAgentStorage } from "./callback-context";
-import { digestCanonicalJson } from "./canonical-json";
 
 const DESTRUCTIVE_CONFIRMATION_KEY_PREFIX =
   "remote-agent:destructive-confirmation:";

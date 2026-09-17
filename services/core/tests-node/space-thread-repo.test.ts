@@ -1,61 +1,103 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   listSpaceThreadPreviewEntries,
   listSpaceThreadSignalPlacementsAfter,
   listSpaceThreadSignalPlacementsBefore,
+  readLatestExplicitThreadWake,
+  readThreadParticipants,
 } from "../src/space/infrastructure/sql/space-thread-repo";
 
-const JOIN_SPACE_SIGNALS_SQL_REGEX = /JOIN\s+space_signals/i;
-
 describe("space-thread-repo", () => {
-  it("loads every thread preview entry with one joined query", () => {
-    const createdAtMs = Date.parse("2026-07-16T03:15:00.000Z");
-    const exec = vi.fn((_sql: string, ..._params: SqlStorageValue[]) => ({
-      toArray: () => [
-        {
-          created_at_ms: createdAtMs,
-          payload_json: '{"id":"sig-1"}',
-          placement: "thread",
-          signal_id: "sig-1",
-          thread_id: "thr-1",
-        },
-        {
-          created_at_ms: createdAtMs + 1,
-          payload_json: '{"id":"sig-2"}',
-          placement: "thread",
-          signal_id: "sig-2",
-          thread_id: "thr-2",
-        },
-      ],
-    }));
-
-    const entries = listSpaceThreadPreviewEntries({
-      exec,
-    } as unknown as SqlStorage);
-
-    expect(exec).toHaveBeenCalledOnce();
-    expect(exec.mock.calls[0]?.[0]).toMatch(JOIN_SPACE_SIGNALS_SQL_REGEX);
-    expect(entries).toEqual([
-      {
-        payloadJson: '{"id":"sig-1"}',
-        placement: {
-          createdAt: "2026-07-16T03:15:00.000Z",
-          placement: "thread",
-          signalId: "sig-1",
-          threadId: "thr-1",
-        },
-      },
-      {
-        payloadJson: '{"id":"sig-2"}',
-        placement: {
-          createdAt: "2026-07-16T03:15:00.001Z",
-          placement: "thread",
-          signalId: "sig-2",
-          threadId: "thr-2",
-        },
-      },
-    ]);
+  it("finds the last human selection across pages without following Agent replies or automatic continuations", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(
+        "CREATE TABLE space_signals (id TEXT PRIMARY KEY, payload_json TEXT); CREATE TABLE space_thread_signal_placements (signal_id TEXT PRIMARY KEY, thread_id TEXT);"
+      );
+      const add = (
+        id: string,
+        kind: string,
+        targets: string[],
+        automatic = false,
+        thread = "thread"
+      ) => {
+        db.prepare("INSERT INTO space_signals VALUES (?, ?)").run(
+          id,
+          JSON.stringify({
+            id,
+            type: "signal.text",
+            profile: { kind, profileId: kind === "agent" ? "A" : "H" },
+            data: {
+              messageEnvelope: { activationTargets: targets },
+              meta: { threadWakeContinuation: automatic },
+            },
+          })
+        );
+        db.prepare(
+          "INSERT INTO space_thread_signal_placements VALUES (?, ?)"
+        ).run(id, thread);
+      };
+      add("first", "human", ["A"]);
+      add("switch", "human", ["B"]);
+      add("agent", "agent", ["C"]);
+      add("automatic", "human", ["A"], true);
+      add("other", "human", ["C"], false, "other-thread");
+      const sql = new SqliteSqlStorage(db) as unknown as SqlStorage;
+      expect(readThreadParticipants(sql, "thread")).toEqual([
+        { profileId: "H", kind: "human" },
+        { profileId: "A", kind: "agent" },
+      ]);
+      expect(
+        JSON.parse(readLatestExplicitThreadWake(sql, "thread") ?? "null").id
+      ).toBe("switch");
+      add("multi", "human", ["A", "B"]);
+      expect(
+        JSON.parse(readLatestExplicitThreadWake(sql, "thread") ?? "null").id
+      ).toBe("multi");
+    } finally {
+      db.close();
+    }
+  });
+  it("retains reply placements but reads only the latest two preview bodies per thread, excluding edit notices", () => {
+    const db = new DatabaseSync(":memory:");
+    try {
+      db.exec(
+        "CREATE TABLE space_signals (id TEXT PRIMARY KEY, payload_json TEXT); CREATE TABLE space_thread_signal_placements (signal_id TEXT PRIMARY KEY, thread_id TEXT, placement TEXT, created_at_ms INTEGER);"
+      );
+      for (let i = 0; i < 100; i++) {
+        const id = `sig-${i}`;
+        db.prepare("INSERT INTO space_signals VALUES (?, ?)").run(
+          id,
+          JSON.stringify({
+            id,
+            type: "signal.text",
+            profile: { kind: i === 0 ? "system" : "human" },
+            data: {
+              text: "x".repeat(4096),
+              ...(i === 0
+                ? { meta: { purpose: "space_message_changed" } }
+                : {}),
+            },
+          })
+        );
+        db.prepare(
+          "INSERT INTO space_thread_signal_placements VALUES (?, ?, 'thread', ?)"
+        ).run(id, i < 50 ? "thread-a" : "thread-b", i);
+      }
+      const entries = listSpaceThreadPreviewEntries(
+        new SqliteSqlStorage(db) as unknown as SqlStorage
+      );
+      expect(entries).toHaveLength(99);
+      expect(
+        entries
+          .filter((entry) => entry.payloadJson !== null)
+          .map((entry) => entry.placement.signalId)
+      ).toEqual(["sig-48", "sig-49", "sig-98", "sig-99"]);
+      expect(entries.at(-1)?.placement.signalId).toBe("sig-99");
+    } finally {
+      db.close();
+    }
   });
 
   it("reads only a bounded same-thread page after the source signal", () => {

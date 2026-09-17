@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SocialProvider } from "#/components/auth/social-providers";
+import { getDesktopPlatform } from "#/desktop/platform";
 import { openMeldAuthClient } from "#/lib/auth-client";
 import {
 	getAuthErrorMessage,
@@ -132,11 +133,26 @@ export function useSignOut() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: async () => {
+		mutationFn: async (): Promise<"browser" | "desktop"> => {
+			const desktop = getDesktopPlatform();
+			if (desktop) {
+				try {
+					await desktop.signOut();
+				} finally {
+					// The native SDK clears its local cookie before remote revocation.
+					// Local private state must follow that owned sign-out even when the
+					// server reports an error.
+					await completeAccountAuthChange(queryClient, "signed-out");
+				}
+				return "desktop";
+			}
 			await openMeldAuthClient.signOut();
+			return "browser";
 		},
-		onSuccess: async () => {
-			await completeAccountAuthChange(queryClient, "signed-out");
+		onSuccess: async (platform) => {
+			if (platform === "browser") {
+				await completeAccountAuthChange(queryClient, "signed-out");
+			}
 		},
 	});
 }
