@@ -866,6 +866,7 @@ function SpaceConversationPanelContent(
 								<SpaceConversationStickyDate
 									afterDate={
 										<SpaceUnreadNavigationControl
+											count={input.unreadCount}
 											dismissedTargetKeys={dismissedUnreadTargetKeys}
 											navigation={unreadNavigation}
 											onDismiss={() =>
@@ -1613,8 +1614,18 @@ function useSpaceConversationNavigationController(input: {
 			setMainFocusStatusMessage(null);
 			conversationPosition.releaseReadingPosition();
 			input.onSpaceViewChange("messages");
-			const signalId = target.threadRootSignalId ?? target.signalId;
 			try {
+				if (target.threadRootSignalId) {
+					const opened = await input.onOpenUnreadThread?.({
+						rootSignalId: target.threadRootSignalId,
+						signalId: target.signalId,
+					});
+					if (!opened) {
+						throw new Error("Couldn’t open this thread. Try again.");
+					}
+					return true;
+				}
+				const signalId = target.signalId;
 				if (messageElementsBySignalIdRef.current.has(signalId)) {
 					jumpToMessage(signalId);
 				} else if (await input.onLoadHistoryAround?.(signalId)) {
@@ -1856,6 +1867,7 @@ function renderInitialSpaceFocusStatus(input: { mainMessage: string | null }) {
 }
 
 function SpaceUnreadNavigationControl(input: {
+	count: number;
 	dismissedTargetKeys: ReadonlySet<string>;
 	navigation: SpaceUnreadNavigationState;
 	onDismiss: () => void;
@@ -1870,7 +1882,7 @@ function SpaceUnreadNavigationControl(input: {
 	}
 	return (
 		<SpaceUnreadNavigationPill
-			count={targets.length}
+			count={input.count}
 			onDismiss={input.onDismiss}
 			onNavigate={() => {
 				input
@@ -2353,7 +2365,7 @@ function renderConversationBody(input: {
 							>
 								<Marker
 									aria-label="New messages"
-									className="py-3 font-medium text-foreground"
+									className="py-3 font-medium text-unread before:bg-unread after:bg-unread"
 									role="separator"
 									variant="separator"
 								>

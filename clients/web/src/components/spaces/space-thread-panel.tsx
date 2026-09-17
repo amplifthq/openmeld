@@ -180,6 +180,7 @@ import type {
 } from "./use-space-mention-authoring";
 import { useSpacePanelWidth } from "./use-space-panel-width";
 import { useSpaceProfileDetailsPopover } from "./use-space-profile-details-popover";
+import { useSpaceUnread } from "./use-space-unread";
 
 const SINGLE_MESSAGE_GROUP_POSITION = {
 	isFirstInGroup: true,
@@ -325,6 +326,7 @@ type SpaceThreadPanelProps = {
 		SpaceWakeStopRequestStatus
 	>;
 	unreadTargets?: readonly SpaceInboxUnreadTarget[];
+	unreadStateReady?: boolean;
 };
 
 export function SpaceThreadPanel(input: SpaceThreadPanelProps) {
@@ -467,7 +469,17 @@ function SpaceThreadPanelContent(input: SpaceThreadPanelProps) {
 			),
 		[activeThreadRootSignalId, input.unreadTargets]
 	);
-	const firstUnreadSignalId = activeUnreadTargets[0]?.signalId ?? null;
+	const unreadState = useSpaceUnread({
+		identity: [
+			input.activeThread?.spaceId ?? "pending",
+			input.selfProfileId,
+			activeThreadRootSignalId ?? "no-thread",
+		].join(":"),
+		isReady: input.unreadStateReady === true,
+		targets: input.unreadTargets ?? [],
+		threadRootSignalId: activeThreadRootSignalId,
+	});
+	const firstUnreadSignalId = unreadState.firstSignalId;
 
 	const focusStatusMessage = resolveThreadFocusStatusMessage({
 		activeThread: input.activeThread,
@@ -1151,6 +1163,7 @@ function ThreadTimeline(input: {
 		[input.allItems, input.ephemeralActivityItems]
 	);
 	const messageGroupPositionBySignalId = buildThreadMessageGroupPositions({
+		firstUnreadSignalId: input.firstUnreadSignalId,
 		items: input.items,
 		selfProfileId: input.selfProfileId,
 	});
@@ -1218,7 +1231,7 @@ function ThreadTimeline(input: {
 							return (
 								<Fragment key={resolveSpaceConversationItemKey(item)}>
 									{item.id === input.firstUnreadSignalId ? (
-										<div className="my-2 flex items-center gap-3 text-foreground text-xs before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border">
+										<div className="my-2 flex items-center gap-3 text-unread text-xs before:h-px before:flex-1 before:bg-unread after:h-px after:flex-1 after:bg-unread">
 											<span>New messages</span>
 										</div>
 									) : null}
@@ -1705,6 +1718,7 @@ function useLatestCallback<Arguments extends unknown[], Result>(
 }
 
 function buildThreadMessageGroupPositions(input: {
+	firstUnreadSignalId: string | null;
 	items: readonly SpaceTimelineItem[];
 	selfProfileId: string;
 }): ReadonlyMap<string, { isFirstInGroup: boolean; isLastInGroup: boolean }> {
@@ -1713,6 +1727,9 @@ function buildThreadMessageGroupPositions(input: {
 		{ isFirstInGroup: boolean; isLastInGroup: boolean }
 	>();
 	const entries = buildSpaceConversationEntries({
+		groupBoundarySignalIds: input.firstUnreadSignalId
+			? new Set([input.firstUnreadSignalId])
+			: undefined,
 		selfProfileId: input.selfProfileId,
 		timelineItems: input.items,
 	});

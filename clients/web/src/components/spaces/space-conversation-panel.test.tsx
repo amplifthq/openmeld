@@ -942,11 +942,13 @@ describe("SpaceConversationPanel", () => {
 		const unreadBoundary = screen.getByRole("separator", {
 			name: "New messages",
 		});
-		for (const divider of [...dateLandmarks, unreadBoundary]) {
+		for (const divider of dateLandmarks) {
 			expect(divider.className).toContain("before:bg-border");
 			expect(divider.className).toContain("after:bg-border");
 		}
-		expect(unreadBoundary.className).toContain("text-foreground");
+		expect(unreadBoundary.className).toContain("before:bg-unread");
+		expect(unreadBoundary.className).toContain("after:bg-unread");
+		expect(unreadBoundary.className).toContain("text-unread");
 		const firstNewMessage = screen
 			.getByText("First new message")
 			.closest("[data-message-id='signal-new']");
@@ -959,7 +961,7 @@ describe("SpaceConversationPanel", () => {
 		).toBeLessThan(conversationItems.indexOf(firstNewMessage as Element));
 	});
 
-	it("offers one chronological unread jump for updates above and below, then hides the navigation batch", async () => {
+	it("keeps the canonical unread total while viewport targets change, then hides the navigation batch", async () => {
 		const rectSpy = vi
 			.spyOn(HTMLElement.prototype, "getBoundingClientRect")
 			.mockImplementation(function (this: HTMLElement) {
@@ -989,12 +991,12 @@ describe("SpaceConversationPanel", () => {
 				{ occurredAtMs: 2, signalId: "signal-2", threadRootSignalId: null },
 				{ occurredAtMs: 3, signalId: "signal-3", threadRootSignalId: null },
 			],
-			unreadCount: 3,
+			unreadCount: 139,
 			unreadStateReady: true,
 		});
 
 		const jumpButton = await screen.findByRole("button", {
-			name: "3 unread updates. Jump to first unread",
+			name: "139 unread updates. Jump to first unread",
 		});
 		expect(
 			screen.getAllByRole("button", { name: UNREAD_JUMP_PATTERN })
@@ -1090,7 +1092,7 @@ describe("SpaceConversationPanel", () => {
 		rectSpy.mockRestore();
 	});
 
-	it("highlights the main thread root and opens its first unread reply only on explicit request", async () => {
+	it("opens the exact unread thread reply from the unread navigation", async () => {
 		Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
 			configurable: true,
 			value: vi.fn(),
@@ -1134,18 +1136,10 @@ describe("SpaceConversationPanel", () => {
 				screen.queryByRole("button", { name: UNREAD_JUMP_PATTERN })
 			).toBeNull()
 		);
-		expect(document.activeElement?.getAttribute("data-signal-id")).toBe(
-			"thread-root"
-		);
-		expect(onOpenUnreadThread).not.toHaveBeenCalled();
-		fireEvent.click(
-			screen.getByRole("button", { name: "Open thread (1 unread)" })
-		);
 		await waitFor(() => {
 			expect(onOpenUnreadThread).toHaveBeenCalledWith({
 				rootSignalId: "thread-root",
 				signalId: "thread-reply",
-				threadId: thread.threadId,
 			});
 		});
 		rectSpy.mockRestore();
