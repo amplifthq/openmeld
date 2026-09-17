@@ -119,6 +119,10 @@ function projectUpdateOperation(
     phase: job.phase,
     requestSource: job.requestSource,
     requestedAt: job.requestedAt,
+    ...(job.targetCliVersion ? { targetCliVersion: job.targetCliVersion } : {}),
+    ...(job.targetServiceVersion
+      ? { targetServiceVersion: job.targetServiceVersion }
+      : {}),
     targetVersion: job.targetVersion,
     updatedAt: job.updatedAt,
     urgency: job.urgency,

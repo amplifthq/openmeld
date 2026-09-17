@@ -580,6 +580,8 @@ describe("daemon service background update coordinator", () => {
     const result = await scheduleDaemonServiceUpdate(
       {
         requestSource: "web",
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.99",
         targetVersion: "0.3.99",
         urgency: "required",
       },
@@ -1048,6 +1050,8 @@ describe("daemon service background update coordinator", () => {
     const result = await scheduleDaemonServiceUpdate(
       {
         requestSource: "web",
+        targetCliVersion: "0.3.105",
+        targetServiceVersion: "0.3.99",
         targetVersion: "0.3.99",
         urgency: "available",
       },
@@ -1062,6 +1066,10 @@ describe("daemon service background update coordinator", () => {
     );
 
     expect(result.job.targetVersion).toBe("0.3.99");
+    expect(result.job).toMatchObject({
+      targetCliVersion: "0.3.105",
+      targetServiceVersion: "0.3.99",
+    });
   });
 
   it("migrates the previous persisted job and exposes one safe public operation", async () => {

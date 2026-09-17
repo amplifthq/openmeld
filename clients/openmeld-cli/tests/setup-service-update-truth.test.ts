@@ -111,6 +111,33 @@ describe("setup service update truth", () => {
     ).toMatchObject({ status: "verifying" });
   });
 
+  it("accepts separately observed CLI and Service targets", () => {
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.9.0",
+        installedServiceVersion: "0.8.0",
+        operation: {
+          ...operation("updated"),
+          targetCliVersion: "0.9.0",
+          targetServiceVersion: "0.8.0",
+        },
+        currentServiceVerified: true,
+      })
+    ).toEqual({ status: "ready" });
+    expect(
+      resolveSetupServiceUpdateTruth({
+        currentCliVersion: "0.9.0",
+        installedServiceVersion: "0.7.99",
+        operation: {
+          ...operation("updated"),
+          targetCliVersion: "0.9.0",
+          targetServiceVersion: "0.8.0",
+        },
+        currentServiceVerified: true,
+      })
+    ).toMatchObject({ status: "verifying" });
+  });
+
   it("does not finish setup just because updated artifacts are installed", () => {
     expect(
       resolveSetupServiceUpdateTruth({

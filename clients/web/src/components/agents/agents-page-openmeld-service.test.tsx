@@ -879,6 +879,45 @@ describe("OpenMeldServiceCard", () => {
 		);
 	});
 
+	it("settles an update after its separate CLI and Service targets are observed", () => {
+		const operation = {
+			...buildUpdateOperation({ phase: "updated" }),
+			targetCliVersion: "0.9.0",
+			targetServiceVersion: "0.8.0",
+		};
+		renderOpenMeldServiceCard({
+			currentLocalRuntimeReplyReadiness: buildCurrentLocalRuntimeReplyReadiness(
+				{
+					cli: {
+						commandContractVersion:
+							"openmeld-cli-command-contract-2026-05-local-components-v1",
+						installedPackageVersion: "0.9.0",
+						latestPackageVersion: "0.9.0",
+						reasonCodes: [],
+						requiredCommandContractVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					service: {
+						installedVersion: "0.8.0",
+						latestVersion: "0.8.0",
+						reasonCodes: [],
+						requiredVersion: null,
+						status: "current",
+						updatePolicy: "ok",
+						wakeBlocked: false,
+					},
+					updateOperation: operation,
+				}
+			),
+			replyReadiness: READY_REPLY_READINESS,
+		});
+
+		expect(screen.queryByText("Verifying…")).toBeNull();
+		expect(screen.queryByRole("button", { name: "Updating…" })).toBeNull();
+	});
+
 	it("keeps a failed update visible and lets the user try again", async () => {
 		const consoleErrorMock = vi
 			.spyOn(console, "error")

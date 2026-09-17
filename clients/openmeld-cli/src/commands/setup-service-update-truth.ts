@@ -1,3 +1,4 @@
+import { resolveOpenMeldToolsUpdateTargetVersions } from "@openmeld/schemas";
 import type { OpenMeldToolsUpdateOperation } from "@openmeld/schemas/types";
 import { compareSemver } from "../config/version-state";
 import { inspectDaemonServiceInventory } from "../local-service/lifecycle/daemon-service-inventory";
@@ -21,11 +22,12 @@ export function resolveSetupServiceUpdateTruth(input: {
   if (!operation) {
     return { status: "ready" };
   }
+  const target = resolveOpenMeldToolsUpdateTargetVersions(operation);
   if (operation.phase === "restored" || operation.phase === "needs_help") {
     if (
       input.currentServiceVerified &&
-      input.installedServiceVersion === input.currentCliVersion &&
-      compareSemver(input.currentCliVersion, operation.targetVersion) >= 0
+      input.installedServiceVersion === target.serviceVersion &&
+      compareSemver(input.currentCliVersion, target.cliVersion) >= 0
     ) {
       return { status: "ready" };
     }
@@ -46,15 +48,15 @@ export function resolveSetupServiceUpdateTruth(input: {
   }
   if (
     input.currentServiceVerified &&
-    input.installedServiceVersion === input.currentCliVersion &&
-    compareSemver(input.currentCliVersion, operation.targetVersion) > 0
+    input.installedServiceVersion === target.serviceVersion &&
+    compareSemver(input.currentCliVersion, target.cliVersion) > 0
   ) {
     return { status: "ready" };
   }
   if (
     input.currentServiceVerified &&
-    input.currentCliVersion === operation.targetVersion &&
-    input.installedServiceVersion === operation.targetVersion
+    input.currentCliVersion === target.cliVersion &&
+    input.installedServiceVersion === target.serviceVersion
   ) {
     return { status: "ready" };
   }

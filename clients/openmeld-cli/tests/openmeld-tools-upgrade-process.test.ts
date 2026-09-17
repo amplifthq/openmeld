@@ -49,6 +49,8 @@ describe("OpenMeld Tools upgrade process", () => {
             operationId: "update-1",
             requestedAt: "2026-09-14T00:00:00.000Z",
             requestSource: "web",
+            targetCliVersion: "0.3.105",
+            targetServiceVersion: "0.3.104",
           },
           createCapturedOutputDependencies(forwarded)
         )
@@ -74,6 +76,8 @@ describe("OpenMeld Tools upgrade process", () => {
           OPENMELD_INTERNAL_MAINTENANCE_WORKER: "1",
           OPENMELD_INTERNAL_TOOLS_UPDATE_OPERATION_ID: "update-1",
           OPENMELD_INTERNAL_TOOLS_UPDATE_REQUEST_SOURCE: "web",
+          OPENMELD_INTERNAL_TOOLS_UPDATE_TARGET_CLI_VERSION: "0.3.105",
+          OPENMELD_INTERNAL_TOOLS_UPDATE_TARGET_SERVICE_VERSION: "0.3.104",
         }),
         stdio: ["ignore", "pipe", "pipe"],
       })

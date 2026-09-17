@@ -189,6 +189,8 @@ export function createOpenMeldToolsUpdateCoordinator(
         phase: "updating",
         requestSource,
         requestedAt: now,
+        targetCliVersion: assessment.latestVersion,
+        targetServiceVersion: serviceVersion,
         targetVersion: assessment.updateAvailable
           ? assessment.latestVersion
           : serviceVersion,
@@ -239,6 +241,8 @@ async function runAttempt(
       operationId: running.operation.operationId,
       requestedAt: running.operation.requestedAt,
       requestSource: running.operation.requestSource,
+      targetCliVersion: running.operation.targetCliVersion,
+      targetServiceVersion: running.operation.targetServiceVersion,
     });
     if (result.exitCode !== 0) {
       const fallbackMessage = `OpenMeld update process exited with status ${String(result.exitCode)}.`;
@@ -347,6 +351,10 @@ function projectServiceJob(
     requestSource: job.requestSource,
     requestedAt: job.requestedAt,
     targetVersion: job.targetVersion,
+    ...(job.targetCliVersion ? { targetCliVersion: job.targetCliVersion } : {}),
+    ...(job.targetServiceVersion
+      ? { targetServiceVersion: job.targetServiceVersion }
+      : {}),
     updatedAt: job.updatedAt,
     urgency: job.urgency,
   };

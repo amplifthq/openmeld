@@ -2477,6 +2477,7 @@ export {
   openMeldToolsUpdateProcessFailureFrameSchema,
   openMeldToolsUpdateRequestResultSchema,
   openMeldToolsUpdateRequestSourceSchema,
+  resolveOpenMeldToolsUpdateTargetVersions,
 } from "./local-components";
 export {
   MAC_OS_KEYCHAIN_AUTHENTICATION_INTERACTION,

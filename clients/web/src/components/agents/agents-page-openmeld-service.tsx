@@ -3,6 +3,7 @@ import {
 	findOpenMeldToolsUpdateFailureCode,
 	formatLocalSetupActionLabel,
 	formatOpenMeldToolsUpdateFailureMessage,
+	resolveOpenMeldToolsUpdateTargetVersions,
 } from "@openmeld/schemas";
 import type {
 	CurrentLocalRuntimeReplyReadinessResponse,
@@ -351,6 +352,7 @@ function OwnedOpenMeldServiceCard(input: OpenMeldServiceCardOwnerProps) {
 	});
 	const updateTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
 		localComponents: observedLocalComponents,
+		operation: visibleUpdateOperation,
 		targetVersion: updateTargetVersion,
 	});
 	const updateVerificationKey = resolveOpenMeldToolsUpdateVerificationKey({
@@ -860,6 +862,7 @@ function CurrentLocalRuntimeServiceFacts(input: {
 	});
 	const updateTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
 		localComponents,
+		operation: updateOperation,
 		targetVersion: updateTargetVersion,
 	});
 	const updateIsActive =
@@ -1255,13 +1258,24 @@ function resolveOpenMeldToolsUpdateTargetVersion(input: {
 
 function hasObservedOpenMeldToolsUpdateTarget(input: {
 	localComponents: OpenMeldToolsProjection | null;
+	operation: OpenMeldToolsUpdateOperation | null;
 	targetVersion: string | null;
 }): boolean {
+	let target: { cliVersion: string; serviceVersion: string } | null = null;
+	if (input.operation) {
+		target = resolveOpenMeldToolsUpdateTargetVersions(input.operation);
+	} else if (input.targetVersion) {
+		target = {
+			cliVersion: input.targetVersion,
+			serviceVersion: input.targetVersion,
+		};
+	}
 	return Boolean(
 		input.localComponents &&
-			input.targetVersion &&
-			input.localComponents.service.installedVersion === input.targetVersion &&
-			input.localComponents.cli.installedPackageVersion === input.targetVersion
+			target &&
+			input.localComponents.service.installedVersion ===
+				target.serviceVersion &&
+			input.localComponents.cli.installedPackageVersion === target.cliVersion
 	);
 }
 
@@ -1320,9 +1334,12 @@ function hasObservedPendingManagedUpdateSettled(input: {
 		input.pending.kind === "confirmation"
 			? input.pending.currentVersion
 			: input.pending.operation.targetVersion;
-	const exactTargetObserved =
-		input.localComponents.service.installedVersion === expectedVersion &&
-		input.localComponents.cli.installedPackageVersion === expectedVersion;
+	const exactTargetObserved = hasObservedOpenMeldToolsUpdateTarget({
+		localComponents: input.localComponents,
+		operation:
+			input.pending.kind === "operation" ? input.pending.operation : null,
+		targetVersion: expectedVersion,
+	});
 	if (input.pending.kind === "confirmation") {
 		return exactTargetObserved;
 	}
