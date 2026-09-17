@@ -134,7 +134,7 @@ export function SpaceGuestAccessSection({
 						</p>
 					) : null}
 					<DialogFooter>
-						<Button onClick={() => setConfirm(false)} variant="ghost">
+						<Button onClick={() => setConfirm(false)} variant="secondary">
 							Cancel
 						</Button>
 						<Button disabled={save.isPending} onClick={() => save.mutate(true)}>
@@ -164,21 +164,27 @@ function GuestInvitationEntry(input: {
 		return (
 			<p className="text-destructive text-xs" role="alert">
 				Couldn't check guest access.{" "}
-				<Button onClick={input.onRetry} size="sm" variant="ghost">
+				<Button onClick={input.onRetry} size="sm" variant="secondary">
 					Try again
 				</Button>
 			</p>
 		);
 	}
 	if (input.enabled) {
-		return <SpaceInvitationForm audience="guest" spaceId={input.spaceId} />;
+		return (
+			<SpaceInvitationForm
+				actionVariant="secondary"
+				audience="guest"
+				spaceId={input.spaceId}
+			/>
+		);
 	}
 	return (
 		<div className="flex items-center justify-between gap-2">
 			<p className="text-muted-foreground text-xs">
 				Guests join only this Space.
 			</p>
-			<Button onClick={input.onEnable} size="sm" variant="outline">
+			<Button onClick={input.onEnable} size="sm" variant="secondary">
 				Enable guest invitations
 			</Button>
 		</div>

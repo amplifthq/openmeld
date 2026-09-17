@@ -52,6 +52,7 @@ const JOINING_LABELS: Record<SpaceLinkJoining, string> = {
 // The branches mirror the three explicit product dimensions in one compact editor.
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: keeping the mutually dependent controls together makes their state relationship visible.
 export function SpaceAccessEditor(input: {
+	actionVariant?: "ghost" | "secondary";
 	allowGuests?: boolean;
 	canManageAccess: boolean;
 	currentAccessMode: SpaceAccessMode;
@@ -65,6 +66,7 @@ export function SpaceAccessEditor(input: {
 	password: string;
 }) {
 	const passwordInputId = useId();
+	const actionVariant = input.actionVariant ?? "ghost";
 	const [showParticipationControls, setShowParticipationControls] =
 		useState(false);
 	const [isChangingPassword, setIsChangingPassword] = useState(false);
@@ -141,7 +143,7 @@ export function SpaceAccessEditor(input: {
 								onClick={() => setIsChangingPassword(true)}
 								size="xs"
 								type="button"
-								variant="ghost"
+								variant={actionVariant}
 							>
 								Change password
 							</Button>
@@ -189,7 +191,7 @@ export function SpaceAccessEditor(input: {
 							onClick={() => setShowParticipationControls((value) => !value)}
 							size="xs"
 							type="button"
-							variant="ghost"
+							variant={actionVariant}
 						>
 							{showParticipationControls ? "Done" : "Change"}
 						</Button>

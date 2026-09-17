@@ -49,7 +49,7 @@ export function SpaceShareDialog(
 				<TooltipContent side="bottom">Share space</TooltipContent>
 			</Tooltip>
 			<DialogContent
-				className="flex max-h-[min(42rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden"
+				className="flex max-h-[min(48rem,calc(100dvh-2rem))] min-w-0 flex-col overflow-hidden sm:max-w-[680px]"
 				size="lg"
 			>
 				<DialogHeader className="shrink-0 pr-8">

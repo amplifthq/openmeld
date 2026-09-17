@@ -497,7 +497,8 @@ describe("SpaceHeader", () => {
 			origin: window.location.origin,
 			target: { spaceId: "space-123" },
 		});
-		expect(dialog.className).toContain("max-h-[min(42rem,calc(100dvh-2rem))]");
+		expect(dialog.className).toContain("max-h-[min(48rem,calc(100dvh-2rem))]");
+		expect(dialog.className).toContain("sm:max-w-[680px]");
 		expect(dialog.className).toContain("overflow-hidden");
 		expect(
 			within(dialog)

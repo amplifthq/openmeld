@@ -87,9 +87,11 @@ export function SpaceInvitationsSection({
 export function SpaceInvitationForm({
 	spaceId,
 	audience = "organization",
+	actionVariant = "ghost",
 }: {
 	spaceId: string;
 	audience?: "organization" | "guest";
+	actionVariant?: "ghost" | "secondary";
 }) {
 	const scope = useOptionalAppOrganization();
 	const organization = scope?.currentOrganization;
@@ -161,7 +163,11 @@ export function SpaceInvitationForm({
 		return (
 			<div className="flex items-center justify-between gap-2 text-xs">
 				<p role="alert">Couldn't check invitation permissions.</p>
-				<Button onClick={() => role.refetch()} size="sm" variant="ghost">
+				<Button
+					onClick={() => role.refetch()}
+					size="sm"
+					variant={actionVariant}
+				>
 					Try again
 				</Button>
 			</div>
@@ -309,7 +315,7 @@ export function SpaceInvitationForm({
 													})
 												}
 												size="sm"
-												variant="ghost"
+												variant={actionVariant}
 											>
 												Resend
 											</Button>
@@ -322,7 +328,7 @@ export function SpaceInvitationForm({
 													})
 												}
 												size="sm"
-												variant="ghost"
+												variant={actionVariant}
 											>
 												Revoke
 											</Button>

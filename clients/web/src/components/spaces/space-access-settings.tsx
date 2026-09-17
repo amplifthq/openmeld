@@ -120,10 +120,6 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 			await input.onSetVisibility(value);
 		},
 	});
-	const everyoneLabel = organization
-		? `Everyone at ${organization.name}`
-		: "Everyone in the organization";
-
 	const resetDraft = () => {
 		setDraft(baseline);
 		setPassword("");
@@ -177,26 +173,27 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 
 	const organizationSection = input.visibility ? (
 		<section className="grid gap-2 border-border/60 border-t pt-4">
-			<label className="font-medium text-sm" htmlFor={generalAccessId}>
-				Organization
-			</label>
-			<SpaceVisibilityPicker
-				disabled={
-					!(
-						input.canManageAccess &&
-						input.onSetVisibility &&
-						input.visibility
-					) ||
-					visibilitySave.isPending ||
-					input.isPending
-				}
-				id={generalAccessId}
-				onChange={(value) => visibilitySave.mutate(value)}
-				value={input.visibility}
-			/>
-			<p className="text-muted-foreground text-xs/relaxed">
-				{describeOrganizationAccess(input, everyoneLabel)}
-			</p>
+			<div className="flex items-center justify-between gap-4">
+				<label className="font-medium text-sm" htmlFor={generalAccessId}>
+					Organization access
+				</label>
+				<div className="w-full min-w-0 max-w-72">
+					<SpaceVisibilityPicker
+						disabled={
+							!(
+								input.canManageAccess &&
+								input.onSetVisibility &&
+								input.visibility
+							) ||
+							visibilitySave.isPending ||
+							input.isPending
+						}
+						id={generalAccessId}
+						onChange={(value) => visibilitySave.mutate(value)}
+						value={input.visibility}
+					/>
+				</div>
+			</div>
 			{visibilitySave.isPending ? (
 				<output className="block text-muted-foreground text-xs">Saving…</output>
 			) : null}
@@ -245,6 +242,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 
 	const editor = (
 		<SpaceAccessEditor
+			actionVariant={isShare ? "secondary" : "ghost"}
 			allowGuests={input.allowGuests}
 			canManageAccess={input.canManageAccess}
 			currentAccessMode={input.accessMode}
@@ -354,7 +352,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 								onClick={() => openOtherSurface("access")}
 								size="sm"
 								type="button"
-								variant="ghost"
+								variant="secondary"
 							>
 								Manage access settings
 							</Button>
@@ -369,7 +367,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 									onClick={resetDraft}
 									size="sm"
 									type="button"
-									variant="ghost"
+									variant="secondary"
 								>
 									Cancel
 								</Button>
@@ -411,7 +409,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 						</DialogDescription>
 					</DialogHeader>
 					<DialogFooter>
-						<Button onClick={() => setPendingHandoff(null)} variant="ghost">
+						<Button onClick={() => setPendingHandoff(null)} variant="secondary">
 							Keep editing
 						</Button>
 						<Button
@@ -466,19 +464,6 @@ function resolveSpaceShareOrigin(): string {
 	return "https://openmeld.ai";
 }
 
-function describeOrganizationAccess(
-	input: SpaceAccessSettingsProps,
-	everyoneLabel: string
-): string {
-	if (!input.visibility) {
-		return "Organization access is currently unavailable.";
-	}
-	if (input.visibility === "public") {
-		return `${everyoneLabel} can find and join this Space.`;
-	}
-	return "Only invited people can find this Space in the organization.";
-}
-
 function SpaceAccessInvitations(input: {
 	spaceId: string;
 	canInviteGuests: boolean;
@@ -510,7 +495,7 @@ function SpaceAccessInvitations(input: {
 		return (
 			<div className="flex items-center justify-between gap-2 text-xs">
 				<span>Couldn't load invitation options.</span>
-				<Button onClick={() => members.refetch()} size="sm" variant="ghost">
+				<Button onClick={() => members.refetch()} size="sm" variant="secondary">
 					Try again
 				</Button>
 			</div>
@@ -562,7 +547,10 @@ function SpaceAccessInvitations(input: {
 					surface="share"
 				/>
 			) : (
-				<SpaceInvitationForm spaceId={input.spaceId} />
+				<SpaceInvitationForm
+					actionVariant="secondary"
+					spaceId={input.spaceId}
+				/>
 			)}
 		</section>
 	);
