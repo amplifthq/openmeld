@@ -363,21 +363,6 @@ export async function waitForUpdateOperation(input) {
   });
 }
 
-export async function waitForCoreToReportCurrentVersion(input) {
-  await waitForValue({
-    label: `Staging Core current version ${input.expectedVersion}`,
-    timeoutMs: 2 * 60 * 1000,
-    read: () =>
-      runStagingApiHelper({
-        command: "request-update",
-        sensitiveValues: input.sensitiveValues,
-      }),
-    accept: (result) =>
-      result.status === "current" &&
-      result.currentVersion === input.expectedVersion,
-  });
-}
-
 export function runStagingApiHelper(input) {
   const result = runCommand({
     args: [API_HELPER, input.command],

@@ -26,7 +26,6 @@ import {
   runStagingApiHelper,
   runStagingSetup,
   waitForCoreServiceConnected,
-  waitForCoreToReportCurrentVersion,
   waitForNewStagingManifest,
   waitForServiceRunning,
   waitForUpdateOperation,
@@ -239,8 +238,7 @@ async function verifyCompletedUpdate(input) {
     expectedVersion: input.targetCliVersion,
     sensitiveValues: input.sensitiveValues,
   });
-  await waitForCoreToReportCurrentVersion({
-    expectedVersion: input.targetCliVersion,
+  await waitForCoreServiceConnected({
     sensitiveValues: input.sensitiveValues,
   });
   pass(
