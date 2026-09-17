@@ -87,10 +87,11 @@ def seed(db, org, viewer, human, now, ident, insert, session, gateway_port, gate
                        resolution_status="not_applicable", occurred_at_ms=now-i*60000,
                        created_at_ms=now, updated_at_ms=now)
                 db.execute("UPDATE inbox_items SET read_at_ms=NULL,cleared_at_ms=NULL WHERE id=?", (ident(f"unread:{i}"),))
-                if i in (0, 7):
+                if i in (0, 2, 7):
+                    notification_mode = {0: "muted", 2: "all_messages", 7: "mentions_and_replies"}[i]
                     db.execute(
                         "INSERT OR REPLACE INTO inbox_conversation_notification_preferences (user_id,organization_id,space_id,mode) VALUES (?,?,?,?)",
-                        (viewer["id"], org["id"], sid, "muted" if i == 0 else "mentions_and_replies"),
+                        (viewer["id"], org["id"], sid, notification_mode),
                     )
         if i in (1, 2, 3, 8, 9, 10):
             agent_id = "agt_"+ident(f"agent:{i}")

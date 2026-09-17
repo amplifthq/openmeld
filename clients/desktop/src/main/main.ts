@@ -47,6 +47,8 @@ const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
 const APP_NAME = "OpenMeld";
+const TRAY_PREVIEW_HEADLINE_MAX_LENGTH = 48;
+const TRAY_PREVIEW_BODY_MAX_LENGTH = 52;
 const APP_ICON_PATH = join(import.meta.dirname, "../../resources/icon.png");
 const TRAY_ICON_PATH = join(
   import.meta.dirname,
@@ -447,15 +449,24 @@ function trayPreviewMenuItems(
     const source = item.contextLabel
       ? `${item.title} · ${item.contextLabel}`
       : item.title;
-    const headline = `${truncateNativeMenuText(source, 70)} · ${formatRelativeTime(item.occurredAt)}`;
-    const preview = truncateNativeMenuText(item.preview, 110);
+    const headline = `${truncateNativeMenuText(
+      source,
+      TRAY_PREVIEW_HEADLINE_MAX_LENGTH
+    )} · ${formatRelativeTime(item.occurredAt)}`;
+    const preview = truncateNativeMenuText(
+      item.preview,
+      TRAY_PREVIEW_BODY_MAX_LENGTH
+    );
     const supportsSublabel = resolveNativeMenuCapabilities().sublabel;
     return [
       { label: "Latest unread", enabled: false },
       {
         label: supportsSublabel
           ? headline
-          : truncateNativeMenuText(`${headline} — ${preview}`, 150),
+          : truncateNativeMenuText(
+              `${headline} — ${preview}`,
+              TRAY_PREVIEW_BODY_MAX_LENGTH
+            ),
         ...(supportsSublabel ? { sublabel: preview } : {}),
         toolTip: item.preview,
         click: () => {

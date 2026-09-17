@@ -791,9 +791,7 @@ describe("main tray behavior", () => {
 
     expect(trayMenuItem("Computer — Connected")).toBeTruthy();
     expect(
-      trayMenuLabels().some((label) =>
-        label.includes("Please check the latest layout.")
-      )
+      trayMenuLabels().some((label) => label.includes("Please check"))
     ).toBe(true);
   });
 
@@ -830,6 +828,35 @@ describe("main tray behavior", () => {
     expect(trayMenuItem("Open inbox")).toEqual(
       expect.objectContaining({ click: expect.any(Function) })
     );
+  });
+
+  it("keeps long unread previews compact and on one line", async () => {
+    await importMain();
+    inboxTitle.setPresentation?.({
+      item: {
+        contextLabel:
+          "A very long conversation name that must not size the menu",
+        occurredAt: new Date().toISOString(),
+        preview:
+          "First line with a long preview that would otherwise make the native menu extremely wide.\nSecond line that must never wrap.",
+        reference: {
+          itemId: "item-long",
+          organizationId: "org-1",
+          organizationSlug: "acme",
+          userId: "user-1",
+        },
+        title: "A very long notification title that also needs truncation",
+      },
+      status: "ready",
+    });
+
+    const preview = trayMenuTemplate()?.find(
+      (item) => item.sublabel !== undefined
+    );
+    expect(preview?.label?.length).toBeLessThanOrEqual(55);
+    expect(preview?.sublabel?.length).toBeLessThanOrEqual(52);
+    expect(preview?.sublabel).not.toContain("\n");
+    expect(preview?.sublabel).toContain("…");
   });
 
   it("quits the desktop app from the tray menu", async () => {
