@@ -76,8 +76,10 @@ import { listActiveProfilesByKind } from "#/lib/profiles/profiles";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { isProtectedSpaceFailure } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
+import { readPublicSpaceInitialData } from "#/lib/spaces/public-space-initial-read";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
 import { baseQueryOptions } from "#/query/query-config";
+import { spaceEntryResolutionQueryKey } from "#/query/spaces/entry-resolution";
 
 const PUBLIC_SIGNAL_LIMIT = 80;
 const PublicParticipationContext = createContext(true);
@@ -144,7 +146,7 @@ export const Route = createFileRoute("/spaces/$spaceId")({
 		const parsed = publicSpaceRouteSearchSchema.safeParse(search);
 		return parsed.success ? parsed.data : {};
 	},
-	loader: async ({ location }) => {
+	loader: async ({ context, location, params }) => {
 		const session = await getSession({
 			data: {
 				currentUserSessionExpectation: "optional",
@@ -164,6 +166,67 @@ export const Route = createFileRoute("/spaces/$spaceId")({
 		}
 		if (threadRootSignalId) {
 			target.set("threadRootSignalId", threadRootSignalId);
+		}
+		const initialData = await readPublicSpaceInitialData({
+			data: {
+				spaceId: params.spaceId,
+				...(signalId ? { signalId } : {}),
+				...(threadRootSignalId ? { threadRootSignalId } : {}),
+			},
+		});
+		context.queryClient.setQueryData(
+			spaceEntryResolutionQueryKey({
+				spaceId: params.spaceId,
+				...(signalId ? { signalId } : {}),
+				...(threadRootSignalId ? { threadRootSignalId } : {}),
+			}),
+			initialData.entryResolution
+		);
+		if (initialData.content) {
+			context.queryClient.setQueryData(
+				publicSpaceQueryKey(params.spaceId, "status"),
+				initialData.content.status
+			);
+			context.queryClient.setQueryData(
+				publicSpaceQueryKey(params.spaceId, "signals"),
+				{
+					envelopes: initialData.content.signals,
+					nextCursor: initialData.content.nextCursor,
+				}
+			);
+			context.queryClient.setQueryData(
+				publicSpaceQueryKey(params.spaceId, "threads"),
+				{
+					threads: initialData.content.threads,
+					previews: initialData.content.threadPreviews,
+				}
+			);
+			context.queryClient.setQueryData(
+				[
+					"spaces",
+					params.spaceId,
+					PUBLIC_VIEWER_PROFILE_ID,
+					"history-navigation",
+				],
+				initialData.historyNavigation
+			);
+			const selectedThread = initialData.entryResolution.target
+				.threadRootSignalId
+				? initialData.content.threads.find(
+						(thread) =>
+							thread.rootSignalId ===
+							initialData.entryResolution.target.threadRootSignalId
+					)
+				: undefined;
+			if (selectedThread && initialData.threadSignals) {
+				context.queryClient.setQueryData(
+					[
+						...publicSpaceQueryKey(params.spaceId, "thread-signals"),
+						selectedThread.threadId,
+					],
+					initialData.threadSignals
+				);
+			}
 		}
 		return {
 			isAuthenticated: Boolean(session),

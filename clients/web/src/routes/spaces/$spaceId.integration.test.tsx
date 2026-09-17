@@ -10,8 +10,12 @@ import {
 	within,
 } from "@testing-library/react";
 import { type ReactNode, useEffect } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { TestQueryClientProvider } from "#/test-support/query-client";
+import {
+	createTestQueryClient,
+	TestQueryClientProvider,
+} from "#/test-support/query-client";
 
 const {
 	openMeldLogoStrongMock,
@@ -253,6 +257,42 @@ describe("PublicSpacePage", () => {
 		expect(
 			screen.queryByRole("textbox", { name: MESSAGE_TEXTBOX_NAME })
 		).toBeNull();
+	});
+
+	it("renders preloaded public messages as server HTML text instead of the loading shell", async () => {
+		const api = createPublicSpaceApi();
+		const queryClient = createTestQueryClient();
+		queryClient.setQueryData(
+			["spaces", "entry-resolution", "space-123", null, null, null],
+			await api.resolveEntry({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "status"],
+			await api.getStatus({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "signals"],
+			await api.listSignalEnvelopes({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["public-space", "space-123", "threads"],
+			await api.listThreads({ spaceId: "space-123" })
+		);
+		queryClient.setQueryData(
+			["spaces", "space-123", "__public_space_viewer__", "history-navigation"],
+			await api.getHistoryNavigation({ spaceId: "space-123" })
+		);
+
+		const html = renderToString(
+			<TestQueryClientProvider queryClient={queryClient}>
+				<PublicSpacePage isAuthenticated={false} spaceId="space-123" />
+			</TestQueryClientProvider>
+		);
+		const body = document.createElement("body");
+		body.innerHTML = html;
+
+		expect(body.textContent).toContain("Hello public viewer.");
+		expect(body.textContent).not.toContain("Loading the latest messages");
 	});
 
 	it.each([
