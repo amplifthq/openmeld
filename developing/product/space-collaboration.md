@@ -762,11 +762,10 @@ Space from the directory or its destination link, independently of external
 link access. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
-The common UI asks **Who can join this Space**, with **Invited people** or
-**Everyone at [Organization]**. External guest invitations appear separately,
-only to owners. Owners can explicitly configure public/password link access
-in Access settings; neither Organization visibility nor enabling guests
-publishes a Space.
+The common UI labels link reading, Organization access, and participation
+separately. External guest invitations appear separately, only to owners.
+Owners can explicitly configure public/password link access in Share or Access;
+neither Organization visibility nor enabling guests publishes a Space.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access
@@ -789,6 +788,15 @@ OpenMeld has four access modes:
 - `protected`: viewing and joining require the Space password unless an existing
   membership or Organization-public self-join grant admits the caller.
   External joining also requires guest access to be enabled.
+
+`linkJoinPolicy` independently restricts the link-derived join grant. The
+legacy-compatible `access_mode` value retains the behavior above;
+`invite_only` lets `public` or `protected` reading remain available while the
+link grants no new membership. Organization-public joining, direct additions,
+accepted invitations, and current members retain their independent grants. A
+missing stored value resolves to `access_mode`; new Spaces start with
+`invite_only`, and an older writer that omits the field preserves its current
+value.
 
 Public reading includes retained messages, Threads, files, shared guide, pins,
 and Tasks from the same Space. It creates no account or membership. Login does
@@ -819,10 +827,10 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
-Share and Settings compose the same access panel and Fluid Dialog, Select,
-and Accordion primitives. Members are collapsed, searchable, and paged in
-the UI. Invitation-link state comes from persisted server state. Anonymous
-reading, posting, and Agent invocation remain outside this batch.
+Share and Settings compose the same link-reading, Organization, and
+participation controls from one canonical snapshot and one local draft. Members
+are collapsed, searchable, and paged in the UI. Invitation-link state comes
+from persisted server state. Anonymous readers never post or invoke Agents.
 
 Profile participation remains explicit. Same-account access does not silently
 turn every profile under that account into a Space member. If a specific Human
