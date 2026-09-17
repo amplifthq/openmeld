@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import "fake-indexeddb/auto";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,6 +8,16 @@ import {
 	CenterAgentPendingConversation,
 	CenterAgentRoutePendingPage,
 } from "./center-agent-route-pending";
+
+vi.mock("@tanstack/react-router", async (original) => ({
+	...(await original<typeof import("@tanstack/react-router")>()),
+	useNavigate: () => vi.fn(),
+	useRouterState: ({
+		select,
+	}: {
+		select: (state: { location: { searchStr: string } }) => unknown;
+	}) => select({ location: { searchStr: "" } }),
+}));
 
 vi.mock("#/components/app/app-inner-sidebar", () => ({
 	AppInnerSidebar: ({ children }: { children: ReactNode }) => (

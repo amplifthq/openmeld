@@ -1,8 +1,12 @@
 import type { DesktopSession } from "@openmeld/schemas";
 import { useQueryClient } from "@tanstack/react-query";
 import { useHydrated, useLocation, useRouter } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { resetAccountScopedQueriesAfterAuthChange } from "#/query/auth-boundary";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+	clearPrivateAccountStateAfterSessionRead,
+	readKnownAccountIdBeforeSessionRevalidation,
+	resetAccountScopedQueriesAfterAuthChange,
+} from "#/query/auth-boundary";
 import { createDesktopNavigation } from "./navigation";
 import { getDesktopPlatform } from "./platform";
 import { DesktopTitlebarContext } from "./titlebar-context";
@@ -24,22 +28,42 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 	);
 	useEffect(() => navigation?.connect(), [navigation]);
 	const queryClient = useQueryClient();
+	const confirmedAccountIdRef = useRef<string | null | undefined>(undefined);
 	const pathname = useLocation({ select: (location) => location.pathname });
 	useEffect(() => {
 		if (!bridge) {
 			return;
 		}
+		if (pathname === "/desktop-shell") {
+			// DesktopEntry owns identity revalidation on the shell. Retire the
+			// previous workspace baseline so its completed handoff is not replayed.
+			confirmedAccountIdRef.current = undefined;
+		}
+		const desktopBridge = bridge;
 		let disposed = false;
 		let revision = 0;
 		let prepared = Promise.resolve();
+		let sessionInvalidationRevision = 0;
+		let handledSessionInvalidationRevision = 0;
+		let pendingInvalidationPreviousAccountId: string | null | undefined;
 		async function applySession(
-			session: DesktopSession | null,
+			session: DesktopSession,
 			active: () => boolean,
-			sessionChanged: boolean
+			sessionChanged: boolean,
+			previousAccountId: string | null | undefined
 		) {
-			if (!(session && active())) {
+			if (!active()) {
 				return;
 			}
+			const nextAccountId = session.user?.id ?? null;
+			await clearPrivateAccountStateAfterSessionRead(queryClient, {
+				previousAccountId,
+				nextAccountId,
+			});
+			if (!active()) {
+				return;
+			}
+			confirmedAccountIdRef.current = nextAccountId;
 			if (session.user) {
 				navigation?.identify(session.user.id);
 				if (sessionChanged) {
@@ -47,29 +71,69 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 				}
 				return;
 			}
-			if (!sessionChanged) {
-				await resetAccountScopedQueriesAfterAuthChange(queryClient);
-			}
 			if (active()) {
 				await router.navigate({ to: "/desktop-shell", replace: true });
 			}
 		}
+		async function revalidateSession(
+			active: () => boolean,
+			refreshPreviousAccountId: string | null | undefined
+		) {
+			if (!active()) {
+				return;
+			}
+			const invalidationRevision = sessionInvalidationRevision;
+			const hasPendingSessionInvalidation =
+				invalidationRevision > handledSessionInvalidationRevision;
+			const previousAccountId = hasPendingSessionInvalidation
+				? pendingInvalidationPreviousAccountId
+				: refreshPreviousAccountId;
+			if (hasPendingSessionInvalidation) {
+				await resetAccountScopedQueriesAfterAuthChange(queryClient, {
+					preserveComposerDrafts: true,
+				});
+			}
+			if (!active()) {
+				return;
+			}
+			await applySession(
+				await desktopBridge.session(),
+				active,
+				hasPendingSessionInvalidation,
+				previousAccountId
+			);
+			if (!(active() && hasPendingSessionInvalidation)) {
+				return;
+			}
+			handledSessionInvalidationRevision = invalidationRevision;
+			if (handledSessionInvalidationRevision === sessionInvalidationRevision) {
+				pendingInvalidationPreviousAccountId = undefined;
+			}
+		}
 		const refresh = (sessionChanged = false) => {
 			if (sessionChanged) {
+				if (
+					sessionInvalidationRevision === handledSessionInvalidationRevision
+				) {
+					pendingInvalidationPreviousAccountId =
+						confirmedAccountIdRef.current === undefined
+							? readKnownAccountIdBeforeSessionRevalidation(queryClient)
+							: confirmedAccountIdRef.current;
+				}
+				sessionInvalidationRevision += 1;
 				navigation?.reset();
 			}
 			if (pathname === "/desktop-shell") {
 				return;
 			}
-			if (sessionChanged) {
-				revision++;
-				prepared = resetAccountScopedQueriesAfterAuthChange(queryClient);
-			}
-			const current = revision;
+			const refreshPreviousAccountId =
+				confirmedAccountIdRef.current === undefined
+					? readKnownAccountIdBeforeSessionRevalidation(queryClient)
+					: confirmedAccountIdRef.current;
+			const current = ++revision;
 			const active = () => !disposed && current === revision;
-			prepared
-				.then(() => (active() ? bridge.session() : null))
-				.then((session) => applySession(session, active, sessionChanged))
+			prepared = prepared
+				.then(() => revalidateSession(active, refreshPreviousAccountId))
 				.catch((error: unknown) => {
 					if (active()) {
 						console.error("Could not refresh Desktop sign-in.", error);
@@ -77,7 +141,7 @@ export function DesktopFrame({ children }: { children: ReactNode }) {
 				});
 		};
 		const onFocus = () => refresh();
-		const unsubscribe = bridge.onSessionChanged(() => refresh(true));
+		const unsubscribe = desktopBridge.onSessionChanged(() => refresh(true));
 		window.addEventListener("focus", onFocus);
 		return () => {
 			disposed = true;

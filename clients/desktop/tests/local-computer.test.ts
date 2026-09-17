@@ -21,6 +21,7 @@ it.each([
   "account mismatch",
   "account changed",
   "disconnected",
+  "read failed",
 ])("reads native identity without mutating the Service: %s", async (scenario) => {
   vi.mocked(readComputerConnection).mockResolvedValue({
     protocol: "computer-connection-v1",
@@ -35,6 +36,15 @@ it.each([
         : { deviceId: "mac-a", runtimeLane: "dev-local" },
   });
   const session = vi.fn().mockResolvedValue({ user });
+  if (scenario === "read failed") {
+    vi.mocked(readComputerConnection).mockRejectedValue(
+      new Error("CLI unavailable")
+    );
+    await expect(
+      createLocalComputerReader({ session }, deps)()
+    ).rejects.toThrow("Couldn’t check this Mac’s connection");
+    return;
+  }
   if (scenario === "account changed") {
     session
       .mockResolvedValueOnce({ user })

@@ -24,6 +24,7 @@ on:
           - gateway
           - auth
           - core
+          - core-current-cli-projection
           - remote-agent
           - cloud
           - full
@@ -254,6 +255,7 @@ jobs:
       always() &&
       github.ref == 'refs/heads/main' &&
       (inputs.scope == 'core' ||
+       inputs.scope == 'core-current-cli-projection' ||
        inputs.scope == 'database-core' ||
        inputs.scope == 'cloud' ||
        inputs.scope == 'full') &&
@@ -265,6 +267,7 @@ jobs:
     uses: ./.github/workflows/deploy-core-worker.yml
     with:
       deploy_environment: production
+      deployment_mode: ${{ inputs.scope == 'core-current-cli-projection' && 'current-stable-cli-projection' || 'standard' }}
       release_sha: ${{ inputs.release_sha }}
     secrets: inherit
 

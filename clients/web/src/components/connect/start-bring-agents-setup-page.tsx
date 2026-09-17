@@ -181,6 +181,7 @@ export function ComputerSetupFlow(input: ComputerSetupFlowProps) {
 	if (getDesktopPlatform()) {
 		return (
 			<DesktopComputerConnection
+				allowDisconnect={input.presentation === "page"}
 				onCompleted={input.onCompleted}
 				onContinue={input.onContinue}
 				orgSlug={input.orgSlug}

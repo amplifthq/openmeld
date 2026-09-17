@@ -2440,10 +2440,12 @@ export {
 } from "./http/waitlist";
 export { wakeFailureListSchema } from "./http/wake-failure-list";
 export {
+  findOpenMeldToolsUpdateFailureCode,
   formatLocalComponentsSummaryDescription,
   formatLocalComponentsSummaryLabel,
   formatLocalSetupActionDescription,
   formatLocalSetupActionLabel,
+  formatOpenMeldToolsUpdateFailureMessage,
   installedLocalComponentsSnapshotSchema,
   LOCAL_COMPONENTS_SCHEMA_VERSION,
   localCliComponentProjectionSchema,
@@ -2462,14 +2464,17 @@ export {
   localSetupEntrypointSchema,
   localSkillsComponentProjectionSchema,
   localSkillsComponentUpdateProjectionSchema,
+  OPEN_MELD_TOOLS_UPDATE_FAILURE_DETAIL_MAX_CHARS,
   openMeldToolsControlCapabilitySchema,
   openMeldToolsControlRequestSchema,
   openMeldToolsControlResultSchema,
   openMeldToolsMaintenanceMutationResultSchema,
   openMeldToolsMaintenanceProjectionSchema,
   openMeldToolsUpdateAttemptSchema,
+  openMeldToolsUpdateFailureCodeSchema,
   openMeldToolsUpdateOperationPhaseSchema,
   openMeldToolsUpdateOperationSchema,
+  openMeldToolsUpdateProcessFailureFrameSchema,
   openMeldToolsUpdateRequestResultSchema,
   openMeldToolsUpdateRequestSourceSchema,
 } from "./local-components";

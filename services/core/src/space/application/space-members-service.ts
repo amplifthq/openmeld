@@ -545,12 +545,15 @@ export const listSpaceMembersSnapshotUseCase = async (input: {
     "derive latest signal activity",
     () => listLatestSignalActivityFromSql(input.sql)
   );
-  const latestAgentOriginFactsByProfileId = measureSpaceMembersSnapshotTiming(
-    input.timing,
-    "origin_facts",
-    "derive latest agent origin facts",
-    () => listLatestAgentOriginFactsFromSql(input.sql)
-  );
+  const latestAgentOriginFactsByProfileId =
+    input.includeAgentReadiness === false
+      ? new Map()
+      : measureSpaceMembersSnapshotTiming(
+          input.timing,
+          "origin_facts",
+          "derive latest agent origin facts",
+          () => listLatestAgentOriginFactsFromSql(input.sql)
+        );
   const liveProfileById = buildLiveProfileById(liveSessions);
   const [
     preloadedHumanAvatarByOwnerUserId,

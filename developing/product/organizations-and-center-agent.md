@@ -196,7 +196,11 @@ never exposes raw chain-of-thought. Valid typed tool events and provider
 evidence remain available to structured diagnostics and future presentation.
 
 The runtime also enforces bounded progress without becoming a second planner.
-One submission has a durable total tool-call ceiling. Only tools explicitly
+One assignment has a durable, configurable total tool-call safety ceiling that
+survives internal retries and compaction. Normal work remains in the same
+execution; the ceiling reports incomplete work instead of requesting another
+budget segment. Center and personal hosted roles share this execution rule
+without sharing tool permissions. Only tools explicitly
 classified as observation-only participate in result-aware stall detection;
 the runtime compares bounded fingerprints of the tool name, input, and result
 and rejects a third unchanged observation, including alternating probe loops.

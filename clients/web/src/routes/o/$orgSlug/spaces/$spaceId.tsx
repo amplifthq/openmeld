@@ -3,7 +3,11 @@ import { Bars } from "@openmeld/ui/components/bars";
 import { Button } from "@openmeld/ui/components/button";
 import { Card, CardContent, CardHeader } from "@openmeld/ui/components/card";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	useLocation,
+	useNavigate,
+} from "@tanstack/react-router";
 import {
 	type ComponentProps,
 	type ReactNode,
@@ -20,15 +24,18 @@ import {
 	AppSpaceShell,
 	SpaceWindowShell,
 } from "#/components/spaces/app-space-shell";
+import { ConversationsSidebar } from "#/components/spaces/conversations-sidebar";
 import { SpaceEntryGate } from "#/components/spaces/space-entry-gate";
 import { SpaceLanding } from "#/components/spaces/space-landing";
 import { SpaceProfileRequiredState } from "#/components/spaces/space-profile-required-state";
 import { SpaceLandingLoadingShell } from "#/components/spaces/space-state-surfaces";
+import { useSpacePanelWidth } from "#/components/spaces/use-space-panel-width";
 import { useSpaceThreadTarget } from "#/components/spaces/use-space-thread-target";
 import {
 	APP_ROUTE_PENDING_DELAY_MS,
 	APP_ROUTE_PENDING_MIN_DURATION_MS,
 } from "#/lib/app-route-loading";
+import { readInboxSourceFocusRequestId } from "#/lib/inbox/source-focus-request";
 import {
 	observeSpaceOpen,
 	readSpacePrefetch,
@@ -78,6 +85,10 @@ type AppSpaceFocusSearch = Pick<
 	z.infer<typeof appSpaceRouteSearchSchema>,
 	"focusInteractionId" | "focusSignalId" | "focusThreadRootSignalId"
 >;
+
+type AppSpaceFocusInput = AppSpaceFocusSearch & {
+	focusRequestId?: string;
+};
 
 export type AppSpaceNavigationSurface = "directMessages" | "spaces";
 
@@ -147,14 +158,19 @@ export const Route = createFileRoute("/o/$orgSlug/spaces/$spaceId")({
 
 function AppSpaceConversationPendingRoute() {
 	const search = Route.useSearch();
+	const { spaceId } = Route.useParams();
+	const membersPanel = useSpacePanelWidth({ panel: "members", spaceId });
 	return (
 		<SpaceWindowShell
 			initialOuterSidebarState={APP_SIDEBAR_DEFAULT_STATES.outer}
 			initialSidebarState={APP_SIDEBAR_DEFAULT_STATES.inner}
+			sidebar={<ConversationsSidebar />}
 			sidebarPreferenceKey="spaces"
 		>
-			<AppMainContent bodyClassName="flex" header={null}>
+			<AppMainContent bodyClassName="flex" showHeader={false}>
 				<SpaceLandingLoadingShell
+					membersPanelWidth={membersPanel.width}
+					spaceId={spaceId}
 					threadOpen={Boolean(search.focusThreadRootSignalId)}
 				/>
 			</AppMainContent>
@@ -166,10 +182,14 @@ export function AppSpaceEntryRoute() {
 	const { orgSlug, spaceId } = Route.useParams();
 	const search = Route.useSearch();
 	const { sidebarStates } = Route.useLoaderData();
+	const focusRequestId = useLocation({
+		select: (location) => readInboxSourceFocusRequestId(location.state),
+	});
 
 	return (
 		<AppSpaceEntryContent
 			focusInteractionId={search.focusInteractionId}
+			focusRequestId={focusRequestId}
 			focusSignalId={search.focusSignalId}
 			focusThreadRootSignalId={search.focusThreadRootSignalId}
 			initialSidebarStates={sidebarStates}
@@ -187,7 +207,7 @@ export function AppSpaceEntryContent(
 		profileId?: string;
 		initialSidebarStates?: AppSidebarPersistedStates;
 		navigationSurface?: AppSpaceNavigationSurface;
-	} & AppSpaceFocusSearch
+	} & AppSpaceFocusInput
 ) {
 	const navigationSurface = input.navigationSurface ?? "spaces";
 	if (!input.profileId) {
@@ -219,7 +239,7 @@ function MissingAppSpaceProfileContent(
 		orgSlug: string;
 		initialSidebarStates?: AppSidebarPersistedStates;
 		navigationSurface: AppSpaceNavigationSurface;
-	} & AppSpaceFocusSearch
+	} & AppSpaceFocusInput
 ) {
 	const navigate = useNavigate();
 	const { hasRestored, state, storageScope } = useStartFlowState();
@@ -355,7 +375,7 @@ function ValidatedAppSpaceEntryContent(
 		profileId: string;
 		initialSidebarStates?: AppSidebarPersistedStates;
 		navigationSurface: AppSpaceNavigationSurface;
-	} & AppSpaceFocusSearch
+	} & AppSpaceFocusInput
 ) {
 	const { hasRestored, state, storageScope } = useStartFlowState();
 	const { currentOrganization } = useAppOrganization();
@@ -472,6 +492,7 @@ function ValidatedAppSpaceEntryContent(
 				null
 			}
 			focusInteractionId={input.focusInteractionId}
+			focusRequestId={input.focusRequestId}
 			focusSignalId={input.focusSignalId}
 			focusThreadRootSignalId={input.focusThreadRootSignalId}
 			initialSidebarStates={input.initialSidebarStates}
@@ -494,7 +515,7 @@ function ResolvedAppSpaceEntryContent(
 		orgSlug: string;
 		profileId: string;
 		spaceId: string;
-	} & AppSpaceFocusSearch
+	} & AppSpaceFocusInput
 ) {
 	const target = useSpaceThreadTarget(props);
 	const input = {
@@ -507,6 +528,7 @@ function ResolvedAppSpaceEntryContent(
 			<ValidatedDirectMessageEntryContent
 				accountProfiles={input.accountProfiles}
 				focusInteractionId={input.focusInteractionId}
+				focusRequestId={input.focusRequestId}
 				focusSignalId={input.focusSignalId}
 				focusThreadRootSignalId={input.focusThreadRootSignalId}
 				initialSidebarStates={input.initialSidebarStates}
@@ -518,6 +540,7 @@ function ResolvedAppSpaceEntryContent(
 		) : (
 			<ValidatedSpaceNavigationContent
 				focusInteractionId={input.focusInteractionId}
+				focusRequestId={input.focusRequestId}
 				focusSignalId={input.focusSignalId}
 				focusThreadRootSignalId={input.focusThreadRootSignalId}
 				initialSidebarStates={input.initialSidebarStates}
@@ -543,6 +566,7 @@ function ResolvedAppSpaceEntryContent(
 					<SpaceLanding
 						accountProfiles={input.accountProfiles}
 						initialFocusInteractionId={input.focusInteractionId}
+						initialFocusRequestId={input.focusRequestId}
 						initialFocusSignalId={input.focusSignalId}
 						initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
 						isPersonalContext={input.isPersonalContext}
@@ -584,6 +608,10 @@ function AppSpaceAccessGate(
 ) {
 	const organization = useAppOrganization();
 	const queryClient = useQueryClient();
+	const membersPanel = useSpacePanelWidth({
+		panel: "members",
+		spaceId: input.spaceId,
+	});
 	// SSR loader hydration does not rerun the route loader in the browser.
 	// Activate here too, after the account, Organization, and Profile checks.
 	useEffect(() => {
@@ -682,6 +710,8 @@ function AppSpaceAccessGate(
 	});
 	const pendingContent = (
 		<SpaceLandingLoadingShell
+			membersPanelWidth={membersPanel.width}
+			spaceId={input.spaceId}
 			threadOpen={input.threadOpen}
 			title={knownTitle}
 		/>
@@ -759,7 +789,7 @@ function ValidatedSpaceNavigationContent(
 		orgSlug: string;
 		profileId: string;
 		spaceId: string;
-	} & AppSpaceFocusSearch
+	} & AppSpaceFocusInput
 ) {
 	const { status } = useSpaceConversationEntryQueries(input);
 
@@ -787,7 +817,7 @@ function ValidatedDirectMessageEntryContent(
 		orgSlug: string;
 		profileId: string;
 		spaceId: string;
-	} & AppSpaceFocusSearch
+	} & AppSpaceFocusInput
 ) {
 	const { status, bootstrapQuery, displaySnapshotQuery } =
 		useSpaceConversationEntryQueries(input);
@@ -837,6 +867,7 @@ function ValidatedDirectMessageEntryContent(
 			<SpaceLanding
 				accountProfiles={input.accountProfiles}
 				initialFocusInteractionId={input.focusInteractionId}
+				initialFocusRequestId={input.focusRequestId}
 				initialFocusSignalId={input.focusSignalId}
 				initialFocusThreadRootSignalId={input.focusThreadRootSignalId}
 				isDirectMessageConversation
@@ -893,7 +924,7 @@ function AppSpaceEntryShell(input: {
 	navigationSurface?: AppSpaceNavigationSurface;
 }) {
 	const content = input.conversationLayout ? (
-		<AppMainContent bodyClassName="flex" header={null}>
+		<AppMainContent bodyClassName="flex" showHeader={false}>
 			{input.children}
 		</AppMainContent>
 	) : (

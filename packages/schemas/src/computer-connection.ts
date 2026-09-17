@@ -15,6 +15,43 @@ export type ComputerConnectionIntent = z.infer<
   typeof computerConnectionIntentSchema
 >;
 
+const computerSetupVerboseOutputSchema = z.object({
+  type: z.string(),
+  code: z.string().min(1).max(256),
+  text: z.string().optional(),
+  message: z.string().optional(),
+  data: z.object({ state: z.string().optional() }).optional(),
+});
+
+// Both envelopes are emitted by the CLI's existing Agent View presenter.
+export const computerSetupOutputSchema = z.union([
+  computerSetupVerboseOutputSchema,
+  z
+    .object({
+      t: z.string(),
+      c: z.string().min(1).max(256),
+      x: z.string().optional(),
+      m: z.string().optional(),
+      d: computerSetupVerboseOutputSchema.shape.data,
+    })
+    .transform((event) => ({
+      type: event.t,
+      code: event.c,
+      text: event.x,
+      message: event.m,
+      data: event.d,
+    })),
+]);
+
+export const desktopComputerConnectionProgressSchema = z.strictObject({
+  expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
+  code: z.string().min(1).max(256),
+  message: z.string().min(1).max(4096),
+});
+export type DesktopComputerConnectionProgress = z.infer<
+  typeof desktopComputerConnectionProgressSchema
+>;
+
 export const computerConnectionReviewSchema = z.strictObject({
   protocol: z.literal("computer-connection-v1"),
   previousSessionIdentity: z.string().min(1).max(128),
@@ -31,6 +68,13 @@ export const computerConnectionReviewSchema = z.strictObject({
     })
     .nullable(),
 });
+
+export const desktopComputerDisconnectRequestSchema = z.strictObject({
+  expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
+});
+export type DesktopComputerDisconnectRequest = z.infer<
+  typeof desktopComputerDisconnectRequestSchema
+>;
 
 export const desktopComputerConnectionRequestSchema =
   createPrepareSessionRequestSchema
@@ -52,6 +96,7 @@ export const desktopComputerConnectionResultSchema = z.discriminatedUnion(
       status: z.literal("failed"),
       message: z.string().min(1),
       diagnosticId: z.string().min(1),
+      diagnosticsPath: z.string().min(1).optional(),
     }),
     z.strictObject({
       status: z.literal("reused"),

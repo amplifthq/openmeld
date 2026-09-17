@@ -26,11 +26,10 @@ export const desktopUpdaterFeedSchema = z
     path: updateZipPathSchema,
     sha512: sha512Schema,
   })
-  .refine(
-    (feed) =>
-      feed.files[0].url === feed.path && feed.files[0].sha512 === feed.sha512,
-    "Desktop update metadata must select one artifact."
-  );
+  .refine((feed) => {
+    const [file] = feed.files;
+    return file?.url === feed.path && file.sha512 === feed.sha512;
+  }, "Desktop update metadata must select one artifact.");
 
 /** Immutable candidate metadata; it never selects the default update channel. */
 export const desktopCandidateManifestSchema = z.strictObject({

@@ -72,6 +72,25 @@ export function useSidebarPreferences(
 	return {
 		preferences: query.data?.preferences,
 		isPending: query.isPending,
+		updateAsync: async (
+			update: (
+				preferences: AccountSidebarPreferences
+			) => AccountSidebarPreferences
+		) => {
+			// Read a real revision at execution time, never synthesize an empty sidebar
+			// or overwrite a snapshot captured before another operation completed.
+			if (client.isMutating({ mutationKey: queryKey })) {
+				throw new Error("Sidebar changes are still saving. Try again.");
+			}
+			const result = await query.refetch({ throwOnError: true });
+			if (!result.data || client.isMutating({ mutationKey: queryKey })) {
+				throw new Error("Sidebar settings changed. Try again.");
+			}
+			await mutation.mutateAsync({
+				revision: result.data.revision,
+				preferences: update(result.data.preferences),
+			});
+		},
 		save: (preferences: AccountSidebarPreferences) => {
 			if (query.data && !mutation.isPending) {
 				mutation.mutate({ revision: query.data.revision, preferences });

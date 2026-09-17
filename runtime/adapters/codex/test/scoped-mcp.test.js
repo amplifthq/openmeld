@@ -13,6 +13,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { after, describe, it } from "node:test";
 import { promisify } from "node:util";
+import { OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES } from "@openmeld/adapter-core";
 import {
   assertCodexScopedMcpInventory,
   buildCodexScopedMcpDisableArgs,
@@ -20,13 +21,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 const DISPATCH_SERVER = "openmeld_internal_dispatch_space_action";
-const TOOL_NAMES = [
-  "reply",
-  "stay_silent",
-  "read_file",
-  "read_history",
-  "status",
-];
+const TOOL_NAMES = OPENMELD_SPACE_ACTION_MCP_TOOL_NAMES;
 const ISOLATION_ERROR = /context\.mcp_isolation_unverified/;
 const NAMESPACE_CONFLICT_ERROR =
   /execution_context\.mcp_server_namespace_conflict/;

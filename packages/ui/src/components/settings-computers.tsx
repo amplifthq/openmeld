@@ -168,6 +168,7 @@ export function SettingsAddComputerCardContent({
   description = "Set up OpenMeld Service and local agents.",
   descriptionClassName,
   iconContainerClassName,
+  icon,
   title = "Add a Computer",
   titleAriaHidden,
   titleClassName,
@@ -175,6 +176,7 @@ export function SettingsAddComputerCardContent({
   description?: ReactNode;
   descriptionClassName?: string;
   iconContainerClassName?: string;
+  icon?: ReactNode;
   title?: string;
   titleAriaHidden?: boolean;
   titleClassName?: string;
@@ -187,7 +189,7 @@ export function SettingsAddComputerCardContent({
           iconContainerClassName
         )}
       >
-        <PlusIcon aria-hidden="true" className="size-5" />
+        {icon ?? <PlusIcon aria-hidden="true" className="size-5" />}
       </span>
       <span className="flex flex-col items-center gap-1">
         <span

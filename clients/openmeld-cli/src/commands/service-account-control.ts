@@ -5,6 +5,7 @@ import {
   serviceAccountControlRequestSchema,
 } from "@openmeld/schemas";
 import {
+  buildStoredAuthSessionIdentity,
   getAuthSessionState,
   readServiceAdmissionSessionWithOwnership,
   type StoredAuthSession,
@@ -50,7 +51,8 @@ function refused(reason: string, message: string): never {
 }
 
 export async function runServiceAccountControl(
-  request: ServiceAccountControlRequest
+  request: ServiceAccountControlRequest,
+  expectedSessionIdentity?: string
 ): Promise<void> {
   const parsed = serviceAccountControlRequestSchema.safeParse(request);
   if (!parsed.success) {
@@ -128,6 +130,9 @@ export async function runServiceAccountControl(
       async () => {
         boundSession = await readServiceAdmissionSessionWithOwnership();
         if (
+          (expectedSessionIdentity !== undefined &&
+            buildStoredAuthSessionIdentity(boundSession) !==
+              expectedSessionIdentity) ||
           boundSession.accessToken !== preparedSession.accessToken ||
           boundSession.createdAt !== preparedSession.createdAt ||
           boundSession.user?.id !== input.expectedAccount

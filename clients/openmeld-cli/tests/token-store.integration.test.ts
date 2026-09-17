@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { inspect } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const execFileMock = vi.hoisted(() => vi.fn());
@@ -61,7 +62,14 @@ function setProcessPlatform(value: NodeJS.Platform): void {
   });
 }
 
-function createMockExecFileChild(stdoutText = ""): EventEmitter & {
+function createMockExecFileChild(
+  stdoutText = "",
+  failure?: {
+    code: number | null;
+    stderr?: string;
+    error?: NodeJS.ErrnoException;
+  }
+): EventEmitter & {
   stdout: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
   stderr: EventEmitter & { setEncoding: ReturnType<typeof vi.fn> };
   stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
@@ -90,7 +98,13 @@ function createMockExecFileChild(stdoutText = ""): EventEmitter & {
     if (stdoutText.length > 0) {
       child.stdout.emit("data", stdoutText);
     }
-    child.emit("close", 0);
+    if (failure?.stderr) {
+      child.stderr.emit("data", failure.stderr);
+    }
+    if (failure?.error) {
+      child.emit("error", failure.error);
+    }
+    child.emit("close", failure ? failure.code : 0);
   });
   return child;
 }
@@ -154,28 +168,159 @@ describe("token-store command execution options", () => {
     expect(execFileMock).not.toHaveBeenCalled();
   });
 
-  it("passes timeout options to stdin-based execFile path", async () => {
+  it("loads DPAPI in each fresh PowerShell process and keeps credentials on stdin", async () => {
     setProcessPlatform("win32");
+    const powershellChildren: ReturnType<typeof createMockExecFileChild>[] = [];
+    execFileMock.mockImplementation(() => {
+      const child = createMockExecFileChild(
+        powershellChildren.length === 0 ? "encrypted-value" : "token-123"
+      );
+      powershellChildren.push(child);
+      return child;
+    });
 
     await withTempHome(async () => {
-      await storeAccessToken({
+      process.env.OPENMELD_AUTH_ALLOW_INSECURE_FILE_TOKEN = undefined;
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = undefined;
+      const ref = await storeAccessToken({
         accessToken: "token-123",
         authBaseUrl: "https://auth.openmeld.invalid",
         clientId: "openmeld-cli",
       });
+      expect(ref.provider).toBe("windows-dpapi");
+      if (ref.provider !== "windows-dpapi") {
+        throw new Error("Expected Windows DPAPI token storage");
+      }
+      await expect(readAccessToken(ref)).resolves.toEqual({
+        status: "found",
+        accessToken: "token-123",
+      });
+
+      expect(powershellChildren).toHaveLength(2);
+      expect(
+        JSON.parse(
+          String(powershellChildren[0]?.stdin.write.mock.calls[0]?.[0])
+        )
+      ).toEqual({ token: "token-123", entropy: ref.key });
+      expect(
+        JSON.parse(
+          String(powershellChildren[1]?.stdin.write.mock.calls[0]?.[0])
+        )
+      ).toEqual({ token: "encrypted-value", entropy: ref.key });
     });
 
-    const powershellCall = execFileMock.mock.calls.find(
+    const powershellCalls = execFileMock.mock.calls.filter(
       (call) => call[0] === "powershell.exe" && typeof call[3] !== "function"
     );
-    expect(powershellCall).toBeDefined();
-    expect(powershellCall?.[2]).toEqual(
-      expect.objectContaining({
-        windowsHide: true,
-        maxBuffer: COMMAND_MAX_BUFFER_BYTES,
-        timeout: COMMAND_TIMEOUT_MS,
-      })
-    );
+    expect(powershellCalls).toHaveLength(2);
+    for (const powershellCall of powershellCalls) {
+      const args = powershellCall[1] as string[];
+      const script = args.at(-1) ?? "";
+      const loadIndex = script.indexOf(
+        "Add-Type -AssemblyName System.Security -ErrorAction Stop"
+      );
+      expect(loadIndex).toBeGreaterThanOrEqual(0);
+      expect(loadIndex).toBeLessThan(
+        script.indexOf("[System.Security.Cryptography.ProtectedData]")
+      );
+      expect(args.join(" ")).not.toContain("token-123");
+      expect(args).toContain("-NoProfile");
+      expect(powershellCall[2]).toEqual(
+        expect.objectContaining({
+          windowsHide: true,
+          maxBuffer: COMMAND_MAX_BUFFER_BYTES,
+          timeout: COMMAND_TIMEOUT_MS,
+        })
+      );
+    }
+  });
+
+  it.each([
+    {
+      code: 1,
+      stderr: "OPENMELD_DPAPI_ASSEMBLY_LOAD_FAILED\r\n",
+      reason: "Windows credential encryption could not be initialized",
+      diagnosticCode: "1",
+    },
+    {
+      code: 1,
+      stderr: "OPENMELD_DPAPI_OPERATION_FAILED\r\n",
+      reason: "Windows could not encrypt or decrypt the stored credential",
+      diagnosticCode: "1",
+    },
+    {
+      code: 9,
+      stderr: "private-token-in-stderr",
+      reason: "PowerShell did not complete the credential operation",
+      diagnosticCode: "9",
+    },
+    {
+      code: null,
+      stderr: "",
+      reason: "PowerShell did not complete the credential operation",
+      diagnosticCode: "no exit code",
+    },
+    {
+      code: -2,
+      error: Object.assign(new Error("private-token-in-message"), {
+        code: "ENOENT",
+        stdout: "private-token-in-error-output",
+      }),
+      reason: "PowerShell could not be started",
+      diagnosticCode: "ENOENT",
+    },
+  ])("reports safe credential failures: $diagnosticCode / $reason", async ({
+    code,
+    stderr,
+    error,
+    reason,
+    diagnosticCode,
+  }) => {
+    setProcessPlatform("win32");
+    await withTempHome(async () => {
+      process.env.OPENMELD_AUTH_ALLOW_INSECURE_FILE_TOKEN = undefined;
+      process.env.OPENMELD_AUTH_FORCE_INSECURE_FILE_TOKEN = undefined;
+      const ref = await storeAccessToken({
+        accessToken: "private-token-on-stdin",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      });
+      execFileMock.mockImplementation(() =>
+        createMockExecFileChild("private-token-on-stdout", {
+          code,
+          stderr,
+          error,
+        })
+      );
+      const read = await readAccessToken(ref);
+      expect(read.status).toBe("unavailable");
+      if (read.status !== "unavailable") {
+        throw new Error("Expected a credential read failure");
+      }
+      const storeError = await storeAccessToken({
+        accessToken: "private-token-on-stdin",
+        authBaseUrl: "https://auth.openmeld.invalid",
+        clientId: "openmeld-cli",
+      }).catch((failure: unknown) => failure);
+      expect(storeError).toBeInstanceOf(Error);
+      expect((storeError as Error).cause).toMatchObject({
+        code: error?.code ?? code,
+      });
+      for (const message of [
+        read.errorMessage,
+        (storeError as Error).message,
+      ]) {
+        expect(message).toContain(reason);
+        expect(message).toContain(diagnosticCode);
+        expect(message.match(/command failed/gu)).toHaveLength(1);
+        expect(message).not.toContain("private-token");
+      }
+      expect(inspect(storeError, { depth: null })).not.toContain(
+        "private-token"
+      );
+      await deleteAccessToken(ref);
+      expect(await readAccessToken(ref)).toEqual({ status: "missing" });
+    });
   });
 
   it("isolates native token refs by OPENMELD_HOME", async () => {

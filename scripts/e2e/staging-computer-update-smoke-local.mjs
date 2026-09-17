@@ -296,8 +296,12 @@ export async function waitForUpdateOperation(input) {
   return await waitForValue({
     label: "OpenMeld Tools update operation",
     timeoutMs: input.timeoutMs,
-    read: readCurrentUpdateOperation,
-    accept: (operation) => Boolean(operation && input.predicate(operation)),
+    read: async () =>
+      findMatchingUpdateOperation(
+        await readCurrentUpdateOperations(),
+        input.predicate
+      ),
+    accept: (operation) => Boolean(operation),
   });
 }
 
@@ -391,35 +395,45 @@ export function pass(label, detail) {
   );
 }
 
-async function readCurrentUpdateOperation() {
+async function readCurrentUpdateOperations() {
   const candidates = [
     ["service-update.json", "service"],
     ["tools-update.json", "tools"],
     ["service-update-last.json", "service"],
     ["tools-update-last.json", "tools"],
   ];
-  for (const [filename, kind] of candidates) {
-    const state = await readJsonIfPresent(
-      path.join(UPDATE_STATE_ROOT, filename)
-    );
+  const states = await Promise.all(
+    candidates.map(async ([filename, kind]) => ({
+      kind,
+      state: await readJsonIfPresent(path.join(UPDATE_STATE_ROOT, filename)),
+    }))
+  );
+  return states.flatMap(({ kind, state }) => {
     if (!state) {
-      continue;
+      return [];
     }
     if (kind === "service") {
-      return {
-        errorMessage: state.errorMessage ?? null,
-        operationId: state.jobId,
-        phase: state.phase,
-        requestSource: state.requestSource,
-        targetVersion: state.targetVersion,
-      };
+      return [
+        {
+          errorMessage: state.errorMessage ?? null,
+          operationId: state.jobId,
+          phase: state.phase,
+          requestSource: state.requestSource,
+          targetVersion: state.targetVersion,
+        },
+      ];
     }
-    return {
-      errorMessage: state.errorMessage ?? null,
-      ...state.operation,
-    };
-  }
-  return null;
+    return [
+      {
+        errorMessage: state.errorMessage ?? null,
+        ...state.operation,
+      },
+    ];
+  });
+}
+
+export function findMatchingUpdateOperation(operations, predicate) {
+  return operations.find(predicate) ?? null;
 }
 
 async function readJsonIfPresent(filePath) {
