@@ -34,6 +34,10 @@ type LocalSkillsComponentUpdateProjectionSchema =
   typeof import("../schemas/local-components")["localSkillsComponentUpdateProjectionSchema"];
 type OpenMeldToolsUpdateOperationSchema =
   typeof import("../schemas/local-components")["openMeldToolsUpdateOperationSchema"];
+type OpenMeldToolsUpdateFailureCodeSchema =
+  typeof import("../schemas/local-components")["openMeldToolsUpdateFailureCodeSchema"];
+type OpenMeldToolsUpdateProcessFailureFrameSchema =
+  typeof import("../schemas/local-components")["openMeldToolsUpdateProcessFailureFrameSchema"];
 type OpenMeldToolsMaintenanceProjectionSchema =
   typeof import("../schemas/local-components")["openMeldToolsMaintenanceProjectionSchema"];
 type OpenMeldToolsUpdateAttemptSchema =
@@ -82,6 +86,10 @@ export type LocalSkillsComponentUpdateProjection =
   z.infer<LocalSkillsComponentUpdateProjectionSchema>;
 export type OpenMeldToolsUpdateOperation =
   z.infer<OpenMeldToolsUpdateOperationSchema>;
+export type OpenMeldToolsUpdateFailureCode =
+  z.infer<OpenMeldToolsUpdateFailureCodeSchema>;
+export type OpenMeldToolsUpdateProcessFailureFrame =
+  z.infer<OpenMeldToolsUpdateProcessFailureFrameSchema>;
 export type OpenMeldToolsMaintenanceProjection =
   z.infer<OpenMeldToolsMaintenanceProjectionSchema>;
 export type OpenMeldToolsUpdateAttempt =

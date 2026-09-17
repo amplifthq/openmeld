@@ -4,6 +4,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CenterAgentLayout } from "./center-agent-layout";
 import { CenterAgentRoutePendingPage } from "./center-agent-route-pending";
 
+vi.mock("@tanstack/react-router", async (original) => ({
+	...(await original<typeof import("@tanstack/react-router")>()),
+	useNavigate: () => vi.fn(),
+	useRouterState: ({
+		select,
+	}: {
+		select: (state: { location: { searchStr: string } }) => unknown;
+	}) => select({ location: { searchStr: "" } }),
+}));
+
 const appOuterRailSpy = vi.hoisted(() => vi.fn());
 vi.mock("../spaces/conversations-sidebar", () => ({
 	ConversationsSidebar: () => (

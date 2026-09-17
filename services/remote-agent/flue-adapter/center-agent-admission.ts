@@ -272,6 +272,7 @@ export async function redeliverRemoteAgentCallbacksAndScheduleNextRetry(input: {
 }
 
 export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
+  env?: { AGENT_COMPUTER?: unknown };
   coreWorker?: RemoteAgentCoreWorkerBinding;
   nowMs?: () => number;
   readSubmission: (
@@ -291,6 +292,7 @@ export async function reconcileAndRedeliverRemoteAgentCallbacks(input: {
     await listDueRetryableCallbackContexts(input.storage, nowMs)
   ).filter((context) => context.callbackStatus === "retryable");
   const reconciliation = await reconcileSettledRemoteAgentExecutionFailures({
+    env: input.env,
     coreWorker: input.coreWorker,
     nowMs: () => nowMs,
     readSubmission: input.readSubmission,

@@ -16,6 +16,7 @@ import type {
 import {
 	clearWakeProgressItemsForSignal,
 	createWakeProgressItem,
+	doWakeProgressItemsMatch,
 	filterVisibleWakeProgressItems,
 	isAgentDirectConversationSpace,
 	isSpaceComposerSubmissionError,
@@ -358,15 +359,34 @@ export function reconcilePolledWakeProgressItems(input: {
 	fulfilledClientMessageIds: readonly string[];
 	incomingItems: readonly WakeProgressItem[];
 	signals: readonly SignalEnvelope[];
+	snapshotItemsAtRequestStart?: readonly WakeProgressItem[];
 }): WakeProgressItem[] {
 	const fulfilledClientMessageIds = new Set(input.fulfilledClientMessageIds);
-	const retainedItems = input.currentItems.filter(
-		(item) =>
+	const retainedItems = input.currentItems.filter((item) => {
+		if (
 			!(
 				item.clientMessageId &&
 				fulfilledClientMessageIds.has(item.clientMessageId)
 			)
-	);
+		) {
+			return true;
+		}
+		// A nonempty per-message response updates individual executions. It must
+		// not delete another execution merely because they share the request.
+		if (
+			input.incomingItems.some(
+				(incoming) => incoming.clientMessageId === item.clientMessageId
+			)
+		) {
+			return true;
+		}
+		const previous = (
+			input.snapshotItemsAtRequestStart ?? input.currentItems
+		).find((candidate) =>
+			doWakeProgressItemsMatch({ left: item, right: candidate })
+		);
+		return !(previous && areWakeProgressItemsEqual([previous], [item]));
+	});
 	return mergeWakeProgressItemState({
 		currentItems: retainedItems,
 		incomingItems: input.incomingItems,
@@ -440,43 +460,6 @@ export function mergeActiveWakeProgressPresentation(input: {
 				}
 			: item;
 	});
-}
-
-function doWakeProgressItemsMatch(input: {
-	left: WakeProgressItem;
-	right: WakeProgressItem;
-}): boolean {
-	if (input.left.dispatchId && input.right.dispatchId) {
-		return input.left.dispatchId === input.right.dispatchId;
-	}
-	if (input.left.targetProfileId !== input.right.targetProfileId) {
-		return false;
-	}
-	if (
-		input.left.clientMessageId &&
-		input.right.clientMessageId &&
-		input.left.clientMessageId === input.right.clientMessageId
-	) {
-		return true;
-	}
-	if (
-		input.left.sourceSignalId &&
-		input.right.sourceSignalId &&
-		input.left.sourceSignalId === input.right.sourceSignalId
-	) {
-		return true;
-	}
-	const leftHasExecutionIdentity = Boolean(
-		input.left.dispatchId ||
-			input.left.clientMessageId ||
-			input.left.sourceSignalId
-	);
-	const rightHasExecutionIdentity = Boolean(
-		input.right.dispatchId ||
-			input.right.clientMessageId ||
-			input.right.sourceSignalId
-	);
-	return !(leftHasExecutionIdentity || rightHasExecutionIdentity);
 }
 
 export function filterWakeProgressItemsForVisibleOutcomes(input: {
@@ -761,6 +744,15 @@ export function mergeLiveThreadSignalIntoCache(input: {
 	spaceId: string;
 	threadContext: SpaceThreadContext;
 }) {
+	// Transient progress belongs to the Space/viewer presentation cache, never
+	// the retained Thread history or its two-message preview. Otherwise a late
+	// history cache can replay working state after that presentation is GC'd.
+	if (
+		input.signal.type === "signal.text" &&
+		input.signal.data.meta?.transient === true
+	) {
+		return;
+	}
 	if (input.placement.threadId !== input.threadContext.threadId) {
 		return;
 	}

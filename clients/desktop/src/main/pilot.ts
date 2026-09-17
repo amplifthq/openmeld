@@ -18,7 +18,10 @@ import {
   type WebContents,
 } from "electron";
 import { PILOT_IPC } from "../shared/pilot-bridge";
-import { createComputerConnection } from "./computer-connection";
+import {
+  createComputerConnection,
+  createComputerDisconnection,
+} from "./computer-connection";
 import { checkDesktopCompatibility } from "./desktop-compatibility";
 import {
   resolveDesktopEnvPreset,
@@ -41,7 +44,10 @@ declare const __OPENMELD_DESKTOP_WEB_BUILD__: string;
 declare const __OPENMELD_DESKTOP_PRIVATE_PACKAGE__: boolean;
 declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | null;
 
-export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
+export function initializeDesktopPilot(
+  getWindow: () => BrowserWindow | null,
+  setUnreadCount: (count: number | null) => void
+) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
     : undefined;
@@ -114,10 +120,12 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
   } else {
     configurePilotUserData(app, process.env);
   }
+  let sessionRevision = 0;
   const auth = createPilotAuth(
     webOrigin,
     getWindow,
     () => {
+      sessionRevision += 1;
       streams.closeAll();
       notifications.clear();
       const owner = getWindow()?.webContents;
@@ -136,6 +144,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
   });
   const notifications = createPilotNotifications({
     auth,
+    setUnreadCount,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,
@@ -227,6 +236,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       };
       const connectComputer = createComputerConnection({
         auth,
+        sessionRevision: () => sessionRevision,
         commandDeps,
         webOrigin,
         webBuild: platform.webBuild,
@@ -243,7 +253,36 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
           });
           return result.response === 1;
         },
+        onProgress: (progress) => {
+          const owner = getWindow()?.webContents;
+          if (owner && !owner.isDestroyed()) {
+            owner.send(PILOT_IPC.connectionProgress, progress);
+          }
+        },
       });
+      const disconnectComputer = createComputerDisconnection({
+        auth,
+        commandDeps,
+        confirmDisconnect: async () => {
+          const result = await dialog.showMessageBox({
+            type: "warning",
+            message: "Disconnect this Mac?",
+            detail:
+              "OpenMeld will finish active work, stop its Service, and sign this Mac out. The computer record stays in your account. Desktop stays signed in.",
+            buttons: ["Cancel", "Disconnect this Mac"],
+            defaultId: 0,
+            cancelId: 0,
+          });
+          return result.response === 1;
+        },
+      });
+      ipcMain.handle(
+        PILOT_IPC.disconnectComputer,
+        (event, request: unknown) => {
+          authorize(event);
+          return disconnectComputer(request);
+        }
+      );
       ipcMain.handle(PILOT_IPC.connectComputer, (event, request: unknown) => {
         authorize(event);
         return connectComputer(request);
@@ -257,7 +296,7 @@ export function initializeDesktopPilot(getWindow: () => BrowserWindow | null) {
       const observedOwners = new WeakSet<WebContents>();
       ipcMain.handle(PILOT_IPC.notificationContext, (event, raw: unknown) => {
         authorize(event);
-        notifications.setContext(raw);
+        return notifications.setContext(raw);
       });
       ipcMain.handle(PILOT_IPC.notificationShow, (event, raw: unknown) => {
         authorize(event);

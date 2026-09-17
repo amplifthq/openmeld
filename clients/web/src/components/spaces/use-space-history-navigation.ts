@@ -10,6 +10,7 @@ import { buildSpaceConversationScrollRestorationId } from "./space-conversation-
 export function useSpaceHistoryNavigation(input: {
 	spaceId: string;
 	profileId: string;
+	anonymous?: boolean;
 	enabled: boolean;
 	accessRejected: boolean;
 	liveEnvelopes: readonly SignalEnvelope[];
@@ -78,8 +79,11 @@ export function useSpaceHistoryNavigation(input: {
 		return () => flight.current?.abort();
 	}, [identity]);
 	const api = useCallback(
-		() => createUnscopedWebSpaceApi({ openMeldProfileId: input.profileId }),
-		[input.profileId]
+		() =>
+			createUnscopedWebSpaceApi(
+				input.anonymous ? {} : { openMeldProfileId: input.profileId }
+			),
+		[input.profileId, input.anonymous]
 	);
 	const directory = useQuery({
 		queryKey: ["spaces", input.spaceId, input.profileId, "history-navigation"],

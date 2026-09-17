@@ -4,24 +4,65 @@ import type {
   WorkspaceRuntimeExecHandle,
 } from "@cloudflare/computer";
 import { defineTool } from "@flue/runtime";
+import { buildPersonalRemoteAgentConversationId } from "@openmeld/schemas";
 import { type GenericSchema, parse } from "valibot";
 import { describe, expect, it, vi } from "vitest";
-import { createRemoteAgentCallbackContext } from "../agent-core/callback-context";
+import {
+  createRemoteAgentCallbackContext,
+  putRemoteAgentCallbackContext,
+} from "../agent-core/callback-context";
+import {
+  buildRemoteAgentExecutionIdentity,
+  initializeRemoteAgentExecutionState,
+  readRemoteAgentExecutionState,
+} from "../agent-core/execution-state";
 import {
   createComputerCommandTool,
   readCommandSlice,
   stopRemoteAgentComputerCommands,
 } from "../flue-adapter/computer-command";
-import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
+import { createRemoteAgentComputerCapability } from "../flue-adapter/computer-sandbox";
+import { cancelFlueRemoteAgentExecution } from "../flue-adapter/execution-cancellation";
+import { checkRemoteAgentExecutionFinish } from "../flue-adapter/execution-finish";
+import { reconcileRemoteAgentExecution } from "../flue-adapter/execution-reconciliation";
+import { executeRemoteAgentToolDefinition } from "../flue-adapter/tool-execution";
+import {
+  createSubmitTurnRequest,
+  createSubmitTurnRequestV2,
+  TEST_NOW_MS,
+} from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
 const cleanupAccess = vi.hoisted(() => vi.fn());
-vi.mock("../flue-adapter/agent-computer-workspace-access", () => ({
-  createAgentComputerWorkspaceAccess: cleanupAccess,
-}));
+vi.mock(
+  "../flue-adapter/agent-computer-workspace-access",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("../flue-adapter/agent-computer-workspace-access")
+    >()),
+    createAgentComputerWorkspaceAccess: cleanupAccess,
+    materializeAgentComputerWorkspace: async () => ({
+      workingDirectory: "/computer/spaces/a",
+      documents: null,
+    }),
+  })
+);
 
-function context(submissionId: string) {
-  const request = createSubmitTurnRequest();
+function context(submissionId: string, personal = false) {
+  const base = createSubmitTurnRequestV2();
+  const conversationId = buildPersonalRemoteAgentConversationId(base);
+  const request = personal
+    ? {
+        ...base,
+        v: 4 as const,
+        conversationId,
+        runtimeConversation: { generation: 0, id: conversationId },
+        conversationIdentity: {
+          kind: "personal_agent" as const,
+          agentProfileId: base.agentProfileId,
+        },
+      }
+    : createSubmitTurnRequest();
   return createRemoteAgentCallbackContext({
     request,
     nowMs: TEST_NOW_MS,
@@ -95,6 +136,166 @@ function fixture() {
 }
 
 describe("retained Computer commands", () => {
+  it.each([
+    { cancel: false, personal: false },
+    { cancel: true, personal: false },
+    { cancel: true, personal: true },
+  ])("keeps a safety-fenced command stoppable and recovers cleanup before publication ($personal, Stop=$cancel)", async ({
+    cancel,
+    personal,
+  }) => {
+    const f = fixture();
+    const executionContext = context("execution-a", personal);
+    const identity = buildRemoteAgentExecutionIdentity(executionContext);
+    await putRemoteAgentCallbackContext(f.storage, executionContext);
+    await initializeRemoteAgentExecutionState({
+      identity,
+      storage: f.storage,
+      acceptedAtMs: TEST_NOW_MS,
+    });
+    const expectedName = personal
+      ? `agent-computer:${JSON.stringify([executionContext.agentProfileId, executionContext.spaceId])}`
+      : `agent-computer:${executionContext.agentProfileId}`;
+    cleanupAccess.mockImplementation(({ computerId }) => {
+      if (computerId !== expectedName) {
+        throw new Error(`Accessed another Computer: ${computerId}`);
+      }
+      return f.workspaceAccess;
+    });
+    const idFromName = vi.fn((name: string) => name);
+    const env = { AGENT_COMPUTER: { idFromName } };
+    const capability = await createRemoteAgentComputerCapability({
+      context: executionContext,
+      coreWorker: {},
+      env,
+      storage: f.storage,
+      includeOrganizationDocuments: false,
+    });
+    const definition = capability.definitions.find(
+      (tool) => tool.name === "computer_command"
+    );
+    if (!definition) {
+      throw new Error("Missing Computer command tool");
+    }
+    const invoke = () =>
+      executeRemoteAgentToolDefinition({
+        definition,
+        storage: f.storage,
+        submissionId: "execution-a",
+        callLimit: 1,
+        toolInput: { action: "start", key: "long", command: "sleep 300" },
+      });
+    await invoke();
+    await expect(invoke()).rejects.toThrow("safety limit");
+    await expect(
+      readRemoteAgentExecutionState({ identity, storage: f.storage })
+    ).resolves.toMatchObject({
+      execution: { status: "pending", completedAtMs: null },
+    });
+    const completeRemoteAgentSubmission = vi.fn(() =>
+      Promise.resolve({ status: "accepted" as const })
+    );
+    const readSubmission = vi.fn(() =>
+      Promise.resolve({ status: "running" as "running" | "settled" })
+    );
+    const reconcile = () =>
+      reconcileRemoteAgentExecution({
+        identity,
+        storage: f.storage,
+        env,
+        readSubmission,
+        coreWorker: { completeRemoteAgentSubmission },
+      });
+    await reconcile();
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    expect(f.killExec).not.toHaveBeenCalled();
+    const abortSubmission = vi.fn(async () => {
+      await stopRemoteAgentComputerCommands({
+        context: executionContext,
+        storage: f.storage,
+        env,
+      });
+      return { aborted: true };
+    });
+    if (cancel) {
+      await expect(
+        cancelFlueRemoteAgentExecution({
+          identity,
+          storage: f.storage,
+          nowMs: TEST_NOW_MS + 1,
+          abortSubmission,
+        })
+      ).resolves.toMatchObject({
+        response: { status: "cancellation_requested" },
+        abortedFlueSubmission: true,
+      });
+      expect(abortSubmission).toHaveBeenCalledOnce();
+    }
+    readSubmission.mockResolvedValue({ status: "settled" });
+    // Reconstruct through the recovery entry point, without a prompt observer.
+    await expect(reconcile()).rejects.toThrow(
+      "termination is not yet confirmed"
+    );
+    expect(f.killExec).toHaveBeenCalled();
+    expect(completeRemoteAgentSubmission).not.toHaveBeenCalled();
+    f.getExec.mockImplementation((id) =>
+      Promise.resolve(
+        handle(id, [{ id, name: "exit", seq: 1, code: 143 }], true)
+      )
+    );
+    await expect(reconcile()).resolves.toMatchObject({
+      execution: { status: cancel ? "aborted" : "failed" },
+    });
+    await reconcile();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledOnce();
+    expect(completeRemoteAgentSubmission).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "failed",
+        failureCode: cancel
+          ? "remote_agent.execution_cancelled"
+          : "remote_agent.tool_call_budget_exceeded",
+      })
+    );
+    expect(f.exec).toHaveBeenCalledOnce();
+    expect(idFromName.mock.calls.length).toBeGreaterThan(1);
+    expect(idFromName.mock.calls.every(([name]) => name === expectedName)).toBe(
+      true
+    );
+  });
+  it("keeps owned work pending until its retained completion receipt is collected", async () => {
+    const f = fixture();
+    const append = vi.fn();
+    const check = () =>
+      checkRemoteAgentExecutionFinish({
+        context: context("execution-a"),
+        storage: f.storage,
+        finish: { append },
+      });
+    await check();
+    expect(append).not.toHaveBeenCalled();
+    const started = (await f
+      .tool()
+      .execute({ action: "start", key: "long", command: "sleep 300" })) as {
+      id: string;
+    };
+    await check();
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "owned_commands_pending",
+        body: expect.stringContaining('"long"'),
+      })
+    );
+    expect(f.killExec).not.toHaveBeenCalled();
+    f.getExec.mockImplementation(async (id) =>
+      handle(id, [{ id, name: "exit", seq: 1, code: 0 }], true)
+    );
+    await f.tool().execute({ action: "poll", key: "long", waitSeconds: 0 });
+    append.mockClear();
+    await check();
+    expect(append).not.toHaveBeenCalled();
+    expect(f.exec).toHaveBeenCalledTimes(1);
+    expect(started.id).toBeTruthy();
+  });
   it("still signals every owned command when terminal output inspection fails", async () => {
     const f = fixture();
     const ids: string[] = [];

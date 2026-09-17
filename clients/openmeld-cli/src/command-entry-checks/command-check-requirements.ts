@@ -350,6 +350,9 @@ export const COMMAND_CHECK_REQUIREMENTS: Readonly<
     OPTIONAL_CLI_UPDATE,
     REQUIRED_SIGN_IN
   ),
+  // Disconnect validates the reviewed account itself. Entry checks must not
+  // sign in, repair, update, or start anything before that admission.
+  "computer.disconnect": buildCommandChecks(),
   "computer.current": buildCommandChecks(
     REQUIRED_DISCLAIMER,
     OPTIONAL_CLI_UPDATE,

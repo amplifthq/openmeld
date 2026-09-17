@@ -4,7 +4,7 @@ import test from "node:test";
 import { parseCodexModels, prepareUpdate } from "./catalog-update.mjs";
 import { combineUpdates } from "./collect-update.mjs";
 import { assertAdditionsOnly, publicationDecision } from "./publish-update.mjs";
-import { renderBatchReview } from "./review.mjs";
+import { discoveryCandidates, renderBatchReview } from "./review.mjs";
 
 const existing = {
   id: "existing-model",
@@ -240,4 +240,105 @@ test("one handoff names discovery-only candidates and flags actual source disagr
       combined.evidence
     )
   );
+});
+
+test("review classification preserves exact routes while identifying cataloged Cursor bases", () => {
+  const cursorIds = [
+    "claude-fable-5-1[thinking=true,context=300k,effort=high]",
+    "gemini-3.8-flash[reasoning_effort=high]",
+  ];
+  const current = {
+    agentControllers: {
+      cursor: {
+        defaultModelId: "default[]",
+        models: cursorIds.map((id) => ({ ...existing, id })),
+      },
+      opencode: {
+        defaultModelId: "openai/gpt-6-astra",
+        models: [{ ...existing, id: "openai/gpt-6-astra" }],
+      },
+    },
+  };
+  const cursorEvidence = {
+    changes: [],
+    controller: "cursor",
+    manual: [],
+    observedAt: "2026-09-16T00:00:00.000Z",
+    sources: [
+      {
+        kind: "discovery-only",
+        url: "https://models.dev/api.json",
+        data: {
+          cursor: {
+            "claude-fable-5-1": {
+              id: "claude-fable-5-1",
+              name: "Claude Fable 5.1",
+            },
+            "gemini-3.8-flash": {
+              id: "gemini-3.8-flash",
+              name: "Gemini 3.8 Flash",
+            },
+            "grok-4.6": { id: "grok-4.6", name: "Grok 4.6" },
+          },
+        },
+      },
+    ],
+  };
+  const candidates = discoveryCandidates(cursorEvidence, current);
+  assert.deepEqual(
+    candidates.map(({ matchingExistingIds, model }) => ({
+      id: model.id,
+      matchingExistingIds,
+    })),
+    [
+      {
+        id: "claude-fable-5-1",
+        matchingExistingIds: [cursorIds[0]],
+      },
+      {
+        id: "gemini-3.8-flash",
+        matchingExistingIds: [cursorIds[1]],
+      },
+      { id: "grok-4.6", matchingExistingIds: [] },
+    ]
+  );
+  const review = renderBatchReview(
+    [cursorEvidence],
+    { cursor: { verification: "Check authenticated ACP inventory" } },
+    current
+  );
+  assert.ok(
+    review.includes("Already cataloged; additional ACP variants require review")
+  );
+  for (const id of cursorIds) {
+    assert.ok(review.includes(id));
+  }
+  assert.ok(
+    review.includes("cursor/grok-4.6 | unknown | not declared | Discovery only")
+  );
+  assert.deepEqual(
+    current.agentControllers.cursor.models.map((model) => model.id),
+    cursorIds
+  );
+
+  const [openCodeCandidate] = discoveryCandidates(
+    {
+      ...cursorEvidence,
+      controller: "opencode",
+      sources: [
+        {
+          kind: "discovery-only",
+          url: "https://models.dev/api.json",
+          data: {
+            opencode: {
+              "gpt-6-astra": { id: "gpt-6-astra", name: "GPT-6 Astra" },
+            },
+          },
+        },
+      ],
+    },
+    current
+  );
+  assert.equal(openCodeCandidate.candidateId, "opencode/gpt-6-astra");
+  assert.deepEqual(openCodeCandidate.matchingExistingIds, []);
 });

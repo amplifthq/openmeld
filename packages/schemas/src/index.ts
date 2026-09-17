@@ -94,10 +94,15 @@ export {
   type ComputerConnectionIntent,
   computerConnectionIntentSchema,
   computerConnectionReviewSchema,
+  computerSetupOutputSchema,
+  type DesktopComputerConnectionProgress,
   type DesktopComputerConnectionRequest,
   type DesktopComputerConnectionResult,
+  type DesktopComputerDisconnectRequest,
+  desktopComputerConnectionProgressSchema,
   desktopComputerConnectionRequestSchema,
   desktopComputerConnectionResultSchema,
+  desktopComputerDisconnectRequestSchema,
 } from "./computer-connection";
 export {
   DESKTOP_APP_ORIGIN,
@@ -129,12 +134,17 @@ export {
 } from "./desktop-client";
 export * from "./desktop-notifications";
 export {
+  DESKTOP_PROMOTED_RELEASE_KEY,
+  DESKTOP_UPDATE_FEED_URL,
   type DesktopCandidateManifest,
   desktopCandidateIdSchema,
   desktopCandidateLocation,
   desktopCandidateManifestKey,
   desktopCandidateManifestSchema,
+  desktopPromotedReleaseSchema,
+  desktopUpdaterFeedSchema,
 } from "./desktop-release";
+export * from "./desktop-updater";
 export {
   buildOpenMeldNavigationAction,
   buildOpenMeldOrganizationWebUrl,
@@ -200,6 +210,8 @@ export {
   REMOTE_AGENT_CONVERSATION_HISTORY_LIMIT_EXCEEDED_REASON_CODE,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_PUBLIC_COPY,
   REMOTE_AGENT_TOOL_RESULT_TOO_LARGE_REASON_CODE,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_PUBLIC_COPY,
+  REMOTE_AGENT_TOOL_SAFETY_LIMIT_REASON_CODE,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_PUBLIC_COPY,
   REMOTE_AGENT_WORK_LOOP_CONTINUATION_LIMIT_REASON_CODE,
   resolveCenterAgentCallbackFailureMessage,

@@ -13,6 +13,7 @@ import {
   redactStagingSetupCommand,
 } from "./staging-computer-update-smoke-contract.mjs";
 import {
+  findMatchingUpdateOperation,
   isCoreServiceConnected,
   readProtectedSetupCommand,
   resolveStagingServiceStatus,
@@ -265,5 +266,35 @@ test("requires automatic and manual requests to share one operation", () => {
         },
       }),
     SAME_OPERATION_PATTERN
+  );
+});
+
+test("follows the requested update across CLI and Service state files", () => {
+  const staleToolsTerminal = {
+    operationId: "older-tools-update",
+    phase: "updated",
+    requestSource: "automatic",
+    targetVersion: "0.3.204-staging.previous",
+  };
+  const serviceTerminal = {
+    operationId: "current-update",
+    phase: "updated",
+    requestSource: "automatic",
+    targetVersion: "0.3.205-staging.current",
+  };
+
+  assert.deepEqual(
+    findMatchingUpdateOperation(
+      [staleToolsTerminal, serviceTerminal],
+      (operation) => operation.operationId === "current-update"
+    ),
+    serviceTerminal
+  );
+  assert.equal(
+    findMatchingUpdateOperation(
+      [staleToolsTerminal],
+      (operation) => operation.operationId === "current-update"
+    ),
+    null
   );
 });

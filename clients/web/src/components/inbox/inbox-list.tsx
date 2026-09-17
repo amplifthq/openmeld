@@ -25,13 +25,14 @@ import {
 	WarningCircleIcon,
 	XIcon,
 } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import type { MouseEvent, ReactNode } from "react";
 import {
 	resolveInboxIndicatorClassName,
 	resolveInboxItemIndicator,
 } from "#/lib/inbox/attention";
 import { isInboxReview } from "#/lib/inbox/review";
+import { requestInboxSourceFocus } from "#/lib/inbox/source-focus-request";
 import { buildInboxItemSourceNavigation } from "#/lib/inbox/source-target";
 import { InvitationReview } from "./invitation-review";
 
@@ -259,13 +260,35 @@ function InboxItemSourceLink(input: {
 	openInNewTab: boolean;
 	ref: (element: HTMLAnchorElement | null) => void;
 }) {
+	const navigate = useNavigate();
+	const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
+		input.onClick();
+		if (
+			input.openInNewTab ||
+			event.defaultPrevented ||
+			event.button !== 0 ||
+			event.metaKey ||
+			event.ctrlKey ||
+			event.shiftKey ||
+			event.altKey
+		) {
+			return;
+		}
+		event.preventDefault();
+		navigate({
+			to: input.href,
+			state: requestInboxSourceFocus,
+		}).catch((error: unknown) =>
+			console.warn("[openmeld.web.inbox_navigation_failed]", { error })
+		);
+	};
 	if (input.openInNewTab) {
 		return (
 			<a
 				className={input.className}
 				href={input.href}
 				onAuxClick={input.onAuxClick}
-				onClick={input.onClick}
+				onClick={handleClick}
 				ref={input.ref}
 				rel="noopener noreferrer"
 				target="_blank"
@@ -278,7 +301,7 @@ function InboxItemSourceLink(input: {
 		<Link
 			className={input.className}
 			onAuxClick={input.onAuxClick}
-			onClick={input.onClick}
+			onClick={handleClick}
 			ref={input.ref}
 			to={input.href}
 		>

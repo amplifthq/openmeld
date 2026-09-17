@@ -18,6 +18,47 @@ const SECOND_TARGET_PROFILE_ID = "agt_33333333-3333-3333-3333-333333333333";
 const CURRENT_RECOVERY_ADVICE_PATTERN = /Reconnect|Update|Review/u;
 
 describe("resolveSpaceMessageWakeProgressState", () => {
+	it.each([
+		"published reply",
+		"replied detail",
+		"ordinary text",
+	])("does not let A's %s hide a new execution B on the same source", (evidence) => {
+		const source = createTimelineItem();
+		const b = {
+			...createWakeProgressItem({
+				phase: "running",
+				message: "Working",
+				updatedAtMs: 2,
+			}),
+			dispatchId: "B",
+		};
+		const reply = createTimelineItem({
+			id: "reply-A",
+			actorProfileId: TARGET_PROFILE_ID,
+			actorProfileKind: "agent",
+			replyToSignalId: source.id,
+			isAgentFinalReply: evidence === "published reply",
+			wakeDispatchId: evidence === "published reply" ? "A" : undefined,
+		});
+		const items =
+			evidence === "replied detail"
+				? [
+						b,
+						{
+							...b,
+							dispatchId: "A",
+							phase: "replied" as const,
+							terminal: true,
+						},
+					]
+				: [b];
+		const result = resolveSpaceMessageWakeProgressState({
+			item: source,
+			items,
+			timelineItems: [source, reply],
+		});
+		expect(result.thinkingEntries.map((entry) => entry.key)).toEqual(["B"]);
+	});
 	it("shows queued work plainly under the source message", () => {
 		const state = resolveSpaceMessageWakeProgressState({
 			item: createTimelineItem(),
@@ -313,6 +354,7 @@ describe("resolveSpaceMessageWakeProgressState", () => {
 				actorProfileKind: "agent",
 				actorProfileName: "Runner",
 				id: "sig-final-reply",
+				isAgentFinalReply: true,
 				replyToSignalId: "sig-source",
 				text: "Done.",
 				wakeClientMessageId: null,

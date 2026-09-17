@@ -94,9 +94,9 @@ describe("immutable Desktop candidate download", () => {
 			artifactKey,
 		]);
 	});
-	it("retains the default manifest path when no candidate is selected", async () => {
+	it("reads the promoted release when no candidate is selected", async () => {
 		store.get.mockResolvedValue(null);
 		expect((await call("")).status).toBe(404);
-		expect(store.get).toHaveBeenCalledWith("desktop/update.json");
+		expect(store.get).toHaveBeenCalledWith("desktop/promoted.json");
 	});
 });

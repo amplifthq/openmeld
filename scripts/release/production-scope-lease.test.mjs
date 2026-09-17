@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import { commitDesktopPromotion } from "./desktop-preview.mjs";
 
 import {
   acquireProductionScopeLease,
@@ -25,6 +26,8 @@ import {
 } from "./production-scope-lease.mjs";
 
 const HELD_LEASE_PATTERN = /already held/u;
+const VERSION_CHANGED_PATTERN = /version changed/u;
+const VERSION_INCREASE_PATTERN = /must increase/u;
 const AGENT_A_PATTERN = /local:agent-a/u;
 const EXPIRY_FACT_PATTERN = /Expires:/u;
 const STALE_RELEASE_PATTERN = /Refusing to release stale lease/u;
@@ -34,6 +37,110 @@ const SHELL_PARAMETER_PREFIX = "$";
 const SCRIPT_PATH = fileURLToPath(
   new URL("./production-scope-lease.mjs", import.meta.url)
 );
+
+test("concurrent Desktop promotions across clones cannot overwrite a newer release", async () => {
+  const fixture = createLeaseFixture();
+  const candidate = (version, hash) => ({
+    schemaVersion: 1,
+    target: "production",
+    platform: "macos-arm64",
+    version,
+    releaseSha: fixture.sourceSha,
+    sha256: hash.repeat(64),
+    sizeBytes: 42,
+    zip: {
+      sha256: "d".repeat(64),
+      sha512: `${"A".repeat(86)}==`,
+      sizeBytes: 42,
+    },
+  });
+  const old = candidate("0.1.1", "a");
+  const newer = candidate("0.1.3", "b");
+  const older = candidate("0.1.2", "c");
+  let pointer = {
+    schemaVersion: 1,
+    candidate: old.sha256,
+    promotedAt: "2026-01-01T00:00:00Z",
+  };
+  const manifests = new Map(
+    [old, newer, older].map((value) => [
+      `desktop/candidates/${value.sha256}/manifest.json`,
+      value,
+    ])
+  );
+  const readObject = async (key) =>
+    key === "desktop/promoted.json" ? pointer : manifests.get(key);
+  let finishWrite;
+  const writeGate = new Promise((resolve) => {
+    finishWrite = resolve;
+  });
+  let enteredWrite;
+  const entered = new Promise((resolve) => {
+    enteredWrite = resolve;
+  });
+  const writes = [];
+  const writePointer = (value) => {
+    writes.push(value.candidate);
+    pointer = value;
+  };
+  try {
+    const first = commitDesktopPromotion({
+      repoRoot: fixture.agentA,
+      manifest: newer,
+      expectedVersion: "0.1.1",
+      readObject,
+      writePointer: async (value) => {
+        enteredWrite();
+        await writeGate;
+        await writePointer(value);
+      },
+    });
+    await entered;
+    await assert.rejects(
+      commitDesktopPromotion({
+        repoRoot: fixture.agentB,
+        manifest: older,
+        expectedVersion: "0.1.1",
+        readObject,
+        writePointer,
+      }),
+      HELD_LEASE_PATTERN
+    );
+    finishWrite();
+    await first;
+    // After the first lease is released, the stale caller must read the new
+    // authoritative pointer, not its earlier public projection.
+    await assert.rejects(
+      commitDesktopPromotion({
+        repoRoot: fixture.agentB,
+        manifest: older,
+        expectedVersion: "0.1.1",
+        readObject,
+        writePointer,
+      }),
+      VERSION_CHANGED_PATTERN
+    );
+    await assert.rejects(
+      commitDesktopPromotion({
+        repoRoot: fixture.agentB,
+        manifest: older,
+        expectedVersion: "0.1.3",
+        readObject,
+        writePointer,
+      }),
+      VERSION_INCREASE_PATTERN
+    );
+    assert.deepEqual(writes, [newer.sha256]);
+    assert.equal(pointer.candidate, newer.sha256);
+    assert.equal(
+      inspectProductionScopeLease({ cwd: fixture.agentB, scope: "web" }),
+      null
+    );
+  } finally {
+    finishWrite();
+    fixture.cleanup();
+  }
+});
 
 test("serializes one production scope across clones while unrelated scopes proceed", () => {
   const fixture = createLeaseFixture();

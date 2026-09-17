@@ -84,8 +84,12 @@ export function SpaceTaskCard(input: SpaceTaskCardProps) {
 				/>
 			</div>
 
-			<TaskAssignmentControls input={input} mutate={mutate} />
-			<TaskWorkflowControls input={input} mutate={mutate} />
+			{input.selfProfileId ? (
+				<>
+					<TaskAssignmentControls input={input} mutate={mutate} />
+					<TaskWorkflowControls input={input} mutate={mutate} />
+				</>
+			) : null}
 
 			{task.result ? (
 				<div className="mt-4 rounded-md bg-muted/50 p-3">

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import {
+  DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
   downloadCliBinaryUpdateArtifact,
   resolveFullCliBinaryUpdatePlan,
   verifyCliBinaryCodeSignature,
@@ -47,7 +48,7 @@ export async function installManagedBinary(
     throw new Error("OpenMeld Tools returned an unexpected download location.");
   }
   const bytes = await downloadCliBinaryUpdateArtifact({
-    downloadTimeoutMs: 120_000,
+    downloadPolicy: DEFAULT_CLI_BINARY_DOWNLOAD_POLICY,
     fetchImpl: (input, init) => fetch(input, { ...init, redirect: "error" }),
     onDeltaFallback: () => {
       /* A new installation always uses the complete artifact. */

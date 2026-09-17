@@ -235,6 +235,8 @@ async function sanitizeCloudResponse(
     "cache-control",
     "x-openmeld-file-revision",
     "x-request-id",
+    "x-openmeld-request-id",
+    "server-timing",
     "x-tss-serialized",
     "x-tss-raw",
   ]) {

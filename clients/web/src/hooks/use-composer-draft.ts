@@ -1,5 +1,6 @@
 import type { SetStateAction } from "react";
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { registerClientVersionRecoveryBlocker } from "#/client-version-recovery";
 import {
 	buildComposerDraftStorageKey,
 	type ComposerDraftContent,
@@ -107,6 +108,20 @@ export function useComposerDraft(input: {
 	const content = useMemo(
 		() => toComposerDraftContent(state.draft),
 		[state.draft]
+	);
+	useLayoutEffect(
+		() =>
+			registerClientVersionRecoveryBlocker(() => {
+				if (!input.scope) {
+					return !!(
+						content.text ||
+						content.replyToSignalId ||
+						content.authoredMentions.length
+					);
+				}
+				return !writeComposerDraft(input.scope, state.draft);
+			}),
+		[input.scope, content, state.draft]
 	);
 
 	return {

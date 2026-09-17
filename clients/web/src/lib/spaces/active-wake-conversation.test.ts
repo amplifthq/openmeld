@@ -59,8 +59,8 @@ describe("active Wake conversation placement", () => {
 			first.id,
 			second.id,
 			later.id,
-			"active-wake:request-1:agent",
-			"active-wake:request-2:agent",
+			"active-wake:dispatch:request-1:agent",
+			"active-wake:dispatch:request-2:agent",
 		]);
 		const stream = {
 			...message("stream", 210),
@@ -80,11 +80,13 @@ describe("active Wake conversation placement", () => {
 			first.id,
 			second.id,
 			later.id,
-			"active-wake:request-1:agent",
+			"active-wake:dispatch:request-1:agent",
 			"stream",
 		]);
 		expect(streaming.at(-1)?.activeWakeProgress).toBe(progress[0]);
 		const final = {
+			isAgentFinalReply: true,
+			wakeDispatchId: "dispatch:request-2",
 			...message("reply-2", 400),
 			actorProfileKind: "agent" as const,
 			actorProfileId: "agent",
@@ -97,11 +99,23 @@ describe("active Wake conversation placement", () => {
 			second.id,
 			later.id,
 			final.id,
-			"active-wake:request-1:agent",
+			"active-wake:dispatch:request-1:agent",
 		]);
 		expect(present([final], [progress[0]]).map((item) => item.id)).toEqual([
 			final.id,
 		]);
+		const retry = { ...wake(second), dispatchId: "retry" };
+		const afterRetry = present(
+			[first, second, later, final],
+			[wake(second), retry]
+		);
+		expect(
+			afterRetry
+				.filter((item) => item.activeWakeProgress)
+				.map((item) => item.activeWakeProgress?.dispatchId)
+		).toEqual(["retry"]);
+		const twoActive = present([second], [wake(second), retry]);
+		expect(new Set(twoActive.map((item) => item.id)).size).toBe(3);
 	});
 
 	it("keeps multiple targets separate and restores only the owning conversation's unloaded Wakes", () => {

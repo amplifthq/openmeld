@@ -16,7 +16,7 @@ export type Conversation = {
 );
 
 export type ConversationPreview = {
-	data?: { text: string; timestamp: number } | null;
+	data?: { text: string; timestamp: number; signalId?: string } | null;
 	isError: boolean;
 	isPending: boolean;
 };
