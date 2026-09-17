@@ -13,6 +13,9 @@ import { runDaemonServiceLoop } from "../src/local-service/carrier/service-runne
 import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../src/local-service/core/constants";
 import { withTempHome } from "./helpers/fs";
 
+const DAEMON_STREAM_URL_PATTERN =
+  /^ws:\/\/localhost:8080\/v1\/daemon\/stream\?connectionId=/;
+
 function createAuthSession(
   overrides: Partial<StoredAuthSession> = {}
 ): StoredAuthSession {
@@ -31,6 +34,30 @@ function createAuthSession(
       ...overrides.user,
     },
   };
+}
+
+function createConnectedSocket(close = vi.fn()) {
+  return {
+    close,
+    onClose: vi.fn(),
+  };
+}
+
+function requestServiceSigterm(): void {
+  const listener = process
+    .listeners("SIGTERM")
+    .find((candidate) => candidate.name === "onSigterm");
+  if (!listener) {
+    throw new Error("expected the local Service SIGTERM handler to be active");
+  }
+  listener();
+}
+
+async function stopServiceThroughSigterm(input: {
+  shutdownRequested?: Promise<unknown>;
+}): Promise<void> {
+  requestServiceSigterm();
+  await input.shutdownRequested;
 }
 
 const {
@@ -216,7 +243,8 @@ vi.mock(
   })
 );
 
-vi.mock("../src/transport/ws", () => ({
+vi.mock("../src/transport/ws", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/transport/ws")>()),
   connectWebSocket: connectWebSocketMock,
 }));
 
@@ -359,9 +387,7 @@ describe("local service runner dual-write", () => {
         status: "submitted",
         submittedCount: 1,
       });
-    connectWebSocketMock.mockReset().mockResolvedValue({
-      close: vi.fn(),
-    });
+    connectWebSocketMock.mockReset().mockResolvedValue(createConnectedSocket());
     createLocalAdapterEntriesMock.mockReset().mockReturnValue([
       {
         adapterId: "local-cli",
@@ -439,7 +465,7 @@ describe("local service runner dual-write", () => {
           forcePersist: true,
         }
       );
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
     emitDaemonLifecycleEventMock.mockReset().mockResolvedValue(undefined);
   });
@@ -490,7 +516,7 @@ describe("local service runner dual-write", () => {
     expect(sessionInput?.isRouteCatalogResolved?.()).toBe(false);
     expect(syncDeviceRuntimeStateProjectionMock).not.toHaveBeenCalled();
     expect(connectWebSocketMock).toHaveBeenCalledWith(
-      "ws://localhost:8080/v1/daemon/stream",
+      expect.stringMatching(DAEMON_STREAM_URL_PATTERN),
       expect.objectContaining({
         headers: expect.objectContaining({
           "x-openmeld-local-folder-picker-capability": "local-folder-picker-v1",
@@ -658,7 +684,7 @@ describe("local service runner dual-write", () => {
     ).rejects.toThrow("drain heartbeat failed");
     await secondSessionStarted.promise;
 
-    process.emit("SIGTERM");
+    requestServiceSigterm();
     await loop;
 
     expect(runDaemonSocketSessionMock).toHaveBeenCalledTimes(2);
@@ -667,6 +693,7 @@ describe("local service runner dual-write", () => {
 
   it("records continued recovery after repeated connection failures", async () => {
     vi.useFakeTimers();
+    const recoveredSessionStarted = Promise.withResolvers<void>();
     const presenter = {
       view: "agent" as const,
       event: vi.fn(),
@@ -676,7 +703,12 @@ describe("local service runner dual-write", () => {
     connectWebSocketMock
       .mockRejectedValueOnce(new Error("daemon stream handshake timed out"))
       .mockRejectedValueOnce(new Error("daemon stream handshake timed out"))
-      .mockResolvedValueOnce({ close: vi.fn() });
+      .mockResolvedValueOnce(createConnectedSocket());
+    runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
+      await input.touchRuntimeState({ heartbeatAt: new Date().toISOString() });
+      recoveredSessionStarted.resolve();
+      await input.shutdownRequested;
+    });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       // Keep test output focused on the structured reason assertion.
     });
@@ -698,7 +730,16 @@ describe("local service runner dual-write", () => {
       )
     );
     await vi.advanceTimersByTimeAsync(2000);
+    await recoveredSessionStarted.promise;
+    const serverInput =
+      startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
+    const context = await serverInput.getContext();
+    const shutdown = context.shutdownHandler({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
     await loop;
+    await shutdown;
 
     expect(connectWebSocketMock).toHaveBeenCalledTimes(3);
     expect(
@@ -718,7 +759,7 @@ describe("local service runner dual-write", () => {
       if (sessions < 3) {
         throw new Error("socket closed");
       }
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
     const loop = runDaemonServiceLoop({
       baseUrl: "http://localhost:8080",
@@ -768,7 +809,7 @@ describe("local service runner dual-write", () => {
       await input.touchRuntimeState({
         heartbeatAt: "2026-03-14T00:00:05.000Z",
       });
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
 
     await runDaemonServiceLoop({
@@ -794,9 +835,9 @@ describe("local service runner dual-write", () => {
 
   it("signals controlled shutdown to the socket session without closing its cloud connection first", async () => {
     const close = vi.fn();
-    connectWebSocketMock.mockResolvedValue({ close });
+    connectWebSocketMock.mockResolvedValue(createConnectedSocket(close));
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
-      process.emit("SIGTERM");
+      requestServiceSigterm();
       await expect(input.shutdownRequested).resolves.toBe(
         "controlled_service_update"
       );
@@ -819,12 +860,12 @@ describe("local service runner dual-write", () => {
 
   it("requests one carrier handshake for repeated reporting authentication failures", async () => {
     const close = vi.fn();
-    connectWebSocketMock.mockResolvedValue({ close });
+    connectWebSocketMock.mockResolvedValue(createConnectedSocket(close));
     let sessionCount = 0;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       sessionCount += 1;
       if (sessionCount > 1) {
-        process.emit("SIGTERM");
+        await stopServiceThroughSigterm(input);
         return;
       }
       const failure = {
@@ -869,8 +910,8 @@ describe("local service runner dual-write", () => {
     const firstSocketClose = vi.fn();
     const replacementSocketClose = vi.fn();
     connectWebSocketMock
-      .mockResolvedValueOnce({ close: firstSocketClose })
-      .mockResolvedValueOnce({ close: replacementSocketClose });
+      .mockResolvedValueOnce(createConnectedSocket(firstSocketClose))
+      .mockResolvedValueOnce(createConnectedSocket(replacementSocketClose));
     let staleAuthenticationFailureHandler:
       | ((failure: {
           credentialFingerprint?: string;
@@ -891,7 +932,7 @@ describe("local service runner dual-write", () => {
         message: "OpenMeld rejected the local authentication session.",
         reasonCode: "runtime.reporting.authentication_required",
       });
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
       // Keep test output focused on the stale-socket assertion.
@@ -925,8 +966,8 @@ describe("local service runner dual-write", () => {
       const firstSocketClose = vi.fn();
       const replacementSocketClose = vi.fn();
       connectWebSocketMock
-        .mockResolvedValueOnce({ close: firstSocketClose })
-        .mockResolvedValueOnce({ close: replacementSocketClose });
+        .mockResolvedValueOnce(createConnectedSocket(firstSocketClose))
+        .mockResolvedValueOnce(createConnectedSocket(replacementSocketClose));
       let completeFreshReport: (() => Promise<void>) | null = null;
       syncLocalServiceRuntimeAgentControllerReportsMock.mockImplementation(
         (input) =>
@@ -953,26 +994,28 @@ describe("local service runner dual-write", () => {
       );
       let controlRequest: Promise<unknown> | null = null;
       let sessionCount = 0;
-      runDaemonSocketSessionMock.mockReset().mockImplementation(async () => {
-        sessionCount += 1;
-        if (sessionCount === 1) {
-          const serverInput =
-            startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
-          const context = await serverInput.getContext();
-          controlRequest = context.setLocalAgentEnabledHandler({
-            agentId: "codex",
-            enabled: true,
-          });
-          await flushPendingPromises();
-          return;
-        }
-        if (!completeFreshReport) {
-          throw new Error("expected the fresh report request to be pending");
-        }
-        await completeFreshReport();
-        await controlRequest;
-        process.emit("SIGTERM");
-      });
+      runDaemonSocketSessionMock
+        .mockReset()
+        .mockImplementation(async (input) => {
+          sessionCount += 1;
+          if (sessionCount === 1) {
+            const serverInput =
+              startLocalDaemonControlPlaneServerMock.mock.calls[0]?.[0];
+            const context = await serverInput.getContext();
+            controlRequest = context.setLocalAgentEnabledHandler({
+              agentId: "codex",
+              enabled: true,
+            });
+            await flushPendingPromises();
+            return;
+          }
+          if (!completeFreshReport) {
+            throw new Error("expected the fresh report request to be pending");
+          }
+          await completeFreshReport();
+          await controlRequest;
+          await stopServiceThroughSigterm(input);
+        });
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {
         // Keep test output focused on the bound-socket assertion.
       });
@@ -1007,7 +1050,7 @@ describe("local service runner dual-write", () => {
     let firstResolvedCatalog: unknown = null;
     runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
       firstResolvedCatalog = await input.loadRouteCatalog();
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
 
     await runDaemonServiceLoop({
@@ -1055,7 +1098,7 @@ describe("local service runner dual-write", () => {
       expect(input.isRouteCatalogResolved()).toBe(false);
       firstResolvedCatalog = await input.loadRouteCatalog();
       resolvedAfterLoad = input.isRouteCatalogResolved();
-      process.emit("SIGTERM");
+      await stopServiceThroughSigterm(input);
     });
 
     await runDaemonServiceLoop({
@@ -1134,11 +1177,9 @@ describe("local service runner dual-write", () => {
         })
       )
       .mockResolvedValue({ Authorization: "Bearer valid-token" });
-    connectWebSocketMock.mockReset().mockResolvedValue({
-      close: vi.fn(),
-    });
-    runDaemonSocketSessionMock.mockReset().mockImplementation(() => {
-      process.emit("SIGTERM");
+    connectWebSocketMock.mockReset().mockResolvedValue(createConnectedSocket());
+    runDaemonSocketSessionMock.mockReset().mockImplementation(async (input) => {
+      await stopServiceThroughSigterm(input);
     });
 
     const loopPromise = runDaemonServiceLoop({
@@ -1205,7 +1246,7 @@ describe("local service runner dual-write", () => {
     });
     expect(stopLocalAgentActivitySyncLoopMock).toHaveBeenCalledTimes(1);
     expect(buildRequestAuthHeadersMock).toHaveBeenCalledWith({
-      requestUrl: "ws://localhost:8080/v1/daemon/stream",
+      requestUrl: expect.stringMatching(DAEMON_STREAM_URL_PATTERN),
     });
     expect(
       presenter.data.mock.calls.some((call) =>
