@@ -1,8 +1,10 @@
 import { parseEnvelope } from "@openmeld/protocol";
 import {
+	catchupResponseSchema,
 	getSpaceEntryResolutionResponseSchema,
+	getSpaceStatusResponseSchema,
 	listSpaceThreadSignalsResponseSchema,
-	spaceBootstrapResponseSchema,
+	listSpaceThreadsResponseSchema,
 	spaceHistoryNavigationSchema,
 } from "@openmeld/schemas";
 import type {
@@ -65,25 +67,37 @@ export async function readPublicSpaceInitialData(input: {
 	const anchorSignalId =
 		entryResolution.target.threadRootSignalId ??
 		entryResolution.target.signalId;
-	const bootstrapSearch = new URLSearchParams({
-		includeAgentReadiness: "false",
-	});
+	const signalsSearch = new URLSearchParams();
 	if (anchorSignalId) {
-		bootstrapSearch.set("aroundSignalId", anchorSignalId);
-		bootstrapSearch.set("beforeCount", "30");
-		bootstrapSearch.set("afterCount", "30");
+		signalsSearch.set("aroundSignalId", anchorSignalId);
+		signalsSearch.set("beforeCount", "30");
+		signalsSearch.set("afterCount", "30");
 	} else {
-		bootstrapSearch.set("limit", String(PUBLIC_SIGNAL_LIMIT));
-		bootstrapSearch.set("recent", "1");
+		signalsSearch.set("limit", String(PUBLIC_SIGNAL_LIMIT));
+		signalsSearch.set("recent", "1");
 	}
 
-	const [bootstrap, historyNavigation] = await Promise.all([
+	const [status, history, threads, historyNavigation] = await Promise.all([
 		readBoundary({
 			input,
-			path: `${base}/bootstrap?${bootstrapSearch}`,
-			operation: "load public Space content",
-			schema: spaceBootstrapResponseSchema,
-			invalidMessage: "Invalid public Space content response",
+			path: `${base}/status`,
+			operation: "load public Space status",
+			schema: getSpaceStatusResponseSchema,
+			invalidMessage: "Invalid public Space status response",
+		}),
+		readBoundary({
+			input,
+			path: `${base}/signals?${signalsSearch}`,
+			operation: "load public Space messages",
+			schema: catchupResponseSchema,
+			invalidMessage: "Invalid public Space messages response",
+		}),
+		readBoundary({
+			input,
+			path: `${base}/threads`,
+			operation: "load public Space Threads",
+			schema: listSpaceThreadsResponseSchema,
+			invalidMessage: "Invalid public Space Threads response",
 		}),
 		readBoundary({
 			input,
@@ -96,7 +110,7 @@ export async function readPublicSpaceInitialData(input: {
 
 	const threadRootSignalId = entryResolution.target.threadRootSignalId;
 	const selectedThread = threadRootSignalId
-		? bootstrap.threads.threads.find(
+		? threads.threads.find(
 				(thread) => thread.rootSignalId === threadRootSignalId
 			)
 		: undefined;
@@ -113,14 +127,14 @@ export async function readPublicSpaceInitialData(input: {
 	return {
 		entryResolution,
 		content: {
-			status: bootstrap.status,
-			signals: bootstrap.history.signals.flatMap((item) => {
+			status,
+			signals: history.signals.flatMap((item) => {
 				const envelope = parseEnvelope(item);
 				return envelope ? [envelope] : [];
 			}),
-			nextCursor: bootstrap.history.nextCursor,
-			threads: bootstrap.threads.threads,
-			threadPreviews: bootstrap.threads.previews,
+			nextCursor: history.nextCursor,
+			threads: threads.threads,
+			threadPreviews: threads.previews,
 		},
 		historyNavigation,
 		...(threadSignals ? { threadSignals } : {}),

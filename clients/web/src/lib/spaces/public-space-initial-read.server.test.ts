@@ -11,8 +11,17 @@ describe("public Space initial server read", () => {
 			if (url.pathname.endsWith("/entry-resolution")) {
 				return Promise.resolve(jsonResponse(createAllowedEntry()));
 			}
-			if (url.pathname.endsWith("/bootstrap")) {
-				return Promise.resolve(jsonResponse(createBootstrap()));
+			if (url.pathname.endsWith("/status")) {
+				return Promise.resolve(jsonResponse(createPublicReadData().status));
+			}
+			if (
+				url.pathname.endsWith("/signals") &&
+				!url.pathname.includes("/threads/")
+			) {
+				return Promise.resolve(jsonResponse(createPublicReadData().history));
+			}
+			if (url.pathname.endsWith("/threads")) {
+				return Promise.resolve(jsonResponse(createPublicReadData().threads));
 			}
 			if (url.pathname.endsWith("/history-navigation")) {
 				return Promise.resolve(jsonResponse({ entries: [], total: 1 }));
@@ -36,7 +45,9 @@ describe("public Space initial server read", () => {
 		]);
 		expect(paths).toEqual([
 			"/v1/spaces/space-123/entry-resolution",
-			"/v1/spaces/space-123/bootstrap?includeAgentReadiness=false&limit=80&recent=1",
+			"/v1/spaces/space-123/status",
+			"/v1/spaces/space-123/signals?limit=80&recent=1",
+			"/v1/spaces/space-123/threads",
 			"/v1/spaces/space-123/history-navigation",
 		]);
 	});
@@ -83,24 +94,29 @@ describe("public Space initial server read", () => {
 					})
 				);
 			}
-			if (url.pathname.endsWith("/bootstrap")) {
-				const bootstrap = createBootstrap();
+			if (url.pathname.endsWith("/status")) {
+				return Promise.resolve(jsonResponse(createPublicReadData().status));
+			}
+			if (
+				url.pathname.endsWith("/signals") &&
+				!url.pathname.includes("/threads/")
+			) {
+				return Promise.resolve(jsonResponse(createPublicReadData().history));
+			}
+			if (url.pathname.endsWith("/threads")) {
 				return Promise.resolve(
 					jsonResponse({
-						...bootstrap,
-						threads: {
-							previews: [],
-							threads: [
-								{
-									createdAt: "2026-09-17T00:00:00.000Z",
-									createdByProfileId: "11111111-1111-4111-8111-111111111111",
-									rootSignalId: "root-149",
-									spaceId: "space-123",
-									threadId: "thr_11111111-1111-4111-8111-111111111111",
-									updatedAt: "2026-09-17T00:00:01.000Z",
-								},
-							],
-						},
+						previews: [],
+						threads: [
+							{
+								createdAt: "2026-09-17T00:00:00.000Z",
+								createdByProfileId: "11111111-1111-4111-8111-111111111111",
+								rootSignalId: "root-149",
+								spaceId: "space-123",
+								threadId: "thr_11111111-1111-4111-8111-111111111111",
+								updatedAt: "2026-09-17T00:00:01.000Z",
+							},
+						],
 					})
 				);
 			}
@@ -117,7 +133,7 @@ describe("public Space initial server read", () => {
 						placements: [],
 						signals: [
 							{
-								...createBootstrap().history.signals[0],
+								...createPublicReadData().history.signals[0],
 								id: "reply-150",
 								data: { text: "read1141-thread-reply" },
 							},
@@ -141,7 +157,9 @@ describe("public Space initial server read", () => {
 		expect(result.threadSignals?.signals[0]?.id).toBe("reply-150");
 		expect(paths).toEqual([
 			"/v1/spaces/space-123/entry-resolution?signalId=reply-150&threadRootSignalId=root-149",
-			"/v1/spaces/space-123/bootstrap?includeAgentReadiness=false&aroundSignalId=root-149&beforeCount=30&afterCount=30",
+			"/v1/spaces/space-123/status",
+			"/v1/spaces/space-123/signals?aroundSignalId=root-149&beforeCount=30&afterCount=30",
+			"/v1/spaces/space-123/threads",
 			"/v1/spaces/space-123/history-navigation",
 			"/v1/spaces/space-123/threads/thr_11111111-1111-4111-8111-111111111111/signals?includeWakeContinuation=conversation",
 		]);
@@ -165,7 +183,7 @@ function createAllowedEntry() {
 	};
 }
 
-function createBootstrap() {
+function createPublicReadData() {
 	const generatedAt = "2026-09-17T00:00:00.000Z";
 	return {
 		status: {
@@ -188,18 +206,6 @@ function createBootstrap() {
 				liveHumanCount: 0,
 				liveAgentCount: 0,
 			},
-		},
-		members: {
-			spaceId: "space-123",
-			generatedAt,
-			summary: {
-				totalCount: 0,
-				humanCount: 0,
-				agentCount: 0,
-				liveNowCount: 0,
-			},
-			humans: [],
-			agents: [],
 		},
 		history: {
 			signals: [
