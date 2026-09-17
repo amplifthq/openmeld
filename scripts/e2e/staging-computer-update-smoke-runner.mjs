@@ -111,6 +111,7 @@ async function executeStagingComputerUpdateSmoke(input) {
     sensitiveValues: input.sensitiveValues,
   });
   await waitForServiceRunning({
+    expectedServiceVersion: baselineManifest.serviceVersion,
     expectedVersion: baselineManifest.version,
     sensitiveValues: input.sensitiveValues,
   });

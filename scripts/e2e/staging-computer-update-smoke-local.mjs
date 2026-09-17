@@ -149,10 +149,16 @@ export async function readStagingManifest() {
   }
   const manifest = await response.json();
   const version = String(manifest?.channels?.stable?.version ?? "").trim();
+  const serviceVersion = String(
+    manifest?.channels?.stable?.service?.version ?? version
+  ).trim();
   const release = manifest?.channels?.stable?.platforms?.["darwin-arm64"];
   const artifactUrls = [release?.url, release?.archiveUrl];
   if (
-    !STAGING_VERSION_PATTERN.test(version) ||
+    !(
+      STAGING_VERSION_PATTERN.test(version) &&
+      STAGING_VERSION_PATTERN.test(serviceVersion)
+    ) ||
     artifactUrls.some(
       (url) =>
         typeof url !== "string" ||
@@ -161,7 +167,7 @@ export async function readStagingManifest() {
   ) {
     throw new Error("Staging CLI manifest points outside the Staging channel.");
   }
-  return { version };
+  return { serviceVersion, version };
 }
 
 export async function waitForNewStagingManifest(previousVersion) {
