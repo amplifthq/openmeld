@@ -853,8 +853,8 @@ describe("main tray behavior", () => {
     const preview = trayMenuTemplate()?.find(
       (item) => item.sublabel !== undefined
     );
-    expect(preview?.label?.length).toBeLessThanOrEqual(55);
-    expect(preview?.sublabel?.length).toBeLessThanOrEqual(52);
+    expect(preview?.label?.length).toBeLessThanOrEqual(41);
+    expect(preview?.sublabel?.length).toBeLessThanOrEqual(38);
     expect(preview?.sublabel).not.toContain("\n");
     expect(preview?.sublabel).toContain("…");
   });

@@ -47,8 +47,10 @@ const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
 const APP_NAME = "OpenMeld";
-const TRAY_PREVIEW_HEADLINE_MAX_LENGTH = 48;
-const TRAY_PREVIEW_BODY_MAX_LENGTH = 52;
+const TRAY_PREVIEW_HEADLINE_MAX_LENGTH = 34;
+const TRAY_PREVIEW_BODY_MAX_LENGTH = 38;
+const TRAY_PREVIEW_FALLBACK_HEADLINE_MAX_LENGTH = 22;
+const TRAY_PREVIEW_FALLBACK_BODY_MAX_LENGTH = 18;
 const APP_ICON_PATH = join(import.meta.dirname, "../../resources/icon.png");
 const TRAY_ICON_PATH = join(
   import.meta.dirname,
@@ -463,10 +465,13 @@ function trayPreviewMenuItems(
       {
         label: supportsSublabel
           ? headline
-          : truncateNativeMenuText(
-              `${headline} — ${preview}`,
-              TRAY_PREVIEW_BODY_MAX_LENGTH
-            ),
+          : `${truncateNativeMenuText(
+              headline,
+              TRAY_PREVIEW_FALLBACK_HEADLINE_MAX_LENGTH
+            )} — ${truncateNativeMenuText(
+              item.preview,
+              TRAY_PREVIEW_FALLBACK_BODY_MAX_LENGTH
+            )}`,
         ...(supportsSublabel ? { sublabel: preview } : {}),
         toolTip: item.preview,
         click: () => {
