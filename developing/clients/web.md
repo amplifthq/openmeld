@@ -3560,14 +3560,17 @@ General, Members, Share & Access, and Advanced sections. General contains the
 canonical name and the existing global browser-notification control. Members
 directly shows the member and ownership controls without an accordion; its
 **Invite people** action opens the shared invitation view. Share & Access owns
-Organization visibility, link access, joining, and guest access. Its fixed
+Organization visibility, link reading, joining, and guest participation. Its fixed
 footer places **Share this Space** opposite the draft controls and **Save
-changes** action. **Share or invite** is link-first: it shows one **Link access**
-selector, a direct **Who can join** selector when joining applies, and
-plain-language summaries of what recipients can do. The main view does not show
+changes** action. **Share or invite** is link-first: it asks **Who can read this
+Space?**, then asks **Who can join this Space?** when joining applies. Each
+selected value reflects the effective Organization and external audience, not
+only the raw link rule. The main view does not show
 a permanent URL field, Organization visibility, guest access, members, or the
-invitation form. **Invite people** opens that form as a child view in the same
-dialog. Guest invitations use one Guest/Teammate selector. Submitting the first Guest
+invitation form. For invitation-only joining, **Invite people to join** sits
+beside the relevant selector and opens that form as a child view in the same
+dialog; it is not a permanent footer action. Guest invitations use one
+Guest/Teammate selector. Submitting the first Guest
 invitation while guest access is off prompts Owners for confirmation, then
 enables guest access and continues the same invitation; it does not require a
 trip to Settings or a separate enable step. Copy link never grants access. A
@@ -3588,7 +3591,7 @@ teammate invitation surface loads persisted invitation-link
 state; merely opening Share or invite does not create or renew one. A single conditional
 insert checks link history: reopening reuses an active link and never recreates
 an expired or revoked one. Renew explicitly replaces a link; Revoke, Renew, and
-Copy stay right-aligned. Share & Access keeps guest access in the same draft and fixed
+Copy stay right-aligned. Share & Access keeps guest participation in the same draft and fixed
 save footer as the other policy fields. Turning it off warns that existing
 guests are blocked rather than removed, so restoring it restores their access.
 Public reading remains available to anonymous readers and does not require guest

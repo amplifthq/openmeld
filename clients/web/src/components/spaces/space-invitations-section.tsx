@@ -46,7 +46,7 @@ function describeInvitationAudience(
 	organizationName: string
 ): string {
 	if (audience === "guest") {
-		return "Guests sign in to access only this Space.";
+		return "Sign-in required.";
 	}
 	if (canInvite) {
 		return `New teammates will join ${organizationName} and this Space.`;

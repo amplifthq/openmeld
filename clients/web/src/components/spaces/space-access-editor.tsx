@@ -16,6 +16,7 @@ import {
 import { LockKeyIcon, PasswordIcon, UsersIcon } from "@phosphor-icons/react";
 import { useId, useState } from "react";
 import {
+	describeSpaceJoining,
 	resolveSpaceLinkJoining,
 	resolveSpaceLinkReading,
 	type SpaceLinkJoining,
@@ -37,18 +38,13 @@ export const PUBLIC_SPACE_ACCESS_WARNING_TOOLTIP =
 	"Anyone with the link can read this Space, including people outside your organization.";
 
 const READING_LABELS: Record<SpaceLinkReading, string> = {
-	restricted: "Only people with access",
+	restricted: "Only Space members",
 	anyone: "Anyone with the link",
 	password: "Anyone with the password",
 };
 
-const JOINING_LABELS: Record<SpaceLinkJoining, string> = {
-	invite_only: "Only invited people",
-	anyone: "Anyone who signs in",
-	password: "Anyone with the password",
-};
-
 // The editor renders the deliberately different Share and Access disclosures from one policy draft.
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the conditions keep reading, joining, password, and invitation controls aligned to one policy draft.
 export function SpaceAccessEditor(input: {
 	canManageAccess: boolean;
 	currentAccessMode: SpaceAccessMode;
@@ -56,6 +52,7 @@ export function SpaceAccessEditor(input: {
 	draft: SpaceSharingDraft;
 	errorMessage: string | null;
 	onDraftChange: (draft: SpaceSharingDraft) => void;
+	onInvitePeople?: () => void;
 	onPasswordChange: (password: string) => void;
 	organizationName?: string;
 	password: string;
@@ -65,6 +62,10 @@ export function SpaceAccessEditor(input: {
 	const [isChangingPassword, setIsChangingPassword] = useState(false);
 	const reading = resolveSpaceLinkReading(input.draft);
 	const joining = resolveSpaceLinkJoining(input.draft);
+	const joiningPresentation = describeSpaceJoining({
+		draft: input.draft,
+		organizationName: input.organizationName,
+	});
 	const currentModeHasPassword = spaceAccessModeUsesPassword(
 		input.currentAccessMode
 	);
@@ -75,78 +76,89 @@ export function SpaceAccessEditor(input: {
 		selectedModeNeedsPassword &&
 		(!currentModeHasPassword || isChangingPassword);
 	const isShare = input.surface === "share";
+	const inviteButton = input.onInvitePeople ? (
+		<Button
+			className="shrink-0"
+			disabled={input.disabled}
+			onClick={input.onInvitePeople}
+			size="sm"
+			type="button"
+			variant="secondary"
+		>
+			Invite people to join
+		</Button>
+	) : null;
+	const passwordControl = showPasswordInput ? (
+		<label className="block space-y-1" htmlFor={passwordInputId}>
+			<span className="font-medium text-xs">
+				{reading === "password" ? "Password to read" : "Password to join"}
+			</span>
+			<Input
+				autoComplete="new-password"
+				disabled={input.disabled}
+				id={passwordInputId}
+				onChange={(event) => input.onPasswordChange(event.target.value)}
+				type="password"
+				value={input.password}
+			/>
+			{reading === "password" && joining === "password" ? (
+				<span className="block text-muted-foreground text-xs/relaxed">
+					The same password is used to read and join.
+				</span>
+			) : null}
+		</label>
+	) : null;
+	const passwordStatus =
+		selectedModeNeedsPassword &&
+		currentModeHasPassword &&
+		!showPasswordInput ? (
+			<div className="flex items-center justify-between gap-3">
+				<p className="text-muted-foreground text-xs">Password is set.</p>
+				{input.canManageAccess ? (
+					<Button
+						disabled={input.disabled}
+						onClick={() => setIsChangingPassword(true)}
+						size="xs"
+						type="button"
+						variant="secondary"
+					>
+						Change password
+					</Button>
+				) : null}
+			</div>
+		) : null;
 
 	return (
 		<div className="min-w-0 space-y-4">
 			<section className="grid gap-2">
 				<div className="space-y-0.5">
-					<h3 className="font-medium text-sm">Link access</h3>
+					<h3 className="font-medium text-sm">Who can read this Space?</h3>
 					{isShare ? null : (
 						<p className="text-muted-foreground text-xs/relaxed">
 							Choose who can read this Space from its link.
 						</p>
 					)}
 				</div>
-				<ReadingSelect
-					disabled={input.disabled || !input.canManageAccess}
-					onChange={(value) => {
-						input.onDraftChange(setSpaceLinkReading(input.draft, value));
-						setIsChangingPassword(false);
-					}}
-					value={reading}
-				/>
-				<p className="text-muted-foreground text-xs/relaxed">
-					{describeReading(reading)}
-				</p>
-
-				{selectedModeNeedsPassword &&
-				currentModeHasPassword &&
-				!showPasswordInput ? (
-					<div className="flex items-center justify-between gap-3">
-						<p className="text-muted-foreground text-xs">Password is set.</p>
-						{input.canManageAccess ? (
-							<Button
-								disabled={input.disabled}
-								onClick={() => setIsChangingPassword(true)}
-								size="xs"
-								type="button"
-								variant="ghost"
-							>
-								Change password
-							</Button>
-						) : null}
-					</div>
-				) : null}
-
-				{showPasswordInput ? (
-					<label className="block space-y-1" htmlFor={passwordInputId}>
-						<span className="font-medium text-xs">
-							{reading === "anyone" && joining === "password"
-								? "Password to join"
-								: "Password to view"}
-						</span>
-						<Input
-							autoComplete="new-password"
-							disabled={input.disabled}
-							id={passwordInputId}
-							onChange={(event) => input.onPasswordChange(event.target.value)}
-							type="password"
-							value={input.password}
+				<div className="flex flex-wrap items-center gap-2">
+					<div className="min-w-56 flex-1">
+						<ReadingSelect
+							disabled={input.disabled || !input.canManageAccess}
+							onChange={(value) => {
+								input.onDraftChange(setSpaceLinkReading(input.draft, value));
+								setIsChangingPassword(false);
+							}}
+							value={reading}
 						/>
-						<span className="block text-muted-foreground text-xs/relaxed">
-							{describePasswordUse(reading, joining)}
-						</span>
-					</label>
-				) : null}
+					</div>
+					{reading === "restricted" ? inviteButton : null}
+				</div>
+				<p className="text-muted-foreground text-xs/relaxed">
+					{describeReading(reading, input.draft, input.organizationName)}
+				</p>
+				{reading === "password" ? (passwordStatus ?? passwordControl) : null}
 			</section>
 
-			{reading === "restricted" ? (
-				<div className="space-y-3">
-					<p className="text-sm">
-						This link only works for people who already have access.
-					</p>
-				</div>
-			) : (
+			{reading === "restricted" ? null : (
 				<section
 					className={
 						isShare ? "grid gap-2" : "grid gap-2 border-border/60 border-t pt-4"
@@ -156,21 +168,32 @@ export function SpaceAccessEditor(input: {
 						className="font-medium text-sm"
 						htmlFor={`${passwordInputId}-join`}
 					>
-						Who can join
+						Who can join this Space?
 					</label>
-					<JoiningSelect
-						disabled={input.disabled || !input.canManageAccess}
-						id={`${passwordInputId}-join`}
-						onChange={(value) => {
-							input.onDraftChange(setSpaceLinkJoining(input.draft, value));
-							setIsChangingPassword(false);
-						}}
-						reading={reading}
-						value={joining}
-					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<div className="min-w-56 flex-1">
+							<JoiningSelect
+								disabled={input.disabled || !input.canManageAccess}
+								displayValue={joiningPresentation.label}
+								draft={input.draft}
+								id={`${passwordInputId}-join`}
+								onChange={(value) => {
+									input.onDraftChange(setSpaceLinkJoining(input.draft, value));
+									setIsChangingPassword(false);
+								}}
+								organizationName={input.organizationName}
+								reading={reading}
+								value={joining}
+							/>
+						</div>
+						{joining === "invite_only" ? inviteButton : null}
+					</div>
 					<p className="text-muted-foreground text-xs/relaxed">
-						{describeJoining(joining, input.draft, input.organizationName)}
+						{joiningPresentation.description}
 					</p>
+					{joining === "password" && reading !== "password"
+						? (passwordStatus ?? passwordControl)
+						: null}
 				</section>
 			)}
 
@@ -200,14 +223,14 @@ function ReadingSelect(input: {
 			value={input.value}
 		>
 			<SelectTrigger
-				aria-label="Link access"
+				aria-label="Who can read this Space?"
 				className="w-full"
 				displayValue={READING_LABELS[input.value]}
 				icon={resolveReadingIcon(input.value)}
 			/>
 			<SelectContent matchTriggerWidth>
 				<SelectItem icon={LockKeyIcon} index={0} value="restricted">
-					Only people with access
+					Only Space members
 				</SelectItem>
 				<SelectItem icon={UsersIcon} index={1} value="anyone">
 					Anyone with the link
@@ -222,11 +245,15 @@ function ReadingSelect(input: {
 
 function JoiningSelect(input: {
 	disabled: boolean;
+	displayValue: string;
+	draft: SpaceSharingDraft;
 	id: string;
 	onChange: (value: SpaceLinkJoining) => void;
+	organizationName?: string;
 	reading: SpaceLinkReading;
 	value: SpaceLinkJoining;
 }) {
+	const optionLabels = resolveJoiningOptionLabels(input);
 	return (
 		<Select
 			disabled={input.disabled}
@@ -234,70 +261,62 @@ function JoiningSelect(input: {
 			value={input.value}
 		>
 			<SelectTrigger
-				aria-label="Joining from this link"
+				aria-label="Who can join this Space?"
 				className="w-full"
-				displayValue={JOINING_LABELS[input.value]}
+				displayValue={input.displayValue}
 				id={input.id}
 			/>
 			<SelectContent matchTriggerWidth>
 				<SelectItem index={0} value="invite_only">
-					Only invited people
+					{optionLabels.invite_only}
 				</SelectItem>
 				{input.reading === "anyone" ? (
 					<SelectItem index={1} value="anyone">
-						Anyone who signs in
+						{optionLabels.anyone}
 					</SelectItem>
 				) : null}
 				<SelectItem index={2} value="password">
-					Anyone with the password
+					{optionLabels.password}
 				</SelectItem>
 			</SelectContent>
 		</Select>
 	);
 }
 
-function describeReading(reading: SpaceLinkReading): string {
-	if (reading === "restricted") {
-		return "This link does not grant access.";
+function resolveJoiningOptionLabels(input: {
+	draft: SpaceSharingDraft;
+	organizationName?: string;
+}): Record<SpaceLinkJoining, string> {
+	const labels = Object.fromEntries(
+		(["invite_only", "anyone", "password"] as const).map((joining) => [
+			joining,
+			describeSpaceJoining({
+				draft: setSpaceLinkJoining(input.draft, joining),
+				organizationName: input.organizationName,
+			}).label,
+		])
+	) as Record<SpaceLinkJoining, string>;
+	if (labels.anyone === labels.password) {
+		labels.anyone = `${labels.anyone} — open link joining`;
+		labels.password = `${labels.password} — password-protected link joining`;
 	}
-	if (reading === "password") {
-		return "Visitors need the Space password to read.";
-	}
-	return "Anyone can read without signing in.";
+	return labels;
 }
 
-function describePasswordUse(
+function describeReading(
 	reading: SpaceLinkReading,
-	joining: SpaceLinkJoining
-): string {
-	if (reading === "anyone" && joining === "password") {
-		return "People need this password to join. Reading stays public.";
-	}
-	if (joining === "password") {
-		return "Visitors need this password to read and join the Space.";
-	}
-	return "Visitors need this password to read the Space. Joining remains by invitation.";
-}
-
-function describeJoining(
-	joining: SpaceLinkJoining,
 	draft: SpaceSharingDraft,
 	organizationName?: string
 ): string {
-	const exception =
-		draft.visibility === "public" && organizationName
-			? ` People at ${organizationName} can also find and join this Space.`
-			: "";
-	if (joining === "invite_only") {
-		return `Only invited people can join this Space.${exception}`;
+	if (reading === "restricted") {
+		return draft.visibility === "public" && organizationName
+			? `People at ${organizationName} can join to read.`
+			: "Invite people to join before they can read.";
 	}
-	if (joining === "password") {
-		return `People need the Space password to join.${exception}`;
+	if (reading === "password") {
+		return "Visitors enter the password to read. No sign-in required.";
 	}
-	if (!draft.allowGuests) {
-		return `People at ${organizationName ?? "your organization"} can sign in to join. Guests need an invitation.`;
-	}
-	return "Anyone can sign in to join.";
+	return "No sign-in required.";
 }
 
 function resolveReadingIcon(reading: SpaceLinkReading) {

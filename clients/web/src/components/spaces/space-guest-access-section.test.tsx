@@ -58,19 +58,7 @@ describe("SpaceGuestAccessSection", () => {
 	afterEach(cleanup);
 
 	it("enables guest access and continues the invitation after one confirmation", async () => {
-		const queryClient = new QueryClient({
-			defaultOptions: { queries: { retry: false } },
-		});
-		queryClient.setQueryData(
-			spaceQueryKeys.status("space-123", undefined),
-			createSpaceStatus()
-		);
-
-		render(
-			<QueryClientProvider client={queryClient}>
-				<SpaceGuestAccessSection spaceId="space-123" />
-			</QueryClientProvider>
-		);
+		renderGuestAccessSection();
 
 		fireEvent.change(await screen.findByLabelText("Email address"), {
 			target: { value: "guest@example.com" },
@@ -79,10 +67,10 @@ describe("SpaceGuestAccessSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
 
 		expect(
-			screen.getByRole("dialog", { name: "Allow guest access?" })
+			screen.getByRole("dialog", { name: "Enable guest participation?" })
 		).toBeTruthy();
 		fireEvent.click(
-			screen.getByRole("button", { name: "Allow and invite guest" })
+			screen.getByRole("button", { name: "Enable and invite guest" })
 		);
 
 		await waitFor(() => {
@@ -99,7 +87,76 @@ describe("SpaceGuestAccessSection", () => {
 			});
 		});
 	});
+
+	it("does not enable guest participation or send when confirmation is canceled", async () => {
+		renderGuestAccessSection();
+		const email = await screen.findByLabelText("Email address");
+		fireEvent.change(email, { target: { value: "guest@example.com" } });
+		fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+		expect(updateMetaMock).not.toHaveBeenCalled();
+		expect(requestSpaceInvitationsMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ action: "create" })
+		);
+		expect((email as HTMLInputElement).value).toBe("guest@example.com");
+	});
+
+	it("keeps the invitation input when enabling guest participation fails", async () => {
+		updateMetaMock.mockRejectedValueOnce(new Error("Unable to enable guests"));
+		renderGuestAccessSection();
+		const email = await screen.findByLabelText("Email address");
+		fireEvent.change(email, { target: { value: "guest@example.com" } });
+		fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Enable and invite guest" })
+		);
+
+		await screen.findByText("Unable to enable guests");
+		expect(requestSpaceInvitationsMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ action: "create" })
+		);
+		expect((email as HTMLInputElement).value).toBe("guest@example.com");
+	});
+
+	it("reports an invitation failure after guest participation was enabled", async () => {
+		requestSpaceInvitationsMock.mockImplementation((request) => {
+			if (request.action === "list") {
+				return Promise.resolve([]);
+			}
+			return Promise.reject(new Error("Invitation could not be sent"));
+		});
+		renderGuestAccessSection();
+		const email = await screen.findByLabelText("Email address");
+		fireEvent.change(email, { target: { value: "guest@example.com" } });
+		fireEvent.click(screen.getByRole("button", { name: "Invite guest" }));
+		fireEvent.click(
+			screen.getByRole("button", { name: "Enable and invite guest" })
+		);
+
+		await screen.findByText("Invitation could not be sent");
+		expect(updateMetaMock).toHaveBeenCalledWith({
+			allowGuests: true,
+			spaceId: "space-123",
+		});
+		expect((email as HTMLInputElement).value).toBe("guest@example.com");
+	});
 });
+
+function renderGuestAccessSection() {
+	const queryClient = new QueryClient({
+		defaultOptions: { queries: { retry: false } },
+	});
+	queryClient.setQueryData(
+		spaceQueryKeys.status("space-123", undefined),
+		createSpaceStatus()
+	);
+	return render(
+		<QueryClientProvider client={queryClient}>
+			<SpaceGuestAccessSection spaceId="space-123" />
+		</QueryClientProvider>
+	);
+}
 
 function createSpaceStatus(): GetSpaceStatusResponse {
 	return {

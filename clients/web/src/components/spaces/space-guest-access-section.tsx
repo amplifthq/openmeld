@@ -1,3 +1,4 @@
+import type { GetSpaceStatusResponse } from "@openmeld/schemas/types";
 import { Button } from "@openmeld/ui/components/button";
 import {
 	Dialog,
@@ -64,12 +65,9 @@ export function SpaceGuestAccessSection({
 			>
 				<DialogContent>
 					<DialogHeader>
-						<DialogTitle>Allow guest access?</DialogTitle>
+						<DialogTitle>Enable guest participation?</DialogTitle>
 						<DialogDescription>
-							Guests can read this Space’s history and files, post messages, and
-							use its Agents. They must sign in and won’t join your
-							organization. Only enable access to content and Agents you intend
-							to share. Previously admitted guests will regain access too.
+							{describeGuestEnableImpact(status.data)}
 						</DialogDescription>
 					</DialogHeader>
 					{save.error ? (
@@ -95,13 +93,28 @@ export function SpaceGuestAccessSection({
 								continueInvitation?.();
 							}}
 						>
-							Allow and invite guest
+							Enable and invite guest
 						</Button>
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
 		</section>
 	);
+}
+
+function describeGuestEnableImpact(status?: GetSpaceStatusResponse): string {
+	const base =
+		"This lets the invitation continue and restores access for previously admitted guests. Guests join only this Space, not the organization.";
+	if (!status || status.linkJoinPolicy === "invite_only") {
+		return base;
+	}
+	if (
+		status.accessMode === "protected" ||
+		status.accessMode === "public_view_join_password"
+	) {
+		return `${base} Other external users with the link can also sign in and join with the Space password.`;
+	}
+	return `${base} Other external users with the link can also sign in and join.`;
 }
 
 function GuestInvitationEntry(input: {

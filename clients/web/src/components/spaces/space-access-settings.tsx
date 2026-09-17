@@ -161,6 +161,9 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 				controller.setPassword("");
 				setLocalErrorMessage(null);
 			}}
+			onInvitePeople={
+				isShare && input.canManageAccess ? openInvitations : undefined
+			}
 			onPasswordChange={(password) => {
 				controller.setPassword(password);
 				setLocalErrorMessage(null);
@@ -247,14 +250,6 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 										Discard changes
 									</Button>
 								) : null}
-								<Button
-									onClick={openInvitations}
-									size="sm"
-									type="button"
-									variant="secondary"
-								>
-									Invite people
-								</Button>
 								<Button
 									disabled={controller.isDirty ? saveDisabled : false}
 									onClick={async () => {
@@ -351,7 +346,7 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 					<section className="grid gap-2 border-border/60 border-t pt-4">
 						<div className="flex items-center justify-between gap-3">
 							<label className="font-medium text-sm" htmlFor={guestSwitchId}>
-								Allow external guests
+								Guest participation
 							</label>
 							<Switch
 								checked={controller.draft.allowGuests}
@@ -363,8 +358,9 @@ export function SpaceAccessSettings(input: SpaceAccessSettingsProps) {
 							/>
 						</div>
 						<p className="text-muted-foreground text-xs/relaxed">
-							Public reading does not require guest access. Guests sign in and
-							join only this Space.
+							{controller.draft.allowGuests
+								? "Guests join only this Space, not the organization."
+								: "External guests cannot join or participate. Link-based reading is unchanged."}
 						</p>
 						{controller.draft.allowGuests ? (
 							<p className="text-muted-foreground text-xs/relaxed">
@@ -466,7 +462,9 @@ function InviteView(input: {
 				Back
 			</Button>
 			<div>
-				<h3 className="font-medium text-base">Invite to this Space</h3>
+				<h3 className="font-medium text-base">
+					Invite people to join this Space
+				</h3>
 				<p className="text-muted-foreground text-xs/relaxed">
 					Guests join only this Space. Teammates join the organization and this
 					Space.

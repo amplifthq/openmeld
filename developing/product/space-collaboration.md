@@ -766,16 +766,19 @@ Space from the directory or its destination link, independently of external
 link access. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
-The common UI explains link reading and joining in plain language. Share or
-invite starts with one Link access choice, directly shows who can join when that
-choice permits joining, and summarizes what recipients can do before the owner
-copies the link. The URL is recovery information after clipboard failure, not
-permanent form content. Organization visibility and guest access remain in
-Share & Access settings. Membership and ownership use a separate Members
-settings page that directly shows its controls and reuses the shared invitation
-view. Owners can explicitly configure public/password link access in Share or
-invite or Share & Access; neither Organization visibility nor enabling guests
-publishes a Space.
+The common UI asks **Who can read this Space?** and **Who can join this Space?**
+and derives each selected audience from link joining, Organization visibility,
+and guest participation together. It never presents a broad main label and
+then retracts that promise in helper text. Invitation-only joining places the
+invitation action beside the relevant selector rather than in the dialog
+footer. Password controls follow the reading or joining rule they govern. The
+URL is recovery information after clipboard failure, not permanent form
+content. Organization visibility and guest participation remain in Share &
+Access settings. Membership and ownership use a separate Members settings page
+that directly shows its controls and reuses the shared invitation view. Owners
+can explicitly configure public/password link access in Share or invite or
+Share & Access; neither Organization visibility nor enabling guests publishes a
+Space.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access
