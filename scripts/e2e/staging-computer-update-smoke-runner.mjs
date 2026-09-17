@@ -1,4 +1,4 @@
-import { chmod, mkdir, rename, rm } from "node:fs/promises";
+import { chmod, cp, mkdir, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
@@ -262,19 +262,21 @@ async function cleanupStagingComputerUpdateSmoke(input) {
     }
   }
   if (input.lifecycle.smokeHomeCreated) {
+    if (input.runFailure) {
+      try {
+        await cp(CANARY_HOME, path.join(input.runRoot, "failed-canary-home"), {
+          recursive: true,
+        });
+      } catch (error) {
+        cleanupFailures.push(error);
+      }
+    }
     cleanupCanaryServices({
       cleanupFailures,
       sensitiveValues: input.sensitiveValues,
     });
     try {
-      if (input.runFailure) {
-        await rename(
-          CANARY_HOME,
-          path.join(input.runRoot, "failed-canary-home")
-        );
-      } else {
-        await rm(CANARY_HOME, { force: true, recursive: true });
-      }
+      await rm(CANARY_HOME, { force: true, recursive: true });
     } catch (error) {
       cleanupFailures.push(error);
     }
