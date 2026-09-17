@@ -29,6 +29,8 @@ export function SpaceHistoryJumpControl({
 	const reduceMotion = useReducedMotion();
 	const { scrollToEnd } = useMessageScroller();
 	const { end: canScrollToEnd } = useMessageScrollerScrollable();
+	const canScrollToEndRef = useRef(canScrollToEnd);
+	canScrollToEndRef.current = canScrollToEnd;
 	const [catchUpPending, setCatchUpPending] = useState(false);
 	const [catchUpError, setCatchUpError] = useState(false);
 	const operationSequence = useRef(0);
@@ -56,7 +58,7 @@ export function SpaceHistoryJumpControl({
 		if (onPrepareCatchUpUnread) {
 			await waitForConversationPaint();
 		}
-		return true;
+		return !canScrollToEndRef.current;
 	};
 	const handleLatest = async () => {
 		if (pending) {
