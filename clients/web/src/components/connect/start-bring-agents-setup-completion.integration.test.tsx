@@ -1,5 +1,8 @@
 import { resolveAgentWakeAvailability } from "@openmeld/agent-runtime";
-import { CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH } from "@openmeld/schemas";
+import {
+	CURRENT_DAEMON_EXECUTION_CONTRACT_EPOCH,
+	prepareSessionSnapshotSchema,
+} from "@openmeld/schemas";
 import type {
 	CurrentDeviceTargetResponse,
 	CurrentLocalRuntimeReplyReadinessResponse,
@@ -148,6 +151,32 @@ class ControlledMockWebSocket extends MockWebSocket {
 			data: JSON.stringify({
 				payload: { snapshot },
 				type: "snapshot_changed",
+			}),
+		});
+	}
+
+	emitConnectionProgress(input: {
+		connectionEpoch: number;
+		operationId: string;
+		phase: "downloading" | "installing" | "restoring";
+		sequence: number;
+	}) {
+		this.onmessage?.({
+			data: JSON.stringify({
+				payload: {
+					schemaVersion: 1,
+					prepareSessionId: "prepare-desktop-replaced",
+					connectionEpoch: input.connectionEpoch,
+					operationId: input.operationId,
+					attemptId: `attempt-${input.connectionEpoch}`,
+					sequence: input.sequence,
+					startedAt: "2026-09-17T00:00:00.000Z",
+					observedAt: "2026-09-17T00:00:01.000Z",
+					phase: input.phase,
+					state: "active",
+					code: `desktop.connection.${input.phase}`,
+				},
+				type: "connection_progress",
 			}),
 		});
 	}
@@ -371,6 +400,87 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(
 			screen.queryByRole("button", { name: "Get a new setup command" })
 		).toBeNull();
+	});
+
+	it("replaces progress when a connected Terminal is replaced without disconnecting Web", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const firstSnapshot = createActiveSnapshot({
+			prepareSessionId: "prepare-desktop-replaced",
+			targetSpaceId: null,
+		});
+		firstSnapshot.phase = "starting_service";
+		firstSnapshot.steps = firstSnapshot.steps.map((step) => {
+			if (step.id === "refresh_service") {
+				return createStep(
+					"refresh_service",
+					"active",
+					"Start or refresh OpenMeld Service",
+					"OpenMeld is refreshing the local tools."
+				);
+			}
+			return step.id === "ready"
+				? createStep(
+						"ready",
+						"pending",
+						"Available for Wake",
+						"Setup not finished yet."
+					)
+				: step;
+		});
+		firstSnapshot.terminalConnection = {
+			connectedAt: "2026-09-17T00:00:00.000Z",
+			connectionEpoch: 1,
+			connectionId: "terminal-1",
+			disconnectedAt: null,
+			disconnectReason: null,
+			lastSeenAt: "2026-09-17T00:00:01.000Z",
+			status: "connected",
+		};
+		readPrepareSessionMock.mockResolvedValueOnce({ snapshot: firstSnapshot });
+
+		renderPreparePage({
+			observePrepareSessionId: firstSnapshot.prepareSessionId,
+		});
+		await waitFor(() => expect(ControlledMockWebSocket.latest).not.toBeNull());
+		const socket = ControlledMockWebSocket.latest;
+		socket?.emitConnectionProgress({
+			connectionEpoch: 1,
+			operationId: "operation-1",
+			phase: "downloading",
+			sequence: 8,
+		});
+		expect(await screen.findByText("Downloading OpenMeld Tools")).toBeTruthy();
+
+		const replacementSnapshot = {
+			...firstSnapshot,
+			sessionRevision: firstSnapshot.sessionRevision + 1,
+			terminalConnection: {
+				...firstSnapshot.terminalConnection,
+				connectionEpoch: 2,
+				connectionId: "terminal-2",
+			},
+		};
+		prepareSessionSnapshotSchema.parse(replacementSnapshot);
+		socket?.emitSnapshot(replacementSnapshot);
+		await waitFor(() =>
+			expect(screen.queryByText("Downloading OpenMeld Tools")).toBeNull()
+		);
+		socket?.emitConnectionProgress({
+			connectionEpoch: 2,
+			operationId: "operation-2",
+			phase: "installing",
+			sequence: 1,
+		});
+		expect(await screen.findByText("Installing OpenMeld Tools")).toBeTruthy();
+
+		socket?.emitConnectionProgress({
+			connectionEpoch: 1,
+			operationId: "operation-1",
+			phase: "restoring",
+			sequence: 99,
+		});
+		expect(screen.getByText("Installing OpenMeld Tools")).toBeTruthy();
+		expect(screen.queryByText("Restoring the previous connection")).toBeNull();
 	});
 
 	it.each([

@@ -1,6 +1,7 @@
 import {
 	type DesktopComputerConnectionOperation,
 	type DesktopComputerConnectionProgress,
+	type DesktopComputerConnectionRequest,
 	desktopComputerConnectionResultSchema,
 } from "@openmeld/schemas";
 import type {
@@ -40,6 +41,32 @@ type ComputerConnectionProps = {
 	) => void;
 	onContinue?: () => void;
 };
+
+function buildConnectionRequestKey(
+	request: DesktopComputerConnectionRequest
+): string {
+	return JSON.stringify([
+		request.expectedAccount,
+		request.humanProfileId ?? null,
+		request.targetSpaceId ?? null,
+		request.connectedComputerId ?? null,
+		request.resetThisComputer === true,
+		request.sourceNavigationAction?.spaceId ?? null,
+		request.sourceNavigationAction?.signalId ?? null,
+	]);
+}
+
+function canAdoptConnectionOperation(input: {
+	adoptedOperationId: string | null;
+	handledSettlementIds: ReadonlySet<string>;
+	operationId: string;
+}): boolean {
+	return (
+		!input.handledSettlementIds.has(input.operationId) &&
+		(input.adoptedOperationId === null ||
+			input.adoptedOperationId === input.operationId)
+	);
+}
 
 async function applyAdoptedConnectionSettlement(input: {
 	connectionRefetch(): Promise<unknown>;
@@ -121,9 +148,26 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		useState<DesktopComputerConnectionProgress | null>(null);
 	const progressRef = useRef<DesktopComputerConnectionProgress | null>(null);
 	const ownedConnectRef = useRef(false);
-	const settledOperationIdsRef = useRef(new Set<string>());
+	const adoptedOperationIdRef = useRef<string | null>(null);
+	const adoptedRequestKeyRef = useRef<string | null>(null);
+	const handledSettlementIdsRef = useRef(new Set<string>());
+	const settledProgressIdsRef = useRef(new Set<string>());
 	const expectedAccount = session.data?.user.id;
 	const intent = setup.routeIntent;
+	const connectionRequest: DesktopComputerConnectionRequest | null =
+		expectedAccount === undefined
+			? null
+			: {
+					expectedAccount,
+					humanProfileId: setup.selectedHumanProfileId,
+					targetSpaceId: setup.targetSpaceId,
+					resetThisComputer: intent.resetThisComputer,
+					sourceNavigationAction: input.sourceNavigationAction,
+					connectedComputerId: intent.connectedComputerId,
+				};
+	const connectionRequestKey = connectionRequest
+		? buildConnectionRequestKey(connectionRequest)
+		: null;
 	const connected =
 		input.allowDisconnect &&
 		!intent.resetThisComputer &&
@@ -131,6 +175,15 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		!intent.connectedComputerId &&
 		connection.data?.status === "available";
 	useEffect(() => {
+		if (adoptedRequestKeyRef.current !== connectionRequestKey) {
+			adoptedRequestKeyRef.current = connectionRequestKey;
+			adoptedOperationIdRef.current = null;
+			handledSettlementIdsRef.current.clear();
+			settledProgressIdsRef.current.clear();
+			progressRef.current = null;
+			setProgress(null);
+			setOperation(null);
+		}
 		const desktop = getDesktopPlatform();
 		if (!desktop) {
 			return;
@@ -138,7 +191,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		const accept = (event: DesktopComputerConnectionProgress): boolean => {
 			if (
 				event.expectedAccount !== expectedAccount ||
-				settledOperationIdsRef.current.has(event.operationId) ||
+				settledProgressIdsRef.current.has(event.operationId) ||
 				!isNewerComputerConnectionProgress(progressRef.current, event)
 			) {
 				return false;
@@ -152,14 +205,23 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		) => {
 			if (
 				ownedConnectRef.current ||
-				operationState.expectedAccount !== expectedAccount ||
+				connectionRequestKey === null ||
+				buildConnectionRequestKey(operationState.request) !==
+					connectionRequestKey ||
 				operationState.status !== "settled" ||
-				!active.current
+				!active.current ||
+				!canAdoptConnectionOperation({
+					adoptedOperationId: adoptedOperationIdRef.current,
+					handledSettlementIds: handledSettlementIdsRef.current,
+					operationId: operationState.operationId,
+				})
 			) {
 				return;
 			}
-			if (operationState.operationId) {
-				settledOperationIdsRef.current.add(operationState.operationId);
+			adoptedOperationIdRef.current = operationState.operationId;
+			handledSettlementIdsRef.current.add(operationState.operationId);
+			if (operationState.progress) {
+				settledProgressIdsRef.current.add(operationState.progress.operationId);
 			}
 			if (operationState.progress) {
 				const finalProgress =
@@ -186,10 +248,24 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		const acceptOperation = (
 			operationState: DesktopComputerConnectionOperation
 		) => {
-			if (operationState.expectedAccount !== expectedAccount) {
+			if (
+				connectionRequestKey === null ||
+				buildConnectionRequestKey(operationState.request) !==
+					connectionRequestKey
+			) {
 				return;
 			}
 			if (operationState.status === "pending") {
+				if (
+					!canAdoptConnectionOperation({
+						adoptedOperationId: adoptedOperationIdRef.current,
+						handledSettlementIds: handledSettlementIdsRef.current,
+						operationId: operationState.operationId,
+					})
+				) {
+					return;
+				}
+				adoptedOperationIdRef.current = operationState.operationId;
 				if (operationState.progress) {
 					accept(operationState.progress);
 				}
@@ -225,6 +301,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		};
 	}, [
 		connection.refetch,
+		connectionRequestKey,
 		expectedAccount,
 		input.onCompleted,
 		input.onContinue,
@@ -232,7 +309,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 	]);
 	const connect = async () => {
 		const desktop = getDesktopPlatform();
-		if (!(desktop && expectedAccount)) {
+		if (!(desktop && connectionRequest)) {
 			return;
 		}
 		setOperation("connect");
@@ -245,14 +322,7 @@ function useComputerConnection(input: ComputerConnectionProps) {
 		setMessage(null);
 		try {
 			const result = desktopComputerConnectionResultSchema.parse(
-				await desktop.connectComputer({
-					expectedAccount,
-					humanProfileId: setup.selectedHumanProfileId,
-					targetSpaceId: setup.targetSpaceId,
-					resetThisComputer: intent.resetThisComputer,
-					sourceNavigationAction: input.sourceNavigationAction,
-					connectedComputerId: intent.connectedComputerId,
-				})
+				await desktop.connectComputer(connectionRequest)
 			);
 			if (!active.current) {
 				return;

@@ -127,8 +127,8 @@ export type DesktopComputerConnectionResult = z.infer<
 >;
 
 export const desktopComputerConnectionOperationSchema = z.strictObject({
-  expectedAccount: computerConnectionIntentSchema.shape.expectedAccount,
-  operationId: z.string().min(1).max(128).nullable(),
+  operationId: z.string().min(1).max(128),
+  request: desktopComputerConnectionRequestSchema,
   status: z.enum(["pending", "settled"]),
   progress: desktopComputerConnectionProgressSchema.nullable(),
   result: desktopComputerConnectionResultSchema.nullable(),

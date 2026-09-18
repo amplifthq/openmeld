@@ -65,6 +65,10 @@ afterEach(() => {
 	cleanup();
 	vi.clearAllMocks();
 	state.account = "account-a";
+	state.routeIntent = {
+		kind: "account_computer_setup",
+		resetThisComputer: false,
+	};
 	state.currentProgress.mockResolvedValue(null);
 	state.currentOperation.mockResolvedValue(null);
 	state.progressHandler = null;
@@ -225,6 +229,96 @@ it("does not let late active progress reopen a settled adopted operation", async
 	expect(state.connect).not.toHaveBeenCalled();
 });
 
+it("consumes the same adopted settlement only once", async () => {
+	let resolveCurrent: (value: unknown) => void = () => undefined;
+	state.currentOperation.mockReturnValue(
+		new Promise((resolve) => {
+			resolveCurrent = resolve;
+		})
+	);
+	const onCompleted = vi.fn();
+	const onContinue = vi.fn();
+	renderConnection(
+		<DesktopComputerConnection
+			onCompleted={onCompleted}
+			onContinue={onContinue}
+		/>
+	);
+	await waitFor(() => expect(state.operationHandler).not.toBeNull());
+	const settled = desktopOperation({
+		status: "settled",
+		result: {
+			status: "reused",
+			connection: { deviceId: "device-a", runtimeLane: "prod" },
+		},
+	});
+	state.operationHandler?.(settled);
+	resolveCurrent(settled);
+
+	await waitFor(() => expect(onCompleted).toHaveBeenCalledOnce());
+	expect(onContinue).toHaveBeenCalledOnce();
+});
+
+it("does not replay an old success into a fresh reset or source-action request", async () => {
+	state.routeIntent = {
+		kind: "account_computer_setup",
+		resetThisComputer: true,
+	};
+	state.currentOperation.mockResolvedValue(
+		desktopOperation({
+			status: "settled",
+			result: {
+				status: "reused",
+				connection: { deviceId: "device-a", runtimeLane: "prod" },
+			},
+		})
+	);
+	const onCompleted = vi.fn();
+	const onContinue = vi.fn();
+	renderConnection(
+		<DesktopComputerConnection
+			onCompleted={onCompleted}
+			onContinue={onContinue}
+			sourceNavigationAction={{ spaceId: "space-a", signalId: "signal-a" }}
+		/>
+	);
+
+	await waitFor(() =>
+		expect(
+			screen
+				.getByRole("button", { name: "Connect this Mac" })
+				.hasAttribute("disabled")
+		).toBe(false)
+	);
+	expect(onCompleted).not.toHaveBeenCalled();
+	expect(onContinue).not.toHaveBeenCalled();
+	expect(screen.queryByText("Using the existing connection.")).toBeNull();
+});
+
+it("does not let a delayed pending record reopen its settled operation", async () => {
+	state.currentOperation.mockResolvedValue(
+		desktopOperation({ status: "pending" })
+	);
+	renderConnection(<DesktopComputerConnection />);
+	await waitFor(() => expect(state.operationHandler).not.toBeNull());
+	const settled = desktopOperation({
+		status: "settled",
+		result: { status: "cancelled" },
+	});
+	state.operationHandler?.(settled);
+	await screen.findByText("Connection unchanged.");
+
+	state.operationHandler?.(desktopOperation({ status: "pending" }));
+
+	await waitFor(() =>
+		expect(
+			screen
+				.getByRole("button", { name: "Connect this Mac" })
+				.hasAttribute("disabled")
+		).toBe(false)
+	);
+});
+
 it.each([
 	"update",
 	"space",
@@ -338,12 +432,19 @@ function connectionProgress(sequence = 1) {
 }
 
 function desktopOperation(input: {
+	operationId?: string;
+	request?: Record<string, unknown>;
 	status: "pending" | "settled";
 	result?: unknown;
 }) {
 	return {
-		expectedAccount: "account-a",
-		operationId: "operation-adopted",
+		operationId: input.operationId ?? "desktop-operation-adopted",
+		request: input.request ?? {
+			expectedAccount: "account-a",
+			humanProfileId: "11111111-1111-4111-8111-111111111111",
+			targetSpaceId: null,
+			resetThisComputer: false,
+		},
 		status: input.status,
 		progress: connectionProgress(),
 		result: input.result ?? null,

@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-18T01:59:00.784Z",
+  "updatedAt": "2026-09-18T03:59:45.681Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
       "packageVersion": "0.3.213",
       "updatePolicy": "available",
-      "reason": "Existing clients remain compatible; structured connection progress is capability-negotiated and older clients keep the existing coarse setup flow."
+      "reason": "Existing clients remain compatible; structured connection progress and Desktop operation adoption remain optional presentation capabilities."
     },
     "service": {
-      "bundleHash": "673a5c62cb70b147321df5ee438c272af2876ca28c10934c1e438d92dede9ce3",
+      "bundleHash": "dace83922a4189c669a1fd845cca8db3a213808505a854beb707505b3a354a91",
       "bundleVersion": "0.3.213",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",
       "updatePolicy": "available",
-      "reason": "Existing cloud and local clients remain compatible; progress observation is optional and does not change Prepare completion or Service lifecycle authority."
+      "reason": "Existing cloud and local clients remain compatible; the Desktop IPC request binding does not change Service lifecycle or Prepare completion authority."
     },
     "skills": {
       "bundleHash": "5ac5fbd0c093ebb268bc57646ac75640479a9f3e530324d24de1d9133fdc8c26",

@@ -1983,6 +1983,20 @@ function usePrepareSession(input: {
 	const [connectionProgress, setConnectionProgress] =
 		useState<ComputerConnectionProgressObservation | null>(null);
 	const observedTerminalEpochRef = useRef<number | null>(null);
+	const reconcileObservedTerminal = useCallback(
+		(snapshot: PrepareSessionSnapshot) => {
+			const nextEpoch =
+				snapshot.lifecycleStatus === "active" &&
+				snapshot.terminalConnection.status === "connected"
+					? snapshot.terminalConnection.connectionEpoch
+					: null;
+			if (observedTerminalEpochRef.current !== nextEpoch) {
+				setConnectionProgress(null);
+			}
+			observedTerminalEpochRef.current = nextEpoch;
+		},
+		[]
+	);
 	const observerOnly = observePrepareSessionId !== null;
 	const [refreshingCommandRefreshKey, setRefreshingCommandRefreshKey] =
 		useState<string | null>(null);
@@ -2110,11 +2124,7 @@ function usePrepareSession(input: {
 					targetSpaceId,
 				});
 			}
-			observedTerminalEpochRef.current =
-				session.snapshot.lifecycleStatus === "active" &&
-				session.snapshot.terminalConnection.status === "connected"
-					? session.snapshot.terminalConnection.connectionEpoch
-					: null;
+			reconcileObservedTerminal(session.snapshot);
 			setState({
 				error: null,
 				opaqueToken: session.opaqueToken,
@@ -2157,6 +2167,7 @@ function usePrepareSession(input: {
 		observePrepareSessionId,
 		observerOnly,
 		preferCompletedSession,
+		reconcileObservedTerminal,
 		runtimeLane,
 		sessionKey,
 		sourceNavigationActionSignalId,
@@ -2262,17 +2273,7 @@ function usePrepareSession(input: {
 		let socket: WebSocket | null = null;
 
 		const applyPrepareSessionSnapshot = (snapshot: PrepareSessionSnapshot) => {
-			observedTerminalEpochRef.current =
-				snapshot.lifecycleStatus === "active" &&
-				snapshot.terminalConnection.status === "connected"
-					? snapshot.terminalConnection.connectionEpoch
-					: null;
-			if (
-				snapshot.lifecycleStatus !== "active" ||
-				snapshot.terminalConnection.status !== "connected"
-			) {
-				setConnectionProgress(null);
-			}
+			reconcileObservedTerminal(snapshot);
 			if (!observerOnly) {
 				persistPrepareSessionPointer(
 					{
@@ -2486,6 +2487,7 @@ function usePrepareSession(input: {
 		state.opaqueTokenExpiresAt,
 		targetSpaceId,
 		observerOnly,
+		reconcileObservedTerminal,
 	]);
 
 	const refresh = useCallback(async () => {
@@ -2499,11 +2501,7 @@ function usePrepareSession(input: {
 			const response = await readPrepareSession({
 				prepareSessionId,
 			});
-			observedTerminalEpochRef.current =
-				response.snapshot.lifecycleStatus === "active" &&
-				response.snapshot.terminalConnection.status === "connected"
-					? response.snapshot.terminalConnection.connectionEpoch
-					: null;
+			reconcileObservedTerminal(response.snapshot);
 			if (!observerOnly) {
 				persistPrepareSessionPointer(
 					{
@@ -2545,6 +2543,7 @@ function usePrepareSession(input: {
 		targetSpaceId,
 		observerOnly,
 		observePrepareSessionId,
+		reconcileObservedTerminal,
 	]);
 
 	const startOver = useCallback(async () => {

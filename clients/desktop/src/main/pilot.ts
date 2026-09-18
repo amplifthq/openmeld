@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
@@ -281,7 +282,7 @@ export function initializeDesktopPilot(
           latestConnectionProgress = progress;
           if (
             latestConnectionOperation?.status === "pending" &&
-            latestConnectionOperation.expectedAccount ===
+            latestConnectionOperation.request.expectedAccount ===
               progress.expectedAccount
           ) {
             publishConnectionOperation({
@@ -327,10 +328,11 @@ export function initializeDesktopPilot(
           if (latestConnectionOperation?.status === "pending") {
             throw new Error("A computer connection is already in progress.");
           }
+          const operationId = randomUUID();
           latestConnectionProgress = null;
           publishConnectionOperation({
-            expectedAccount: intent.expectedAccount,
-            operationId: null,
+            operationId,
+            request: intent,
             status: "pending",
             progress: null,
             result: null,
@@ -340,8 +342,8 @@ export function initializeDesktopPilot(
             const result = await connectComputer(intent);
             const settledProgress = readLatestConnectionProgress();
             publishConnectionOperation({
-              expectedAccount: intent.expectedAccount,
-              operationId: settledProgress?.operationId ?? null,
+              operationId,
+              request: intent,
               status: "settled",
               progress: settledProgress,
               result,
@@ -351,8 +353,8 @@ export function initializeDesktopPilot(
           } catch (error) {
             const settledProgress = readLatestConnectionProgress();
             publishConnectionOperation({
-              expectedAccount: intent.expectedAccount,
-              operationId: settledProgress?.operationId ?? null,
+              operationId,
+              request: intent,
               status: "settled",
               progress: settledProgress,
               result: null,
