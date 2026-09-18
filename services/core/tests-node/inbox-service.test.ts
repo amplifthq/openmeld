@@ -11,6 +11,135 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox service", () => {
+  it.each([
+    "mentions_and_replies",
+    "all_messages",
+  ] as const)("includes a canonical Space mention in %s notification mode", async (mode) => {
+    const harness = createInboxHarness();
+    try {
+      if (mode === "all_messages") {
+        harness.run({
+          params: ["user_one", mode],
+          sql: "INSERT INTO inbox_message_notification_defaults (user_id, mode) VALUES (?, ?)",
+        });
+      }
+      const mention = await seedSpaceItem(harness.db, {
+        kind: "space_mention",
+        recipientUserId: "user_one",
+        sourceKey: `canonical_mention_${mode}`,
+        spaceId: "space_one",
+      });
+
+      await expect(
+        createInboxService({ db: harness.db }).list({
+          limit: 1,
+          notificationPreview: true,
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          view: "unread",
+        })
+      ).resolves.toMatchObject({
+        items: [{ id: mention.itemId, kind: "space_mention" }],
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("prefers a newer canonical mention over an older eligible reply", async () => {
+    const harness = createInboxHarness();
+    try {
+      await seedSpaceItem(harness.db, {
+        kind: "agent_reply",
+        occurredAtMs: 1000,
+        recipientUserId: "user_one",
+        sourceKey: "older_eligible_reply",
+        spaceId: "space_one",
+      });
+      const mention = await seedSpaceItem(harness.db, {
+        kind: "space_mention",
+        occurredAtMs: 2000,
+        recipientUserId: "user_one",
+        sourceKey: "newer_canonical_mention",
+        spaceId: "space_one",
+      });
+
+      await expect(
+        createInboxService({ db: harness.db }).list({
+          limit: 1,
+          notificationPreview: true,
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          view: "unread",
+        })
+      ).resolves.toMatchObject({
+        items: [{ id: mention.itemId, kind: "space_mention" }],
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
+  it("excludes read, resolved, and inaccessible canonical mentions", async () => {
+    const harness = createInboxHarness();
+    try {
+      seedSpaceIndex(harness, {
+        organizationId: "org_one",
+        spaceId: "space_without_access",
+      });
+      const eligible = await seedSpaceItem(harness.db, {
+        kind: "space_mention",
+        occurredAtMs: 1000,
+        recipientUserId: "user_one",
+        sourceKey: "eligible_canonical_mention",
+        spaceId: "space_one",
+      });
+      const read = await seedSpaceItem(harness.db, {
+        kind: "space_mention",
+        occurredAtMs: 4000,
+        recipientUserId: "user_one",
+        sourceKey: "read_canonical_mention",
+        spaceId: "space_one",
+      });
+      const resolved = await seedSpaceItem(harness.db, {
+        kind: "space_mention",
+        occurredAtMs: 3000,
+        recipientUserId: "user_one",
+        sourceKey: "resolved_canonical_mention",
+        spaceId: "space_one",
+      });
+      await seedSpaceItem(harness.db, {
+        kind: "space_mention",
+        occurredAtMs: 2000,
+        recipientUserId: "user_one",
+        sourceKey: "inaccessible_canonical_mention",
+        spaceId: "space_without_access",
+      });
+      harness.run({
+        params: [read.itemId],
+        sql: "UPDATE inbox_items SET read_at_ms = 5000 WHERE id = ?",
+      });
+      harness.run({
+        params: [resolved.itemId],
+        sql: "UPDATE inbox_items SET attention = 'action_required', resolution_status = 'resolved', resolved_at_ms = 5000 WHERE id = ?",
+      });
+
+      await expect(
+        createInboxService({ db: harness.db }).list({
+          notificationPreview: true,
+          organizationId: "org_one",
+          recipientUserId: "user_one",
+          view: "unread",
+        })
+      ).resolves.toMatchObject({
+        items: [{ id: eligible.itemId, kind: "space_mention" }],
+        nextCursor: null,
+      });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("selects the latest notification-eligible unread before pagination", async () => {
     const harness = createInboxHarness();
     try {
@@ -1650,6 +1779,7 @@ async function seedItem(
 async function seedSpaceItem(
   db: D1Database,
   identity: {
+    kind?: "agent_reply" | "space_mention" | "space_message";
     occurredAtMs?: number;
     recipientUserId: string;
     sourceKey: string;
@@ -1662,7 +1792,7 @@ async function seedSpaceItem(
       attention: "update",
       contextLabel: "Launch Room",
       importance: "normal",
-      kind: "space_message",
+      kind: identity.kind ?? "space_message",
       occurredAtMs: identity.occurredAtMs ?? 1000,
       organizationId: "org_one",
       preview: "A private Space update.",

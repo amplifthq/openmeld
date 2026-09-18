@@ -69,6 +69,7 @@ const INBOX_NOTIFICATION_PREVIEW_FILTER = `
   AND json_extract(source_target_json, '$.kind') IN ('space', 'center_agent')
   AND kind IN (
     'space_message',
+    'space_mention',
     'space_reference',
     'agent_reply',
     'wake_outcome',
@@ -78,7 +79,12 @@ const INBOX_NOTIFICATION_PREVIEW_FILTER = `
   AND (
     ${INBOX_NOTIFICATION_EFFECTIVE_MODE_SQL} = 'all_messages'
     OR importance = 'urgent'
-    OR kind IN ('space_reference', 'agent_reply', 'wake_outcome')
+    OR kind IN (
+      'space_mention',
+      'space_reference',
+      'agent_reply',
+      'wake_outcome'
+    )
     OR (
       kind = 'space_message'
       AND json_extract(source_target_json, '$.kind') = 'space'
