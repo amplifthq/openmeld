@@ -8,6 +8,7 @@ import {
   readFile,
   realpath,
   rename,
+  unlink,
 } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import {
@@ -201,6 +202,9 @@ export function createSpaceWorkingCopies(input: {
     file.sizeBytes = bytes.byteLength;
     file.pending = undefined;
     await save(state);
+    // Only an acknowledged, durably recorded snapshot is disposable. Keep
+    // unknown outcomes for reconciliation without accumulating every saved edit.
+    await unlink(join(directory, `${pending.mutationId}.bin`));
   }
 
   return {

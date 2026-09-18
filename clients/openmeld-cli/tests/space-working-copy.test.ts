@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spaceWorkSelectionSchema } from "@openmeld/schemas";
@@ -108,8 +115,18 @@ describe("managed Space working copies", () => {
       await expect(copies.commit(prepared.copyId)).rejects.toThrow(
         "response lost"
       );
+      expect(
+        (await readdir(join(root, "lane"), { recursive: true })).filter(
+          (path) => path.endsWith(".bin")
+        )
+      ).toHaveLength(1);
       const restarted = createSpaceWorkingCopies(options);
       await restarted.reconcile(prepared.copyId);
+      expect(
+        (await readdir(join(root, "lane"), { recursive: true })).filter(
+          (path) => path.endsWith(".bin")
+        )
+      ).toHaveLength(0);
       expect(writes).toHaveLength(2);
       expect(writes[1]).toEqual(writes[0]);
       expect(Buffer.from(writes[1]?.bytes ?? []).toString()).toBe(
