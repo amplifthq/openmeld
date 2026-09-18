@@ -286,6 +286,13 @@ function executePlatformFileAsync(
   args: readonly string[],
   options: ExecFileOptions = {}
 ): Promise<{ stdout: string; stderr: string }> {
+  if (process.platform !== "win32") {
+    // Preserve Node's native promisify contract on platforms with no adapter.
+    return promisify(execFile)(file, [...args], {
+      ...options,
+      encoding: "utf8",
+    });
+  }
   return new Promise((resolveResult, reject) => {
     executePlatformFile(file, args, options, (error, stdout, stderr) => {
       if (error) {

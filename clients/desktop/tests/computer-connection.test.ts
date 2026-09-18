@@ -14,16 +14,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@openmeld/api-client", () => ({
   createComputerAuthorizationGrant: mocks.grant,
 }));
-vi.mock("node:child_process", () => {
+vi.mock("node:child_process", async () => {
+  const { promisify } = await import("node:util");
   return {
-    execFile: vi.fn((file, args, options, callback) => {
-      // Exercise the real platform adapter over Node's callback contract.
-      mocks.exec(file, args, options).then(
-        (result: { stdout: string; stderr?: string }) =>
-          callback(null, result.stdout, result.stderr ?? ""),
-        (error: Error) => callback(error, "", "")
-      );
-    }),
+    execFile: Object.assign(vi.fn(), { [promisify.custom]: mocks.exec }),
     spawn: vi.fn(() => {
       throw new Error("Test executable unavailable");
     }),

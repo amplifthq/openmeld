@@ -23,15 +23,10 @@ const boundary = vi.hoisted(() => ({
 
 // Keep the native reader, query/schema and click-to-bootstrap path real. Only
 // subprocess execution and the verified installer boundary are simulated.
-vi.mock("node:child_process", () => {
+vi.mock("node:child_process", async () => {
+	const { promisify } = await import("node:util");
 	const childProcess = {
-		execFile: vi.fn((file, args, options, callback) => {
-			boundary.exec(file, args, options).then(
-				(result: { stdout: string; stderr?: string }) =>
-					callback(null, result.stdout, result.stderr ?? ""),
-				(error: Error) => callback(error, "", "")
-			);
-		}),
+		execFile: Object.assign(vi.fn(), { [promisify.custom]: boundary.exec }),
 		spawn: vi.fn(() => {
 			throw new Error("No real setup process in this test");
 		}),
