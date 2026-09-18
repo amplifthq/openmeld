@@ -49,17 +49,66 @@ the bound `agentControllerConversationId` when present, otherwise the target
 Agent Profile for an unbound first run. Controller counts may still be logged as
 diagnostics, but they are not the scheduling authority.
 
-The service runner owns one local-execution-slot registry for its process
-lifetime and injects that same registry into every replacement Runtime
-Transport socket session. A WebSocket reconnect must not create a second empty
-registry while an earlier socket's provider turn is still running; otherwise a
-new Wake can bypass the local execution lane and collide with the same Agent
-Controller conversation. Process restart may create a new registry because
-RuntimeCoordinator separately reconciles the lost process owner.
+The Service's separately supervised Execution Host owns one local-execution-slot
+registry across replacement Runtime Transport sockets. Reconnecting the
+connector never creates a new Host, empty slots, approval registry, or result
+store. A Host process loss is different from socket loss: unconfirmed local work
+must remain fenced before a replacement Host can admit anything, while
+RuntimeCoordinator independently reconciles execution and final outcomes.
 
 It does not own the product outcome by itself. A running service is useful
 evidence, but the product question is whether the intended Agent Profile can
 reply in the intended Space through the intended local execution path.
+
+## Connector and Execution Host
+
+One installation and updater deliver two processes. The Service runner owns the
+cloud socket, heartbeat, reconnect, and existing lifecycle/control endpoint. Its
+Execution Host assembles the existing adapters, execution slots, pending human
+interactions, route discovery, controller reporting, and durable result outbox.
+The Host never owns Core readiness, authorization, scheduling, or Space history.
+
+The runner starts its control endpoint and registers without waiting for Agent
+inventory. Host initialization, reporting, and execution cross bounded inherited
+IPC; they cannot block the connector's event loop. Host admission is closed until
+its current-generation response confirms it is ready, and closes when that
+observation fails. A shared Host failure may affect all its Agents, not the
+independent connector. Last-known Host observations are not fresh health.
+
+Only one Host may own an installation's execution resources. Before provider
+work starts, a private process-incarnation receipt records non-quiescence. A clean
+local drain clears that fence. After an unconfirmed owner loss, PID disappearance
+alone does not prove that its children or side effects ended. Replacement needs
+confirmed quiescence or trustworthy operating-system restart evidence; unknown
+or corrupt evidence remains an explicit recovery blocker. This receipt contains
+no task results or approvals and does not authorize replay. It is not a second
+execution ledger. There is no automatic hot adoption or restart of unknown work.
+
+Cloud-result acknowledgment is separate from local quiescence. Stop and update
+readiness query the Host; they do not inspect another socket's private execution
+maps. Long accepted work retains its existing no-total-timeout drain. The current
+account-checked Stop coordinator still owns admission, confirmation, desired
+state, and credential cleanup. This extraction does not authorize offline
+Disconnect or change old-account result delivery during an account switch.
+
+A normal Host stop is complete only after actual child-process exit. Connector
+loss withdraws the transport sink and closes new admission; the Host retains safe
+local drain and stored results. A subsequent socket reuses the same Host and
+result identities rather than sending prompts again. Existing provider-specific
+permission, launch, model, and cancellation contracts stay in their adapters.
+
+The private Host entry is part of the same verified CLI/Service artifact. It
+accepts only inherited IPC with the current parent, account/session, installation,
+device, lane, and contract generation. It is not a public local server. Ordinary
+Web/Desktop controls retain their existing interfaces. AHP, arbitrary preview
+routing, new notification policy, and independent Host release channels are not
+part of this replacement.
+
+Cutover and rollback must quiesce both processes through the existing lifecycle
+owner. An older binary does not understand the Host-incarnation receipt: never
+roll back over uncertain new-Host work. Packaged/signed installation, platform
+file-access behavior, and an actual old-to-new migration require separate
+artifact acceptance; source or IPC fixture success is not that evidence.
 
 ## Ownership Boundary
 

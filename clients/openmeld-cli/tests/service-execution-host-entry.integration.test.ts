@@ -34,6 +34,18 @@ const loader = join(
 // Opt-in acceptance of the actual built package; default integration tests
 // continue to use source and do not require a pre-existing dist directory.
 const packaged = process.env.OPENMELD_TEST_HOST_ARTIFACT === "packaged";
+const binary = process.env.OPENMELD_TEST_HOST_ARTIFACT === "binary";
+const binaryPath = fileURLToPath(
+  new URL(
+    `../../../cli/dist/openmeld-cli-darwin-arm64-${(require("../package.json") as { version: string }).version}`,
+    import.meta.url
+  )
+);
+if (binary && (process.platform !== "darwin" || process.arch !== "arm64")) {
+  throw new Error(
+    "This compiled-artifact acceptance requires darwin-arm64; no other platform is implied."
+  );
+}
 const entry = fileURLToPath(
   new URL(
     packaged ? "../dist/openmeld.js" : "../src/openmeld-entry.ts",
@@ -87,9 +99,9 @@ describe("real execution Host entry", () => {
 
   const start = (hostInstanceId: string, ipc = true) => {
     const child = spawn(
-      process.execPath,
+      binary ? binaryPath : process.execPath,
       executionHostLaunchArguments({
-        binary: false,
+        binary,
         entry,
         execArgv: packaged ? [] : ["--import", loader],
         hostInstanceId,

@@ -310,6 +310,34 @@ pilot limitation, not a durable API contract. See
 transport and account boundaries. Old production clients remain on their
 existing paths; the pilot cannot target production or a Vite dev registry.
 
+## Service Execution Host IPC
+
+`service-execution-host.ts` owns the strict, versioned supervisor/Host protocol,
+method-specific inputs and outputs, bounded frames, Host-incarnation identity,
+health observations, and private process-recovery receipt. Both processes ship
+in one CLI/Service artifact. An inherited pipe is necessary but not sufficient:
+initialization also checks the current parent, account/session, installation,
+device, lane, endpoints, and Service contract generation. No bearer credential
+or arbitrary executable is supplied through this protocol.
+
+Execution frames retain their original RuntimeCoordinator, lease, attempt, and
+Space identities. Host request timeout is an observation failure, never proof
+that accepted work was cancelled or safe to repeat. Socket generations fence
+late frames and authentication failures; a reconnect does not create new work.
+Health and control capacity are bounded independently of normal requests. Host
+snapshots report local facts only; the connector continues to publish the
+existing `acceptingDispatches` and runtime capability contracts.
+
+Contract Impact Audit: existing Core/Gateway/Web/Desktop, Prepare, CLI control,
+Service v1 file, and cloud execution payloads are unchanged. No cloud epoch or
+minimum-version increase follows from this internal split. The new private
+Host-owner receipt is not written into old strict files. CLI and Service still
+ship together through the verified local-component pipeline; development defers
+publication metadata, not packaged-build validation. Rollback requires both
+processes quiescent because older binaries cannot enforce the new private
+recovery fence. Signed/platform/cutover acceptance remains required before
+release. No AHP, new browser capability, or second lifecycle writer is introduced.
+
 ## Local Service account admission
 
 `computer-connection.ts` owns the opt-in CLI review/intent and fixed Desktop
