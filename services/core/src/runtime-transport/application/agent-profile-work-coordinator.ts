@@ -327,6 +327,46 @@ export function removeAgentProfileWork(input: {
   };
 }
 
+/**
+ * Drops work whose Wake can no longer reach this queue, then refills.
+ *
+ * A work item is only a scheduling claim over one Wake head. Once that head is
+ * gone or already settled, the entry can never be promoted and can never be
+ * settled again, so it holds its reservation permanently and every later Wake
+ * waits behind work that will never run. The whole retired set has to leave in
+ * one transition: refilling between removals would promote a successor that is
+ * itself retired. Callers own the evidence that each named Wake is retired.
+ */
+export function dropRetiredAgentProfileWork(input: {
+  coordinator: AgentProfileWorkCoordinator;
+  nowMs: number;
+  retiredTargetWakeLifecycleIds: ReadonlySet<string>;
+}): {
+  coordinator: AgentProfileWorkCoordinator;
+  promotedItems: AgentProfileWorkCoordinatorItem[];
+  removedItems: AgentProfileWorkCoordinatorItem[];
+} {
+  const removedItems = input.coordinator.workItems.filter((item) =>
+    input.retiredTargetWakeLifecycleIds.has(item.targetWakeLifecycleId)
+  );
+  if (removedItems.length === 0) {
+    return { coordinator: input.coordinator, promotedItems: [], removedItems };
+  }
+  const next = refillAgentProfileWork({
+    coordinator: {
+      ...input.coordinator,
+      revision: input.coordinator.revision + 1,
+      updatedAtMs: input.nowMs,
+      workItems: input.coordinator.workItems.filter(
+        (item) =>
+          !input.retiredTargetWakeLifecycleIds.has(item.targetWakeLifecycleId)
+      ),
+    },
+    previouslyReserved: reservedAgentProfileWork(input.coordinator),
+  });
+  return { ...next, removedItems };
+}
+
 export function settleAgentProfileWork(input: {
   coordinator: AgentProfileWorkCoordinator;
   nowMs: number;
