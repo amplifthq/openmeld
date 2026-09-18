@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-18T03:59:45.681Z",
+  "updatedAt": "2026-09-18T04:08:50.390Z",
   "components": {
     "cli": {
       "commandContractVersion": "openmeld-cli-command-contract-2026-09-large-space-files-v1",
@@ -9,7 +9,7 @@
       "reason": "Existing clients remain compatible; structured connection progress and Desktop operation adoption remain optional presentation capabilities."
     },
     "service": {
-      "bundleHash": "dace83922a4189c669a1fd845cca8db3a213808505a854beb707505b3a354a91",
+      "bundleHash": "4269a418ae038c3ab67fe51cc661e7a439782d1f0ae8f6ec961010ac0d21bc20",
       "bundleVersion": "0.3.213",
       "runtimeContractEpoch": "runtime-transport-epoch-2026-09-large-space-files",
       "serviceContractVersion": "openmeld-service-contract-2026-09-space-access-and-large-files-v1",

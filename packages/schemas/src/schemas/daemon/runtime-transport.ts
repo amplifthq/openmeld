@@ -144,6 +144,7 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
     z.strictObject({
       action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
+      forkInterruptedConversation: z.boolean().optional(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
       // Older owner shards omit these exact-source fields during a rolling Core
@@ -266,6 +267,7 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentConfigurationRevision: z.number().int().positive(),
     currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    forkInterruptedConversation: z.boolean().optional(),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 
@@ -287,6 +289,26 @@ export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionRequestSc
 export const runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema =
   z.strictObject({
     status: z.enum(["marked", "not_pending", "unavailable"]),
+  });
+
+export const runtimeTransportAgentProfileWorkHandoffRequestSchema =
+  runtimeTransportAgentProfileWorkRecoveryTargetSchema.extend({
+    sourceDispatchId: z.string().trim().min(1).max(512),
+    sourceTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    successorDispatchId: z.string().trim().min(1).max(512),
+    successorExecutionContextId: z.string().trim().min(1).max(512).optional(),
+    successorTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+  });
+
+export const runtimeTransportAgentProfileWorkHandoffResponseSchema =
+  z.strictObject({
+    status: z.enum([
+      "already_handed_off",
+      "handed_off",
+      "source_not_occupied",
+      "successor_conflict",
+      "unavailable",
+    ]),
   });
 
 export const runtimeTransportAgentProfileWorkQueueApproveRequestSchema =

@@ -6584,6 +6584,9 @@ submit only a selection. Core constructs requester/discussion scope and assigns
 the context once. Native conversation IDs and local workspace fingerprints are
 resolved from retained Core context records. Results echo the context ID; native
 history checkpoints are stored per accepted Wake and survive Head retirement.
+A fork source's completed-history boundary is optional in the assignment: when
+no checkpoint was frozen, Core names the source identity and the harness
+confirms the boundary from that source's own retained history.
 
 An omitted access preference selects `space_context`; local project access is
 explicit or inherited from an authorized fork source. `workspace: isolated`
