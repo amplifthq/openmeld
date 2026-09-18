@@ -585,6 +585,35 @@ describe("AgentProfilesWorkspace", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 		expect(onCreateAgent).toHaveBeenCalledOnce();
 	});
+	it("keeps navigation and a detail-shaped placeholder while the selected Agent is unresolved", () => {
+		const { rerenderWorkspace } = renderWorkspace({
+			profiles: [],
+			profilesStatus: "loading",
+			selectedProfileId: "agent-other",
+		});
+		expect(screen.getByRole("navigation", { name: "People" })).toBeTruthy();
+		expect(
+			screen.getByRole("link", { name: "Felix’s Agents" }).getAttribute("href")
+		).toBe("/people/person/agents");
+		expect(
+			screen.getByRole("status", { name: "Loading Agent details" })
+		).toBeTruthy();
+		expect(screen.getByText("Usage limits")).toBeTruthy();
+		expect(screen.queryByText("Agent not found")).toBeNull();
+		rerenderWorkspace({
+			profiles: [
+				createProfile("agent-other", "user-other", "Mira", "Other Agent"),
+			],
+			profilesStatus: "ready",
+		});
+		expect(screen.getByTestId("selected-agent-detail").textContent).toBe(
+			"Other Agent"
+		);
+		expect(
+			screen.queryByRole("status", { name: "Loading Agent details" })
+		).toBeNull();
+	});
+
 	it("distinguishes loading, failure, and the ready empty state", () => {
 		const { rerenderWorkspace } = renderWorkspace({
 			profiles: [],
