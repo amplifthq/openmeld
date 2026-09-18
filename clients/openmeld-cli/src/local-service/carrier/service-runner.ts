@@ -19,6 +19,7 @@ import {
   OPENMELD_REASONING_STREAM_HEADER,
   OPENMELD_RUNTIME_CAPABILITIES_HEADER,
   SERVICE_CONNECTION_ID_QUERY_PARAMETER,
+  SPACE_WORK_HANDOFF_CAPABILITY_HEADER,
 } from "@openmeld/schemas";
 import type {
   OpenMeldDaemonControlPlaneResponse,
@@ -193,6 +194,9 @@ function buildLocalServiceCapabilityHeaders(input: {
   localFolderPickerAvailable: boolean;
 }): Record<string, string> {
   return {
+    ...(process.platform === "darwin"
+      ? { [SPACE_WORK_HANDOFF_CAPABILITY_HEADER]: "1" }
+      : {}),
     [OPENMELD_REASONING_STREAM_HEADER]: "1",
     ...(input.localFolderPickerAvailable
       ? {

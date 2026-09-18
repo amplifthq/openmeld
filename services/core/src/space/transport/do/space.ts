@@ -569,6 +569,10 @@ import {
   readSpaceUpdatesUseCase,
   SpaceUpdatesAnchorNotFoundError,
 } from "../../application/space-updates-service";
+import {
+  assertSameSpaceWorkHandoff,
+  validateSpaceWorkHandoff,
+} from "../../application/space-work-handoff";
 import type {
   PasswordAuthorizationResult,
   SignalPublishContext,
@@ -1352,6 +1356,10 @@ function buildDispatchSourceSignalSnapshot(input: {
       : undefined;
   const files =
     input.signal.type === "signal.text" ? input.signal.data.files : undefined;
+  const workHandoff =
+    input.signal.type === "signal.text"
+      ? input.signal.data.meta?.workHandoff
+      : undefined;
   const centerAgentInteractionSource =
     input.signal.type === "signal.text"
       ? input.signal.data.meta?.centerAgentInteractionSource
@@ -1377,6 +1385,7 @@ function buildDispatchSourceSignalSnapshot(input: {
         : null,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
     ...(files && files.length > 0 ? { files } : {}),
+    ...(workHandoff ? { workHandoff } : {}),
   };
 }
 
@@ -4878,6 +4887,13 @@ export class Space extends DurableObject<CoreBindings> {
         const existingSignal =
           this.readSourceTextSignalByClientMessageId(clientMessageId);
         if (existingSignal) {
+          assertSameSpaceWorkHandoff({
+            existing: existingSignal,
+            authorProfileId: input.profile.profileId,
+            handoff: input.meta?.workHandoff,
+            text: input.text,
+            targetProfileIds: input.messageEnvelope?.activationTargets ?? [],
+          });
           return { signal: existingSignal, status: "accepted" };
         }
         if (
@@ -11134,6 +11150,14 @@ export class Space extends DurableObject<CoreBindings> {
         );
       }
       if (existingRetry.status === "replay") {
+        assertSameSpaceWorkHandoff({
+          existing: existingRetry.signal,
+          authorProfileId: input.context.actorContext.openMeldProfileId,
+          handoff: parsed.data.workHandoff,
+          text: parsed.data.text,
+          targetProfileIds:
+            parsed.data.messageEnvelope?.activationTargets ?? [],
+        });
         return spaceAddressingJsonResponse(input.request, {
           signal: existingRetry.signal,
           placement: existingRetry.placement,
@@ -11160,6 +11184,7 @@ export class Space extends DurableObject<CoreBindings> {
             clientMessageId: parsed.data.clientMessageId,
             threadWakeContinuation: parsed.data.threadWakeContinuation,
             restoredFromSignalId: parsed.data.restoredFromSignalId,
+            workHandoff: parsed.data.workHandoff,
             ...(parsed.data.authorHasRead
               ? { authorHasRead: true as const }
               : {}),
@@ -18637,6 +18662,9 @@ export class Space extends DurableObject<CoreBindings> {
 
     return {
       text,
+      ...(signal.data.meta?.workHandoff
+        ? { workHandoff: signal.data.meta.workHandoff }
+        : {}),
       profileId: String(signal.profile?.profileId ?? "").trim() || null,
       profileKind:
         signal.profile.kind === "agent" ||
@@ -20643,6 +20671,14 @@ export class Space extends DurableObject<CoreBindings> {
     signal: SignalEnvelope,
     signalContext?: SignalPublishContext
   ): Promise<void> {
+    if (signal.type === "signal.text" && signal.data.meta?.workHandoff) {
+      await validateSpaceWorkHandoff({
+        env: this.env,
+        organizationId: this.readSpaceMetaRecord()?.organizationId ?? null,
+        signal,
+        resolveFiles: (files) => this.resolveSpaceMessageFileReferences(files),
+      });
+    }
     if (
       signal.type === "signal.text" &&
       signal.data.meta?.centerAgentExecutionInput

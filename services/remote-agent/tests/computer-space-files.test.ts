@@ -8,6 +8,7 @@ import {
   readRemoteAgentCallbackContext,
 } from "../agent-core/callback-context";
 import { getComputerSpaceFileTools } from "../flue-adapter/computer-space-files";
+import { materializeSpaceWork } from "../flue-adapter/space-work-materialization";
 import { createSubmitTurnRequest, TEST_NOW_MS } from "./fixtures";
 import { InMemoryDurableObjectStorage } from "./storage";
 
@@ -187,5 +188,40 @@ describe("Computer Space file transfer", () => {
     expect(
       (await readRemoteAgentCallbackContext(storage, "files"))?.outputFiles
     ).toContainEqual(expect.objectContaining({ fileId: file.id, revision: 2 }));
+    context.workHandoff = {
+      schemaVersion: 1,
+      files: [
+        { fileId: file.id, revision: 2, relativePath: "inputs/input.bin" },
+        { fileId: "missing", revision: 2, relativePath: "report.bin" },
+      ],
+      skills: [],
+      work: { goal: "Review", completed: "", nextSteps: "Check the inputs" },
+      requirements: [],
+    };
+    const preparation = {
+      context,
+      coreWorker: { readSpaceFileContent },
+      storage,
+      workspaceAccess: {
+        withWorkspace: async <T>(
+          operation: (client: WorkspaceClient) => Promise<T>
+        ) => await operation(workspace),
+      },
+      workingDirectory: "/computer/spaces/current",
+    };
+    await expect(materializeSpaceWork(preparation)).rejects.toThrow(
+      "selected revision"
+    );
+    expect(
+      await storage.get(`space-work:${context.submissionId}`)
+    ).toBeUndefined();
+    context.workHandoff.files.pop();
+    const preparedRoot = await materializeSpaceWork(preparation);
+    expect(stored.get(`${preparedRoot}/inputs/input.bin`)).toEqual(bytes);
+    stored.set(`${preparedRoot}/inputs/input.bin`, new Uint8Array([9]));
+    expect(await materializeSpaceWork(preparation)).toBe(preparedRoot);
+    expect(stored.get(`${preparedRoot}/inputs/input.bin`)).toEqual(
+      new Uint8Array([9])
+    );
   });
 });
