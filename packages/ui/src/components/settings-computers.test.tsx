@@ -8,6 +8,7 @@ import {
 import { afterEach, describe, expect, it } from "vitest";
 import { TooltipProvider } from "#components/tooltip";
 import {
+  SettingsLocalAgentsCard,
   SettingsLocalAgentUsageDockItem,
   SettingsLocalAgentUsageLimits,
   SettingsLocalAgentUsageReadout,
@@ -28,6 +29,31 @@ const OPENCODE_GO_SUMMARY_NAME = /OpenCode Go usage, 12% left, Low/u;
 afterEach(cleanup);
 
 describe("Settings Local Agent usage limits", () => {
+  it("distinguishes a pending local-agent inventory, a failed read, and a confirmed empty inventory", () => {
+    const props = { description: "Local agents on this computer", rows: [] };
+    const { rerender } = render(<SettingsLocalAgentsCard {...props} loading />);
+    expect(
+      screen.getByRole("status", { name: "Loading local agents" })
+    ).toBeTruthy();
+    expect(
+      screen.queryByText("No supported agents on this computer yet.")
+    ).toBeNull();
+    rerender(
+      <SettingsLocalAgentsCard {...props} error="Connection unavailable" />
+    );
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Connection unavailable"
+    );
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(
+      screen.queryByText("No supported agents on this computer yet.")
+    ).toBeNull();
+    rerender(<SettingsLocalAgentsCard {...props} />);
+    expect(
+      screen.getByText("No supported agents on this computer yet.")
+    ).toBeTruthy();
+  });
+
   it("fits the existing donut into a readout without an editable action or a redundant Available badge", () => {
     render(
       <SettingsLocalAgentUsageReadout

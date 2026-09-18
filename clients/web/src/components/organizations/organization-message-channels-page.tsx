@@ -24,7 +24,10 @@ import {
 	messageChannelQueryKeys,
 } from "#/query/organizations/message-channels";
 import { organizationMemberRoleQueryOptions } from "#/query/organizations/organization-directory";
-import { CenterAgentMessageChannelsSection } from "./center-agent-message-channels-section";
+import {
+	CenterAgentMessageChannelsSection,
+	ChannelsSkeleton,
+} from "./center-agent-message-channels-section";
 import { useCenterAgentRouteState } from "./center-agent-route-state";
 import { LarkPlatformChannelDialog } from "./lark-platform-channel-dialog";
 import { PersonalWorkspaceChannelsGuidance } from "./personal-workspace-channels-guidance";
@@ -99,9 +102,7 @@ function PersonalWorkspaceMessageChannelsContent(input: {
 				)}
 				hasExistingSlackConnection={hasExistingSlackConnection}
 			/>
-			{channelsQuery.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading channels.</p>
-			) : null}
+			{channelsQuery.isPending ? <ChannelsSkeleton /> : null}
 			<ChannelsLoadError
 				channelsError={channelsQuery.error}
 				designationError={undefined}
@@ -240,17 +241,13 @@ function OrganizationMessageChannelsContent(input: {
 				organizationSlug={input.organizationSlug}
 				result={slackOAuthResult}
 			/>
-			{roleQuery.isPending ||
-			designationQuery.isPending ||
-			channelsQuery.isPending ? (
-				<p className="text-muted-foreground text-sm">Loading channels.</p>
-			) : null}
+			{channelsQuery.isPending ? <ChannelsSkeleton /> : null}
 			<ChannelsLoadError
 				channelsError={messageChannelError}
-				designationError={designationQuery.error}
+				designationError={null}
 				fallback="OpenMeld could not load this organization’s channels."
 			/>
-			{designationQuery.data && channelsQuery.data ? (
+			{channelsQuery.data && !channelsQuery.isError ? (
 				<CenterAgentMessageChannelsSection
 					activeRegistrations={
 						activeRegistrationsQuery.data?.registrations ?? []
@@ -258,7 +255,7 @@ function OrganizationMessageChannelsContent(input: {
 					activeRegistrationsChecking={activeRegistrationsQuery.isFetching}
 					activeRegistrationsUnavailable={activeRegistrationsQuery.isError}
 					availableProviders={channelsQuery.data.availableLarkPlatformProviders}
-					canManage={canManage}
+					canManage={canManage && roleQuery.isSuccess}
 					connections={channelsQuery.data.connections}
 					disableSlackConnect={connectSlackMutation.isPending}
 					disableSlackDisconnect={disconnectSlackMutation.isPending}
@@ -270,8 +267,12 @@ function OrganizationMessageChannelsContent(input: {
 					}
 					onDisconnectSlackWorkspace={() => disconnectSlackMutation.mutate()}
 					onManageLarkPlatform={larkPlatform.manage}
+					onRetrySlackDetails={() =>
+						designationQuery.refetch().catch(console.error)
+					}
 					organizationSlug={input.organizationSlug}
-					slackConnection={designationQuery.data.slackConnection}
+					slackConnection={designationQuery.data?.slackConnection}
+					slackDetailsState={resolveSlackDetailsState(designationQuery)}
 				/>
 			) : null}
 			{roleQuery.isError ? (
@@ -313,6 +314,17 @@ function OrganizationMessageChannelsContent(input: {
 			/>
 		</>
 	);
+}
+
+function resolveSlackDetailsState(query: {
+	isPending: boolean;
+	isError: boolean;
+	fetchStatus: string;
+}): "loading" | "unavailable" | undefined {
+	if (query.isError || query.fetchStatus === "paused") {
+		return "unavailable";
+	}
+	return query.isPending ? "loading" : undefined;
 }
 
 function ChannelsLoadError(input: {

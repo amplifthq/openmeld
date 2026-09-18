@@ -25,6 +25,7 @@ import {
 } from "#components/dialog";
 import { LocalAgentLogo } from "#components/local-agent-logo";
 import { hasLocalAgentLogo } from "#components/local-agent-logo-utils";
+import { SkeletonRows } from "#components/skeleton-content";
 import {
   Tooltip,
   TooltipContent,
@@ -1470,6 +1471,7 @@ export function SettingsLocalAgentAdvisoryBadge({
 }
 
 export type SettingsLocalAgentsCardProps = {
+  loading?: boolean;
   action?: ReactNode;
   className?: string;
   description: string;
@@ -1487,6 +1489,7 @@ export function SettingsLocalAgentsCard({
   error,
   rows,
   title = "Local agents",
+  loading = false,
 }: SettingsLocalAgentsCardProps) {
   return (
     <Card className={className} data-testid="settings-local-agents-card">
@@ -1504,11 +1507,13 @@ export function SettingsLocalAgentsCard({
             {error}
           </p>
         ) : null}
-        {rows.length === 0 ? (
+        {rows.length === 0 && loading && !error ? (
+          <SkeletonRows label="Loading local agents" />
+        ) : null}
+        {rows.length === 0 && !loading && !error ? (
           <p className="text-muted-foreground text-sm">{emptyMessage}</p>
-        ) : (
-          <SettingsLocalAgentRows rows={rows} />
-        )}
+        ) : null}
+        {rows.length > 0 ? <SettingsLocalAgentRows rows={rows} /> : null}
       </CardContent>
     </Card>
   );
