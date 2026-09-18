@@ -163,7 +163,15 @@ started. A background refresh cannot advance a dirty draft's save expectations.
 A clean editor adopts a newer snapshot and its baseline together. A successful
 Save advances the baseline, while input made during the request stays unsaved
 and cannot be overwritten by the response. Editor identity is Organization id
-plus Skill id, never a release id; refetching must not remount the editor.
+plus Skill id, never a release id; refetching must not remount the editing
+workflow or its unsaved guard. When a clean snapshot or canonical Save response
+is accepted, the same draft transition advances a content-load generation for
+the Instructions and Markdown reference editors. Those Plate instances reload
+the accepted bundle through the shared Markdown editor's key-based contract,
+including changed reference content at the same path. Ordinary input, dirty
+refreshes, and Save responses retaining newer input do not advance that
+generation. Visible rich text, the local bundle, and save expectations must
+agree; changing parent props alone is not a rich-text reload.
 
 A failed background refetch with an existing snapshot leaves the editor and
 unsaved guard mounted and shows an error notice instead of deleting local work.

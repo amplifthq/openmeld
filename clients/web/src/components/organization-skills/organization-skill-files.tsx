@@ -10,6 +10,7 @@ import { MarkdownEditor } from "#/components/editor/markdown-editor";
 
 export function OrganizationSkillFiles(input: {
 	canEdit: boolean;
+	contentGeneration: number;
 	files: OrganizationSkillFile[];
 	onChange: (files: OrganizationSkillFile[]) => void;
 	saving: boolean;
@@ -34,6 +35,7 @@ export function OrganizationSkillFiles(input: {
 					{input.files.map((file, index) => (
 						<SkillFile
 							canEdit={input.canEdit}
+							contentGeneration={input.contentGeneration}
 							file={file}
 							key={file.path}
 							onChange={(nextFile) => {
@@ -52,6 +54,7 @@ export function OrganizationSkillFiles(input: {
 
 function SkillFile(input: {
 	canEdit: boolean;
+	contentGeneration: number;
 	file: OrganizationSkillFile;
 	onChange: (file: OrganizationSkillFile) => void;
 	saving: boolean;
@@ -66,6 +69,7 @@ function SkillFile(input: {
 		fileContent = (
 			<MarkdownEditor
 				disabled={!input.canEdit || input.saving}
+				key={input.contentGeneration}
 				maxChars={256_000}
 				onChange={(content) =>
 					input.onChange({

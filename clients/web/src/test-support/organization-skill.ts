@@ -1,7 +1,14 @@
 import type { OrganizationSkill } from "@openmeld/schemas/types";
 
 export function createOrganizationSkillFixture(
-	input: { id?: string; name?: string; version?: number; orgSlug?: string } = {}
+	input: {
+		id?: string;
+		name?: string;
+		version?: number;
+		orgSlug?: string;
+		instructions?: string;
+		referenceContent?: string;
+	} = {}
 ): OrganizationSkill {
 	const id = input.id ?? "skill-one";
 	const version = input.version ?? 1;
@@ -28,8 +35,20 @@ export function createOrganizationSkillFixture(
 		maintainerUserIds: ["user-1"],
 		permissions: { canEdit: true, canManage: false },
 		bundle: {
-			files: [],
-			instructions: "Review the evidence.",
+			files:
+				input.referenceContent === undefined
+					? []
+					: [
+							{
+								path: "references/checklist.md",
+								encoding: "utf8",
+								mediaType: "text/markdown",
+								content: input.referenceContent,
+								size: new TextEncoder().encode(input.referenceContent)
+									.byteLength,
+							},
+						],
+			instructions: input.instructions ?? "Review the evidence.",
 			portable: {
 				name,
 				description: "Review a shared working method.",

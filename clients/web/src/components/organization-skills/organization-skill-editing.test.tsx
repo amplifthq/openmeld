@@ -52,11 +52,35 @@ vi.mock("#/lib/organizations/organization-context", () => ({
 	},
 }));
 
+const originalContentEditable = Object.getOwnPropertyDescriptor(
+	HTMLElement.prototype,
+	"isContentEditable"
+);
+
 afterEach(() => {
 	cleanup();
 	vi.restoreAllMocks();
+	if (originalContentEditable) {
+		Object.defineProperty(
+			HTMLElement.prototype,
+			"isContentEditable",
+			originalContentEditable
+		);
+	} else {
+		Reflect.deleteProperty(HTMLElement.prototype, "isContentEditable");
+	}
 });
 beforeEach(() => {
+	// jsdom lacks this browser property; Slate checks the inherited editable state.
+	Object.defineProperty(HTMLElement.prototype, "isContentEditable", {
+		configurable: true,
+		get() {
+			return (
+				this.closest("[contenteditable]")?.getAttribute("contenteditable") ===
+				"true"
+			);
+		},
+	});
 	vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
 	getSkill.mockReset();
 	updateSkill
@@ -65,6 +89,147 @@ beforeEach(() => {
 });
 
 describe("Organization Skill editing", () => {
+	it.each([
+		"instructions",
+		"reference",
+	] as const)("loads clean v2 %s into the real editor before accepting more input", async (surface) => {
+		const { queryClient } = renderEditor([richSnapshot(1)]);
+		await screen.findByLabelText("Name");
+		openReference();
+		expect(richEditor(surface).textContent).toBe(`${surface} v1 obsolete.`);
+		expect(
+			screen.getByText("references/checklist.md").closest("details")?.open
+		).toBe(true);
+		act(() =>
+			queryClient.setQueryData(
+				organizationSkillQueryKeys.detail("org-acme", "skill-one"),
+				{ skill: richSnapshot(2) }
+			)
+		);
+		await waitFor(() =>
+			expect(richEditor(surface).textContent).toBe(`${surface} v2 replacement.`)
+		);
+		expect(
+			(screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		const loaded = richEditor(surface);
+		expect(loaded.getAttribute("contenteditable")).toBe("true");
+		await appendRichText(loaded, "ADDED");
+		expect(document.activeElement).toBe(loaded);
+		expect(richEditor(surface)).toBe(loaded);
+		expect(richEditor(surface).textContent).toBe(
+			`${surface} v2 replacement.ADDED`
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(1));
+		expect(updateSkill.mock.calls[0]?.[0]).toMatchObject({
+			expectedVersion: 2,
+			expectedActiveReleaseId: "skill-one-release-2",
+			bundle: {
+				instructions:
+					surface === "instructions"
+						? "instructions v2 replacement.ADDED\n"
+						: "instructions v2 replacement.",
+				files: [
+					expect.objectContaining({
+						path: "references/checklist.md",
+						content:
+							surface === "reference"
+								? "reference v2 replacement.ADDED\n"
+								: "reference v2 replacement.",
+					}),
+				],
+			},
+		});
+		expect(JSON.stringify(updateSkill.mock.calls[0]?.[0])).not.toContain(
+			"obsolete"
+		);
+	});
+
+	it("retains dirty Instructions and reference contents with the v1 baseline after v2 and a conflict", async () => {
+		const { queryClient, router } = renderEditor([richSnapshot(1)]);
+		await screen.findByLabelText("Name");
+		openReference();
+		await appendRichText(richEditor("instructions"), "LOCAL-INSTRUCTIONS");
+		await appendRichText(richEditor("reference"), "LOCAL-REFERENCE");
+		const instructions = richEditor("instructions");
+		const reference = richEditor("reference");
+		act(() =>
+			queryClient.setQueryData(
+				organizationSkillQueryKeys.detail("org-acme", "skill-one"),
+				{ skill: richSnapshot(2) }
+			)
+		);
+		await screen.findByText("222222222222");
+		expect(richEditor("instructions")).toBe(instructions);
+		expect(richEditor("reference")).toBe(reference);
+		expect(instructions.textContent).toBe(
+			"instructions v1 obsolete.LOCAL-INSTRUCTIONS"
+		);
+		expect(reference.textContent).toBe("reference v1 obsolete.LOCAL-REFERENCE");
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await screen.findByRole("alert");
+		expect(updateSkill.mock.calls[0]?.[0]).toMatchObject({
+			expectedVersion: 1,
+			expectedActiveReleaseId: "skill-one-release-1",
+			bundle: {
+				instructions: "instructions v1 obsolete.LOCAL-INSTRUCTIONS\n",
+				files: [
+					expect.objectContaining({
+						content: "reference v1 obsolete.LOCAL-REFERENCE\n",
+					}),
+				],
+			},
+		});
+		fireEvent.click(screen.getByRole("link", { name: "All Skills" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+		await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+		expect(router.state.location.pathname).toBe("/o/acme/skills/skill-one");
+		expect(instructions.textContent).toBe(
+			"instructions v1 obsolete.LOCAL-INSTRUCTIONS"
+		);
+		expect(reference.textContent).toBe("reference v1 obsolete.LOCAL-REFERENCE");
+	});
+
+	it("loads canonical saved rich text into both editors before the next edit", async () => {
+		updateSkill.mockResolvedValueOnce({ skill: richSnapshot(2) });
+		renderEditor([richSnapshot(1)]);
+		await screen.findByLabelText("Name");
+		openReference();
+		await appendRichText(richEditor("instructions"), "SUBMITTED");
+		await appendRichText(richEditor("reference"), "SUBMITTED");
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() =>
+			expect(richEditor("instructions").textContent).toBe(
+				"instructions v2 replacement."
+			)
+		);
+		expect(richEditor("reference").textContent).toBe(
+			"reference v2 replacement."
+		);
+		expect(
+			(screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+				.disabled
+		).toBe(true);
+		await appendRichText(richEditor("instructions"), "NEXT");
+		await appendRichText(richEditor("reference"), "NEXT");
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(2));
+		expect(updateSkill.mock.calls[1]?.[0]).toMatchObject({
+			expectedVersion: 2,
+			expectedActiveReleaseId: "skill-one-release-2",
+			bundle: {
+				instructions: "instructions v2 replacement.NEXT\n",
+				files: [
+					expect.objectContaining({
+						content: "reference v2 replacement.NEXT\n",
+					}),
+				],
+			},
+		});
+	});
+
 	it("keeps a dirty v1 draft paired with its v1 concurrency baseline after v2 is fetched", async () => {
 		const v1 = skillSnapshot();
 		const { queryClient } = renderEditor([v1]);
@@ -208,6 +373,63 @@ describe("Organization Skill editing", () => {
 		});
 	});
 
+	it.each([
+		"instructions",
+		"reference",
+	] as const)("keeps queued %s edits mounted when Save accepts its earlier submission", async (surface) => {
+		const pending = deferred<{ skill: OrganizationSkill }>();
+		updateSkill.mockReturnValueOnce(pending.promise);
+		renderEditor([richSnapshot(1)]);
+		await screen.findByLabelText("Name");
+		openReference();
+		await appendRichText(richEditor("instructions"), "SUBMITTED");
+		await appendRichText(richEditor("reference"), "SUBMITTED");
+		const instructions = richEditor("instructions");
+		const reference = richEditor("reference");
+		// Deliver a real edit in the same event turn after Save captures its
+		// submission, before React commits disabled controls. No callback mock.
+		await appendRichText(richEditor(surface), "QUEUED", () =>
+			fireEvent.click(screen.getByRole("button", { name: "Save" }))
+		);
+		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(1));
+		expect(updateSkill.mock.calls[0]?.[0]).toMatchObject({
+			bundle: {
+				instructions: "instructions v1 obsolete.SUBMITTED\n",
+				files: [
+					expect.objectContaining({
+						content: "reference v1 obsolete.SUBMITTED\n",
+					}),
+				],
+			},
+		});
+		await act(async () => pending.resolve({ skill: richSnapshot(2) }));
+		await waitFor(() =>
+			expect(
+				(screen.getByRole("button", { name: "Save" }) as HTMLButtonElement)
+					.disabled
+			).toBe(false)
+		);
+		expect(richEditor("instructions")).toBe(instructions);
+		expect(richEditor("reference")).toBe(reference);
+		expect(richEditor(surface).textContent).toBe(
+			`${surface} v1 obsolete.SUBMITTEDQUEUED`
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Save" }));
+		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(2));
+		expect(updateSkill.mock.calls[1]?.[0]).toMatchObject({
+			expectedVersion: 2,
+			expectedActiveReleaseId: "skill-one-release-2",
+			bundle: {
+				instructions: `instructions v1 obsolete.SUBMITTED${surface === "instructions" ? "QUEUED" : ""}\n`,
+				files: [
+					expect.objectContaining({
+						content: `reference v1 obsolete.SUBMITTED${surface === "reference" ? "QUEUED" : ""}\n`,
+					}),
+				],
+			},
+		});
+	});
+
 	it("preserves queued input during Save without downgrading a newer cached release", async () => {
 		const pending = deferred<{ skill: OrganizationSkill }>();
 		updateSkill.mockReturnValueOnce(pending.promise);
@@ -322,6 +544,78 @@ function renderEditor(skills: OrganizationSkill[]) {
 		</TestQueryClientProvider>
 	);
 	return { queryClient, router };
+}
+
+function richSnapshot(version: number) {
+	const suffix = version === 1 ? "v1 obsolete." : `v${version} replacement.`;
+	return skillSnapshot({
+		version,
+		instructions: `instructions ${suffix}`,
+		referenceContent: `reference ${suffix}`,
+	});
+}
+
+function openReference() {
+	fireEvent.click(screen.getByText("references/checklist.md"));
+}
+
+function richEditor(surface: "instructions" | "reference"): HTMLElement {
+	const region = document
+		.querySelector(
+			surface === "instructions"
+				? "#skill-instructions-heading"
+				: "#skill-files-heading"
+		)
+		?.closest("section");
+	const editor = region?.querySelector("[data-slate-editor]");
+	if (!(editor instanceof HTMLElement)) {
+		throw new Error(`Missing real ${surface} editor`);
+	}
+	return editor;
+}
+
+async function appendRichText(
+	editor: HTMLElement,
+	text: string,
+	beforePaste?: () => void
+) {
+	const before = editor.textContent;
+	vi.useFakeTimers();
+	try {
+		await act(async () => {
+			editor.focus();
+			const range = document.createRange();
+			const textNode = editor
+				.querySelectorAll("[data-slate-string]")
+				.item(
+					editor.querySelectorAll("[data-slate-string]").length - 1
+				)?.firstChild;
+			if (!textNode) {
+				throw new Error("Missing rich-text leaf");
+			}
+			range.setStart(textNode, textNode.textContent?.length ?? 0);
+			range.collapse(true);
+			const selection = window.getSelection();
+			selection?.removeAllRanges();
+			selection?.addRange(range);
+			document.dispatchEvent(new Event("selectionchange"));
+			// Flush Slate's throttled DOM selection synchronization before pasting.
+			await vi.advanceTimersByTimeAsync(101);
+			beforePaste?.();
+			fireEvent.paste(editor, {
+				clipboardData: {
+					files: [],
+					items: [],
+					types: ["text/plain"],
+					getData: (type: string) => (type === "text/plain" ? text : ""),
+				},
+			});
+			await vi.advanceTimersByTimeAsync(0);
+		});
+	} finally {
+		vi.useRealTimers();
+	}
+	await waitFor(() => expect(editor.textContent).toBe(`${before}${text}`));
 }
 
 function deferred<T>() {

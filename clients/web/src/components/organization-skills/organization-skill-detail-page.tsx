@@ -153,6 +153,7 @@ function OrganizationSkillEditor(input: {
 	const [draft, setDraft] = useState(() => ({
 		baseline: input.skill,
 		bundle: input.skill.bundle,
+		contentGeneration: 0,
 	}));
 	const editRevision = useRef(0);
 	const bundle = draft.bundle;
@@ -205,13 +206,18 @@ function OrganizationSkillEditor(input: {
 			setErrorMessage(null);
 		},
 		onSuccess: async (response, submitted) => {
-			setDraft((current) => ({
-				baseline: response.skill,
-				bundle:
-					canonicalBundle(current.bundle) === canonicalBundle(submitted.bundle)
-						? response.skill.bundle
-						: current.bundle,
-			}));
+			setDraft((current) => {
+				const adoptSavedContent =
+					canonicalBundle(current.bundle) === canonicalBundle(submitted.bundle);
+				return {
+					baseline: response.skill,
+					bundle: adoptSavedContent ? response.skill.bundle : current.bundle,
+					// Plate owns its document. Reload only when accepting a whole
+					// external bundle, never when typing or retaining queued input.
+					contentGeneration:
+						current.contentGeneration + (adoptSavedContent ? 1 : 0),
+				};
+			});
 			await refresh(response.skill);
 		},
 	});
@@ -227,7 +233,11 @@ function OrganizationSkillEditor(input: {
 			) {
 				return current;
 			}
-			return { baseline: input.skill, bundle: input.skill.bundle };
+			return {
+				baseline: input.skill,
+				bundle: input.skill.bundle,
+				contentGeneration: current.contentGeneration + 1,
+			};
 		});
 	}, [input.skill, saveMutation.isPending]);
 	const enabledMutation = useMutation({
@@ -394,6 +404,7 @@ function OrganizationSkillEditor(input: {
 				</div>
 				<MarkdownEditor
 					disabled={!input.skill.permissions.canEdit || saveMutation.isPending}
+					key={draft.contentGeneration}
 					maxChars={ORGANIZATION_SKILL_INSTRUCTIONS_MAX_CHARS}
 					onChange={(instructions) =>
 						setBundle((current) => ({ ...current, instructions }))
@@ -404,6 +415,7 @@ function OrganizationSkillEditor(input: {
 
 			<OrganizationSkillFiles
 				canEdit={input.skill.permissions.canEdit}
+				contentGeneration={draft.contentGeneration}
 				files={bundle.files}
 				onChange={(files) => setBundle((current) => ({ ...current, files }))}
 				saving={saveMutation.isPending}
