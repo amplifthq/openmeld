@@ -295,6 +295,12 @@ export const RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE =
   "runtime.progress_stale" as const;
 export const RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE =
   "runtime.local_runtime_lost" as const;
+// The same stale-progress watchdog fires, but the cause is not a lost computer:
+// another app holds the native conversation's writer lock, so the dispatch never
+// produced a second piece of lifecycle evidence. It needs its own code so the
+// notice can name the real cause and the work can settle into a decision gate.
+export const RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE =
+  "runtime.controller_conversation_occupied" as const;
 export const RUNTIME_COORDINATOR_WAKE_STOP_REQUESTED_REASON_CODE =
   "runtime_coordinator.wake_stop_requested" as const;
 export const RUNTIME_COORDINATOR_WAKE_STOP_LOCAL_CONTROL_ACCEPTED_REASON_CODE =
@@ -315,7 +321,9 @@ export const isRuntimeCoordinatorLateResultRecoverable = (input: {
   (input.terminalReasonCode ===
     RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE ||
     input.terminalReasonCode ===
-      RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE) &&
+      RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE ||
+    input.terminalReasonCode ===
+      RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE) &&
   (input.taskResultStatus === "success" ||
     input.taskResultStatus === "partial_success");
 
@@ -325,6 +333,7 @@ export type RuntimeCoordinatorPreAcceptRedeliveryExpiryCause =
 
 export type RuntimeCoordinatorRunExpiryCause =
   | RuntimeCoordinatorPreAcceptRedeliveryExpiryCause
+  | "controller_conversation_occupied"
   | "local_runtime_lost"
   | "local_progress_stale";
 
@@ -1168,6 +1177,15 @@ export const buildRuntimeCoordinatorRunExpiryEventPayload = (input: {
       },
     };
   }
+  if (input.expiryCause === "controller_conversation_occupied") {
+    return {
+      controllerConversationOccupied: {
+        ...common,
+        progressEvidenceStaleTerminalAfterMs:
+          RUNTIME_COORDINATOR_PROGRESS_EVIDENCE_STALE_TERMINAL_AFTER_MS,
+      },
+    };
+  }
   if (input.expiryCause === "local_runtime_lost") {
     return {
       localRuntimeLost: common,
@@ -1240,6 +1258,17 @@ export const buildRuntimeCoordinatorProgressStaleTerminalPlan =
     action: "timeout_terminal",
     eventType: "runtime_coordinator_timeout_terminal",
     reasonCode: RUNTIME_COORDINATOR_PROGRESS_STALE_TERMINAL_REASON_CODE,
+    retiredReasonCode: "execution_token_expired",
+    terminalOutcomeKind: "timed_out",
+    tokenStatus: "expired",
+  });
+
+export const buildRuntimeCoordinatorControllerConversationOccupiedTerminalPlan =
+  (): RuntimeCoordinatorTerminalDecisionPlan => ({
+    action: "timeout_terminal",
+    eventType: "runtime_coordinator_timeout_terminal",
+    reasonCode:
+      RUNTIME_COORDINATOR_CONTROLLER_CONVERSATION_OCCUPIED_REASON_CODE,
     retiredReasonCode: "execution_token_expired",
     terminalOutcomeKind: "timed_out",
     tokenStatus: "expired",

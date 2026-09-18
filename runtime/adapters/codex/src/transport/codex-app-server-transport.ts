@@ -136,6 +136,10 @@ type AppServerThreadResponse = {
   thread?: AppServerThread;
 };
 
+type AppServerThreadReadResponse = {
+  thread?: AppServerThread & { turns?: AppServerTurn[] };
+};
+
 type AppServerTurn = {
   error?: { codexErrorInfo?: unknown; message?: unknown } | null;
   id?: unknown;
@@ -401,64 +405,22 @@ export async function invokeCodexAppServerTransport(input: {
       session.emitProviderConversationObserved(continuityThreadId);
       session.observeReasoningForThread(executionThreadId);
       throwIfCodexDispatchCancelled(input.cancellationSignal);
-      const turnResponse = await session.requestControl(
-        "turn/start",
-        {
-          ...permissionModeParams.turn,
-          ...(collaborationMode ? { collaborationMode } : {}),
-          cwd: input.codexWorkdir,
-          ...conversationPolicyParams,
-          ...reasoningSummary,
-          input: [
-            {
-              text: turnPrompt,
-              text_elements: [],
-              type: "text",
-            },
-          ],
-          threadId: executionThreadId,
-        },
-        {
-          code: "runtime.turn_start_timeout",
-          operation: "turn/start",
-        }
-      );
-      const turn = readTurnStartResponse(turnResponse);
-      const turnId = readRequiredText(turn.id, "turn/start response turn.id");
-      session.emitProviderTurnAccepted({
-        threadId: executionThreadId,
-        turnId,
-      });
-      session.setNewSessionTitleInBackground({
-        existingThreadId: input.threadId,
+      const completedTurn = await startAndAwaitAppServerTurn({
+        cancellationSignal: input.cancellationSignal,
+        collaborationMode,
+        conversationPolicyParams,
+        codexWorkdir: input.codexWorkdir,
         executionMode: input.executionMode,
-        threadId: executionThreadId,
-        title: input.newSessionTitle,
-      });
-      const unregisterActiveTurn = session.registerActiveTurn({
+        executionThreadId,
+        existingThreadId: input.threadId,
+        newSessionTitle: input.newSessionTitle,
         onActiveTurn: input.onActiveTurn,
+        permissionModeParams: permissionModeParams.turn,
+        reasoningSummary,
+        session,
         taskId: input.taskId,
-        threadId: executionThreadId,
-        turnId,
+        turnPrompt,
       });
-      if (input.cancellationSignal?.aborted && turn.status !== "completed") {
-        await session.request("turn/interrupt", {
-          threadId: executionThreadId,
-          turnId,
-        });
-      }
-      let completedTurn: AppServerTurn;
-      try {
-        completedTurn =
-          turn.status === "completed"
-            ? turn
-            : await session.waitForTurnCompleted({
-                threadId: executionThreadId,
-                turnId,
-              });
-      } finally {
-        unregisterActiveTurn?.();
-      }
       const interactionFailure = session.readInteractionFailure();
       if (interactionFailure) {
         throw new CodexAppServerTransportError({
@@ -497,6 +459,109 @@ export async function invokeCodexAppServerTransport(input: {
       };
     }
   );
+}
+
+async function startAndAwaitAppServerTurn(input: {
+  cancellationSignal?: AbortSignal;
+  collaborationMode?: CodexAppServerCollaborationMode | null;
+  conversationPolicyParams: CodexAppServerConversationPolicyParams;
+  codexWorkdir: string;
+  executionMode?: AdapterDispatchExecutionMode;
+  executionThreadId: string;
+  existingThreadId?: string | null;
+  newSessionTitle?: string | null;
+  onActiveTurn?: CodexAppServerActiveTurnRegistrar;
+  permissionModeParams: CodexAppServerPermissionModeParams["turn"];
+  reasoningSummary: Record<string, unknown>;
+  session: CodexAppServerSession;
+  taskId: string;
+  turnPrompt: string;
+}): Promise<AppServerTurn> {
+  const { session, executionThreadId } = input;
+  let activeTurnId: string | null = null;
+  let interruptRequested = false;
+  let interruptSent = false;
+  const sendInterruptIfActive = async (targetTurnId: string) => {
+    if (interruptSent) {
+      return;
+    }
+    interruptSent = true;
+    try {
+      await session.request("turn/interrupt", {
+        threadId: executionThreadId,
+        turnId: targetTurnId,
+      });
+    } catch {
+      // Ignore interrupt errors if the turn is already terminating or completed
+    }
+  };
+
+  const unregisterActiveTurn = session.registerActiveTurn({
+    interrupt: async () => {
+      interruptRequested = true;
+      if (activeTurnId) {
+        await sendInterruptIfActive(activeTurnId);
+      }
+    },
+    onActiveTurn: input.onActiveTurn,
+    taskId: input.taskId,
+    threadId: executionThreadId,
+    turnId: null,
+  });
+
+  try {
+    const turnResponse = await session.requestControl(
+      "turn/start",
+      {
+        ...input.permissionModeParams,
+        ...(input.collaborationMode
+          ? { collaborationMode: input.collaborationMode }
+          : {}),
+        cwd: input.codexWorkdir,
+        ...input.conversationPolicyParams,
+        ...input.reasoningSummary,
+        input: [
+          {
+            text: input.turnPrompt,
+            text_elements: [],
+            type: "text",
+          },
+        ],
+        threadId: executionThreadId,
+      },
+      {
+        code: "runtime.turn_start_timeout",
+        operation: "turn/start",
+      }
+    );
+    const turn = readTurnStartResponse(turnResponse);
+    const turnId = readRequiredText(turn.id, "turn/start response turn.id");
+    activeTurnId = turnId;
+    session.emitProviderTurnAccepted({
+      threadId: executionThreadId,
+      turnId,
+    });
+    session.setNewSessionTitleInBackground({
+      existingThreadId: input.existingThreadId ?? null,
+      executionMode: input.executionMode,
+      threadId: executionThreadId,
+      title: input.newSessionTitle ?? undefined,
+    });
+    if (
+      (interruptRequested || input.cancellationSignal?.aborted) &&
+      turn.status !== "completed"
+    ) {
+      await sendInterruptIfActive(turnId);
+    }
+    return turn.status === "completed"
+      ? turn
+      : await session.waitForTurnCompleted({
+          threadId: executionThreadId,
+          turnId,
+        });
+  } finally {
+    unregisterActiveTurn?.();
+  }
 }
 
 function requireSuccessfulCodexTurn(turn: AppServerTurn): void {
@@ -582,11 +647,66 @@ export async function verifyCodexAppServerThread(input: {
   );
 }
 
+export async function resolveCodexAppServerCompletedTurn(input: {
+  codexTimeoutMs: number | null;
+  codexWorkdir: string;
+  env?: Record<string, string | undefined>;
+  launchContract: RuntimeAgentControllerLaunchContract;
+  onRuntimeEvent?: AdapterRuntimeEventCallback;
+  threadId: string;
+}): Promise<{ completedTurnId: string; threadId: string }> {
+  const threadId = normalizeOptionalText(input.threadId);
+  if (!threadId) {
+    throw new CodexAppServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message: "schema.invalid: threadId is required",
+    });
+  }
+
+  return await withCodexAppServerSession(
+    {
+      codexTimeoutMs: input.codexTimeoutMs,
+      codexWorkdir: input.codexWorkdir,
+      env: input.env,
+      launchContract: input.launchContract,
+      onRuntimeEvent: input.onRuntimeEvent,
+    },
+    async (session) => {
+      const response = await session.requestControl(
+        "thread/read",
+        {
+          includeTurns: true,
+          threadId,
+        },
+        {
+          code: "execution_context.history_unavailable",
+          operation: "thread/read",
+        }
+      );
+      const completedTurnId = readLastCompletedTurnId(response);
+      if (!completedTurnId) {
+        // No settled turn means there is no honest boundary to inherit, and a
+        // fork without one copies whatever is in flight. Refuse rather than
+        // hand back a superset the caller cannot verify.
+        throw new CodexAppServerTransportError({
+          code: "execution_context.fork_checkpoint_unavailable",
+          errorType: "config",
+          message:
+            "execution_context.fork_checkpoint_unavailable: thread/read found no completed turn on the source thread",
+        });
+      }
+      return { completedTurnId, threadId };
+    }
+  );
+}
+
 export async function forkCodexAppServerThread(input: {
   computerFileAccessBoundary?: AdapterComputerFileAccessBoundary;
   codexTimeoutMs: number | null;
   codexWorkdir: string;
   env?: Record<string, string | undefined>;
+  forkFullHistory?: boolean;
   launchContract: RuntimeAgentControllerLaunchContract;
   sourceThreadId: string;
   sourceCompletedTurnId?: string;
@@ -602,15 +722,32 @@ export async function forkCodexAppServerThread(input: {
       message: "schema.invalid: sourceThreadId is required",
     });
   }
-  if (
-    input.computerFileAccessBoundary?.executionContextAccess &&
-    !normalizeOptionalText(input.sourceCompletedTurnId)
-  ) {
+  const sourceCompletedTurnId = normalizeOptionalText(
+    input.sourceCompletedTurnId
+  );
+  const executionContextScoped =
+    input.computerFileAccessBoundary?.executionContextAccess !== undefined;
+  if (sourceCompletedTurnId && input.forkFullHistory) {
+    throw new CodexAppServerTransportError({
+      code: "schema.invalid",
+      errorType: "config",
+      message:
+        "schema.invalid: a fork takes either sourceCompletedTurnId or forkFullHistory, not both",
+    });
+  }
+  // A fork without a cutoff copies the source's whole stored history. When the
+  // source is mid-turn that history contains the turn in progress, so the child
+  // would inherit an interrupted or never-finished turn as if it were settled
+  // context. Nothing here can detect whether the source is mid-turn, so the only
+  // safe default is to require a proven cutoff and make the unbounded copy an
+  // explicit, named decision by the caller.
+  if (!(sourceCompletedTurnId || input.forkFullHistory)) {
     throw new CodexAppServerTransportError({
       code: "execution_context.fork_checkpoint_unavailable",
       errorType: "config",
-      message:
-        "execution_context.fork_checkpoint_unavailable: a completed turn is required for a scoped fork",
+      message: executionContextScoped
+        ? "execution_context.fork_checkpoint_unavailable: a completed turn is required for a scoped fork"
+        : "execution_context.fork_checkpoint_unavailable: a completed turn is required, or forkFullHistory must be set to fork the source's entire history",
     });
   }
 
@@ -638,8 +775,8 @@ export async function forkCodexAppServerThread(input: {
                 ],
               }
             : {}),
-          ...(input.sourceCompletedTurnId
-            ? { lastTurnId: input.sourceCompletedTurnId }
+          ...(sourceCompletedTurnId
+            ? { lastTurnId: sourceCompletedTurnId }
             : {}),
           ...(input.targetWorkingDirectory
             ? { cwd: input.targetWorkingDirectory }
@@ -1578,10 +1715,11 @@ class CodexAppServerSession {
   }
 
   registerActiveTurn(input: {
+    interrupt?: () => Promise<void>;
     onActiveTurn?: CodexAppServerActiveTurnRegistrar;
     taskId: string;
     threadId: string;
-    turnId: string;
+    turnId: string | null;
   }): (() => void) | null {
     if (!input.onActiveTurn) {
       return null;
@@ -1589,13 +1727,17 @@ class CodexAppServerSession {
     return input.onActiveTurn({
       taskId: input.taskId,
       threadId: input.threadId,
-      turnId: input.turnId,
-      interrupt: async () => {
-        await this.request("turn/interrupt", {
-          threadId: input.threadId,
-          turnId: input.turnId,
-        });
-      },
+      turnId: input.turnId ?? "",
+      interrupt:
+        input.interrupt ??
+        (async () => {
+          if (input.turnId) {
+            await this.request("turn/interrupt", {
+              threadId: input.threadId,
+              turnId: input.turnId,
+            });
+          }
+        }),
     });
   }
 
@@ -2026,6 +2168,26 @@ function readThreadContextFromResponse(
     ),
     threadSource: normalizeOptionalText(response?.thread?.threadSource),
   };
+}
+
+function readLastCompletedTurnId(value: unknown): string | null {
+  const response = toRecord(value) as AppServerThreadReadResponse | null;
+  const turns = Array.isArray(response?.thread?.turns)
+    ? response.thread.turns
+    : [];
+  // The source may be mid-turn. Only a settled turn is a history boundary a
+  // fork may inherit, so scan backwards for the last completed one.
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const turn = turns[index];
+    if (normalizeOptionalText(turn?.status) !== "completed") {
+      continue;
+    }
+    const turnId = normalizeOptionalText(turn?.id);
+    if (turnId) {
+      return turnId;
+    }
+  }
+  return null;
 }
 
 function readTurnStartResponse(value: unknown): AppServerTurn {

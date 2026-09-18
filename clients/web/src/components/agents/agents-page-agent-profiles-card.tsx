@@ -257,6 +257,8 @@ function formatAgentProfileWorkRecoverySuccess(
 			return `Starting ${profileName}'s queued work.`;
 		case "skip_interrupted_work":
 			return `Skipped ${profileName}'s interrupted work.`;
+		case "fork_interrupted_work":
+			return `Continuing ${profileName}'s work on a new branch of the conversation.`;
 		default:
 			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
 	}
@@ -272,6 +274,8 @@ function formatAgentProfileWorkRecoveryFailureAction(
 			return "start the queued work";
 		case "skip_interrupted_work":
 			return "skip the interrupted work";
+		case "fork_interrupted_work":
+			return "continue the work on a new branch";
 		default:
 			return assertNeverProfileDetailsRecoveryActionKind(recoveryAction.kind);
 	}
@@ -1312,11 +1316,21 @@ function useAgentProfilesCardController(input: AgentProfilesCardProps) {
 		recoveryAction: ProfileDetailsRecoveryAction
 	) => {
 		let recoveryRequest: ExecuteAgentProfileWorkRecoveryBody;
-		if (recoveryAction.kind === "skip_interrupted_work") {
+		if (
+			recoveryAction.kind === "skip_interrupted_work" ||
+			recoveryAction.kind === "fork_interrupted_work"
+		) {
 			const expectedInterruptedTargetWakeLifecycleId =
 				recoveryAction.expectedInterruptedTargetWakeLifecycleId;
 			if (!expectedInterruptedTargetWakeLifecycleId) {
-				toast.error("Refresh this page before skipping the interrupted work.");
+				// Name the action the owner clicked. Telling someone who chose Skip to
+				// refresh "before continuing" is the wrong-cause copy this fence exists
+				// to prevent.
+				toast.error(
+					recoveryAction.kind === "fork_interrupted_work"
+						? "Refresh this page before continuing the interrupted work."
+						: "Refresh this page before skipping the interrupted work."
+				);
 				return;
 			}
 			recoveryRequest = {

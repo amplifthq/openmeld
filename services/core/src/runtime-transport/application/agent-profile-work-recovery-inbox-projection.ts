@@ -1,3 +1,8 @@
+import {
+  type AgentProfileWorkRecoveryInboxStage,
+  isAgentProfileWorkRecoveryInboxStage,
+} from "./agent-profile-work-recovery-inbox-producer";
+
 const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION =
   "openmeld.runtime_coordinator.agent_profile_work_recovery_inbox_projection.v1" as const;
 const AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_STORAGE_KEY_PREFIX =
@@ -21,7 +26,14 @@ export type AgentProfileWorkRecoveryInboxProjectionIntent = {
   modelVersion: typeof AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION;
   occurredAtMs: number;
   retryAfterMs: number | null;
-  stage: "approve_queued_work" | "review_interrupted_work";
+  stage: AgentProfileWorkRecoveryInboxStage;
+  /**
+   * Stages whose open item this intent replaces. Only one intent exists per
+   * profile at a time, so a gate that moves the owner from one stage to another
+   * cannot write a second intent to close the stage it left: the source key
+   * digests the stage, so the old item would stay open beside the new one.
+   */
+  supersededStages: AgentProfileWorkRecoveryInboxStage[];
   targetProfileId: string;
   targetWakeLifecycleId: string;
   updatedAtMs: number;
@@ -31,6 +43,7 @@ export function buildAgentProfileWorkRecoveryInboxProjectionIntent(input: {
   desiredStatus: AgentProfileWorkRecoveryInboxProjectionIntent["desiredStatus"];
   occurredAtMs: number;
   stage: AgentProfileWorkRecoveryInboxProjectionIntent["stage"];
+  supersededStages?: AgentProfileWorkRecoveryInboxStage[];
   targetProfileId: string;
   targetWakeLifecycleId: string;
   updatedAtMs: number;
@@ -42,6 +55,9 @@ export function buildAgentProfileWorkRecoveryInboxProjectionIntent(input: {
     occurredAtMs: input.occurredAtMs,
     retryAfterMs: null,
     stage: input.stage,
+    supersededStages: (input.supersededStages ?? []).filter(
+      (stage) => stage !== input.stage
+    ),
     targetProfileId: input.targetProfileId,
     targetWakeLifecycleId: input.targetWakeLifecycleId,
     updatedAtMs: input.updatedAtMs,
@@ -278,6 +294,7 @@ export function parseAgentProfileWorkRecoveryInboxProjectionIntent(
   const failureCount = intent.failureCount ?? 0;
   const retryAfterMs = intent.retryAfterMs ?? null;
   const stage = intent.stage ?? "approve_queued_work";
+  const supersededStages = intent.supersededStages ?? [];
   if (
     intent.modelVersion !==
       AGENT_PROFILE_WORK_RECOVERY_INBOX_PROJECTION_MODEL_VERSION ||
@@ -286,7 +303,13 @@ export function parseAgentProfileWorkRecoveryInboxProjectionIntent(
     intent.targetProfileId.length === 0 ||
     typeof intent.targetWakeLifecycleId !== "string" ||
     intent.targetWakeLifecycleId.length === 0 ||
-    (stage !== "approve_queued_work" && stage !== "review_interrupted_work") ||
+    !isAgentProfileWorkRecoveryInboxStage(stage) ||
+    !Array.isArray(supersededStages) ||
+    supersededStages.some(
+      (superseded) =>
+        !isAgentProfileWorkRecoveryInboxStage(superseded) ||
+        superseded === stage
+    ) ||
     !isNonnegativeInteger(failureCount) ||
     !(retryAfterMs === null || isNonnegativeInteger(retryAfterMs)) ||
     !isNonnegativeInteger(intent.occurredAtMs) ||
@@ -301,6 +324,7 @@ export function parseAgentProfileWorkRecoveryInboxProjectionIntent(
     occurredAtMs: intent.occurredAtMs,
     retryAfterMs,
     stage,
+    supersededStages,
     targetProfileId: intent.targetProfileId,
     targetWakeLifecycleId: intent.targetWakeLifecycleId,
     updatedAtMs: intent.updatedAtMs,
@@ -317,6 +341,10 @@ export function sameAgentProfileWorkRecoveryInboxProjectionIntent(
     left.occurredAtMs === right.occurredAtMs &&
     left.retryAfterMs === right.retryAfterMs &&
     left.stage === right.stage &&
+    left.supersededStages.length === right.supersededStages.length &&
+    left.supersededStages.every(
+      (stage, index) => stage === right.supersededStages[index]
+    ) &&
     left.targetProfileId === right.targetProfileId &&
     left.targetWakeLifecycleId === right.targetWakeLifecycleId &&
     left.updatedAtMs === right.updatedAtMs
