@@ -2339,6 +2339,12 @@ execution, waiting, readiness, or Service lifecycle decisions. Agent View keeps
 the structured setup and Service evidence. Partial completion continues to
 expose its cause and recovery action.
 
+The same Prepare stream may carry bounded, latest-only connection-progress
+observations from the authenticated Terminal to Web. These frames do not write
+Prepare state, increment `sessionRevision`, extend a deadline, or prove setup
+completion. Core still accepts completion only from the existing Prepare step
+and snapshot contracts; transport keepalive bytes are never progress evidence.
+
 Repair succeeds only for the component it repairs. It must not claim success
 just because a process started, local files were rewritten, or inventory was
 detected, and it must not project service health as final Wakeability.

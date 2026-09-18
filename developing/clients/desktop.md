@@ -244,6 +244,16 @@ verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
 
+The read-only local Computer projection recognizes only the same bootstrap
+conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
+`connection-review` command. With the native account unchanged across the read,
+it returns the existing `unavailable` shape and explains that explicit Connect
+will install or update OpenMeld Tools. It neither installs during a query nor
+claims a connected identity. Other review failures, invalid output, permission
+errors and authentication-read failures still fail closed. Connect retains its
+own native account check, verified installer and post-install connection review;
+the renderer's unknown-state guard is not relaxed. No IPC/schema change is needed.
+
 Main creates the existing Core Prepare Session and uses the shared API client's
 Device Authorization sequence with its authenticated native SDK transport. The
 grant creates an independent Computer session in the CLI; native cookies never
@@ -256,6 +266,19 @@ file-backed output. GUI exit does not stop it or the OS-managed Service. The
 existing Prepare continuation journal and maintenance worker retain recovery
 ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
 snapshot; errors retain a shared local-machine action and diagnostic correlation.
+Main also retains the current native connection operation and its eventual
+result in memory for the signed-in account. A connection page opened after the
+operation started adopts that operation through bounded IPC observation; it
+never starts a second `connectComputer` call. Pending and settled events share
+the operation identity, while account changes, sign-out, and retired operation
+IDs reject late progress. The main-generated operation ID remains stable across
+initial pending, CLI progress, and settlement; the CLI progress ID stays nested
+inside the operation. A confirmed native result can be presented immediately;
+the page refreshes the authoritative Computer projection before completing its
+continuation. Independent cloud-directory refresh does not hold that continuation.
+Refresh failure is a separate display warning, not a failed native operation.
+Restoration of the previous account does not replace the original account-switch
+failure.
 
 The standalone connection page reads the same native account-aligned Computer
 projection as Working folder selection. A positive connection shows Connected
@@ -274,8 +297,45 @@ stopped by stale reviewed intent. Retry can finish credential cleanup only after
 the matching Service owner's stopped intent and verified runtime absence.
 Connect can enroll this Mac again; Forget is never required for account switching.
 
-Setup progress comes from actual CLI agent-output stages, without percentages
-or a GUI deadline. Failed setup retains its original subprocess error and any
+The optional `disconnectComputerWithFeedback` bridge capability returns a strict
+shared result: `cancelled`, `disconnected`, `connection_changed`, `failed`, or
+`unconfirmed`. New callers include the displayed device/lane as
+`expectedConnection`; main compares it with the account-aligned CLI review before
+confirmation. Independent account and connection reads run together, but the
+native account/session revision is checked again after confirmation and the CLI
+still admits the exact reviewed session under its existing lifecycle lock.
+`checking`, `waiting_for_confirmation`, and `disconnecting` are emitted at those
+real code boundaries; they do not infer which Agent is draining.
+
+Connect and Disconnect share the existing main-process operation record and
+exclusion boundary. Disconnect replaces retained connect success at dispatch.
+`computerOperationCurrent` and `onComputerOperation` expose a strict union on the
+existing operation IPC channels; no new Service owner or operation registry is
+introduced. Sign-out clears presentation, not accepted work's exclusion; late
+settlement cannot repopulate the new account's record. The original connect-only
+observers ignore Disconnect records. The original `disconnectComputer` method
+still returns a boolean for cancellation/success and throws for all non-success
+failures; an older renderer never receives a truthy error object. A renderer on
+an older bridge uses that original method and honest generic waiting copy rather
+than inventing stages. Rich feedback and resumption require the new bundled
+main/preload; the normal Desktop renderer fingerprint gate remains unchanged.
+
+Only a successful CLI exit plus `computer.disconnected` completion evidence
+confirms disconnection. Explicit Stop refusal is a known failure; a timeout,
+missing terminal event, failed transport, or post-admission ownership change is
+not proof of success or proof that nothing stopped. Such unconfirmed results
+require an explicit status check before another mutation, never automatic
+restart, repeated Disconnect, or force kill. User-visible diagnostics contain
+only a bounded code, correlation ID, and the existing redacted generated file
+path. No raw CLI output or arbitrary file/URL execution channel is exposed.
+
+
+Setup progress comes from actual CLI agent-output stages. Percentages are shown
+only for a measured byte transfer, never for overall setup or a GUI deadline.
+Download byte observations are coalesced to a bounded UI cadence while stage
+changes and the final byte count remain immediate. Optional progress callbacks
+are isolated from download, verification, installation, and setup control.
+Failed setup retains its original subprocess error and any
 blocked Prepare step even if the final snapshot read fails. A private temporary
 diagnostic file retains the last 100 parsed events, with bounded, redacted
 messages; raw output is removed on completion. The UI exposes its path alongside

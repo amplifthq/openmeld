@@ -62,14 +62,62 @@ describe("Desktop computer connection admission", () => {
       },
     });
     if (scenario === "cancelled") {
-      await expect(disconnect({ expectedAccount: "account-a" })).resolves.toBe(
-        false
-      );
+      await expect(
+        disconnect({ expectedAccount: "account-a" })
+      ).resolves.toEqual({
+        status: "cancelled",
+      });
     } else {
       await expect(
         disconnect({ expectedAccount: "account-a" })
-      ).rejects.toThrow("Desktop sign-in changed");
+      ).resolves.toMatchObject({ status: "connection_changed" });
     }
+    expect(spawn).not.toHaveBeenCalled();
+  });
+  it.each([
+    "account",
+    "device",
+    "lane",
+  ])("does not open confirmation or dispatch Disconnect for a changed %s", async (changed) => {
+    const confirmDisconnect = vi.fn();
+    const onPhase = vi.fn();
+    mocks.exec.mockResolvedValue({
+      stdout: JSON.stringify({
+        protocol: "computer-connection-v1",
+        previousSessionIdentity: "reviewed-session",
+        account: {
+          id: changed === "account" ? "account-b" : "account-a",
+          email: null,
+        },
+        existingConnection: {
+          deviceId: changed === "device" ? "device-b" : "device-a",
+          runtimeLane: changed === "lane" ? "prod" : "dev-local",
+        },
+      }),
+    });
+    const disconnect = createComputerDisconnection({
+      auth: {
+        session: vi.fn().mockResolvedValue({ user: { id: "account-a" } }),
+      },
+      commandDeps: {
+        openMeldBin: "/test-owned/openmeld",
+        env: {
+          OPENMELD_HOME: "/test-owned",
+          OPENMELD_AUTH_URL: "http://lane.localhost:8788",
+          OPENMELD_GATEWAY_URL: "http://lane.localhost:8080",
+        },
+      },
+      confirmDisconnect,
+      onPhase,
+    });
+    await expect(
+      disconnect({
+        expectedAccount: "account-a",
+        expectedConnection: { deviceId: "device-a", runtimeLane: "dev-local" },
+      })
+    ).resolves.toMatchObject({ status: "connection_changed" });
+    expect(onPhase.mock.calls).toEqual([["checking"]]);
+    expect(confirmDisconnect).not.toHaveBeenCalled();
     expect(spawn).not.toHaveBeenCalled();
   });
   it.each([
@@ -90,6 +138,7 @@ describe("Desktop computer connection admission", () => {
       cloudRequest.mockRejectedValue(new Error("Prepare requested"));
     }
     const confirmSwitch = vi.fn(async () => false);
+    const onProgress = vi.fn();
     mocks.exec.mockResolvedValue({
       stdout: JSON.stringify({
         protocol: "computer-connection-v1",
@@ -137,6 +186,7 @@ describe("Desktop computer connection admission", () => {
       installed: false,
       ensureCompatible: async () => undefined,
       confirmSwitch,
+      onProgress,
     });
     const result = connect({
       expectedAccount: "account-a",
@@ -193,6 +243,13 @@ describe("Desktop computer connection admission", () => {
       expect(mocks.install).toHaveBeenCalledOnce();
     } else {
       expect(mocks.install).not.toHaveBeenCalled();
+    }
+    if (scenario !== "unexpected_field") {
+      expect(onProgress.mock.calls[0]?.[0]).toMatchObject({
+        phase: "checking",
+        state: "active",
+        sequence: 0,
+      });
     }
   });
 });

@@ -30,6 +30,7 @@
     "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/protocol": "workspace:*",
     "@openmeld/schemas": "workspace:*",
+    "@openmeld/start": "workspace:*",
     "@openmeld/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "better-auth": "1.6.30",

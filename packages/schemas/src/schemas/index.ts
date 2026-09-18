@@ -2518,6 +2518,7 @@ export {
   prepareBlockerRetryActionSchema,
   prepareBlockerSchema,
   prepareBlockerSeveritySchema,
+  prepareConnectionProgressWriteSchema,
   prepareDiagnosticResponseSchema,
   prepareLocalAgentCatalogSchema,
   prepareLocalAgentIdsSchema,

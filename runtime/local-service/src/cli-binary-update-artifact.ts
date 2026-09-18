@@ -22,6 +22,12 @@ export type CliBinaryDownloadPolicy = {
   totalBudgetMs: number;
 };
 
+export type CliBinaryDownloadProgress = {
+  receivedBytes: number;
+  totalBytes: number;
+  transferAttempt: number;
+};
+
 export const DEFAULT_CLI_BINARY_DOWNLOAD_POLICY: CliBinaryDownloadPolicy = {
   maxAttempts: 3,
   retryDelaysMs: [500, 1500],
@@ -127,6 +133,7 @@ export async function downloadCliBinaryUpdateArtifact(input: {
   downloadPolicy: CliBinaryDownloadPolicy;
   fetchImpl: typeof fetch;
   onDeltaFallback: (error: Error) => void;
+  onProgress?: (progress: CliBinaryDownloadProgress) => void;
   plan: CliBinaryUpdatePlan;
   release: CliBinaryRelease;
 }): Promise<Buffer> {
@@ -253,6 +260,7 @@ async function downloadCliBinaryDelta(input: {
   delta: CliBinaryDelta;
   downloadPolicy: CliBinaryDownloadPolicy;
   fetchImpl: typeof fetch;
+  onProgress?: (progress: CliBinaryDownloadProgress) => void;
   recovery: DownloadRecoveryContext;
   release: CliBinaryRelease;
 }): Promise<Buffer> {
@@ -261,6 +269,7 @@ async function downloadCliBinaryDelta(input: {
     expectedSizeBytes: input.delta.patchSizeBytes,
     fetchImpl: input.fetchImpl,
     label: "binary delta archive",
+    onProgress: input.onProgress,
     recovery: input.recovery,
     url: input.delta.patchUrl,
   });
@@ -326,6 +335,7 @@ export function resolveFullCliBinaryUpdatePlan(
 async function downloadFullCliBinaryArtifact(input: {
   downloadPolicy: CliBinaryDownloadPolicy;
   fetchImpl: typeof fetch;
+  onProgress?: (progress: CliBinaryDownloadProgress) => void;
   plan: CliBinaryFullUpdatePlan;
   recovery: DownloadRecoveryContext;
   release: CliBinaryRelease;
@@ -335,6 +345,7 @@ async function downloadFullCliBinaryArtifact(input: {
     fetchImpl: input.fetchImpl,
     label:
       input.plan.transport === "archive" ? "binary archive" : "binary download",
+    onProgress: input.onProgress,
     recovery: input.recovery,
     url: input.plan.downloadUrl,
   });
@@ -436,6 +447,7 @@ async function downloadBinaryBytesWithRecovery(input: {
   expectedSizeBytes: number;
   fetchImpl: typeof fetch;
   label: string;
+  onProgress?: (progress: CliBinaryDownloadProgress) => void;
   recovery: DownloadRecoveryContext;
   url: string;
 }): Promise<Buffer> {
@@ -479,6 +491,7 @@ async function downloadBinaryBytesAttempt(input: {
   expectedSizeBytes: number;
   fetchImpl: typeof fetch;
   label: string;
+  onProgress?: (progress: CliBinaryDownloadProgress) => void;
   recovery: DownloadRecoveryContext;
   url: string;
 }): Promise<Buffer> {
@@ -513,6 +526,11 @@ async function downloadBinaryBytesAttempt(input: {
     reader = response.body.getReader();
     const chunks: Buffer[] = [];
     let receivedBytes = 0;
+    input.onProgress?.({
+      receivedBytes,
+      totalBytes: input.expectedSizeBytes,
+      transferAttempt: input.recovery.attemptsStarted,
+    });
     while (true) {
       const next = await waitForDownloadProgress(reader.read(), {
         controller,
@@ -532,6 +550,11 @@ async function downloadBinaryBytesAttempt(input: {
           `${input.label} size exceeded the declared ${input.expectedSizeBytes} bytes while downloading`
         );
       }
+      input.onProgress?.({
+        receivedBytes,
+        totalBytes: input.expectedSizeBytes,
+        transferAttempt: input.recovery.attemptsStarted,
+      });
       chunks.push(Buffer.from(next.value));
     }
   } catch (error) {

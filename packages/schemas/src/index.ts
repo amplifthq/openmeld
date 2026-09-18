@@ -92,18 +92,36 @@ export {
 export { toSpaceSignalReadWireValue } from "./compatibility/space-signal-read-wire";
 export {
   type ComputerConnectionIntent,
+  type ComputerSetupOutput,
   computerConnectionIntentSchema,
   computerConnectionReviewSchema,
   computerSetupOutputSchema,
+  type DesktopComputerConnectionOperation,
   type DesktopComputerConnectionProgress,
   type DesktopComputerConnectionRequest,
   type DesktopComputerConnectionResult,
+  type DesktopComputerDisconnectOperation,
+  type DesktopComputerDisconnectPhase,
   type DesktopComputerDisconnectRequest,
+  type DesktopComputerDisconnectResult,
+  type DesktopComputerOperation,
+  desktopComputerConnectionOperationSchema,
   desktopComputerConnectionProgressSchema,
   desktopComputerConnectionRequestSchema,
   desktopComputerConnectionResultSchema,
+  desktopComputerDisconnectOperationSchema,
+  desktopComputerDisconnectPhaseSchema,
   desktopComputerDisconnectRequestSchema,
+  desktopComputerDisconnectResultSchema,
+  desktopComputerOperationSchema,
 } from "./computer-connection";
+export {
+  type ComputerConnectionProgressObservation,
+  type ComputerConnectionProgressPhase,
+  computerConnectionProgressMeasurementSchema,
+  computerConnectionProgressObservationSchema,
+  computerConnectionProgressPhaseSchema,
+} from "./computer-connection-progress";
 export {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,

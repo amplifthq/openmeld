@@ -9,7 +9,10 @@ import {
   AuthRequestCredentialError,
   fingerprintRequestAuthorization,
 } from "../src/config/request-headers";
-import { runDaemonServiceLoop } from "../src/local-service/carrier/service-runner";
+import {
+  createControlledShutdownCoordinator,
+  runDaemonServiceLoop,
+} from "../src/local-service/carrier/service-runner";
 import { DAEMON_STREAM_CONNECT_TIMEOUT_MS } from "../src/local-service/core/constants";
 import { withTempHome } from "./helpers/fs";
 
@@ -609,6 +612,50 @@ describe("local service runner dual-write", () => {
       mode: "graceful",
     });
     expect(clearDaemonServiceRuntimeStateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("joins repeated controlled shutdown requests to the admitted drain", async () => {
+    let stopping = false;
+    let shutdownRequestCount = 0;
+    const shutdownAdmitted = Promise.withResolvers<void>();
+    const coordinator = createControlledShutdownCoordinator({
+      hasUndrainedWork: () => false,
+      isStopRequested: () => stopping,
+      markStopping: () => {
+        stopping = true;
+      },
+    });
+    coordinator.attachSession(() => {
+      shutdownRequestCount += 1;
+      shutdownAdmitted.resolve();
+    });
+    const initialStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+    await shutdownAdmitted.promise;
+    const recoveryStop = coordinator.request({
+      gracePeriodMs: 5000,
+      mode: "graceful",
+    });
+
+    expect(shutdownRequestCount).toBe(1);
+
+    coordinator.handleSessionCompleted();
+    await expect(Promise.all([initialStop, recoveryStop])).resolves.toEqual([
+      {
+        accepted: true,
+        gracePeriodMs: 5000,
+        mode: "graceful",
+      },
+      {
+        accepted: true,
+        gracePeriodMs: 5000,
+        mode: "graceful",
+      },
+    ]);
+
+    expect(shutdownRequestCount).toBe(2);
   });
 
   it("preserves an explicit user stop cause through the controlled shutdown handshake", async () => {

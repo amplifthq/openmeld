@@ -1,5 +1,11 @@
 // biome-ignore-all lint/performance/noBarrelFile: Shared start package intentionally exposes a stable root entrypoint.
 export { buildOnboardingPlan } from "./planner/onboarding-plan";
+export {
+  type ComputerConnectionProgressPresentation,
+  formatComputerConnectionElapsed,
+  isNewerComputerConnectionProgress,
+  presentComputerConnectionProgress,
+} from "./presentation/computer-connection-progress";
 export { buildDaemonRouteObservationPresentation } from "./presentation/profile-readiness";
 export {
   getSetupFlowCopy,

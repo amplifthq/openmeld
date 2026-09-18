@@ -1611,6 +1611,23 @@ workflow contract tests, but do not by themselves create a local-component
 release. Product-facing and runtime schemas elsewhere in `packages/schemas`
 remain release-sensitive.
 
+### Prepare Connection Progress Observation Contract
+
+Prepare connection progress uses a versioned, strict observation payload with
+operation and attempt identity, producer sequence, timestamp, semantic phase,
+state, and optional bounded detail or measured byte transfer. Terminal may send
+the observation only for its authenticated Prepare Session and current
+connection epoch. Core relays a latest-only value to Web without a D1 event,
+Prepare mutation, or `sessionRevision` change. Receivers treat unsupported
+progress as optional and retain the existing coarse snapshot experience.
+The relayed payload retains the Terminal connection epoch. Core accepts only
+the current epoch and increasing producer sequence, retires cached progress
+when the Terminal is replaced or the session ends, and isolates each optional
+Web observer write. An observer delivery failure cannot become a Terminal
+write failure or reject an authoritative Prepare step. Web binds observations
+to the epoch in its current snapshot; producer timestamps never arbitrate
+between attempts.
+
 ### Prepare Diagnostics Lifecycle Journal Contract
 
 `prepareStepDiagnosticsLifecycleEventTypeSchema` is the strict shared allowlist
