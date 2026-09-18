@@ -1,8 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 import {
   DESKTOP_APP_ORIGIN,
   DESKTOP_AUTH_SCHEME,
+  type DesktopComputerConnectionProgress,
+  type DesktopComputerDisconnectResult,
+  type DesktopComputerOperation,
+  type DesktopInboxAttention,
   type DesktopInstalledTarget,
+  desktopComputerConnectionRequestSchema,
+  desktopComputerDisconnectRequestSchema,
   desktopInstalledTargetSchema,
   desktopPlatformSchema,
 } from "@openmeld/schemas";
@@ -46,7 +53,16 @@ declare const __OPENMELD_DESKTOP_INSTALLED_TARGET__: DesktopInstalledTarget | nu
 
 export function initializeDesktopPilot(
   getWindow: () => BrowserWindow | null,
-  setUnreadCount: (count: number | null) => void
+  setInboxAttention: (attention: DesktopInboxAttention | null) => void,
+  setTrayPresentation?: Parameters<
+    typeof createPilotNotifications
+  >[0]["setTrayPresentation"],
+  setTrayContext?: Parameters<
+    typeof createPilotNotifications
+  >[0]["setTrayContext"],
+  invalidateTrayScope?: Parameters<
+    typeof createPilotNotifications
+  >[0]["invalidateTrayScope"]
 ) {
   const installedTarget = __OPENMELD_DESKTOP_INSTALLED_TARGET__
     ? desktopInstalledTargetSchema.parse(__OPENMELD_DESKTOP_INSTALLED_TARGET__)
@@ -144,7 +160,10 @@ export function initializeDesktopPilot(
   });
   const notifications = createPilotNotifications({
     auth,
-    setUnreadCount,
+    setInboxAttention,
+    setTrayPresentation,
+    setTrayContext,
+    invalidateTrayScope,
     webOrigin,
     getWindow,
     webBuild: platform.webBuild,
@@ -161,6 +180,7 @@ export function initializeDesktopPilot(
   const diagnosticsEnabled =
     !app.isPackaged && process.env.OPENMELD_DESKTOP_DIAGNOSTICS === "1";
   return {
+    activateNotification: notifications.activate,
     auth,
     installedTarget,
     diagnosticsEnabled,
@@ -185,6 +205,7 @@ export function initializeDesktopPilot(
       }
     },
     rendererUrl: `${DESKTOP_APP_ORIGIN}/${sharedAssets ? "desktop-shell" : "pilot.html"}`,
+    webOrigin,
     install(authorize: (event: IpcMainInvokeEvent) => void) {
       // Preserve the Inbox feed cadence without changing document visibility.
       notificationPoll = setInterval(() => {
@@ -216,6 +237,29 @@ export function initializeDesktopPilot(
           ensureCompatible,
         }
       );
+      let latestConnectionProgress: DesktopComputerConnectionProgress | null =
+        null;
+      let latestConnectionOperation: DesktopComputerOperation | null = null;
+      // Clearing presentation on sign-out does not cancel accepted native work.
+      // Keep the same IPC owner exclusive until that work actually settles.
+      let computerMutationPending = false;
+      const publishConnectionOperation = (
+        operation: DesktopComputerOperation | null
+      ) => {
+        latestConnectionOperation = operation;
+        if (!operation) {
+          return;
+        }
+        const owner = getWindow()?.webContents;
+        if (owner && !owner.isDestroyed()) {
+          try {
+            owner.send(PILOT_IPC.connectionOperation, operation);
+          } catch {
+            // Losing a renderer does not cancel the operation it was observing.
+          }
+        }
+      };
+      const readLatestConnectionProgress = () => latestConnectionProgress;
       const handlers = {
         [PILOT_IPC.platform]: () => platform,
         [PILOT_IPC.localComputer]: readLocalComputer,
@@ -224,11 +268,15 @@ export function initializeDesktopPilot(
           return auth.session();
         },
         [PILOT_IPC.signIn]: () => {
+          latestConnectionProgress = null;
+          latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
           return auth.signIn();
         },
         [PILOT_IPC.signOut]: () => {
+          latestConnectionProgress = null;
+          latestConnectionOperation = null;
           notifications.clear();
           streams.closeAll();
           return auth.signOut();
@@ -254,6 +302,25 @@ export function initializeDesktopPilot(
           return result.response === 1;
         },
         onProgress: (progress) => {
+          if (
+            !latestConnectionOperation ||
+            "kind" in latestConnectionOperation ||
+            latestConnectionOperation.status !== "pending" ||
+            latestConnectionOperation.request.expectedAccount !==
+              progress.expectedAccount ||
+            (latestConnectionOperation.progress &&
+              (latestConnectionOperation.progress.operationId !==
+                progress.operationId ||
+                latestConnectionOperation.progress.sequence >=
+                  progress.sequence))
+          ) {
+            return;
+          }
+          latestConnectionProgress = progress;
+          publishConnectionOperation({
+            ...latestConnectionOperation,
+            progress,
+          });
           const owner = getWindow()?.webContents;
           if (owner && !owner.isDestroyed()) {
             owner.send(PILOT_IPC.connectionProgress, progress);
@@ -263,6 +330,16 @@ export function initializeDesktopPilot(
       const disconnectComputer = createComputerDisconnection({
         auth,
         commandDeps,
+        sessionRevision: () => sessionRevision,
+        onPhase: (phase) => {
+          if (
+            latestConnectionOperation &&
+            "kind" in latestConnectionOperation &&
+            latestConnectionOperation.status === "pending"
+          ) {
+            publishConnectionOperation({ ...latestConnectionOperation, phase });
+          }
+        },
         confirmDisconnect: async () => {
           const result = await dialog.showMessageBox({
             type: "warning",
@@ -276,16 +353,137 @@ export function initializeDesktopPilot(
           return result.response === 1;
         },
       });
+      const handleDisconnect = async (
+        event: IpcMainInvokeEvent,
+        request: unknown
+      ): Promise<DesktopComputerDisconnectResult> => {
+        authorize(event);
+        const intent = desktopComputerDisconnectRequestSchema.parse(request);
+        if (computerMutationPending) {
+          throw new Error(
+            "A computer connection operation is already in progress."
+          );
+        }
+        computerMutationPending = true;
+        const operationId = randomUUID();
+        latestConnectionProgress = null;
+        // Replace retained connect success in its existing owner, not in a page
+        // cache. Reopening the page cannot replay it after Disconnect.
+        publishConnectionOperation({
+          kind: "disconnect",
+          operationId,
+          request: intent,
+          status: "pending",
+          phase: "checking",
+          result: null,
+        });
+        let result: DesktopComputerDisconnectResult;
+        try {
+          result = await disconnectComputer(intent);
+        } catch {
+          result = {
+            status: "unconfirmed",
+            code: "desktop.disconnect.unconfirmed",
+            message:
+              "Disconnect may have been accepted, but its final result could not be confirmed. Check the connection before trying again.",
+          };
+        } finally {
+          computerMutationPending = false;
+        }
+        if (result.status !== "cancelled" && result.status !== "disconnected") {
+          result = { ...result, diagnosticId: operationId };
+        }
+        if (
+          latestConnectionOperation?.operationId === operationId &&
+          "kind" in latestConnectionOperation
+        ) {
+          publishConnectionOperation({
+            ...latestConnectionOperation,
+            status: "settled",
+            result,
+          });
+        }
+        return result;
+      };
+      ipcMain.handle(
+        PILOT_IPC.disconnectComputerWithFeedback,
+        handleDisconnect
+      );
       ipcMain.handle(
         PILOT_IPC.disconnectComputer,
-        (event, request: unknown) => {
-          authorize(event);
-          return disconnectComputer(request);
+        async (event, request: unknown) => {
+          const result = await handleDisconnect(event, request);
+          if (result.status === "cancelled") {
+            return false;
+          }
+          if (result.status === "disconnected") {
+            return true;
+          }
+          // Older renderers must never interpret a structured failure as truthy.
+          throw new Error(result.message);
         }
       );
-      ipcMain.handle(PILOT_IPC.connectComputer, (event, request: unknown) => {
+      ipcMain.handle(
+        PILOT_IPC.connectComputer,
+        async (event, request: unknown) => {
+          authorize(event);
+          const intent = desktopComputerConnectionRequestSchema.parse(request);
+          if (computerMutationPending) {
+            throw new Error("A computer connection is already in progress.");
+          }
+          computerMutationPending = true;
+          const operationId = randomUUID();
+          latestConnectionProgress = null;
+          publishConnectionOperation({
+            operationId,
+            request: intent,
+            status: "pending",
+            progress: null,
+            result: null,
+            errorMessage: null,
+          });
+          try {
+            const result = await connectComputer(intent);
+            const settledProgress = readLatestConnectionProgress();
+            if (latestConnectionOperation?.operationId === operationId) {
+              publishConnectionOperation({
+                operationId,
+                request: intent,
+                status: "settled",
+                progress: settledProgress,
+                result,
+                errorMessage: null,
+              });
+            }
+            return result;
+          } catch (error) {
+            const settledProgress = readLatestConnectionProgress();
+            if (latestConnectionOperation?.operationId === operationId) {
+              publishConnectionOperation({
+                operationId,
+                request: intent,
+                status: "settled",
+                progress: settledProgress,
+                result: null,
+                errorMessage:
+                  error instanceof Error && error.message.trim()
+                    ? error.message.trim()
+                    : "This computer could not connect. Try again.",
+              });
+            }
+            throw error;
+          } finally {
+            computerMutationPending = false;
+          }
+        }
+      );
+      ipcMain.handle(PILOT_IPC.connectionProgressCurrent, (event) => {
         authorize(event);
-        return connectComputer(request);
+        return latestConnectionProgress;
+      });
+      ipcMain.handle(PILOT_IPC.connectionOperationCurrent, (event) => {
+        authorize(event);
+        return latestConnectionOperation;
       });
       for (const [channel, handler] of Object.entries(handlers)) {
         ipcMain.handle(channel, (event) => {

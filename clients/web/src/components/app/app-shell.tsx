@@ -63,36 +63,42 @@ export function AppShell(input: {
 						spaceId={activeSpaceId}
 					/>
 					<StartFlowStateProvider storageScope={input.storageScope}>
-						<InboxVisibleConversationProvider>
-							<AppReadinessInvalidationListener
-								organizationId={input.organizationScope.currentOrganization.id}
-								storageScope={input.storageScope}
-							/>
-							<InboxNotificationListener
-								organizationId={input.organizationScope.currentOrganization.id}
-								organizationSlug={
-									input.organizationScope.currentOrganization.slug
-								}
-								userId={input.organizationScope.currentUserId}
-							/>
-							<OnboardingEntryGate
-								currentOrganization={
-									input.organizationScope.currentOrganization
-								}
-								currentSection={currentSection}
-								hasExplicitSpaceDestination={Boolean(activeSpaceId)}
-								organizations={input.organizationScope.organizations}
-								storageScope={input.storageScope}
-							>
-								{currentSection === "space" && activeSpaceId ? (
-									<InboxBrowserNotificationPrompt
-										userId={input.organizationScope.currentUserId}
-									/>
-								) : null}
-								<AppShellScaffold currentSection={currentSection} />
-								<AppSettingsDialog />
-							</OnboardingEntryGate>
-						</InboxVisibleConversationProvider>
+						<CurrentComputerProvider>
+							<InboxVisibleConversationProvider>
+								<AppReadinessInvalidationListener
+									organizationId={
+										input.organizationScope.currentOrganization.id
+									}
+									storageScope={input.storageScope}
+								/>
+								<InboxNotificationListener
+									organizationId={
+										input.organizationScope.currentOrganization.id
+									}
+									organizationSlug={
+										input.organizationScope.currentOrganization.slug
+									}
+									userId={input.organizationScope.currentUserId}
+								/>
+								<OnboardingEntryGate
+									currentOrganization={
+										input.organizationScope.currentOrganization
+									}
+									currentSection={currentSection}
+									hasExplicitSpaceDestination={Boolean(activeSpaceId)}
+									organizations={input.organizationScope.organizations}
+									storageScope={input.storageScope}
+								>
+									{currentSection === "space" && activeSpaceId ? (
+										<InboxBrowserNotificationPrompt
+											userId={input.organizationScope.currentUserId}
+										/>
+									) : null}
+									<AppShellScaffold currentSection={currentSection} />
+									<AppSettingsDialog />
+								</OnboardingEntryGate>
+							</InboxVisibleConversationProvider>
+						</CurrentComputerProvider>
 					</StartFlowStateProvider>
 				</HumanPresenceProvider>
 			</AppOrganizationProvider>
@@ -175,9 +181,7 @@ function AppShellScaffold(input: { currentSection: AppShellSection }) {
 	if (input.currentSection !== "start") {
 		return (
 			<main className="h-dvh overflow-hidden bg-background">
-				<CurrentComputerProvider>
-					<Outlet />
-				</CurrentComputerProvider>
+				<Outlet />
 			</main>
 		);
 	}

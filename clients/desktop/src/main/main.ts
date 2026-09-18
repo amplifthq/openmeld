@@ -1,14 +1,12 @@
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import type { DesktopInboxAttention } from "@openmeld/schemas";
 import {
-  ArrowClockwiseIcon,
+  BellIcon,
   DesktopIcon,
+  DesktopTowerIcon,
   GearSixIcon,
-  GlobeIcon,
-  PlayCircleIcon,
   PowerIcon,
-  StopCircleIcon,
-  WrenchIcon,
 } from "@phosphor-icons/react/ssr";
 import {
   app,
@@ -29,11 +27,20 @@ import {
   type DesktopWindowDestination,
   WINDOW_IPC,
 } from "../shared/ipc-contract";
+import { isDesktopAppHref } from "../shared/navigation";
 import type { CliProblem, ServiceView } from "../shared/view-types";
-import { resolveDesktopDownloadPageUrl } from "./desktop-environment";
+import {
+  normalizeExternalBrowserUrl,
+  resolveDesktopDownloadPageUrl,
+  resolveDesktopWebUrl,
+} from "./desktop-environment";
 import { installedCommandEnvironment } from "./installed-environment";
 import { createDesktopHandlers, type DesktopHandlers } from "./ipc-handlers";
 import { initializeDesktopPilot } from "./pilot";
+import type {
+  DesktopTrayContext,
+  DesktopTrayPresentation,
+} from "./pilot-notifications";
 import { createPilotServiceHandlers } from "./pilot-service";
 import { registerOpenMeldIpcHandlers } from "./register-ipc";
 import { assertTrustedRenderer } from "./renderer-trust";
@@ -45,7 +52,16 @@ const APP_WIDTH = 1040;
 const APP_HEIGHT = 720;
 const APP_MIN_WIDTH = 960;
 const APP_MIN_HEIGHT = 640;
-const APP_NAME = "OpenMeld Desktop";
+const APP_NAME = "OpenMeld";
+// These UTF-16 text budgets keep native auto-layout compact without claiming a
+// pixel width. Truncation always retreats to a complete grapheme boundary.
+const TRAY_PREVIEW_SOURCE_TEXT_BUDGET = 30;
+const TRAY_PREVIEW_BODY_TEXT_BUDGET = 32;
+const TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET = 22;
+const TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET = 18;
+const NATIVE_MENU_GRAPHEME_SEGMENTER = new Intl.Segmenter(undefined, {
+  granularity: "grapheme",
+});
 const APP_ICON_PATH = join(import.meta.dirname, "../../resources/icon.png");
 const TRAY_ICON_PATH = join(
   import.meta.dirname,
@@ -65,29 +81,36 @@ let ipcDisposer: (() => void) | null = null;
 let quitIntent: "none" | "ordinary" | "updater-install" = "none";
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let trayUnreadTitle = "";
+let trayAttention: DesktopInboxAttention | null = null;
+let trayAttentionTitle = "";
+let trayContext: DesktopTrayContext | null = null;
+let trayMenuOpen = false;
+let trayMenuRefreshPending = false;
+let trayPresentation: DesktopTrayPresentation = { status: "loading" };
 const pilot = initializeDesktopPilot(
   () => mainWindow,
-  (count) => {
+  (attention) => {
+    trayAttention = attention;
     if (process.platform === "darwin") {
-      const title = count !== null && count > 0 ? String(count) : "";
-      trayUnreadTitle = count !== null && count > 99 ? "99+" : title;
-      tray?.setTitle(trayUnreadTitle);
+      trayAttentionTitle = formatTrayAttentionTitle(attention);
+      tray?.setTitle(trayAttentionTitle);
     }
-  }
+    updateTrayMenu();
+  },
+  (presentation) => {
+    trayPresentation = presentation;
+    updateTrayMenu();
+  },
+  (context) => {
+    trayContext = context;
+    updateTrayMenu();
+  },
+  invalidateOpenTrayMenu
 );
-let latestServiceView: ServiceView | null = null;
 let appUpdater: ReturnType<typeof registerAppUpdater> | null = null;
 
 type SyncTrayOptions = {
   showProblem: boolean;
-};
-
-type ConfirmTrayActionInput = {
-  title: string;
-  message: string;
-  detail: string;
-  confirmLabel: string;
 };
 
 function createMainWindow(
@@ -116,14 +139,27 @@ function createMainWindow(
   }
 
   const window = new BrowserWindow(options);
+  window.maximize();
   pilot?.observeWindow(window.webContents);
 
   window.webContents.setWindowOpenHandler(({ url }) => {
-    openExternalBrowserUrl(url);
+    const browserUrl = resolveBrowserHandoffUrl(url);
+    if (browserUrl) {
+      openExternalBrowserUrl(browserUrl);
+    }
     return { action: "deny" };
   });
-  window.webContents.on("will-navigate", (event) => {
+  window.webContents.on("will-navigate", (event, url) => {
     event.preventDefault();
+    const href = resolveInAppNavigationHref(url);
+    if (href) {
+      window.webContents.send(WINDOW_IPC.navigateHref, href);
+      return;
+    }
+    const browserUrl = resolveBrowserHandoffUrl(url);
+    if (browserUrl) {
+      openExternalBrowserUrl(browserUrl);
+    }
   });
   window.webContents.on("will-prevent-unload", () => {
     if (quitIntent === "ordinary") {
@@ -160,20 +196,55 @@ function createMainWindow(
 }
 
 function openExternalBrowserUrl(value: string): void {
-  let url: URL;
   try {
-    url = new URL(value);
+    runBackgroundTask(shell.openExternal(normalizeExternalBrowserUrl(value)));
   } catch {
     return;
   }
-  if (
-    (url.protocol !== "http:" && url.protocol !== "https:") ||
-    url.username.length > 0 ||
-    url.password.length > 0
-  ) {
-    return;
+}
+
+function resolveInAppNavigationHref(value: string | undefined): string | null {
+  if (!value) {
+    return null;
   }
-  runBackgroundTask(shell.openExternal(url.href), { showError: false });
+  try {
+    const url = new URL(value);
+    const origin = `${url.protocol}//${url.host}`;
+    if (
+      origin !== "openmeld-desktop://app" &&
+      (!pilot || url.origin !== pilot.webOrigin)
+    ) {
+      return null;
+    }
+    const href = `${url.pathname}${url.search}${url.hash}`;
+    return isDesktopAppHref(href) ? href : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveBrowserHandoffUrl(value: string): string | null {
+  const appHref = resolveInAppNavigationHref(value);
+  if (appHref) {
+    try {
+      return resolveDesktopWebUrl({
+        env: pilot?.installedTarget
+          ? installedCommandEnvironment(
+              pilot.installedTarget,
+              app.getPath("userData")
+            ).env
+          : process.env,
+        path: appHref,
+      });
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return normalizeExternalBrowserUrl(value);
+  } catch {
+    return null;
+  }
 }
 
 function configureAppIdentity(): void {
@@ -252,7 +323,7 @@ function createApplicationMenu(): MenuItemConstructorOptions[] {
       submenu: [
         {
           click: () => runTrayAction(() => handlers.openWeb()),
-          label: "Open OpenMeld Web App",
+          label: "Open Web App",
         },
       ],
     }
@@ -351,7 +422,7 @@ function createTray(): Tray {
   const nextTray = new Tray(createTrayImage());
   tray = nextTray;
   if (process.platform === "darwin") {
-    nextTray.setTitle(trayUnreadTitle);
+    nextTray.setTitle(trayAttentionTitle);
   }
   updateTrayMenu();
   runBackgroundTask(refreshTrayStatus(), { showError: false });
@@ -362,113 +433,136 @@ function updateTrayMenu(): void {
   if (!tray) {
     return;
   }
+  if (trayMenuOpen) {
+    trayMenuRefreshPending = true;
+    return;
+  }
   tray.setToolTip(resolveTrayTooltip());
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      {
-        label: resolveTrayStatusLabel(),
-        enabled: false,
-      },
-      {
-        label: resolveTrayDesktopVersionLabel(),
-        enabled: false,
-      },
-      { type: "separator" },
-      trayActionItem({
-        icon: "desktop",
-        label: "Open OpenMeld Desktop",
-        click: showStatusWindow,
-      }),
-      trayActionItem({
-        icon: "web",
-        label: "Open OpenMeld Web App",
-        click: () => {
-          runTrayAction(() => handlers.openWeb());
-        },
-      }),
-      { type: "separator" },
-      trayActionItem({
-        icon: "settings",
-        label: "Open Settings",
-        click: showSettingsWindow,
-      }),
-      { type: "separator" },
-      ...serviceMenuItems(),
-      { type: "separator" },
-      trayActionItem({
-        icon: "quit",
-        label: "Quit OpenMeld Desktop",
-        click: quitDesktop,
-      }),
-    ])
-  );
+  const menu = Menu.buildFromTemplate(createTrayMenuTemplate());
+  if ("on" in menu && typeof menu.on === "function") {
+    menu.on("menu-will-show", () => {
+      trayMenuOpen = true;
+    });
+    menu.on("menu-will-close", () => {
+      trayMenuOpen = false;
+      if (trayMenuRefreshPending) {
+        trayMenuRefreshPending = false;
+        updateTrayMenu();
+      }
+    });
+  }
+  tray.setContextMenu(menu);
 }
 
-/**
- * The service controls are binary: a running service only offers Stop (plus
- * Reconnect), a stopped service only offers Start, and a service that isn't
- * installed (or whose status / CLI can't be read) only offers Set Up. This
- * mirrors the GUI's per-state screens — we never show both Start and Stop.
- */
-function serviceMenuItems(): MenuItemConstructorOptions[] {
-  if (pilot) {
+function invalidateOpenTrayMenu(): void {
+  if (!trayMenuOpen) {
+    return;
+  }
+  trayMenuOpen = false;
+  trayMenuRefreshPending = false;
+  tray?.closeContextMenu();
+}
+
+function createTrayMenuTemplate(): MenuItemConstructorOptions[] {
+  const preview = trayPreviewMenuItems(trayPresentation);
+  const unreadCount = trayContext?.unreadCount;
+  const computer = trayContext?.computer;
+  const computerStatus = computer?.statusLabel ?? "Checking…";
+  const nativeMenuCapabilities = resolveNativeMenuCapabilities();
+  return [
+    ...preview,
+    trayActionItem({
+      icon: "inbox",
+      label: "Open Inbox",
+      ...(unreadCount && unreadCount > 0
+        ? { sublabel: `${unreadCount} unread` }
+        : {}),
+      click: () => showDesktopWindow("inbox"),
+    }),
+    { type: "separator" },
+    trayActionItem({
+      icon: "desktop",
+      label: "Open App",
+      click: showStatusWindow,
+    }),
+    trayActionItem({
+      icon: "computer",
+      label: nativeMenuCapabilities.badge
+        ? "Computer"
+        : `Computer — ${computerStatus}`,
+      accessibilityLabel: `Computer, ${computerStatus}`,
+      ...(nativeMenuCapabilities.badge
+        ? { badge: { type: "none" as const, content: computerStatus } }
+        : {}),
+      enabled: computer?.available ?? Boolean(pilot),
+      click: () => showDesktopWindow("computer"),
+    }),
+    trayActionItem({
+      icon: "settings",
+      label: "Settings…",
+      click: showSettingsWindow,
+    }),
+    { type: "separator" },
+    trayActionItem({
+      icon: "quit",
+      label: "Quit OpenMeld",
+      click: quitDesktop,
+    }),
+  ];
+}
+
+function trayPreviewMenuItems(
+  presentation: DesktopTrayPresentation
+): MenuItemConstructorOptions[] {
+  if (presentation.status === "ready") {
+    const item = presentation.item;
+    const reference = item.reference;
+    const source = item.contextLabel
+      ? `${item.title} · ${item.contextLabel}`
+      : item.title;
+    const relativeTime = formatRelativeTime(item.occurredAt);
+    const headline = `${truncateNativeMenuText(
+      source,
+      TRAY_PREVIEW_SOURCE_TEXT_BUDGET
+    )} · ${relativeTime}`;
+    const preview = truncateNativeMenuText(
+      item.preview,
+      TRAY_PREVIEW_BODY_TEXT_BUDGET
+    );
+    const supportsSublabel = resolveNativeMenuCapabilities().sublabel;
+    return [
+      { label: "Latest unread", enabled: false },
+      {
+        label: supportsSublabel
+          ? headline
+          : `${truncateNativeMenuText(
+              source,
+              TRAY_PREVIEW_FALLBACK_SOURCE_TEXT_BUDGET
+            )} · ${relativeTime} — ${truncateNativeMenuText(
+              item.preview,
+              TRAY_PREVIEW_FALLBACK_BODY_TEXT_BUDGET
+            )}`,
+        ...(supportsSublabel ? { sublabel: preview } : {}),
+        toolTip: item.preview,
+        click: () => {
+          showDesktopWindow();
+          runBackgroundTask(
+            pilot?.activateNotification(reference) ?? Promise.resolve()
+          );
+        },
+      },
+    ];
+  }
+  if (presentation.status === "empty") {
     return [];
   }
-  const setupItem: MenuItemConstructorOptions = {
-    icon: createTrayMenuIcon("setup"),
-    label: resolveSetupComputerLabel(),
-    click: () => runServiceTrayAction(() => handlers.setupComputer()),
-  };
-  const cliMissing = latestServiceView?.problem?.kind === "spawn_failed";
-  if (cliMissing) {
-    return [setupItem];
-  }
-  switch (latestServiceView?.lifecycle) {
-    case "running":
-      return [
-        trayActionItem({
-          icon: "reconnect",
-          label: setupItem.label ?? resolveSetupComputerLabel(),
-          click: () =>
-            runConfirmedServiceTrayAction(
-              {
-                title: "Reconnect this computer?",
-                message: "Reconnect This Computer",
-                detail:
-                  "This reruns setup for this Mac and may restart OpenMeld Service. It will not sign you out.",
-                confirmLabel: "Reconnect This Computer",
-              },
-              () => handlers.setupComputer()
-            ),
-        }),
-        trayActionItem({
-          icon: "stop",
-          label: "Stop OpenMeld Service",
-          click: () =>
-            runConfirmedServiceTrayAction(
-              {
-                title: "Stop OpenMeld Service?",
-                message: "Stop OpenMeld Service on this Mac",
-                detail:
-                  "This Mac cannot receive local Wake work until OpenMeld Service is started again.",
-                confirmLabel: "Stop OpenMeld Service",
-              },
-              () => handlers.stopService()
-            ),
-        }),
-      ];
-    case "stopped":
-      return [
-        trayActionItem({
-          icon: "start",
-          label: "Start OpenMeld Service",
-          click: () => runServiceTrayAction(() => handlers.startService()),
-        }),
-      ];
-    default:
-      // not_installed / unknown / unread — Set Up is the only safe action.
-      return [setupItem];
-  }
+  const label = {
+    loading: "Loading notifications…",
+    no_unread_messages: "No unread messages",
+    signed_out: "Sign in to view notifications",
+    unavailable: "Notifications unavailable",
+  }[presentation.status];
+  return [{ label, enabled: false }];
 }
 
 function trayActionItem(
@@ -478,15 +572,7 @@ function trayActionItem(
   return icon ? { ...item, icon } : { ...item, icon: undefined };
 }
 
-type TrayMenuIconName =
-  | "desktop"
-  | "quit"
-  | "reconnect"
-  | "settings"
-  | "setup"
-  | "start"
-  | "stop"
-  | "web";
+type TrayMenuIconName = "computer" | "desktop" | "inbox" | "quit" | "settings";
 
 type TrayMenuIconComponent = ComponentType<{
   color?: string;
@@ -495,14 +581,11 @@ type TrayMenuIconComponent = ComponentType<{
 }>;
 
 const TRAY_MENU_ICONS = {
+  computer: DesktopTowerIcon,
   desktop: DesktopIcon,
+  inbox: BellIcon,
   quit: PowerIcon,
-  reconnect: ArrowClockwiseIcon,
   settings: GearSixIcon,
-  setup: WrenchIcon,
-  start: PlayCircleIcon,
-  stop: StopCircleIcon,
-  web: GlobeIcon,
 } satisfies Record<TrayMenuIconName, TrayMenuIconComponent>;
 
 function createTrayMenuIcon(name: TrayMenuIconName) {
@@ -522,40 +605,6 @@ function createTrayMenuIcon(name: TrayMenuIconName) {
   );
 }
 
-function runServiceTrayAction(mutate: () => Promise<ServiceView>): void {
-  runTrayAction(async () => {
-    syncTrayServiceView(await mutate(), { showProblem: true });
-  });
-}
-
-function runConfirmedServiceTrayAction(
-  confirm: ConfirmTrayActionInput,
-  mutate: () => Promise<ServiceView>
-): void {
-  runTrayAction(async () => {
-    if (!(await confirmTrayAction(confirm))) {
-      return;
-    }
-    syncTrayServiceView(await mutate(), { showProblem: true });
-  });
-}
-
-async function confirmTrayAction(
-  input: ConfirmTrayActionInput
-): Promise<boolean> {
-  const result = await dialog.showMessageBox({
-    type: "warning",
-    title: input.title,
-    message: input.message,
-    detail: input.detail,
-    buttons: ["Cancel", input.confirmLabel],
-    defaultId: 0,
-    cancelId: 0,
-    noLink: true,
-  });
-  return result.response === 1;
-}
-
 async function refreshTrayStatus(): Promise<void> {
   syncTrayServiceView(await handlers.getServiceStatus(), {
     showProblem: false,
@@ -566,7 +615,6 @@ function syncTrayServiceView(
   view: ServiceView,
   options: SyncTrayOptions
 ): void {
-  latestServiceView = view;
   updateTrayMenu();
   if (options.showProblem && view.problem) {
     showProblem(resolveProblemTitle(view.problem), view.problem);
@@ -587,7 +635,7 @@ function runBackgroundTask(
       return;
     }
     const message = error instanceof Error ? error.message : String(error);
-    dialog.showErrorBox("OpenMeld Desktop", message);
+    dialog.showErrorBox(APP_NAME, message);
   });
 }
 
@@ -600,41 +648,136 @@ function showProblem(title: string, problem: CliProblem): void {
 
 function resolveProblemTitle(problem: CliProblem): string {
   if (problem.kind === "spawn_failed") {
-    return "OpenMeld Desktop could not find the OpenMeld command-line tool.";
+    return "OpenMeld could not find the OpenMeld command-line tool.";
   }
-  return "OpenMeld Desktop could not update the service.";
-}
-
-function resolveTrayStatusLabel(): string {
-  if (latestServiceView?.problem?.kind === "spawn_failed") {
-    return "OpenMeld Command-Line Tool: Not Available";
-  }
-  switch (latestServiceView?.lifecycle) {
-    case "running":
-      return "OpenMeld Service: Running";
-    case "stopped":
-      return "OpenMeld Service: Stopped";
-    case "not_installed":
-      return "OpenMeld Service: Not Installed";
-    case "unknown":
-      return "OpenMeld Service: Status Unavailable";
-    default:
-      return "OpenMeld Service: Checking Status";
-  }
-}
-
-function resolveTrayDesktopVersionLabel(): string {
-  return `OpenMeld Desktop: v${app.getVersion()}`;
+  return "OpenMeld could not update the service.";
 }
 
 function resolveTrayTooltip(): string {
-  return resolveTrayStatusLabel().replace(": ", " - ");
+  const service = APP_NAME;
+  const attention = formatTrayAttentionTooltip(trayAttention);
+  return attention ? `${service}\n${attention}` : service;
 }
 
-function resolveSetupComputerLabel(): string {
-  return latestServiceView?.lifecycle === "running"
-    ? "Reconnect This Computer"
-    : "Set Up This Computer";
+function formatTrayAttentionTitle(
+  attention: DesktopInboxAttention | null
+): string {
+  if (!attention) {
+    return "";
+  }
+  const important =
+    attention.unresolvedActionCount + attention.unreadUrgentUpdateCount;
+  const segments = [
+    ...(important > 0 ? [`!${formatTrayAttentionCount(important)}`] : []),
+    ...(attention.unreadMentionCount > 0
+      ? [`@${formatTrayAttentionCount(attention.unreadMentionCount)}`]
+      : []),
+  ];
+  if (segments.length > 0) {
+    return segments.join(" ");
+  }
+  return attention.ordinaryUnreadCount > 0 ? "•" : "";
+}
+
+function formatTrayAttentionTooltip(
+  attention: DesktopInboxAttention | null
+): string | null {
+  if (!attention) {
+    return null;
+  }
+  const details = [
+    ...(attention.unresolvedActionCount > 0
+      ? [
+          `${attention.unresolvedActionCount} pending ${attention.unresolvedActionCount === 1 ? "action or review" : "actions or reviews"}`,
+        ]
+      : []),
+    ...(attention.unreadUrgentUpdateCount > 0
+      ? [
+          `${attention.unreadUrgentUpdateCount} unread urgent ${attention.unreadUrgentUpdateCount === 1 ? "update" : "updates"}`,
+        ]
+      : []),
+    ...(attention.unreadMentionCount > 0
+      ? [
+          `${attention.unreadMentionCount} unread ${attention.unreadMentionCount === 1 ? "mention" : "mentions"}`,
+        ]
+      : []),
+    ...(attention.ordinaryUnreadCount > 0
+      ? [
+          `${attention.ordinaryUnreadCount} other unread ${attention.ordinaryUnreadCount === 1 ? "update" : "updates"}`,
+        ]
+      : []),
+  ];
+  return details.length > 0
+    ? `Inbox - ${details.join(", ")}`
+    : "Inbox - All caught up";
+}
+
+function formatTrayAttentionCount(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}
+
+function resolveNativeMenuCapabilities(): {
+  badge: boolean;
+  sublabel: boolean;
+} {
+  if (
+    process.platform !== "darwin" ||
+    typeof process.getSystemVersion !== "function"
+  ) {
+    return { badge: false, sublabel: false };
+  }
+  const [major = 0, minor = 0] = process
+    .getSystemVersion()
+    .split(".")
+    .map((part) => Number.parseInt(part, 10));
+  return {
+    badge: major >= 14,
+    sublabel: major > 14 || (major === 14 && minor >= 4),
+  };
+}
+
+function truncateNativeMenuText(value: string, textBudget: number): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= textBudget) {
+    return normalized;
+  }
+  if (textBudget <= 0) {
+    return "";
+  }
+  if (textBudget === 1) {
+    return "…";
+  }
+
+  const contentBudget = textBudget - 1;
+  let truncationIndex = 0;
+  for (const grapheme of NATIVE_MENU_GRAPHEME_SEGMENTER.segment(normalized)) {
+    const nextIndex = grapheme.index + grapheme.segment.length;
+    if (nextIndex > contentBudget) {
+      break;
+    }
+    truncationIndex = nextIndex;
+  }
+  return `${normalized.slice(0, truncationIndex).trimEnd()}…`;
+}
+
+function formatRelativeTime(value: string): string {
+  const occurredAt = Date.parse(value);
+  if (!Number.isFinite(occurredAt)) {
+    return "now";
+  }
+  const elapsedMs = Math.max(0, Date.now() - occurredAt);
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) {
+    return "now";
+  }
+  if (minutes < 60) {
+    return `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return `${hours}h`;
+  }
+  return `${Math.floor(hours / 24)}d`;
 }
 
 function quitDesktop(): void {
@@ -734,8 +877,7 @@ function bootstrapApp(): void {
         authorizeRenderer(event);
         const window = BrowserWindow.fromWebContents(event.sender);
         if (window && !window.isDestroyed()) {
-          window.setSize(APP_WIDTH, APP_HEIGHT, true);
-          window.center();
+          window.maximize();
         }
       });
       ipcMain.handle(WINDOW_IPC.quitDesktop, (event) => {

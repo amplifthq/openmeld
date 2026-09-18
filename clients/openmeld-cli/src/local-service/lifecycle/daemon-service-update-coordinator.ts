@@ -52,6 +52,8 @@ type ScheduleDaemonServiceUpdateInput = {
   operationId?: string;
   requestedAt?: string;
   requestSource?: OpenMeldToolsUpdateRequestSource;
+  targetCliVersion?: string;
+  targetServiceVersion?: string;
   targetVersion: string;
   urgency: "available" | "required";
 };
@@ -147,6 +149,12 @@ async function scheduleDaemonServiceUpdateLocked(
     requestedAt: input.requestedAt ?? now,
     phase: "waiting_for_work",
     requestSource: input.requestSource ?? "cli",
+    ...(input.targetCliVersion
+      ? { targetCliVersion: input.targetCliVersion }
+      : {}),
+    ...(input.targetServiceVersion
+      ? { targetServiceVersion: input.targetServiceVersion }
+      : {}),
     targetVersion: input.targetVersion,
     updatedAt: now,
     urgency: input.urgency,
@@ -183,25 +191,7 @@ async function reschedulePendingDaemonServiceUpdate(input: {
     replaceTarget || escalateUrgency
       ? {
           ...input.pending,
-          ...(replaceTarget
-            ? {
-                attempts: 0,
-                errorMessage: null,
-                phase: "waiting_for_work" as const,
-                preparedBundle: await input.dependencies.prepareBundle({
-                  activate: false,
-                  daemonVersion: input.request.targetVersion,
-                  ...(input.request.binaryRelease
-                    ? { binaryRelease: input.request.binaryRelease }
-                    : {}),
-                  ...(input.request.cliScriptPath
-                    ? { cliScriptPath: input.request.cliScriptPath }
-                    : {}),
-                }),
-                requestSource: input.request.requestSource ?? "cli",
-                targetVersion: input.request.targetVersion,
-              }
-            : {}),
+          ...(replaceTarget ? await prepareReplacementJobFields(input) : {}),
           updatedAt: input.dependencies.now(),
           urgency: escalateUrgency ? "required" : input.pending.urgency,
         }
@@ -223,6 +213,35 @@ async function reschedulePendingDaemonServiceUpdate(input: {
     });
   }
   return { job: retained, status: "already_scheduled" };
+}
+
+async function prepareReplacementJobFields(input: {
+  dependencies: ScheduleDaemonServiceUpdateDependencies;
+  request: ScheduleDaemonServiceUpdateInput;
+}): Promise<Partial<DaemonServiceUpdateJob>> {
+  return {
+    attempts: 0,
+    errorMessage: null,
+    phase: "waiting_for_work",
+    preparedBundle: await input.dependencies.prepareBundle({
+      activate: false,
+      daemonVersion: input.request.targetVersion,
+      ...(input.request.binaryRelease
+        ? { binaryRelease: input.request.binaryRelease }
+        : {}),
+      ...(input.request.cliScriptPath
+        ? { cliScriptPath: input.request.cliScriptPath }
+        : {}),
+    }),
+    requestSource: input.request.requestSource ?? "cli",
+    ...(input.request.targetCliVersion
+      ? { targetCliVersion: input.request.targetCliVersion }
+      : {}),
+    ...(input.request.targetServiceVersion
+      ? { targetServiceVersion: input.request.targetServiceVersion }
+      : {}),
+    targetVersion: input.request.targetVersion,
+  };
 }
 
 async function pruneWorkerVersionsBestEffort(input: {

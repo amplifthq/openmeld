@@ -14,6 +14,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useMemo, useState } from "react";
 import { z } from "zod/v4";
+import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import { copyTextToClipboard } from "#/lib/clipboard";
 import {
 	getOrganizationJoinLink,
@@ -249,52 +250,56 @@ export function InviteOnboardingStep(input: { onContinue: () => void }) {
 	};
 
 	return (
-		<div className="flex flex-1 flex-col">
-			<InvitationAccessContent
-				canInvite={canInvite}
-				isPersonalWorkspace={currentOrganization.isPersonal === true}
-				roleError={roleQuery.isError}
-				rolePending={roleQuery.isPending}
-			>
-				<InvitationManager
-					batchResults={batchResults}
-					copyStatus={copyStatus}
-					draft={draft}
-					invitePending={inviteMutation.isPending}
-					joinLink={joinLinkQuery.data ?? null}
-					joinLinkError={
-						joinLinkMutation.error?.message ??
-						joinLinkQuery.error?.message ??
-						null
-					}
-					joinLinkPending={
-						joinLinkMutation.isPending || joinLinkQuery.isPending
-					}
-					onCopy={(url) => {
-						copyTextToClipboard(url)
-							.then((didCopy) => setCopyStatus(didCopy ? "copied" : "failed"))
-							.catch(() => setCopyStatus("failed"));
-					}}
-					onDraftChange={(value) => {
-						setDraft(value);
-						setValidationMessage(null);
-					}}
-					onGenerateJoinLink={() => joinLinkMutation.mutate()}
-					onSubmitInvitations={submitInvitations}
-					pendingInvitationCount={visibleInvitations.length}
-					validationMessage={validationMessage}
-				/>
-			</InvitationAccessContent>
-			<div className="mt-auto flex items-center justify-between gap-4 pt-6">
-				<p className="text-muted-foreground text-xs">
-					Optional. Invite more people later from Directory.
-				</p>
-				<Button onClick={input.onContinue} type="button">
-					Continue
-					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-				</Button>
-			</div>
-		</div>
+		<OnboardingStepLayout
+			body={
+				<InvitationAccessContent
+					canInvite={canInvite}
+					isPersonalWorkspace={currentOrganization.isPersonal === true}
+					roleError={roleQuery.isError}
+					rolePending={roleQuery.isPending}
+				>
+					<InvitationManager
+						batchResults={batchResults}
+						copyStatus={copyStatus}
+						draft={draft}
+						invitePending={inviteMutation.isPending}
+						joinLink={joinLinkQuery.data ?? null}
+						joinLinkError={
+							joinLinkMutation.error?.message ??
+							joinLinkQuery.error?.message ??
+							null
+						}
+						joinLinkPending={
+							joinLinkMutation.isPending || joinLinkQuery.isPending
+						}
+						onCopy={(url) => {
+							copyTextToClipboard(url)
+								.then((didCopy) => setCopyStatus(didCopy ? "copied" : "failed"))
+								.catch(() => setCopyStatus("failed"));
+						}}
+						onDraftChange={(value) => {
+							setDraft(value);
+							setValidationMessage(null);
+						}}
+						onGenerateJoinLink={() => joinLinkMutation.mutate()}
+						onSubmitInvitations={submitInvitations}
+						pendingInvitationCount={visibleInvitations.length}
+						validationMessage={validationMessage}
+					/>
+				</InvitationAccessContent>
+			}
+			footer={
+				<div className="flex items-center justify-between gap-4 max-sm:items-end">
+					<p className="text-muted-foreground text-xs">
+						Optional. Invite more people later from Directory.
+					</p>
+					<Button onClick={input.onContinue} type="button">
+						Continue
+						<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
+					</Button>
+				</div>
+			}
+		/>
 	);
 }
 

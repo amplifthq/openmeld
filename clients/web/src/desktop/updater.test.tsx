@@ -84,7 +84,7 @@ it("keeps the installed version separate from the changing update status", async
 	if (!settings) {
 		throw new Error("Expected the Desktop Updates settings section.");
 	}
-	await within(settings).findByText("OpenMeld Desktop is up to date.");
+	await within(settings).findByText("OpenMeld is up to date.");
 	expect(within(settings).getByText("Installed version")).toBeTruthy();
 	expect(within(settings).getByText("Version 0.1.1")).toBeTruthy();
 	expect(within(settings).queryByText("Available version")).toBeNull();

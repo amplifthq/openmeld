@@ -931,6 +931,7 @@ export type {
   SetSpaceAccessModeBody,
   SpaceAccessMode,
   SpaceAccessModeState,
+  SpaceLinkJoinPolicy,
 } from "./space-access-mode";
 export type {
   RespondToSpaceAgentInteractionBody,

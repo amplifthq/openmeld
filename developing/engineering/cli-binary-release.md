@@ -387,10 +387,13 @@ node scripts/release/upload-cli-binary.mjs
   Binary builds can receive the same immutable selection from the publisher;
   it is embedded at compile time and written unchanged to the channel manifest.
   Staging `publish --retain-service` exercises that path against the existing
-  staging-only Service artifact. Production publication is still gated: publishers must not emit an independent
-  target until installation, repair, maintenance, and channel verification all
-  support it. Deploy Web manifest readers before publishing the field; older
-  Web readers strip unknown metadata. Current coupled-release guards remain.
+  staging-only Service artifact. Production may retain the prior published
+  Service only when the base-aware release classifier proves no Service-owned
+  input changed. The selected Service version must be no newer than the CLI,
+  and the publisher, resumable stage probes, and channel-sync gate all verify
+  its exact raw and gzip artifacts before the manifest can move. Any
+  Service-owned change keeps the release coupled. Deploy Web manifest readers
+  before publishing the field; older Web readers strip unknown metadata.
 - Each platform record keeps `url`, `sha256`, and `sizeBytes` for the raw
   executable so older clients continue to work. The additive
   `archiveFormat`, `archiveUrl`, `archiveSha256`, and `archiveSizeBytes` fields

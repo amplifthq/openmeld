@@ -76,13 +76,17 @@ describe("GlobalInboxLauncher", () => {
 		});
 		getCurrentInboxSummaryMock.mockReset().mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 1,
 			totalUnreadCount: 3,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 2,
 			unreadUrgentUpdateCount: 0,
 		});
 		listCurrentInboxItemsMock.mockReset().mockImplementation(async (input) => ({
 			items:
-				input.view === "urgent_updates" || input.view === "needs_review"
+				input.view === "urgent_updates" ||
+				input.view === "needs_review" ||
+				input.view === "mentions"
 					? []
 					: [
 							input.view === "needs_action"
@@ -247,7 +251,9 @@ describe("GlobalInboxLauncher", () => {
 	it("shows unresolved actions instead of claiming the Inbox is caught up", async () => {
 		getCurrentInboxSummaryMock.mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 0,
 			totalUnreadCount: 0,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 6,
 			unreadUrgentUpdateCount: 0,
 		});
@@ -302,7 +308,9 @@ describe("GlobalInboxLauncher", () => {
 	it("colors urgent-only updates amber and includes older urgent items in their own section", async () => {
 		getCurrentInboxSummaryMock.mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 100,
 			totalUnreadCount: 101,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 0,
 			unreadUrgentUpdateCount: 1,
 		});
@@ -337,7 +345,9 @@ describe("GlobalInboxLauncher", () => {
 	it("gives actions precedence while describing both kinds of attention", async () => {
 		getCurrentInboxSummaryMock.mockResolvedValue({
 			organizationId: "organization-123",
+			ordinaryUnreadCount: 3,
 			totalUnreadCount: 8,
+			unreadMentionCount: 0,
 			unresolvedActionCount: 2,
 			unreadUrgentUpdateCount: 3,
 		});

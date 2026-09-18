@@ -1072,7 +1072,9 @@ describe("api-client space api", () => {
       spaceId: "space-123",
       requestContext: REQUEST_CONTEXT,
       accessMode: "public_view_join_password",
+      allowGuests: true,
       password: "pw-123",
+      visibility: "public",
     });
 
     expect(result).toEqual({
@@ -1088,7 +1090,9 @@ describe("api-client space api", () => {
           method: "PUT",
           body: JSON.stringify({
             accessMode: "public_view_join_password",
+            allowGuests: true,
             password: "pw-123",
+            visibility: "public",
           }),
         }),
       })

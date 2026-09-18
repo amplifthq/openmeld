@@ -117,16 +117,33 @@ notification confirms only native acknowledgement, not that a person saw it.
 Notifications continue when the window is hidden and end when the GUI quits;
 the independent Service has no notification responsibility.
 
-On macOS, the menu bar icon also shows the current Organization's canonical
-Inbox unread count from `totalUnreadCount`, capped visually at `99+`. Ordinary
-unread items contribute; read but unresolved actions do not. Zero or unknown
-counts show no number. This uses the shared summary query and existing native
-refresh cadence, independently of notification delivery permission. The trusted
-renderer supplies only a schema-validated count and account scope; Main verifies
-the native account before displaying it. Logout, account or Organization changes,
-and stale asynchronous results clear or reject the previous count. No separate
-Inbox store, Service polling, Dock badge, or Windows behavior is introduced.
-Tray creation applies the latest observed title even if the count arrived first.
+On macOS, the menu bar icon shows the current Organization's Core-owned Inbox
+attention presentation. Open actions/reviews and unread urgent updates combine
+as `!N`; unread Human mentions show as `@N`; ordinary unread shows only `•` when
+no stronger category exists. Each numeric category caps visually at `99+`, and
+the tooltip breaks out actions/reviews, urgent updates, mentions, and other
+unread updates. Muted ordinary conversation updates are absent without becoming
+read, while protected attention remains visible. Zero or unknown attention shows
+no title. This uses the shared summary query and existing native refresh cadence,
+independently of notification delivery permission. The trusted renderer supplies
+only a schema-validated categorized object and account scope; Main verifies the
+native account before displaying it. Logout, account or Organization changes,
+and stale asynchronous results clear or reject the previous attention. No
+separate Inbox store, Service polling, Dock badge, or Windows behavior is
+introduced. Tray creation applies the latest observed title even if attention
+arrived first.
+
+The macOS menu bar menu is the compact native entry to the current Desktop
+workspace. It shows the newest eligible unread message as one preview, then
+Open inbox, Open app, Computer, Settings…, and Quit OpenMeld. Opening the menu
+does not mark anything read. Activating the preview re-reads that exact Inbox
+item under the current account, restores the existing window, and navigates to
+the exact message or Thread reply without acknowledging unrelated unread work.
+Open app restores the renderer's existing route rather than choosing a new
+home. The menu does not expose the version, a separate Web app row, or Service
+lifecycle controls. Quitting the GUI retains the independent Service lifecycle.
+The native menu keeps its current snapshot while open, so a refresh cannot
+retarget the row under the pointer.
 
 The A1 foundation is opt-in with `OPENMELD_DESKTOP_PILOT=1`. It requires a
 dev-local or canary lane and a configured loopback Web endpoint. Production
@@ -156,6 +173,14 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   Invalidation removes stale private query and persistence state but retains
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
+  Entry distinguishes an unknown/failed session read from confirmed sign-out.
+  Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
+  native session changes supersede older reads. Temporary workspace failures do
+  not initiate browser sign-in or repeat an already handled account invalidation.
+  Failed protected-route session reads return to this entry with the existing
+  validated workspace path, query, and hash, without clearing account data.
+  Confirmed missing Organization membership retains the shared explicit error
+  rather than selecting an Organization or automatically retrying.
   Its Space stream methods open a subscription by ID/Space/Profile, send only
   the existing keepalive ping, close it, and deliver transport events. No URL,
   credentials, or business-write frames are accepted.
@@ -176,6 +201,11 @@ The authorized shared App Settings dialog consumes that intent through
 context. No separate Settings page or account bypass is introduced: before an
 authorized workspace mounts, the existing sign-in entry remains in control.
 Settings intents respect the updater's document interaction freeze.
+
+Visible product copy calls the application OpenMeld. The installed bundle,
+authentication client identity, data directories, and update channels retain
+their existing stable identifiers. Desktop's account menu includes Open web app;
+it opens the equivalent authorized Web route in the system browser.
 
 The cloud response allowlist includes `x-openmeld-request-id` and `Server-Timing`
 for shared diagnostics. It still strips cookies, credentials and unlisted headers.
@@ -213,6 +243,17 @@ five-minute Setup wrapper.
 
 ### Computer connection
 
+Owner Computer cards offer browser update/reconnect handoff through the existing
+`openDesktopWeb` capability and shared Connect route builder. They carry the
+Organization, stable Computer ID, fresh-session intent and supported update
+action, never credentials or a new local lifecycle command. Unselected or
+unresolved targets stay in the existing selection flow. Instructions name the
+viewed Computer: opening a browser on this Mac does not select this Mac as the
+machine to repair. Browser authorization is independent of Desktop's session.
+Team cards stay read-only; ordinary Web controls remain in place. Pending opens
+are bounded to the displayed account scope, Organization and target; they do not
+apply feedback to a replacement card.
+
 The shared Connect flow, including New Agent's embedded recovery, offers a
 fixed `connectComputer` operation in Desktop. Its strict request contains the
 displayed account and optional Human Profile/Space IDs only. Main validates its
@@ -244,6 +285,16 @@ verifies transport and executable hashes and the production signing identity.
 The verified binary's `install-self` owns installation. No Node/npm prerequisite,
 arbitrary renderer executable, URL, path, or shell command is accepted.
 
+The read-only local Computer projection recognizes only the same bootstrap
+conditions: a missing executable (`ENOENT`) or an exit-1 unknown `computer` /
+`connection-review` command. With the native account unchanged across the read,
+it returns the existing `unavailable` shape and explains that explicit Connect
+will install or update OpenMeld Tools. It neither installs during a query nor
+claims a connected identity. Other review failures, invalid output, permission
+errors and authentication-read failures still fail closed. Connect retains its
+own native account check, verified installer and post-install connection review;
+the renderer's unknown-state guard is not relaxed. No IPC/schema change is needed.
+
 Main creates the existing Core Prepare Session and uses the shared API client's
 Device Authorization sequence with its authenticated native SDK transport. The
 grant creates an independent Computer session in the CLI; native cookies never
@@ -256,6 +307,19 @@ file-backed output. GUI exit does not stop it or the OS-managed Service. The
 existing Prepare continuation journal and maintenance worker retain recovery
 ownership. Completion requires CLI `setup.complete` and a completed Core Prepare
 snapshot; errors retain a shared local-machine action and diagnostic correlation.
+Main also retains the current native connection operation and its eventual
+result in memory for the signed-in account. A connection page opened after the
+operation started adopts that operation through bounded IPC observation; it
+never starts a second `connectComputer` call. Pending and settled events share
+the operation identity, while account changes, sign-out, and retired operation
+IDs reject late progress. The main-generated operation ID remains stable across
+initial pending, CLI progress, and settlement; the CLI progress ID stays nested
+inside the operation. A confirmed native result can be presented immediately;
+the page refreshes the authoritative Computer projection before completing its
+continuation. Independent cloud-directory refresh does not hold that continuation.
+Refresh failure is a separate display warning, not a failed native operation.
+Restoration of the previous account does not replace the original account-switch
+failure.
 
 The standalone connection page reads the same native account-aligned Computer
 projection as Working folder selection. A positive connection shows Connected
@@ -274,8 +338,45 @@ stopped by stale reviewed intent. Retry can finish credential cleanup only after
 the matching Service owner's stopped intent and verified runtime absence.
 Connect can enroll this Mac again; Forget is never required for account switching.
 
-Setup progress comes from actual CLI agent-output stages, without percentages
-or a GUI deadline. Failed setup retains its original subprocess error and any
+The optional `disconnectComputerWithFeedback` bridge capability returns a strict
+shared result: `cancelled`, `disconnected`, `connection_changed`, `failed`, or
+`unconfirmed`. New callers include the displayed device/lane as
+`expectedConnection`; main compares it with the account-aligned CLI review before
+confirmation. Independent account and connection reads run together, but the
+native account/session revision is checked again after confirmation and the CLI
+still admits the exact reviewed session under its existing lifecycle lock.
+`checking`, `waiting_for_confirmation`, and `disconnecting` are emitted at those
+real code boundaries; they do not infer which Agent is draining.
+
+Connect and Disconnect share the existing main-process operation record and
+exclusion boundary. Disconnect replaces retained connect success at dispatch.
+`computerOperationCurrent` and `onComputerOperation` expose a strict union on the
+existing operation IPC channels; no new Service owner or operation registry is
+introduced. Sign-out clears presentation, not accepted work's exclusion; late
+settlement cannot repopulate the new account's record. The original connect-only
+observers ignore Disconnect records. The original `disconnectComputer` method
+still returns a boolean for cancellation/success and throws for all non-success
+failures; an older renderer never receives a truthy error object. A renderer on
+an older bridge uses that original method and honest generic waiting copy rather
+than inventing stages. Rich feedback and resumption require the new bundled
+main/preload; the normal Desktop renderer fingerprint gate remains unchanged.
+
+Only a successful CLI exit plus `computer.disconnected` completion evidence
+confirms disconnection. Explicit Stop refusal is a known failure; a timeout,
+missing terminal event, failed transport, or post-admission ownership change is
+not proof of success or proof that nothing stopped. Such unconfirmed results
+require an explicit status check before another mutation, never automatic
+restart, repeated Disconnect, or force kill. User-visible diagnostics contain
+only a bounded code, correlation ID, and the existing redacted generated file
+path. No raw CLI output or arbitrary file/URL execution channel is exposed.
+
+
+Setup progress comes from actual CLI agent-output stages. Percentages are shown
+only for a measured byte transfer, never for overall setup or a GUI deadline.
+Download byte observations are coalesced to a bounded UI cadence while stage
+changes and the final byte count remain immediate. Optional progress callbacks
+are isolated from download, verification, installation, and setup control.
+Failed setup retains its original subprocess error and any
 blocked Prepare step even if the final snapshot read fails. A private temporary
 diagnostic file retains the last 100 parsed events, with bounded, redacted
 messages; raw output is removed on completion. The UI exposes its path alongside
@@ -320,10 +421,11 @@ Restart freezes document editing, flushes active text through the existing
 composer draft owner, and refuses while navigation guards, pending sends,
 attachment writes, failed attachment persistence, or unfinished uploads block
 leaving. Normal messages, Threads, and Center Agent text use `useComposerDraft`;
-file blobs and upload references retain their existing IndexedDB owner. New
-Center Agent chat file selections are still memory-only and block restart until
-sent or removed. Center Agent handoffs read their existing pending-message
-owner and also block restart. Pending
+file blobs and upload references retain their existing shared Web IndexedDB
+owner, including scoped recovery after a renderer remount. New Center Agent chat
+file selections use that same account-scoped owner and block restart until sent
+or removed. Center Agent handoffs read their existing pending-message owner and
+also block restart. Pending
 send acknowledgements remain with existing reconciliation: updating never
 resends a message. The current workspace URL is retained for the normal router
 to authorize after relaunch. Native credentials, account data, and app identity

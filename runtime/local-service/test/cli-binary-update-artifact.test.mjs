@@ -11,6 +11,7 @@ afterEach(() => mock.timers.reset());
 test("retries an interrupted partial artifact from the beginning", async () => {
   const artifact = Buffer.from("complete artifact");
   let requests = 0;
+  const progress = [];
 
   const result = await downloadCliBinaryUpdateArtifact({
     downloadPolicy: testPolicy(),
@@ -40,12 +41,26 @@ test("retries an interrupted partial artifact from the beginning", async () => {
     onDeltaFallback() {
       // This full-artifact test must not use delta fallback.
     },
+    onProgress(observation) {
+      progress.push(observation);
+    },
     plan: buildRawPlan(artifact),
     release: buildRelease(artifact),
   });
 
   assert.deepEqual(result, artifact);
   assert.equal(requests, 2);
+  assert.deepEqual(
+    progress.map(({ receivedBytes, transferAttempt }) => ({
+      receivedBytes,
+      transferAttempt,
+    })),
+    [
+      { receivedBytes: 0, transferAttempt: 1 },
+      { receivedBytes: 0, transferAttempt: 2 },
+      { receivedBytes: artifact.byteLength, transferAttempt: 2 },
+    ]
+  );
 });
 
 test("honors Retry-After before retrying the same artifact", async () => {

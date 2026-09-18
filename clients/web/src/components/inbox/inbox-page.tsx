@@ -196,6 +196,7 @@ export function InboxPage(input: {
 		mutationFn: async () =>
 			await markAllCurrentInboxItemsRead({
 				organizationId: currentOrganization.id,
+				presentation: "attention",
 			}),
 		onError: (_error, _variables, context) => {
 			restoreInboxCacheSnapshots(queryClient, context);

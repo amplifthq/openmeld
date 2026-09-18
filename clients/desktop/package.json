@@ -1,7 +1,7 @@
 {
   "$schema": "https://www.schemastore.org/package.json",
   "name": "@openmeld/desktop",
-  "productName": "OpenMeld Desktop",
+  "productName": "OpenMeld",
   "version": "0.1.2",
   "private": true,
   "type": "module",
@@ -30,6 +30,7 @@
     "@openmeld/gateway-contract": "workspace:*",
     "@openmeld/protocol": "workspace:*",
     "@openmeld/schemas": "workspace:*",
+    "@openmeld/start": "workspace:*",
     "@openmeld/ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "better-auth": "1.6.30",
@@ -43,7 +44,7 @@
   "build": {
     "forceCodeSigning": true,
     "appId": "sh.openmeld.desktop",
-    "productName": "OpenMeld Desktop",
+    "productName": "OpenMeld",
     "directories": {
       "output": "dist/release"
     },
@@ -56,6 +57,9 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "extendInfo": {
+        "CFBundleDisplayName": "OpenMeld"
+      },
       "icon": "resources/icon.icns",
       "identity": "-",
       "notarize": false,

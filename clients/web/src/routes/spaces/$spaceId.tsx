@@ -76,8 +76,10 @@ import { listActiveProfilesByKind } from "#/lib/profiles/profiles";
 import { createUnscopedWebSpaceApi } from "#/lib/spaces/api";
 import { isProtectedSpaceFailure } from "#/lib/spaces/errors";
 import { rememberProtectedSpaceAccess } from "#/lib/spaces/protected-space-access";
+import { readPublicSpaceInitialData } from "#/lib/spaces/public-space-initial-read";
 import { buildSpaceTimelineItems } from "#/lib/spaces/timeline";
 import { baseQueryOptions } from "#/query/query-config";
+import { spaceEntryResolutionQueryKey } from "#/query/spaces/entry-resolution";
 
 const PUBLIC_SIGNAL_LIMIT = 80;
 const PublicParticipationContext = createContext(true);
@@ -144,7 +146,7 @@ export const Route = createFileRoute("/spaces/$spaceId")({
 		const parsed = publicSpaceRouteSearchSchema.safeParse(search);
 		return parsed.success ? parsed.data : {};
 	},
-	loader: async ({ location }) => {
+	loader: async ({ context, location, params }) => {
 		const session = await getSession({
 			data: {
 				currentUserSessionExpectation: "optional",
@@ -164,6 +166,71 @@ export const Route = createFileRoute("/spaces/$spaceId")({
 		}
 		if (threadRootSignalId) {
 			target.set("threadRootSignalId", threadRootSignalId);
+		}
+		const initialData = await readPublicSpaceInitialData({
+			data: {
+				spaceId: params.spaceId,
+				...(signalId ? { signalId } : {}),
+				...(threadRootSignalId ? { threadRootSignalId } : {}),
+			},
+		});
+		context.queryClient.setQueryData(
+			spaceEntryResolutionQueryKey({
+				spaceId: params.spaceId,
+				...(signalId ? { signalId } : {}),
+				...(threadRootSignalId ? { threadRootSignalId } : {}),
+			}),
+			initialData.entryResolution
+		);
+		if (initialData.content) {
+			context.queryClient.setQueryData(
+				publicSpaceQueryKey(params.spaceId, "status"),
+				initialData.content.status
+			);
+			context.queryClient.setQueryData(
+				publicSpaceQueryKey(
+					params.spaceId,
+					"signals",
+					publicSpaceWindowKey(initialData.entryResolution.target)
+				),
+				{
+					envelopes: initialData.content.signals,
+					nextCursor: initialData.content.nextCursor,
+				}
+			);
+			context.queryClient.setQueryData(
+				publicSpaceQueryKey(params.spaceId, "threads"),
+				{
+					threads: initialData.content.threads,
+					previews: initialData.content.threadPreviews,
+				}
+			);
+			context.queryClient.setQueryData(
+				[
+					"spaces",
+					params.spaceId,
+					PUBLIC_VIEWER_PROFILE_ID,
+					"history-navigation",
+				],
+				initialData.historyNavigation
+			);
+			const selectedThread = initialData.entryResolution.target
+				.threadRootSignalId
+				? initialData.content.threads.find(
+						(thread) =>
+							thread.rootSignalId ===
+							initialData.entryResolution.target.threadRootSignalId
+					)
+				: undefined;
+			if (selectedThread && initialData.threadSignals) {
+				context.queryClient.setQueryData(
+					[
+						...publicSpaceQueryKey(params.spaceId, "thread-signals"),
+						selectedThread.threadId,
+					],
+					initialData.threadSignals
+				);
+			}
 		}
 		return {
 			isAuthenticated: Boolean(session),
@@ -312,6 +379,8 @@ function PublicSpaceResolvedPage(input: {
 	spaceId: string;
 	threadRootSignalId?: string;
 }) {
+	const initialWindowAnchorSignalId =
+		input.threadRootSignalId ?? input.signalId;
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const generatedSpaceViewId = useId();
@@ -346,7 +415,9 @@ function PublicSpaceResolvedPage(input: {
 		viewerMembershipQuery,
 	} = usePublicSpaceQueries({
 		isAuthenticated: input.isAuthenticated,
+		signalId: input.signalId,
 		spaceId: input.spaceId,
+		threadRootSignalId: input.threadRootSignalId,
 	});
 	useOpenAuthenticatedMemberSpace({
 		activeMemberCount:
@@ -391,6 +462,12 @@ function PublicSpaceResolvedPage(input: {
 		spaceId: input.spaceId,
 		profileId: PUBLIC_VIEWER_PROFILE_ID,
 		anonymous: true,
+		hrefForSignalId: (signalId) =>
+			buildPublicSpacePath(input.spaceId, { signalId }),
+		initialWindowAnchorSignalId,
+		latestHref: initialWindowAnchorSignalId
+			? buildPublicSpacePath(input.spaceId, {})
+			: undefined,
 		enabled: statusQuery.isSuccess,
 		accessRejected: statusQuery.isError,
 		liveEnvelopes: signalEnvelopes,
@@ -546,7 +623,9 @@ function PublicSpaceResolvedPage(input: {
 
 function usePublicSpaceQueries(input: {
 	isAuthenticated: boolean;
+	signalId?: string;
 	spaceId: string;
+	threadRootSignalId?: string;
 }) {
 	const browserQueriesEnabled = typeof window !== "undefined";
 	const statusQuery = useQuery({
@@ -561,11 +640,22 @@ function usePublicSpaceQueries(input: {
 	});
 	const signalsQuery = useQuery({
 		enabled: browserQueriesEnabled,
-		queryKey: publicSpaceQueryKey(input.spaceId, "signals"),
+		queryKey: publicSpaceQueryKey(
+			input.spaceId,
+			"signals",
+			publicSpaceWindowKey(input)
+		),
 		queryFn: async () =>
 			await createUnscopedWebSpaceApi().listSignalEnvelopes({
 				spaceId: input.spaceId,
-				query: { limit: PUBLIC_SIGNAL_LIMIT, recent: true },
+				query:
+					input.threadRootSignalId || input.signalId
+						? {
+								aroundSignalId: input.threadRootSignalId ?? input.signalId,
+								beforeCount: 30,
+								afterCount: 30,
+							}
+						: { limit: PUBLIC_SIGNAL_LIMIT, recent: true },
 			}),
 		gcTime: baseQueryOptions.gcTime,
 		retry: shouldRetryPublicSpaceQuery,
@@ -967,6 +1057,7 @@ function PublicSpacePanels({ input }: { input: PublicSpaceOpenViewProps }) {
 				currentOwnerUserId={null}
 				ephemeralActivityItems={EMPTY_EPHEMERAL_ACTIVITY_ITEMS}
 				initialFocusSignalId={input.initialFocusSignalId}
+				initialFocusThreadRootSignalId={input.initialFocusThreadRootSignalId}
 				isAgentRecoveryPending={() => false}
 				isDiagnosticReportPending={() => false}
 				isDiagnosticReportSent={() => false}
@@ -1461,8 +1552,17 @@ function PublicSpaceErrorState(input: {
 	);
 }
 
-function publicSpaceQueryKey(spaceId: string, key: string) {
-	return ["public-space", spaceId, key] as const;
+function publicSpaceQueryKey(spaceId: string, key: string, scope?: string) {
+	return scope
+		? (["public-space", spaceId, key, scope] as const)
+		: (["public-space", spaceId, key] as const);
+}
+
+function publicSpaceWindowKey(input: {
+	signalId?: string | null;
+	threadRootSignalId?: string | null;
+}) {
+	return `${input.threadRootSignalId ?? "main"}:${input.signalId ?? "latest"}`;
 }
 
 function shouldRetryPublicSpaceQuery(

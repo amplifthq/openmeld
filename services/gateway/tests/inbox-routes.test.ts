@@ -142,7 +142,7 @@ describe("Inbox routes", () => {
       ],
     };
     coreRpc.getSpaceInboxSummary.mockResolvedValue(current);
-    for (const version of ["1", "2"]) {
+    for (const version of ["1", "2", "3"]) {
       const response = await app.fetch(
         new Request("http://local/v1/inbox/spaces/summary", {
           headers: { "x-openmeld-inbox-summary-version": version },
@@ -151,7 +151,7 @@ describe("Inbox routes", () => {
         TEST_EXECUTION_CONTEXT
       );
       expect(response.status).toBe(200);
-      expect(await response.json()).toEqual(version === "2" ? current : legacy);
+      expect(await response.json()).toEqual(version === "1" ? legacy : current);
     }
   });
 
@@ -237,15 +237,17 @@ describe("Inbox routes", () => {
       unresolvedActionCount: 2,
     });
   });
-  it("preserves old strict summaries and exposes urgent counts only to aware clients", async () => {
+  it("preserves old strict summaries and exposes attention counts only to aware clients", async () => {
     const { coreRpc, env } = makeEnv();
     coreRpc.getInboxSummary.mockResolvedValue({
       organizationId: "org-1",
       totalUnreadCount: 8,
       unresolvedActionCount: 2,
+      unreadMentionCount: 4,
       unreadUrgentUpdateCount: 3,
+      ordinaryUnreadCount: 1,
     });
-    for (const version of [undefined, "1"]) {
+    for (const version of [undefined, "1", "2", "3"]) {
       const response = await app.fetch(
         new Request("http://local/v1/inbox/summary", {
           headers: version
@@ -261,13 +263,18 @@ describe("Inbox routes", () => {
         totalUnreadCount: 8,
         unresolvedActionCount: 2,
         ...(version ? { unreadUrgentUpdateCount: 3 } : {}),
+        ...(version === "3"
+          ? { unreadMentionCount: 4, ordinaryUnreadCount: 1 }
+          : {}),
       });
     }
   });
   it("forwards the complete member Inbox surface to Core", async () => {
     const { coreRpc, env } = makeEnv();
     const requests = [
-      new Request("http://local/v1/inbox?view=needs_action&limit=25"),
+      new Request(
+        "http://local/v1/inbox?view=needs_action&limit=25&notificationPreview=true"
+      ),
       new Request("http://local/v1/inbox/summary"),
       new Request("http://local/v1/inbox/center-agent/summary"),
       jsonRequest("http://local/v1/inbox/center-agent/read-through", "POST", {
@@ -304,7 +311,11 @@ describe("Inbox routes", () => {
       200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200, 200,
     ]);
     expect(coreRpc.listInboxItems).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: 25, view: "needs_action" })
+      expect.objectContaining({
+        limit: 25,
+        notificationPreview: "true",
+        view: "needs_action",
+      })
     );
     expect(coreRpc.getInboxItem).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: "inbox-item-1" })

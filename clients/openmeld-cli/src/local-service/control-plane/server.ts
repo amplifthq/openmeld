@@ -9,6 +9,7 @@ import {
 import { resolveDaemonControlPlaneEndpoint } from "../../config/daemon-state";
 
 const MAX_CONTROL_PLANE_REQUEST_SIZE_BYTES = 64 * 1024;
+const CONTROL_PLANE_RESPONSE_PROGRESS_INTERVAL_MS = 1000;
 
 type DaemonControlPlaneTokenSource =
   | {
@@ -26,6 +27,11 @@ export async function startLocalDaemonControlPlaneServer(
     getContext: () =>
       | Promise<OpenMeldDaemonControlPlaneContext>
       | OpenMeldDaemonControlPlaneContext;
+    onRequestPhase?: (event: {
+      command?: string;
+      phase: "received" | "authenticated" | "shutdown_admitted";
+      requestId?: string;
+    }) => void;
   }
 ): Promise<{
   close: () => Promise<void>;
@@ -43,14 +49,61 @@ export async function startLocalDaemonControlPlaneServer(
 
     const respond = (request: unknown) => {
       const requestId = readOptionalRequestId(request);
+      const command = readOptionalCommand(request);
+      input.onRequestPhase?.({
+        ...(command ? { command } : {}),
+        phase: "received",
+        ...(requestId ? { requestId } : {}),
+      });
+      let progressInterval: NodeJS.Timeout | null = null;
+      const stopResponseProgress = () => {
+        if (progressInterval) {
+          clearInterval(progressInterval);
+          progressInterval = null;
+        }
+      };
+      const startResponseProgress = () => {
+        if (progressInterval || socket.destroyed) {
+          return;
+        }
+        progressInterval = setInterval(() => {
+          if (!socket.destroyed && socket.writable) {
+            socket.write(" ");
+          }
+        }, CONTROL_PLANE_RESPONSE_PROGRESS_INTERVAL_MS);
+        progressInterval.unref?.();
+      };
+      socket.once("close", stopResponseProgress);
+      socket.once("error", stopResponseProgress);
       buildResponse({
         getContext: input.getContext,
+        onAuthenticated: () => {
+          input.onRequestPhase?.({
+            ...(command ? { command } : {}),
+            phase: "authenticated",
+            ...(requestId ? { requestId } : {}),
+          });
+        },
+        onShutdownAdmitted: () => {
+          input.onRequestPhase?.({
+            ...(command ? { command } : {}),
+            phase: "shutdown_admitted",
+            ...(requestId ? { requestId } : {}),
+          });
+          startResponseProgress();
+        },
         request,
         requestId,
         resolveExpectedToken,
-      }).then((response) => {
-        socket.end(`${JSON.stringify(response)}\n`);
-      });
+      })
+        .then((response) => {
+          socket.end(`${JSON.stringify(response)}\n`);
+        })
+        .finally(() => {
+          stopResponseProgress();
+          socket.off("close", stopResponseProgress);
+          socket.off("error", stopResponseProgress);
+        });
     };
 
     socket.setEncoding("utf8");
@@ -141,6 +194,8 @@ async function buildResponse(input: {
   getContext: () =>
     | Promise<OpenMeldDaemonControlPlaneContext>
     | OpenMeldDaemonControlPlaneContext;
+  onAuthenticated: () => void;
+  onShutdownAdmitted: () => void;
   request: unknown;
   requestId?: string;
   resolveExpectedToken: () => Promise<string> | string;
@@ -151,6 +206,10 @@ async function buildResponse(input: {
     return await buildAuthenticatedControlPlaneResponse({
       context,
       expectedToken,
+      lifecycle: {
+        onAuthenticated: input.onAuthenticated,
+        onShutdownAdmitted: input.onShutdownAdmitted,
+      },
       request: input.request,
     });
   } catch (error) {
@@ -205,6 +264,16 @@ function readOptionalRequestId(request: unknown): string | undefined {
   }
   const normalized = requestId.trim();
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function readOptionalCommand(request: unknown): string | undefined {
+  if (!request || typeof request !== "object") {
+    return undefined;
+  }
+  const command = (request as { command?: unknown }).command;
+  return typeof command === "string" && command.length > 0
+    ? command
+    : undefined;
 }
 
 function buildControlPlaneErrorResponse(input: {

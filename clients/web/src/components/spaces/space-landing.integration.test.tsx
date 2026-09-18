@@ -49,14 +49,58 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // These submission tests start with an empty draft store; browser reload
 // persistence is outside this component/API integration boundary.
+const composerDraftRead = vi.hoisted(() => ({
+	error: null as Error | null,
+	task: null as Promise<[]> | null,
+}));
+const composerDiscoveryWait = vi.hoisted(() => ({
+	task: null as Promise<void> | null,
+	onEntered: null as (() => void) | null,
+}));
 vi.mock("#/lib/spaces/composer-file-drafts", () => ({
+	isComposerFileDraftRetired: () => false,
+	readComposerFileDraftCleanup: () => [],
+	retryComposerFileDraftCleanup: async () => undefined,
 	subscribeComposerFileDrafts: () => () => undefined,
-	readComposerFileDrafts: async () => [],
+	readComposerFileDrafts: () => {
+		if (composerDraftRead.task) {
+			return composerDraftRead.task;
+		}
+		if (composerDraftRead.error) {
+			return Promise.reject(composerDraftRead.error);
+		}
+		return Promise.resolve([]);
+	},
 	readComposerFileDraftsByIds: async () => [],
 	removeComposerFileDraft: async () => undefined,
 	saveComposerFileDraft: async () => undefined,
 	saveComposerFileDraftUpload: async () => undefined,
 }));
+vi.mock("./use-space-composer-session", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("./use-space-composer-session")>();
+	return {
+		...actual,
+		useSpaceComposerSession: (
+			input: Parameters<typeof actual.useSpaceComposerSession>[0]
+		) => {
+			const session = actual.useSpaceComposerSession(input);
+			return {
+				...session,
+				files: {
+					...session.files,
+					waitForDiscovery: async () => {
+						await session.files.waitForDiscovery();
+						if (composerDiscoveryWait.task) {
+							composerDiscoveryWait.onEntered?.();
+							await composerDiscoveryWait.task;
+						}
+					},
+				},
+			};
+		},
+	};
+});
 
 import { AppOrganizationProvider } from "#/lib/organizations/organization-context";
 import type { OrganizationScopeAuthorized } from "#/lib/organizations/organization-types";
@@ -812,6 +856,10 @@ function buildLocalRuntimeCacheInvalidations(
 
 describe("SpaceLanding", () => {
 	beforeEach(() => {
+		composerDraftRead.task = null;
+		composerDraftRead.error = null;
+		composerDiscoveryWait.task = null;
+		composerDiscoveryWait.onEntered = null;
 		vi.stubGlobal(
 			"IntersectionObserver",
 			class {
@@ -1095,6 +1143,210 @@ describe("SpaceLanding", () => {
 		expect(
 			document.querySelector('[data-space-conversation-presentation="compact"]')
 		).toBeTruthy();
+	});
+
+	it.each([
+		"button",
+		"keyboard",
+	] as const)("keeps the Space draft when attachment discovery fails from the %s submit path", async (method) => {
+		composerDraftRead.error = new Error("database connection is closing");
+		const postNormalMessageMock = vi.fn().mockResolvedValue(
+			createTextSignal({
+				id: "signal-after-recovery",
+				text: "Draft survives",
+			})
+		);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+		});
+		renderSpaceLanding();
+		const textarea = screen.getByRole("textbox", {
+			name: "Message this space",
+		});
+		await setComposerValue(textarea, "Draft survives");
+		await screen.findByText("Couldn't restore your attachment drafts.");
+
+		if (method === "button") {
+			fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		} else {
+			fireEvent.keyDown(textarea, { key: "Enter" });
+		}
+
+		await waitFor(() =>
+			expect(textarea.textContent).toContain("Draft survives")
+		);
+		expect(postNormalMessageMock).not.toHaveBeenCalled();
+		composerDraftRead.error = null;
+		fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+		await waitFor(() =>
+			expect(
+				screen.queryByText("Couldn't restore your attachment drafts.")
+			).toBeNull()
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+	});
+
+	it("admits one Space submission when button and Enter join attachment discovery", async () => {
+		let releaseDiscovery: (drafts: []) => void = () => undefined;
+		composerDraftRead.task = new Promise<[]>((resolve) => {
+			releaseDiscovery = resolve;
+		});
+		const postNormalMessageMock = vi
+			.fn()
+			.mockResolvedValue(
+				createTextSignal({ id: "signal-single-admission", text: "Send once" })
+			);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+		});
+		mockSpaceQueries({
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			status: createQueryResult({
+				isSuccess: true,
+				data: createSpaceStatus(),
+			}),
+		});
+		renderSpaceLanding();
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		await setComposerValue(editor, "Send once");
+		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+		fireEvent.keyDown(editor, { key: "Enter" });
+		releaseDiscovery([]);
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+		expect(postNormalMessageMock).toHaveBeenCalledWith(
+			expect.objectContaining({ text: "Send once" })
+		);
+	});
+
+	it("does not release the next submission admission when a previous send settles", async () => {
+		const descriptor = createSpaceFileDescriptor({
+			mimeType: "text/plain",
+			name: "second.txt",
+		});
+		const postResolvers: Array<
+			(signal: ReturnType<typeof createTextSignal>) => void
+		> = [];
+		const postNormalMessageMock = vi.fn().mockImplementation(
+			() =>
+				new Promise<ReturnType<typeof createTextSignal>>((resolve) => {
+					postResolvers.push(resolve);
+				})
+		);
+		const stageComposerUploadMock = vi.fn().mockImplementation(async (input) =>
+			createSpaceComposerUpload({
+				id: input.uploadId,
+				mimeType: input.mimeType,
+				name: input.name,
+				sizeBytes: input.bytes.size,
+			})
+		);
+		const publishComposerUploadMock = vi.fn().mockResolvedValue(descriptor);
+		createWebSpaceApiMock.mockReturnValue({
+			postNormalMessage: postNormalMessageMock,
+			publishComposerUpload: publishComposerUploadMock,
+			stageComposerUpload: stageComposerUploadMock,
+		});
+		mockSpaceQueries({
+			status: createQueryResult({ isSuccess: true, data: createSpaceStatus() }),
+			members: createQueryResult({
+				isSuccess: true,
+				data: createMembersSnapshot(),
+			}),
+			history: createQueryResult({
+				isSuccess: true,
+				data: { envelopes: [], nextCursor: null },
+			}),
+		});
+
+		renderSpaceLanding();
+		const editor = screen.getByRole("textbox", { name: "Message this space" });
+		const send = screen.getByRole("button", { name: "Send message" });
+		await setComposerValue(editor, "First message");
+		fireEvent.click(send);
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(1));
+
+		let releaseSecondDiscovery: () => void = () => undefined;
+		composerDiscoveryWait.task = new Promise<void>((resolve) => {
+			releaseSecondDiscovery = resolve;
+		});
+		let secondDiscoveryEntered: () => void = () => undefined;
+		const secondDiscoveryStarted = new Promise<void>((resolve) => {
+			secondDiscoveryEntered = resolve;
+		});
+		composerDiscoveryWait.onEntered = secondDiscoveryEntered;
+		fireEvent.change(screen.getByLabelText("Choose files to send"), {
+			target: {
+				files: [new File(["second"], "second.txt", { type: "text/plain" })],
+			},
+		});
+		await waitFor(() =>
+			expect(stageComposerUploadMock).toHaveBeenCalledTimes(1)
+		);
+		await setComposerValue(editor, "Second message");
+		fireEvent.click(send);
+		await secondDiscoveryStarted;
+		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
+
+		await act(async () => {
+			postResolvers[0]?.(
+				createTextSignal({ id: "signal-first", text: "First message" })
+			);
+			await Promise.resolve();
+		});
+		await waitFor(() =>
+			expect(
+				document.querySelector('[data-signal-id="signal-first"]')
+			).toBeTruthy()
+		);
+		fireEvent.click(send);
+		await act(async () => {
+			releaseSecondDiscovery();
+			await Promise.resolve();
+		});
+
+		await waitFor(() => expect(postNormalMessageMock).toHaveBeenCalledTimes(2));
+		expect(
+			screen.getAllByText("Second message", { selector: "p" })
+		).toHaveLength(1);
+		const [firstInput, secondInput] = postNormalMessageMock.mock.calls.map(
+			([input]) => input
+		);
+		expect(firstInput.text).toBe("First message");
+		expect(secondInput.text).toBe("Second message");
+		expect(secondInput.files).toEqual([
+			createSpaceMessageFileReference(descriptor),
+		]);
+		expect(secondInput.meta.clientMessageId).not.toBe(
+			firstInput.meta.clientMessageId
+		);
+		expect(
+			postNormalMessageMock.mock.calls.filter(
+				([input]) => input.text === "Second message"
+			)
+		).toHaveLength(1);
+		expect(publishComposerUploadMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("hard-refreshes Space members while a previous members query is waiting to retry", async () => {
@@ -13347,12 +13599,14 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(textarea, "Optimistic hello");
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
-		expect(readComposerValue(textarea)).toBe("");
-		expect(
-			within(
-				screen.getByRole("log", { name: "Conversation history" })
-			).getByText("Optimistic hello")
-		).toBeTruthy();
+		await waitFor(() => {
+			expect(readComposerValue(textarea)).toBe("");
+			expect(
+				within(
+					screen.getByRole("log", { name: "Conversation history" })
+				).getByText("Optimistic hello")
+			).toBeTruthy();
+		});
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 		await waitFor(() => expect(statusRefetch).toHaveBeenCalled());
 		await act(async () => releaseStatus?.());
@@ -13611,8 +13865,15 @@ describe("SpaceLanding", () => {
 
 		await screen.findByRole("group", { name: "Files to send" });
 		expect(stageComposerUploadMock).toHaveBeenCalledTimes(2);
-		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toEqual(
-			stageComposerUploadMock.mock.calls[0]?.[0]
+		expect(stageComposerUploadMock.mock.calls[1]?.[0]).toMatchObject({
+			bytes: stageComposerUploadMock.mock.calls[0]?.[0].bytes,
+			mimeType: stageComposerUploadMock.mock.calls[0]?.[0].mimeType,
+			name: stageComposerUploadMock.mock.calls[0]?.[0].name,
+			spaceId: stageComposerUploadMock.mock.calls[0]?.[0].spaceId,
+			uploadId: stageComposerUploadMock.mock.calls[0]?.[0].uploadId,
+		});
+		expect(stageComposerUploadMock.mock.calls[1]?.[0].signal).toBe(
+			stageComposerUploadMock.mock.calls[0]?.[0].signal
 		);
 	});
 
@@ -13679,7 +13940,9 @@ describe("SpaceLanding", () => {
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 		const log = screen.getByRole("log", { name: "Conversation history" });
-		expect(within(log).getByText("brief.pdf")).toBeTruthy();
+		await waitFor(() =>
+			expect(within(log).getByText("brief.pdf")).toBeTruthy()
+		);
 		expect(within(log).queryByText("Open in Files")).toBeNull();
 		expect(
 			within(log).getByRole("button", { name: "Copy message" })
@@ -13777,7 +14040,7 @@ describe("SpaceLanding", () => {
 			true
 		);
 		expect(
-			screen.getByText("Remove the failed file to continue.")
+			screen.getByText("Retry or remove the failed attachment to continue.")
 		).toBeTruthy();
 		expect(postNormalMessageMock).not.toHaveBeenCalled();
 
@@ -14949,7 +15212,11 @@ describe("SpaceLanding", () => {
 			).disabled
 		).toBe(false);
 		fireEvent.keyDown(textarea, { key: "Enter" });
-		expect(screen.getByText("My next message", { selector: "p" })).toBeTruthy();
+		await waitFor(() =>
+			expect(
+				screen.getByText("My next message", { selector: "p" })
+			).toBeTruthy()
+		);
 		await waitFor(() => expect(readComposerValue(textarea)).toBe(""));
 		await setComposerValue(textarea, "Third draft");
 		expect(postNormalMessageMock).toHaveBeenCalledTimes(1);
@@ -17551,7 +17818,9 @@ describe("SpaceLanding", () => {
 		});
 		await setComposerValue(threadComposer, "Thread text can still be sent");
 		expect(
-			within(threadPanel).getByText("Remove the failed file to continue.")
+			within(threadPanel).getByText(
+				"Retry or remove the failed attachment to continue."
+			)
 		).toBeTruthy();
 		expect(
 			within(threadPanel).getByRole("button", { name: "Send reply" })
@@ -20870,7 +21139,7 @@ function createSpaceComposerUpload(input: {
 	sizeBytes: number;
 }) {
 	return {
-		expiresAt: "2026-07-12T00:00:00.000Z",
+		expiresAt: "2099-07-12T00:00:00.000Z",
 		...input,
 	};
 }

@@ -13,7 +13,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: Math.max(0, unread - urgent),
 					totalUnreadCount: unread,
+					unreadMentionCount: 0,
 					unresolvedActionCount: actions,
 					unreadUrgentUpdateCount: urgent,
 				},
@@ -33,7 +35,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: 197,
 					totalUnreadCount: 200,
+					unreadMentionCount: 0,
 					unresolvedActionCount: actions,
 					unreadUrgentUpdateCount: urgent,
 				},
@@ -53,7 +57,12 @@ describe("Inbox attention", () => {
 		).toMatchObject({ count: null, tone: null });
 		expect(
 			resolveInboxAttention({
-				summary: { ...summary, unreadUrgentUpdateCount: 4 },
+				summary: {
+					...summary,
+					ordinaryUnreadCount: 0,
+					unreadMentionCount: 0,
+					unreadUrgentUpdateCount: 4,
+				},
 				pending: false,
 				unavailable: true,
 			})
@@ -78,7 +87,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: 0,
 					totalUnreadCount: 4,
+					unreadMentionCount: 0,
 					unresolvedActionCount: 0,
 					unreadUrgentUpdateCount: 4,
 				},
@@ -96,7 +107,9 @@ describe("Inbox attention", () => {
 			resolveInboxAttention({
 				summary: {
 					organizationId: "org",
+					ordinaryUnreadCount: 15,
 					totalUnreadCount: 20,
+					unreadMentionCount: 0,
 					unresolvedActionCount: 2,
 					unreadUrgentUpdateCount: 3,
 				},

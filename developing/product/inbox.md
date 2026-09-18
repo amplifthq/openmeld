@@ -336,7 +336,8 @@ pending work, and resolving an action removes its red attention treatment.
 Opening an Inbox item marks that item read as part of navigating to its source.
 Keyboard activation behaves the same way. Merely scrolling an item into the
 viewport, hovering it, or focusing the browser does not mark it read. Members
-can mark an item unread and can mark all accessible Inbox items read.
+can mark an item unread and can mark all currently presented Inbox attention
+items read. Ordinary updates hidden by a conversation mute remain unread.
 The bulk **Mark all as read** button appears only with **Unread only** enabled,
 immediately to the left of that switch. A compact confirmation explains that
 the action includes items outside the current filter and clears the corresponding
@@ -399,13 +400,37 @@ intermediate visual change or an optimistic count.
 Failed summaries still expose their unavailable status. Entry activation alone
 never clears an item.
 
+The default full Inbox, compact preview, global indicators, and Desktop menu bar
+use Core's opt-in **attention presentation**. An explicit conversation mute
+hides that conversation's ordinary updates from these attention surfaces,
+including items created before the mute, without reading, dismissing, deleting,
+or changing their raw Inbox records. Open actions and reviews remain visible
+whether read or unread; unread urgent updates and unread structured Human
+mentions also remain visible. Removing the mute reveals the preserved ordinary
+history again. Notification delivery remains a separate policy and the mute
+continues to suppress every message notification from that conversation,
+including urgent updates and mentions.
+
+The raw list remains available to notification delivery and bounded diagnostic
+consumers so preference changes cannot replay historical items as newly
+delivered. Saving a conversation preference invalidates only attention lists
+and summaries; raw delivery state is unchanged. Attention summary categories
+are disjoint: open action/review, unread urgent update, unread mention, and other
+unread update. Core computes the projection over the complete accessible Inbox;
+clients never reconstruct it from a loaded page.
+
 The compact preview uses the same summary breakdown. It separately queries
-**Needs action**, **Needs review**, **Urgent updates**, and unread **Recent updates**, in that
-order, without duplicating an item across groups. The `urgent_updates` list view
+**Needs action**, **Needs review**, **Urgent updates**, **Mentions**, and unread
+**Recent updates**, in that order, without duplicating an item across groups.
+The `urgent_updates` list view
 uses the same predicate as the urgent update count, so older urgent updates
-cannot be displaced by a page of newer ordinary messages. The `recent_updates`
-view independently selects unread items outside both attention groups so a
-page of actions or urgent updates cannot starve ordinary updates either. The bounded preview
+cannot be displaced by a page of newer ordinary messages. The `mentions` view
+selects unread structured Human mentions independently of recency. The
+`recent_updates` view independently selects unread items outside all stronger
+attention groups so a page of actions, urgent updates, or mentions cannot starve
+ordinary updates either. That mentions exclusion applies only to the opt-in
+`presentation=attention` projection; legacy/raw `recent_updates` callers keep
+mentions because they do not query the separate group. The bounded preview
 reserves room for each group; full Inbox remains the complete list. It may say
 **All caught up** only when there are no unresolved actions and no unread items.
 
@@ -500,18 +525,37 @@ Signal in the same conversation.
 
 Main-conversation unread navigation uses one chronological shortcut for updates
 outside the viewport, combining targets above and below. It reveals the first
-unread target and dismisses that observed navigation batch after a successful
-jump; dismissal does not write a read watermark. A new event can show the
-shortcut again. The bottom history control returns to the latest messages and
-does not repeat unread counts. There is no per-message clicking requirement.
+unread target and reports Core's complete unread count rather than the number
+of targets that current viewport geometry happens to expose. Its blue **New
+messages** divider is fixed at the first unread target observed for that Space
+visit; passive visible-message reads do not move or regroup the divider.
+Dismissing the shortcut hides the server-bounded unread batch without writing a
+read watermark, so scrolling or resizing cannot resurrect that batch and a
+later event can show a new shortcut. There is no per-message clicking
+requirement.
 
-For a thread target, this shortcut reveals and briefly highlights its root
-message in the main conversation without opening the thread panel. A thread
-with recipient-specific unread targets has a blue **Open thread** entry with
-an unread count; the count includes replies and reactions, so it is not labeled
-as a count of new replies. Explicitly opening that entry focuses its first
-unread target. Reading the main root or its preview never acknowledges hidden
-thread replies. Thread deep links from Inbox still open the exact thread.
+The bottom history control remains the single return-to-latest action and does
+not repeat unread counts. When the main conversation has unread targets, an
+explicit activation first returns historical or scrolled views to the mounted
+live tail, then advances only the main-conversation watermark through the
+server-confirmed latest unread occurrence captured for that activation. It
+works even when a short conversation is already at the bottom. New events after
+the captured cutoff remain unread, and thread watermarks remain unchanged. A
+newer history-navigation choice made while that cutoff is being prepared
+abandons the activation before it can return to latest or write; its unused
+cutoff is not retained as a retry.
+Concurrent visible-message and explicit read-through writes are serialized and
+coalesced within their main or exact-thread scope. A failed write keeps the
+same cutoff for retry and reports that navigation succeeded but marking read
+did not; there is no success toast.
+
+For a thread target, the chronological shortcut opens that exact thread and
+focuses its first unread target. The thread's blue **New messages** divider is
+also fixed for that thread visit. A thread with recipient-specific unread
+targets has a blue **Open thread** entry with an unread count; the count includes
+replies and reactions, so it is not labeled as a count of new replies. Reading
+the main root or its preview never acknowledges hidden thread replies. Thread
+deep links from Inbox still open the exact thread.
 
 This uses Slack's separation of conversation navigation, thread attention, and
 read actions as a precedent, not an identical default: Slack offers immediate
@@ -579,8 +623,10 @@ projected into that recipient's Inbox. It does not subscribe the member to
 every thread, broaden source access, backfill old messages, change message
 importance, or create email deliveries. Muting suppresses conversation message
 updates, including urgent message updates; independent action-required items
-retain their existing delivery rules. Inbox content, read state, and source
-resolution remain unchanged. **Urgent email alerts** stays an independent
+retain their existing delivery rules. Raw Inbox content, read state, and source
+resolution remain unchanged. The default attention presentation hides muted
+ordinary updates while retaining open work, unread urgent updates, and unread
+Human mentions as described above. **Urgent email alerts** stays an independent
 account setting, including for urgent items from a muted conversation.
 This includes Human Mentions and urgent terminal Wake outcome updates: neither
 bypasses a conversation's message mute. An open action-required item retains

@@ -4,6 +4,8 @@ import { MAX_MESSAGE_LINK_PREVIEWS } from "@openmeld/schemas";
 import { LinkPreviewCard } from "@openmeld/ui/components/link-preview-card";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDesktopLinkOpener } from "#/desktop/desktop-aware-link";
+import { getDesktopPlatform } from "#/desktop/platform";
 
 export function SpaceMessageLinkPreviews(input: {
 	api: Pick<SpaceApi, "getLinkPreviews">;
@@ -13,6 +15,29 @@ export function SpaceMessageLinkPreviews(input: {
 	text: string;
 	viewerKey: string;
 }) {
+	if (getDesktopPlatform()) {
+		return <DesktopSpaceMessageLinkPreviews {...input} />;
+	}
+	return <SpaceMessageLinkPreviewsContent {...input} />;
+}
+
+function DesktopSpaceMessageLinkPreviews(
+	input: Parameters<typeof SpaceMessageLinkPreviews>[0]
+) {
+	const openDesktopLink = useDesktopLinkOpener();
+	return (
+		<SpaceMessageLinkPreviewsContent
+			{...input}
+			onOpen={(event, href) => openDesktopLink(event, href)}
+		/>
+	);
+}
+
+function SpaceMessageLinkPreviewsContent(
+	input: Parameters<typeof SpaceMessageLinkPreviews>[0] & {
+		onOpen?: Parameters<typeof LinkPreviewCard>[0]["onOpen"];
+	}
+) {
 	const urls = useMemo(
 		() =>
 			collectMessagePreviewUrls(input.text)
@@ -72,6 +97,7 @@ export function SpaceMessageLinkPreviews(input: {
 			{displayed.map((url) => (
 				<LinkPreviewCard
 					key={url}
+					onOpen={input.onOpen}
 					{...previews.find((preview) => preview.url === url)}
 					url={url}
 				/>

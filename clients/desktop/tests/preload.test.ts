@@ -22,6 +22,92 @@ afterEach(() => {
 });
 
 describe("preload bridge", () => {
+  it("validates Disconnect feedback without changing the legacy boolean method", async () => {
+    await import("../src/preload/preload");
+    const bridge = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const request = { expectedAccount: "account-a" };
+    const result = {
+      status: "unconfirmed",
+      code: "desktop.disconnect.unconfirmed",
+      message: "Check the connection before trying again.",
+      diagnosticId: "operation-a",
+    };
+    invoke.mockResolvedValueOnce(result);
+    await expect(
+      bridge.disconnectComputerWithFeedback?.(request)
+    ).resolves.toEqual(result);
+    expect(invoke).toHaveBeenLastCalledWith(
+      PILOT_IPC.disconnectComputerWithFeedback,
+      request
+    );
+    invoke.mockResolvedValueOnce({
+      ...result,
+      token: "must-not-cross-the-bridge",
+    });
+    await expect(
+      bridge.disconnectComputerWithFeedback?.(request)
+    ).rejects.toThrow();
+    invoke.mockResolvedValueOnce(false);
+    await expect(bridge.disconnectComputer(request)).resolves.toBe(false);
+    expect(invoke).toHaveBeenLastCalledWith(
+      PILOT_IPC.disconnectComputer,
+      request
+    );
+  });
+
+  it("shares one operation channel while filtering rich records from legacy observers", async () => {
+    await import("../src/preload/preload");
+    const bridge = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const operation = {
+      kind: "disconnect",
+      operationId: "operation-a",
+      request: { expectedAccount: "account-a" },
+      status: "pending",
+      phase: "waiting_for_confirmation",
+      result: null,
+    };
+    invoke.mockResolvedValueOnce(operation);
+    await expect(bridge.computerOperationCurrent?.()).resolves.toEqual(
+      operation
+    );
+    expect(invoke).toHaveBeenLastCalledWith(
+      PILOT_IPC.connectionOperationCurrent
+    );
+    invoke.mockResolvedValueOnce(operation);
+    await expect(bridge.connectionOperationCurrent()).resolves.toBeNull();
+    invoke.mockResolvedValueOnce({ ...operation, phase: "invented_phase" });
+    await expect(bridge.computerOperationCurrent?.()).resolves.toBeNull();
+    const rich = vi.fn();
+    const stopRich = bridge.onComputerOperation?.(rich);
+    const richListener = on.mock.calls.findLast(
+      ([channel]) => channel === PILOT_IPC.connectionOperation
+    )?.[1];
+    const legacy = vi.fn();
+    const stopLegacy = bridge.onConnectionOperation(legacy);
+    const legacyListener = on.mock.calls.findLast(
+      ([channel]) => channel === PILOT_IPC.connectionOperation
+    )?.[1];
+    richListener({}, operation);
+    richListener({}, { ...operation, token: "must-not-cross-the-bridge" });
+    legacyListener({}, operation);
+    expect(rich).toHaveBeenCalledExactlyOnceWith(operation);
+    expect(legacy).not.toHaveBeenCalled();
+    stopRich?.();
+    stopLegacy();
+    expect(removeListener).toHaveBeenCalledWith(
+      PILOT_IPC.connectionOperation,
+      richListener
+    );
+    expect(removeListener).toHaveBeenCalledWith(
+      PILOT_IPC.connectionOperation,
+      legacyListener
+    );
+  });
+
   it("retains only the latest notification until subscription and clears it on session change", async () => {
     await import("../src/preload/preload");
     const bridge = exposeInMainWorld.mock.calls.find(
@@ -117,8 +203,10 @@ describe("preload bridge", () => {
       "getServiceStatus",
       "installCli",
       "installService",
+      "onNavigationRequest",
       "onWindowDestinationChange",
       "openDesktopDownloadPage",
+      "openExternal",
       "openNodeDownloadPage",
       "openWeb",
       "quitDesktop",
@@ -150,6 +238,7 @@ describe("preload bridge", () => {
       getAgents(): Promise<unknown>;
       openDesktopDownloadPage(): Promise<unknown>;
       openNodeDownloadPage(): Promise<unknown>;
+      openExternal(url: string): Promise<unknown>;
       openWeb(path?: string): Promise<unknown>;
       quitDesktop(): Promise<unknown>;
       setAgentEnabled(agentId: string, enabled: boolean): Promise<unknown>;
@@ -169,6 +258,7 @@ describe("preload bridge", () => {
     await openmeld.getAgents();
     await openmeld.openDesktopDownloadPage();
     await openmeld.openNodeDownloadPage();
+    await openmeld.openExternal("https://example.com/docs");
     await openmeld.openWeb(LOCAL_AGENTS_GUIDE_PATH);
     await openmeld.setAgentEnabled("codex", true);
     await openmeld.setServiceAutoStart(true);
@@ -188,6 +278,7 @@ describe("preload bridge", () => {
       [OPENMELD_IPC.getAgents],
       [OPENMELD_IPC.openDesktopDownloadPage],
       [OPENMELD_IPC.openNodeDownloadPage],
+      [OPENMELD_IPC.openExternal, "https://example.com/docs"],
       [OPENMELD_IPC.openWeb, LOCAL_AGENTS_GUIDE_PATH],
       [OPENMELD_IPC.setAgentEnabled, "codex", true],
       [OPENMELD_IPC.setServiceAutoStart, true],
@@ -237,5 +328,27 @@ describe("preload bridge", () => {
     const stale = vi.fn();
     shared.onWindowDestinationChange(stale)();
     expect(stale).not.toHaveBeenCalled();
+  });
+
+  it("retains one early Router navigation and stops delivery after unsubscribe", async () => {
+    await import("../src/preload/preload");
+    const bridge = exposeInMainWorld.mock.calls.find(
+      ([name]) => name === "openmeldDesktop"
+    )?.[1] as DesktopPilotBridge;
+    const listener = on.mock.calls.find(
+      ([channel]) => channel === WINDOW_IPC.navigateHref
+    )?.[1] as ((_event: unknown, href: unknown) => void) | undefined;
+    const handler = vi.fn();
+
+    listener?.({}, "https://evil.example/o/acme");
+    listener?.({}, "/o/acme/agents?profileId=agent-1#activity");
+    const unsubscribe = bridge.onNavigationRequest(handler);
+
+    expect(handler).toHaveBeenCalledExactlyOnceWith(
+      "/o/acme/agents?profileId=agent-1#activity"
+    );
+    unsubscribe();
+    listener?.({}, "/o/acme/spaces/space-1");
+    expect(handler).toHaveBeenCalledTimes(1);
   });
 });

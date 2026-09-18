@@ -13,8 +13,10 @@ import {
 } from "@phosphor-icons/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { OnboardingStepLayout } from "#/components/onboarding/onboarding-step-layout";
 import type { OrganizationOnboardingPreview } from "#/components/onboarding/organization-onboarding-demo";
 import { OrganizationIdentityMark } from "#/components/organizations/organization-identity-mark";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import {
 	acceptOrganizationInvitation,
 	acceptOrganizationJoinLink,
@@ -272,115 +274,119 @@ export function OrganizationOnboardingStep(input: {
 	}
 
 	return (
-		<div className="flex flex-1 flex-col">
-			{personalWorkspace ? (
-				<div className="mb-5">
-					<ChoiceGroupLabel>Personal</ChoiceGroupLabel>
-					<OrganizationChoice
-						current={personalWorkspace.id === input.currentOrganization.id}
-						description="For you only. Create an organization to connect Slack or invite teammates."
-						icon={
-							<UserIcon
-								aria-hidden="true"
-								className="size-4.5 text-muted-foreground"
-							/>
-						}
-						onClick={() => {
-							input.onPreviewOrganizationChange(
-								toOrganizationOnboardingPreview(personalWorkspace)
-							);
-							input
-								.onOrganizationChosen(personalWorkspace)
-								.catch((error: unknown) => {
-									console.error("OpenMeld could not open onboarding.", {
-										error,
-										organizationId: personalWorkspace.id,
-									});
-								});
-						}}
-						organization={personalWorkspace}
-						title="Personal Workspace"
-					/>
-				</div>
-			) : null}
-			{pendingInvitations.length > 0 ? (
-				<div className="mb-5">
-					<ChoiceGroupLabel>You’re invited</ChoiceGroupLabel>
-					<div className="grid gap-2">
-						{pendingInvitations.map((invitation) => (
-							<PendingInvitationChoice
-								invitation={invitation}
-								isPending={
-									acceptPendingInvitationMutation.isPending &&
-									acceptPendingInvitationMutation.variables?.id ===
-										invitation.id
-								}
-								key={invitation.id}
-								onAccept={() => {
-									acceptPendingInvitationMutation
-										.mutateAsync(invitation)
-										.then(input.onOrganizationChosen)
-										.catch(() => undefined);
-								}}
-							/>
-						))}
-					</div>
-					{acceptPendingInvitationMutation.error ? (
-						<p className="mt-2 text-destructive text-xs">
-							{acceptPendingInvitationMutation.error.message}
-						</p>
-					) : null}
-				</div>
-			) : null}
-			{userInvitationsQuery.isError ? (
-				<p className="mb-4 text-muted-foreground text-xs">
-					OpenMeld could not check pending email invitations. You can still join
-					with an invite link.
-				</p>
-			) : null}
-			{teamOrganizations.length > 0 ? (
+		<OnboardingStepLayout
+			body={
 				<div>
-					<ChoiceGroupLabel>Organizations</ChoiceGroupLabel>
-					<div className="grid gap-2">
-						{teamOrganizations.map((organization) => (
+					{personalWorkspace ? (
+						<div className="mb-5">
+							<ChoiceGroupLabel>Personal</ChoiceGroupLabel>
 							<OrganizationChoice
-								current={organization.id === input.currentOrganization.id}
-								key={organization.id}
+								current={personalWorkspace.id === input.currentOrganization.id}
+								description="For you only. Create an organization to connect Slack or invite teammates."
+								icon={
+									<UserIcon
+										aria-hidden="true"
+										className="size-4.5 text-muted-foreground"
+									/>
+								}
 								onClick={() => {
 									input.onPreviewOrganizationChange(
-										toOrganizationOnboardingPreview(organization)
+										toOrganizationOnboardingPreview(personalWorkspace)
 									);
 									input
-										.onOrganizationChosen(organization)
+										.onOrganizationChosen(personalWorkspace)
 										.catch((error: unknown) => {
 											console.error("OpenMeld could not open onboarding.", {
 												error,
-												organizationId: organization.id,
+												organizationId: personalWorkspace.id,
 											});
 										});
 								}}
-								organization={organization}
+								organization={personalWorkspace}
+								title="Personal Workspace"
 							/>
-						))}
+						</div>
+					) : null}
+					{pendingInvitations.length > 0 ? (
+						<div className="mb-5">
+							<ChoiceGroupLabel>You’re invited</ChoiceGroupLabel>
+							<div className="grid gap-2">
+								{pendingInvitations.map((invitation) => (
+									<PendingInvitationChoice
+										invitation={invitation}
+										isPending={
+											acceptPendingInvitationMutation.isPending &&
+											acceptPendingInvitationMutation.variables?.id ===
+												invitation.id
+										}
+										key={invitation.id}
+										onAccept={() => {
+											acceptPendingInvitationMutation
+												.mutateAsync(invitation)
+												.then(input.onOrganizationChosen)
+												.catch(() => undefined);
+										}}
+									/>
+								))}
+							</div>
+							{acceptPendingInvitationMutation.error ? (
+								<p className="mt-2 text-destructive text-xs">
+									{acceptPendingInvitationMutation.error.message}
+								</p>
+							) : null}
+						</div>
+					) : null}
+					{userInvitationsQuery.isError ? (
+						<p className="mb-4 text-muted-foreground text-xs">
+							OpenMeld could not check pending email invitations. You can still
+							join with an invite link.
+						</p>
+					) : null}
+					{teamOrganizations.length > 0 ? (
+						<div>
+							<ChoiceGroupLabel>Organizations</ChoiceGroupLabel>
+							<div className="grid gap-2">
+								{teamOrganizations.map((organization) => (
+									<OrganizationChoice
+										current={organization.id === input.currentOrganization.id}
+										key={organization.id}
+										onClick={() => {
+											input.onPreviewOrganizationChange(
+												toOrganizationOnboardingPreview(organization)
+											);
+											input
+												.onOrganizationChosen(organization)
+												.catch((error: unknown) => {
+													console.error("OpenMeld could not open onboarding.", {
+														error,
+														organizationId: organization.id,
+													});
+												});
+										}}
+										organization={organization}
+									/>
+								))}
+							</div>
+						</div>
+					) : null}
+
+					<div className="mt-4 grid gap-2 sm:grid-cols-2">
+						<ActionChoice
+							description="Set up OpenMeld for a team."
+							icon={<PlusIcon aria-hidden="true" className="size-4" />}
+							onClick={() => setMode("create")}
+							title="Create an organization"
+						/>
+						<ActionChoice
+							description="Use an invitation from your team."
+							icon={<LinkIcon aria-hidden="true" className="size-4" />}
+							onClick={() => setMode("join")}
+							title="Join with an invite link"
+						/>
 					</div>
 				</div>
-			) : null}
-
-			<div className="mt-4 grid gap-2 sm:grid-cols-2">
-				<ActionChoice
-					description="Set up OpenMeld for a team."
-					icon={<PlusIcon aria-hidden="true" className="size-4" />}
-					onClick={() => setMode("create")}
-					title="Create an organization"
-				/>
-				<ActionChoice
-					description="Use an invitation from your team."
-					icon={<LinkIcon aria-hidden="true" className="size-4" />}
-					onClick={() => setMode("join")}
-					title="Join with an invite link"
-				/>
-			</div>
-		</div>
+			}
+		/>
 	);
 }
 
@@ -516,7 +522,7 @@ function OrganizationCreateForm(input: {
 	const canSubmit = input.name.trim().length > 0 && !input.isPending;
 	return (
 		<form
-			className="flex flex-1 flex-col"
+			className="flex min-h-0 flex-1 flex-col"
 			onSubmit={(event) => {
 				event.preventDefault();
 				if (canSubmit) {
@@ -524,31 +530,37 @@ function OrganizationCreateForm(input: {
 				}
 			}}
 		>
-			<div className="grid gap-4">
-				<div className="grid gap-2">
-					<Label htmlFor="onboarding-organization-name">
-						Organization name
-					</Label>
-					<Input
-						autoFocus
-						disabled={input.isPending}
-						id="onboarding-organization-name"
-						onChange={(event) => input.onNameChange(event.target.value)}
-						placeholder="Acme"
-						value={input.name}
-					/>
-				</div>
-				<MutationError error={input.error} />
-			</div>
-			<div className="mt-auto flex items-center justify-between gap-3 pt-8">
-				<Button onClick={input.onBack} type="button" variant="ghost">
-					Back
-				</Button>
-				<Button disabled={!canSubmit} type="submit">
-					{input.isPending ? "Creating…" : "Create and continue"}
-					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-				</Button>
-			</div>
+			<OnboardingStepLayout
+				body={
+					<div className="grid gap-4">
+						<div className="grid gap-2">
+							<Label htmlFor="onboarding-organization-name">
+								Organization name
+							</Label>
+							<Input
+								autoFocus
+								disabled={input.isPending}
+								id="onboarding-organization-name"
+								onChange={(event) => input.onNameChange(event.target.value)}
+								placeholder="Acme"
+								value={input.name}
+							/>
+						</div>
+						<MutationError error={input.error} />
+					</div>
+				}
+				footer={
+					<div className="flex items-center justify-between gap-3">
+						<Button onClick={input.onBack} type="button" variant="ghost">
+							Back
+						</Button>
+						<Button disabled={!canSubmit} type="submit">
+							{input.isPending ? "Creating…" : "Create and continue"}
+							<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
+						</Button>
+					</div>
+				}
+			/>
 		</form>
 	);
 }
@@ -580,31 +592,35 @@ function OrganizationJoinForm(input: {
 	const activePreview = input.preview?.active ? input.preview : null;
 	if (input.requestId) {
 		return (
-			<div className="flex flex-1 flex-col">
-				<div aria-live="polite" className="space-y-3">
-					<p className="font-medium">Request sent</p>
-					<p className="text-muted-foreground text-sm">
-						We’ve notified the owners and admins. Once one approves, you can
-						enter the organization from your request page.
-					</p>
-					<a
-						className="text-sm underline underline-offset-4"
-						href={`/invitation-requests?requestId=${encodeURIComponent(input.requestId)}`}
-					>
-						View request
-					</a>
-				</div>
-				<div className="mt-auto pt-8">
-					<Button onClick={input.onBack} type="button" variant="ghost">
-						Back to workspaces
-					</Button>
-				</div>
-			</div>
+			<OnboardingStepLayout
+				body={
+					<div aria-live="polite" className="space-y-3">
+						<p className="font-medium">Request sent</p>
+						<p className="text-muted-foreground text-sm">
+							We’ve notified the owners and admins. Once one approves, you can
+							enter the organization from your request page.
+						</p>
+						<DesktopAwareLink
+							className="text-sm underline underline-offset-4"
+							href={`/invitation-requests?requestId=${encodeURIComponent(input.requestId)}`}
+						>
+							View request
+						</DesktopAwareLink>
+					</div>
+				}
+				footer={
+					<div>
+						<Button onClick={input.onBack} type="button" variant="ghost">
+							Back to workspaces
+						</Button>
+					</div>
+				}
+			/>
 		);
 	}
 	return (
 		<form
-			className="flex flex-1 flex-col"
+			className="flex min-h-0 flex-1 flex-col"
 			onSubmit={(event: FormEvent<HTMLFormElement>) => {
 				event.preventDefault();
 				if (isBusy || !input.inviteLink.trim()) {
@@ -614,58 +630,66 @@ function OrganizationJoinForm(input: {
 				action().catch(() => undefined);
 			}}
 		>
-			<div className="grid gap-2">
-				<Label htmlFor="onboarding-invite-link">Invite link</Label>
-				<Input
-					autoFocus
-					disabled={isBusy}
-					id="onboarding-invite-link"
-					onChange={(event) => input.onChange(event.target.value)}
-					placeholder="https://openmeld.ai/join-organization?token=…"
-					value={input.inviteLink}
-				/>
-			</div>
+			<OnboardingStepLayout
+				body={
+					<>
+						<div className="grid gap-2">
+							<Label htmlFor="onboarding-invite-link">Invite link</Label>
+							<Input
+								autoFocus
+								disabled={isBusy}
+								id="onboarding-invite-link"
+								onChange={(event) => input.onChange(event.target.value)}
+								placeholder="https://openmeld.ai/join-organization?token=…"
+								value={input.inviteLink}
+							/>
+						</div>
 
-			{activePreview ? (
-				<div className="mt-5 flex items-center gap-3 rounded-md border p-3.5">
-					<span className="grid size-8 place-items-center rounded-md bg-muted text-muted-foreground">
-						<BuildingsIcon aria-hidden="true" className="size-4" />
-					</span>
-					<span>
-						<span className="block font-medium text-sm">
-							{activePreview.organizationName}
-						</span>
-						<span className="block text-muted-foreground text-xs">
-							{activePreview.mode === "direct"
-								? "You’re invited to join as a member."
-								: "An owner or admin must approve your request to join."}
-						</span>
-					</span>
-				</div>
-			) : null}
-			{!activePreview && input.preview?.active === false ? (
-				<p className="mt-4 text-destructive text-sm" role="alert">
-					This invite link is no longer active.
-				</p>
-			) : null}
+						{activePreview ? (
+							<div className="mt-5 flex items-center gap-3 rounded-md border p-3.5">
+								<span className="grid size-8 place-items-center rounded-md bg-muted text-muted-foreground">
+									<BuildingsIcon aria-hidden="true" className="size-4" />
+								</span>
+								<span>
+									<span className="block font-medium text-sm">
+										{activePreview.organizationName}
+									</span>
+									<span className="block text-muted-foreground text-xs">
+										{activePreview.mode === "direct"
+											? "You’re invited to join as a member."
+											: "An owner or admin must approve your request to join."}
+									</span>
+								</span>
+							</div>
+						) : null}
+						{!activePreview && input.preview?.active === false ? (
+							<p className="mt-4 text-destructive text-sm" role="alert">
+								This invite link is no longer active.
+							</p>
+						) : null}
 
-			<MutationError error={input.previewError ?? input.requestError} />
-			<div className="mt-auto flex items-center justify-between gap-3 pt-8">
-				<Button onClick={input.onBack} type="button" variant="ghost">
-					Back
-				</Button>
-				<Button
-					disabled={input.inviteLink.trim().length === 0 || isBusy}
-					type="submit"
-				>
-					{resolveJoinButtonLabel({
-						activePreview,
-						isRequesting: input.isRequesting,
-						isPreviewing: input.isPreviewing,
-					})}
-					<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
-				</Button>
-			</div>
+						<MutationError error={input.previewError ?? input.requestError} />
+					</>
+				}
+				footer={
+					<div className="flex items-center justify-between gap-3">
+						<Button onClick={input.onBack} type="button" variant="ghost">
+							Back
+						</Button>
+						<Button
+							disabled={input.inviteLink.trim().length === 0 || isBusy}
+							type="submit"
+						>
+							{resolveJoinButtonLabel({
+								activePreview,
+								isRequesting: input.isRequesting,
+								isPreviewing: input.isPreviewing,
+							})}
+							<ArrowRightIcon aria-hidden="true" data-icon="inline-end" />
+						</Button>
+					</div>
+				}
+			/>
 		</form>
 	);
 }

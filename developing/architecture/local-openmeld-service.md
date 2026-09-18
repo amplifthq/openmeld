@@ -2339,6 +2339,12 @@ execution, waiting, readiness, or Service lifecycle decisions. Agent View keeps
 the structured setup and Service evidence. Partial completion continues to
 expose its cause and recovery action.
 
+The same Prepare stream may carry bounded, latest-only connection-progress
+observations from the authenticated Terminal to Web. These frames do not write
+Prepare state, increment `sessionRevision`, extend a deadline, or prove setup
+completion. Core still accepts completion only from the existing Prepare step
+and snapshot contracts; transport keepalive bytes are never progress evidence.
+
 Repair succeeds only for the component it repairs. It must not claim success
 just because a process started, local files were rewritten, or inventory was
 detected, and it must not project service health as final Wakeability.
@@ -2421,8 +2427,10 @@ override or second update/setup state machine is involved.
 
 That update job is the single operation truth. Its safe projection reports one
 of `waiting_for_work`, `updating`, `updated`, `restored`, or `needs_help` plus
-the opaque operation id, request source, target version, urgency, and
-timestamps. The operation shape does not carry failure detail. A stable,
+the opaque operation id, request source, legacy aggregate target version,
+optional CLI and Service target versions, urgency, and timestamps. Older
+operations omit the split targets; readers use the legacy target for both
+components. The operation shape does not carry failure detail. A stable,
 fully-prefixed update failure code may instead appear in the existing CLI
 component `reasonCodes`. Core projects only the first recognized allowlisted
 code when the operation is in `restored` or `needs_help`; it drops the code when
@@ -2439,8 +2447,19 @@ current update action.
 `waiting_for_work` and `updating` are in progress. `restored` and `needs_help`
 are failed outcomes even if stale component fields happen to show the target
 version. `updated` proves that the worker finished installation; clients still
-retain that exact operation and verify both CLI and Service at its target before
-presenting **Up to date** or allowing Setup or Prepare to report completion.
+retain that exact operation and verify CLI and Service against their respective
+operation targets before presenting **Up to date** or allowing Setup or Prepare
+to report completion. A CLI-only release may therefore finish while the
+operation's selected healthy Service remains on an older version; matching the
+new CLI version is not Service completion evidence.
+Computer cards label terminal failures as the **last update** separately from
+current connection and component requirements, retaining operation details and
+the failure diagnostic. A newer Core-owned connection report for the same
+device/lane and account-aligned session can confirm reconnection since the
+attempt. It does not verify running artifact integrity, supersede component
+update requirements, or rewrite the failed operation. Missing, old or mismatched
+reports leave that recovery unconfirmed. Skills-only drift does not change
+Service connection truth, and in-flight operations keep their current progress.
 Same-operation observations are ordered by `updatedAt` and phase, so a stale
 projection cannot move visible progress backward.
 An explicit later repair may establish a fresh running, anomaly-free Service at
@@ -2583,6 +2602,15 @@ corrupt; a changed installed artifact still requires repair. Read errors remain
 errors rather than being accepted as a successful integrity check. Existing
 version, lane, owner, and runtime-contract checks remain independent.
 
+An npm repair or update must also prove that the selected package source is the
+requested Service version before copying or activating it. This includes an
+explicit CLI script path: its package root and package metadata are the source,
+not the version requested by the caller. Missing, unreadable, differently named,
+or differently versioned package metadata fails with an actionable error. npm
+does not gain an independent Service publication path from this check; its CLI
+and Service source remain the same actual package unless a future release
+contract explicitly changes that ownership.
+
 Default CLI lifecycle and diagnostic targets preserve a newer installed Service
 version recorded by the service contract. That is target selection only, not
 proof of health: inventory still verifies the selected files, lane, local state,
@@ -2594,8 +2622,12 @@ not trust the damaged running carrier or relabel the caller's CLI bytes.
 Managed CLI cleanup retains the active binary Service's source version in
 addition to the CLI current and rollback versions and pending update/worker
 references. Retention ends when the active Service no longer references that
-version. This does not change the current coupled release target or authorize
-skipping a Service update selected by the release policy.
+version. A production CLI release may select that exact retained Service only
+when the release classifier proves no Service-owned input changed, the version
+does not exceed the CLI target, and both immutable Service artifacts still
+match the selected release metadata. Any Service-owned change keeps the release
+coupled. Runtime health and alignment checks remain mandatory; compatibility or
+version retention alone never authorizes skipping a Service update.
 
 The binary update worker runs from a stable lane-owned carrier, not from a
 version directory. A self-contained npm update worker uses a stable lane-owned
@@ -2692,6 +2724,14 @@ status immediately. Disconnect, subsequent connection attempts, and the next
 acknowledged connection share a recovery identifier and elapsed time in the
 existing local lifecycle journal, including while offline. These are observations,
 not another recovery controller or a claim about the original cause of an outage.
+
+The daemon-stream application keepalive owns at most one unanswered PING at a
+time. Its PONG deadline is fixed when that probe is sent; a later interval that
+becomes runnable after a scheduling gap must not replace or extend the deadline.
+A current-socket PONG clears the probe, while expiry terminates only that socket
+and returns recovery to the existing Service reconnect loop. Timer delay is a
+reason to revalidate transport, not evidence that the computer slept or that a
+particular network component failed.
 
 The carrier also records a strict, account-partitioned connection-evidence
 journal under its existing runtime-state directory. It retains at most 32

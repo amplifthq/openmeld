@@ -100,7 +100,11 @@ export async function rpcListInboxItems(
         .list({
           cursor: request.cursor,
           limit: request.limit,
+          notificationPreview: request.notificationPreview === "true",
           organizationId: prepared.organizationId,
+          ...(request.presentation === undefined
+            ? {}
+            : { presentation: request.presentation }),
           recipientUserId: prepared.userId,
           view: request.view,
         })
@@ -155,6 +159,9 @@ export async function rpcGetInboxSummary(
     await runService(() =>
       prepared.service.summary({
         organizationId: prepared.organizationId,
+        ...(request.presentation === undefined
+          ? {}
+          : { presentation: request.presentation }),
         recipientUserId: prepared.userId,
       })
     )
@@ -294,6 +301,9 @@ export async function rpcMarkAllInboxItemsRead(
     await runService(() =>
       prepared.service.markAllRead({
         organizationId: prepared.organizationId,
+        ...(request.presentation === undefined
+          ? {}
+          : { presentation: request.presentation }),
         recipientUserId: prepared.userId,
       })
     )

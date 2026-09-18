@@ -5,6 +5,7 @@ import { type ComponentProps, memo, type ReactNode, useMemo } from "react";
 import rehypeSanitize from "rehype-sanitize";
 import type { ExtraProps } from "streamdown";
 import { defaultRemarkPlugins, Streamdown } from "streamdown";
+import { DesktopAwareLink } from "#/desktop/desktop-aware-link";
 import "./message-response.css";
 
 const ALLOWED_INTERNAL_SPACE_PATH_PATTERN = /^\/spaces\/[0-9a-f]{64}$/;
@@ -153,9 +154,14 @@ function SafeMarkdownLink(
 	}
 
 	return (
-		<a href={href} rel="noopener noreferrer" target="_blank" {...rest}>
+		<DesktopAwareLink
+			href={href}
+			rel="noopener noreferrer"
+			target="_blank"
+			{...rest}
+		>
 			{children}
-		</a>
+		</DesktopAwareLink>
 	);
 }
 

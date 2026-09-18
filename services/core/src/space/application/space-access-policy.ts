@@ -8,7 +8,10 @@ import {
 } from "@openmeld/space";
 import { createCoreRpcHttpError } from "../../rpc/errors";
 import type { SpaceMemberRecord } from "../infrastructure/sql/space-member-repo";
-import type { SpaceMetaRecord } from "../infrastructure/sql/space-meta-repo";
+import {
+  resolveSpaceMetaLinkJoinPolicy,
+  type SpaceMetaRecord,
+} from "../infrastructure/sql/space-meta-repo";
 import { normalizeOwnerUserId } from "../rules/access/space-creator-identity";
 import type { PasswordAuthorizationResult } from "./types";
 
@@ -82,6 +85,7 @@ export async function authorizeProtectedSpaceAccess(input: {
     resolveSpaceAccess({
       visibility: input.meta.visibility,
       accessMode: input.meta.accessMode,
+      linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.meta),
       organizationMember: false,
       activeMember: false,
       password: "missing",
@@ -114,6 +118,7 @@ export async function authorizeSpaceJoinAccess(input: {
     resolveSpaceAccess({
       visibility: input.meta.visibility,
       accessMode: input.meta.accessMode,
+      linkJoinPolicy: resolveSpaceMetaLinkJoinPolicy(input.meta),
       organizationMember: false,
       activeMember: false,
       password: "missing",

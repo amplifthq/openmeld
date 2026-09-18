@@ -215,6 +215,10 @@ Space remains effective until a new invitation is accepted or the person
 explicitly rejoins under a currently enabled link-join policy. Link self-join
 admits only the caller's verified Human Profile as a Space Guest, never an
 Organization member; it requires guest access to be enabled separately.
+When an owner submits the first guest invitation while guest access is off,
+Share confirms the exposure once, enables guest access, and continues that
+same invitation. It does not make the owner enable a duplicate setting before
+inviting the guest.
 
 Discover includes Organization-open Spaces and the signed-in recipient's
 pending invitations, labeled **Invited**. A private invitation exposes its
@@ -536,12 +540,24 @@ does not redirect an in-flight upload or submission to the new conversation.
 Removing the selection discards that upload; abandoned uploads expire after
 24 hours and Core removes expired objects.
 
+Attachment-draft storage treats its IndexedDB connection as replaceable. A
+closed or invalid handle is reopened within a bounded wait, and only transaction
+creation may retry once before any file mutation begins. Operations for one
+attachment ID remain ordered so a delayed save cannot recreate a removed draft.
+Failed removal stays visible and retryable in the same account and conversation
+scope after the Composer remounts.
+
 Send immediately stages the message with local attachment previews and frees
 the Composer, including when uploads are still running. In the background it
 waits for the captured attachment batch, publishes every upload as a canonical
 root-level Space File, and posts the immutable revision references. A failed
 attachment is never silently omitted. A failure before publication keeps the
-message unsent with an explicit recovery path. File publication and message
+message unsent with an explicit recovery path. Retry keeps the original file,
+attachment ID, selection order, expiry, and publication identity. When remote
+staging succeeded but saving that descriptor locally failed, retry persists the
+existing descriptor instead of staging another upload. A descriptor alone is
+not publication readiness: the matching local draft write must also be
+confirmed. Recovery never sends automatically. File publication and message
 publication remain separate operations.
 
 Composer image attachments use compact, edge-to-edge thumbnails on surface 3,
@@ -762,11 +778,19 @@ Space from the directory or its destination link, independently of external
 link access. Core verifies current Organization membership and canonical Space
 policy; this grant admits only the caller's own Human Profile. It cannot add
 someone else, an Agent, or members to an unconverted Direct Message.
-The common UI asks **Who can join this Space**, with **Invited people** or
-**Everyone at [Organization]**. External guest invitations appear separately,
-only to owners. Owners can explicitly configure public/password link access
-in Access settings; neither Organization visibility nor enabling guests
-publishes a Space.
+The common UI asks **Who can read this Space?** and **Who can join this Space?**
+and derives each selected audience from link joining, Organization visibility,
+and guest participation together. It never presents a broad main label and
+then retracts that promise in helper text. Invitation-only joining places the
+invitation action beside the relevant selector rather than in the dialog
+footer. Password controls follow the reading or joining rule they govern. The
+URL is recovery information after clipboard failure, not permanent form
+content. Organization visibility and guest participation remain in Share &
+Access settings. Membership and ownership use a separate Members settings page
+that directly shows its controls and reuses the shared invitation view. Owners
+can explicitly configure public/password link access in Share or invite or
+Share & Access; neither Organization visibility nor enabling guests publishes a
+Space.
 
 New Web Spaces explicitly request `members_only` with either private (default)
 or public Organization visibility. The common form has one General access
@@ -789,6 +813,15 @@ OpenMeld has four access modes:
 - `protected`: viewing and joining require the Space password unless an existing
   membership or Organization-public self-join grant admits the caller.
   External joining also requires guest access to be enabled.
+
+`linkJoinPolicy` independently restricts the link-derived join grant. The
+legacy-compatible `access_mode` value retains the behavior above;
+`invite_only` lets `public` or `protected` reading remain available while the
+link grants no new membership. Organization-public joining, direct additions,
+accepted invitations, and current members retain their independent grants. A
+missing stored value resolves to `access_mode`; new Spaces start with
+`invite_only`, and an older writer that omits the field preserves its current
+value.
 
 Public reading includes retained messages, Threads, files, shared guide, pins,
 and Tasks from the same Space. It creates no account or membership. Login does
@@ -819,10 +852,14 @@ Before Organization departure or account removal, the departing person must
 hand over every owned Space and become a Member. Organization deletion requires
 its ordinary Spaces to be deleted first; it cannot strand their history.
 
-Share and Settings compose the same access panel and Fluid Dialog, Select,
-and Accordion primitives. Members are collapsed, searchable, and paged in
-the UI. Invitation-link state comes from persisted server state. Anonymous
-reading, posting, and Agent invocation remain outside this batch.
+Share or invite and Settings compose different task-focused views from one
+canonical snapshot and one local draft. Link reading, Organization visibility,
+joining, and guest access commit together so the UI never reports a partially
+saved policy. Moving between Share or invite and Share & Access preserves that
+draft; closing either surface requires one explicit discard decision. Members
+are directly visible on their settings page, searchable, and paged in the UI.
+Invitation-link state comes from persisted server state. Anonymous readers
+never post or invoke Agents.
 
 Profile participation remains explicit. Same-account access does not silently
 turn every profile under that account into a Space member. If a specific Human
