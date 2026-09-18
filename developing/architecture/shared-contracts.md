@@ -27,6 +27,30 @@
 
 ## Desktop platform contract
 
+### Local execution-host IPC
+
+`service-execution-host.ts` owns the private supervisor-to-Host protocol.
+Inherited JSON IPC is bounded by message bytes and outstanding requests, with
+reserved control capacity. Each request/reply is scoped to one Host incarnation
+and validated against its fixed method's request and response schemas. A method
+name cannot select arbitrary commands, paths, ports or URLs. Host execution
+frames cannot register or heartbeat a Computer. Transport generation checks
+remain separate from Host incarnation and execution authority.
+
+An observer deadline retires only that waiter; it neither cancels nor retries
+accepted work. Long drain observation can explicitly have no total deadline.
+Process/channel loss is unconfirmed execution, never an empty healthy registry
+or permission to replay a prompt. Existing execution and result identities remain
+the replay owners. The shared live route shape preserves current working-folder
+facts instead of reusing a lossy persisted route cache.
+
+Contract impact: this private interface requires matching supervisor and Host
+artifacts. It adds no cloud capability, public endpoint, alternate auth path or
+minimum client version by itself. Current Service composition remains unchanged
+until the separately validated process integration selects it. IPC fixture
+tests prove serialization and process separation, not production integration,
+packaging, a real Wake or offline Disconnect authority.
+
 `computer-connection.ts` owns the account-bound native Connect/Disconnect
 requests, progress events, and connection result. These IPC additions ship with
 their bundled renderer. Progress accepts the CLI's existing verbose and compact
