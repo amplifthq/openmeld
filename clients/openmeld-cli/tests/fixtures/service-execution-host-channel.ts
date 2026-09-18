@@ -6,6 +6,9 @@ import {
 import { parentExecutionHostChannel } from "../../src/local-service/execution-host/process-channel";
 
 const hostInstanceId = process.argv[2];
+if (!hostInstanceId) {
+  throw new Error("Fixture requires its exact Host incarnation.");
+}
 const mode = process.argv[3];
 let activeCount = 0;
 let finishWork: (() => void) | null = null;
@@ -15,6 +18,7 @@ const snapshot = () => ({
   admission: "open" as const,
   activeCount,
   pendingCount: 0,
+  localQuiescent: activeCount === 0,
   unacknowledgedResultCount: 0,
   startupReplayPending: false,
   adapterIds: [],

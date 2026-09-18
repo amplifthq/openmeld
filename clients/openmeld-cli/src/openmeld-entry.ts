@@ -2,7 +2,32 @@
 // Both distributions use this entry; normal commands keep their existing parser.
 const args = process.argv.slice(2);
 
-if (args.length === 2 && args[0] === "service" && args[1] === "update-worker") {
+if (
+  args.length === 3 &&
+  args[0] === "service" &&
+  args[1] === "execution-host"
+) {
+  try {
+    const { runExecutionHost } = await import(
+      "./local-service/execution-host/entry"
+    );
+    const hostInstanceId = args[2];
+    if (!hostInstanceId) {
+      throw new Error("The Host incarnation is required.");
+    }
+    await runExecutionHost(hostInstanceId);
+  } catch (error) {
+    console.error("[openmeld.execution_host.failed]", error);
+    process.exitCode = 1;
+    if (process.connected) {
+      process.disconnect();
+    }
+  }
+} else if (
+  args.length === 2 &&
+  args[0] === "service" &&
+  args[1] === "update-worker"
+) {
   try {
     const { runOpenMeldMaintenanceWorker } = await import(
       "./local-service/maintenance/openmeld-maintenance-worker"

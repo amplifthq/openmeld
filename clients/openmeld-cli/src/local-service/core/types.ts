@@ -173,6 +173,7 @@ export type DaemonProfileSkipReason = SharedDaemonProfileSkipReason;
 export type SkippedDaemonProfile = SharedSkippedDaemonProfile;
 
 export type RouteCatalog = {
+  executionHostCatalogRevision?: number;
   expectedRoutesContractVersion?: "v4";
   profileIds: string[];
   routeByProfileId: Map<string, DaemonProfileRouteConfig>;
@@ -182,6 +183,7 @@ export type RouteCatalog = {
 };
 
 export type MutableRouteCatalogState = {
+  executionHostCatalogRevision?: number;
   expectedRoutesContractVersion?: "v4";
   fingerprint: string;
   profileIds: string[];

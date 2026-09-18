@@ -3,6 +3,7 @@ import {
   SERVICE_EXECUTION_HOST_MAX_FRAME_BYTES,
   SERVICE_EXECUTION_HOST_MAX_PENDING_REQUESTS,
   SERVICE_EXECUTION_HOST_PROTOCOL,
+  type ServiceExecutionHostArguments,
   type ServiceExecutionHostInput,
   type ServiceExecutionHostMessage,
   type ServiceExecutionHostMethod,
@@ -307,7 +308,7 @@ export function createExecutionHostClient(input: {
 
 export type ExecutionHostHandlers = {
   [M in ServiceExecutionHostMethod]: (
-    input: ServiceExecutionHostInput<M>
+    input: ServiceExecutionHostArguments<M>
   ) => Promise<ServiceExecutionHostOutput<M>> | ServiceExecutionHostOutput<M>;
 };
 

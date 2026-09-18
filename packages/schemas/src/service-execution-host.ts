@@ -48,9 +48,23 @@ export const serviceExecutionHostSnapshotSchema = z.strictObject({
   admission: z.enum(["open", "draining"]),
   activeCount: count,
   pendingCount: count,
+  localQuiescent: z.boolean(),
   unacknowledgedResultCount: count,
   startupReplayPending: z.boolean(),
   adapterIds: z.array(identityString).max(256),
+});
+
+// A process-incarnation recovery fence, not a task ledger. An unconfirmed
+// owner cannot be replaced on the same OS boot merely because its PID died.
+export const serviceExecutionHostOwnerSchema = z.strictObject({
+  schema: z.literal("service-execution-host-owner-v1"),
+  hostInstanceId: z.uuid(),
+  ownerUserId: identityString,
+  deviceId: identityString,
+  lane: daemonServiceLaneSchema,
+  pid: z.number().int().positive(),
+  bootIdentity: identityString.nullable(),
+  localQuiescent: z.boolean(),
 });
 
 export const profileWorkingFolderFactSchema = z.strictObject({
@@ -164,8 +178,6 @@ const executionOutputFrameCodes = new Set([
   "daemon.dispatch.preview",
   "daemon.dispatch.preview_end",
   "daemon.local_agent_control.result",
-  "daemon.local_agent_control.fork_session_result",
-  "daemon.local_agent_control.manage_installation_result",
   "daemon.execution_recovery.resume_controller_conversation_result",
 ]);
 
@@ -257,6 +269,9 @@ export const serviceExecutionHostMethods = {
 
 export type ServiceExecutionHostMethod =
   keyof typeof serviceExecutionHostMethods;
+export type ServiceExecutionHostArguments<
+  M extends ServiceExecutionHostMethod,
+> = z.output<(typeof serviceExecutionHostMethods)[M]["input"]>;
 export type ServiceExecutionHostInput<M extends ServiceExecutionHostMethod> =
   z.input<(typeof serviceExecutionHostMethods)[M]["input"]>;
 export type ServiceExecutionHostOutput<M extends ServiceExecutionHostMethod> =
@@ -310,6 +325,16 @@ export const serviceExecutionHostMessageSchema = z.discriminatedUnion("type", [
     ...envelope,
     type: z.literal("invalidate"),
     scope: z.enum(["routes", "activity", "execution"]),
+  }),
+  z.strictObject({
+    ...envelope,
+    type: z.literal("authentication_failure"),
+    connectionGeneration: z.number().int().positive().nullable(),
+    failure: z.strictObject({
+      credentialFingerprint: z.string().min(1).max(256).optional(),
+      message: z.string().min(1).max(4096),
+      reasonCode: z.string().min(1).max(256),
+    }),
   }),
 ]);
 

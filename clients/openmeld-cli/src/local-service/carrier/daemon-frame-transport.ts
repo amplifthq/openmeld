@@ -148,6 +148,31 @@ export function emitDaemonErrorFrame(input: {
   });
 }
 
+export function handleDaemonTransportFrame(input: {
+  frame: ParsedDaemonFrame;
+  presenter: Presenter;
+  waiters: PendingFrameWaiters;
+}): boolean {
+  const response = {
+    payload: input.frame.payload,
+    presenter: input.presenter,
+    waiters: input.waiters,
+  };
+  switch (input.frame.code) {
+    case "daemon.session.register":
+      resolveRegisterResponseFrame(response);
+      return true;
+    case "daemon.session.heartbeat":
+      resolveHeartbeatResponseFrame(response);
+      return true;
+    case "daemon.error":
+      emitDaemonErrorFrame(response);
+      return true;
+    default:
+      return false;
+  }
+}
+
 function buildDaemonFrameError(input: {
   errorCode: string;
   errorMessage: string;
