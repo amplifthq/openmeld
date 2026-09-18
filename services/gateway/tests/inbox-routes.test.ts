@@ -76,6 +76,69 @@ const HUMAN_MENTION_ITEM = {
 };
 
 describe("Inbox routes", () => {
+  it("forwards server feed filters and frozen scopes without accepting client-selected recipients", async () => {
+    const { coreRpc, env } = makeEnv();
+    const response = await app.fetch(
+      new Request(
+        "http://local/v1/inbox/feed?category=mentions&agentsOnly=true&unreadOnly=false&limit=20"
+      ),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(response.status).toBe(200);
+    expect(coreRpc.listInboxFeed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: "mentions",
+        agentsOnly: "true",
+        unreadOnly: "false",
+        limit: 20,
+      })
+    );
+    const saved = await app.fetch(
+      jsonRequest("http://local/v1/inbox/feed/state", "POST", {
+        snapshotId: "snapshot",
+        operation: "read",
+        groupKey: "Z3JvdXA",
+      }),
+      env,
+      TEST_EXECUTION_CONTEXT
+    );
+    expect(saved.status).toBe(200);
+    expect(coreRpc.mutateInboxFeed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshotId: "snapshot",
+        operation: "read",
+        groupKey: "Z3JvdXA",
+      })
+    );
+    expect(
+      (
+        await app.fetch(
+          new Request("http://local/v1/inbox/feed?recipientUserId=other"),
+          env,
+          TEST_EXECUTION_CONTEXT
+        )
+      ).status
+    ).toBe(400);
+    expect(
+      (
+        await app.fetch(
+          jsonRequest("http://local/v1/inbox/feed/state", "POST", {
+            snapshotId: "snapshot",
+            operation: "read",
+            recipientUserId: "other",
+          }),
+          env,
+          TEST_EXECUTION_CONTEXT
+        )
+      ).status
+    ).toBe(400);
+    expect(coreRpc.listInboxFeed).toHaveBeenCalledOnce();
+    expect(coreRpc.mutateInboxFeed).toHaveBeenCalledOnce();
+    expect(coreRpc.listInboxItems).not.toHaveBeenCalled();
+    expect(coreRpc.markAllInboxItemsRead).not.toHaveBeenCalled();
+  });
+
   it("routes message preferences separately from email and validates conversation writes", async () => {
     const { coreRpc, env } = makeEnv();
     const response = await app.fetch(
@@ -684,6 +747,33 @@ describe("Inbox routes", () => {
 
 function makeEnv() {
   const coreRpc = {
+    listInboxFeed: vi.fn(async () => ({
+      organizationId: "org-1",
+      snapshotId: "snapshot",
+      snapshotExpiresAt: "2026-09-19T00:15:00Z",
+      nextCursor: null,
+      counts: {
+        all: 1,
+        mentions: 1,
+        needsAction: 0,
+        needsReview: 0,
+        unread: 1,
+        priority: 0,
+      },
+      rows: [
+        {
+          groupKey: "Z3JvdXA",
+          item: HUMAN_MENTION_ITEM,
+          itemCount: 1,
+          unreadCount: 1,
+          latestOccurredAt: HUMAN_MENTION_ITEM.occurredAt,
+          section: "activity",
+          requestCategory: null,
+          dot: "blue",
+        },
+      ],
+    })),
+    mutateInboxFeed: vi.fn(async () => ({ changedCount: 1 })),
     getInboxMessageNotificationPreferences: vi.fn(async () => ({
       organizationId: "org-1",
       spaceId: "space-1",

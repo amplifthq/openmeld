@@ -126,6 +126,8 @@ export {
   inboxCenterAgentReadWatermarks,
   inboxConversationNotificationPreferences,
   inboxEmailDeliveries,
+  inboxFeedSnapshotMembers,
+  inboxFeedSnapshots,
   inboxItems,
   inboxMessageNotificationDefaults,
   inboxNotificationPreferences,

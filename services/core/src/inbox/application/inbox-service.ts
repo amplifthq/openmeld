@@ -27,6 +27,7 @@ import {
 } from "@openmeld/space";
 import { isReadPositionWithinAllowedFutureSkew } from "../../shared/read-position";
 import { personalAgentOwnerAccessSql } from "./inbox-agent-owner-access";
+import { currentInboxSourceFactsSql } from "./inbox-current-source-facts";
 import { buildCurrentInboxSourceAccessSql } from "./inbox-source-access";
 
 const INBOX_ITEM_NOT_FOUND_CODE = "inbox.item_not_found";
@@ -47,7 +48,7 @@ const INBOX_SPACE_MESSAGE_FILTER = `
   AND attention = 'update'
   AND ${INBOX_SPACE_TARGET_FILTER}
 `;
-const INBOX_ATTENTION_PRESENTATION_FILTER = `
+export const INBOX_ATTENTION_PRESENTATION_FILTER = `
   NOT (
     attention = 'update'
     AND importance = 'normal'
@@ -156,7 +157,7 @@ const INBOX_ORDINARY_SPACE_FILTER = `
   )
 `;
 
-type InboxItemRow = {
+export type InboxItemRow = {
   attention: InboxItem["attention"];
   context_label: string | null;
   created_at_ms: number;
@@ -623,7 +624,7 @@ export function createInboxService(input: {
               preview,
               context_label,
               source_target_json,
-              source_facts_json,
+              ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
               resolution_status,
               read_at_ms,
               occurred_at_ms,
@@ -1152,7 +1153,7 @@ async function readInboxItem(input: {
           preview,
           context_label,
           source_target_json,
-          source_facts_json,
+          ${currentInboxSourceFactsSql("inbox_items")} AS source_facts_json,
           resolution_status,
           read_at_ms,
           occurred_at_ms,
@@ -1172,7 +1173,7 @@ async function readInboxItem(input: {
   return row ? mapInboxItemRow(row) : null;
 }
 
-function mapInboxItemRow(row: InboxItemRow): InboxItem {
+export function mapInboxItemRow(row: InboxItemRow): InboxItem {
   let sourceTargetValue: unknown;
   try {
     sourceTargetValue = JSON.parse(row.source_target_json);
@@ -1186,6 +1187,18 @@ function mapInboxItemRow(row: InboxItemRow): InboxItem {
     throw new Error(`Inbox item ${row.id} has an invalid source target`, {
       cause: sourceTarget.error,
     });
+  }
+  const sourceFacts = row.source_facts_json
+    ? JSON.parse(row.source_facts_json)
+    : undefined;
+  let target = sourceTarget.data;
+  if (
+    sourceFacts &&
+    target.kind === "space" &&
+    !sourceFacts.personalAgentProfileIds?.length
+  ) {
+    const { agentOwnerActivity: _ownerActivity, ...currentTarget } = target;
+    target = currentTarget;
   }
   return inboxItemSchema.parse({
     attention: row.attention,
@@ -1203,10 +1216,8 @@ function mapInboxItemRow(row: InboxItemRow): InboxItem {
         : toIsoTimestamp(row.read_at_ms, "read_at_ms"),
     recipientUserId: row.recipient_user_id,
     resolutionStatus: row.resolution_status,
-    ...(row.source_facts_json
-      ? { sourceFacts: JSON.parse(row.source_facts_json) }
-      : {}),
-    sourceTarget: sourceTarget.data,
+    ...(sourceFacts ? { sourceFacts } : {}),
+    sourceTarget: target,
     title: row.title,
     updatedAt: toIsoTimestamp(row.updated_at_ms, "updated_at_ms"),
   });

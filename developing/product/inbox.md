@@ -1,5 +1,39 @@
 # Inbox
 
+## Attention feed and frozen selections
+
+The canonical attention feed is `GET /v1/inbox/feed`. All, Mentions, Needs action
+and Needs review combine independently with `unreadOnly` and `agentsOnly`.
+Mentions includes structured Human mentions and current personal-Agent mentions
+through history, not unmentioned DMs. This does not change the older unread-only
+`view=mentions` API. Agents filters actual interaction/author/recipient facts, not
+the presence of an Agent somewhere in a Space.
+
+Core applies current membership, personal ownership, conversation visibility,
+mute presentation and filters before counts, grouping or pagination. A direct
+Human mention survives an Agent transfer; an owner-only relationship does not
+survive merely because a different owned Agent remains in that Space. All is
+ordered across the accessible dataset: priority attention, other open requests,
+then ordinary activity/history. Normal open requests lose their blue unread dot
+when read but remain pending; priority open requests stay yellow until resolved.
+First-contact information is yellow only while unread. Ended requests are
+history, never persistent priority.
+
+Conversation grouping shares the canonical message items and read state. It
+never joins different Organizations, main timelines, Threads or target scopes,
+and never absorbs an open request or critical execution outcome. The oldest
+priority signal can remain a group's visible anchor while newer chat arrives.
+Expanding a group performs no read mutation.
+
+A feed snapshot records a short-lived, account-and-Organization-bound set of
+eligible canonical item ids, not message contents or a second read ledger.
+Snapshots expire after fifteen minutes; cursors include the exact filters and
+expanded group. Explicit group/view read or Dismiss uses that frozen membership
+and rechecks current authorization. Later messages, delayed outbox deliveries,
+and formerly hidden muted history cannot be accidentally cleared. These bulk
+operations do not advance a conversation viewport watermark or close a request.
+Counts describe canonical items rather than the number of grouped rows.
+
 ## Agent Context
 
 - Purpose: Define OpenMeld's workspace Inbox, attention model, item lifecycle,

@@ -12,6 +12,8 @@ import {
   dismissInboxItemResponseSchema,
   getInboxItemResponseSchema,
   getInboxItemWireResponseSchema,
+  inboxFeedQuerySchema,
+  inboxFeedResponseSchema,
   inboxItemRouteParamsSchema,
   inboxMessageNotificationPreferencesQuerySchema,
   inboxMessageNotificationPreferencesResponseSchema,
@@ -30,6 +32,8 @@ import {
   markInboxItemReadWireResponseSchema,
   markSpaceInboxReadThroughBodySchema,
   markSpaceInboxReadThroughResponseSchema,
+  mutateInboxFeedBodySchema,
+  mutateInboxFeedResponseSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   spaceInboxUnreadTargetsRouteParamsSchema,
@@ -48,6 +52,8 @@ import { readJsonRequestBody } from "./rpc-http.parsers";
 import type { RpcHttpMethod } from "./rpc-http.types";
 
 const INBOX_ROUTE = "/v1/inbox";
+const INBOX_FEED_ROUTE = `${INBOX_ROUTE}/feed`;
+const INBOX_FEED_STATE_ROUTE = `${INBOX_FEED_ROUTE}/state`;
 const INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/summary`;
 const CENTER_AGENT_INBOX_SUMMARY_ROUTE = `${INBOX_ROUTE}/center-agent/summary`;
 const CENTER_AGENT_INBOX_READ_THROUGH_ROUTE = `${INBOX_ROUTE}/center-agent/read-through`;
@@ -66,6 +72,50 @@ const SPACE_INBOX_CONVERSATION_COUNTS_VERSIONS = new Set([
 ]);
 
 export function registerInboxRoutes(app: Hono<HonoBindings>): void {
+  app.get(INBOX_FEED_ROUTE, (c) => {
+    const query = inboxFeedQuerySchema.safeParse(c.req.query());
+    if (!query.success) {
+      return invalidPayloadResponse(
+        c,
+        INBOX_FEED_ROUTE,
+        "GET",
+        query.error.issues[0]?.message
+      );
+    }
+    return executeRpcRoute({
+      c,
+      method: "GET",
+      route: INBOX_FEED_ROUTE,
+      responseSchema: inboxFeedResponseSchema,
+      execute: () =>
+        c.var.coreRpc.listInboxFeed({
+          ...query.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
+  app.post(INBOX_FEED_STATE_ROUTE, async (c) => {
+    const body = await parseBody(
+      c,
+      INBOX_FEED_STATE_ROUTE,
+      "POST",
+      mutateInboxFeedBodySchema
+    );
+    if (!body.ok) {
+      return body.response;
+    }
+    return executeRpcRoute({
+      c,
+      method: "POST",
+      route: INBOX_FEED_STATE_ROUTE,
+      responseSchema: mutateInboxFeedResponseSchema,
+      execute: () =>
+        c.var.coreRpc.mutateInboxFeed({
+          ...body.data,
+          context: buildCoreRpcContext(c),
+        }),
+    });
+  });
   app.get(INBOX_MESSAGE_PREFERENCES_ROUTE, (c) => {
     const query = inboxMessageNotificationPreferencesQuerySchema.safeParse(
       c.req.query()

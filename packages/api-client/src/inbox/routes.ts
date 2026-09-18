@@ -1,9 +1,32 @@
 import type {
+  InboxFeedQuery,
   InboxPresentation,
   ListInboxItemsQuery,
 } from "@openmeld/schemas/types";
 
 const INBOX_PATH = "/v1/inbox";
+
+export function buildInboxFeedPath(query: InboxFeedQuery = {}): string {
+  const search = new URLSearchParams();
+  for (const key of [
+    "category",
+    "unreadOnly",
+    "agentsOnly",
+    "cursor",
+    "limit",
+    "snapshotId",
+    "groupKey",
+  ] as const) {
+    if (query[key] !== undefined) {
+      search.set(key, String(query[key]));
+    }
+  }
+  return `${INBOX_PATH}/feed${search.size ? `?${search}` : ""}`;
+}
+
+export function buildInboxFeedStatePath(): string {
+  return `${INBOX_PATH}/feed/state`;
+}
 
 export function buildInboxMessageNotificationPreferencesPath(
   spaceId?: string

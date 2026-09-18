@@ -11,9 +11,11 @@ import {
   rpcGetInboxSummary,
   rpcGetSpaceInboxSummary,
   rpcGetSpaceInboxUnreadTargets,
+  rpcListInboxFeed,
   rpcListInboxItems,
   rpcMarkInboxItemRead,
   rpcMarkSpaceInboxReadThrough,
+  rpcMutateInboxFeed,
   rpcUpdateInboxMessageNotificationPreferences,
 } from "../src/inbox/transport/rpc/inbox-rpc";
 import type { CoreBindings } from "../src/lib/bindings";
@@ -23,6 +25,54 @@ import {
 } from "./helpers/sqlite-d1-harness.test-support";
 
 describe("Inbox Core RPC", () => {
+  it("binds the attention feed and its frozen mutations to verified membership, not client-selected recipients", async () => {
+    const harness = createInboxHarness();
+    try {
+      applyDrizzleMigrationsForTables(harness, [
+        "inbox_feed_snapshots",
+        "inbox_feed_snapshot_members",
+        "inbox_conversation_notification_preferences",
+      ]);
+      const saved = await seedItem(harness.db, "user-1", true, {
+        version: 1,
+        recipientReasons: ["thread_reply"],
+        agentProfileIds: ["codex"],
+      });
+      const env = { OPENMELD_DB: harness.db } as unknown as CoreBindings;
+      const feed = await rpcListInboxFeed(env, {
+        context: contextFor("user-1"),
+        agentsOnly: "true",
+      });
+      expect(feed.rows[0]?.item.id).toBe(saved.itemId);
+      await expect(
+        rpcMutateInboxFeed(env, {
+          context: contextFor("user-2"),
+          snapshotId: feed.snapshotId,
+          operation: "read",
+        })
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(
+        rpcListInboxFeed(env, { context: contextFor("outsider") })
+      ).rejects.toMatchObject({ status: 403 });
+      await expect(
+        rpcListInboxFeed(env, {
+          context: contextFor("user-1"),
+          // @ts-expect-error A recipient is derived from authentication, never from a feed query.
+          recipientUserId: "user-2",
+        })
+      ).rejects.toMatchObject({ status: 400 });
+      expect(
+        await rpcMutateInboxFeed(env, {
+          context: contextFor("user-1"),
+          snapshotId: feed.snapshotId,
+          operation: "read",
+        })
+      ).toEqual({ changedCount: 1 });
+    } finally {
+      harness.close();
+    }
+  });
+
   it("returns durable relevance facts only to receivers that explicitly support them", async () => {
     const harness = createInboxHarness();
     try {

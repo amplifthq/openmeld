@@ -10,9 +10,11 @@ import {
   getInboxSummaryRpcInputSchema,
   getSpaceInboxSummaryRpcInputSchema,
   getSpaceInboxUnreadTargetsRpcInputSchema,
+  inboxFeedResponseSchema,
   inboxMessageNotificationPreferencesResponseSchema,
   inboxNotificationPreferencesResponseSchema,
   inboxSummaryResponseSchema,
+  listInboxFeedRpcInputSchema,
   listInboxItemsResponseSchema,
   listInboxItemsRpcInputSchema,
   markAllInboxItemsReadResponseSchema,
@@ -23,6 +25,8 @@ import {
   markInboxItemReadRpcInputSchema,
   markSpaceInboxReadThroughResponseSchema,
   markSpaceInboxReadThroughRpcInputSchema,
+  mutateInboxFeedResponseSchema,
+  mutateInboxFeedRpcInputSchema,
   spaceInboxSummaryResponseSchema,
   spaceInboxUnreadTargetsResponseSchema,
   updateInboxMessageNotificationPreferencesRpcInputSchema,
@@ -40,9 +44,11 @@ import type {
   GetInboxSummaryRpcInput,
   GetSpaceInboxSummaryRpcInput,
   GetSpaceInboxUnreadTargetsRpcInput,
+  InboxFeedResponse,
   InboxItem,
   InboxNotificationPreferencesResponse,
   InboxSummaryResponse,
+  ListInboxFeedRpcInput,
   ListInboxItemsResponse,
   ListInboxItemsRpcInput,
   MarkAllInboxItemsReadResponse,
@@ -53,6 +59,8 @@ import type {
   MarkInboxItemReadRpcInput,
   MarkSpaceInboxReadThroughResponse,
   MarkSpaceInboxReadThroughRpcInput,
+  MutateInboxFeedResponse,
+  MutateInboxFeedRpcInput,
   SpaceInboxSummaryResponse,
   SpaceInboxUnreadTargetsResponse,
   UpdateInboxMessageNotificationPreferencesRpcInput,
@@ -62,11 +70,65 @@ import { type CoreBindings, inboxDb } from "../../../lib/bindings";
 import { reconcileInvitationInbox } from "../../../organizations/invitation-inbox-projection";
 import { resolveActiveOrganizationMembership } from "../../../organizations/organization-context";
 import { createCoreRpcHttpError } from "../../../rpc/errors";
+import { createInboxFeedService } from "../../application/inbox-feed-service";
 import { createInboxMessageNotificationPreferencesService } from "../../application/inbox-message-notification-preferences";
 import {
   createInboxService,
   InboxServiceError,
 } from "../../application/inbox-service";
+
+export async function rpcListInboxFeed(
+  env: CoreBindings,
+  input: ListInboxFeedRpcInput
+): Promise<InboxFeedResponse> {
+  const { context, ...query } = parseRequest(
+    listInboxFeedRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, context);
+  await reconcileInvitationInbox(prepared.db, prepared.organizationId);
+  return parseResponse(
+    inboxFeedResponseSchema,
+    await runService(() =>
+      createInboxFeedService({
+        db: prepared.db,
+        canManageOrganization: prepared.canManageOrganization,
+      }).list(
+        {
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        },
+        query
+      )
+    )
+  );
+}
+
+export async function rpcMutateInboxFeed(
+  env: CoreBindings,
+  input: MutateInboxFeedRpcInput
+): Promise<MutateInboxFeedResponse> {
+  const { context, ...body } = parseRequest(
+    mutateInboxFeedRpcInputSchema,
+    input
+  );
+  const prepared = await prepareRequest(env, context);
+  return parseResponse(
+    mutateInboxFeedResponseSchema,
+    await runService(() =>
+      createInboxFeedService({
+        db: prepared.db,
+        canManageOrganization: prepared.canManageOrganization,
+      }).mutate(
+        {
+          organizationId: prepared.organizationId,
+          recipientUserId: prepared.userId,
+        },
+        body
+      )
+    )
+  );
+}
 
 export async function rpcDismissInboxItem(
   env: CoreBindings,
@@ -438,6 +500,8 @@ async function prepareRequest(
   return {
     db,
     organizationId: membership.organizationId,
+    canManageOrganization:
+      membership.role === "owner" || membership.role === "admin",
     service: createInboxService({
       db,
       canManageOrganization:

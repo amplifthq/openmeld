@@ -10,6 +10,42 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { organizations, users } from "../auth/auth.schema.ts";
 
+/** Short-lived query cutoffs, never copies of conversation or Inbox content. */
+export const inboxFeedSnapshots = sqliteTable(
+  "inbox_feed_snapshots",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    recipientUserId: text("recipient_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    unreadOnly: integer("unread_only", { mode: "boolean" }).notNull(),
+    agentsOnly: integer("agents_only", { mode: "boolean" }).notNull(),
+    throughRowId: integer("through_row_id").notNull(),
+    createdAtMs: integer("created_at_ms").notNull(),
+    expiresAtMs: integer("expires_at_ms").notNull(),
+  },
+  (table) => [
+    index("inbox_feed_snapshot_expiry_idx").on(table.expiresAtMs),
+    index("inbox_feed_snapshot_recipient_idx").on(
+      table.recipientUserId,
+      table.organizationId,
+      table.expiresAtMs
+    ),
+    check(
+      "inbox_feed_snapshot_category_check",
+      sql`"category" in ('all', 'mentions', 'needs_action', 'needs_review')`
+    ),
+    check(
+      "inbox_feed_snapshot_cutoff_check",
+      sql`"through_row_id" >= 0 and "created_at_ms" >= 0 and "expires_at_ms" > "created_at_ms"`
+    ),
+  ]
+);
+
 export const inboxItems = sqliteTable(
   "inbox_items",
   {
@@ -117,6 +153,23 @@ export const inboxItems = sqliteTable(
       "inbox_items_timestamps_check",
       sql`"occurred_at_ms" >= 0 and "created_at_ms" >= 0 and "updated_at_ms" >= "created_at_ms" and ("read_at_ms" is null or "read_at_ms" >= 0) and ("cleared_at_ms" is null or "cleared_at_ms" >= 0) and ("resolved_at_ms" is null or "resolved_at_ms" >= 0)`
     ),
+  ]
+);
+
+/** Membership only: contents and read state stay in the canonical Inbox item. */
+export const inboxFeedSnapshotMembers = sqliteTable(
+  "inbox_feed_snapshot_members",
+  {
+    snapshotId: text("snapshot_id")
+      .notNull()
+      .references(() => inboxFeedSnapshots.id, { onDelete: "cascade" }),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => inboxItems.id, { onDelete: "cascade" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.snapshotId, table.itemId] }),
+    index("inbox_feed_snapshot_members_item_idx").on(table.itemId),
   ]
 );
 

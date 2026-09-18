@@ -43,6 +43,8 @@ export const {
   organizationJoinRequests,
   inboxEmailDeliveries,
   inboxItems,
+  inboxFeedSnapshots,
+  inboxFeedSnapshotMembers,
   inboxNotificationPreferences,
   inboxMessageNotificationDefaults,
   inboxConversationNotificationPreferences,

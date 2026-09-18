@@ -1007,6 +1007,16 @@ tool authority, a conversation id, or a substitute for source authorization.
 
 ### Inbox contracts
 
+The additive `/v1/inbox/feed` and `/v1/inbox/feed/state` endpoints use the shared
+`inbox-feed` HTTP/RPC contracts. Filters, counts, rank, group identity, request
+category and status dot are server-owned facts; old list and summary callers
+retain their existing semantics. A mutation takes a server-issued snapshot id,
+optional group key, and read/Dismiss operation—not a caller-selected recipient,
+arbitrary item array or timestamp cutoff. Core verifies current Organization
+membership, binds the snapshot to that account and Organization, and rechecks
+source permissions. SQLite migration 0176 adds expiring snapshot membership
+referencing canonical items; deleting a snapshot never deletes Inbox items.
+
 Source-target version `8` adds optional, strict `sourceFacts` to canonical Inbox
 items. The source records actual Agent relevance, personal-Agent mentions,
 persistent first-contact identity and merged recipient reasons independently of
