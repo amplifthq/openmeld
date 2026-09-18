@@ -1,21 +1,5 @@
 # Web Client
 
-## Selected Space work
-
-The writable Space Files browser offers **Hand off** for files in the current
-folder. The dialog freezes their displayed revisions, selects one authorized
-Wake target, and collects a goal, completed work, next steps, and optional exact
-Skill releases/requirements. It uses the shared API handoff operation and the
-existing Message/Wake flow. It does not invent a separate handoff history,
-execution status, or file copy in the cloud. An unchanged in-dialog retry keeps
-its message identity; editing the selection creates a new attempt.
-
-The confirmation means the message was posted. Messages and its existing details
-surface show the actual queued/running/failure outcome and exact file attachments.
-The Web entry creates a new Space message; CLI callers can continue inside an
-existing Thread. Desktop rendering reuses this Web surface; a native Desktop
-working-copy manager and private Computer browsing are outside this first slice.
-
 ## Agent Context
 
 - Purpose: Define the OpenMeld Web client's product responsibilities in
@@ -38,6 +22,22 @@ working-copy manager and private Computer browsing are outside this first slice.
   ownership, CLI behavior, React style guidance, or endpoint catalogs.
 - Source of truth: This file owns the durable product boundary for the OpenMeld Web
   client as a browser client.
+
+## Selected Space work
+
+The writable Space Files browser offers **Hand off** for files in the current
+folder. The dialog freezes their displayed revisions, selects one authorized
+Wake target, and collects a goal, completed work, next steps, and optional exact
+Skill releases/requirements. It uses the shared API handoff operation and the
+existing Message/Wake flow. It does not invent a separate handoff history,
+execution status, or file copy in the cloud. An unchanged in-dialog retry keeps
+its message identity; editing the selection creates a new attempt.
+
+The confirmation means the message was posted. Messages and its existing details
+surface show the actual queued/running/failure outcome and exact file attachments.
+The Web entry creates a new Space message; CLI callers can continue inside an
+existing Thread. Desktop rendering reuses this Web surface; a native Desktop
+working-copy manager and private Computer browsing are outside this first slice.
 
 ## Boundary
 
