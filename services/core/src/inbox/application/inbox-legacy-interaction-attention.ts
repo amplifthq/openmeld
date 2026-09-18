@@ -9,6 +9,14 @@ export async function repairLegacyInteractionAttention(input: {
   nowMs: number;
 }): Promise<boolean> {
   const { candidate, existing } = input;
+  if (
+    !(
+      candidate.sourceFacts?.requestCategory &&
+      candidate.sourceFacts.recipientReasons.includes("requester")
+    )
+  ) {
+    return false;
+  }
   const localInteraction =
     candidate.sourceKind === "runtime_coordinator_interaction" &&
     candidate.kind === "agent_interaction" &&

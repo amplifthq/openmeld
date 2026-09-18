@@ -66,6 +66,7 @@ export async function projectRuntimeCoordinatorInteractionInboxItem(
     targetProfileName: input.targetProfileName,
   });
   await ensureInboxItem({
+    allowLegacySourceClassificationRepair: true,
     candidate: {
       attention: "action_required",
       contextLabel: truncateInboxText(

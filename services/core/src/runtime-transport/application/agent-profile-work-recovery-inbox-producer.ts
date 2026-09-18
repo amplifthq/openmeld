@@ -41,6 +41,7 @@ export async function projectAgentProfileWorkRecoveryInboxItem(
     stage: input.stage,
   });
   return await ensureInboxItem({
+    allowLegacySourceClassificationRepair: true,
     candidate: {
       attention: "action_required",
       contextLabel: truncateInboxText(

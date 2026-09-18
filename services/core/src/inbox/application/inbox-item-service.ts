@@ -25,6 +25,8 @@ export class InboxSourceConflictError extends Error {
 }
 
 export async function ensureInboxItem(input: {
+  /** Source-owner migration opt-in; never accepted from HTTP/RPC candidates. */
+  allowLegacySourceClassificationRepair?: boolean;
   candidate: InboxSourceCandidate;
   db: D1Database;
   nowMs: number;
@@ -59,6 +61,7 @@ export async function ensureInboxItem(input: {
   }
   if (
     existing &&
+    input.allowLegacySourceClassificationRepair === true &&
     (await repairLegacyInteractionAttention({
       candidate,
       existing,

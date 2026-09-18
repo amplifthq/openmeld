@@ -285,6 +285,31 @@ describe("Inbox item service", () => {
     }
   });
 
+  it("cannot use new recipient facts to bypass a generic source conflict", async () => {
+    const harness = createInboxHarness();
+    try {
+      const candidate = buildCandidate();
+      await ensureInboxItem({ candidate, db: harness.db, nowMs: 2000 });
+      await expect(
+        ensureInboxItem({
+          candidate: {
+            ...candidate,
+            importance: "normal",
+            sourceFacts: {
+              version: 1,
+              recipientReasons: ["requester"],
+              requestCategory: "review",
+            },
+          },
+          db: harness.db,
+          nowMs: 3000,
+        })
+      ).rejects.toBeInstanceOf(InboxSourceConflictError);
+    } finally {
+      harness.close();
+    }
+  });
+
   it("resolves source-owned action state without mutating read state", async () => {
     const harness = createInboxHarness();
     try {
