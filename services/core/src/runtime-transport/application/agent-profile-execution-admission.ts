@@ -780,9 +780,7 @@ export async function readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmissio
     return { status: "not_pending" };
   }
   const gate = admission.recoveryGate;
-  const action = gate
-    ? resolveAgentProfileWorkRecoveryAction(gate.status)
-    : null;
+  const action = gate ? resolveAgentProfileWorkRecoveryAction(gate) : null;
   if (!(gate && action)) {
     return { status: "not_pending" };
   }
@@ -814,6 +812,9 @@ export async function readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmissio
       gate.status === "continuation_authorized"
         ? gate.continuationClientMessageId
         : null,
+    ...(gate.forkInterruptedConversation
+      ? { forkInterruptedConversation: true }
+      : {}),
     interruptedClientMessageId:
       head.targetWakeLifecycleIdentity.clientMessageId,
     interruptedDispatchId: head.primaryDispatchId,
@@ -958,7 +959,7 @@ function projectAgentProfileWorkReferences(input: {
   ) as { sourceSignalId: string; spaceId: string }[];
   if (workSummary.status === "paused") {
     const recoveryAction = resolveAgentProfileWorkRecoveryAction(
-      input.admission.recoveryGate?.status ?? null
+      input.admission.recoveryGate
     );
     return {
       operationalContext: {
@@ -1058,26 +1059,36 @@ function resolveAgentProfileWorkRecoveryInboxStage(
 }
 
 function resolveAgentProfileWorkRecoveryAction(
-  status: AgentProfileWorkRecoveryGate["status"] | null
+  gateOrStatus:
+    | AgentProfileWorkRecoveryGate
+    | AgentProfileWorkRecoveryGate["status"]
+    | null
 ):
   | "continue_interrupted_work"
   | "approve_queued_work"
   | "fork_interrupted_work"
   | "skip_interrupted_work"
   | null {
+  if (!gateOrStatus) {
+    return null;
+  }
+  const status =
+    typeof gateOrStatus === "string" ? gateOrStatus : gateOrStatus.status;
+  const isFork =
+    typeof gateOrStatus === "object" &&
+    Boolean(gateOrStatus.forkInterruptedConversation);
   switch (status) {
     case "awaiting_occupancy_decision":
       return "fork_interrupted_work";
     case "continuation_pending":
     case "continuation_authorized":
-      return "continue_interrupted_work";
+      return isFork ? "fork_interrupted_work" : "continue_interrupted_work";
     case "awaiting_owner_approval":
       return "approve_queued_work";
     case "continuation_needs_attention":
       return "skip_interrupted_work";
     case "awaiting_usage":
     case "continuation_running":
-    case null:
       return null;
     default:
       return assertNeverRecoveryGateStatus(status);
@@ -1758,11 +1769,16 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
   currentConfigurationRevision: number;
   currentDefaultProjectId?: string | null;
   expectedInterruptedTargetWakeLifecycleId: string;
+  forkInterruptedConversation?: boolean;
   nowMs: number;
   ownerUserId: string;
   storage: ExecutionAdmissionStorage;
   targetProfileId: string;
 }): Promise<{
+  interruptedExecution?: {
+    dispatchId: string;
+    runtimeCoordinatorExecutionId: string;
+  } | null;
   status: "authorized" | "needs_attention" | "not_pending" | "unavailable";
 }> {
   const storageKey = buildExecutionAdmissionStorageKey(input.targetProfileId);
@@ -1815,44 +1831,19 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
         storage: transaction,
       });
     if (!acceptedExecutionTargetMatches) {
-      const marked = markAgentProfileWorkContinuationNeedsAttention({
-        coordinator: projectAgentProfileWorkCoordinator(admission),
+      return await recordContinuationTargetMismatchNeedsAttention({
+        admission,
         nowMs: input.nowMs,
+        recoveryGate: admission.recoveryGate,
+        storageKey,
+        targetProfileId: input.targetProfileId,
+        transaction,
       });
-      if (!(marked.changed && marked.coordinator.recoveryGate)) {
-        return { status: "not_pending" as const };
-      }
-      await Promise.all([
-        transaction.put(storageKey, {
-          ...admission,
-          recoveryGate: marked.coordinator.recoveryGate,
-          revision: marked.coordinator.revision,
-          updatedAtMs: marked.coordinator.updatedAtMs,
-        } satisfies AgentProfileExecutionAdmissionRecord),
-        writeAgentProfileWorkRecoveryInboxProjectionIntent({
-          intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
-            desiredStatus: "open",
-            occurredAtMs: input.nowMs,
-            stage: "review_interrupted_work",
-            supersededStages:
-              resolveSupersededAgentProfileWorkRecoveryInboxStages(
-                admission.recoveryGate.status
-              ),
-            targetProfileId: input.targetProfileId,
-            targetWakeLifecycleId:
-              marked.coordinator.recoveryGate.interruptedWork
-                .targetWakeLifecycleId,
-            updatedAtMs: input.nowMs,
-          }),
-          storage: transaction,
-        }),
-        transaction.setAlarm(input.nowMs),
-      ]);
-      return { status: "needs_attention" as const };
     }
     const result = authorizeAgentProfileWorkContinuation({
       continuationClientMessageId: input.continuationClientMessageId,
       coordinator: projectAgentProfileWorkCoordinator(admission),
+      forkInterruptedConversation: input.forkInterruptedConversation,
       nowMs: input.nowMs,
     });
     if (!result.changed) {
@@ -1870,8 +1861,80 @@ export async function authorizeRuntimeCoordinatorAgentProfileWorkContinuation(in
       storage: transaction,
       targetProfileId: input.targetProfileId,
     });
-    return { status: "authorized" as const };
+    const interruptedExecution =
+      await readInterruptedExecutionFromHeadLifecycle({
+        dispatchId: admission.recoveryGate.interruptedWork.dispatchId,
+        targetWakeLifecycleId:
+          admission.recoveryGate.interruptedWork.targetWakeLifecycleId,
+        transaction,
+      });
+    return {
+      interruptedExecution,
+      status: "authorized" as const,
+    };
   });
+}
+
+async function recordContinuationTargetMismatchNeedsAttention(input: {
+  admission: AgentProfileExecutionAdmissionRecord;
+  nowMs: number;
+  recoveryGate: AgentProfileWorkRecoveryGate;
+  storageKey: string;
+  targetProfileId: string;
+  transaction: DurableObjectTransaction;
+}): Promise<{ status: "needs_attention" | "not_pending" }> {
+  const marked = markAgentProfileWorkContinuationNeedsAttention({
+    coordinator: projectAgentProfileWorkCoordinator(input.admission),
+    nowMs: input.nowMs,
+  });
+  if (!(marked.changed && marked.coordinator.recoveryGate)) {
+    return { status: "not_pending" as const };
+  }
+  await Promise.all([
+    input.transaction.put(input.storageKey, {
+      ...input.admission,
+      recoveryGate: marked.coordinator.recoveryGate,
+      revision: marked.coordinator.revision,
+      updatedAtMs: marked.coordinator.updatedAtMs,
+    } satisfies AgentProfileExecutionAdmissionRecord),
+    writeAgentProfileWorkRecoveryInboxProjectionIntent({
+      intent: buildAgentProfileWorkRecoveryInboxProjectionIntent({
+        desiredStatus: "open",
+        occurredAtMs: input.nowMs,
+        stage: "review_interrupted_work",
+        supersededStages: resolveSupersededAgentProfileWorkRecoveryInboxStages(
+          input.recoveryGate.status
+        ),
+        targetProfileId: input.targetProfileId,
+        targetWakeLifecycleId:
+          marked.coordinator.recoveryGate.interruptedWork.targetWakeLifecycleId,
+        updatedAtMs: input.nowMs,
+      }),
+      storage: input.transaction,
+    }),
+    input.transaction.setAlarm(input.nowMs),
+  ]);
+  return { status: "needs_attention" as const };
+}
+
+async function readInterruptedExecutionFromHeadLifecycle(input: {
+  dispatchId: string;
+  targetWakeLifecycleId: string;
+  transaction: DurableObjectTransaction;
+}): Promise<{
+  dispatchId: string;
+  runtimeCoordinatorExecutionId: string;
+} | null> {
+  const head = await input.transaction.get<unknown>(
+    buildRuntimeCoordinatorHeadLifecycleStorageKey(input.targetWakeLifecycleId)
+  );
+  return isRuntimeCoordinatorHeadLifecycleRecord(head) &&
+    head.runtimeCoordinatorExecutionId
+    ? {
+        dispatchId: input.dispatchId,
+        runtimeCoordinatorExecutionId: head.runtimeCoordinatorExecutionId,
+      }
+    : null;
 }
 
 async function acceptedRecoveryExecutionTargetMatchesCurrent(input: {
@@ -2508,6 +2571,7 @@ async function writeRuntimeCoordinatorHeadLifecycleWithAdmissionInTransaction(in
         admission.contextMigration?.legacyAssociation ?? undefined,
       authorizedContinuationSourceWakeId:
         admission.recoveryGate?.status === "continuation_authorized" &&
+        !admission.recoveryGate.forkInterruptedConversation &&
         admission.recoveryGate.continuationClientMessageId ===
           input.record.targetWakeLifecycleIdentity.clientMessageId
           ? admission.recoveryGate.interruptedWork.targetWakeLifecycleId
@@ -5120,6 +5184,13 @@ function parseAgentProfileWorkRecoveryGateOrLegacy(
   ) {
     return {
       continuationClientMessageId: gate.continuationClientMessageId ?? null,
+      ...(gate.forkInterruptedConversation !== undefined
+        ? {
+            forkInterruptedConversation: Boolean(
+              gate.forkInterruptedConversation
+            ),
+          }
+        : {}),
       interruptedWork: gate.interruptedWork as AgentProfileWorkCoordinatorItem,
       ...(gate.additionalInterruptedWork
         ? { additionalInterruptedWork: gate.additionalInterruptedWork }

@@ -1903,6 +1903,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         currentDefaultProjectId: parsed.data.currentDefaultProjectId,
         expectedInterruptedTargetWakeLifecycleId:
           parsed.data.expectedInterruptedTargetWakeLifecycleId,
+        forkInterruptedConversation: parsed.data.forkInterruptedConversation,
         nowMs: Date.now(),
         ownerUserId: parsed.data.ownerUserId,
         storage: this.ctx.storage,
@@ -1922,10 +1923,73 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       if (response.status === "needs_attention") {
         this.scheduledHousekeepingAlarmAtMs = undefined;
       }
+      if (response.status === "authorized" && response.interruptedExecution) {
+        await this.stopSupersededInterruptedExecution({
+          interruptedExecution: response.interruptedExecution,
+          ownerUserId: parsed.data.ownerUserId,
+          targetProfileId: parsed.data.targetProfileId,
+        });
+      }
     }
     return runtimeTransportAgentProfileWorkContinuationAuthorizeResponseSchema.parse(
       response
     );
+  }
+
+  private async stopSupersededInterruptedExecution(input: {
+    interruptedExecution: {
+      dispatchId: string;
+      runtimeCoordinatorExecutionId: string;
+    };
+    ownerUserId: string;
+    targetProfileId: string;
+  }): Promise<void> {
+    const oldExecutionId =
+      input.interruptedExecution.runtimeCoordinatorExecutionId;
+    const oldCommandState = await this.readRuntimeCoordinatorRunCommandState(
+      oldExecutionId
+    ).catch(() => null);
+    if (!oldCommandState) {
+      return;
+    }
+    await this.requestRuntimeCoordinatorWakeStop({
+      v: RUNTIME_TRANSPORT_SCHEMA_VERSION,
+      ownerUserId: input.ownerUserId,
+      runtimeCoordinatorExecutionId: oldExecutionId,
+      dispatchId: oldCommandState.dispatchId,
+      spaceId: oldCommandState.sanitizedDeliveryRequest.payload.spaceId,
+      sourceClientMessageId: oldCommandState.sourceClientMessageId,
+      targetProfileId: input.targetProfileId,
+      reason: "superseded_by_continuation",
+    }).catch(() => null);
+
+    const session = this.state.sessionsById.get(
+      oldCommandState.sanitizedDeliveryRequest.daemonSessionId
+    );
+    if (!session?.socket) {
+      return;
+    }
+    try {
+      this.sendFrame(session.socket, {
+        code: "daemon.local_agent_control.cancel",
+        payload: {
+          requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
+            oldCommandState.runtimeCoordinatorExecutionId
+          ),
+          payload: {
+            runtimeCoordinatorExecutionId:
+              oldCommandState.runtimeCoordinatorExecutionId,
+            target: {
+              by: "task",
+              taskId: oldCommandState.sanitizedDeliveryRequest.payload.taskId,
+            },
+            reason: "superseded_by_continuation",
+          },
+        },
+      });
+    } catch {
+      // Best effort frame delivery
+    }
   }
 
   async rpcHandOffOccupiedAgentProfileWork(
@@ -15189,6 +15253,36 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       nowMs: input.nowMs,
       reasonCode: terminalPlan.reasonCode,
     });
+
+    if (input.expiryCause === "controller_conversation_occupied") {
+      const session = this.state.sessionsById.get(
+        input.commandState.sanitizedDeliveryRequest.daemonSessionId
+      );
+      if (session?.socket) {
+        try {
+          this.sendFrame(session.socket, {
+            code: "daemon.local_agent_control.cancel",
+            payload: {
+              requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
+                input.commandState.runtimeCoordinatorExecutionId
+              ),
+              payload: {
+                runtimeCoordinatorExecutionId:
+                  input.commandState.runtimeCoordinatorExecutionId,
+                target: {
+                  by: "task",
+                  taskId:
+                    input.commandState.sanitizedDeliveryRequest.payload.taskId,
+                },
+                reason: "controller_conversation_occupied_timeout",
+              },
+            },
+          });
+        } catch {
+          // Socket send failure is best effort
+        }
+      }
+    }
 
     const stopCause = this.state.sessionsById.get(
       input.commandState.sanitizedDeliveryRequest.daemonSessionId

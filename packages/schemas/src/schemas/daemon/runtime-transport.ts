@@ -144,6 +144,7 @@ export const runtimeTransportAgentProfileWorkRecoveryReadResponseSchema =
     z.strictObject({
       action: runtimeTransportAgentProfileWorkRecoveryActionSchema,
       authorizedContinuationClientMessageId: clientMessageIdSchema.nullable(),
+      forkInterruptedConversation: z.boolean().optional(),
       interruptedClientMessageId: clientMessageIdSchema,
       interruptedDispatchId: z.string().trim().min(1).max(512),
       // Older owner shards omit these exact-source fields during a rolling Core
@@ -266,6 +267,7 @@ export const runtimeTransportAgentProfileWorkContinuationAuthorizeRequestSchema 
     currentConfigurationRevision: z.number().int().positive(),
     currentDefaultProjectId: z.string().trim().min(1).nullable().optional(),
     expectedInterruptedTargetWakeLifecycleId: z.string().trim().min(1).max(512),
+    forkInterruptedConversation: z.boolean().optional(),
     requireAcceptedExecutionTargetRevision: z.literal(true),
   });
 

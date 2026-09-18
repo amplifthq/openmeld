@@ -18,6 +18,7 @@ export type AgentProfileWorkCoordinatorItem = {
 
 export type AgentProfileWorkRecoveryGate = {
   continuationClientMessageId: string | null;
+  forkInterruptedConversation?: boolean;
   interruptedWork: AgentProfileWorkCoordinatorItem;
   additionalInterruptedWork?: AgentProfileWorkCoordinatorItem[];
   status:
@@ -533,6 +534,7 @@ export function markAgentProfileWorkContinuationNeedsAttention(input: {
 export function authorizeAgentProfileWorkContinuation(input: {
   continuationClientMessageId: string;
   coordinator: AgentProfileWorkCoordinator;
+  forkInterruptedConversation?: boolean;
   nowMs: number;
 }): { coordinator: AgentProfileWorkCoordinator; changed: boolean } {
   const continuationClientMessageId = input.continuationClientMessageId.trim();
@@ -543,6 +545,10 @@ export function authorizeAgentProfileWorkContinuation(input: {
   if (!(continuationClientMessageId && recoveryGate && authorizable)) {
     return { coordinator: input.coordinator, changed: false };
   }
+  const forkInterruptedConversation =
+    input.forkInterruptedConversation ??
+    recoveryGate.forkInterruptedConversation ??
+    (recoveryGate.status === "awaiting_occupancy_decision" ? true : undefined);
   return {
     changed: true,
     coordinator: {
@@ -550,6 +556,9 @@ export function authorizeAgentProfileWorkContinuation(input: {
       recoveryGate: {
         ...recoveryGate,
         continuationClientMessageId,
+        ...(forkInterruptedConversation !== undefined
+          ? { forkInterruptedConversation }
+          : {}),
         status: "continuation_authorized",
         updatedAtMs: input.nowMs,
       },
