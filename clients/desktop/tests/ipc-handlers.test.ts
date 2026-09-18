@@ -665,7 +665,7 @@ describe("createDesktopHandlers", () => {
     expect(openExternal).toHaveBeenCalledWith("http://127.0.0.1:3434");
   });
 
-  it("honors WEB_APP_URL when opening a Web app path", async () => {
+  it("honors WEB_APP_URL when opening a Web app path with search parameters", async () => {
     const openExternal = vi.fn(async () => undefined);
     const handlers = createDesktopHandlers({
       commandDeps: {
@@ -678,10 +678,12 @@ describe("createDesktopHandlers", () => {
       openExternal,
     });
 
-    await handlers.openWeb(LOCAL_AGENTS_GUIDE_PATH);
+    await handlers.openWeb(
+      "/o/org-a/connect?observePrepareSessionId=prepare-desktop-1"
+    );
 
     expect(openExternal).toHaveBeenCalledWith(
-      "http://127.0.0.1:3434/guides/local-agents"
+      "http://127.0.0.1:3434/o/org-a/connect?observePrepareSessionId=prepare-desktop-1"
     );
   });
 

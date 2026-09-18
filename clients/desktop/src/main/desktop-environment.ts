@@ -30,10 +30,11 @@ function withWebPath(webUrl: string, path: string): string {
   if (!isAbsoluteWebPath(path)) {
     throw new Error("Web path must start with a single /.");
   }
-  const url = new URL(webUrl);
-  url.pathname = path;
-  url.search = "";
-  url.hash = "";
+  const webOrigin = new URL(webUrl).origin;
+  const url = new URL(path, webOrigin);
+  if (url.origin !== webOrigin) {
+    throw new Error("Web path must stay on OpenMeld Web.");
+  }
   return url.toString();
 }
 
