@@ -24,6 +24,7 @@ import {
 import type { CenterAgentDirectMessageRouteData } from "#/lib/organizations/center-agent-route-loader";
 import { parseCenterAgentRouteSearch } from "#/lib/organizations/center-agent-route-search";
 import type { OrganizationSummary } from "#/lib/organizations/organization-types";
+import { removeComposerFileDraft } from "#/lib/spaces/composer-file-drafts";
 import { Route as CenterAgentChatRoute } from "#/routes/o/$orgSlug/_center-agent/chats.center-agent";
 import { CenterAgentPage } from "./center-agent-page";
 import { CenterAgentPendingConversation } from "./center-agent-route-pending";
@@ -360,7 +361,13 @@ describe("CenterAgentPage", () => {
 			releaseSave();
 			await gate;
 		});
+		await Promise.all(saveSpy.mock.results.map((result) => result.value));
 		expect(readPending()).toBe(pending);
+		await Promise.all(
+			saveSpy.mock.calls.map(async ([draft]) =>
+				removeComposerFileDraft(draft.id)
+			)
+		);
 	});
 
 	it.each([
@@ -407,6 +414,12 @@ describe("CenterAgentPage", () => {
 				files: [file],
 				fileDrafts: [expect.objectContaining({ file })],
 			})
+		);
+		await Promise.all(saveSpy.mock.results.map((result) => result.value));
+		await Promise.all(
+			saveSpy.mock.calls.map(async ([draft]) =>
+				removeComposerFileDraft(draft.id)
+			)
 		);
 	});
 
