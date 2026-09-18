@@ -574,6 +574,8 @@ export {
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
   runtimeTransportAgentProfileWorkHandoffRequestSchema,
   runtimeTransportAgentProfileWorkHandoffResponseSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryActionSchema,

@@ -145,6 +145,16 @@ export type RuntimeTransportAgentProfileWorkSkipResponse =
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkSkipResponseSchema"]
   >;
 
+export type RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema"]
+  >;
+
+export type RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse =
+  import("zod/v4").infer<
+    typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema"]
+  >;
+
 export type RuntimeTransportAgentProfileExecutionTargetMutationRequest =
   import("zod/v4").infer<
     typeof import("../../schemas/daemon/runtime-transport")["runtimeTransportAgentProfileExecutionTargetMutationRequestSchema"]

@@ -273,6 +273,7 @@ import {
   resolveSpaceComposerUploadScopeResponseSchema,
   respondToSpaceAgentInteractionInputSchema,
   runtimeReportingRouteParamsSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadResponseSchema,
   SPACE_COMPOSER_UPLOAD_TTL_MS,
   SPACE_FILE_MAX_SIZE_BYTES,
@@ -5568,13 +5569,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       recovery,
       targetProfileId: request.agentProfileId,
     });
-    if (continuation === "deferred") {
-      throw createCoreRpcHttpError({
-        code: "agent_profile_work_recovery.temporarily_unavailable",
-        reason: "OpenMeld is checking this Agent’s paused work. Try again.",
-        status: 503,
-      });
-    }
+    throwUnstartedAgentProfileWorkContinuationError(continuation);
   } else if (parsedBody.data.action === "skip_interrupted_work") {
     await executeAgentProfileInterruptedWorkSkip({
       expectedInterruptedTargetWakeLifecycleId:
@@ -5592,13 +5587,7 @@ export async function rpcExecuteAgentProfileWorkRecovery(
       recovery,
       targetProfileId: request.agentProfileId,
     });
-    if (continuation === "deferred") {
-      throw createCoreRpcHttpError({
-        code: "agent_profile_work_recovery.temporarily_unavailable",
-        reason: "OpenMeld is checking this Agent’s paused work. Try again.",
-        status: 503,
-      });
-    }
+    throwUnstartedAgentProfileWorkContinuationError(continuation);
   }
   return executeAgentProfileWorkRecoveryResponseSchema.parse({
     action: parsedBody.data.action,
@@ -5793,7 +5782,7 @@ async function executeAgentProfileWorkContinuation(input: {
     { status: "available" }
   >;
   targetProfileId: string;
-}): Promise<"deferred" | "started"> {
+}): Promise<"awaiting_original_stop" | "deferred" | "started"> {
   if (
     !(
       input.recovery.interruptedSourceSignalId &&
@@ -5864,6 +5853,28 @@ async function executeAgentProfileWorkContinuation(input: {
       throwAgentProfileWorkContinuationAuthorizationError(authorized.status);
     }
   }
+  // Saving the owner's decision and having a safe permit to start replacement
+  // work are different facts. This is asked on every attempt, including a retry
+  // that reuses a stored authorization, because the cancellation sent with the
+  // first one may never have reached the computer.
+  const withdrawal =
+    runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema.parse(
+      await input.ownerShard.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+        expectedInterruptedTargetWakeLifecycleId:
+          input.recovery.interruptedTargetWakeLifecycleId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      })
+    );
+  if (withdrawal.status === "requested") {
+    return "awaiting_original_stop";
+  }
+  if (
+    withdrawal.status !== "not_started" &&
+    withdrawal.status !== "withdrawn"
+  ) {
+    return "deferred";
+  }
   await stub.rpcStartUsageExhaustedContinuation({
     continuationClientMessageId,
     context: input.context,
@@ -5887,6 +5898,33 @@ async function executeAgentProfileWorkContinuation(input: {
     targetProfileId: input.targetProfileId,
   });
   return "started";
+}
+
+/**
+ * Reports the stage a continuation actually reached.
+ *
+ * The owner's decision is kept either way, so an unstarted attempt is a
+ * retryable stage rather than a lost choice. Waiting on the original request is
+ * named separately from ordinary unavailability, because "nothing new has
+ * started" is the fact the owner needs in order to trust the next click.
+ */
+function throwUnstartedAgentProfileWorkContinuationError(
+  continuation: "awaiting_original_stop" | "deferred" | "started"
+): void {
+  if (continuation === "started") {
+    return;
+  }
+  throw createCoreRpcHttpError({
+    code:
+      continuation === "awaiting_original_stop"
+        ? "agent_profile_work_recovery.awaiting_original_stop"
+        : "agent_profile_work_recovery.temporarily_unavailable",
+    reason:
+      continuation === "awaiting_original_stop"
+        ? "OpenMeld is checking whether the original request stopped on your computer. Nothing new has started yet. Try again in a moment."
+        : "OpenMeld is checking this Agent’s paused work. Try again.",
+    status: 503,
+  });
 }
 
 function throwAgentProfileWorkContinuationAuthorizationError(

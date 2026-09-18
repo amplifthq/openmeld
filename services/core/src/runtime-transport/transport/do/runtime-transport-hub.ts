@@ -63,6 +63,8 @@ import {
   runtimeTransportAgentProfileWorkContinuationNeedsAttentionResponseSchema,
   runtimeTransportAgentProfileWorkHandoffRequestSchema,
   runtimeTransportAgentProfileWorkHandoffResponseSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema,
+  runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema,
   runtimeTransportAgentProfileWorkQueueApproveRequestSchema,
   runtimeTransportAgentProfileWorkQueueApproveResponseSchema,
   runtimeTransportAgentProfileWorkRecoveryReadRequestSchema,
@@ -205,6 +207,8 @@ import type {
   RuntimeTransportAgentProfileWorkContinuationNeedsAttentionResponse,
   RuntimeTransportAgentProfileWorkHandoffRequest,
   RuntimeTransportAgentProfileWorkHandoffResponse,
+  RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest,
+  RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse,
   RuntimeTransportAgentProfileWorkQueueApproveRequest,
   RuntimeTransportAgentProfileWorkQueueApproveResponse,
   RuntimeTransportAgentProfileWorkRecoveryReadRequest,
@@ -485,6 +489,7 @@ import {
   isRuntimeCoordinatorHeadWaitingForDevice,
   isRuntimeCoordinatorHeadWaitingRecoveryCandidate,
   isRuntimeCoordinatorLateResultRecoverable,
+  isRuntimeCoordinatorLocalAttemptWithdrawn,
   isRuntimeCoordinatorPublicationProjectionSettled,
   isRuntimeCoordinatorPublicationRetryExhausted,
   isRuntimeCoordinatorReevaluatableDecisionAction,
@@ -504,6 +509,9 @@ import {
   RUNTIME_COORDINATOR_HEAD_WAITING_RECOVERY_REDRIVE_HEADER,
   RUNTIME_COORDINATOR_HEAD_WAITING_RECOVERY_REDRIVE_REASON,
   RUNTIME_COORDINATOR_HEAD_WAITING_SOFT_WAIT_MS,
+  RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_OCCUPANCY_TERMINAL_REASON_CODE,
+  RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SERVICE_AWAY_REASON_CODE,
+  RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE,
   RUNTIME_COORDINATOR_LOCAL_RUNTIME_LOST_REASON_CODE,
   RUNTIME_COORDINATOR_PRE_AGENT_STOP_REQUESTED_REASON_CODE,
   RUNTIME_COORDINATOR_PRE_EXECUTION_HANDOFF_DEADLINE_MS,
@@ -578,7 +586,9 @@ import {
   readRuntimeCoordinatorRunCommandStateFromStorage,
   readRuntimeCoordinatorRunCommandStatesFromStorageIndex,
   readRuntimeCoordinatorTokenAuthorityFromStorage,
+  recordRuntimeCoordinatorLocalAttemptWithdrawnInStorage,
   removeRuntimeCoordinatorFinalizationRetryFromStorage,
+  requestRuntimeCoordinatorLocalAttemptWithdrawalInStorage,
   retainRuntimeCoordinatorCommunicationRecovery,
   upsertRuntimeCoordinatorFinalizationRetryEntryInStorage,
   writeRuntimeCoordinatorPreExecutionHandoffRecordToStorage,
@@ -1965,33 +1975,86 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       targetProfileId: input.targetProfileId,
       reason: "superseded_by_continuation",
     }).catch(() => null);
+    await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
+      commandState: oldCommandState,
+      controlReason: "superseded_by_continuation",
+      nowMs: Date.now(),
+      reasonCode:
+        RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE,
+    });
+  }
 
+  /**
+   * Asks the computer to withdraw one attempt and records that it was asked.
+   *
+   * The control frame is best effort, so the durable request is what lets a
+   * later acknowledgement be recognized and lets an unconfirmed withdrawal stay
+   * visible instead of being assumed successful. A Service that is away keeps
+   * its own reason rather than looking like a delivered request.
+   */
+  private async requestRuntimeCoordinatorLocalAttemptWithdrawal(input: {
+    commandState: RuntimeCoordinatorRunCommandState;
+    controlReason: string;
+    nowMs: number;
+    reasonCode: string;
+  }): Promise<void> {
     const session = this.state.sessionsById.get(
-      oldCommandState.sanitizedDeliveryRequest.daemonSessionId
+      input.commandState.sanitizedDeliveryRequest.daemonSessionId
     );
-    if (!session?.socket) {
-      return;
-    }
-    try {
-      this.sendFrame(session.socket, {
-        code: "daemon.local_agent_control.cancel",
-        payload: {
-          requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
-            oldCommandState.runtimeCoordinatorExecutionId
-          ),
+    let delivered = false;
+    if (session?.socket) {
+      try {
+        this.sendFrame(session.socket, {
+          code: "daemon.local_agent_control.cancel",
           payload: {
-            runtimeCoordinatorExecutionId:
-              oldCommandState.runtimeCoordinatorExecutionId,
-            target: {
-              by: "task",
-              taskId: oldCommandState.sanitizedDeliveryRequest.payload.taskId,
+            requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
+              input.commandState.runtimeCoordinatorExecutionId
+            ),
+            payload: {
+              runtimeCoordinatorExecutionId:
+                input.commandState.runtimeCoordinatorExecutionId,
+              target: {
+                by: "task",
+                taskId:
+                  input.commandState.sanitizedDeliveryRequest.payload.taskId,
+              },
+              reason: input.controlReason,
             },
-            reason: "superseded_by_continuation",
           },
-        },
+        });
+        delivered = true;
+      } catch {
+        // Socket send failure is best effort; the durable request records it.
+      }
+    }
+    const requested =
+      await requestRuntimeCoordinatorLocalAttemptWithdrawalInStorage({
+        activeRunId: input.commandState.activeRunId,
+        nowMs: input.nowMs,
+        reasonCode: delivered
+          ? input.reasonCode
+          : RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SERVICE_AWAY_REASON_CODE,
+        runtimeCoordinatorExecutionId:
+          input.commandState.runtimeCoordinatorExecutionId,
+        storage: this.ctx.storage,
+      }).catch((error) => {
+        console.warn(
+          "[core.runtime_transport.local_attempt_withdrawal_request_unrecorded]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            reasonCode: input.reasonCode,
+            runtimeCoordinatorExecutionId:
+              input.commandState.runtimeCoordinatorExecutionId,
+          }
+        );
+        return null;
       });
-    } catch {
-      // Best effort frame delivery
+    if (requested) {
+      this.publishWakeProgressChanged({
+        agentProfileId: requested.targetProfileId,
+        clientMessageId: requested.sourceClientMessageId,
+        spaceId: requested.sanitizedDeliveryRequest.payload.spaceId,
+      });
     }
   }
 
@@ -2098,6 +2161,83 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     return runtimeTransportAgentProfileWorkQueueApproveResponseSchema.parse({
       status: response.status,
     });
+  }
+
+  /**
+   * Asks the computer again to withdraw the attempt a continuation replaces.
+   *
+   * Recovery consults this on every attempt instead of trusting that the
+   * cancellation sent with the first authorization landed. A stored decision is
+   * not evidence, and the honest answer while nothing has confirmed is
+   * `requested`, never a silent permission to start replacement work.
+   */
+  async rpcRequestAgentProfileWorkLocalAttemptWithdrawal(
+    input: RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalRequest
+  ): Promise<RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse> {
+    const parsed =
+      runtimeTransportAgentProfileWorkLocalAttemptWithdrawalRequestSchema.safeParse(
+        input
+      );
+    if (!parsed.success) {
+      return { status: "unavailable" };
+    }
+    const recovery =
+      await readRuntimeCoordinatorAgentProfileWorkRecoveryFromAdmission({
+        nowMs: Date.now(),
+        ownerUserId: parsed.data.ownerUserId,
+        storage: this.ctx.storage,
+        targetProfileId: parsed.data.targetProfileId,
+      });
+    if (recovery.status === "unavailable") {
+      this.queueRuntimeCoordinatorAgentProfileExecutionIndexRepairAlarm();
+      return { status: "unavailable" };
+    }
+    const interruptedTargetWakeLifecycleId =
+      recovery.status === "available"
+        ? recovery.interruptedTargetWakeLifecycleId
+        : undefined;
+    if (
+      !interruptedTargetWakeLifecycleId ||
+      interruptedTargetWakeLifecycleId !==
+        parsed.data.expectedInterruptedTargetWakeLifecycleId
+    ) {
+      return { status: "not_pending" };
+    }
+    if (
+      recovery.status === "available" &&
+      recovery.interruptedLocalAttempt === "withdrawn"
+    ) {
+      return { status: "withdrawn" };
+    }
+    const head = await this.readRuntimeCoordinatorHeadLifecycleRecord(
+      interruptedTargetWakeLifecycleId
+    ).catch(() => null);
+    const executionId = head?.runtimeCoordinatorExecutionId;
+    if (!executionId) {
+      return { status: "not_started" };
+    }
+    const commandState = await this.readRuntimeCoordinatorRunCommandState(
+      executionId
+    ).catch(() => null);
+    if (!commandState) {
+      // Without the delivery record Core cannot address the attempt, so it
+      // reports the withdrawal as outstanding rather than assuming either way.
+      return { status: "requested" };
+    }
+    await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
+      commandState,
+      controlReason: "superseded_by_continuation",
+      nowMs: Date.now(),
+      reasonCode:
+        RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_SUPERSEDED_REASON_CODE,
+    });
+    return runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema.parse(
+      {
+        status: isRuntimeCoordinatorLocalAttemptWithdrawn(commandState)
+          ? "withdrawn"
+          : "requested",
+      }
+    );
   }
 
   async rpcSkipAgentProfileInterruptedWork(
@@ -15258,33 +15398,13 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     });
 
     if (input.expiryCause === "controller_conversation_occupied") {
-      const session = this.state.sessionsById.get(
-        input.commandState.sanitizedDeliveryRequest.daemonSessionId
-      );
-      if (session?.socket) {
-        try {
-          this.sendFrame(session.socket, {
-            code: "daemon.local_agent_control.cancel",
-            payload: {
-              requestId: buildRuntimeCoordinatorWakeStopControlRequestId(
-                input.commandState.runtimeCoordinatorExecutionId
-              ),
-              payload: {
-                runtimeCoordinatorExecutionId:
-                  input.commandState.runtimeCoordinatorExecutionId,
-                target: {
-                  by: "task",
-                  taskId:
-                    input.commandState.sanitizedDeliveryRequest.payload.taskId,
-                },
-                reason: "controller_conversation_occupied_timeout",
-              },
-            },
-          });
-        } catch {
-          // Socket send failure is best effort
-        }
-      }
+      await this.requestRuntimeCoordinatorLocalAttemptWithdrawal({
+        commandState: input.commandState,
+        controlReason: "controller_conversation_occupied_timeout",
+        nowMs: input.nowMs,
+        reasonCode:
+          RUNTIME_COORDINATOR_LOCAL_ATTEMPT_WITHDRAWAL_OCCUPANCY_TERMINAL_REASON_CODE,
+      });
     }
 
     const stopCause = this.state.sessionsById.get(
@@ -18955,6 +19075,16 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       return;
     }
 
+    // A truthful withdrawal acknowledgement is worth keeping even when the Wake
+    // Stop lifecycle cannot advance. Core may have already closed this
+    // execution on stale evidence, and discarding the one fact that proves the
+    // local attempt is gone would leave replacement work nothing to verify.
+    await this.recordRuntimeCoordinatorLocalAttemptWithdrawn({
+      daemonSessionId: input.daemonSessionId,
+      nowMs,
+      payload: effectivePayload,
+      runtimeCoordinatorExecutionId,
+    });
     const rejectionReasonCode =
       resolveRuntimeCoordinatorWakeStopAcceptedControlRejectionReason({
         authority,
@@ -19065,6 +19195,55 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
       runtimeCoordinatorExecutionId,
       statusAfter: "cancelled",
     });
+  }
+
+  /**
+   * Keeps the Service's acknowledgement that one exact attempt is gone.
+   *
+   * Identity is checked against this run rather than the Wake Stop lifecycle:
+   * the same session that received the delivery, the same execution, dispatch
+   * and task, and the run the token authority still calls current. A stale
+   * acknowledgement from an earlier run therefore cannot retire a newer one.
+   */
+  private async recordRuntimeCoordinatorLocalAttemptWithdrawn(input: {
+    daemonSessionId: string;
+    nowMs: number;
+    payload: RuntimeCoordinatorWakeStopControlPayload;
+    runtimeCoordinatorExecutionId: string;
+  }): Promise<void> {
+    if (
+      input.payload.resolvedRuntimeCoordinatorExecutionId !==
+        input.runtimeCoordinatorExecutionId ||
+      !(input.payload.resolvedDispatchId && input.payload.resolvedTaskId)
+    ) {
+      return;
+    }
+    const withdrawn =
+      await recordRuntimeCoordinatorLocalAttemptWithdrawnInStorage({
+        daemonSessionId: input.daemonSessionId,
+        nowMs: input.nowMs,
+        reasonCode: input.payload.reasonCode ?? null,
+        resolvedDispatchId: input.payload.resolvedDispatchId,
+        resolvedTaskId: input.payload.resolvedTaskId,
+        runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+        storage: this.ctx.storage,
+      }).catch((error) => {
+        console.warn(
+          "[core.runtime_transport.local_attempt_withdrawal_unrecorded]",
+          {
+            error: error instanceof Error ? error.message : String(error),
+            runtimeCoordinatorExecutionId: input.runtimeCoordinatorExecutionId,
+          }
+        );
+        return null;
+      });
+    if (withdrawn) {
+      this.publishWakeProgressChanged({
+        agentProfileId: withdrawn.targetProfileId,
+        clientMessageId: withdrawn.sourceClientMessageId,
+        spaceId: withdrawn.sanitizedDeliveryRequest.payload.spaceId,
+      });
+    }
   }
 
   private async publishAlreadyCancelledRuntimeCoordinatorWakeStopNotice(input: {
