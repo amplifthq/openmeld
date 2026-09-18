@@ -19439,7 +19439,25 @@ describe("runtime transport runtime coordinator transport contract", () => {
         }
       ).alarm();
 
-      expect(sentFrames).toEqual([]);
+      // The terminal outcome also withdraws the local attempt, so the replacement
+      // branch the owner may choose does not race a wait that is still queued on
+      // the occupied conversation.
+      expect(sentFrames).toEqual([
+        expect.objectContaining({
+          code: "daemon.local_agent_control.cancel",
+          payload: {
+            requestId: `wake-stop:${RUNTIME_COORDINATOR_EXECUTION_ID}`,
+            payload: {
+              reason: "controller_conversation_occupied_timeout",
+              runtimeCoordinatorExecutionId: RUNTIME_COORDINATOR_EXECUTION_ID,
+              target: {
+                by: "task",
+                taskId: "task-1",
+              },
+            },
+          },
+        }),
+      ]);
       expect(spaceFetchRequests).toHaveLength(1);
       expect(spaceFetchRequests[0]?.body).toMatchObject({
         data: {
