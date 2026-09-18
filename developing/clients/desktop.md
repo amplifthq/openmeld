@@ -168,6 +168,14 @@ packaged inline scripts for CSP. It never enables arbitrary inline scripts.
   Invalidation removes stale private query and persistence state but retains
   account-scoped Composer drafts until the authoritative reread confirms no
   session or a different account. Explicit sign-out still clears those drafts.
+  Entry distinguishes an unknown/failed session read from confirmed sign-out.
+  Manual Retry and focus reuse the same serialized, revision-fenced revalidation;
+  native session changes supersede older reads. Temporary workspace failures do
+  not initiate browser sign-in or repeat an already handled account invalidation.
+  Failed protected-route session reads return to this entry with the existing
+  validated workspace path, query, and hash, without clearing account data.
+  Confirmed missing Organization membership retains the shared explicit error
+  rather than selecting an Organization or automatically retrying.
   Its Space stream methods open a subscription by ID/Space/Profile, send only
   the existing keepalive ping, close it, and deliver transport events. No URL,
   credentials, or business-write frames are accepted.

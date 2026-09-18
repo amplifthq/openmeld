@@ -4,6 +4,7 @@ import { formatDesktopError } from "./desktop-error";
 describe("Desktop sign-in errors", () => {
 	it.each([
 		"Could not connect to OpenMeld. Check your connection and try again.",
+		"Could not open your workspace. Check your connection and try again.",
 		"This sign-in could not be completed. Sign in with your browser again.",
 		"This version of OpenMeld is not supported by the server. Check for an app update.",
 		"Desktop sign-in changed. Check the account and try again.",
@@ -33,8 +34,10 @@ describe("Desktop sign-in errors", () => {
 		expect(
 			formatDesktopError(
 				error,
-				"Could not open your workspace. Try signing in again."
+				"Could not open your workspace. Check your connection and try again."
 			)
-		).toBe("Could not open your workspace. Try signing in again.");
+		).toBe(
+			"Could not open your workspace. Check your connection and try again."
+		);
 	});
 });
