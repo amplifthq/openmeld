@@ -272,6 +272,139 @@ describe("Execution Context local authority", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("restores the recorded child across replay when the parent advances, reading parent history fails, or requests run concurrently", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-context-replay-"));
+    roots.push(root);
+    const sourceDirectory = await realpath(root);
+    const replayContext = {
+      ...context,
+      id: "44444444-4444-4444-8444-444444444444",
+      workspace: "current" as const,
+      forkSource: {
+        contextId: "33333333-3333-4333-8333-333333333333",
+        sourceWakeId: "wake-source",
+        nativeConversationId: "parent-thread",
+        runtimeWorkspaceFingerprint:
+          buildRuntimeWorkspaceFingerprint(sourceDirectory),
+        workspace: "current" as const,
+      },
+    };
+
+    // 1. First attempt creates child at settled-turn-7
+    const firstChild = await prepareExecutionContextConversation({
+      context: replayContext,
+      unscopedNativeConversationId: null,
+      currentWorkingDirectory: root,
+      workingDirectory: sourceDirectory,
+      existingNativeConversationId: null,
+      ledgerRootPath: root,
+      agentControllerRef: "builtin:codex",
+      launchContract,
+    });
+    expect(firstChild).toBe("child-thread");
+
+    // 2. Parent thread advances: reading history would now return settled-turn-8
+    vi.mocked(resolveCodexAppServerCompletedTurn).mockResolvedValueOnce({
+      completedTurnId: "settled-turn-8",
+    });
+
+    // Replay with identical input restores the recorded child without conflict
+    const replayChild = await prepareExecutionContextConversation({
+      context: replayContext,
+      unscopedNativeConversationId: null,
+      currentWorkingDirectory: root,
+      workingDirectory: sourceDirectory,
+      existingNativeConversationId: null,
+      ledgerRootPath: root,
+      agentControllerRef: "builtin:codex",
+      launchContract,
+    });
+    expect(replayChild).toBe("child-thread");
+
+    // 3. Parent history read fails completely: replay still restores recorded child
+    vi.mocked(resolveCodexAppServerCompletedTurn).mockRejectedValueOnce(
+      new Error("parent thread unavailable")
+    );
+    const retryAfterFailure = await prepareExecutionContextConversation({
+      context: replayContext,
+      unscopedNativeConversationId: null,
+      currentWorkingDirectory: root,
+      workingDirectory: sourceDirectory,
+      existingNativeConversationId: null,
+      ledgerRootPath: root,
+      agentControllerRef: "builtin:codex",
+      launchContract,
+    });
+    expect(retryAfterFailure).toBe("child-thread");
+
+    // 4. Truly changing source reports conflict
+    const conflictContext = {
+      ...replayContext,
+      forkSource: {
+        ...replayContext.forkSource,
+        nativeConversationId: "different-parent",
+      },
+    };
+    await expect(
+      prepareExecutionContextConversation({
+        context: conflictContext,
+        unscopedNativeConversationId: null,
+        currentWorkingDirectory: root,
+        workingDirectory: sourceDirectory,
+        existingNativeConversationId: null,
+        ledgerRootPath: root,
+        agentControllerRef: "builtin:codex",
+        launchContract,
+      })
+    ).rejects.toThrow();
+  });
+
+  it("serializes concurrent preparation requests for the same context and restores the same child", async () => {
+    const root = await mkdtemp(join(tmpdir(), "openmeld-context-concurrent-"));
+    roots.push(root);
+    const sourceDirectory = await realpath(root);
+    const concurrentContext = {
+      ...context,
+      id: "55555555-5555-4555-8555-555555555555",
+      workspace: "current" as const,
+      forkSource: {
+        contextId: "33333333-3333-4333-8333-333333333333",
+        sourceWakeId: "wake-source",
+        nativeConversationId: "parent-thread",
+        runtimeWorkspaceFingerprint:
+          buildRuntimeWorkspaceFingerprint(sourceDirectory),
+        workspace: "current" as const,
+      },
+    };
+
+    const [childA, childB] = await Promise.all([
+      prepareExecutionContextConversation({
+        context: concurrentContext,
+        unscopedNativeConversationId: null,
+        currentWorkingDirectory: root,
+        workingDirectory: sourceDirectory,
+        existingNativeConversationId: null,
+        ledgerRootPath: root,
+        agentControllerRef: "builtin:codex",
+        launchContract,
+      }),
+      prepareExecutionContextConversation({
+        context: concurrentContext,
+        unscopedNativeConversationId: null,
+        currentWorkingDirectory: root,
+        workingDirectory: sourceDirectory,
+        existingNativeConversationId: null,
+        ledgerRootPath: root,
+        agentControllerRef: "builtin:codex",
+        launchContract,
+      }),
+    ]);
+
+    expect(childA).toBe("child-thread");
+    expect(childB).toBe("child-thread");
+    expect(childA).toBe(childB);
+  });
+
   it("refuses to fork a controller that cannot confirm its own boundary without a frozen checkpoint", async () => {
     const root = await mkdtemp(join(tmpdir(), "openmeld-context-unfrozen-"));
     roots.push(root);

@@ -182,37 +182,44 @@ export async function prepareExecutionContextConversation(input: {
     throw new Error("execution_context.fork_source_workspace_changed");
   }
   // A frozen checkpoint is authoritative when Core assigned one. Otherwise the
-  // boundary is resolved here, before the journal opens: the source may be a
+  // boundary is resolved under the fork journal lock: the source may be a
   // thread OpenMeld never finished a turn on, and reading its settled turns
   // names a cutoff that is verified now rather than assumed. That read takes no
   // writer lock, so it works while another App Server holds the thread. The
-  // journal has to record the exact boundary it forked at, so a lost response
-  // is reconciled against that cutoff instead of a re-derived one.
-  const completedHistoryId =
-    source.completedHistoryId ??
-    (input.agentControllerRef === "builtin:codex" && input.launchContract
-      ? (
-          await resolveCodexAppServerCompletedTurn({
-            codexTimeoutMs: 30_000,
-            codexWorkdir: sourceDirectory,
-            launchContract: input.launchContract,
-            threadId: source.nativeConversationId,
-          })
-        ).completedTurnId
-      : undefined);
-  if (!completedHistoryId) {
-    throw new Error("execution_context.fork_checkpoint_unavailable");
-  }
+  // journal records the exact boundary it forked at, so a lost response
+  // or subsequent replay restores that recorded cutoff instead of re-reading
+  // an advanced source history.
   const result = await runAgentSessionForkOperation({
     ledgerRootPath: input.ledgerRootPath,
     request: {
       kind: "execution_context",
       operationId: input.context.id,
       sourceNativeSessionId: source.nativeConversationId,
-      completedHistoryId,
+      ...(source.completedHistoryId
+        ? { completedHistoryId: source.completedHistoryId }
+        : {}),
       workingDirectory: input.workingDirectory,
     },
-    execute: async () => {
+    resolveCompletedHistoryId: async () => {
+      if (
+        input.agentControllerRef === "builtin:codex" &&
+        input.launchContract
+      ) {
+        const completed = await resolveCodexAppServerCompletedTurn({
+          codexTimeoutMs: 30_000,
+          codexWorkdir: sourceDirectory,
+          launchContract: input.launchContract,
+          threadId: source.nativeConversationId,
+        });
+        return completed.completedTurnId;
+      }
+      throw new Error("execution_context.fork_checkpoint_unavailable");
+    },
+    execute: async (forkInput) => {
+      const completedHistoryId = forkInput?.completedHistoryId;
+      if (!completedHistoryId) {
+        throw new Error("execution_context.fork_checkpoint_unavailable");
+      }
       if (input.agentControllerRef === "builtin:claude-code") {
         const messages = await readBoundedClaudeHistory(
           source.nativeConversationId
