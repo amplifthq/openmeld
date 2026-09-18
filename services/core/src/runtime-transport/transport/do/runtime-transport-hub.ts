@@ -1038,6 +1038,11 @@ type RouteCatalogReconciliationTrigger =
   | "daemon_session_heartbeat"
   | "daemon_session_registered";
 
+type AgentProfileWorkPromotionRedriveTrigger =
+  | "admission_reconciliation"
+  | "alarm_recovery"
+  | "terminal_transaction";
+
 type RouteCatalogReconciliationSignalState = {
   backoffLevel: number;
   missingProfileIdsKey: string;
@@ -11890,6 +11895,15 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
         reason: "agent_profile_work_coordinator.changed",
       });
     }
+    // Retiring work this Profile could never run again can free the slot a
+    // waiting Wake was queued behind. That promotion takes the same exact
+    // redrive as a terminal transition instead of waiting for the alarm.
+    if (admission.pendingPromotion) {
+      await this.requestSpaceDispatchOutboxRedriveForPromotion(
+        admission.pendingPromotion,
+        "admission_reconciliation"
+      );
+    }
     if (admission.status === "continuation_needs_attention") {
       this.scheduledHousekeepingAlarmAtMs = nowMs;
     }
@@ -17890,7 +17904,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
 
   private async requestSpaceDispatchOutboxRedriveForPromotion(
     pendingPromotion: PendingAgentProfileWorkPromotion,
-    trigger: "alarm_recovery" | "terminal_transaction"
+    trigger: AgentProfileWorkPromotionRedriveTrigger
   ): Promise<void> {
     const nowMs = Date.now();
     try {
@@ -18005,7 +18019,7 @@ export class RuntimeTransportHub extends DurableObject<CoreBindings> {
     pendingPromotion: PendingAgentProfileWorkPromotion;
     redriveStatus: "cancelled" | "enqueued" | "retry_scheduled" | "submitted";
     spaceId: string;
-    trigger: "alarm_recovery" | "terminal_transaction";
+    trigger: AgentProfileWorkPromotionRedriveTrigger;
   }): Promise<void> {
     const requiresIdentityReacceptance =
       (input.redriveStatus === "enqueued" ||
