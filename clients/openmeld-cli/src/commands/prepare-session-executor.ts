@@ -302,6 +302,7 @@ async function runPrepareSessionExecutorOnce(input: {
   emitHumanSection(input.input, "OpenMeld setup");
   const connectionProgress = startPrepareProgressStep(input.input, {
     code: "prepare.session.progress.connect_terminal",
+    phase: "connecting_service",
     text: "Connecting Terminal to OpenMeld Web...",
   });
 
@@ -673,6 +674,7 @@ export async function reportLocalAgentCatalogForSelection(input: {
   emitHumanSection(input.input, "Local agents");
   const progress = startPrepareProgressStep(input.input, {
     code: "prepare.session.progress.local_agents",
+    phase: "confirming",
     text: "Checking local agents...",
   });
   const reconciliation = input.input.localAgentSelection
@@ -910,6 +912,7 @@ export async function runTerminalStep(
 ): Promise<PrepareSessionSnapshot> {
   const progress = startPrepareProgressStep(input.input, {
     code: `prepare.session.progress.${input.stepId}`,
+    phase: resolveTerminalStepProgressPhase(input.stepId),
     text: input.message,
   });
   const stepStartRevision = input.snapshot.sessionRevision;
@@ -2136,6 +2139,7 @@ export async function waitForSnapshotWithProgress(input: {
     }
     progress = startPrepareProgressStep(input.input, {
       code: "prepare.session.waiting",
+      phase: "connecting_service",
       text: input.waitingMessage,
     });
     progressStartedByWait = true;
@@ -2533,12 +2537,14 @@ function emitPrepareProgressLine(
   progress: {
     code?: string;
     data?: Record<string, unknown>;
+    phase?: ComputerConnectionProgressPhase;
     state: "pending" | "success";
     text: string;
   }
 ): void {
   writeConnectionProgressObservation(input, {
     code: progress.code ?? `prepare.session.progress.${progress.state}`,
+    phase: progress.phase ?? "confirming",
     state: progress.state === "success" ? "completed" : "active",
     text: progress.text,
   });
@@ -2553,10 +2559,12 @@ function emitPrepareProgressLine(
 function emitPrepareProgressDetail(
   input: PrepareSessionExecutorInput,
   text: string,
-  code?: string
+  code?: string,
+  phase: ComputerConnectionProgressPhase = "confirming"
 ): void {
   writeConnectionProgressObservation(input, {
     code: code ?? "prepare.session.progress.detail",
+    phase,
     state: "active",
     text,
   });
@@ -2571,11 +2579,13 @@ function startPrepareProgressStep(
   progress: {
     code: string;
     data?: Record<string, unknown>;
+    phase: ComputerConnectionProgressPhase;
     text: string;
   }
 ): SetupProgressStepHandle {
   writeConnectionProgressObservation(input, {
     code: progress.code,
+    phase: progress.phase,
     state: "active",
     text: progress.text,
   });
@@ -2590,6 +2600,7 @@ function startPrepareProgressStep(
       handle.complete(message);
       writeConnectionProgressObservation(input, {
         code: `${progress.code}.completed`,
+        phase: progress.phase,
         state: "completed",
         text: message ?? progress.text,
       });
@@ -2598,6 +2609,7 @@ function startPrepareProgressStep(
       handle.detail(detail);
       writeConnectionProgressObservation(input, {
         code: detail.code ?? `${progress.code}.detail`,
+        phase: progress.phase,
         state: "active",
         text: detail.text,
       });
@@ -2606,6 +2618,7 @@ function startPrepareProgressStep(
       handle.fail(message);
       writeConnectionProgressObservation(input, {
         code: `${progress.code}.failed`,
+        phase: "needs_attention",
         state: "failed",
         text: message ?? progress.text,
       });
@@ -2617,6 +2630,7 @@ function writeConnectionProgressObservation(
   input: PrepareSessionExecutorInput,
   progress: {
     code: string;
+    phase: ComputerConnectionProgressPhase;
     state: "active" | "completed" | "failed";
     text: string;
   }
@@ -2625,7 +2639,7 @@ function writeConnectionProgressObservation(
     input.connectedStream?.writeConnectionProgress?.({
       code: progress.code,
       detail: progress.text,
-      phase: resolveConnectionProgressPhase(progress.code, progress.state),
+      phase: progress.phase,
       state: progress.state,
     });
   } catch {
@@ -2633,20 +2647,24 @@ function writeConnectionProgressObservation(
   }
 }
 
-function resolveConnectionProgressPhase(
-  code: string,
-  state: "active" | "completed" | "failed"
+function resolveTerminalStepProgressPhase(
+  stepId: PrepareStepId
 ): ComputerConnectionProgressPhase {
-  if (state === "failed") {
-    return "needs_attention";
+  switch (stepId) {
+    case "computer":
+    case "connect_terminal":
+    case "refresh_service":
+      return "connecting_service";
+    case "choose_local_agents":
+    case "prepare_selected_agents":
+    case "report_runtime":
+    case "verify_setup":
+      return "confirming";
+    case "ready":
+      return "connected";
+    default:
+      return "connecting_service";
   }
-  if (code.includes("verify_setup") || code.includes("report_runtime")) {
-    return "confirming";
-  }
-  if (code.includes("refresh_service")) {
-    return "connecting_service";
-  }
-  return "connecting_service";
 }
 
 function createPrepareProgressReporter(

@@ -7,6 +7,7 @@ export const computerConnectionProgressPhaseSchema = z.enum([
   "installing",
   "waiting_for_confirmation",
   "switching_account",
+  "finishing_previous_connection",
   "waiting_for_current_work",
   "connecting_service",
   "confirming",

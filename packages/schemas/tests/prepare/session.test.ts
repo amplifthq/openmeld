@@ -726,7 +726,7 @@ describe("prepare session schemas", () => {
     const progressObservationFrame =
       prepareSessionStreamServerFrameSchema.safeParse({
         type: "connection_progress",
-        payload: progressPayload,
+        payload: { ...progressPayload, connectionEpoch: 1 },
       });
 
     expect(helloFrame.success).toBe(true);

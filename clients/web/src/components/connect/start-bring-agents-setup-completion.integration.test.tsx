@@ -331,6 +331,48 @@ describe("StartBringAgentsSetupPage completion actions", () => {
 		expect(createComputerAuthorizationMutateAsyncMock).not.toHaveBeenCalled();
 	});
 
+	it("keeps exact observation read-only when reconnect finds an expired session", async () => {
+		vi.stubGlobal("WebSocket", ControlledMockWebSocket);
+		const snapshot = createActiveSnapshot({
+			prepareSessionId: "prepare-desktop-expired",
+			targetSpaceId: null,
+		});
+		const existingPointer = JSON.stringify({
+			prepareSessionId: "prepare-unrelated",
+			deviceId: "device-unrelated",
+		});
+		window.localStorage.setItem(
+			"openmeld.prepare.session.pointer",
+			existingPointer
+		);
+		readPrepareSessionMock
+			.mockResolvedValueOnce({ snapshot })
+			.mockRejectedValueOnce(
+				Object.assign(new Error("Prepare Session not found."), {
+					code: "prepare.session.not_found",
+				})
+			);
+
+		renderPreparePage({ observePrepareSessionId: snapshot.prepareSessionId });
+		await waitFor(() => expect(ControlledMockWebSocket.latest).not.toBeNull());
+		ControlledMockWebSocket.latest?.disconnectFromServer();
+
+		expect(
+			await screen.findAllByText(
+				"This connection session is no longer available. Return to Desktop to start a new connection."
+			)
+		).not.toHaveLength(0);
+		expect(createPrepareSessionMock).not.toHaveBeenCalled();
+		expect(mintPrepareSessionTokenMock).not.toHaveBeenCalled();
+		expect(createComputerAuthorizationMutateAsyncMock).not.toHaveBeenCalled();
+		expect(
+			window.localStorage.getItem("openmeld.prepare.session.pointer")
+		).toBe(existingPointer);
+		expect(
+			screen.queryByRole("button", { name: "Get a new setup command" })
+		).toBeNull();
+	});
+
 	it.each([
 		"prepare.account_switch_cancelled",
 		"prepare.authorization_failed",

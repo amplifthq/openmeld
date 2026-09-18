@@ -626,6 +626,7 @@ function ComputerSetupSessionFlow(input: ComputerSetupFlowProps) {
 					copyCommand={prepareSession.copyCommand}
 					copyStatus={prepareSession.copyStatus}
 					isRefreshingCommand={prepareSession.isRefreshingCommand}
+					observerOnly={prepareSession.observerOnly}
 					onContinue={input.onContinue}
 					onStartOver={prepareSession.startOver}
 					opaqueTokenExpiresAt={prepareSession.commandExpiresAt}
@@ -823,6 +824,7 @@ function PrepareSessionTimeline(input: {
 	copyCommand: () => Promise<void>;
 	copyStatus: "copied" | "idle" | "manual";
 	isRefreshingCommand: boolean;
+	observerOnly: boolean;
 	onStartOver: () => Promise<void>;
 	opaqueTokenExpiresAt: string | null;
 	presentation: ComputerSetupFlowProps["presentation"];
@@ -883,7 +885,7 @@ function PrepareSessionTimeline(input: {
 				>
 					<PrepareBlockers
 						blockers={handoffBlockers}
-						onStartOver={input.onStartOver}
+						onStartOver={input.observerOnly ? undefined : input.onStartOver}
 					/>
 				</SetupTimelineStep>
 			</SetupTimeline>
@@ -907,6 +909,7 @@ function PrepareSessionTimeline(input: {
 					) : null}
 					{isCurrentPrepareUserStep(step) &&
 					step.id === "connect_terminal" &&
+					!input.observerOnly &&
 					shouldShowConnectTerminalCard(step.internalStep, input.snapshot) ? (
 						<ConnectTerminalCard
 							command={input.command}
@@ -928,7 +931,7 @@ function PrepareSessionTimeline(input: {
 							blockers={input.snapshot.blockers.filter((blocker) =>
 								step.blockerStepIds.includes(blocker.stepId)
 							)}
-							onStartOver={input.onStartOver}
+							onStartOver={input.observerOnly ? undefined : input.onStartOver}
 						/>
 					) : null}
 					{step.id === "ready" && step.internalStep.state === "complete" ? (
@@ -936,7 +939,8 @@ function PrepareSessionTimeline(input: {
 							<ServiceUpdateVerificationNotice
 								verification={input.serviceUpdateVerification}
 							/>
-							{input.presentation !== "embedded" || input.onContinue ? (
+							{!input.observerOnly &&
+							(input.presentation !== "embedded" || input.onContinue) ? (
 								<PrepareReadyActions
 									completionReadiness={completionReadiness}
 									completionTarget={input.completionTarget}
@@ -1815,7 +1819,7 @@ function formatAgentProfileCount(count: number): string {
 
 function PrepareBlockers(input: {
 	blockers: PrepareBlocker[];
-	onStartOver: () => Promise<void>;
+	onStartOver?: () => Promise<void>;
 }) {
 	if (input.blockers.length === 0) {
 		return null;
@@ -1864,20 +1868,22 @@ function PrepareBlockers(input: {
 			{!handoffStopped && followUp.nextStepText ? (
 				<p className="text-muted-foreground text-sm">{followUp.nextStepText}</p>
 			) : null}
-			<div className="pt-2">
-				<Button
-					onClick={() => {
-						input.onStartOver().catch(() => {
-							// The hook stores the error state for this page.
-						});
-					}}
-					size="sm"
-					type="button"
-					variant="outline"
-				>
-					{handoffStopped ? "Get a new setup command" : followUp.actionLabel}
-				</Button>
-			</div>
+			{input.onStartOver ? (
+				<div className="pt-2">
+					<Button
+						onClick={() => {
+							input.onStartOver?.().catch(() => {
+								// The hook stores the error state for this page.
+							});
+						}}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						{handoffStopped ? "Get a new setup command" : followUp.actionLabel}
+					</Button>
+				</div>
+			) : null}
 		</div>
 	);
 }
@@ -1976,6 +1982,8 @@ function usePrepareSession(input: {
 		useState<PrepareWebSocketStatus>("idle");
 	const [connectionProgress, setConnectionProgress] =
 		useState<ComputerConnectionProgressObservation | null>(null);
+	const observedTerminalEpochRef = useRef<number | null>(null);
+	const observerOnly = observePrepareSessionId !== null;
 	const [refreshingCommandRefreshKey, setRefreshingCommandRefreshKey] =
 		useState<string | null>(null);
 	const socketRef = useRef<WebSocket | null>(null);
@@ -2041,14 +2049,25 @@ function usePrepareSession(input: {
 		}
 
 		let cancelled = false;
-		setState((current) => ({
-			error: null,
-			opaqueToken: current.opaqueToken,
-			opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
-			snapshot: current.snapshot,
-			snapshotSessionKey: current.snapshotSessionKey,
-			status: "loading",
-		}));
+		setState((current) =>
+			observerOnly
+				? {
+						error: null,
+						opaqueToken: null,
+						opaqueTokenExpiresAt: null,
+						snapshot: null,
+						snapshotSessionKey: null,
+						status: "loading",
+					}
+				: {
+						error: null,
+						opaqueToken: current.opaqueToken,
+						opaqueTokenExpiresAt: current.opaqueTokenExpiresAt,
+						snapshot: current.snapshot,
+						snapshotSessionKey: current.snapshotSessionKey,
+						status: "loading",
+					}
+		);
 
 		const ensureSession = async () => {
 			const sessionInput = {
@@ -2091,6 +2110,11 @@ function usePrepareSession(input: {
 					targetSpaceId,
 				});
 			}
+			observedTerminalEpochRef.current =
+				session.snapshot.lifecycleStatus === "active" &&
+				session.snapshot.terminalConnection.status === "connected"
+					? session.snapshot.terminalConnection.connectionEpoch
+					: null;
 			setState({
 				error: null,
 				opaqueToken: session.opaqueToken,
@@ -2099,7 +2123,7 @@ function usePrepareSession(input: {
 				snapshotSessionKey: sessionKey,
 				status: "ready",
 			});
-			if (forceFreshSession) {
+			if (forceFreshSession && !observerOnly) {
 				onFreshSessionLoadedRef.current?.();
 			}
 		};
@@ -2131,6 +2155,7 @@ function usePrepareSession(input: {
 		forceFreshSession,
 		humanProfileId,
 		observePrepareSessionId,
+		observerOnly,
 		preferCompletedSession,
 		runtimeLane,
 		sessionKey,
@@ -2166,6 +2191,7 @@ function usePrepareSession(input: {
 
 	useEffect(() => {
 		const shouldBuildCommand =
+			!observerOnly &&
 			state.opaqueToken !== null &&
 			state.snapshot?.lifecycleStatus !== "completed" &&
 			!state.snapshot?.blockers.some(isHandoffStoppedBlocker);
@@ -2216,6 +2242,7 @@ function usePrepareSession(input: {
 		state.opaqueTokenExpiresAt,
 		state.snapshot?.lifecycleStatus,
 		state.snapshot?.blockers,
+		observerOnly,
 	]);
 
 	useEffect(() => {
@@ -2235,26 +2262,33 @@ function usePrepareSession(input: {
 		let socket: WebSocket | null = null;
 
 		const applyPrepareSessionSnapshot = (snapshot: PrepareSessionSnapshot) => {
+			observedTerminalEpochRef.current =
+				snapshot.lifecycleStatus === "active" &&
+				snapshot.terminalConnection.status === "connected"
+					? snapshot.terminalConnection.connectionEpoch
+					: null;
 			if (
 				snapshot.lifecycleStatus !== "active" ||
 				snapshot.terminalConnection.status !== "connected"
 			) {
 				setConnectionProgress(null);
 			}
-			persistPrepareSessionPointer(
-				{
-					opaqueToken: state.opaqueToken,
-					opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
-					snapshot,
-				},
-				{
-					connectedComputerId,
-					deviceId,
-					humanProfileId,
-					runtimeLane,
-					targetSpaceId,
-				}
-			);
+			if (!observerOnly) {
+				persistPrepareSessionPointer(
+					{
+						opaqueToken: state.opaqueToken,
+						opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
+						snapshot,
+					},
+					{
+						connectedComputerId,
+						deviceId,
+						humanProfileId,
+						runtimeLane,
+						targetSpaceId,
+					}
+				);
+			}
 			setState((current) => ({
 				...current,
 				error: null,
@@ -2337,6 +2371,18 @@ function usePrepareSession(input: {
 						return;
 					}
 					if (isPrepareSessionNotFoundError(error)) {
+						if (observerOnly) {
+							observedTerminalEpochRef.current = null;
+							setConnectionProgress(null);
+							setState((current) => ({
+								...current,
+								error: new Error(
+									"This connection session is no longer available. Return to Desktop to start a new connection."
+								),
+								status: "error",
+							}));
+							return;
+						}
 						replaceMissingActiveSession().catch((replaceError: unknown) => {
 							if (isCancelled) {
 								return;
@@ -2380,7 +2426,8 @@ function usePrepareSession(input: {
 				}
 				if (
 					frame.type === "connection_progress" &&
-					frame.payload.prepareSessionId === activePrepareSessionId
+					frame.payload.prepareSessionId === activePrepareSessionId &&
+					frame.payload.connectionEpoch === observedTerminalEpochRef.current
 				) {
 					setConnectionProgress((current) =>
 						isNewerComputerConnectionProgress(current, frame.payload)
@@ -2438,31 +2485,41 @@ function usePrepareSession(input: {
 		state.opaqueToken,
 		state.opaqueTokenExpiresAt,
 		targetSpaceId,
+		observerOnly,
 	]);
 
 	const refresh = useCallback(async () => {
-		if (state.snapshot === null) {
+		const prepareSessionId =
+			state.snapshot?.prepareSessionId ?? observePrepareSessionId;
+		if (prepareSessionId === null) {
 			return;
 		}
 
 		try {
 			const response = await readPrepareSession({
-				prepareSessionId: state.snapshot.prepareSessionId,
+				prepareSessionId,
 			});
-			persistPrepareSessionPointer(
-				{
-					opaqueToken: state.opaqueToken,
-					opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
-					snapshot: response.snapshot,
-				},
-				{
-					connectedComputerId,
-					deviceId,
-					humanProfileId,
-					runtimeLane,
-					targetSpaceId,
-				}
-			);
+			observedTerminalEpochRef.current =
+				response.snapshot.lifecycleStatus === "active" &&
+				response.snapshot.terminalConnection.status === "connected"
+					? response.snapshot.terminalConnection.connectionEpoch
+					: null;
+			if (!observerOnly) {
+				persistPrepareSessionPointer(
+					{
+						opaqueToken: state.opaqueToken,
+						opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
+						snapshot: response.snapshot,
+					},
+					{
+						connectedComputerId,
+						deviceId,
+						humanProfileId,
+						runtimeLane,
+						targetSpaceId,
+					}
+				);
+			}
 			setState((current) => ({
 				error: null,
 				opaqueToken: current.opaqueToken,
@@ -2486,9 +2543,15 @@ function usePrepareSession(input: {
 		state.opaqueTokenExpiresAt,
 		state.snapshot,
 		targetSpaceId,
+		observerOnly,
+		observePrepareSessionId,
 	]);
 
 	const startOver = useCallback(async () => {
+		if (observerOnly) {
+			await refresh();
+			return;
+		}
 		if (humanProfileId === null) {
 			setState({
 				error: new Error("Choose a profile before setup."),
@@ -2552,9 +2615,14 @@ function usePrepareSession(input: {
 		runtimeLane,
 		sessionKey,
 		targetSpaceId,
+		observerOnly,
+		refresh,
 	]);
 
 	const refreshCommandAndReturn = useCallback((): Promise<string | null> => {
+		if (observerOnly) {
+			return Promise.resolve(null);
+		}
 		const snapshot = state.snapshot;
 		if (snapshot === null || commandRefreshKey === null) {
 			return Promise.resolve(null);
@@ -2642,6 +2710,7 @@ function usePrepareSession(input: {
 		runtimeLane,
 		state.snapshot,
 		targetSpaceId,
+		observerOnly,
 	]);
 
 	const refreshCommand = useCallback(async () => {
@@ -2705,6 +2774,7 @@ function usePrepareSession(input: {
 		copyStatus,
 		error: state.error,
 		isRefreshingCommand,
+		observerOnly,
 		opaqueToken: state.opaqueToken,
 		opaqueTokenExpiresAt: state.opaqueTokenExpiresAt,
 		refresh,

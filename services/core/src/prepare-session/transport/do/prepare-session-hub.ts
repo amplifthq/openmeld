@@ -45,6 +45,10 @@ const createWebSocketPair = (): AcceptableWebSocketPair => {
 };
 
 export class PrepareSessionHub extends DurableObject<CoreBindings> {
+  private readonly activeTerminalBindings = new Map<
+    string,
+    { connectionEpoch: number; lastProgressSequence: number | null }
+  >();
   private readonly latestConnectionProgress = new Map<
     string,
     Extract<
@@ -140,6 +144,7 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       role === "terminal"
         ? await this.replaceActiveTerminal(server, snapshot)
         : snapshot;
+    this.syncTerminalBinding(connectedSnapshot);
     this.sendSnapshot(server, connectedSnapshot, "snapshot");
     this.sendFrame(server, {
       type: "server.capabilities",
@@ -239,27 +244,65 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
 
     try {
       if (frame.type === "terminal.connection_progress.write") {
-        if (frame.payload.prepareSessionId !== attachment.prepareSessionId) {
-          this.sendErrorFrame(webSocket, {
-            code: "prepare.session.identity_mismatch",
-            message: "Progress belongs to a different setup session.",
-          });
-          return;
-        }
-        const { connectionEpoch: _connectionEpoch, ...progress } =
-          frame.payload;
-        this.latestConnectionProgress.set(
-          attachment.prepareSessionId,
-          progress
-        );
-        this.broadcastConnectionProgress(attachment.prepareSessionId, progress);
+        await this.handleConnectionProgress(webSocket, attachment, frame);
         return;
       }
       const snapshot = await this.writeFrame(frame);
+      this.syncTerminalBinding(snapshot);
       this.broadcastSnapshot(snapshot);
     } catch (error) {
       this.sendWriteError(webSocket, error);
     }
+  }
+
+  private async handleConnectionProgress(
+    webSocket: WebSocket,
+    attachment: {
+      connectionEpoch?: number;
+      prepareSessionId: string;
+      role: PrepareSessionStreamRole;
+    },
+    frame: Extract<
+      PrepareSessionStreamClientFrame,
+      { type: "terminal.connection_progress.write" }
+    >
+  ): Promise<void> {
+    if (frame.payload.prepareSessionId !== attachment.prepareSessionId) {
+      this.sendErrorFrame(webSocket, {
+        code: "prepare.session.identity_mismatch",
+        message: "Progress belongs to a different setup session.",
+      });
+      return;
+    }
+    const binding = await this.readActiveTerminalBinding(
+      attachment.prepareSessionId
+    );
+    if (
+      !binding ||
+      binding.connectionEpoch !== attachment.connectionEpoch ||
+      binding.connectionEpoch !== frame.payload.connectionEpoch
+    ) {
+      this.sendErrorFrame(webSocket, {
+        code: "prepare.session.terminal_stale",
+        message: "This Terminal connection was replaced by a newer command.",
+      });
+      return;
+    }
+    if (
+      binding.lastProgressSequence !== null &&
+      frame.payload.sequence <= binding.lastProgressSequence
+    ) {
+      return;
+    }
+    binding.lastProgressSequence = frame.payload.sequence;
+    this.latestConnectionProgress.set(
+      attachment.prepareSessionId,
+      frame.payload
+    );
+    this.broadcastConnectionProgress(
+      attachment.prepareSessionId,
+      frame.payload
+    );
   }
 
   private async writeFrame(
@@ -327,6 +370,7 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       role: "terminal",
       connectionEpoch: next.terminalConnection.connectionEpoch,
     });
+    this.syncTerminalBinding(next);
     return next;
   }
 
@@ -348,6 +392,7 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
         connectionEpoch: attachment.connectionEpoch,
         reasonCode,
       });
+      this.syncTerminalBinding(next);
       this.broadcastSnapshot(next);
     } catch (error) {
       if (
@@ -373,6 +418,7 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
     snapshot: PrepareSessionSnapshot,
     exceptSocket?: WebSocket
   ): void {
+    this.syncTerminalBinding(snapshot);
     for (const socket of this.ctx.getWebSockets()) {
       if (socket === exceptSocket) {
         continue;
@@ -400,11 +446,54 @@ export class PrepareSessionHub extends DurableObject<CoreBindings> {
       ) {
         continue;
       }
-      this.sendFrame(socket, {
-        type: "connection_progress",
-        payload: progress,
-      });
+      if (socket.readyState !== WebSocket.OPEN) {
+        continue;
+      }
+      try {
+        this.sendFrame(socket, {
+          type: "connection_progress",
+          payload: progress,
+        });
+      } catch {
+        // Progress is optional observation. One stale viewer must not fail
+        // authoritative setup or prevent healthy viewers from receiving it.
+      }
     }
+  }
+
+  private async readActiveTerminalBinding(prepareSessionId: string): Promise<{
+    connectionEpoch: number;
+    lastProgressSequence: number | null;
+  } | null> {
+    const existing = this.activeTerminalBindings.get(prepareSessionId);
+    if (existing) {
+      return existing;
+    }
+    const snapshot = await this.loadSnapshot(prepareSessionId);
+    this.syncTerminalBinding(snapshot);
+    return this.activeTerminalBindings.get(prepareSessionId) ?? null;
+  }
+
+  private syncTerminalBinding(snapshot: PrepareSessionSnapshot): void {
+    const epoch = snapshot.terminalConnection.connectionEpoch;
+    if (
+      snapshot.lifecycleStatus !== "active" ||
+      snapshot.terminalConnection.status !== "connected" ||
+      epoch === null
+    ) {
+      this.activeTerminalBindings.delete(snapshot.prepareSessionId);
+      this.latestConnectionProgress.delete(snapshot.prepareSessionId);
+      return;
+    }
+    const current = this.activeTerminalBindings.get(snapshot.prepareSessionId);
+    if (current?.connectionEpoch === epoch) {
+      return;
+    }
+    this.activeTerminalBindings.set(snapshot.prepareSessionId, {
+      connectionEpoch: epoch,
+      lastProgressSequence: null,
+    });
+    this.latestConnectionProgress.delete(snapshot.prepareSessionId);
   }
 
   private sendSnapshot(

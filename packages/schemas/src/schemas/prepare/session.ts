@@ -865,9 +865,7 @@ export const prepareSessionStreamServerFrameSchema = z.discriminatedUnion(
     }),
     z.strictObject({
       type: z.literal("connection_progress"),
-      payload: prepareConnectionProgressWriteSchema.omit({
-        connectionEpoch: true,
-      }),
+      payload: prepareConnectionProgressWriteSchema,
     }),
     z.strictObject({
       type: z.literal("terminal.replaced"),

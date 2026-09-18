@@ -38,6 +38,11 @@ const PHASE_COPY: Record<
     stage: "Safely switching accounts",
     description: "Moving this Mac to the signed-in account.",
   },
+  finishing_previous_connection: {
+    stage: "Finishing the previous connection",
+    description:
+      "OpenMeld is safely ending the previous connection before continuing.",
+  },
   waiting_for_current_work: {
     stage: "Waiting for current work",
     description:
@@ -96,9 +101,8 @@ export function isNewerComputerConnectionProgress(
   return (
     current === null ||
     (current.operationId === candidate.operationId &&
-    current.attemptId === candidate.attemptId
-      ? candidate.sequence > current.sequence
-      : Date.parse(candidate.observedAt) > Date.parse(current.observedAt))
+      current.attemptId === candidate.attemptId &&
+      candidate.sequence > current.sequence)
   );
 }
 

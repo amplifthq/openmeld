@@ -296,6 +296,22 @@ describe("prepare session executor", () => {
         state: "active",
       },
     });
+
+    const completedSnapshot = {
+      ...buildSnapshot({ refresh_service: "complete" }),
+      humanProfileId: null,
+      sessionRevision: 2,
+    };
+    const completion = stream.waitForSnapshot(
+      (snapshot) => snapshot.sessionRevision === 2
+    );
+    const snapshotFrame = {
+      type: "snapshot_changed",
+      payload: { snapshot: completedSnapshot },
+    } as const;
+    onMessage?.(JSON.stringify(snapshotFrame));
+    expect(stream.getLatestSnapshot()).toMatchObject({ sessionRevision: 2 });
+    await expect(completion).resolves.toMatchObject({ sessionRevision: 2 });
   });
 
   it("repairs enabled local agents before reporting the setup catalog", async () => {

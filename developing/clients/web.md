@@ -4978,6 +4978,14 @@ same session; this route reads and subscribes only, and does not create another
 Prepare Session or mint setup authorization. When the observation stream is
 reconnecting, Web retains the last confirmed stage without animating it as
 fresh work.
+Exact-session observation remains read-only across initial load, snapshots,
+refresh, reconnect, and not-found handling. It neither reads nor overwrites the
+ordinary Connect flow's persisted session pointer and exposes no command,
+authorization, or start-over mutation. If the named session expires, Web keeps
+the observer on an unavailable state for that ID; beginning a new connection
+requires explicit navigation out of the observation URL. Progress is accepted
+only for the Terminal epoch in the current snapshot, so a replaced Terminal or
+completed session cannot be reactivated by a late frame.
 
 When setup starts from `Reconnect Computer` on an existing Computer,
 Web carries that stable `connectedComputerId` into the Prepare Session. A local
