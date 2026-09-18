@@ -2446,6 +2446,14 @@ operation targets before presenting **Up to date** or allowing Setup or Prepare
 to report completion. A CLI-only release may therefore finish while the
 operation's selected healthy Service remains on an older version; matching the
 new CLI version is not Service completion evidence.
+Computer cards label terminal failures as the **last update** separately from
+current connection and component requirements, retaining operation details and
+the failure diagnostic. A newer Core-owned connection report for the same
+device/lane and account-aligned session can confirm reconnection since the
+attempt. It does not verify running artifact integrity, supersede component
+update requirements, or rewrite the failed operation. Missing, old or mismatched
+reports leave that recovery unconfirmed. Skills-only drift does not change
+Service connection truth, and in-flight operations keep their current progress.
 Same-operation observations are ordered by `updatedAt` and phase, so a stale
 projection cannot move visible progress backward.
 An explicit later repair may establish a fresh running, anomaly-free Service at
