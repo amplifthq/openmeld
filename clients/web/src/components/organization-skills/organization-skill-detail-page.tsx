@@ -92,7 +92,7 @@ function OrganizationSkillDetailContent(input: {
 			</div>
 		);
 	}
-	if (input.query.isError) {
+	if (input.query.isError && !input.query.data?.skill) {
 		return (
 			<div className="grid justify-items-start gap-3 rounded-md border border-destructive/50 bg-destructive/5 p-6">
 				<h1 className="font-medium text-xl">Could not load Skill</h1>
@@ -122,13 +122,21 @@ function OrganizationSkillDetailContent(input: {
 		);
 	}
 	return (
-		<OrganizationSkillEditor
-			key={JSON.stringify([input.organizationId, input.skillId])}
-			organizationId={input.organizationId}
-			organizationName={input.organizationName}
-			orgSlug={input.orgSlug}
-			skill={input.query.data.skill}
-		/>
+		<>
+			{input.query.isError && (
+				<p className="text-destructive text-sm" role="alert">
+					Could not refresh this Skill. Your current draft is preserved; saving
+					still requires current server permissions and a matching version.
+				</p>
+			)}
+			<OrganizationSkillEditor
+				key={JSON.stringify([input.organizationId, input.skillId])}
+				organizationId={input.organizationId}
+				organizationName={input.organizationName}
+				orgSlug={input.orgSlug}
+				skill={input.query.data.skill}
+			/>
+		</>
 	);
 }
 

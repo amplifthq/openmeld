@@ -455,6 +455,49 @@ describe("Skill navigation with the real UnsavedChangesGuard", () => {
 		});
 	});
 
+	it("does not leave when additional input arrives during Save and leave", async () => {
+		const pending = Promise.withResolvers<{ skill: OrganizationSkill }>();
+		updateSkill.mockReturnValueOnce(pending.promise);
+		const { router } = renderRoutes("/o/acme/skills/skill-one", {
+			skills: [createOrganizationSkillFixture()],
+		});
+		fireEvent.change(await screen.findByLabelText("Name"), {
+			target: { value: "submitted-work" },
+		});
+		fireEvent.click(screen.getByRole("link", { name: "All Skills" }));
+		fireEvent.click(
+			await screen.findByRole("button", { name: "Save and leave" })
+		);
+		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(1));
+		// Simulate an editor callback queued before the modal disabled its controls.
+		fireEvent.change(screen.getByLabelText("Name"), {
+			target: { value: "newer-work" },
+		});
+		await act(() =>
+			pending.resolve({
+				skill: createOrganizationSkillFixture({
+					version: 2,
+					name: "submitted-work",
+				}),
+			})
+		);
+		await screen.findByText(
+			"OpenMeld couldn't save your changes. Fix the error and try again."
+		);
+		expect(router.state.location.pathname).toBe("/o/acme/skills/skill-one");
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+			"newer-work"
+		);
+		fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+		await waitFor(() => expect(updateSkill).toHaveBeenCalledTimes(2));
+		expect(updateSkill.mock.calls[1]?.[0]).toMatchObject({
+			expectedVersion: 2,
+			expectedActiveReleaseId: "skill-one-release-2",
+			bundle: { portable: { name: "newer-work" } },
+		});
+	});
+
 	it("blocks a cached Skill switch before changing editor identity", async () => {
 		const { router } = renderRoutes("/o/acme/skills/skill-one", {
 			skills: [

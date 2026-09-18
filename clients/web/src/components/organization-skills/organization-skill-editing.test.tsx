@@ -93,6 +93,40 @@ describe("Organization Skill editing", () => {
 		);
 	});
 
+	it("preserves the draft and its guard when a background refresh fails", async () => {
+		const v1 = skillSnapshot();
+		const { queryClient } = renderEditor([v1]);
+		fireEvent.change(await screen.findByLabelText("Name"), {
+			target: { value: "offline-draft" },
+		});
+		getSkill.mockRejectedValue(new Error("Temporary network failure"));
+		await act(() =>
+			queryClient.refetchQueries({
+				queryKey: organizationSkillQueryKeys.detail("org-acme", v1.id),
+				exact: true,
+			})
+		);
+		await waitFor(() =>
+			expect(
+				queryClient.getQueryState(
+					organizationSkillQueryKeys.detail("org-acme", v1.id)
+				)?.status
+			).toBe("error")
+		);
+		expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe(
+			"offline-draft"
+		);
+		fireEvent.click(screen.getByRole("link", { name: "All Skills" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+		fireEvent.click(await screen.findByRole("button", { name: "Save" }));
+		await waitFor(() => expect(updateSkill).toHaveBeenCalled());
+		expect(updateSkill.mock.calls[0]?.[0]).toMatchObject({
+			expectedVersion: 1,
+			expectedActiveReleaseId: "skill-one-release-1",
+			bundle: { portable: { name: "offline-draft" } },
+		});
+	});
+
 	it("adopts a refreshed snapshot consistently when the editor is clean", async () => {
 		const v1 = skillSnapshot();
 		const { queryClient } = renderEditor([v1]);
