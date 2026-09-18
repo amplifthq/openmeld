@@ -5875,15 +5875,13 @@ async function executeAgentProfileWorkContinuation(input: {
   // work are different facts. This is asked on every attempt, including a retry
   // that reuses a stored authorization, because the cancellation sent with the
   // first one may never have reached the computer.
-  const withdrawal =
-    runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema.parse(
-      await input.ownerShard.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
-        expectedInterruptedTargetWakeLifecycleId:
-          input.recovery.interruptedTargetWakeLifecycleId,
-        ownerUserId: input.ownerUserId,
-        targetProfileId: input.targetProfileId,
-      })
-    );
+  const withdrawal = await resolveAgentProfileWorkLocalAttemptWithdrawal({
+    expectedInterruptedTargetWakeLifecycleId:
+      input.recovery.interruptedTargetWakeLifecycleId,
+    ownerShard: input.ownerShard,
+    ownerUserId: input.ownerUserId,
+    targetProfileId: input.targetProfileId,
+  });
   if (withdrawal.status === "requested") {
     return "awaiting_original_stop";
   }
@@ -5916,6 +5914,40 @@ async function executeAgentProfileWorkContinuation(input: {
     targetProfileId: input.targetProfileId,
   });
   return "started";
+}
+
+/**
+ * Asks the owner shard whether the original attempt is out of the way.
+ *
+ * Durable Object code propagates after a Worker deploy, so a shard that predates
+ * this prerequisite cannot answer it. That is treated as "not yet known", which
+ * withholds the replacement and stays retryable, rather than as permission to
+ * start a second attempt at the same instruction.
+ */
+async function resolveAgentProfileWorkLocalAttemptWithdrawal(input: {
+  expectedInterruptedTargetWakeLifecycleId: string;
+  ownerShard: ReturnType<typeof resolveRuntimeTransportOwnerShard>;
+  ownerUserId: string;
+  targetProfileId: string;
+}): Promise<
+  import("@openmeld/schemas/types").RuntimeTransportAgentProfileWorkLocalAttemptWithdrawalResponse
+> {
+  try {
+    return runtimeTransportAgentProfileWorkLocalAttemptWithdrawalResponseSchema.parse(
+      await input.ownerShard.rpcRequestAgentProfileWorkLocalAttemptWithdrawal({
+        expectedInterruptedTargetWakeLifecycleId:
+          input.expectedInterruptedTargetWakeLifecycleId,
+        ownerUserId: input.ownerUserId,
+        targetProfileId: input.targetProfileId,
+      })
+    );
+  } catch (error) {
+    console.warn(
+      "[core.agent_profile_work.local_attempt_withdrawal_unanswered]",
+      { error, targetProfileId: input.targetProfileId }
+    );
+    return { status: "unavailable" };
+  }
 }
 
 /**

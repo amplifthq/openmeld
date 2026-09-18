@@ -789,6 +789,48 @@ describe("Agent Profile work recovery Core RPC", () => {
     }
   });
 
+  it("defers replacement work when an owner shard predates the prerequisite", async () => {
+    const harness = createRecoveryHarness();
+    const runtimeTransportStub = createRuntimeTransportStub({
+      recovery: buildAvailableRecovery({ action: "fork_interrupted_work" }),
+    });
+    // Durable Object code propagates after a Worker deploy, so a live shard can
+    // still be one that never learned this call.
+    runtimeTransportStub.rpcRequestAgentProfileWorkLocalAttemptWithdrawal.mockRejectedValue(
+      new Error(
+        "rpcRequestAgentProfileWorkLocalAttemptWithdrawal is not a function"
+      )
+    );
+    const spaceStub = {
+      rpcExecuteExecutionRecovery: vi.fn(),
+      rpcInspectExecutionRecovery: vi.fn(),
+      rpcStartUsageExhaustedContinuation: vi.fn(),
+    };
+    try {
+      await expect(
+        rpcExecuteAgentProfileWorkRecovery(
+          createEnv({ db: harness.db, runtimeTransportStub, spaceStub }),
+          {
+            agentProfileId: AGENT_PROFILE_ID,
+            body: {
+              action: "fork_interrupted_work",
+              expectedInterruptedTargetWakeLifecycleId:
+                TARGET_WAKE_LIFECYCLE_ID,
+            },
+            context: CONTEXT,
+          }
+        )
+      ).rejects.toMatchObject({
+        code: "agent_profile_work_recovery.temporarily_unavailable",
+      });
+      expect(
+        spaceStub.rpcStartUsageExhaustedContinuation
+      ).not.toHaveBeenCalled();
+    } finally {
+      harness.close();
+    }
+  });
+
   it("defers replacement work when the owner shard cannot answer the prerequisite", async () => {
     const harness = createRecoveryHarness();
     const runtimeTransportStub = createRuntimeTransportStub({

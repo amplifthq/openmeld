@@ -1564,6 +1564,11 @@ will not continue the work, which Core decides on its own; it requests the same
 withdrawal but does not wait on it, and its copy must not imply that the local
 attempt has stopped or that completed side effects are undone.
 
+An owner shard that predates this prerequisite cannot answer it. Durable Object
+code propagates after a Worker deploy, so an unanswered prerequisite is "not yet
+known": it withholds the replacement and stays retryable. It is never read as
+permission to start a second attempt at the same instruction.
+
 An explicit user Stop is not automatically recoverable. A process crash with
 no result must not fabricate completion. An external-side-effect outcome that
 cannot be proven remains outcome-unknown and must not be automatically rerun.
